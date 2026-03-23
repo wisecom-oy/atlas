@@ -17,6 +17,7 @@ import { MAILBOX_DISCOVERY_TOKEN } from '@/ports/tokens/outgoing.tokens';
 import { BACKUP_USE_CASE_TOKEN } from '@/ports/tokens/use-case.tokens';
 import { logger } from '@/utils/logger';
 import { calc_rate } from '@/services/shared/progress-rate';
+import { create_mailbox_progress_adapter } from '@/services/backup/tenant-backup-progress-adapter';
 
 const DEFAULT_CONCURRENCY = 4;
 const always_false = (): boolean => false;
@@ -49,14 +50,12 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     const pending = mailboxes.map((m) => m.mail);
     let done_count = 0;
     let error_count = 0;
-    let active_count = 0;
     let global_stored = 0;
     let global_deduped = 0;
 
     const run_worker = async (slot: number): Promise<void> => {
       while (pending.length > 0 && !should_interrupt()) {
         const mailbox_id = pending.shift()!;
-        active_count++;
         progress?.mark_mailbox_active(slot, mailbox_id);
 
         try {
@@ -65,29 +64,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
             page_size: options.page_size,
             should_interrupt,
             should_force_stop,
-            create_progress: (folders) => ({
-              set_status: () => {},
-              mark_active: (idx) => {
-                const folder = folders[idx];
-                if (folder) {
-                  progress?.update_mailbox_progress(slot, folder.name, 0, 0);
-                }
-              },
-              update_active: (_idx, processed, rate) => {
-                const total = folders.reduce((s, f) => s + f.total_items, 0);
-                const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
-                progress?.update_mailbox_progress(slot, '', pct, rate);
-              },
-              update_paging: (_idx, fetched, rate) => {
-                progress?.update_mailbox_progress(slot, 'fetching...', 0, rate);
-                void fetched;
-              },
-              mark_done: () => {},
-              mark_all_pending_interrupted: () => {},
-              mark_error: () => {},
-              update_total: () => {},
-              finish: () => {},
-            }),
+            create_progress: create_mailbox_progress_adapter(slot, progress),
           });
 
           global_stored += result.summary.stored;
@@ -108,7 +85,6 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
           logger.error(`Mailbox ${mailbox_id} failed: ${msg}`);
         }
 
-        active_count--;
         const elapsed = Date.now() - start;
         const rate = calc_rate(global_stored + global_deduped, elapsed);
         const eta =

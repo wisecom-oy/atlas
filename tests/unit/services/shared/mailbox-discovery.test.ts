@@ -124,4 +124,28 @@ describe('parse_usage_csv', () => {
     const result = parse_usage_csv(csv);
     expect(result.get('alice@contoso.com')).toBeDefined();
   });
+
+  it('parses rows with quoted comma fields without shifting columns', () => {
+    const csv = [
+      'Report Refresh Date,User Principal Name,Display Name,Item Count,Storage Used (Byte),Report Period',
+      '2026-03-18,alice@contoso.com,"Alice, Finance",4200,1073741824,7',
+    ].join('\n');
+
+    const result = parse_usage_csv(csv);
+    const alice = result.get('alice@contoso.com');
+    expect(alice?.storage_bytes).toBe(1073741824);
+    expect(alice?.item_count).toBe(4200);
+  });
+
+  it('parses escaped quotes inside quoted fields', () => {
+    const csv = [
+      'User Principal Name,Display Name,Item Count,Storage Used (Byte)',
+      'bob@contoso.com,"Bob ""The Builder""",150,52428800',
+    ].join('\n');
+
+    const result = parse_usage_csv(csv);
+    const bob = result.get('bob@contoso.com');
+    expect(bob?.storage_bytes).toBe(52428800);
+    expect(bob?.item_count).toBe(150);
+  });
 });

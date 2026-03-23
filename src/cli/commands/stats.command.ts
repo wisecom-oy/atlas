@@ -6,6 +6,12 @@ import type { StatsUseCase } from '@/ports/stats/use-case.port';
 import { STATS_USE_CASE_TOKEN } from '@/ports/tokens/use-case.tokens';
 import type { BucketStats, MailboxStats, FolderStats, MonthlyBreakdown } from '@/domain/stats';
 import { logger } from '@/utils/logger';
+import {
+  format_bytes,
+  format_microseconds,
+  pad_cell,
+  truncate_cell,
+} from '@/cli/command-formatters';
 
 type ContainerFactory = () => Container;
 
@@ -54,10 +60,6 @@ function resolve_tenant_id(container: Container, options: StatsOptions): string 
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
 }
 
-// ---------------------------------------------------------------------------
-// Bucket-level output
-// ---------------------------------------------------------------------------
-
 function print_bucket_stats(stats: BucketStats): void {
   logger.banner('Atlas Bucket Statistics');
   logger.info(`Tenant: ${stats.tenant_id}\n`);
@@ -70,16 +72,12 @@ function print_bucket_stats(stats: BucketStats): void {
   console.log(`  Total size:         ${format_bytes(stats.total_size_bytes)}`);
   console.log(`  Attachments:        ${stats.attachment_count}`);
   console.log(`  Attachment size:    ${format_bytes(stats.attachment_size_bytes)}`);
-  console.log(`  Aggregation time:   ${format_duration(stats.aggregation_us)}`);
+  console.log(`  Aggregation time:   ${format_microseconds(stats.aggregation_us)}`);
 
   if (stats.monthly_breakdown.length > 0) {
     print_monthly_breakdown(stats.monthly_breakdown);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Mailbox-level output
-// ---------------------------------------------------------------------------
 
 function print_mailbox_stats(stats: MailboxStats): void {
   logger.banner('Atlas Mailbox Statistics');
@@ -92,7 +90,7 @@ function print_mailbox_stats(stats: MailboxStats): void {
   console.log(`  Total size:         ${format_bytes(stats.total_size_bytes)}`);
   console.log(`  Attachments:        ${stats.attachment_count}`);
   console.log(`  Attachment size:    ${format_bytes(stats.attachment_size_bytes)}`);
-  console.log(`  Aggregation time:   ${format_duration(stats.aggregation_us)}`);
+  console.log(`  Aggregation time:   ${format_microseconds(stats.aggregation_us)}`);
 
   if (stats.folders.length > 0) {
     print_folder_table(stats.folders);
@@ -103,24 +101,25 @@ function print_mailbox_stats(stats: MailboxStats): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Shared tables
-// ---------------------------------------------------------------------------
-
 function print_folder_table(folders: FolderStats[]): void {
   console.log('\n  Folders');
   const header =
-    '  ' + pad('Folder', 36) + pad('Messages', 12) + pad('Size', 12) + pad('Att', 8) + 'Att size';
+    '  ' +
+    pad_cell('Folder', 36) +
+    pad_cell('Messages', 12) +
+    pad_cell('Size', 12) +
+    pad_cell('Att', 8) +
+    'Att size';
   console.log(header);
   console.log('  ' + '-'.repeat(header.length - 2));
 
   for (const f of folders) {
     console.log(
       '  ' +
-        pad(truncate(f.folder_id, 34), 36) +
-        pad(String(f.message_count), 12) +
-        pad(format_bytes(f.total_size_bytes), 12) +
-        pad(String(f.attachment_count), 8) +
+        pad_cell(truncate_cell(f.folder_id, 34), 36) +
+        pad_cell(String(f.message_count), 12) +
+        pad_cell(format_bytes(f.total_size_bytes), 12) +
+        pad_cell(String(f.attachment_count), 8) +
         format_bytes(f.attachment_size_bytes),
     );
   }
@@ -130,11 +129,11 @@ function print_monthly_breakdown(months: MonthlyBreakdown[]): void {
   console.log('\n  Monthly Breakdown');
   const header =
     '  ' +
-    pad('Month', 12) +
-    pad('Snapshots', 12) +
-    pad('Messages', 12) +
-    pad('Size', 12) +
-    pad('Att', 8) +
+    pad_cell('Month', 12) +
+    pad_cell('Snapshots', 12) +
+    pad_cell('Messages', 12) +
+    pad_cell('Size', 12) +
+    pad_cell('Att', 8) +
     'Att size';
   console.log(header);
   console.log('  ' + '-'.repeat(header.length - 2));
@@ -142,38 +141,12 @@ function print_monthly_breakdown(months: MonthlyBreakdown[]): void {
   for (const m of months) {
     console.log(
       '  ' +
-        pad(m.month, 12) +
-        pad(String(m.snapshot_count), 12) +
-        pad(String(m.message_count), 12) +
-        pad(format_bytes(m.size_bytes), 12) +
-        pad(String(m.attachment_count), 8) +
+        pad_cell(m.month, 12) +
+        pad_cell(String(m.snapshot_count), 12) +
+        pad_cell(String(m.message_count), 12) +
+        pad_cell(format_bytes(m.size_bytes), 12) +
+        pad_cell(String(m.attachment_count), 8) +
         format_bytes(m.attachment_size_bytes),
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Formatting helpers
-// ---------------------------------------------------------------------------
-
-function pad(str: string, width: number): string {
-  return str.padEnd(width);
-}
-
-function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max - 1) + '~' : str;
-}
-
-function format_bytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function format_duration(us: number): string {
-  if (us < 1000) return `${us} us`;
-  const ms = us / 1000;
-  if (ms < 1000) return `${ms.toFixed(2)} ms`;
-  return `${(ms / 1000).toFixed(2)} s`;
 }

@@ -7,12 +7,7 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@/ports/tokens/outgoing.tokens';
-import type {
-  MailboxConnector,
-  MailFolder,
-  DeltaSyncResult,
-  DeltaPageCallback,
-} from '@/ports/mailbox/connector.port';
+import type { MailboxConnector, MailFolder, DeltaSyncResult } from '@/ports/mailbox/connector.port';
 import type { ManifestRepository } from '@/ports/storage/manifest-repository.port';
 import type { TenantContext, TenantContextFactory } from '@/ports/tenant/context.port';
 import type { Manifest } from '@/domain/manifest';

@@ -10,6 +10,7 @@ import type {
 } from '@/ports/status/use-case.port';
 import { STATUS_USE_CASE_TOKEN } from '@/ports/tokens/use-case.tokens';
 import { logger } from '@/utils/logger';
+import { pad_cell, truncate_cell } from '@/cli/command-formatters';
 
 type ContainerFactory = () => Container;
 
@@ -60,7 +61,10 @@ function print_status_result(result: MailboxStatusResult): void {
   const col_status = 20;
   const col_pending = 10;
   const header =
-    '  ' + pad('Folder', col_folder) + pad('Status', col_status) + pad('Pending', col_pending);
+    '  ' +
+    pad_cell('Folder', col_folder) +
+    pad_cell('Status', col_status) +
+    pad_cell('Pending', col_pending);
   console.log(header);
   console.log('  ' + '-'.repeat(header.length - 2));
 
@@ -69,9 +73,9 @@ function print_status_result(result: MailboxStatusResult): void {
     const [pending_text, pending_color] = format_pending(f);
     console.log(
       '  ' +
-        pad(truncate(f.folder_name, col_folder - 2), col_folder) +
-        status_color(pad(status_text, col_status)) +
-        pending_color(pad(pending_text, col_pending)),
+        pad_cell(truncate_cell(f.folder_name, col_folder - 2), col_folder) +
+        status_color(pad_cell(status_text, col_status)) +
+        pending_color(pad_cell(pending_text, col_pending)),
     );
   }
 
@@ -103,12 +107,4 @@ function format_pending(f: FolderStatus): [string, ColorFn] {
   if (!f.has_backup) return ['-', chalk.gray];
   const total = f.pending_new + f.pending_removed;
   return total === 0 ? ['0', chalk.green] : [String(total), chalk.red];
-}
-
-function pad(str: string, width: number): string {
-  return str.padEnd(width);
-}
-
-function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max - 1) + '~' : str;
 }

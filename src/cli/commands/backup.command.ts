@@ -13,6 +13,7 @@ import type { TenantBackupOrchestrator } from '@/ports/backup/orchestrator.port'
 import { BACKUP_USE_CASE_TOKEN, TENANT_ORCHESTRATOR_TOKEN } from '@/ports/tokens/use-case.tokens';
 import { run_backup_with_cli_adapter } from '@/cli/adapters/backup-operation.adapter';
 import { run_tenant_backup_with_cli_adapter } from '@/cli/adapters/tenant-backup-operation.adapter';
+import { format_bytes } from '@/cli/command-formatters';
 import { logger } from '@/utils/logger';
 
 type ContainerFactory = () => Container;
@@ -179,12 +180,4 @@ async function backup_all_mailboxes(
     force_full: options.full ?? false,
     page_size,
   });
-}
-
-/** Formats bytes into human-readable size. */
-function format_bytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

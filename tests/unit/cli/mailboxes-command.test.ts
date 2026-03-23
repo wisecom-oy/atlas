@@ -46,9 +46,7 @@ describe('register_mailboxes_command', () => {
 
     await program.parseAsync(['mailboxes'], { from: 'user' });
 
-    expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('test-tenant', {
-      licensed_only: undefined,
-    });
+    expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('test-tenant', undefined);
     expect(log_spy).toHaveBeenCalled();
     log_spy.mockRestore();
   });

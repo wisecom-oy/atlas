@@ -99,11 +99,11 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
 /** Parses the CSV from getMailboxUsageDetail into a UPN-keyed map. */
 export function parse_usage_csv(csv: string): Map<string, MailboxUsageRow> {
   const map = new Map<string, MailboxUsageRow>();
-  const lines = csv.split('\n');
+  const lines = csv.split(/\r?\n/);
   if (lines.length < 2) return map;
 
   const header = lines[0]!;
-  const cols = header.split(',').map((h) => h.trim());
+  const cols = split_csv_line(header).map((h) => h.trim());
   const upn_idx = cols.indexOf('User Principal Name');
   const storage_idx = cols.indexOf('Storage Used (Byte)');
   const items_idx = cols.indexOf('Item Count');
@@ -113,7 +113,7 @@ export function parse_usage_csv(csv: string): Map<string, MailboxUsageRow> {
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]!.trim();
     if (!line) continue;
-    const fields = line.split(',');
+    const fields = split_csv_line(line);
     const upn = fields[upn_idx]?.trim().toLowerCase();
     if (!upn) continue;
 
@@ -125,4 +125,35 @@ export function parse_usage_csv(csv: string): Map<string, MailboxUsageRow> {
   }
 
   return map;
+}
+
+function split_csv_line(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let in_quotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (ch === '"') {
+      const is_escaped_quote = in_quotes && line[i + 1] === '"';
+      if (is_escaped_quote) {
+        current += '"';
+        i++;
+        continue;
+      }
+      in_quotes = !in_quotes;
+      continue;
+    }
+
+    if (ch === ',' && !in_quotes) {
+      fields.push(current);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  fields.push(current);
+  return fields;
 }
