@@ -25,7 +25,9 @@ An open-source CLI backup and restore engine for Microsoft 365 mailboxes. Built 
 
 📨 **EML export** — Save backed-up emails as standard `.eml` files in compressed zip archives with Outlook-compatible folder structure and SHA-256 verification.
 
-📊 **Live progress dashboard** — ANSI dashboard shows all folders in real time with ETA, speed, and per-folder status.
+📊 **Live progress dashboard** — ANSI dashboard shows all folders in real time with ETA, speed, and per-folder status. Tenant-wide backups show concurrent worker progress.
+
+🔍 **Delta-based status check** — Peek at Graph delta state to report whether a mailbox backup is current, without running a backup.
 
 🧩 **Typed SDK** — Programmatic API for embedding in other Node.js applications via `m365-atlas/sdk`.
 
@@ -57,7 +59,7 @@ src/
 │   ├── storage-s3/        # S3 object storage, manifest repo, bucket manager
 │   └── tenant-context.factory.ts
 ├── cli/
-│   └── commands/          # backup, list, read, verify, restore, save, delete
+│   └── commands/          # backup, list, read, verify, restore, save, delete, status, mailboxes
 ├── domain/                # Manifest, Snapshot, Tenant, BackupObject (pure data)
 ├── ports/                 # ObjectStorage, MailboxConnector, RestoreConnector, ManifestRepository, KeyService
 ├── services/              # MailboxSyncService, RestoreService, SaveService, CatalogService, helpers
@@ -77,8 +79,17 @@ cd docker && docker compose up -d
 cp .env.example .env
 # fill in tenant_id, client_id, client_secret, s3 credentials, encryption passphrase
 
-# first backup
+# first backup (single mailbox)
 atlas backup --mailbox user@company.com
+
+# full tenant backup (all licensed mailboxes in parallel)
+atlas backup
+
+# check if a mailbox is up to date (fast, no backup runs)
+atlas status -m user@company.com
+
+# list tenant mailboxes from Graph
+atlas mailboxes
 
 # list what was backed up
 atlas list
@@ -178,15 +189,20 @@ If immutable backup is requested and these checks fail, Atlas aborts with explic
 - Object Lock unsupported/disabled
 - backend rejected requested mode/headers
 
-### Deduplication + retention semantics (v1)
+### Deduplication + retention semantics
 
-Atlas uses content-addressed storage. If an object already exists:
+Atlas uses content-addressed storage (`data/{mailbox}/{sha256}`). Deduplication is identical with or without Object Lock -- if the object already exists, Atlas skips the upload. No extra storage cost, no extra S3 versions.
 
-- Atlas **reuses** it,
-- does **not** re-upload,
-- does **not** extend retention on existing versions.
+Object Lock **prevents** deletion during the retention window but does **not** auto-delete objects after retention expires. Since Atlas never selectively deletes individual data objects (only bulk via `delete --mailbox` or `delete --purge`), there is no risk of a manifest referencing a deleted object. Manifests are always deleted before data objects, so an interrupted deletion leaves harmless orphan data rather than dangling manifest references.
 
-This means newer snapshots can reference older versions whose retention window was anchored at first write. Atlas records requested/effective snapshot policy, but per-object enforcement follows actual stored object versions.
+**Best-effort housekeeping rules.** When Atlas creates a new bucket, it attempts to configure lifecycle rules that work on both AWS S3 and MinIO:
+
+| Rule | Purpose |
+|------|---------|
+| `AbortIncompleteMultipartUpload` (7 days) | Prevents abandoned upload parts from accumulating |
+| `ExpiredObjectDeleteMarker` | Removes orphaned delete markers left after version-aware deletion |
+
+These rules are best-effort -- if the storage backend does not support lifecycle configuration, Atlas continues without them.
 
 ### Operational notes
 
@@ -262,9 +278,12 @@ Tests use Vitest with `@vitest/coverage-v8`. Services are tested via Inversify c
 - [x] **Outlook mailbox backup** with delta sync, content-addressed deduplication, and attachment handling
 - [x] **Outlook mailbox restore** with original timestamps, folder structure, cross-mailbox support, and chunked attachment upload
 - [x] **EML export (save)** -- save backed-up emails as `.eml` files in compressed zip archives with Outlook folder structure, SHA-256 verification, and attachment embedding
-- [x] **CLI interface** -- backup, restore, save, verify, list, read, delete, and storage-check commands
+- [x] **CLI interface** -- backup, restore, save, verify, list, read, delete, status, mailboxes, and storage-check commands
 - [x] **S3 Object Lock / retention policies** -- GOVERNANCE and COMPLIANCE mode with storage-enforced immutability
 - [x] **Typed programmatic SDK** -- `m365-atlas/sdk` subpath with camelCase ES6 API including save operations
+- [x] **Tenant-wide backup orchestration** -- parallel backup of all Exchange-licensed mailboxes with rate-aware concurrency and live dashboard
+- [x] **Mailbox discovery** -- enumerate tenant mailboxes from Graph with license status, creation date, and size
+- [x] **Delta-based status check** -- peek at Graph delta state to determine mailbox backup freshness without running a backup
 - [x] **Repository docs** -- contributing guide, issue/PR templates, code conventions
 
 ### Up next

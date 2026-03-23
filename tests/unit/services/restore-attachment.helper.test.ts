@@ -114,6 +114,22 @@ describe('restore_entry_attachments', () => {
     expect(result.errors[0]).toContain('report.pdf');
   });
 
+  it('passes content_id through to AttachmentUpload', async () => {
+    const att = make_attachment({
+      is_inline: true,
+      content_id: 'image001.png@01DA3B2F.5A7E8990',
+    });
+
+    await restore_entry_attachments(ctx, connector, 'tenant', 'user@test.com', 'msg-1', [att]);
+
+    expect(connector.add_attachment).toHaveBeenCalledWith(
+      'tenant',
+      'user@test.com',
+      'msg-1',
+      expect.objectContaining({ content_id: 'image001.png@01DA3B2F.5A7E8990' }),
+    );
+  });
+
   it('handles multiple attachments', async () => {
     const atts = [
       make_attachment({ attachment_id: 'a1', name: 'file1.pdf' }),

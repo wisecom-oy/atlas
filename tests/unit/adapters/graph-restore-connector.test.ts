@@ -109,6 +109,39 @@ describe('GraphRestoreConnector', () => {
         }),
       );
     });
+
+    it('includes contentId in payload for inline attachments with content_id', async () => {
+      mock_client.post.mockResolvedValue({});
+
+      await connector.add_attachment('t', 'user@test.com', 'msg-1', {
+        name: 'logo.png',
+        content_type: 'image/png',
+        content: Buffer.from('png-data'),
+        is_inline: true,
+        content_id: 'image001.png@01DA3B2F.5A7E8990',
+      });
+
+      expect(mock_client.post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isInline: true,
+          contentId: 'image001.png@01DA3B2F.5A7E8990',
+        }),
+      );
+    });
+
+    it('omits contentId from payload when content_id is not set', async () => {
+      mock_client.post.mockResolvedValue({});
+
+      await connector.add_attachment('t', 'user@test.com', 'msg-1', {
+        name: 'file.pdf',
+        content_type: 'application/pdf',
+        content: Buffer.from('pdf-data'),
+        is_inline: false,
+      });
+
+      const payload = mock_client.post.mock.calls[0]![0] as Record<string, unknown>;
+      expect(payload).not.toHaveProperty('contentId');
+    });
   });
 
   describe('create_upload_session', () => {

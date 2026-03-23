@@ -89,7 +89,7 @@ describe('MailboxSyncService object lock', () => {
     service = container.get(MailboxSyncService);
   });
 
-  it('does not re-upload deduplicated content to extend retention', async () => {
+  it('skips upload for deduplicated content even when Object Lock is active', async () => {
     vi.mocked(mock_context.storage.exists as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);

@@ -111,6 +111,45 @@ describe('GraphMailboxConnector – fetch_attachments', () => {
     expect(result[0]!.is_inline).toBe(true);
   });
 
+  it('maps contentId from Graph to content_id on MessageAttachment', async () => {
+    mock_client._chain.get.mockResolvedValueOnce({
+      value: [
+        {
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          id: 'att-cid',
+          name: 'banner.png',
+          contentType: 'image/png',
+          size: 512,
+          isInline: true,
+          contentBytes: Buffer.from('png-bytes').toString('base64'),
+          contentId: 'image001.png@01DA3B2F.5A7E8990',
+        },
+      ],
+    });
+
+    const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
+    expect(result[0]!.content_id).toBe('image001.png@01DA3B2F.5A7E8990');
+  });
+
+  it('defaults content_id to empty string when Graph omits contentId', async () => {
+    mock_client._chain.get.mockResolvedValueOnce({
+      value: [
+        {
+          '@odata.type': '#microsoft.graph.fileAttachment',
+          id: 'att-no-cid',
+          name: 'report.pdf',
+          contentType: 'application/pdf',
+          size: 1024,
+          isInline: false,
+          contentBytes: Buffer.from('pdf').toString('base64'),
+        },
+      ],
+    });
+
+    const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
+    expect(result[0]!.content_id).toBe('');
+  });
+
   it('returns empty array when no attachments exist', async () => {
     mock_client._chain.get.mockResolvedValueOnce({ value: [] });
     const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');

@@ -9,6 +9,7 @@ interface DecryptedAttachment {
   readonly content_type: string;
   readonly content: Buffer;
   readonly is_inline: boolean;
+  readonly content_id?: string;
 }
 
 /**
@@ -22,7 +23,7 @@ export function build_eml(
   const msg = createMimeMessage();
 
   const from = extract_email_address(message_json['from'] as GraphRecipient | undefined);
-  if (from) msg.setSender(from);
+  msg.setSender(from ?? { name: '', addr: 'unknown@localhost' });
 
   const to = extract_recipient_list(message_json['toRecipients'] as GraphRecipient[] | undefined);
   if (to.length > 0) msg.setTo(to);
@@ -42,11 +43,16 @@ export function build_eml(
   add_body(msg, message_json);
 
   for (const att of attachments) {
+    const headers: Record<string, string> = {};
+    if (att.is_inline && att.content_id) {
+      headers['Content-ID'] = att.content_id;
+    }
     msg.addAttachment({
       filename: att.name,
       contentType: att.content_type,
       data: att.content.toString('base64'),
       inline: att.is_inline,
+      headers,
     });
   }
 
@@ -128,10 +134,9 @@ function set_message_id_header(
 
 function add_body(msg: ReturnType<typeof createMimeMessage>, json: Record<string, unknown>): void {
   const body = json['body'] as { contentType?: string; content?: string } | undefined;
-  if (!body?.content) return;
-
-  const content_type = body.contentType?.toLowerCase() === 'html' ? 'text/html' : 'text/plain';
-  msg.addMessage({ contentType: content_type, data: body.content });
+  const content = body?.content ?? '';
+  const content_type = body?.contentType?.toLowerCase() === 'html' ? 'text/html' : 'text/plain';
+  msg.addMessage({ contentType: content_type, data: content || ' ' });
 }
 
 function format_timestamp(date_str: string | undefined): string {

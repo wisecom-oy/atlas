@@ -46,6 +46,33 @@ describe('build_eml', () => {
     expect(text).toContain('file.pdf');
   });
 
+  it('sets Content-ID header on inline attachment with content_id', () => {
+    const attachment = {
+      name: 'logo.png',
+      content_type: 'image/png',
+      content: Buffer.from('png-data'),
+      is_inline: true,
+      content_id: 'image001.png@01DA3B2F.5A7E8990',
+    };
+    const result = build_eml(minimal_message, [attachment]);
+    const text = result.toString('utf-8');
+    expect(text).toContain('Content-ID');
+    expect(text).toContain('image001.png@01DA3B2F.5A7E8990');
+  });
+
+  it('omits Content-ID header when inline attachment has no content_id', () => {
+    const attachment = {
+      name: 'icon.png',
+      content_type: 'image/png',
+      content: Buffer.from('png-data'),
+      is_inline: true,
+    };
+    const result = build_eml(minimal_message, [attachment]);
+    const text = result.toString('utf-8');
+    expect(text).toContain('icon.png');
+    expect(text).not.toContain('Content-ID');
+  });
+
   it('handles message with no to-recipients gracefully', () => {
     const msg = {
       ...minimal_message,
@@ -66,6 +93,45 @@ describe('build_eml', () => {
     const result = build_eml(minimal_message, []);
     const text = result.toString('utf-8');
     expect(text).toContain('Message-ID');
+  });
+
+  it('handles message with empty body content', () => {
+    const msg = { ...minimal_message, body: { contentType: 'text', content: '' } };
+    const result = build_eml(msg, []);
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.toString('utf-8')).toContain('Subject:');
+  });
+
+  it('handles message with null body', () => {
+    const msg = { ...minimal_message, body: null };
+    const result = build_eml(msg as Record<string, unknown>, []);
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.toString('utf-8')).toContain('Subject:');
+  });
+
+  it('handles message with undefined body', () => {
+    const msg = { ...minimal_message, body: undefined };
+    const result = build_eml(msg as Record<string, unknown>, []);
+    expect(result).toBeInstanceOf(Buffer);
+  });
+
+  it('handles message with body but no content property', () => {
+    const msg = { ...minimal_message, body: { contentType: 'html' } };
+    const result = build_eml(msg as Record<string, unknown>, []);
+    expect(result).toBeInstanceOf(Buffer);
+  });
+
+  it('handles message with no from field', () => {
+    const msg = { ...minimal_message, from: undefined };
+    const result = build_eml(msg as Record<string, unknown>, []);
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.toString('utf-8')).toContain('unknown@localhost');
+  });
+
+  it('handles completely empty message', () => {
+    const result = build_eml({}, []);
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.length).toBeGreaterThan(0);
   });
 
   it('handles cc and bcc recipients', () => {

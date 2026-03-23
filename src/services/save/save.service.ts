@@ -213,7 +213,7 @@ export class SaveService implements SaveUseCase {
       );
 
       if (this._interrupted) dashboard.mark_all_pending_interrupted();
-      dashboard.finish(result.saved_count);
+      dashboard.finish();
 
       return { ...result, snapshot_id };
     } finally {

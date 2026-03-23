@@ -53,6 +53,7 @@ describe('fetch_and_store_attachments – on_progress callback', () => {
         size_bytes: 10,
         is_inline: false,
         content: Buffer.from('aaa'),
+        content_id: '',
       },
       {
         attachment_id: 'a2',
@@ -61,6 +62,7 @@ describe('fetch_and_store_attachments – on_progress callback', () => {
         size_bytes: 20,
         is_inline: false,
         content: Buffer.from('bbb'),
+        content_id: '',
       },
       {
         attachment_id: 'a3',
@@ -69,6 +71,7 @@ describe('fetch_and_store_attachments – on_progress callback', () => {
         size_bytes: 30,
         is_inline: false,
         content: Buffer.from('ccc'),
+        content_id: '',
       },
     ]);
 
@@ -104,6 +107,7 @@ describe('fetch_and_store_attachments – on_progress callback', () => {
         size_bytes: 5,
         is_inline: false,
         content: Buffer.from('x'),
+        content_id: '',
       },
     ]);
 

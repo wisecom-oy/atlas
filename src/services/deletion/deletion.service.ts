@@ -17,21 +17,24 @@ export class DeletionService implements DeletionUseCase {
 
   /**
    * Deletes all data objects, attachment objects, and manifests for a single mailbox.
-   * Keys: data/{mailbox_id}/*, attachments/{mailbox_id}/*, manifests/{mailbox_id}/*
+   * Manifests are deleted first so an interrupted deletion leaves orphan data
+   * objects (harmless) rather than manifests referencing deleted objects.
    */
   async delete_mailbox_data(tenant_id: string, mailbox_id: string): Promise<DeletionResult> {
     mailbox_id = mailbox_id.toLowerCase();
     const ctx = await this._tenant_factory.create(tenant_id);
     return delete_prefixes(ctx.storage, [
+      `manifests/${mailbox_id}/`,
       `data/${mailbox_id}/`,
       `attachments/${mailbox_id}/`,
-      `manifests/${mailbox_id}/`,
     ]);
   }
 
   /**
-   * Deletes a single snapshot manifest. The data objects are retained
-   * because they may be referenced by other snapshots (content-addressed).
+   * Deletes a single snapshot manifest. Data objects are intentionally kept
+   * because delta manifests are not self-contained -- other manifests in the
+   * chain may reference the same objects. Use `delete_mailbox_data` to remove
+   * all objects for a mailbox, or `purge_tenant` for everything.
    */
   async delete_snapshot(tenant_id: string, snapshot_id: string): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
@@ -55,7 +58,7 @@ export class DeletionService implements DeletionUseCase {
    */
   async purge_tenant(tenant_id: string): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const core = await delete_prefixes(ctx.storage, ['data/', 'attachments/', 'manifests/']);
+    const core = await delete_prefixes(ctx.storage, ['manifests/', 'data/', 'attachments/']);
     if (
       core.retained_objects > 0 ||
       core.retained_manifests > 0 ||

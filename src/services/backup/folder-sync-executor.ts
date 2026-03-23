@@ -35,7 +35,14 @@ export interface FolderSyncParams {
   object_lock_policy?: ObjectLockPolicy;
 }
 
-/** Processes a single message: dedup check, encrypt, store, fetch attachments. */
+const DEFAULT_ATTACHMENT_CONCURRENCY = 3;
+
+interface PendingAttachment {
+  entry_index: number;
+  message_id: string;
+}
+
+/** Processes a single message: dedup check, encrypt, store. Returns index for deferred attachment fetch. */
 async function process_message(
   ctx: TenantContext,
   connector: MailboxConnector,
@@ -44,29 +51,53 @@ async function process_message(
   message: MailMessage,
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
+  pending_attachments: PendingAttachment[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
   const entry = await store_single_message(ctx, message, mailbox_id, object_lock_policy);
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
 
-  const att = message.has_attachments
-    ? await fetch_and_store_attachments(
+  const entry_index = entries.length;
+  entries.push(entry.manifest_entry);
+
+  if (message.has_attachments) {
+    pending_attachments.push({ entry_index, message_id: message.message_id });
+  }
+}
+
+/** Drains all pending attachment fetches in parallel batches of `concurrency`. */
+async function flush_pending_attachments(
+  ctx: TenantContext,
+  connector: MailboxConnector,
+  tenant_id: string,
+  mailbox_id: string,
+  entries: ManifestEntry[],
+  stats: { stored: number; deduplicated: number; att_stored: number },
+  pending: PendingAttachment[],
+  object_lock_policy?: ObjectLockPolicy,
+  concurrency = DEFAULT_ATTACHMENT_CONCURRENCY,
+): Promise<void> {
+  while (pending.length > 0) {
+    const batch = pending.splice(0, concurrency);
+    const tasks = batch.map(async (p) => {
+      const att = await fetch_and_store_attachments(
         ctx,
         connector,
         tenant_id,
         mailbox_id,
-        message.message_id,
+        p.message_id,
         undefined,
         object_lock_policy,
-      )
-    : undefined;
+      );
+      if (att && att.length > 0) {
+        stats.att_stored += att.length;
+        entries[p.entry_index] = { ...entries[p.entry_index]!, attachments: att };
+      }
+    });
 
-  if (att) stats.att_stored += att.length;
-
-  entries.push(
-    att && att.length > 0 ? { ...entry.manifest_entry, attachments: att } : entry.manifest_entry,
-  );
+    await Promise.all(tasks);
+  }
 }
 
 /** Runs a delta sync for one folder, processing messages inline as pages arrive. */
@@ -93,6 +124,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
 
   const entries: ManifestEntry[] = [];
   const stats = { stored: 0, deduplicated: 0, att_stored: 0 };
+  const pending_attachments: PendingAttachment[] = [];
   let folder_processed = 0;
   let streamed = false;
   const page_start = Date.now();
@@ -124,6 +156,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         message,
         entries,
         stats,
+        pending_attachments,
         object_lock_policy,
       );
       folder_processed++;
@@ -133,6 +166,17 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       progress.update_total(gp, global_total, rate, msg_eta);
       progress.update_active(folder_index, folder_processed, rate, msg_eta);
     }
+
+    await flush_pending_attachments(
+      ctx,
+      connector,
+      tenant_id,
+      mailbox_id,
+      entries,
+      stats,
+      pending_attachments,
+      object_lock_policy,
+    );
 
     return true;
   };
@@ -149,7 +193,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   if (
     !is_interrupted() &&
     prev_delta_link &&
-    delta.messages.length === 0 &&
+    folder_processed === 0 &&
     folder_total > 0 &&
     previous_manifest_entries === 0
   ) {
@@ -174,6 +218,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         message,
         entries,
         stats,
+        pending_attachments,
         object_lock_policy,
       );
       folder_processed++;
@@ -183,6 +228,17 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       progress.update_total(gp, global_total, rate, eta);
       progress.update_active(folder_index, folder_processed, rate, eta);
     }
+
+    await flush_pending_attachments(
+      ctx,
+      connector,
+      tenant_id,
+      mailbox_id,
+      entries,
+      stats,
+      pending_attachments,
+      object_lock_policy,
+    );
   }
 
   return {

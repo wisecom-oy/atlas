@@ -43,6 +43,8 @@ export type {
   StorageCheckResult,
 } from './storage-check/use-case.port';
 
+export type { StatsUseCase } from './stats/use-case.port';
+
 export {
   OBJECT_STORAGE_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
@@ -59,4 +61,5 @@ export {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
+  STATS_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

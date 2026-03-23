@@ -102,13 +102,17 @@ export class GraphRestoreConnector implements RestoreConnector {
     }
 
     const url = `/users/${mailbox_id}/messages/${message_id}/attachments`;
-    const payload = {
+    const payload: Record<string, unknown> = {
       '@odata.type': '#microsoft.graph.fileAttachment',
       name: attachment.name,
       contentType: attachment.content_type,
       contentBytes: attachment.content.toString('base64'),
       isInline: attachment.is_inline,
     };
+
+    if (attachment.content_id) {
+      payload['contentId'] = attachment.content_id;
+    }
 
     try {
       await with_graph_retry(() => this._client.api(url).post(payload));

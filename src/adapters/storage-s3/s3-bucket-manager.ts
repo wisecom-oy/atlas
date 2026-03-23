@@ -3,6 +3,7 @@ import {
   GetBucketVersioningCommand,
   GetObjectLockConfigurationCommand,
   HeadBucketCommand,
+  PutBucketLifecycleConfigurationCommand,
   type ObjectLockEnabled,
   type S3Client,
 } from '@aws-sdk/client-s3';
@@ -10,13 +11,16 @@ import type {
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
 } from '@/ports/storage/object-storage.port';
+import { logger } from '@/utils/logger';
 
 const _checked_buckets = new Set<string>();
 const _immutability_probe_cache = new Map<string, StorageImmutabilityProbeResult>();
 
 /**
  * Ensures a bucket exists, creating it if necessary.
- * Caches results in-process so subsequent calls for the same bucket are free.
+ * New buckets get best-effort housekeeping lifecycle rules (abort incomplete
+ * multipart uploads, clean up expired delete markers). Existing buckets are
+ * left untouched. Caches results in-process so subsequent calls are free.
  */
 export async function ensure_bucket_exists(client: S3Client, bucket: string): Promise<void> {
   if (_checked_buckets.has(bucket)) return;
@@ -24,6 +28,7 @@ export async function ensure_bucket_exists(client: S3Client, bucket: string): Pr
   const exists = await bucket_exists(client, bucket);
   if (!exists) {
     await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    await apply_default_lifecycle(client, bucket);
   }
 
   _checked_buckets.add(bucket);
@@ -38,6 +43,40 @@ async function bucket_exists(client: S3Client, bucket: string): Promise<boolean>
     const code = (err as { name?: string }).name;
     if (code === 'NotFound' || code === 'NoSuchBucket') return false;
     throw err;
+  }
+}
+
+/**
+ * Best-effort housekeeping lifecycle rules for Atlas-created buckets:
+ *  1. Abort incomplete multipart uploads after 7 days.
+ *  2. Remove delete markers that no longer reference any version.
+ * These are safe on both AWS S3 and MinIO. Failures are logged but not fatal.
+ */
+async function apply_default_lifecycle(client: S3Client, bucket: string): Promise<void> {
+  try {
+    await client.send(
+      new PutBucketLifecycleConfigurationCommand({
+        Bucket: bucket,
+        LifecycleConfiguration: {
+          Rules: [
+            {
+              ID: 'atlas-abort-incomplete-uploads',
+              Status: 'Enabled',
+              Filter: {},
+              AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+            },
+            {
+              ID: 'atlas-cleanup-delete-markers',
+              Status: 'Enabled',
+              Filter: {},
+              ExpiredObjectDeleteMarker: true,
+            },
+          ],
+        },
+      }),
+    );
+  } catch {
+    logger.debug(`Could not configure lifecycle rules on bucket "${bucket}" (best-effort).`);
   }
 }
 

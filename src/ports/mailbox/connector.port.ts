@@ -42,6 +42,7 @@ export interface MessageAttachment {
   readonly size_bytes: number;
   readonly is_inline: boolean;
   readonly content: Buffer;
+  readonly content_id: string;
 }
 
 export interface MailboxConnector {

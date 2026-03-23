@@ -17,16 +17,34 @@ describe('s3-bucket-manager', () => {
     reset_bucket_cache();
   });
 
-  it('creates bucket when it does not exist', async () => {
+  it('creates bucket with housekeeping lifecycle rules when it does not exist', async () => {
     mock_s3.send
       .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({});
 
     await ensure_bucket_exists(mock_s3 as never, 'new-bucket');
 
-    expect(mock_s3.send).toHaveBeenCalledTimes(2);
+    expect(mock_s3.send).toHaveBeenCalledTimes(3);
     const create_cmd = mock_s3.send.mock.calls[1][0];
     expect(create_cmd.input.Bucket).toBe('new-bucket');
+    const lifecycle_cmd = mock_s3.send.mock.calls[2][0];
+    expect(lifecycle_cmd.input.Bucket).toBe('new-bucket');
+    const rules = lifecycle_cmd.input.LifecycleConfiguration.Rules;
+    expect(rules).toHaveLength(2);
+    expect(rules[0].AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
+    expect(rules[0].NoncurrentVersionExpiration).toBeUndefined();
+    expect(rules[1].ExpiredObjectDeleteMarker).toBe(true);
+  });
+
+  it('swallows lifecycle errors on unsupported backends', async () => {
+    mock_s3.send
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('NotImplemented'));
+
+    await expect(ensure_bucket_exists(mock_s3 as never, 'no-lifecycle')).resolves.toBeUndefined();
+    expect(mock_s3.send).toHaveBeenCalledTimes(3);
   });
 
   it('skips creation when bucket already exists', async () => {

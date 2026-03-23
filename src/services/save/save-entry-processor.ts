@@ -18,9 +18,17 @@ interface DecryptedAttachment {
   readonly content_type: string;
   readonly content: Buffer;
   readonly is_inline: boolean;
+  readonly content_id?: string;
 }
 
-/** Processes all grouped entries into a zip archive, updating the dashboard. */
+/**
+ * Processes all grouped entries into a zip archive, updating the dashboard.
+ *
+ * Each message is fully streamed to disk before the next one is fetched from
+ * S3 (download → decrypt → verify → build EML → compress → flush). This
+ * sequential-per-entry design keeps memory bounded to one message at a time,
+ * which is critical for mailboxes that can reach hundreds of gigabytes.
+ */
 export async function save_entries_to_archive(
   ctx: TenantContext,
   output_path: string,
@@ -50,6 +58,7 @@ export async function save_entries_to_archive(
     const folder_name = folder_map.get(fid) ?? 'Unknown';
     const used_names = new Set<string>();
     let folder_saved = 0;
+    let folder_processed = 0;
     let folder_att = 0;
 
     for (const entry of folder_items) {
@@ -76,9 +85,8 @@ export async function save_entries_to_archive(
         global_errors++;
       }
 
-      global_saved =
-        global_saved - folder_saved + folder_saved + (global_saved - global_saved + folder_saved);
-      const gp = count_processed_before(groups, folder_index) + folder_saved;
+      folder_processed++;
+      const gp = count_processed_before(groups, folder_index) + folder_processed;
       const rate = calc_rate(gp, Date.now() - start);
       const eta = rate > 0 ? (global_total - gp) / rate : 0;
 
@@ -98,11 +106,12 @@ export async function save_entries_to_archive(
       dashboard.mark_done(folder_index, folder_saved, folder_att);
     }
 
-    global_saved = count_processed_before(groups, folder_index) + folder_saved;
+    global_saved += folder_saved;
     global_att += folder_att;
     folder_index++;
   }
 
+  dashboard.show_finalizing();
   await finalize_archive(archive);
   const total_bytes = await promise;
 
@@ -163,7 +172,7 @@ async function process_single_entry(
   const raw_filename = build_eml_filename(received, subject);
   const filename = deduplicate_filename(raw_filename, used_names);
 
-  add_eml_to_archive(archive, folder_name, filename, eml_buffer);
+  await add_eml_to_archive(archive, folder_name, filename, eml_buffer);
   result.attachment_count = attachments.length;
 
   return result;
@@ -189,6 +198,7 @@ async function decrypt_entry_attachments(
         content_type: att.content_type,
         content,
         is_inline: att.is_inline,
+        ...(att.content_id ? { content_id: att.content_id } : {}),
       });
     } catch (err) {
       logger.warn(

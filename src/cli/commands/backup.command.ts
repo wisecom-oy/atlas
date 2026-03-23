@@ -9,8 +9,11 @@ import type {
   ObjectLockRequest,
   SyncOptions,
 } from '@/ports/backup/use-case.port';
-import { BACKUP_USE_CASE_TOKEN } from '@/ports/tokens/use-case.tokens';
+import type { TenantBackupOrchestrator } from '@/ports/backup/orchestrator.port';
+import { BACKUP_USE_CASE_TOKEN, TENANT_ORCHESTRATOR_TOKEN } from '@/ports/tokens/use-case.tokens';
 import { run_backup_with_cli_adapter } from '@/cli/adapters/backup-operation.adapter';
+import { run_tenant_backup_with_cli_adapter } from '@/cli/adapters/tenant-backup-operation.adapter';
+import { format_bytes } from '@/cli/command-formatters';
 import { logger } from '@/utils/logger';
 
 type ContainerFactory = () => Container;
@@ -24,6 +27,7 @@ interface BackupOptions {
   retentionDays?: string;
   lockMode?: string;
   requireImmutability?: boolean;
+  concurrency?: string;
 }
 
 /** Registers the `atlas backup` subcommand. */
@@ -39,6 +43,7 @@ export function register_backup_command(program: Command, get_container: Contain
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
     .option('--require-immutability', 'fail when immutability cannot be enforced')
+    .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
     .action((options: BackupOptions) => execute_backup(get_container(), options));
 }
 
@@ -132,8 +137,7 @@ async function execute_backup(container: Container, options: BackupOptions): Pro
   if (options.mailbox) {
     await backup_single_mailbox(container, tenant_id, options.mailbox, build_sync_options(options));
   } else {
-    logger.info('Backing up all mailboxes...');
-    logger.warn('Full-tenant backup not yet implemented');
+    await backup_all_mailboxes(container, tenant_id, options);
   }
 }
 
@@ -159,10 +163,21 @@ async function backup_single_mailbox(
   );
 }
 
-/** Formats bytes into human-readable size. */
-function format_bytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+/** Runs full-tenant backup via the orchestrator with CLI dashboard. */
+async function backup_all_mailboxes(
+  container: Container,
+  tenant_id: string,
+  options: BackupOptions,
+): Promise<void> {
+  const concurrency = Math.max(1, parseInt(options.concurrency ?? '4', 10) || 4);
+  const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));
+
+  logger.info(`Backing up all licensed mailboxes (concurrency=${concurrency})`);
+
+  const orchestrator = container.get<TenantBackupOrchestrator>(TENANT_ORCHESTRATOR_TOKEN);
+  await run_tenant_backup_with_cli_adapter(orchestrator, tenant_id, {
+    concurrency,
+    force_full: options.full ?? false,
+    page_size,
+  });
 }

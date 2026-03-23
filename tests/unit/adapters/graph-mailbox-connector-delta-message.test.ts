@@ -1,45 +1,10 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Container } from 'inversify';
-import { GraphMailboxConnector } from '@/adapters/m365/graph-mailbox-connector.adapter';
-import { GRAPH_CLIENT_TOKEN } from '@/adapters/m365/graph-client.factory';
+import { describe, it, expect, beforeEach } from 'vitest';
+import type { GraphMailboxConnector } from '@/adapters/m365/graph-mailbox-connector.adapter';
+import type { MockClient } from './graph-mailbox-connector.harness';
+import { create_mock_client, create_connector } from './graph-mailbox-connector.harness';
 
-interface MockChain {
-  select: ReturnType<typeof vi.fn>;
-  top: ReturnType<typeof vi.fn>;
-  header: ReturnType<typeof vi.fn>;
-  get: ReturnType<typeof vi.fn>;
-}
-
-interface MockClient {
-  api: ReturnType<typeof vi.fn>;
-  _chain: MockChain;
-}
-
-function create_mock_client(): MockClient {
-  const get_fn = vi.fn();
-  const chain: MockChain = {
-    select: vi.fn(),
-    top: vi.fn(),
-    header: vi.fn(),
-    get: get_fn,
-  };
-  chain.select.mockReturnValue(chain);
-  chain.top.mockReturnValue(chain);
-  chain.header.mockReturnValue(chain);
-
-  const api_fn = vi.fn().mockReturnValue(chain);
-  return { api: api_fn, _chain: chain };
-}
-
-function create_connector(mock_client: MockClient): GraphMailboxConnector {
-  const container = new Container();
-  container.bind(GRAPH_CLIENT_TOKEN).toConstantValue(mock_client);
-  container.bind(GraphMailboxConnector).toSelf();
-  return container.get(GraphMailboxConnector);
-}
-
-describe('GraphMailboxConnector', () => {
+describe('GraphMailboxConnector - delta and message APIs', () => {
   let mock_client: MockClient;
   let connector: GraphMailboxConnector;
 
@@ -47,100 +12,6 @@ describe('GraphMailboxConnector', () => {
     mock_client = create_mock_client();
     connector = create_connector(mock_client);
   });
-
-  // ---------------------------------------------------------------------------
-  // list_mailboxes
-  // ---------------------------------------------------------------------------
-
-  describe('list_mailboxes', () => {
-    it('returns user IDs from a single page', async () => {
-      mock_client._chain.get.mockResolvedValueOnce({
-        value: [
-          { id: 'user-1', mail: 'a@test.com', displayName: 'User A' },
-          { id: 'user-2', mail: 'b@test.com', displayName: 'User B' },
-        ],
-      });
-
-      const result = await connector.list_mailboxes('tenant-1');
-
-      expect(result).toEqual(['user-1', 'user-2']);
-    });
-
-    it('paginates through multiple pages via @odata.nextLink', async () => {
-      mock_client._chain.get
-        .mockResolvedValueOnce({
-          value: [{ id: 'user-1', mail: 'a@test.com' }],
-          '@odata.nextLink': '/users?$skiptoken=page2',
-        })
-        .mockResolvedValueOnce({
-          value: [{ id: 'user-2', mail: 'b@test.com' }],
-        });
-
-      const result = await connector.list_mailboxes('tenant-1');
-
-      expect(result).toEqual(['user-1', 'user-2']);
-      expect(mock_client.api).toHaveBeenCalledTimes(2);
-    });
-
-    it('skips users without an id', async () => {
-      mock_client._chain.get.mockResolvedValueOnce({
-        value: [{ id: 'user-1', mail: 'a@test.com' }, { mail: 'no-id@test.com' }],
-      });
-
-      const result = await connector.list_mailboxes('tenant-1');
-
-      expect(result).toEqual(['user-1']);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // list_mail_folders
-  // ---------------------------------------------------------------------------
-
-  describe('list_mail_folders', () => {
-    it('returns folders excluding system folders', async () => {
-      mock_client._chain.get.mockResolvedValueOnce({
-        value: [
-          { id: 'f-inbox', displayName: 'Inbox', parentFolderId: 'root', totalItemCount: 42 },
-          { id: 'f-sent', displayName: 'Sent Items', parentFolderId: 'root', totalItemCount: 10 },
-          { id: 'f-drafts', displayName: 'Drafts', parentFolderId: 'root', totalItemCount: 3 },
-          { id: 'f-outbox', displayName: 'Outbox', parentFolderId: 'root', totalItemCount: 0 },
-          { id: 'f-junk', displayName: 'JunkEmail', parentFolderId: 'root', totalItemCount: 5 },
-          { id: 'f-recover', displayName: 'RecoverableItemsDeletions', totalItemCount: 1 },
-        ],
-      });
-
-      const result = await connector.list_mail_folders('tenant-1', 'user-1');
-
-      const names = result.map((f) => f.display_name);
-      expect(names).toEqual(['Inbox', 'Sent Items']);
-      expect(result[0]).toEqual({
-        folder_id: 'f-inbox',
-        display_name: 'Inbox',
-        parent_folder_id: 'root',
-        total_item_count: 42,
-      });
-    });
-
-    it('paginates through folder pages', async () => {
-      mock_client._chain.get
-        .mockResolvedValueOnce({
-          value: [{ id: 'f-1', displayName: 'Inbox' }],
-          '@odata.nextLink': '/next',
-        })
-        .mockResolvedValueOnce({
-          value: [{ id: 'f-2', displayName: 'Archive' }],
-        });
-
-      const result = await connector.list_mail_folders('tenant-1', 'user-1');
-
-      expect(result).toHaveLength(2);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // fetch_delta
-  // ---------------------------------------------------------------------------
 
   describe('fetch_delta', () => {
     it('uses fluent API (.select/.top) for initial full sync', async () => {
@@ -163,7 +34,6 @@ describe('GraphMailboxConnector', () => {
       expect(result.messages[0]?.message_id).toBe('msg-1');
       expect(result.delta_link).toBe('https://graph.microsoft.com/delta?token=abc123');
       expect(result.delta_reset).toBe(false);
-
       expect(mock_client._chain.select).toHaveBeenCalled();
       expect(mock_client._chain.top).not.toHaveBeenCalled();
     });
@@ -249,6 +119,44 @@ describe('GraphMailboxConnector', () => {
       expect(mock_client._chain.get).toHaveBeenCalledTimes(2);
     });
 
+    it('does not accumulate messages when on_page callback is provided (streaming mode)', async () => {
+      mock_client._chain.get
+        .mockResolvedValueOnce({
+          value: [
+            { id: 'msg-1', subject: 'Page 1', receivedDateTime: '2025-01-15T10:00:00Z' },
+            { id: 'msg-2', subject: 'Page 1b', receivedDateTime: '2025-01-15T10:01:00Z' },
+          ],
+          '@odata.nextLink': '/delta?skiptoken=page2',
+        })
+        .mockResolvedValueOnce({
+          value: [{ id: 'msg-3', subject: 'Page 2', receivedDateTime: '2025-01-15T10:02:00Z' }],
+          '@odata.deltaLink': 'https://graph.microsoft.com/delta?token=final',
+        });
+
+      const streamed_pages: { page: number; count: number; msgs: string[] }[] = [];
+      const on_page = (page_num: number, items_so_far: number, page_msgs: unknown[]): void => {
+        streamed_pages.push({
+          page: page_num,
+          count: items_so_far,
+          msgs: page_msgs.map((m) => (m as { message_id: string }).message_id),
+        });
+      };
+
+      const result = await connector.fetch_delta(
+        'tenant-1',
+        'user-1',
+        'f-inbox',
+        undefined,
+        on_page,
+      );
+
+      expect(result.messages).toHaveLength(0);
+      expect(result.delta_link).toBe('https://graph.microsoft.com/delta?token=final');
+      expect(streamed_pages).toHaveLength(2);
+      expect(streamed_pages[0]).toEqual({ page: 1, count: 2, msgs: ['msg-1', 'msg-2'] });
+      expect(streamed_pages[1]).toEqual({ page: 2, count: 3, msgs: ['msg-3'] });
+    });
+
     it('falls back to full enumeration on invalid delta token', async () => {
       const stale_link = 'https://graph.microsoft.com/delta?token=stale';
 
@@ -274,10 +182,6 @@ describe('GraphMailboxConnector', () => {
       );
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // fetch_message
-  // ---------------------------------------------------------------------------
 
   describe('fetch_message', () => {
     it('fetches a single message and returns MailMessage shape', async () => {

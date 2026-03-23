@@ -41,6 +41,7 @@ export async function restore_entry_attachments(
         content_type: att.content_type,
         content,
         is_inline: att.is_inline,
+        ...(att.content_id ? { content_id: att.content_id } : {}),
       });
 
       restored++;

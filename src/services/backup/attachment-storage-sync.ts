@@ -58,5 +58,6 @@ async function store_single_attachment(
     storage_key,
     checksum,
     is_inline: att.is_inline,
+    ...(att.content_id ? { content_id: att.content_id } : {}),
   };
 }

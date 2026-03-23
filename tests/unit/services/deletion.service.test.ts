@@ -90,9 +90,9 @@ describe('DeletionService', () => {
     it('deletes data, attachment, and manifest keys for a mailbox', async () => {
       const list_fn = vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>);
       list_fn
+        .mockResolvedValueOnce(['manifests/user@test.com/snap-1.json'])
         .mockResolvedValueOnce(['data/user@test.com/aaa', 'data/user@test.com/bbb'])
-        .mockResolvedValueOnce(['attachments/user@test.com/ccc'])
-        .mockResolvedValueOnce(['manifests/user@test.com/snap-1.json']);
+        .mockResolvedValueOnce(['attachments/user@test.com/ccc']);
 
       const result = await service.delete_mailbox_data('t', 'user@test.com');
 
@@ -110,12 +110,12 @@ describe('DeletionService', () => {
       );
     });
 
-    it('lists correct prefixes including attachments', async () => {
+    it('lists correct prefixes with manifests first', async () => {
       await service.delete_mailbox_data('t', 'alice@corp.com');
 
+      expect(mock_context.storage.list).toHaveBeenCalledWith('manifests/alice@corp.com/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('data/alice@corp.com/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('attachments/alice@corp.com/');
-      expect(mock_context.storage.list).toHaveBeenCalledWith('manifests/alice@corp.com/');
     });
 
     it('returns zeros when mailbox has no data', async () => {
@@ -133,7 +133,7 @@ describe('DeletionService', () => {
   // ---------------------------------------------------------------------------
 
   describe('delete_snapshot', () => {
-    it('deletes the manifest key for a known snapshot', async () => {
+    it('deletes the manifest key and retains data objects', async () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
         make_manifest({ mailbox_id: 'u@t.com', snapshot_id: 'snap-42' }),
       );
@@ -147,6 +147,7 @@ describe('DeletionService', () => {
       expect(result.deleted_objects).toBe(0);
       expect(result.retained_manifests).toBe(0);
       expect(mock_context.storage.delete).toHaveBeenCalledWith('manifests/u@t.com/snap-42.json');
+      expect(mock_context.storage.delete).toHaveBeenCalledTimes(1);
     });
 
     it('returns zeros when snapshot is not found', async () => {
@@ -185,9 +186,9 @@ describe('DeletionService', () => {
     it('deletes data, attachments, manifests, and meta keys', async () => {
       const list_fn = vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>);
       list_fn
+        .mockResolvedValueOnce(['manifests/u/snap-1.json'])
         .mockResolvedValueOnce(['data/u/aaa', 'data/u/bbb'])
         .mockResolvedValueOnce(['attachments/u/ccc'])
-        .mockResolvedValueOnce(['manifests/u/snap-1.json'])
         .mockResolvedValueOnce(['_meta/dek.enc']);
 
       const result = await service.purge_tenant('t');
@@ -199,12 +200,12 @@ describe('DeletionService', () => {
       expect(mock_context.storage.delete).toHaveBeenCalledTimes(5);
     });
 
-    it('lists the four expected prefixes', async () => {
+    it('lists the four expected prefixes with manifests first', async () => {
       await service.purge_tenant('t');
 
+      expect(mock_context.storage.list).toHaveBeenCalledWith('manifests/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('data/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('attachments/');
-      expect(mock_context.storage.list).toHaveBeenCalledWith('manifests/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('_meta/');
     });
 

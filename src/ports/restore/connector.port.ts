@@ -5,6 +5,7 @@ export interface AttachmentUpload {
   readonly content_type: string;
   readonly content: Buffer;
   readonly is_inline: boolean;
+  readonly content_id?: string;
 }
 
 export interface UploadSession {

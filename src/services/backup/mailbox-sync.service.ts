@@ -4,6 +4,7 @@ import type { MailboxConnector, MailFolder } from '@/ports/mailbox/connector.por
 import type { ManifestRepository } from '@/ports/storage/manifest-repository.port';
 import type { ManifestEntry, ManifestObjectLockPolicy } from '@/domain/manifest';
 import { calc_rate } from '@/services/shared/progress-rate';
+import { assert_mailbox_exists } from '@/services/shared/mailbox-assertions';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
 import {
   build_manifest,
@@ -53,7 +54,7 @@ export class MailboxSyncService implements BackupUseCase {
     options: SyncOptions = {},
   ): Promise<SyncResult> {
     mailbox_id = mailbox_id.toLowerCase();
-    await this.assert_mailbox_exists(tenant_id, mailbox_id);
+    await assert_mailbox_exists(this._connector, tenant_id, mailbox_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     const snapshot = create_pending_snapshot(tenant_id, mailbox_id);
     const sync_start = Date.now();
@@ -199,17 +200,6 @@ export class MailboxSyncService implements BackupUseCase {
     if (options.force_full) return 'full';
     if (Object.keys(saved_links).length > 0) return 'incremental';
     return 'initial';
-  }
-
-  /** Fails fast if the mailbox does not exist in the tenant. */
-  private async assert_mailbox_exists(tenant_id: string, mailbox_id: string): Promise<void> {
-    const exists = await this._connector.mailbox_exists(tenant_id, mailbox_id);
-    if (!exists) {
-      throw new Error(
-        `Mailbox "${mailbox_id}" does not exist in the tenant. ` +
-          `Verify the email address and try again.`,
-      );
-    }
   }
 
   /**

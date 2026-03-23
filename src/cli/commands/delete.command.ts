@@ -84,7 +84,7 @@ function determine_scope(
   if (options.snapshot) {
     return {
       scope: 'snapshot',
-      description: `This will delete snapshot ${options.snapshot} (data objects are retained)`,
+      description: `This will delete snapshot ${options.snapshot} (data objects are retained for other snapshots)`,
     };
   }
   return { scope: undefined, description: '' };

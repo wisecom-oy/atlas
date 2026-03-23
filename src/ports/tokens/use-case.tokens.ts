@@ -5,3 +5,6 @@ export const CATALOG_USE_CASE_TOKEN = Symbol.for('CatalogUseCase');
 export const DELETION_USE_CASE_TOKEN = Symbol.for('DeletionUseCase');
 export const STORAGE_CHECK_USE_CASE_TOKEN = Symbol.for('StorageCheckUseCase');
 export const SAVE_USE_CASE_TOKEN = Symbol.for('SaveUseCase');
+export const STATS_USE_CASE_TOKEN = Symbol.for('StatsUseCase');
+export const STATUS_USE_CASE_TOKEN = Symbol.for('StatusUseCase');
+export const TENANT_ORCHESTRATOR_TOKEN = Symbol.for('TenantBackupOrchestrator');

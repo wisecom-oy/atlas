@@ -26,6 +26,7 @@ export class StorageCheckService implements StorageCheckUseCase {
       mode: request.mode,
       retain_until: resolved_retain_until,
     });
+
     return {
       bucket: probe.bucket,
       reachable: probe.reachable,

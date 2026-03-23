@@ -37,6 +37,7 @@ export interface AttachmentEntry {
   readonly storage_key: string;
   readonly checksum: string;
   readonly is_inline: boolean;
+  readonly content_id?: string;
 }
 
 export interface ManifestEntry {

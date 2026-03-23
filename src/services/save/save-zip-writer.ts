@@ -21,15 +21,39 @@ export function create_save_archive(output_path: string): SaveArchive {
   return { archive, promise };
 }
 
-/** Appends an EML buffer to the archive under folder_name/filename. */
+/**
+ * Appends an EML buffer and waits for it to be compressed and flushed.
+ *
+ * Backpressure: archiver.append() is fire-and-forget — it queues the buffer
+ * internally and compresses in the background. Without waiting, the loop in
+ * save-entry-processor would download the next message from S3 immediately,
+ * causing the queue (and heap) to grow without bound. For a 500 GB mailbox
+ * that means OOM long before the archive is finished.
+ *
+ * By awaiting the 'entry' event we guarantee each EML is compressed and
+ * written to the output stream before the next S3 download starts, keeping
+ * peak memory at roughly one message + its attachments.
+ */
 export function add_eml_to_archive(
   archive: archiver.Archiver,
   folder_name: string,
   filename: string,
   content: Buffer,
-): void {
-  const path = `${sanitize_path_segment(folder_name)}/${filename}`;
-  archive.append(content, { name: path });
+): Promise<void> {
+  const entry_path = `${sanitize_path_segment(folder_name)}/${filename}`;
+  return new Promise<void>((resolve, reject) => {
+    const on_entry = (): void => {
+      archive.removeListener('error', on_error);
+      resolve();
+    };
+    const on_error = (err: Error): void => {
+      archive.removeListener('entry', on_entry);
+      reject(err);
+    };
+    archive.once('entry', on_entry);
+    archive.once('error', on_error);
+    archive.append(content, { name: entry_path });
+  });
 }
 
 /** Finalizes the archive. The returned promise resolves to total bytes written. */

@@ -277,6 +277,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     const removed_ids: string[] = [];
     let delta_link = '';
     let page_count = 0;
+    let total_streamed = 0;
 
     let page: GraphPageResponse = is_initial
       ? await this.fetch_initial_delta_page(mailbox_id, folder_id, page_size)
@@ -292,13 +293,18 @@ export class GraphMailboxConnector implements MailboxConnector {
           removed_ids.push(item.id);
         } else if (item.id) {
           const msg = this.graph_message_to_mail_message(item);
-          messages.push(msg);
           page_messages.push(msg);
         }
       }
 
-      const result = on_page?.(page_count, messages.length, page_messages);
-      const should_continue = result instanceof Promise ? await result : result;
+      let should_continue: boolean | void = true;
+      if (on_page) {
+        total_streamed += page_messages.length;
+        const cb_result = on_page(page_count, total_streamed, page_messages);
+        should_continue = cb_result instanceof Promise ? await cb_result : cb_result;
+      } else {
+        messages.push(...page_messages);
+      }
 
       if (page['@odata.deltaLink']) {
         delta_link = page['@odata.deltaLink'];

@@ -31,7 +31,7 @@ describe('save-zip-writer', () => {
     created_files.push(path);
 
     const { archive, promise } = create_save_archive(path);
-    add_eml_to_archive(archive, 'Inbox', 'test.eml', Buffer.from('EML content'));
+    await add_eml_to_archive(archive, 'Inbox', 'test.eml', Buffer.from('EML content'));
     await finalize_archive(archive);
     const bytes = await promise;
 
@@ -44,9 +44,9 @@ describe('save-zip-writer', () => {
     created_files.push(path);
 
     const { archive, promise } = create_save_archive(path);
-    add_eml_to_archive(archive, 'Inbox', 'a.eml', Buffer.from('Message A'));
-    add_eml_to_archive(archive, 'Sent Items', 'b.eml', Buffer.from('Message B'));
-    add_eml_to_archive(archive, 'Inbox', 'c.eml', Buffer.from('Message C'));
+    await add_eml_to_archive(archive, 'Inbox', 'a.eml', Buffer.from('Message A'));
+    await add_eml_to_archive(archive, 'Sent Items', 'b.eml', Buffer.from('Message B'));
+    await add_eml_to_archive(archive, 'Inbox', 'c.eml', Buffer.from('Message C'));
     await finalize_archive(archive);
     const bytes = await promise;
 

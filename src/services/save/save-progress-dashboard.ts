@@ -21,6 +21,7 @@ interface TotalRow {
   global_total: number;
   rate: number;
   eta_seconds: number;
+  finalizing: boolean;
 }
 
 /**
@@ -48,7 +49,13 @@ export class SaveProgressDashboard {
       eta_seconds: 0,
       error_message: '',
     }));
-    this._total = { global_processed: 0, global_total: 0, rate: 0, eta_seconds: 0 };
+    this._total = {
+      global_processed: 0,
+      global_total: 0,
+      rate: 0,
+      eta_seconds: 0,
+      finalizing: false,
+    };
     this._line_count = this._rows.length + 1;
     this.render();
   }
@@ -121,10 +128,16 @@ export class SaveProgressDashboard {
     this._total.eta_seconds = eta_seconds;
   }
 
-  finish(actual_total?: number): void {
-    if (actual_total !== undefined) {
-      this._total.global_processed = actual_total;
-      this._total.global_total = actual_total;
+  finish(): void {
+    this._total.finalizing = false;
+    this.render();
+  }
+
+  /** Switches the TOTAL row to a "finalizing" state while the archive is closed. */
+  show_finalizing(): void {
+    this._total.finalizing = true;
+    if (!this._is_tty) {
+      console.log(chalk.blue('[*]'), 'Finalizing archive...');
     }
     this.render();
   }
@@ -201,6 +214,13 @@ function format_folder_row(row: FolderRow): string {
 function format_total_row(t: TotalRow): string {
   if (t.global_total === 0) {
     return chalk.white('---- TOTAL                          --');
+  }
+  if (t.finalizing) {
+    return chalk.white(
+      `---- TOTAL${' '.repeat(18)} ` +
+        `${t.global_processed}/${t.global_total}` +
+        ` | finalizing...`,
+    );
   }
   const done = t.global_processed >= t.global_total;
   const eta_str = done ? 'done' : `ETA ${format_duration(t.eta_seconds)}`;
