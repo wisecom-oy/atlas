@@ -54,6 +54,7 @@ export default defineConfig({
         items: [
           { text: 'CLI Commands', link: '/reference/cli' },
           { text: 'Programmatic SDK', link: '/reference/sdk' },
+          { text: 'SDK Examples', link: '/reference/examples' },
         ],
       },
     ],
