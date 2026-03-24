@@ -208,10 +208,18 @@
   --vp-layout-max-width: 1440px;
 }
 
-.VPDoc.has-aside .content-container {
-  max-width: 820px;
+@media (min-width: 1440px) {
+  .VPDoc:not(.has-aside) .content-container {
+    max-width: 992px !important;
+  }
+
+  .VPDoc.has-aside .content-container {
+    max-width: 880px !important;
+  }
 }
 
-.VPDoc:not(.has-aside) .content-container {
-  max-width: 920px;
+@media (min-width: 960px) and (max-width: 1439px) {
+  .VPDoc .content-container {
+    max-width: none !important;
+  }
 }
