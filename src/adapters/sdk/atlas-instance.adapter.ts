@@ -10,6 +10,7 @@ import type { StorageCheckUseCase } from '@/ports/storage-check/use-case.port';
 import type { SaveUseCase } from '@/ports/save/use-case.port';
 import type { StatsUseCase } from '@/ports/stats/use-case.port';
 import type { StatusUseCase } from '@/ports/status/use-case.port';
+import type { ReplicationUseCase } from '@/ports/replication/use-case.port';
 import {
   BACKUP_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
@@ -20,6 +21,7 @@ import {
   SAVE_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
+  REPLICATION_USE_CASE_TOKEN,
 } from '@/ports/tokens/use-case.tokens';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
@@ -36,6 +38,7 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
   const saveUseCase = container.get<SaveUseCase>(SAVE_USE_CASE_TOKEN);
   const statsUseCase = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const statusUseCase = container.get<StatusUseCase>(STATUS_USE_CASE_TOKEN);
+  const replicationUseCase = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
 
   return {
     async backupMailbox(mailboxId, options) {
@@ -85,6 +88,24 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     },
     async checkMailboxStatus(mailboxId) {
       return await statusUseCase.check_mailbox_status(tenantId, mailboxId);
+    },
+    async replicateSnapshot(snapshotId, targets) {
+      return await replicationUseCase.replicate_snapshot(tenantId, snapshotId, targets);
+    },
+    async replicateMailbox(mailboxId, targets) {
+      return await replicationUseCase.replicate_mailbox(tenantId, mailboxId, targets);
+    },
+    async rehydrateSnapshot(snapshotId, source) {
+      return await replicationUseCase.rehydrate_snapshot(tenantId, snapshotId, source);
+    },
+    async rehydrateMailbox(mailboxId, source) {
+      return await replicationUseCase.rehydrate_mailbox(tenantId, mailboxId, source);
+    },
+    async rehydrateTenant(source) {
+      return await replicationUseCase.rehydrate_tenant(tenantId, source);
+    },
+    async getReplicationStatus(snapshotId) {
+      return await replicationUseCase.get_replication_status(tenantId, snapshotId);
     },
   };
 }

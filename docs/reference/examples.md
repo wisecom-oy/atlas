@@ -139,6 +139,57 @@ process.exit(failed.length > 0 ? 1 : 0);
 
 The non-zero exit code on failure integrates with cron (which can send alert emails on failure), systemd (which logs `FailureAction`), and CI/CD pipelines.
 
+## Backup, Replicate, and Report
+
+Back up each mailbox, immediately replicate the snapshot to an offsite target, and collect the results. This is the core loop for a 3-2-1 strategy -- adapt the reporting to whatever fits your stack (webhook, database row, structured log, email).
+
+```typescript
+import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
+
+const atlas = createAtlasInstance({
+  tenantId: process.env.ATLAS_TENANT_ID!,
+  clientId: process.env.ATLAS_CLIENT_ID!,
+  clientSecret: process.env.ATLAS_CLIENT_SECRET!,
+  s3Endpoint: process.env.ATLAS_S3_ENDPOINT!,
+  s3AccessKey: process.env.ATLAS_S3_ACCESS_KEY!,
+  s3SecretKey: process.env.ATLAS_S3_SECRET_KEY!,
+  encryptionPassphrase: process.env.ATLAS_ENCRYPTION_PASSPHRASE!,
+});
+
+const offsite = createStorageTarget({
+  s3Endpoint: process.env.OFFSITE_S3_ENDPOINT!,
+  s3AccessKey: process.env.OFFSITE_S3_ACCESS_KEY!,
+  s3SecretKey: process.env.OFFSITE_S3_SECRET_KEY!,
+  encryptionPassphrase: process.env.ATLAS_ENCRYPTION_PASSPHRASE!,
+});
+
+const mailboxes = ['ceo@company.com', 'finance@company.com', 'legal@company.com'];
+const results = [];
+const replications: Promise<unknown>[] = [];
+
+for (const mailbox of mailboxes) {
+  try {
+    const backup = await atlas.backupMailbox(mailbox);
+
+    // Replication is S3-to-S3 only (no Graph API calls), so fire it off
+    // concurrently while the next mailbox backup runs.
+    replications.push(atlas.replicateSnapshot(backup.snapshot.id, [offsite]));
+
+    results.push({ mailbox, snapshot_id: backup.snapshot.id, stored: backup.summary.stored, ok: true });
+  } catch (err) {
+    results.push({ mailbox, ok: false, error: (err as Error).message });
+  }
+}
+
+await Promise.allSettled(replications);
+
+// results is a plain array -- send it wherever you want
+console.log(JSON.stringify(results, null, 2));
+process.exit(results.some((r) => !r.ok) ? 1 : 0);
+```
+
+Backups run sequentially to avoid Graph API throttling, but each replication fires off immediately without blocking the next backup. Replication is pure S3-to-S3 traffic (typically LAN or inter-datacenter fiber), so it runs concurrently in the background. `Promise.allSettled` at the end ensures all replications finish before the process exits. If the job crashes partway, the next run picks up naturally -- `backupMailbox` produces a delta snapshot and `replicateSnapshot` skips objects already on the target.
+
 ## Periodic Integrity Verification
 
 Run `verifySnapshot` on recent snapshots to confirm that data in S3 has not been corrupted or tampered with. This is the programmatic equivalent of `atlas verify`.

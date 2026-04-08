@@ -45,6 +45,9 @@ export type {
 
 export type { StatsUseCase } from './stats/use-case.port';
 
+export type { ReplicationUseCase } from './replication/use-case.port';
+export type { StorageTarget, StorageTargetConfig } from './replication/storage-target.port';
+
 export {
   OBJECT_STORAGE_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
@@ -62,4 +65,5 @@ export {
   DELETION_USE_CASE_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
+  REPLICATION_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

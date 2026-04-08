@@ -8,3 +8,4 @@ export const SAVE_USE_CASE_TOKEN = Symbol.for('SaveUseCase');
 export const STATS_USE_CASE_TOKEN = Symbol.for('StatsUseCase');
 export const STATUS_USE_CASE_TOKEN = Symbol.for('StatusUseCase');
 export const TENANT_ORCHESTRATOR_TOKEN = Symbol.for('TenantBackupOrchestrator');
+export const REPLICATION_USE_CASE_TOKEN = Symbol.for('ReplicationUseCase');

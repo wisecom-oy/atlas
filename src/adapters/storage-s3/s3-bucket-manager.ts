@@ -22,8 +22,12 @@ const _immutability_probe_cache = new Map<string, StorageImmutabilityProbeResult
  * multipart uploads, clean up expired delete markers). Existing buckets are
  * left untouched. Caches results in-process so subsequent calls are free.
  */
-export async function ensure_bucket_exists(client: S3Client, bucket: string): Promise<void> {
-  if (_checked_buckets.has(bucket)) return;
+export async function ensure_bucket_exists(
+  client: S3Client,
+  bucket: string,
+  skip_cache = false,
+): Promise<void> {
+  if (!skip_cache && _checked_buckets.has(bucket)) return;
 
   const exists = await bucket_exists(client, bucket);
   if (!exists) {

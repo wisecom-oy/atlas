@@ -14,3 +14,9 @@ export type {
 export type { RestoreRequest } from './restore-request';
 export { RestoreStatus } from './restore-request';
 export type { BucketStats, MailboxStats, FolderStats, MonthlyBreakdown } from './stats';
+export type {
+  ReplicationResult,
+  ReplicationObjectResult,
+  ReplicationStatusRecord,
+} from './replication';
+export { ReplicationStatus, ReplicationVerificationStatus } from './replication';

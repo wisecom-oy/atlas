@@ -265,3 +265,48 @@ sudo systemctl enable --now atlas-backup.timer
 ::: tip Off-Hours Scheduling
 For professional deployments, always schedule backups outside business hours. A nightly 2 AM run avoids competing with daytime internet usage and Microsoft Graph API traffic from other applications in your tenant.
 :::
+
+## Multi-Location Replication
+
+Atlas supports replicating completed snapshots to one or more secondary S3-compatible storage targets. This enables 3-2-1 backup strategies where data exists on multiple storage systems in multiple locations.
+
+### Deployment Patterns
+
+**Local MinIO primary + offsite MinIO replica:**
+
+Run a primary MinIO instance on your local backup server and a second MinIO instance at a remote site (colocation, another office, or a VPS). After each backup, replicate to the offsite target:
+
+```bash
+atlas backup -m user@company.com
+atlas replicate -m user@company.com --target-config ./offsite.json
+```
+
+**Local MinIO primary + cloud S3 replica:**
+
+Run MinIO locally for fast backups, then replicate to AWS S3, Backblaze B2, Wasabi, or any S3-compatible cloud storage for geographic redundancy:
+
+```json
+{
+  "target_id": "aws-us-east",
+  "s3_endpoint": "https://s3.us-east-1.amazonaws.com",
+  "s3_access_key": "AKIA...",
+  "s3_secret_key": "...",
+  "s3_region": "us-east-1"
+}
+```
+
+### Scheduling Replication
+
+Schedule replication after backups using a second cron entry or systemd timer:
+
+```cron
+# Nightly backup at 2 AM, replicate at 4 AM
+0 2 * * * /usr/bin/atlas backup >> /var/log/atlas-backup.log 2>&1
+0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> /var/log/atlas-replicate.log 2>&1
+```
+
+### Bandwidth Considerations
+
+Replication transfers encrypted objects over the network. The first replication of a mailbox transfers all historical data (similar to an initial backup). Subsequent replications only transfer new snapshots. Plan bandwidth and scheduling accordingly -- replicating 50 GB of backup data to a remote site over a 10 Mbps upload link takes approximately 11 hours.
+
+See [Replication](/operations/replication) for full operational details, security model, and disaster recovery procedures.

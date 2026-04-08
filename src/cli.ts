@@ -14,6 +14,8 @@ import { register_save_command } from '@/cli/commands/save.command';
 import { register_stats_command } from '@/cli/commands/stats.command';
 import { register_mailboxes_command } from '@/cli/commands/mailboxes.command';
 import { register_status_command } from '@/cli/commands/status.command';
+import { register_replicate_command } from '@/cli/commands/replicate.command';
+import { register_rehydrate_command } from '@/cli/commands/rehydrate.command';
 import { logger } from '@/utils/logger';
 import type { Container } from 'inversify';
 
@@ -48,6 +50,8 @@ function register_commands(program: Command): void {
   register_stats_command(program, get_container);
   register_mailboxes_command(program, get_container);
   register_status_command(program, get_container);
+  register_replicate_command(program, get_container);
+  register_rehydrate_command(program, get_container);
 }
 
 /** Handles top-level unhandled errors from command execution. */

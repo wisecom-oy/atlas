@@ -60,3 +60,31 @@ chmod 600 .env atlas.config.json
 
 Never commit these files to version control. The included `.gitignore` already excludes `.env`, but verify that your config file is also excluded. In multi-user environments, ensure only the service account running Atlas can read these files.
 :::
+
+## Replication Target Config
+
+The `atlas replicate` and `atlas rehydrate` commands accept a `--target-config` or `--source-config` flag pointing to a JSON file with S3 credentials for a secondary storage target:
+
+```json
+{
+  "target_id": "offsite-dr",
+  "s3_endpoint": "http://offsite:9000",
+  "s3_access_key": "offsite-key",
+  "s3_secret_key": "offsite-secret",
+  "s3_region": "us-east-1"
+}
+```
+
+| Field          | Required | Description                                          |
+| -------------- | -------- | ---------------------------------------------------- |
+| `target_id`    | no       | Stable human-readable ID (auto-derived if omitted)   |
+| `s3_endpoint`  | yes      | S3 endpoint URL for the target                       |
+| `s3_access_key`| yes      | S3 access key for the target                         |
+| `s3_secret_key`| yes      | S3 secret key for the target                         |
+| `s3_region`    | no       | S3 region (default: `us-east-1`)                     |
+
+The encryption passphrase is **not** included in this file. Atlas uses the shared encryption model -- the passphrase from the main configuration applies to all targets.
+
+::: danger Secure Target Config Files
+Target config files contain S3 credentials. Apply the same file permission restrictions as the main config file (`chmod 600`). Never commit them to version control.
+:::
