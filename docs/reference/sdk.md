@@ -120,6 +120,49 @@ for (const mailboxId of mailboxIds) {
 }
 ```
 
+## Replication
+
+The SDK supports snapshot-level replication and disaster recovery rehydration. A `StorageTarget` represents a secondary S3 endpoint -- it only needs S3 credentials and the shared passphrase (no M365 credentials).
+
+```typescript
+import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
+
+const atlas = createAtlasInstance({ /* primary config */ });
+
+const offsite = createStorageTarget({
+  targetId: 'offsite-dr',
+  s3Endpoint: 'http://offsite:9000',
+  s3AccessKey: 'offsite-key',
+  s3SecretKey: 'offsite-secret',
+  encryptionPassphrase: 'same-passphrase-as-primary',
+});
+
+// Replicate a snapshot to one or more targets
+const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
+
+// Replicate all unreplicated snapshots for a mailbox
+const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
+
+// Query replication status
+const status = await atlas.getReplicationStatus('snapshot-id');
+
+// Disaster recovery: recover from a replica
+await atlas.rehydrateSnapshot('snapshot-id', offsite);
+await atlas.rehydrateMailbox('user@company.com', offsite);
+await atlas.rehydrateTenant(offsite);
+```
+
+`createStorageTarget` accepts a `StorageTargetConfig`:
+
+| Option                 | Type     | Description                                                    |
+| ---------------------- | -------- | -------------------------------------------------------------- |
+| `targetId`             | `string` | Stable human-readable ID (auto-derived from endpoint if omitted) |
+| `s3Endpoint`           | `string` | S3 endpoint URL                                                |
+| `s3AccessKey`          | `string` | S3 access key                                                  |
+| `s3SecretKey`          | `string` | S3 secret key                                                  |
+| `s3Region`             | `string` | S3 region (default: `us-east-1`)                               |
+| `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)    |
+
 ## Exports
 
-The SDK exports its own types via `m365-atlas/sdk`. Domain types, port interfaces, and result types are available from the root `m365-atlas` import for advanced use cases. Status-related types (`MailboxStatusResult`, `FolderStatus`) are also exported from `m365-atlas/sdk`.
+The SDK exports its own types via `m365-atlas/sdk`. Domain types, port interfaces, and result types are available from the root `m365-atlas` import for advanced use cases. Status-related types (`MailboxStatusResult`, `FolderStatus`), replication types (`ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`), and `createStorageTarget` are also exported from `m365-atlas/sdk`.

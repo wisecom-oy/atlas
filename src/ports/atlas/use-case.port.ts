@@ -8,6 +8,8 @@ import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
 import type { BucketStats, MailboxStats } from '@/domain/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
+import type { ReplicationResult, ReplicationStatusRecord } from '@/domain/replication';
+import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
 export interface AtlasInstanceConfig {
   readonly tenantId: string;
@@ -37,4 +39,11 @@ export interface AtlasInstance {
   getBucketStats(): Promise<BucketStats>;
   getMailboxStats(mailboxId: string): Promise<MailboxStats>;
   checkMailboxStatus(mailboxId: string): Promise<MailboxStatusResult>;
+  replicateSnapshot(snapshotId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
+  replicateMailbox(mailboxId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
+  rehydrateSnapshot(snapshotId: string, source: StorageTarget): Promise<ReplicationResult>;
+  rehydrateMailbox(mailboxId: string, source: StorageTarget): Promise<ReplicationResult>;
+  rehydrateTenant(source: StorageTarget): Promise<ReplicationResult>;
+  getReplicationStatus(snapshotId?: string): Promise<ReplicationStatusRecord[]>;
+  getReplicationStatusByMailbox(mailboxId: string): Promise<ReplicationStatusRecord[]>;
 }

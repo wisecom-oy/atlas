@@ -23,6 +23,7 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
 } from '@/ports/tokens/outgoing.tokens';
+import { logger } from '@/utils/logger';
 
 class NoopBackupProgressReporter implements BackupProgressReporter {
   set_status(): void {}
@@ -56,6 +57,7 @@ export class MailboxSyncService implements BackupUseCase {
     mailbox_id = mailbox_id.toLowerCase();
     await assert_mailbox_exists(this._connector, tenant_id, mailbox_id);
     const ctx = await this._tenant_factory.create(tenant_id);
+    await this.warn_if_replica(ctx);
     const snapshot = create_pending_snapshot(tenant_id, mailbox_id);
     const sync_start = Date.now();
     const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
@@ -225,5 +227,20 @@ export class MailboxSyncService implements BackupUseCase {
     }
 
     return { folders: matched, warnings };
+  }
+
+  private async warn_if_replica(ctx: {
+    storage: { exists(key: string): Promise<boolean> };
+  }): Promise<void> {
+    try {
+      if (await ctx.storage.exists('_meta/replica.marker')) {
+        logger.warn(
+          'This storage target contains a replica marker (_meta/replica.marker). ' +
+            'Running backup against a replica is not recommended -- use the primary storage.',
+        );
+      }
+    } catch {
+      /* non-critical: do not block backup if marker check fails */
+    }
   }
 }

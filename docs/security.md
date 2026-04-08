@@ -109,3 +109,36 @@ Currently, `atlas verify` checks **message body entries** listed in the manifest
 ### Content-MD5 on Uploads
 
 Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.
+
+## Replication Security
+
+### Shared Encryption Model
+
+Atlas replication uses a shared encryption model: all storage targets (primary and secondary) share the same master passphrase and the same per-tenant DEK. Ciphertext is copied byte-for-byte during replication -- no decryption or re-encryption occurs.
+
+This means:
+
+- **One passphrase protects all copies.** Compromising the passphrase compromises data on every target.
+- **One DEK per tenant across all targets.** The wrapped DEK (`_meta/dek.enc`) is copied to each target on first replication.
+
+### Access Isolation
+
+While encryption keys are shared, **S3 access credentials should be separate per target**. Use independent IAM principals for each storage endpoint:
+
+- Primary MinIO: `atlas-primary` user with full read/write
+- Offsite MinIO: `atlas-offsite` user with full read/write
+- Cloud S3: dedicated IAM role with scoped permissions
+
+If an attacker compromises one target's S3 credentials, they can read that target's data (which is encrypted) but cannot reach other targets. Combined with a strong passphrase, this provides defense in depth.
+
+### DEK Mismatch Protection
+
+Atlas validates encryption key consistency before every replication and rehydration. If the primary tenant was purged and re-initialized (generating a new DEK), replication to a target with the old DEK is refused with an explicit error. This prevents a scenario where objects encrypted with different keys coexist on the same target, making older objects permanently undecryptable.
+
+### Replica Marker
+
+Atlas writes a marker file (`_meta/replica.marker`) on each target during first replication. If a user accidentally runs `atlas backup` against a replica target, Atlas detects the marker and logs a warning. This guards against accidental violation of the primary-is-truth principle, which could lead to data inconsistency.
+
+### Replication Status Encryption
+
+Replication status sidecar files stored under `_meta/replication/` in the primary bucket are encrypted with the tenant DEK. Target endpoints, checksums, and error messages are not exposed at rest in S3.

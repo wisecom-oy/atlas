@@ -306,3 +306,66 @@ atlas stats --json                     # raw JSON output
 | `-t, --tenant <id>`     | Override tenant ID from config             |
 
 The bucket-level overview shows total object counts and storage consumption across all mailboxes. The mailbox breakdown shows per-prefix statistics (data, attachments, manifests) so you can identify which mailboxes consume the most storage. Use `--json` for programmatic consumption in monitoring scripts or dashboards.
+
+## `atlas replicate`
+
+Replicate snapshots to a secondary S3-compatible storage target. Ciphertext is copied as-is (no decryption). Only unreplicated snapshots and missing objects are transferred.
+
+```bash
+atlas replicate -s <snapshot-id> \
+  --target-endpoint http://offsite:9000 \
+  --target-access-key <key> \
+  --target-secret-key <secret>
+
+atlas replicate -m user@company.com --target-config ./offsite.json
+
+atlas replicate --status
+atlas replicate --status -m user@company.com
+atlas replicate --status -s <snapshot-id>
+```
+
+| Option                       | Description                                           |
+| ---------------------------- | ----------------------------------------------------- |
+| `-s, --snapshot <id>`        | Replicate a specific snapshot                         |
+| `-m, --mailbox <email>`      | Replicate all unreplicated snapshots for a mailbox    |
+| `--target-endpoint <url>`    | Target S3 endpoint URL                                |
+| `--target-access-key <key>`  | Target S3 access key                                  |
+| `--target-secret-key <key>`  | Target S3 secret key                                  |
+| `--target-region <region>`   | Target S3 region (default: `us-east-1`)               |
+| `--target-config <path>`     | Path to JSON file with target S3 credentials          |
+| `--status`                   | Show replication status instead of replicating        |
+| `-t, --tenant <id>`          | Override tenant ID                                    |
+
+::: tip Target Config File
+The target config file is a JSON object with `s3_endpoint`, `s3_access_key`, `s3_secret_key`, and optionally `s3_region` and `target_id`. The encryption passphrase is shared from the main Atlas configuration.
+:::
+
+## `atlas rehydrate`
+
+Recover snapshots from a replica to primary storage. This is a disaster recovery operation -- not a bidirectional sync. Snapshots already on primary are skipped.
+
+```bash
+atlas rehydrate -s <snapshot-id> \
+  --source-endpoint http://offsite:9000 \
+  --source-access-key <key> \
+  --source-secret-key <secret>
+
+atlas rehydrate -m user@company.com --source-config ./offsite.json
+atlas rehydrate --all --source-config ./offsite.json
+```
+
+| Option                       | Description                                              |
+| ---------------------------- | -------------------------------------------------------- |
+| `-s, --snapshot <id>`        | Recover a specific snapshot from the replica             |
+| `-m, --mailbox <email>`      | Recover all snapshots for a mailbox from the replica     |
+| `--all`                      | Recover all mailboxes and snapshots (full tenant DR)     |
+| `--source-endpoint <url>`    | Source replica S3 endpoint URL                           |
+| `--source-access-key <key>`  | Source replica S3 access key                             |
+| `--source-secret-key <key>`  | Source replica S3 secret key                             |
+| `--source-region <region>`   | Source replica S3 region (default: `us-east-1`)          |
+| `--source-config <path>`     | Path to JSON file with source S3 credentials             |
+| `-t, --tenant <id>`          | Override tenant ID                                       |
+
+::: danger Rehydration Is Not Sync
+Rehydration copies explicitly selected data from a designated replica to primary. It does not merge, diff, or resolve conflicts. After rehydration, primary resumes as the source of truth. Delta links in recovered manifests may be stale -- Atlas falls back to full sync on the next backup automatically.
+:::

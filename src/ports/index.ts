@@ -45,6 +45,14 @@ export type {
 
 export type { StatsUseCase } from './stats/use-case.port';
 
+export type { ReplicationUseCase } from './replication/use-case.port';
+export type {
+  StorageTarget,
+  StorageTargetConfig,
+  StorageTargetFactory,
+} from './replication/storage-target.port';
+export type { DekValidationFn } from './replication/dek-validation.port';
+
 export {
   OBJECT_STORAGE_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
@@ -52,6 +60,8 @@ export {
   KEY_SERVICE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
+  DEK_VALIDATION_FN_TOKEN,
+  STORAGE_TARGET_FACTORY_TOKEN,
 } from './tokens/outgoing.tokens';
 
 export {
@@ -61,5 +71,8 @@ export {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
+  SAVE_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
+  STATUS_USE_CASE_TOKEN,
+  REPLICATION_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

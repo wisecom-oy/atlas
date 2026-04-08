@@ -5,3 +5,5 @@ export const KEY_SERVICE_TOKEN = Symbol.for('KeyService');
 export const TENANT_CONTEXT_FACTORY_TOKEN = Symbol.for('TenantContextFactory');
 export const RESTORE_CONNECTOR_TOKEN = Symbol.for('RestoreConnector');
 export const MAILBOX_DISCOVERY_TOKEN = Symbol.for('MailboxDiscoveryService');
+export const DEK_VALIDATION_FN_TOKEN = Symbol.for('DekValidationFn');
+export const STORAGE_TARGET_FACTORY_TOKEN = Symbol.for('StorageTargetFactory');
