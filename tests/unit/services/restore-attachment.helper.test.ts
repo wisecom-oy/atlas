@@ -29,8 +29,12 @@ function make_restore_connector(): RestoreConnector {
     add_attachment: vi.fn(),
     create_upload_session: vi.fn(),
     upload_attachment_chunk: vi.fn(),
+    count_folder_messages: vi.fn().mockResolvedValue(0),
+    list_folder_messages: vi.fn().mockResolvedValue([]),
   };
 }
+
+const CONTENT_CHECKSUM = 'ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73';
 
 function make_attachment(overrides: Partial<AttachmentEntry> = {}): AttachmentEntry {
   return {
@@ -39,7 +43,7 @@ function make_attachment(overrides: Partial<AttachmentEntry> = {}): AttachmentEn
     content_type: 'application/pdf',
     size_bytes: 1024,
     storage_key: 'attachments/user/sha256hash',
-    checksum: 'sha256hash',
+    checksum: CONTENT_CHECKSUM,
     is_inline: false,
     ...overrides,
   };
@@ -147,5 +151,22 @@ describe('restore_entry_attachments', () => {
 
     expect(result.restored).toBe(2);
     expect(connector.add_attachment).toHaveBeenCalledTimes(2);
+  });
+
+  it('records error when attachment checksum mismatches', async () => {
+    const att = make_attachment({ checksum: 'wrong_checksum' });
+    const result = await restore_entry_attachments(
+      ctx,
+      connector,
+      'tenant',
+      'user@test.com',
+      'msg-1',
+      [att],
+    );
+
+    expect(result.restored).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain('checksum mismatch');
+    expect(connector.add_attachment).not.toHaveBeenCalled();
   });
 });

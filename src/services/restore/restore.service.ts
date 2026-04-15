@@ -14,7 +14,7 @@ import {
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
 import {
-  filter_manifests_by_date,
+  load_mailbox_manifests,
   merge_snapshot_entries,
 } from '@/services/restore/manifest-entry-merger';
 import {
@@ -23,6 +23,7 @@ import {
   backfill_missing_folder_ids,
   log_restore_summary,
 } from '@/services/restore/restore-execution-orchestrator';
+import { verify_folder_message_count } from '@/services/restore/restore-folder-verifier';
 import { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
 import { calc_rate } from '@/services/shared/progress-rate';
 import { logger } from '@/utils/logger';
@@ -97,7 +98,13 @@ export class RestoreService implements RestoreUseCase {
 
     await this.assert_mailbox_exists(tenant_id, target);
 
-    const manifests = await this.load_mailbox_manifests(ctx, mailbox_id, options);
+    const manifests = await load_mailbox_manifests(
+      this._manifests,
+      ctx,
+      mailbox_id,
+      options.start_date,
+      options.end_date,
+    );
     if (manifests.length === 0) {
       logger.warn('No snapshots found for this mailbox in the given date range');
       return this.empty_result('mailbox');
@@ -107,49 +114,30 @@ export class RestoreService implements RestoreUseCase {
 
     if (options.folder_name) {
       await backfill_missing_folder_ids(ctx, entries);
+      const folder_map = await build_folder_map(this._connector, tenant_id, mailbox_id);
+      const filtered = filter_entries_by_folder_name(entries, options.folder_name, folder_map);
+      if (filtered.length === 0) {
+        logger.warn('No entries to restore after filtering');
+        return this.empty_result('mailbox');
+      }
+      logger.info(
+        `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
+          `${chalk.cyan(String(filtered.length))} unique messages`,
+      );
+      return this.restore_batch(ctx, tenant_id, mailbox_id, target, 'mailbox', filtered);
     }
 
-    const filtered = await this.apply_entry_filters(entries, mailbox_id, tenant_id, options);
-
-    if (filtered.length === 0) {
+    if (entries.length === 0) {
       logger.warn('No entries to restore after filtering');
       return this.empty_result('mailbox');
     }
 
     logger.info(
       `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
-        `${chalk.cyan(String(filtered.length))} unique messages`,
+        `${chalk.cyan(String(entries.length))} unique messages`,
     );
 
-    return this.restore_batch(ctx, tenant_id, mailbox_id, target, 'mailbox', filtered);
-  }
-
-  /** Loads all manifests for a mailbox, sorted newest-first and date-filtered. */
-  private async load_mailbox_manifests(
-    ctx: TenantContext,
-    mailbox_id: string,
-    options: RestoreOptions,
-  ): Promise<Manifest[]> {
-    const all = await this._manifests.list_all_manifests(ctx);
-    const for_mailbox = all
-      .filter((m) => m.mailbox_id === mailbox_id)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
-  }
-
-  /** Applies folder filter to a set of entries. */
-  private async apply_entry_filters(
-    entries: ManifestEntry[],
-    mailbox_id: string,
-    tenant_id: string,
-    options: RestoreOptions,
-  ): Promise<ManifestEntry[]> {
-    if (options.folder_name) {
-      const folder_map = await build_folder_map(this._connector, tenant_id, mailbox_id);
-      return filter_entries_by_folder_name(entries, options.folder_name, folder_map);
-    }
-    return entries;
+    return this.restore_batch(ctx, tenant_id, mailbox_id, target, 'mailbox', entries);
   }
 
   /** Loads and validates the manifest for a given snapshot. */
@@ -168,7 +156,7 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions,
   ): Promise<ManifestEntry[]> {
     if (options.message_ref) {
-      const entry = this.resolve_single_entry(manifest, options.message_ref);
+      const entry = resolve_single_entry(manifest, options.message_ref);
       return entry ? [entry] : [];
     }
 
@@ -179,13 +167,6 @@ export class RestoreService implements RestoreUseCase {
     }
 
     return manifest.entries;
-  }
-
-  /** Resolves a single entry by 1-based index or object_id. */
-  private resolve_single_entry(manifest: Manifest, ref: string): ManifestEntry | undefined {
-    const index = Number(ref);
-    if (Number.isInteger(index) && index >= 1) return manifest.entries[index - 1];
-    return manifest.entries.find((e) => e.object_id === ref);
   }
 
   /** Restores a batch of messages with dashboard progress. */
@@ -244,6 +225,7 @@ export class RestoreService implements RestoreUseCase {
     let global_restored = 0;
     let global_att = 0;
     let global_errors = 0;
+    let global_att_errors = 0;
     const all_errors: string[] = [];
     const start = Date.now();
     const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
@@ -287,8 +269,18 @@ export class RestoreService implements RestoreUseCase {
 
         global_restored += result.restored;
         global_att += result.attachments;
+        global_att_errors += result.attachment_errors;
         global_errors += result.errors.length;
         all_errors.push(...result.errors);
+
+        await verify_folder_message_count(
+          this._restore_connector,
+          tenant_id,
+          target_mailbox,
+          target_fid,
+          result.restored,
+          folder_map.get(fid) ?? fid.slice(0, 12),
+        );
 
         const rate = calc_rate(global_restored, Date.now() - start);
         const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
@@ -308,6 +300,7 @@ export class RestoreService implements RestoreUseCase {
         restored_count: global_restored,
         attachment_count: global_att,
         error_count: global_errors,
+        attachment_error_count: global_att_errors,
         errors: all_errors,
         restore_folder_name: root.display_name,
       };
@@ -333,8 +326,16 @@ export class RestoreService implements RestoreUseCase {
       restored_count: 0,
       attachment_count: 0,
       error_count: 0,
+      attachment_error_count: 0,
       errors: [],
       restore_folder_name: '',
     };
   }
+}
+
+/** Resolves a single entry by 1-based index or object_id. */
+function resolve_single_entry(manifest: Manifest, ref: string): ManifestEntry | undefined {
+  const index = Number(ref);
+  if (Number.isInteger(index) && index >= 1) return manifest.entries[index - 1];
+  return manifest.entries.find((e) => e.object_id === ref);
 }

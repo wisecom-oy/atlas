@@ -14,11 +14,13 @@ import type { TenantContext, TenantContextFactory } from '@/ports/tenant/context
 import type { RestoreConnector } from '@/ports/restore/connector.port';
 import type { Manifest, ManifestEntry } from '@/domain/manifest';
 
+const MSG_CHECKSUM = 'd1df863a768a7ba63b478c633a7e27ff636f03c5e33dca3117f869dc7a273a99';
+
 function make_entry(id: string, folder_id: string): ManifestEntry {
   return {
     object_id: id,
     storage_key: `data/user/${id}`,
-    checksum: id,
+    checksum: MSG_CHECKSUM,
     size_bytes: 100,
     subject: `Subject ${id}`,
     folder_id,
@@ -106,7 +108,7 @@ describe('RestoreService', () => {
       add_attachment: vi.fn(),
       create_upload_session: vi.fn(),
       upload_attachment_chunk: vi.fn(),
-      count_folder_messages: vi.fn().mockResolvedValue(0),
+      count_folder_messages: vi.fn().mockResolvedValue(1000),
       list_folder_messages: vi.fn().mockResolvedValue([]),
     };
 
@@ -200,7 +202,7 @@ describe('RestoreService', () => {
           content_type: 'application/pdf',
           size_bytes: 512,
           storage_key: 'attachments/user/hash1',
-          checksum: 'hash1',
+          checksum: MSG_CHECKSUM,
           is_inline: false,
         },
       ],
@@ -311,5 +313,26 @@ describe('RestoreService', () => {
         expect.any(String),
       );
     });
+  });
+
+  it('calls count_folder_messages for post-restore verification', async () => {
+    const entries = [make_entry('msg-1', 'f1'), make_entry('msg-2', 'f1')];
+    const manifest = make_manifest(entries);
+    (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
+
+    await service.restore_snapshot('test-tenant', 'snap-1');
+
+    expect(mock_restore.count_folder_messages).toHaveBeenCalled();
+  });
+
+  it('includes attachment_error_count in result', async () => {
+    const entries = [make_entry('msg-1', 'f1')];
+    const manifest = make_manifest(entries);
+    (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
+
+    const result = await service.restore_snapshot('test-tenant', 'snap-1');
+
+    expect(result).toHaveProperty('attachment_error_count');
+    expect(result.attachment_error_count).toBe(0);
   });
 });

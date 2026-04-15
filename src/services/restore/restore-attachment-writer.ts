@@ -1,6 +1,7 @@
 import type { TenantContext } from '@/ports/tenant/context.port';
 import type { RestoreConnector } from '@/ports/restore/connector.port';
 import type { AttachmentEntry } from '@/domain/manifest';
+import { verify_checksum } from '@/services/save/save-integrity-validator';
 import { logger } from '@/utils/logger';
 
 export interface AttachmentRestoreResult {
@@ -35,6 +36,13 @@ export async function restore_entry_attachments(
 
     try {
       const content = await decrypt_attachment(ctx, att.storage_key);
+
+      if (!verify_checksum(content, att.checksum)) {
+        errors.push(
+          `${att.name}: checksum mismatch (key: ${att.storage_key}). Attachment may be corrupted.`,
+        );
+        continue;
+      }
 
       await restore_connector.add_attachment(tenant_id, mailbox_id, new_message_id, {
         name: att.name,

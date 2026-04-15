@@ -146,6 +146,10 @@ function report_restore_result(result: RestoreResult): void {
     result.attachment_count > 0
       ? ` + ${chalk.cyan(String(result.attachment_count))} attachments`
       : '';
+  const att_err_info =
+    result.attachment_error_count > 0
+      ? ` (${chalk.yellow(String(result.attachment_error_count))} attachment failures)`
+      : '';
 
   if (result.error_count === 0) {
     logger.success(
@@ -157,7 +161,7 @@ function report_restore_result(result: RestoreResult): void {
 
   logger.warn(
     `Restored ${result.restored_count} messages with ` +
-      `${chalk.yellow(String(result.error_count))} errors`,
+      `${chalk.yellow(String(result.error_count))} errors${att_err_info}`,
   );
   for (const err of result.errors.slice(0, 10)) {
     logger.error(`  - ${err}`);

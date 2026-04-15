@@ -122,11 +122,11 @@ describe('extract_folder_id_from_json', () => {
 });
 
 describe('decrypt_and_parse_message', () => {
-  it('decrypts and parses the stored JSON blob', async () => {
-    const original = { subject: 'Hello', parentFolderId: 'f1' };
-    const json_buf = Buffer.from(JSON.stringify(original));
-    const encrypted = Buffer.concat([Buffer.from('E'), json_buf]);
-
+  function make_ctx_and_entry(
+    plaintext: Buffer,
+    checksum: string,
+  ): { ctx: TenantContext; entry: ManifestEntry } {
+    const encrypted = Buffer.concat([Buffer.from('E'), plaintext]);
     const ctx: TenantContext = {
       tenant_id: 'test',
       storage: {
@@ -142,18 +142,32 @@ describe('decrypt_and_parse_message', () => {
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     };
-
     const entry: ManifestEntry = {
       object_id: 'msg-1',
       storage_key: 'data/user/abc123',
-      checksum: 'abc',
+      checksum,
       size_bytes: 100,
     };
+    return { ctx, entry };
+  }
+
+  it('decrypts and parses the stored JSON blob', async () => {
+    const original = { subject: 'Hello', parentFolderId: 'f1' };
+    const plaintext = Buffer.from(JSON.stringify(original));
+    const checksum = 'b47ebd52b6041ef677d6847c6e6bb0a8400442ad3750d5419b9ec20bffda0659';
+    const { ctx, entry } = make_ctx_and_entry(plaintext, checksum);
 
     const result = await decrypt_and_parse_message(ctx, entry);
     expect(result.subject).toBe('Hello');
     expect(result.parentFolderId).toBe('f1');
     expect(ctx.storage.get).toHaveBeenCalledWith('data/user/abc123');
     expect(ctx.decrypt).toHaveBeenCalled();
+  });
+
+  it('throws on checksum mismatch', async () => {
+    const plaintext = Buffer.from(JSON.stringify({ subject: 'Hello' }));
+    const { ctx, entry } = make_ctx_and_entry(plaintext, 'bad_checksum');
+
+    await expect(decrypt_and_parse_message(ctx, entry)).rejects.toThrow('Checksum mismatch');
   });
 });

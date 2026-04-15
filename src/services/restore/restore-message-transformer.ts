@@ -1,5 +1,6 @@
 import type { TenantContext } from '@/ports/tenant/context.port';
 import type { ManifestEntry } from '@/domain/manifest';
+import { verify_checksum } from '@/services/save/save-integrity-validator';
 
 /**
  * Read-only fields that Graph returns on GET but rejects on POST.
@@ -57,6 +58,14 @@ export async function decrypt_and_parse_message(
 ): Promise<Record<string, unknown>> {
   const ciphertext = await ctx.storage.get(entry.storage_key);
   const plaintext = ctx.decrypt(ciphertext);
+
+  if (!verify_checksum(plaintext, entry.checksum)) {
+    throw new Error(
+      `Checksum mismatch for message ${entry.object_id} (key: ${entry.storage_key}). ` +
+        `The stored blob may be corrupted.`,
+    );
+  }
+
   return JSON.parse(plaintext.toString('utf-8')) as Record<string, unknown>;
 }
 
