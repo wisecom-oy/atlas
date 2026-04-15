@@ -75,6 +75,7 @@ describe('ReplicationService', () => {
       storage: source_storage,
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
+      destroy: vi.fn(),
     };
 
     target_ctx = {
@@ -82,6 +83,7 @@ describe('ReplicationService', () => {
       storage: target_storage,
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
+      destroy: vi.fn(),
     };
 
     tenant_factory = {

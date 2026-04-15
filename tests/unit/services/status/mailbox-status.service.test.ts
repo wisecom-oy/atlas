@@ -49,6 +49,7 @@ function make_mock_context(): TenantContext {
     },
     encrypt: vi.fn(),
     decrypt: vi.fn(),
+    destroy: vi.fn(),
   };
 }
 

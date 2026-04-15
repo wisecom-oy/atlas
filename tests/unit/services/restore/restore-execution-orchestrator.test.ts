@@ -46,6 +46,7 @@ describe('restore_folder_entries', () => {
       storage: {} as never,
       encrypt: vi.fn(),
       decrypt: vi.fn(),
+      destroy: vi.fn(),
     } as TenantContext;
     restore_connector = {
       create_message: vi.fn().mockResolvedValue('new-msg'),
@@ -104,6 +105,7 @@ describe('restore_single_message', () => {
       storage: {} as never,
       encrypt: vi.fn(),
       decrypt: vi.fn(),
+      destroy: vi.fn(),
     } as TenantContext;
     const restore_connector = {
       create_message: vi.fn().mockResolvedValue('nm'),
@@ -142,6 +144,6 @@ describe('restore_single_message', () => {
 
     expect(result.error_count).toBe(0);
     expect(result.attachment_error_count).toBe(1);
-    expect(result.errors[0]).toContain('checksum mismatch');
+    expect(result.attachment_errors[0]).toContain('checksum mismatch');
   });
 });

@@ -59,6 +59,7 @@ describe('VerificationService', () => {
       storage,
       encrypt: vi.fn((data: Buffer) => data),
       decrypt: vi.fn((data: Buffer) => data),
+      destroy: vi.fn(),
     };
 
     tenant_factory = {

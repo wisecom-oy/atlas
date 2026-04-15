@@ -144,20 +144,15 @@ function report_restore_result(result: RestoreResult): void {
     result.attachment_count > 0
       ? ` + ${chalk.cyan(String(result.attachment_count))} attachments`
       : '';
-  const att_err_info =
-    result.attachment_error_count > 0
-      ? ` (${chalk.yellow(String(result.attachment_error_count))} attachment failures)`
-      : '';
 
-  if (result.verification_failures > 0) {
-    logger.warn(
-      `Post-restore verification: ${chalk.yellow(String(result.verification_failures))} ` +
-        `message(s) may not have persisted on the server.`,
-    );
-    process.exitCode = 1;
+  for (const w of result.verification_warnings) {
+    logger.warn(`Post-restore verification: ${w}`);
   }
+  if (result.verification_failures > 0) process.exitCode = 1;
 
-  if (result.error_count === 0 && result.verification_failures === 0) {
+  const has_errors = result.error_count > 0 || result.attachment_error_count > 0;
+
+  if (!has_errors && result.verification_failures === 0) {
     logger.success(
       `Restored ${chalk.green(String(result.restored_count))} messages${att_info}` +
         (result.restore_folder_name ? ` into ${chalk.cyan(result.restore_folder_name)}` : ''),
@@ -165,17 +160,26 @@ function report_restore_result(result: RestoreResult): void {
     return;
   }
 
-  if (result.error_count === 0) return;
+  if (!has_errors) return;
 
-  logger.warn(
-    `Restored ${result.restored_count} messages with ` +
-      `${chalk.yellow(String(result.error_count))} errors${att_err_info}`,
-  );
+  const parts: string[] = [];
+  if (result.error_count > 0) parts.push(`${result.error_count} message errors`);
+  if (result.attachment_error_count > 0) {
+    parts.push(`${result.attachment_error_count} attachment errors`);
+  }
+
+  logger.warn(`Restored ${result.restored_count} messages with ${chalk.yellow(parts.join(', '))}`);
   for (const err of result.errors.slice(0, 10)) {
     logger.error(`  - ${err}`);
   }
   if (result.errors.length > 10) {
     logger.error(`  ... and ${result.errors.length - 10} more`);
+  }
+  for (const err of result.attachment_errors.slice(0, 5)) {
+    logger.warn(`  [att] ${err}`);
+  }
+  if (result.attachment_errors.length > 5) {
+    logger.warn(`  ... and ${result.attachment_errors.length - 5} more attachment errors`);
   }
   process.exitCode = 1;
 }

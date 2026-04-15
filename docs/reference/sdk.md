@@ -128,11 +128,20 @@ interface RestoreResult {
   attachment_error_count: number;
   verification_failures: number;
   errors: string[];
+  attachment_errors: string[];
+  verification_warnings: string[];
   restore_folder_name: string;
 }
 ```
 
-`error_count` reflects message-level failures only. `attachment_error_count` tracks attachment-level failures separately. `verification_failures` indicates how many messages may not have persisted on the server according to post-restore folder count verification.
+| Field | Description |
+|-------|-------------|
+| `error_count` | Message-level failures. Matches `errors.length`. |
+| `attachment_error_count` | Attachment-level failures. Matches `attachment_errors.length`. |
+| `verification_failures` | Messages that may not have persisted, based on post-restore folder count verification. |
+| `errors` | Human-readable detail for each message-level failure. |
+| `attachment_errors` | Human-readable detail for each attachment-level failure. |
+| `verification_warnings` | Per-folder verification warnings, including API failures that prevented count confirmation. |
 
 ## Batch Processing
 

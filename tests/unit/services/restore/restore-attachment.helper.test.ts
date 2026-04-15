@@ -19,6 +19,7 @@ function make_ctx(): TenantContext {
     },
     encrypt: vi.fn(),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+    destroy: vi.fn(),
   };
 }
 

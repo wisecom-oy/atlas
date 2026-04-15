@@ -75,6 +75,7 @@ describe('RestoreService', () => {
       },
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      destroy: vi.fn(),
     };
 
     mock_manifests = {

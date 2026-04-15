@@ -53,6 +53,7 @@ describe('verify_replicated_snapshot', () => {
       storage,
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
+      destroy: vi.fn(),
     };
   });
 

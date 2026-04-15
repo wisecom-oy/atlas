@@ -62,6 +62,7 @@ describe('sync_single_folder', () => {
       },
       encrypt: vi.fn((b: Buffer) => Buffer.concat([Buffer.from('E'), b])),
       decrypt: vi.fn((b: Buffer) => b.subarray(1)),
+      destroy: vi.fn(),
     } as unknown as TenantContext;
 
     const progress: BackupProgressReporter = {
@@ -138,6 +139,7 @@ describe('sync_single_folder', () => {
       },
       encrypt: vi.fn(),
       decrypt: vi.fn(),
+      destroy: vi.fn(),
     } as unknown as TenantContext;
 
     const progress: BackupProgressReporter = {

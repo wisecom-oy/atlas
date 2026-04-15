@@ -29,31 +29,35 @@ export class MailboxStatusService implements StatusUseCase {
     await assert_mailbox_exists(this._connector, tenant_id, mailbox_id);
 
     const ctx = await this._tenant_factory.create(tenant_id);
-    const previous = await this._manifests.find_latest_by_mailbox(ctx, mailbox_id);
-    const saved_links = previous?.delta_links ?? {};
+    try {
+      const previous = await this._manifests.find_latest_by_mailbox(ctx, mailbox_id);
+      const saved_links = previous?.delta_links ?? {};
 
-    const all_folders = await this._connector.list_mail_folders(tenant_id, mailbox_id);
-    const folder_statuses = await this.peek_all_folders(
-      tenant_id,
-      mailbox_id,
-      all_folders,
-      saved_links,
-    );
+      const all_folders = await this._connector.list_mail_folders(tenant_id, mailbox_id);
+      const folder_statuses = await this.peek_all_folders(
+        tenant_id,
+        mailbox_id,
+        all_folders,
+        saved_links,
+      );
 
-    const total_pending = folder_statuses.reduce(
-      (sum, f) => sum + f.pending_new + f.pending_removed,
-      0,
-    );
+      const total_pending = folder_statuses.reduce(
+        (sum, f) => sum + f.pending_new + f.pending_removed,
+        0,
+      );
 
-    return {
-      mailbox_id,
-      last_backup_at: previous?.created_at ? new Date(previous.created_at) : undefined,
-      last_snapshot_id: previous?.snapshot_id,
-      total_folders: all_folders.length,
-      folders: folder_statuses,
-      is_up_to_date: total_pending === 0 && folder_statuses.every((f) => f.has_backup),
-      total_pending_changes: total_pending,
-    };
+      return {
+        mailbox_id,
+        last_backup_at: previous?.created_at ? new Date(previous.created_at) : undefined,
+        last_snapshot_id: previous?.snapshot_id,
+        total_folders: all_folders.length,
+        folders: folder_statuses,
+        is_up_to_date: total_pending === 0 && folder_statuses.every((f) => f.has_backup),
+        total_pending_changes: total_pending,
+      };
+    } finally {
+      ctx.destroy();
+    }
   }
 
   private async peek_all_folders(

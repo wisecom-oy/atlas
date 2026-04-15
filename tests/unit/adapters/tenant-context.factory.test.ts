@@ -60,6 +60,17 @@ describe('DefaultTenantContextFactory', () => {
     expect(mock_put).toHaveBeenCalledWith('_meta/dek.enc', expect.any(Buffer));
     const round = ctx.encrypt(Buffer.from('x'));
     expect(ctx.decrypt(round).toString()).toBe('x');
+    ctx.destroy();
+  });
+
+  it('destroy zeros passphrase without breaking prior encrypt/decrypt', async () => {
+    mock_exists = false;
+    const factory = container.get(DefaultTenantContextFactory);
+    const ctx = await factory.create('tenant-d');
+
+    const ct = ctx.encrypt(Buffer.from('before'));
+    ctx.destroy();
+    expect(ctx.decrypt(ct).toString()).toBe('before');
   });
 
   it('create loads existing wrapped DEK when present', async () => {

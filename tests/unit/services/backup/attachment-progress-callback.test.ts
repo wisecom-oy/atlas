@@ -29,6 +29,7 @@ function make_mock_context(): TenantContext {
     storage: make_mock_storage(),
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+    destroy: vi.fn(),
   };
 }
 

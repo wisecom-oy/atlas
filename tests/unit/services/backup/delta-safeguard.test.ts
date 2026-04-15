@@ -73,6 +73,7 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
       storage,
       encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      destroy: vi.fn(),
     };
 
     mock_connector = {

@@ -26,6 +26,7 @@ function make_context(storage: ObjectStorage, tenant_id = 'tenant-1'): TenantCon
     storage,
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
+    destroy: vi.fn(),
   };
 }
 

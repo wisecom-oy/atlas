@@ -187,7 +187,9 @@ export async function restore_single_message(
     error_count: 0,
     attachment_error_count: att_error_count,
     verification_failures: 0,
-    errors: att_errors,
+    errors: [],
+    attachment_errors: att_errors,
+    verification_warnings: [],
     restore_folder_name: root.display_name,
   };
 }

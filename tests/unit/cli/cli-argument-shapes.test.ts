@@ -150,6 +150,8 @@ describe('CLI argv → handler shape', () => {
       attachment_error_count: 0,
       verification_failures: 0,
       errors: [],
+      attachment_errors: [],
+      verification_warnings: [],
       restore_folder_name: '',
     });
     container.bind<RestoreUseCase>(RESTORE_USE_CASE_TOKEN).toConstantValue({
@@ -192,6 +194,8 @@ describe('CLI argv → handler shape', () => {
       attachment_error_count: 0,
       verification_failures: 0,
       errors: [],
+      attachment_errors: [],
+      verification_warnings: [],
       restore_folder_name: '',
     });
     container.bind<RestoreUseCase>(RESTORE_USE_CASE_TOKEN).toConstantValue({

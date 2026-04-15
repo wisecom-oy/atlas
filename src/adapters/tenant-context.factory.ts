@@ -44,13 +44,13 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
 
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
     const dek = await this.load_or_create_dek(storage, key_service, tenant_id);
-    key_service.destroy();
 
     return {
       tenant_id,
       storage,
       encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
       decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
+      destroy: (): void => key_service.destroy(),
     };
   }
 

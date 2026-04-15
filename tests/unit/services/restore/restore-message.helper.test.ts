@@ -141,6 +141,7 @@ describe('decrypt_and_parse_message', () => {
       },
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      destroy: vi.fn(),
     };
     const entry: ManifestEntry = {
       object_id: 'msg-1',

@@ -16,7 +16,10 @@ export interface TenantCryptoContext {
 }
 
 /** Bundles tenant-scoped storage and encryption for a single tenant. */
-export interface TenantContext extends TenantStorageContext, TenantCryptoContext {}
+export interface TenantContext extends TenantStorageContext, TenantCryptoContext {
+  /** Zeros sensitive key material. Call when the context is no longer needed. */
+  destroy(): void;
+}
 
 /** Factory that initializes per-tenant infrastructure (bucket, DEK) on demand. */
 export interface TenantContextFactory {

@@ -58,6 +58,7 @@ describe('save_entries_to_archive', () => {
       },
       encrypt: vi.fn((b: Buffer) => b),
       decrypt: vi.fn((b: Buffer) => b),
+      destroy: vi.fn(),
     } as unknown as TenantContext;
 
     dashboard = {

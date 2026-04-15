@@ -29,6 +29,7 @@ function make_context(storage: ObjectStorage): TenantContext {
     storage,
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('enc:'), data])),
     decrypt: vi.fn((data: Buffer) => Buffer.from(data.toString().replace('enc:', ''))),
+    destroy: vi.fn(),
   };
 }
 
