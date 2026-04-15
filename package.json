@@ -66,18 +66,18 @@
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.3.5",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^4.1.4",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-check-file": "^3.3.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "prettier": "^3.8.1",
-    "tsdown": "^0.21.0",
+    "tsdown": "^0.21.8",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vitepress": "^1.6.4",
-    "vitest": "^4.0.18"
+    "vitest": "^4.1.4"
   },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx}": "prettier --write"
@@ -85,7 +85,13 @@
   "pnpm": {
     "overrides": {
       "flatted": "3.4.2",
-      "fast-xml-parser": "5.5.7"
+      "fast-xml-parser": "5.5.7",
+      "lodash@<4.18.0": "4.18.1",
+      "brace-expansion@>=2.0.0 <2.0.3": "2.0.3",
+      "picomatch@>=2.0.0 <2.3.2": "2.3.2",
+      "picomatch@>=4.0.0 <4.0.4": "4.0.4",
+      "defu@<6.1.5": "6.1.5",
+      "vite@>=5.0.0 <6.4.2": "6.4.2"
     }
   },
   "dependencies": {
