@@ -164,22 +164,38 @@ describe('replicate_snapshot_to_target', () => {
   it('records failure for objects that throw during copy', async () => {
     const entry = make_entry({ storage_key: 'data/mailbox-1/hash-fail' });
     const manifest = make_manifest([entry]);
-    const manifest_blob = Buffer.from('encrypted-manifest');
 
-    vi.mocked(target_storage.exists).mockImplementation(async (key: string) => {
-      if (key === 'data/mailbox-1/hash-fail') return false;
-      return false;
-    });
+    vi.mocked(target_storage.exists).mockResolvedValue(false);
     vi.mocked(source_storage.get).mockImplementation(async (key: string) => {
       if (key === 'data/mailbox-1/hash-fail') throw new Error('Network error');
-      return manifest_blob;
+      return Buffer.from('encrypted-manifest');
     });
-    vi.mocked(target_storage.get).mockResolvedValue(manifest_blob);
 
     const result = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
 
     expect(result.objects_failed).toBe(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('Network error');
+  });
+
+  it('does not write manifest to target when objects failed', async () => {
+    const entry = make_entry({ storage_key: 'data/mailbox-1/hash-fail' });
+    const manifest = make_manifest([entry]);
+    const dek_blob = Buffer.from('wrapped-dek');
+
+    vi.mocked(target_storage.exists).mockResolvedValue(false);
+    vi.mocked(source_storage.get).mockImplementation(async (key: string) => {
+      if (key === '_meta/dek.enc') return dek_blob;
+      throw new Error('Network error');
+    });
+
+    const result = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
+
+    expect(result.objects_failed).toBe(1);
+    expect(result.source_manifest_checksum).toBe('');
+    expect(result.replicated_manifest_checksum).toBe('');
+    const put_calls = vi.mocked(target_storage.put).mock.calls;
+    const manifest_writes = put_calls.filter(([k]) => (k as string).startsWith('manifests/'));
+    expect(manifest_writes).toHaveLength(0);
   });
 });

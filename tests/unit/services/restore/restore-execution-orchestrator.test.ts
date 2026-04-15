@@ -56,7 +56,7 @@ describe('restore_folder_entries', () => {
     } as unknown as RestoreProgressDashboard;
   });
 
-  it('rolls attachment errors into folder outcome', async () => {
+  it('separates attachment errors from message errors in folder outcome', async () => {
     const entry: ManifestEntry = {
       object_id: 'o1',
       storage_key: 'k',
@@ -92,7 +92,8 @@ describe('restore_folder_entries', () => {
 
     expect(result.restored).toBe(1);
     expect(result.attachment_errors).toBe(1);
-    expect(result.errors).toContain('file.pdf: checksum mismatch');
+    expect(result.att_error_details).toContain('file.pdf: checksum mismatch');
+    expect(result.errors).toHaveLength(0);
   });
 });
 
@@ -139,7 +140,7 @@ describe('restore_single_message', () => {
       entry,
     );
 
-    expect(result.error_count).toBe(1);
+    expect(result.error_count).toBe(0);
     expect(result.attachment_error_count).toBe(1);
     expect(result.errors[0]).toContain('checksum mismatch');
   });

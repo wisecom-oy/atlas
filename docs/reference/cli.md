@@ -179,7 +179,7 @@ Restore emails from backup to an M365 mailbox.
 atlas restore -s <snapshot-id>
 atlas restore -s <snapshot-id> -f Inbox
 atlas restore -s <snapshot-id> --message 42
-atlas restore -s <snapshot-id> -m target@company.com
+atlas restore -s <snapshot-id> -T target@company.com
 ```
 
 **Mailbox mode** -- aggregate all snapshots for a mailbox, deduplicate, and restore:
@@ -204,7 +204,7 @@ atlas restore -m user@company.com -T other@company.com -f Inbox
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date              |
 | `-t, --tenant <id>`         | Override tenant ID                                            |
 
-Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox.
+Either `--snapshot` or `--mailbox` is required. Using both `--snapshot` and `--mailbox` together requires `--target` (`-T`) to explicitly specify the restore destination. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox.
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 

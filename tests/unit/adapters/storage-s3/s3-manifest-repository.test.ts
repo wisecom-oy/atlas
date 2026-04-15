@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { S3ManifestRepository } from '@/adapters/storage-s3/s3-manifest-repository.adapter';
 import type { TenantContext } from '@/ports/tenant/context.port';
 import type { Manifest } from '@/domain/manifest';
+import { logger } from '@/utils/logger';
+
+vi.mock('@/utils/logger', () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn(), success: vi.fn() },
+}));
 
 function make_mock_context(): TenantContext {
   return {
@@ -151,6 +156,28 @@ describe('S3ManifestRepository', () => {
 
       const result = await repo.find_latest_by_mailbox(ctx, 'user@test.com');
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('download_and_decrypt error handling', () => {
+    it('logs a warning when manifest decryption fails', async () => {
+      (ctx.storage.list as ReturnType<typeof vi.fn>).mockResolvedValue([
+        'manifests/user@test.com/snap-corrupt.json',
+      ]);
+      (ctx.storage.get as ReturnType<typeof vi.fn>).mockResolvedValue(Buffer.from('corrupt-data'));
+      (ctx.decrypt as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('Unsupported state or unable to authenticate data');
+      });
+
+      const result = await repo.find_by_snapshot(ctx, 'snap-corrupt');
+
+      expect(result).toBeUndefined();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to decrypt manifest'),
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('unable to authenticate data'),
+      );
     });
   });
 });

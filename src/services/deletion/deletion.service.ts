@@ -1,18 +1,13 @@
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@/ports/tenant/context.port';
-import type { ManifestRepository } from '@/ports/storage/manifest-repository.port';
 import type { DeletionResult, DeletionUseCase } from '@/ports/deletion/use-case.port';
-import {
-  TENANT_CONTEXT_FACTORY_TOKEN,
-  MANIFEST_REPOSITORY_TOKEN,
-} from '@/ports/tokens/outgoing.tokens';
+import { TENANT_CONTEXT_FACTORY_TOKEN } from '@/ports/tokens/outgoing.tokens';
 import { logger } from '@/utils/logger';
 
 @injectable()
 export class DeletionService implements DeletionUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
-    @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
   ) {}
 
   /**
@@ -37,15 +32,16 @@ export class DeletionService implements DeletionUseCase {
    * all objects for a mailbox, or `purge_tenant` for everything.
    */
   async delete_snapshot(tenant_id: string, snapshot_id: string): Promise<DeletionResult> {
-    const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
+    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
+    const all_keys = await storage.list('manifests/');
+    const target_suffix = `/${snapshot_id}.json`;
+    const key = all_keys.find((k) => k.endsWith(target_suffix));
 
-    if (!manifest) {
+    if (!key) {
       return empty_deletion_result();
     }
 
-    const key = `manifests/${manifest.mailbox_id}/${manifest.snapshot_id}.json`;
-    const summary = await delete_prefixes(ctx.storage, [key]);
+    const summary = await delete_prefixes(storage, [key]);
     if (summary.retained_manifests > 0 || summary.failed_manifests > 0) {
       logger.error('Snapshot manifest is protected by Object Lock and cannot be deleted yet.');
     }

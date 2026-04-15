@@ -105,6 +105,35 @@ interface SaveResult {
 }
 ```
 
+## Restore Options
+
+The `restoreSnapshot` and `restoreMailbox` methods accept the following options:
+
+| Option           | Type     | Description                                    |
+| ---------------- | -------- | ---------------------------------------------- |
+| `folder_name`    | `string` | Restore only messages from this folder         |
+| `message_ref`    | `string` | Restore a single message by index or ID        |
+| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore       |
+| `start_date`     | `Date`   | Include snapshots on or after this date         |
+| `end_date`       | `Date`   | Include snapshots on or before this date        |
+
+Both methods return a `RestoreResult`:
+
+```typescript
+interface RestoreResult {
+  snapshot_id: string;
+  restored_count: number;
+  attachment_count: number;
+  error_count: number;
+  attachment_error_count: number;
+  verification_failures: number;
+  errors: string[];
+  restore_folder_name: string;
+}
+```
+
+`error_count` reflects message-level failures only. `attachment_error_count` tracks attachment-level failures separately. `verification_failures` indicates how many messages may not have persisted on the server according to post-restore folder count verification.
+
 ## Batch Processing
 
 For backing up multiple mailboxes, the recommended approach is the CLI's built-in tenant-wide mode (`atlas backup` without `-m`), which handles parallel workers with rate limiting and a live dashboard.

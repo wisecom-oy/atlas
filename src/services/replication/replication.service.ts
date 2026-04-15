@@ -188,12 +188,6 @@ export class ReplicationService implements ReplicationUseCase {
     tenant_id: string,
   ): Promise<ReplicationResult> {
     const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      primary_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
-    );
 
     let total_copied = 0;
     let total_skipped = 0;
@@ -208,6 +202,13 @@ export class ReplicationService implements ReplicationUseCase {
         total_skipped++;
         continue;
       }
+
+      await this._validate_dek(
+        source_ctx.storage,
+        primary_ctx.storage,
+        this._config.encryption_passphrase,
+        tenant_id,
+      );
 
       const rep = await replicate_snapshot_to_target(source_ctx, primary_ctx, manifest, {
         skip_marker: true,

@@ -2,29 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { DeletionService } from '@/services/deletion/deletion.service';
-import {
-  MANIFEST_REPOSITORY_TOKEN,
-  TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@/ports/tokens/outgoing.tokens';
-import type { ManifestRepository } from '@/ports/storage/manifest-repository.port';
+import { TENANT_CONTEXT_FACTORY_TOKEN } from '@/ports/tokens/outgoing.tokens';
 import type { TenantContext, TenantContextFactory } from '@/ports/tenant/context.port';
 import type { ObjectStorage } from '@/ports/storage/object-storage.port';
-import type { Manifest } from '@/domain/manifest';
-
-function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
-  return {
-    id: 'manifest-1',
-    tenant_id: 't',
-    mailbox_id: 'user@test.com',
-    snapshot_id: 'snap-1',
-    created_at: new Date('2026-03-01T10:00:00Z'),
-    total_objects: 10,
-    total_size_bytes: 1000,
-    delta_links: {},
-    entries: [],
-    ...overrides,
-  };
-}
 
 function make_mock_storage(): ObjectStorage {
   return {
@@ -56,20 +36,12 @@ function make_mock_context(): TenantContext {
 
 describe('DeletionService', () => {
   let container: Container;
-  let mock_manifests: ManifestRepository;
   let mock_context: TenantContext;
   let mock_factory: TenantContextFactory;
   let service: DeletionService;
 
   beforeEach(() => {
     mock_context = make_mock_context();
-
-    mock_manifests = {
-      save: vi.fn(),
-      find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_mailbox: vi.fn().mockResolvedValue(undefined),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
-    };
 
     mock_factory = {
       create: vi.fn().mockResolvedValue(mock_context),
@@ -80,7 +52,6 @@ describe('DeletionService', () => {
     };
 
     container = new Container();
-    container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
     container.bind(DeletionService).toSelf();
 
@@ -142,43 +113,49 @@ describe('DeletionService', () => {
   // ---------------------------------------------------------------------------
 
   describe('delete_snapshot', () => {
-    it('deletes the manifest key and retains data objects', async () => {
-      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({ mailbox_id: 'u@t.com', snapshot_id: 'snap-42' }),
-      );
+    it('uses create_storage_only and never loads the DEK', async () => {
       vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
         'manifests/u@t.com/snap-42.json',
       ]);
+
+      await service.delete_snapshot('t', 'snap-42');
+
+      expect(mock_factory.create_storage_only).toHaveBeenCalledWith('t');
+      expect(mock_factory.create).not.toHaveBeenCalled();
+    });
+
+    it('deletes the manifest key matched by snapshot suffix', async () => {
+      const list_fn = vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>);
+      list_fn
+        .mockResolvedValueOnce(['manifests/u@t.com/snap-42.json', 'manifests/u@t.com/snap-99.json'])
+        .mockResolvedValueOnce(['manifests/u@t.com/snap-42.json']);
 
       const result = await service.delete_snapshot('t', 'snap-42');
 
       expect(result.deleted_manifests).toBe(1);
       expect(result.deleted_objects).toBe(0);
-      expect(result.retained_manifests).toBe(0);
       expect(mock_context.storage.delete).toHaveBeenCalledWith('manifests/u@t.com/snap-42.json');
       expect(mock_context.storage.delete).toHaveBeenCalledTimes(1);
-      expect(mock_factory.create).toHaveBeenCalledWith('t');
-      expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
     });
 
     it('returns zeros when snapshot is not found', async () => {
+      vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+
       const result = await service.delete_snapshot('t', 'missing');
 
       expect(result.deleted_objects).toBe(0);
       expect(result.deleted_manifests).toBe(0);
       expect(result.failed_manifests).toBe(0);
       expect(mock_context.storage.delete).not.toHaveBeenCalled();
-      expect(mock_factory.create).toHaveBeenCalledWith('t');
-      expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
+      expect(mock_factory.create_storage_only).toHaveBeenCalledWith('t');
+      expect(mock_factory.create).not.toHaveBeenCalled();
     });
 
     it('reports retained manifest when backend blocks delete with Object Lock', async () => {
-      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({ mailbox_id: 'u@t.com', snapshot_id: 'snap-42' }),
-      );
-      vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
-        'manifests/u@t.com/snap-42.json',
-      ]);
+      const list_fn = vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>);
+      list_fn
+        .mockResolvedValueOnce(['manifests/u@t.com/snap-42.json'])
+        .mockResolvedValueOnce(['manifests/u@t.com/snap-42.json']);
       vi.mocked(mock_context.storage.delete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('AccessDenied: Object Lock retention in effect'),
       );
@@ -188,8 +165,8 @@ describe('DeletionService', () => {
       expect(result.deleted_manifests).toBe(0);
       expect(result.retained_manifests).toBe(1);
       expect(result.failed_manifests).toBe(0);
-      expect(mock_factory.create).toHaveBeenCalledWith('t');
-      expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
+      expect(mock_factory.create_storage_only).toHaveBeenCalledWith('t');
+      expect(mock_factory.create).not.toHaveBeenCalled();
     });
   });
 

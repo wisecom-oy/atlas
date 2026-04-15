@@ -4,6 +4,7 @@ export interface RestoreResult {
   readonly attachment_count: number;
   readonly error_count: number;
   readonly attachment_error_count: number;
+  readonly verification_failures: number;
   readonly errors: string[];
   readonly restore_folder_name: string;
 }

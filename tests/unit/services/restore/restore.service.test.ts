@@ -319,24 +319,26 @@ describe('RestoreService', () => {
     });
   });
 
-  it('calls count_folder_messages for post-restore verification', async () => {
-    const entries = [make_entry('msg-1', 'f1'), make_entry('msg-2', 'f1')];
-    const manifest = make_manifest(entries);
-    (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
-
-    await service.restore_snapshot('test-tenant', 'snap-1');
-
-    expect(mock_restore.count_folder_messages).toHaveBeenCalled();
-  });
-
-  it('includes attachment_error_count in result', async () => {
+  it('includes attachment_error_count and verification_failures in result', async () => {
     const entries = [make_entry('msg-1', 'f1')];
     const manifest = make_manifest(entries);
     (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
 
     const result = await service.restore_snapshot('test-tenant', 'snap-1');
 
-    expect(result).toHaveProperty('attachment_error_count');
     expect(result.attachment_error_count).toBe(0);
+    expect(result.verification_failures).toBe(0);
+    expect(mock_restore.count_folder_messages).toHaveBeenCalled();
+  });
+
+  it('propagates verification_failures when count mismatch detected', async () => {
+    const entries = [make_entry('msg-1', 'f1')];
+    const manifest = make_manifest(entries);
+    (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
+    (mock_restore.count_folder_messages as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+
+    const result = await service.restore_snapshot('test-tenant', 'snap-1');
+
+    expect(result.verification_failures).toBe(1);
   });
 });

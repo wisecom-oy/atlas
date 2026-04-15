@@ -67,6 +67,7 @@ export interface FolderRestoreOutcome {
   readonly attachments: number;
   readonly attachment_errors: number;
   readonly errors: string[];
+  readonly att_error_details: string[];
 }
 
 /** Restores all entries for a single folder, updating dashboard per-message. */
@@ -88,6 +89,7 @@ export async function restore_folder_entries(
   let attachments = 0;
   let attachment_errors = 0;
   const errors: string[] = [];
+  const att_error_details: string[] = [];
 
   for (const entry of entries) {
     if (is_interrupted()) break;
@@ -104,7 +106,7 @@ export async function restore_folder_entries(
       restored++;
       attachments += outcome.att_restored;
       attachment_errors += outcome.att_errors.length;
-      errors.push(...outcome.att_errors);
+      att_error_details.push(...outcome.att_errors);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${entry.object_id}: ${msg}`);
@@ -117,7 +119,7 @@ export async function restore_folder_entries(
     dashboard.update_total(gp, global_total, rate, eta);
   }
 
-  return { restored, attachments, attachment_errors, errors };
+  return { restored, attachments, attachment_errors, errors, att_error_details };
 }
 
 /** Restores a single message with its attachments. No dashboard needed. */
@@ -182,8 +184,9 @@ export async function restore_single_message(
     snapshot_id,
     restored_count: 1,
     attachment_count: att_count,
-    error_count: att_error_count,
+    error_count: 0,
     attachment_error_count: att_error_count,
+    verification_failures: 0,
     errors: att_errors,
     restore_folder_name: root.display_name,
   };
@@ -202,6 +205,13 @@ export async function backfill_missing_folder_ids(
     const json = await decrypt_and_parse_message(ctx, entry);
     const fid = extract_folder_id_from_json(json);
     (entry as { folder_id?: string }).folder_id = fid;
+  }
+
+  const still_unknown = entries.filter((e) => e.folder_id === '__unknown__').length;
+  if (still_unknown > 0) {
+    logger.warn(
+      `${still_unknown} message(s) have no folder information and will be restored to "Unknown".`,
+    );
   }
 }
 

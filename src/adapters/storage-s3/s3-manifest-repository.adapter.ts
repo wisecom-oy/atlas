@@ -3,6 +3,7 @@ import type { Manifest } from '@/domain/manifest';
 import type { ManifestRepository } from '@/ports/storage/manifest-repository.port';
 import type { TenantContext } from '@/ports/tenant/context.port';
 import type { StorageObjectLockPolicy } from '@/ports/storage/object-storage.port';
+import { logger } from '@/utils/logger';
 
 const MANIFEST_PREFIX = 'manifests';
 
@@ -87,7 +88,9 @@ export class S3ManifestRepository implements ManifestRepository {
       const encrypted = await ctx.storage.get(key);
       const json = ctx.decrypt(encrypted);
       return JSON.parse(json.toString('utf-8')) as Manifest;
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`Failed to decrypt manifest ${key}: ${msg}`);
       return undefined;
     }
   }

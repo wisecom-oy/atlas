@@ -148,6 +148,7 @@ describe('CLI argv → handler shape', () => {
       attachment_count: 0,
       error_count: 0,
       attachment_error_count: 0,
+      verification_failures: 0,
       errors: [],
       restore_folder_name: '',
     });
@@ -169,7 +170,7 @@ describe('CLI argv → handler shape', () => {
         'Inbox',
         '--message',
         '3',
-        '-m',
+        '-T',
         'target@other.com',
       ],
       { from: 'user' },
@@ -189,6 +190,7 @@ describe('CLI argv → handler shape', () => {
       attachment_count: 0,
       error_count: 0,
       attachment_error_count: 0,
+      verification_failures: 0,
       errors: [],
       restore_folder_name: '',
     });

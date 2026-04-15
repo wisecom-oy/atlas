@@ -20,32 +20,36 @@ function make_connector(count: number): RestoreConnector {
 }
 
 describe('verify_folder_message_count', () => {
-  it('does not warn when remote count matches attempted', async () => {
+  it('returns 0 when remote count matches attempted', async () => {
     const connector = make_connector(5);
-    await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    const result = await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    expect(result).toBe(0);
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it('does not warn when remote count exceeds attempted', async () => {
+  it('returns 0 when remote count exceeds attempted', async () => {
     const connector = make_connector(10);
-    await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    const result = await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    expect(result).toBe(0);
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it('warns when remote count is less than attempted', async () => {
+  it('returns missing count when remote count is less than attempted', async () => {
     const connector = make_connector(3);
-    await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    const result = await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    expect(result).toBe(2);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('2 message(s) may not have persisted'),
     );
   });
 
-  it('warns gracefully when count_folder_messages throws', async () => {
+  it('returns -1 when count_folder_messages throws', async () => {
     const connector = make_connector(0);
     (connector.count_folder_messages as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error('Graph timeout'),
     );
-    await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    const result = await verify_folder_message_count(connector, 't1', 'mb1', 'f1', 5, 'Inbox');
+    expect(result).toBe(-1);
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('unable to confirm message count'),
     );

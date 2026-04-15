@@ -226,6 +226,7 @@ export class RestoreService implements RestoreUseCase {
     let global_att = 0;
     let global_errors = 0;
     let global_att_errors = 0;
+    let global_verification_failures = 0;
     const all_errors: string[] = [];
     const start = Date.now();
     const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
@@ -272,8 +273,9 @@ export class RestoreService implements RestoreUseCase {
         global_att_errors += result.attachment_errors;
         global_errors += result.errors.length;
         all_errors.push(...result.errors);
+        all_errors.push(...result.att_error_details);
 
-        await verify_folder_message_count(
+        const discrepancy = await verify_folder_message_count(
           this._restore_connector,
           tenant_id,
           target_mailbox,
@@ -281,6 +283,7 @@ export class RestoreService implements RestoreUseCase {
           result.restored,
           folder_map.get(fid) ?? fid.slice(0, 12),
         );
+        if (discrepancy !== 0) global_verification_failures += Math.abs(discrepancy);
 
         const rate = calc_rate(global_restored, Date.now() - start);
         const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
@@ -301,6 +304,7 @@ export class RestoreService implements RestoreUseCase {
         attachment_count: global_att,
         error_count: global_errors,
         attachment_error_count: global_att_errors,
+        verification_failures: global_verification_failures,
         errors: all_errors,
         restore_folder_name: root.display_name,
       };
@@ -327,6 +331,7 @@ export class RestoreService implements RestoreUseCase {
       attachment_count: 0,
       error_count: 0,
       attachment_error_count: 0,
+      verification_failures: 0,
       errors: [],
       restore_folder_name: '',
     };
