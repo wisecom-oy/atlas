@@ -33,13 +33,15 @@ The KEK is derived using **scrypt**, a memory-hard key derivation function desig
 
 Parameters used by Atlas (scrypt strategy, `kdf_id = 0x01` in the wrapped DEK blob):
 
-| Parameter | Value | Purpose |
-| --- | --- | --- |
-| N (cost) | 65536 | CPU/memory cost factor (2^16 iterations; OWASP-aligned for sensitive workloads) |
-| r (block size) | 8 | Memory usage multiplier |
-| p (parallelism) | 1 | Sequential derivation (no parallel lanes) |
-| Salt | 32 random bytes (CSPRNG), stored in the blob | Unpredictable per wrap; not the tenant ID |
-| Output | 32 bytes (256 bits) | AES-256 key length |
+
+| Parameter       | Value                                        | Purpose                                                                         |
+| --------------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| N (cost)        | 65536                                        | CPU/memory cost factor (2^16 iterations; OWASP-aligned for sensitive workloads) |
+| r (block size)  | 8                                            | Memory usage multiplier                                                         |
+| p (parallelism) | 1                                            | Sequential derivation (no parallel lanes)                                       |
+| Salt            | 32 random bytes (CSPRNG), stored in the blob | Unpredictable per wrap; not the tenant ID                                       |
+| Output          | 32 bytes (256 bits)                          | AES-256 key length                                                              |
+
 
 **Tenant isolation** comes from separate S3 buckets per tenant and separate random DEKs. The passphrase is global to the Atlas deployment, but an attacker who obtains one tenant's wrapped DEK cannot derive that tenant's KEK without the passphrase **and** the salt embedded in that blob (which is not public in the same way a discoverable tenant GUID would be).
 
@@ -89,13 +91,15 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 
 ### What Is Encrypted at Rest
 
-| Data | Encrypted | Notes |
-| --- | --- | --- |
-| Email message bodies | Yes | Stored as encrypted JSON under `data/{mailbox}/{sha256}` |
-| Attachments | Yes | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}` |
-| Manifests | Yes | Contains subjects, folder names, delta URLs, checksums |
-| Wrapped DEK | Yes | `_meta/dek.enc` is encrypted with the KEK |
-| S3 object metadata | **No** | `x-message-id` and `x-plaintext-sha256` headers are visible to anyone with S3 read access |
+
+| Data                 | Encrypted | Notes                                                                                     |
+| -------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| Email message bodies | Yes       | Stored as encrypted JSON under `data/{mailbox}/{sha256}`                                  |
+| Attachments          | Yes       | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}`                          |
+| Manifests            | Yes       | Contains subjects, folder names, delta URLs, checksums                                    |
+| Wrapped DEK          | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                 |
+| S3 object metadata   | **No**    | `x-message-id` and `x-plaintext-sha256` headers are visible to anyone with S3 read access |
+
 
 The S3 object metadata is intentionally not encrypted because it is used for deduplication checks without requiring decryption. However, this means that the **Graph message ID** and **plaintext SHA-256 hash** of each message are visible to anyone who can list or read S3 object metadata. The message content itself remains encrypted.
 
@@ -105,11 +109,13 @@ Manifests deserve special attention: they contain email subjects, folder display
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
 
-| Layer | Mechanism | What It Catches | When |
-| --- | --- | --- | --- |
-| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs | Backup, verify, save |
-| **Transport** | `Content-MD5` header on S3 PUT | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
-| **At-rest** | AES-256-GCM authentication tag | Storage-level tampering or corruption | Every decrypt operation |
+
+| Layer         | Mechanism                           | What It Catches                                          | When                                 |
+| ------------- | ----------------------------------- | -------------------------------------------------------- | ------------------------------------ |
+| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs           | Backup, verify, save                 |
+| **Transport** | `Content-MD5` header on S3 PUT      | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
+| **At-rest**   | AES-256-GCM authentication tag      | Storage-level tampering or corruption                    | Every decrypt operation              |
+
 
 ### How Verification Works
 
