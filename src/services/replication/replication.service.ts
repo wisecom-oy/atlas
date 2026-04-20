@@ -20,6 +20,7 @@ import {
   list_replication_status_by_snapshot,
 } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+import { run_manifest_rehydration } from '@/services/replication/rehydration-manifests-runner';
 import {
   build_replication_result,
   build_skip_result,
@@ -132,7 +133,15 @@ export class ReplicationService implements ReplicationUseCase {
     const source_ctx = await source.create_context(tenant_id);
     try {
       const manifests = await this.list_mailbox_manifests(source_ctx, mailbox_id);
-      return await this.rehydrate_manifests(source_ctx, primary_ctx, manifests, source, tenant_id);
+      return await run_manifest_rehydration(
+        source_ctx,
+        primary_ctx,
+        manifests,
+        source,
+        tenant_id,
+        this._validate_dek,
+        this._config.encryption_passphrase,
+      );
     } finally {
       source_ctx.destroy();
       primary_ctx.destroy();
@@ -145,12 +154,14 @@ export class ReplicationService implements ReplicationUseCase {
     const source_ctx = await source.create_context(tenant_id);
     try {
       const all_manifests = await this._manifests.list_all_manifests(source_ctx);
-      return await this.rehydrate_manifests(
+      return await run_manifest_rehydration(
         source_ctx,
         primary_ctx,
         all_manifests,
         source,
         tenant_id,
+        this._validate_dek,
+        this._config.encryption_passphrase,
       );
     } finally {
       source_ctx.destroy();
@@ -224,65 +235,6 @@ export class ReplicationService implements ReplicationUseCase {
       skip_marker: is_rehydration,
     });
     return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
-  }
-
-  private async rehydrate_manifests(
-    source_ctx: TenantContext,
-    primary_ctx: TenantContext,
-    manifests: Manifest[],
-    source: StorageTarget,
-    tenant_id: string,
-  ): Promise<ReplicationResult> {
-    const start = Date.now();
-
-    let total_copied = 0;
-    let total_skipped = 0;
-    let total_failed = 0;
-    let total_bytes = 0;
-    const all_errors: string[] = [];
-    let snapshot_count = 0;
-
-    for (const manifest of manifests) {
-      const key = `manifests/${manifest.mailbox_id}/${manifest.snapshot_id}.json`;
-      if (await primary_ctx.storage.exists(key)) {
-        total_skipped++;
-        continue;
-      }
-
-      await this._validate_dek(
-        source_ctx.storage,
-        primary_ctx.storage,
-        this._config.encryption_passphrase,
-        tenant_id,
-      );
-
-      const rep = await replicate_snapshot_to_target(source_ctx, primary_ctx, manifest, {
-        skip_marker: true,
-      });
-
-      total_copied += rep.objects_copied;
-      total_skipped += rep.objects_skipped;
-      total_failed += rep.objects_failed;
-      total_bytes += rep.bytes_copied;
-      all_errors.push(...rep.errors);
-      snapshot_count++;
-    }
-
-    const snapshot_label =
-      manifests.length === 1 ? manifests[0]!.snapshot_id : `${snapshot_count}-snapshots`;
-
-    return build_replication_result(
-      {
-        objects_copied: total_copied,
-        objects_skipped: total_skipped,
-        objects_failed: total_failed,
-        bytes_copied: total_bytes,
-        errors: all_errors,
-      },
-      snapshot_label,
-      source.target_id,
-      Date.now() - start,
-    );
   }
 
   private async require_manifest(
