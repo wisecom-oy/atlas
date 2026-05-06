@@ -19,7 +19,7 @@ export interface FolderSyncParams {
   ctx: TenantContext;
   connector: MailboxConnector;
   tenant_id: string;
-  mailbox_id: string;
+  owner_id: string;
   folder_id: string;
   folder_index: number;
   folder_total: number;
@@ -47,14 +47,14 @@ async function process_message(
   ctx: TenantContext,
   connector: MailboxConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   message: MailMessage,
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending_attachments: PendingAttachment[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
-  const entry = await store_single_message(ctx, message, mailbox_id, object_lock_policy);
+  const entry = await store_single_message(ctx, message, owner_id, object_lock_policy);
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
 
@@ -71,7 +71,7 @@ async function flush_pending_attachments(
   ctx: TenantContext,
   connector: MailboxConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending: PendingAttachment[],
@@ -85,7 +85,7 @@ async function flush_pending_attachments(
         ctx,
         connector,
         tenant_id,
-        mailbox_id,
+        owner_id,
         p.message_id,
         undefined,
         object_lock_policy,
@@ -106,7 +106,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     ctx,
     connector,
     tenant_id,
-    mailbox_id,
+    owner_id,
     folder_id,
     folder_index,
     global_total,
@@ -152,7 +152,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         ctx,
         connector,
         tenant_id,
-        mailbox_id,
+        owner_id,
         message,
         entries,
         stats,
@@ -171,7 +171,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       ctx,
       connector,
       tenant_id,
-      mailbox_id,
+      owner_id,
       entries,
       stats,
       pending_attachments,
@@ -183,7 +183,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
 
   let delta = await connector.fetch_delta(
     tenant_id,
-    mailbox_id,
+    owner_id,
     folder_id,
     prev_delta_link,
     on_page,
@@ -199,7 +199,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   ) {
     delta = await connector.fetch_delta(
       tenant_id,
-      mailbox_id,
+      owner_id,
       folder_id,
       undefined,
       on_page,
@@ -214,7 +214,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         ctx,
         connector,
         tenant_id,
-        mailbox_id,
+        owner_id,
         message,
         entries,
         stats,
@@ -233,7 +233,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       ctx,
       connector,
       tenant_id,
-      mailbox_id,
+      owner_id,
       entries,
       stats,
       pending_attachments,
@@ -255,11 +255,11 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
 export async function store_single_message(
   ctx: TenantContext,
   message: MailMessage,
-  mailbox_id: string,
+  owner_id: string,
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<{ manifest_entry: ManifestEntry; was_new: boolean }> {
   const checksum = createHash('sha256').update(message.raw_body).digest('hex');
-  const storage_key = `data/${mailbox_id}/${checksum}`;
+  const storage_key = `data/${owner_id}/${checksum}`;
 
   const already_stored = await ctx.storage.exists(storage_key);
   if (!already_stored) {

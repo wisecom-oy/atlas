@@ -6,6 +6,7 @@ import {
 } from '@/services/restore/restore-message-transformer';
 import type { TenantContext } from '@atlas/types';
 import type { ManifestEntry } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_graph_message(): Record<string, unknown> {
   return {
@@ -137,10 +138,18 @@ describe('decrypt_and_parse_message', () => {
         exists: vi.fn(),
         list: vi.fn(),
         list_versions: vi.fn().mockResolvedValue([]),
+        begin_multipart_upload: vi.fn().mockResolvedValue({
+          upload_part: vi.fn(),
+          complete: vi.fn(),
+          abort: vi.fn(),
+        }),
+        copy: vi.fn(),
+        abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
         probe_immutability: vi.fn(),
       },
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      create_cipher: stub_tenant_create_cipher,
     };
 
     const entry: ManifestEntry = {

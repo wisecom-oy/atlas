@@ -1,4 +1,10 @@
-import { scryptSync, randomBytes, createCipheriv, createDecipheriv } from 'node:crypto';
+import {
+  scryptSync,
+  randomBytes,
+  createCipheriv,
+  createDecipheriv,
+  type CipherGCM,
+} from 'node:crypto';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -32,6 +38,16 @@ export class EnvelopeKeyService {
   /** Decrypts ciphertext using the given DEK. Throws on tampered data. */
   decrypt(data: Buffer, dek: Buffer): Buffer {
     return aes_gcm_decrypt(data, dek);
+  }
+
+  /**
+   * Creates a streaming AES-256-GCM cipher using the DEK (same parameters as
+   * {@link EnvelopeKeyService.encrypt}); finalize with auth tag for the envelope format.
+   */
+  create_encrypt_cipher(dek: Buffer): { cipher: CipherGCM; iv: Buffer } {
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, dek, iv, { authTagLength: AUTH_TAG_LENGTH });
+    return { cipher, iv };
   }
 
   /** Generates a fresh random 256-bit DEK. */

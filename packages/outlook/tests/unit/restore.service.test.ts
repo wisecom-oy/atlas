@@ -13,6 +13,7 @@ import type { ManifestRepository } from '@atlas/types';
 import type { TenantContext, TenantContextFactory } from '@atlas/types';
 import type { RestoreConnector } from '@atlas/types';
 import type { Manifest, ManifestEntry } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_entry(id: string, folder_id: string): ManifestEntry {
   return {
@@ -29,7 +30,7 @@ function make_manifest(entries: ManifestEntry[]): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 'test-tenant',
-    mailbox_id: 'user@test.com',
+    owner_id: 'user@test.com',
     snapshot_id: 'snap-1',
     created_at: new Date(),
     total_objects: entries.length,
@@ -69,16 +70,24 @@ describe('RestoreService', () => {
         exists: vi.fn(),
         list: vi.fn(),
         list_versions: vi.fn().mockResolvedValue([]),
+        begin_multipart_upload: vi.fn().mockResolvedValue({
+          upload_part: vi.fn(),
+          complete: vi.fn(),
+          abort: vi.fn(),
+        }),
+        copy: vi.fn(),
+        abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
         probe_immutability: vi.fn(),
       },
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      create_cipher: stub_tenant_create_cipher,
     };
 
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
-      find_latest_by_mailbox: vi.fn(),
+      find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 

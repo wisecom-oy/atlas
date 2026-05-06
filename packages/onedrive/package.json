@@ -24,6 +24,7 @@
     "@atlas/types": "workspace:*",
     "@atlas/core": "workspace:*",
     "@atlas/m365-graph": "workspace:*",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "inversify": "^7.11.0",
     "reflect-metadata": "^0.2.2"
   }

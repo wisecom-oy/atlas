@@ -11,7 +11,7 @@ export interface TenantBackupOptions {
 }
 
 export interface MailboxBackupOutcome {
-  readonly mailbox_id: string;
+  readonly owner_id: string;
   readonly result?: SyncResult;
   readonly error?: string;
 }

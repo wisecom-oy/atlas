@@ -51,12 +51,12 @@ function make_entry(id: string, folder_id: string): ManifestEntry {
 
 function make_manifest(
   entries: ManifestEntry[],
-  opts?: { snapshot_id?: string; mailbox_id?: string; created_at?: Date },
+  opts?: { snapshot_id?: string; owner_id?: string; created_at?: Date },
 ): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 'test-tenant',
-    mailbox_id: opts?.mailbox_id ?? 'user@test.com',
+    owner_id: opts?.owner_id ?? 'user@test.com',
     snapshot_id: opts?.snapshot_id ?? 'snap-1',
     created_at: opts?.created_at ?? new Date(),
     total_objects: entries.length,
@@ -154,7 +154,7 @@ describe('SaveService', () => {
   describe('save_mailbox', () => {
     it('merges snapshots and saves messages', async () => {
       const entries = [make_entry('msg-1', 'f1')];
-      const manifest = make_manifest(entries, { mailbox_id: 'user@test.com' });
+      const manifest = make_manifest(entries, { owner_id: 'user@test.com' });
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([manifest]);
 
       const result = await service.save_mailbox('test-tenant', 'user@test.com');

@@ -3,12 +3,25 @@ import type { Snapshot } from '@atlas/types';
 import { SnapshotStatus } from '@atlas/types';
 import type { Manifest, ManifestEntry, ManifestObjectLockPolicy } from '@atlas/types';
 
+export interface OwnerIdentityHint {
+  readonly owner_email?: string | undefined;
+  readonly owner_display_name?: string | undefined;
+}
+
 /** Creates a snapshot record in IN_PROGRESS state. */
-export function create_pending_snapshot(tenant_id: string, mailbox_id: string): Snapshot {
+export function create_pending_snapshot(
+  tenant_id: string,
+  owner_id: string,
+  identity?: OwnerIdentityHint,
+): Snapshot {
   return {
     id: randomUUID(),
     tenant_id,
-    mailbox_id,
+    owner_id,
+    ...(identity?.owner_email !== undefined && { owner_email: identity.owner_email }),
+    ...(identity?.owner_display_name !== undefined && {
+      owner_display_name: identity.owner_display_name,
+    }),
     started_at: new Date(),
     object_count: 0,
     status: SnapshotStatus.IN_PROGRESS,
@@ -31,7 +44,7 @@ export function mark_snapshot_completed(snapshot: Snapshot, object_count: number
  * safeguard does not mistake an unchanged mailbox for a never-backed-up one.
  */
 export function build_manifest(
-  mailbox_id: string,
+  owner_id: string,
   snapshot_id: string,
   entries: ManifestEntry[],
   delta_links: Record<string, string>,
@@ -45,7 +58,7 @@ export function build_manifest(
   return {
     id: randomUUID(),
     tenant_id: '',
-    mailbox_id,
+    owner_id,
     snapshot_id,
     created_at: new Date(),
     total_objects: Math.max(entries.length, previous_total_objects),

@@ -1,7 +1,9 @@
 export { register_backup_command } from './backup.command';
 export { register_delete_command } from './delete.command';
 export { register_list_command } from './list.command';
+export { register_list_users_command } from './list-users.command';
 export { register_mailboxes_command } from './mailboxes.command';
+export { register_onedrive_command } from './onedrive.command';
 export { register_read_command } from './read.command';
 export { register_rehydrate_command } from './rehydrate.command';
 export { register_replicate_command } from './replicate.command';

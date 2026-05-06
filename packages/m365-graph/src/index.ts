@@ -10,3 +10,4 @@ export {
 } from './graph-error-helpers';
 export { RateLimitedGraphConnector } from './rate-limited-graph-connector.adapter';
 export { bind_graph_client } from './container';
+export { GraphUserIdentityResolver } from './graph-user-identity-resolver.adapter';

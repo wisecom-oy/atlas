@@ -96,9 +96,9 @@ export class GraphMailboxConnector implements MailboxConnector {
   }
 
   /** Checks whether a mailbox exists in the tenant via GET /users/{id}. */
-  async mailbox_exists(_tenant_id: string, mailbox_id: string): Promise<boolean> {
+  async mailbox_exists(_tenant_id: string, owner_id: string): Promise<boolean> {
     try {
-      await with_graph_retry(() => this._client.api(`/users/${mailbox_id}?$select=id`).get());
+      await with_graph_retry(() => this._client.api(`/users/${owner_id}?$select=id`).get());
       return true;
     } catch (err) {
       if ((err as Record<string, unknown>).statusCode === 404) return false;
@@ -111,10 +111,10 @@ export class GraphMailboxConnector implements MailboxConnector {
    * Lists all mail folders for a mailbox, excluding system folders
    * (drafts, outbox, junk, recoverable items).
    */
-  async list_mail_folders(_tenant_id: string, mailbox_id: string): Promise<MailFolder[]> {
+  async list_mail_folders(_tenant_id: string, owner_id: string): Promise<MailFolder[]> {
     try {
       const url =
-        `/users/${mailbox_id}/mailFolders` +
+        `/users/${owner_id}/mailFolders` +
         '?$select=id,displayName,parentFolderId,totalItemCount&$top=250';
       const folder_records = await with_graph_retry(() =>
         this.collect_all_pages<GraphFolderRecord>(url),
@@ -134,7 +134,7 @@ export class GraphMailboxConnector implements MailboxConnector {
    */
   async fetch_delta(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     prev_delta_link?: string,
     on_page?: DeltaPageCallback,
@@ -149,7 +149,7 @@ export class GraphMailboxConnector implements MailboxConnector {
 
     try {
       return await this.execute_delta_sync(
-        mailbox_id,
+        owner_id,
         folder_id,
         prev_delta_link,
         false,
@@ -161,7 +161,7 @@ export class GraphMailboxConnector implements MailboxConnector {
       rethrow_if_access_denied(err);
       if (is_invalid_delta_error(err)) {
         logger.debug('fetch_delta: invalid delta token, falling back to full sync');
-        return await this.execute_delta_sync(mailbox_id, folder_id, undefined, true, on_page, ps);
+        return await this.execute_delta_sync(owner_id, folder_id, undefined, true, on_page, ps);
       }
       throw err;
     }
@@ -170,14 +170,14 @@ export class GraphMailboxConnector implements MailboxConnector {
   /** Fetches a single message by ID, returning its full JSON body as a Buffer. */
   async fetch_message(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
   ): Promise<MailMessage> {
     try {
       const response = await with_graph_retry(
         () =>
           this._client
-            .api(`/users/${mailbox_id}/messages/${message_id}`)
+            .api(`/users/${owner_id}/messages/${message_id}`)
             .get() as Promise<GraphDeltaMessage>,
       );
 
@@ -196,11 +196,11 @@ export class GraphMailboxConnector implements MailboxConnector {
    */
   async fetch_attachments(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
   ): Promise<MessageAttachment[]> {
     try {
-      const url = `/users/${mailbox_id}/messages/${message_id}/attachments`;
+      const url = `/users/${owner_id}/messages/${message_id}/attachments`;
       const records = await with_graph_retry(() =>
         this.collect_all_pages<GraphAttachmentRecord>(url),
       );
@@ -217,8 +217,8 @@ export class GraphMailboxConnector implements MailboxConnector {
   // ---------------------------------------------------------------------------
 
   /** Returns the delta endpoint path for a mailbox folder (no query params). */
-  private delta_path(mailbox_id: string, folder_id: string): string {
-    return `/users/${mailbox_id}/mailFolders/${folder_id}/messages/delta`;
+  private delta_path(owner_id: string, folder_id: string): string {
+    return `/users/${owner_id}/mailFolders/${folder_id}/messages/delta`;
   }
 
   /**
@@ -228,14 +228,14 @@ export class GraphMailboxConnector implements MailboxConnector {
    * total results across pages for delta queries.
    */
   private async fetch_initial_delta_page(
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     page_size: number,
   ): Promise<GraphPageResponse> {
     return with_graph_retry(
       () =>
         this._client
-          .api(this.delta_path(mailbox_id, folder_id))
+          .api(this.delta_path(owner_id, folder_id))
           .header('Prefer', `odata.maxpagesize=${page_size}`)
           .select(DELTA_SELECT_FIELDS)
           .get() as Promise<GraphPageResponse>,
@@ -265,7 +265,7 @@ export class GraphMailboxConnector implements MailboxConnector {
    * the delta response, so no per-message fetches are needed).
    */
   private async execute_delta_sync(
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     prev_delta_link: string | undefined,
     delta_reset: boolean,
@@ -280,7 +280,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     let total_streamed = 0;
 
     let page: GraphPageResponse = is_initial
-      ? await this.fetch_initial_delta_page(mailbox_id, folder_id, page_size)
+      ? await this.fetch_initial_delta_page(owner_id, folder_id, page_size)
       : await this.fetch_continuation_page(prev_delta_link, page_size);
 
     while (true) {

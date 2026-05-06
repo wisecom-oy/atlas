@@ -10,6 +10,7 @@ import type {
   TenantContext,
   ObjectStorage,
 } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_storage(): ObjectStorage {
   return {
@@ -20,6 +21,13 @@ function make_storage(): ObjectStorage {
     exists: vi.fn(),
     list: vi.fn(),
     list_versions: vi.fn(),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
 }
@@ -30,6 +38,7 @@ function make_context(storage: ObjectStorage, tenant_id = 'tenant-1'): TenantCon
     storage,
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 
@@ -61,7 +70,7 @@ function make_manifest(entries: ManifestEntry[]): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 'tenant-1',
-    mailbox_id: 'mailbox-1',
+    owner_id: 'mailbox-1',
     snapshot_id: 'snapshot-1',
     created_at: new Date('2026-01-01'),
     total_objects: entries.length,

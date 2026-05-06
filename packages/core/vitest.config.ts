@@ -8,6 +8,10 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(root_dir, 'src'),
+      '@atlas/types/testing/stub-tenant-create-cipher': resolve(
+        root_dir,
+        '../types/src/testing/stub-tenant-create-cipher.ts',
+      ),
       '@atlas/types': resolve(root_dir, '../types/src/index.ts'),
     },
   },

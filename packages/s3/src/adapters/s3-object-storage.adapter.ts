@@ -7,15 +7,21 @@ import {
   ListObjectVersionsCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  CreateMultipartUploadCommand,
+  CopyObjectCommand,
+  ListMultipartUploadsCommand,
+  AbortMultipartUploadCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
 import type {
   ObjectStorage,
+  MultipartUploadHandle,
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
   StorageObjectLockPolicy,
 } from '@atlas/types';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
+import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
 import {
   ObjectLockModeRejectedError,
   ObjectLockUnsupportedError,
@@ -180,6 +186,111 @@ export class S3ObjectStorage implements ObjectStorage {
     return versions;
   }
 
+  /** Starts a multipart upload with optional metadata and object lock. */
+  async begin_multipart_upload(
+    key: string,
+    metadata?: Record<string, string>,
+    object_lock_policy?: StorageObjectLockPolicy,
+  ): Promise<MultipartUploadHandle> {
+    await this.validate_immutability_policy(object_lock_policy);
+    try {
+      const response = await this._client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: this._bucket,
+          Key: key,
+          Metadata: metadata,
+          ObjectLockMode: object_lock_policy?.mode,
+          ObjectLockRetainUntilDate: object_lock_policy?.retain_until
+            ? new Date(object_lock_policy.retain_until)
+            : undefined,
+        }),
+      );
+      if (!response.UploadId) throw new Error('CreateMultipartUpload returned no UploadId');
+      return new S3MultipartUploadHandle(this._client, this._bucket, key, response.UploadId);
+    } catch (err) {
+      if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {
+        throw new ObjectLockModeRejectedError(
+          this._bucket,
+          object_lock_policy?.mode ?? 'UNKNOWN',
+          err,
+        );
+      }
+      throw err;
+    }
+  }
+
+  /** Copies an object server-side within this bucket. */
+  async copy(
+    source_key: string,
+    dest_key: string,
+    metadata?: Record<string, string>,
+    object_lock_policy?: StorageObjectLockPolicy,
+  ): Promise<void> {
+    await this.validate_immutability_policy(object_lock_policy);
+    const copy_source = build_s3_copy_source(this._bucket, source_key);
+    try {
+      await this._client.send(
+        new CopyObjectCommand({
+          Bucket: this._bucket,
+          Key: dest_key,
+          CopySource: copy_source,
+          Metadata: metadata,
+          MetadataDirective: metadata ? 'REPLACE' : undefined,
+          ObjectLockMode: object_lock_policy?.mode,
+          ObjectLockRetainUntilDate: object_lock_policy?.retain_until
+            ? new Date(object_lock_policy.retain_until)
+            : undefined,
+        }),
+      );
+    } catch (err) {
+      if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {
+        throw new ObjectLockModeRejectedError(
+          this._bucket,
+          object_lock_policy?.mode ?? 'UNKNOWN',
+          err,
+        );
+      }
+      throw err;
+    }
+  }
+
+  /** Lists and aborts incomplete multipart uploads under {@link prefix}; returns count aborted. */
+  async abort_incomplete_uploads(prefix: string): Promise<number> {
+    let aborted = 0;
+    let key_marker: string | undefined;
+    let upload_id_marker: string | undefined;
+
+    for (;;) {
+      const response = await this._client.send(
+        new ListMultipartUploadsCommand({
+          Bucket: this._bucket,
+          Prefix: prefix,
+          KeyMarker: key_marker,
+          UploadIdMarker: upload_id_marker,
+        }),
+      );
+
+      for (const upload of response.Uploads ?? []) {
+        if (upload.Key && upload.UploadId) {
+          await this._client.send(
+            new AbortMultipartUploadCommand({
+              Bucket: this._bucket,
+              Key: upload.Key,
+              UploadId: upload.UploadId,
+            }),
+          );
+          aborted += 1;
+        }
+      }
+
+      if (!response.IsTruncated) break;
+      key_marker = response.NextKeyMarker;
+      upload_id_marker = response.NextUploadIdMarker;
+    }
+
+    return aborted;
+  }
+
   private async validate_immutability_policy(policy?: StorageObjectLockPolicy): Promise<void> {
     if (!policy || !policy.retain_until) return;
     const probe = await this.probe_immutability({
@@ -190,6 +301,12 @@ export class S3ObjectStorage implements ObjectStorage {
     if (!probe.mode_supported)
       throw new ObjectLockModeRejectedError(this._bucket, policy.mode ?? 'UNKNOWN');
   }
+}
+
+/** Builds the CopySource value for same-bucket copy (key segments URI-encoded). */
+function build_s3_copy_source(bucket: string, key: string): string {
+  const encoded_key = key.split('/').map(encodeURIComponent).join('/');
+  return `${bucket}/${encoded_key}`;
 }
 
 function is_backend_mode_rejection(err: unknown, mode?: string): boolean {

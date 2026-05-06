@@ -7,19 +7,19 @@ import type { StorageObjectLockPolicy } from '@atlas/types';
 const MANIFEST_PREFIX = 'manifests';
 
 /** Constructs the S3 key for a manifest. */
-function manifest_key(mailbox_id: string, snapshot_id: string): string {
-  return `${MANIFEST_PREFIX}/${mailbox_id}/${snapshot_id}.json`;
+function manifest_key(owner_id: string, snapshot_id: string): string {
+  return `${MANIFEST_PREFIX}/${owner_id}/${snapshot_id}.json`;
 }
 
 /**
  * Stores manifests as encrypted JSON in the tenant's S3 bucket.
- * Key layout: manifests/{mailbox_id}/{snapshot_id}.json
+ * Key layout: manifests/{owner_id}/{snapshot_id}.json
  */
 @injectable()
 export class S3ManifestRepository implements ManifestRepository {
   /** Serializes, encrypts, and uploads a manifest. */
   async save(ctx: TenantContext, manifest: Manifest): Promise<void> {
-    const key = manifest_key(manifest.mailbox_id, manifest.snapshot_id);
+    const key = manifest_key(manifest.owner_id, manifest.snapshot_id);
     const json = Buffer.from(JSON.stringify(manifest));
     const encrypted = ctx.encrypt(json);
     const object_lock_policy = to_storage_object_lock_policy(manifest);
@@ -37,14 +37,11 @@ export class S3ManifestRepository implements ManifestRepository {
   }
 
   /**
-   * Lists manifests for a mailbox, parses their created_at timestamps,
+   * Lists manifests for a mailbox owner, parses their created_at timestamps,
    * and returns the most recent one.
    */
-  async find_latest_by_mailbox(
-    ctx: TenantContext,
-    mailbox_id: string,
-  ): Promise<Manifest | undefined> {
-    const prefix = `${MANIFEST_PREFIX}/${mailbox_id}/`;
+  async find_latest_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest | undefined> {
+    const prefix = `${MANIFEST_PREFIX}/${owner_id}/`;
     const keys = await ctx.storage.list(prefix);
 
     if (keys.length === 0) return undefined;

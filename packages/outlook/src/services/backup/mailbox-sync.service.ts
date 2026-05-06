@@ -51,26 +51,29 @@ export class MailboxSyncService implements BackupUseCase {
   /** Orchestrates a full or incremental mailbox backup across all (or filtered) folders. */
   async sync_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     options: SyncOptions = {},
   ): Promise<SyncResult> {
-    mailbox_id = mailbox_id.toLowerCase();
-    await assert_mailbox_exists(this._connector, tenant_id, mailbox_id);
+    owner_id = owner_id.toLowerCase();
+    await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     await this.warn_if_replica(ctx);
-    const snapshot = create_pending_snapshot(tenant_id, mailbox_id);
+    const snapshot = create_pending_snapshot(tenant_id, owner_id, {
+      owner_email: options.owner_email,
+      owner_display_name: options.owner_display_name,
+    });
     const sync_start = Date.now();
     const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
     const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
     const previous = options.force_full
       ? undefined
-      : await this._manifests.find_latest_by_mailbox(ctx, mailbox_id);
+      : await this._manifests.find_latest_by_owner(ctx, owner_id);
     const saved_links = previous?.delta_links ?? {};
     const previous_entry_count = previous?.total_objects ?? 0;
     const mode = this.resolve_sync_mode(options, saved_links);
 
-    const all_folders = await this._connector.list_mail_folders(tenant_id, mailbox_id);
+    const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
     const folder_selection = this.apply_folder_filter(all_folders, options.folder_filter);
     const folders = folder_selection.folders;
     const warnings = [...folder_selection.warnings];
@@ -104,7 +107,7 @@ export class MailboxSyncService implements BackupUseCase {
           ctx,
           connector: this._connector,
           tenant_id,
-          mailbox_id,
+          owner_id,
           folder_id: folder.folder_id,
           folder_index: i,
           folder_total: folder.total_item_count,
@@ -152,7 +155,7 @@ export class MailboxSyncService implements BackupUseCase {
 
     const merged_links = { ...saved_links, ...new_delta_links };
     const manifest = build_manifest(
-      mailbox_id,
+      owner_id,
       snapshot.id,
       all_entries,
       merged_links,

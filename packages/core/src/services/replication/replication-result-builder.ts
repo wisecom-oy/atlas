@@ -74,7 +74,7 @@ export function to_status_record(
     target_id: target.target_id,
     target_endpoint: target.endpoint,
     snapshot_id: manifest.snapshot_id,
-    mailbox_id: manifest.mailbox_id,
+    owner_id: manifest.owner_id,
     status: result.status,
     started_at: new Date(Date.now() - result.elapsed_ms).toISOString(),
     completed_at: new Date().toISOString(),

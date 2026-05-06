@@ -16,6 +16,8 @@ import { register_mailboxes_command } from '@/commands/mailboxes.command';
 import { register_status_command } from '@/commands/status.command';
 import { register_replicate_command } from '@/commands/replicate.command';
 import { register_rehydrate_command } from '@/commands/rehydrate.command';
+import { register_onedrive_command } from '@/commands/onedrive.command';
+import { register_list_users_command } from '@/commands/list-users.command';
 import { logger } from '@atlas/core';
 import type { Container } from 'inversify';
 
@@ -52,6 +54,8 @@ function register_commands(program: Command): void {
   register_status_command(program, get_container);
   register_replicate_command(program, get_container);
   register_rehydrate_command(program, get_container);
+  register_onedrive_command(program, get_container);
+  register_list_users_command(program, get_container);
 }
 
 /** Handles top-level unhandled errors from command execution. */

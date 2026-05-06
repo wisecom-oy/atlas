@@ -38,6 +38,7 @@ export default defineConfig({
           { text: 'Self-Hosting', link: '/self-hosting' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Azure AD Setup', link: '/azure-ad-setup' },
+          { text: 'OneDrive Backup', link: '/onedrive-backup' },
           { text: 'Security', link: '/security' },
         ],
       },

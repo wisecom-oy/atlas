@@ -14,7 +14,7 @@ export function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 't',
-    mailbox_id: 'user@test.com',
+    owner_id: 'user@test.com',
     snapshot_id: 'snap-1',
     created_at: new Date('2026-03-01T10:00:00Z'),
     total_objects: 1,

@@ -3,11 +3,12 @@ import {
   save_replication_status,
   load_replication_status,
   list_all_replication_status,
-  list_replication_status_by_mailbox,
+  list_replication_status_by_owner,
 } from '@/services/replication/replication-status-repository';
 import type { ReplicationStatusRecord } from '@atlas/types';
 import { ReplicationStatus, ReplicationVerificationStatus } from '@atlas/types';
 import type { TenantContext, ObjectStorage } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_storage(): ObjectStorage {
   return {
@@ -18,6 +19,13 @@ function make_storage(): ObjectStorage {
     exists: vi.fn(),
     list: vi.fn(),
     list_versions: vi.fn(),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
 }
@@ -28,6 +36,7 @@ function make_context(storage: ObjectStorage): TenantContext {
     storage,
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('enc:'), data])),
     decrypt: vi.fn((data: Buffer) => Buffer.from(data.toString().replace('enc:', ''))),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 
@@ -36,7 +45,7 @@ function make_record(overrides: Partial<ReplicationStatusRecord> = {}): Replicat
     target_id: overrides.target_id ?? 'offsite',
     target_endpoint: overrides.target_endpoint ?? 'http://offsite:9000',
     snapshot_id: overrides.snapshot_id ?? 'snap-1',
-    mailbox_id: overrides.mailbox_id ?? 'mbx-1',
+    owner_id: overrides.owner_id ?? 'mbx-1',
     status: overrides.status ?? ReplicationStatus.COMPLETED,
     started_at: overrides.started_at ?? '2026-01-01T00:00:00Z',
     completed_at: overrides.completed_at ?? '2026-01-01T00:05:00Z',
@@ -110,8 +119,8 @@ describe('replication-status-repository', () => {
     expect(results[0]!.target_id).toBe('offsite');
   });
 
-  it('filters by mailbox prefix', async () => {
-    const record = make_record({ mailbox_id: 'mbx-2' });
+  it('filters by owner prefix', async () => {
+    const record = make_record({ owner_id: 'mbx-2' });
     const plaintext = Buffer.from(JSON.stringify(record));
     const encrypted = Buffer.concat([Buffer.from('enc:'), plaintext]);
 
@@ -119,7 +128,7 @@ describe('replication-status-repository', () => {
     vi.mocked(storage.exists).mockResolvedValue(true);
     vi.mocked(storage.get).mockResolvedValue(encrypted);
 
-    const results = await list_replication_status_by_mailbox(ctx, 'mbx-2');
+    const results = await list_replication_status_by_owner(ctx, 'mbx-2');
 
     expect(results).toHaveLength(1);
     expect(storage.list).toHaveBeenCalledWith('_meta/replication/mbx-2/');

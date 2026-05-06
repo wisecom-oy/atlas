@@ -44,6 +44,8 @@ export interface SyncOptions {
     | undefined;
   readonly should_interrupt?: (() => boolean) | undefined;
   readonly should_force_stop?: (() => boolean) | undefined;
+  readonly owner_email?: string | undefined;
+  readonly owner_display_name?: string | undefined;
 }
 
 export interface BackupSyncSummary {
@@ -67,5 +69,6 @@ export interface SyncResult {
 }
 
 export interface BackupUseCase {
-  sync_mailbox(tenant_id: string, mailbox_id: string, options?: SyncOptions): Promise<SyncResult>;
+  /** Runs a full or incremental backup; `owner_id` is the mailbox owner's Entra object ID (storage partition). */
+  sync_mailbox(tenant_id: string, owner_id: string, options?: SyncOptions): Promise<SyncResult>;
 }

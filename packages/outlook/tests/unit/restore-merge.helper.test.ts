@@ -23,7 +23,7 @@ function make_manifest(
   return {
     id: `manifest-${snapshot_id}`,
     tenant_id: 'test-tenant',
-    mailbox_id: 'user@test.com',
+    owner_id: 'user@test.com',
     snapshot_id,
     created_at: new Date(created_at),
     total_objects: entries.length,

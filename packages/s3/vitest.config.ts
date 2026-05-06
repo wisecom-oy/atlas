@@ -47,6 +47,10 @@ export default defineConfig({
   plugins: [resolve_atlas_at_path_aliases()],
   resolve: {
     alias: {
+      '@atlas/types/testing/stub-tenant-create-cipher': resolve(
+        root_dir,
+        '../types/src/testing/stub-tenant-create-cipher.ts',
+      ),
       '@atlas/types': resolve(root_dir, '../types/src/index.ts'),
       '@atlas/core': resolve(root_dir, '../core/src/index.ts'),
     },

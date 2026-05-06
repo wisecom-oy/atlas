@@ -49,9 +49,9 @@ export interface MailboxConnector {
   list_mailboxes(tenant_id: string): Promise<string[]>;
 
   /** Returns true if the mailbox exists in the tenant, false otherwise. */
-  mailbox_exists(tenant_id: string, mailbox_id: string): Promise<boolean>;
+  mailbox_exists(tenant_id: string, owner_id: string): Promise<boolean>;
 
-  list_mail_folders(tenant_id: string, mailbox_id: string): Promise<MailFolder[]>;
+  list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]>;
 
   /**
    * Fetches messages changed since the previous delta link.
@@ -60,19 +60,19 @@ export interface MailboxConnector {
    */
   fetch_delta(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     prev_delta_link?: string | undefined,
     on_page?: DeltaPageCallback | undefined,
     page_size?: number | undefined,
   ): Promise<DeltaSyncResult>;
 
-  fetch_message(tenant_id: string, mailbox_id: string, message_id: string): Promise<MailMessage>;
+  fetch_message(tenant_id: string, owner_id: string, message_id: string): Promise<MailMessage>;
 
   /** Fetches file attachments for a message, decoding contentBytes from base64. */
   fetch_attachments(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
   ): Promise<MessageAttachment[]>;
 }

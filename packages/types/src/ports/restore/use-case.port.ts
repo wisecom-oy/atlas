@@ -23,7 +23,7 @@ export interface RestoreUseCase {
   ): Promise<RestoreResult>;
   restore_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     options?: RestoreOptions,
   ): Promise<RestoreResult>;
 }

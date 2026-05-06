@@ -1,5 +1,6 @@
 export type {
   ObjectStorage,
+  MultipartUploadHandle,
   StorageObjectLockMode,
   StorageObjectLockPolicy,
   StorageImmutabilityProbeRequest,
@@ -84,6 +85,42 @@ export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
 
+export type {
+  UserIdentityResolver,
+  ResolvedUserIdentity,
+} from './identity/user-identity-resolver.port';
+
+export type { IdentityRegistryRepository } from './identity/identity-registry-repository.port';
+
+export type {
+  OneDriveConnector,
+  OneDriveDrive,
+  OneDriveDeltaItem,
+  OneDriveDeltaItemKind,
+  OneDriveDeltaResult,
+  OneDriveFileVersion,
+} from './onedrive/connector.port';
+
+export type { OneDriveManifestRepository } from './onedrive/manifest-repository.port';
+export type { OneDriveDeltaCursorRepository } from './onedrive/delta-cursor-repository.port';
+export type { OneDriveFileVersionIndexRepository } from './onedrive/file-version-index-repository.port';
+
+export type {
+  OneDriveBackupUseCase,
+  OneDriveBackupResult,
+  OneDriveBackupSummary,
+  OneDriveBackupOptions,
+  OneDriveCatalogUseCase,
+  OneDriveVerificationUseCase,
+  OneDriveVerificationResult,
+} from './onedrive/use-case.port';
+
+export type {
+  OneDriveRestoreUseCase,
+  OneDriveRestoreResult,
+  OneDriveRestoreOptions,
+} from './onedrive/restore.port';
+
 export {
   OBJECT_STORAGE_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
@@ -94,6 +131,12 @@ export {
   RESTORE_CONNECTOR_TOKEN,
   DEK_VALIDATION_FN_TOKEN,
   STORAGE_TARGET_FACTORY_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
+  IDENTITY_REGISTRY_REPOSITORY_TOKEN,
+  ONEDRIVE_CONNECTOR_TOKEN,
+  ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN,
+  ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from './tokens/outgoing.tokens';
 
 export {
@@ -108,4 +151,8 @@ export {
   STATUS_USE_CASE_TOKEN,
   TENANT_ORCHESTRATOR_TOKEN,
   REPLICATION_USE_CASE_TOKEN,
+  ONEDRIVE_BACKUP_USE_CASE_TOKEN,
+  ONEDRIVE_CATALOG_USE_CASE_TOKEN,
+  ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
+  ONEDRIVE_RESTORE_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

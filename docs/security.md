@@ -78,12 +78,28 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 | Email message bodies | Yes | Stored as encrypted JSON under `data/{mailbox}/{sha256}` |
 | Attachments | Yes | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}` |
 | Manifests | Yes | Contains subjects, folder names, delta URLs, checksums |
+| OneDrive file blobs | Yes | Keys under `onedrive/data/{owner_id}/{sha256}` |
+| OneDrive manifests / indexes / delta state | Yes | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta` |
 | Wrapped DEK | Yes | `_meta/dek.enc` is encrypted with the KEK |
-| S3 object metadata | **No** | `x-message-id` and `x-plaintext-sha256` headers are visible to anyone with S3 read access |
+| S3 object metadata | **No** | `x-message-id`, `x-plaintext-sha256`, and OneDrive `x-onedrive-*` headers are visible to anyone with S3 read access |
 
-The S3 object metadata is intentionally not encrypted because it is used for deduplication checks without requiring decryption. However, this means that the **Graph message ID** and **plaintext SHA-256 hash** of each message are visible to anyone who can list or read S3 object metadata. The message content itself remains encrypted.
+The S3 object metadata is intentionally not encrypted because it is used for deduplication checks without requiring decryption. However, this means that **Graph message and file identifiers** and **plaintext SHA-256 hashes** are visible to anyone who can list or read S3 object metadata. The object bodies remain encrypted.
 
 Manifests deserve special attention: they contain email subjects, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines and folder names are never exposed at rest in the S3 bucket.
+
+### OneDrive blobs and sidecars
+
+OneDrive file ciphertext uses keys such as `onedrive/data/{owner_id}/{sha256}` (see [OneDrive Backup](./onedrive-backup.md)). The `{owner_id}` segment is the **Entra object ID**, not an SMTP address, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs.
+
+Unencrypted S3 metadata on OneDrive objects mirrors the mailbox pattern: `x-onedrive-file-id`, `x-onedrive-version-id` (historical versions), and `x-plaintext-sha256` are visible to anyone who can read object metadata. Content remains AES-256-GCM encrypted.
+
+## User identity in storage paths
+
+**OneDrive (CLI `atlas onedrive`)** always resolves interactive owner inputs that look like email/UPN to an Entra object ID (`GET /users/{email}` with `id` selected) before computing S3 prefixes. Passing a bare UUID to `--owner` skips resolution and must match the user's directory object ID.
+
+**Mailbox backup** still namespaces `data/`, `attachments/`, and `manifests/` by the mailbox identifier wired into the sync job (today this is commonly the primary SMTP address from discovery). That is a separate layout from OneDrive's object-ID paths. Operators who rely on privacy through opaque IDs should prefer object IDs for new automation and be aware older mailbox prefixes may still contain human-readable addresses.
+
+There is **no built-in S3 object rename** between email-keyed and ID-keyed mailbox prefixes in the open-source CLI as shipped; migrating layout is an operational exercise (re-backup, copy, or custom tooling) if you need to align naming.
 
 ## Integrity Validation
 

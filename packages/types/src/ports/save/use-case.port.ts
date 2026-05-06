@@ -23,5 +23,5 @@ export interface SaveUseCase {
   save_snapshot(tenant_id: string, snapshot_id: string, options?: SaveOptions): Promise<SaveResult>;
 
   /** Saves messages from all snapshots for a mailbox, merged and deduplicated. */
-  save_mailbox(tenant_id: string, mailbox_id: string, options?: SaveOptions): Promise<SaveResult>;
+  save_mailbox(tenant_id: string, owner_id: string, options?: SaveOptions): Promise<SaveResult>;
 }

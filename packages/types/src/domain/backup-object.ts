@@ -1,7 +1,7 @@
 export interface BackupObject {
   readonly id: string;
   readonly snapshot_id: string;
-  readonly mailbox_id: string;
+  readonly owner_id: string;
   readonly message_id: string;
   readonly folder_id: string;
   readonly subject: string;

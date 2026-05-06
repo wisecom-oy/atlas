@@ -16,7 +16,7 @@ import { replicate_snapshot_to_target } from '@/services/replication/snapshot-re
 import {
   save_replication_status,
   list_all_replication_status,
-  list_replication_status_by_mailbox,
+  list_replication_status_by_owner,
   list_replication_status_by_snapshot,
 } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
@@ -58,16 +58,16 @@ export class ReplicationService implements ReplicationUseCase {
 
   async replicate_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifests = await this.list_mailbox_manifests(source_ctx, mailbox_id);
+    const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
     const results: ReplicationResult[] = [];
 
     for (const target of targets) {
       const target_ctx = await target.create_context(tenant_id);
-      const missing = await this.diff_manifests(manifests, target_ctx, mailbox_id);
+      const missing = await this.diff_manifests(manifests, target_ctx, owner_id);
 
       for (const manifest of missing) {
         const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
@@ -89,7 +89,7 @@ export class ReplicationService implements ReplicationUseCase {
     const source_ctx = await source.create_context(tenant_id);
     const manifest = await this.require_manifest_from_ctx(source_ctx, snapshot_id);
 
-    const manifest_key = `manifests/${manifest.mailbox_id}/${snapshot_id}.json`;
+    const manifest_key = `manifests/${manifest.owner_id}/${snapshot_id}.json`;
     if (await primary_ctx.storage.exists(manifest_key)) {
       return build_skip_result(snapshot_id, source.target_id);
     }
@@ -99,13 +99,13 @@ export class ReplicationService implements ReplicationUseCase {
 
   async rehydrate_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifests = await this.list_mailbox_manifests(source_ctx, mailbox_id);
+    const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
 
     return this.rehydrate_manifests(source_ctx, primary_ctx, manifests, source, tenant_id);
   }
@@ -128,12 +128,12 @@ export class ReplicationService implements ReplicationUseCase {
     return list_all_replication_status(ctx);
   }
 
-  async get_replication_status_by_mailbox(
+  async get_replication_status_by_owner(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
   ): Promise<ReplicationStatusRecord[]> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    return list_replication_status_by_mailbox(ctx, mailbox_id);
+    return list_replication_status_by_owner(ctx, owner_id);
   }
 
   private async copy_to_target(
@@ -203,7 +203,7 @@ export class ReplicationService implements ReplicationUseCase {
     let snapshot_count = 0;
 
     for (const manifest of manifests) {
-      const key = `manifests/${manifest.mailbox_id}/${manifest.snapshot_id}.json`;
+      const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
       if (await primary_ctx.storage.exists(key)) {
         total_skipped++;
         continue;
@@ -253,22 +253,19 @@ export class ReplicationService implements ReplicationUseCase {
     return manifest;
   }
 
-  private async list_mailbox_manifests(
-    ctx: TenantContext,
-    mailbox_id: string,
-  ): Promise<Manifest[]> {
+  private async list_mailbox_manifests(ctx: TenantContext, owner_id: string): Promise<Manifest[]> {
     const all = await this._manifests.list_all_manifests(ctx);
     return all
-      .filter((m) => m.mailbox_id === mailbox_id)
+      .filter((m) => m.owner_id === owner_id)
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   }
 
   private async diff_manifests(
     source_manifests: Manifest[],
     target_ctx: TenantContext,
-    mailbox_id: string,
+    owner_id: string,
   ): Promise<Manifest[]> {
-    const target_keys = await target_ctx.storage.list(`manifests/${mailbox_id}/`);
+    const target_keys = await target_ctx.storage.list(`manifests/${owner_id}/`);
     const target_snapshot_ids = new Set(
       target_keys.map((k) => k.split('/').pop()?.replace('.json', '')).filter(Boolean) as string[],
     );

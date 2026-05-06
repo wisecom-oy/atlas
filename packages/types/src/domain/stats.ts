@@ -12,7 +12,7 @@ export interface BucketStats {
 }
 
 export interface MailboxStats {
-  readonly mailbox_id: string;
+  readonly owner_id: string;
   readonly snapshot_count: number;
   readonly total_messages: number;
   readonly total_size_bytes: number;

@@ -6,7 +6,7 @@ describe('aggregate_mailbox_stats', () => {
   it('returns zeroed stats for empty manifests', () => {
     const result = aggregate_mailbox_stats('user@test.com', []);
 
-    expect(result.mailbox_id).toBe('user@test.com');
+    expect(result.owner_id).toBe('user@test.com');
     expect(result.snapshot_count).toBe(0);
     expect(result.total_messages).toBe(0);
     expect(result.total_size_bytes).toBe(0);

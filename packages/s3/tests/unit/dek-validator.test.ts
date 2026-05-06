@@ -12,6 +12,13 @@ function make_storage(): ObjectStorage {
     exists: vi.fn(),
     list: vi.fn(),
     list_versions: vi.fn(),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
 }

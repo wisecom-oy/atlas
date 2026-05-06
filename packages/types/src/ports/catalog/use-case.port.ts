@@ -1,7 +1,7 @@
 import type { AttachmentEntry, Manifest } from '@/domain/manifest';
 
 export interface MailboxSummary {
-  readonly mailbox_id: string;
+  readonly owner_id: string;
   readonly snapshot_count: number;
   readonly total_objects: number;
   readonly total_size_bytes: number;
@@ -15,7 +15,7 @@ export interface ReadMessageResult {
 
 export interface CatalogUseCase {
   list_mailboxes(tenant_id: string): Promise<MailboxSummary[]>;
-  list_snapshots(tenant_id: string, mailbox_id: string): Promise<Manifest[]>;
+  list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]>;
   get_snapshot_detail(tenant_id: string, snapshot_id: string): Promise<Manifest | undefined>;
   read_message(
     tenant_id: string,

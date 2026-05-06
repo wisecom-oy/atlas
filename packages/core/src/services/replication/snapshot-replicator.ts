@@ -75,7 +75,7 @@ export async function replicate_snapshot_to_target(
     }
   }
 
-  const manifest_key = `manifests/${manifest.mailbox_id}/${manifest.snapshot_id}.json`;
+  const manifest_key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
   const source_manifest_blob = await source_ctx.storage.get(manifest_key);
   const source_manifest_checksum = sha256_hex(source_manifest_blob);
 

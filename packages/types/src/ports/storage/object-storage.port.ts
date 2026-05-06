@@ -24,6 +24,17 @@ export interface StorageObjectVersion {
   readonly is_delete_marker: boolean;
 }
 
+export interface MultipartUploadHandle {
+  /** Uploads a single part. Returns the ETag for assembly. */
+  upload_part(part_number: number, data: Buffer): Promise<string>;
+
+  /** Finalises the multipart upload, assembling parts in order. */
+  complete(parts: Array<{ ETag: string; PartNumber: number }>): Promise<void>;
+
+  /** Aborts the upload and removes uploaded parts (best-effort). */
+  abort(): Promise<void>;
+}
+
 export interface ObjectStorage {
   /** Writes an object to storage under the given key. */
   put(
@@ -55,4 +66,22 @@ export interface ObjectStorage {
   probe_immutability(
     request?: StorageImmutabilityProbeRequest,
   ): Promise<StorageImmutabilityProbeResult>;
+
+  /** Starts a multipart upload, returning a handle for part-level control. */
+  begin_multipart_upload(
+    key: string,
+    metadata?: Record<string, string>,
+    object_lock_policy?: StorageObjectLockPolicy,
+  ): Promise<MultipartUploadHandle>;
+
+  /** Server-side copy from source to destination within the same bucket. */
+  copy(
+    source_key: string,
+    dest_key: string,
+    metadata?: Record<string, string>,
+    object_lock_policy?: StorageObjectLockPolicy,
+  ): Promise<void>;
+
+  /** Aborts all incomplete multipart uploads under the given prefix. */
+  abort_incomplete_uploads(prefix: string): Promise<number>;
 }

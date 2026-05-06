@@ -9,23 +9,23 @@ export type AttachmentProgressCallback = (done: number, total: number) => void;
 
 /**
  * Fetches attachments for a message via the connector and stores each one
- * using content-addressed keys under attachments/{mailbox}/{sha256}.
+ * using content-addressed keys under attachments/{owner_id}/{sha256}.
  * The optional on_progress callback fires after each attachment is processed.
  */
 export async function fetch_and_store_attachments(
   ctx: TenantContext,
   connector: MailboxConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   message_id: string,
   on_progress?: AttachmentProgressCallback,
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<AttachmentEntry[]> {
-  const raw = await connector.fetch_attachments(tenant_id, mailbox_id, message_id);
+  const raw = await connector.fetch_attachments(tenant_id, owner_id, message_id);
   const entries: AttachmentEntry[] = [];
 
   for (let i = 0; i < raw.length; i++) {
-    entries.push(await store_single_attachment(ctx, raw[i]!, mailbox_id, object_lock_policy));
+    entries.push(await store_single_attachment(ctx, raw[i]!, owner_id, object_lock_policy));
     on_progress?.(i + 1, raw.length);
   }
   return entries;
@@ -35,12 +35,12 @@ export async function fetch_and_store_attachments(
 async function store_single_attachment(
   ctx: TenantContext,
   att: MessageAttachment,
-  mailbox_id: string,
+  owner_id: string,
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<AttachmentEntry> {
   const has_content = att.content.length > 0;
   const checksum = has_content ? createHash('sha256').update(att.content).digest('hex') : '';
-  const storage_key = has_content ? `attachments/${mailbox_id}/${checksum}` : '';
+  const storage_key = has_content ? `attachments/${owner_id}/${checksum}` : '';
 
   if (has_content) {
     const exists = await ctx.storage.exists(storage_key);

@@ -17,7 +17,7 @@ export interface RestoreConnector {
   /** Creates a mail folder under msgFolderRoot (top-level) or under a parent. */
   create_mail_folder(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     display_name: string,
     parent_folder_id?: string,
   ): Promise<MailFolder>;
@@ -25,7 +25,7 @@ export interface RestoreConnector {
   /** Creates a message in the specified folder. Returns the new message ID. */
   create_message(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     message_body: Record<string, unknown>,
   ): Promise<string>;
@@ -33,7 +33,7 @@ export interface RestoreConnector {
   /** Uploads a small attachment (<3 MB) inline as base64. */
   add_attachment(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
     attachment: AttachmentUpload,
   ): Promise<void>;
@@ -41,7 +41,7 @@ export interface RestoreConnector {
   /** Opens an upload session for a large attachment (>=3 MB). */
   create_upload_session(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
     file_name: string,
     file_size: number,
@@ -56,12 +56,12 @@ export interface RestoreConnector {
   ): Promise<void>;
 
   /** Returns the total message count in a folder (for verification). */
-  count_folder_messages(tenant_id: string, mailbox_id: string, folder_id: string): Promise<number>;
+  count_folder_messages(tenant_id: string, owner_id: string, folder_id: string): Promise<number>;
 
   /** Lists messages in a folder with basic properties (for verification). */
   list_folder_messages(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     top: number,
   ): Promise<Array<{ subject: string; is_draft: boolean }>>;

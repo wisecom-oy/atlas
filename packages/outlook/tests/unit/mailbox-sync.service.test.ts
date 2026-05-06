@@ -12,6 +12,7 @@ import type { ManifestRepository } from '@atlas/types';
 import type { TenantContext, TenantContextFactory } from '@atlas/types';
 import type { ObjectStorage } from '@atlas/types';
 import { SnapshotStatus } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_message(id: string, body: string, has_attachments = false): MailMessage {
   const raw = Buffer.from(body);
@@ -47,6 +48,13 @@ function make_mock_storage(): ObjectStorage {
     exists: vi.fn().mockResolvedValue(false),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
       reachable: true,
@@ -64,6 +72,7 @@ function make_mock_context(storage?: ObjectStorage): TenantContext {
     storage: s,
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 
@@ -90,7 +99,7 @@ describe('MailboxSyncService', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_mailbox: vi.fn().mockResolvedValue(undefined),
+      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 
@@ -206,10 +215,10 @@ describe('MailboxSyncService', () => {
       make_folder('Inbox', 'folder-1', 0),
     ]);
 
-    vi.mocked(mock_manifests.find_latest_by_mailbox).mockResolvedValue({
+    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
       id: 'old-manifest',
       tenant_id: 't',
-      mailbox_id: 'user@test.com',
+      owner_id: 'user@test.com',
       snapshot_id: 'old-snap',
       created_at: new Date(),
       total_objects: 0,

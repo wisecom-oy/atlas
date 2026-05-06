@@ -12,6 +12,7 @@ import {
   type TenantContextFactory,
   type ObjectStorage,
 } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_mock_storage(): ObjectStorage {
   return {
@@ -22,6 +23,13 @@ function make_mock_storage(): ObjectStorage {
     exists: vi.fn().mockResolvedValue(false),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
       reachable: true,
@@ -43,6 +51,7 @@ describe('MailboxSyncService object lock', () => {
       storage: make_mock_storage(),
       encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      create_cipher: stub_tenant_create_cipher,
     };
 
     const message = {
@@ -74,7 +83,7 @@ describe('MailboxSyncService object lock', () => {
     const mock_manifests: ManifestRepository = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_mailbox: vi.fn().mockResolvedValue(undefined),
+      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
 import type { TenantContext } from '@atlas/types';
 import type { Manifest } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_mock_context(): TenantContext {
   return {
@@ -14,10 +15,18 @@ function make_mock_context(): TenantContext {
       exists: vi.fn(),
       list: vi.fn(),
       list_versions: vi.fn().mockResolvedValue([]),
+      begin_multipart_upload: vi.fn().mockResolvedValue({
+        upload_part: vi.fn(),
+        complete: vi.fn(),
+        abort: vi.fn(),
+      }),
+      copy: vi.fn(),
+      abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       probe_immutability: vi.fn(),
     },
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('ENC:'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(4)),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 
@@ -25,7 +34,7 @@ function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 'test-tenant',
-    mailbox_id: 'user@test.com',
+    owner_id: 'user@test.com',
     snapshot_id: 'snap-1',
     created_at: new Date('2026-01-15T10:00:00Z'),
     total_objects: 2,
@@ -117,7 +126,7 @@ describe('S3ManifestRepository', () => {
     });
   });
 
-  describe('find_latest_by_mailbox', () => {
+  describe('find_latest_by_owner', () => {
     it('returns the most recent manifest', async () => {
       const older = make_manifest({
         id: 'old',
@@ -141,7 +150,7 @@ describe('S3ManifestRepository', () => {
         .mockResolvedValueOnce(enc_old)
         .mockResolvedValueOnce(enc_new);
 
-      const result = await repo.find_latest_by_mailbox(ctx, 'user@test.com');
+      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
       expect(result).toBeDefined();
       expect(result!.id).toBe('new');
     });
@@ -149,7 +158,7 @@ describe('S3ManifestRepository', () => {
     it('returns undefined for empty mailbox', async () => {
       (ctx.storage.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
-      const result = await repo.find_latest_by_mailbox(ctx, 'user@test.com');
+      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
       expect(result).toBeUndefined();
     });
   });

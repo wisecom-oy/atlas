@@ -153,7 +153,7 @@ async function show_status(
   if (options.snapshot) {
     records = await use_case.get_replication_status(tenant_id, options.snapshot);
   } else if (options.mailbox) {
-    records = await use_case.get_replication_status_by_mailbox(tenant_id, options.mailbox);
+    records = await use_case.get_replication_status_by_owner(tenant_id, options.mailbox);
   } else {
     records = await use_case.get_replication_status(tenant_id);
   }
@@ -167,7 +167,7 @@ async function show_status(
     const status_text = r.status === 'COMPLETED' ? chalk.green(r.status) : chalk.yellow(r.status);
 
     logger.info(
-      `${r.mailbox_id} / ${chalk.cyan(r.snapshot_id)} → ${r.target_id}: ${status_text} ` +
+      `${r.owner_id} / ${chalk.cyan(r.snapshot_id)} → ${r.target_id}: ${status_text} ` +
         `(${r.objects_copied}/${r.objects_total} objects, ${format_bytes(r.bytes_copied)})`,
     );
   }

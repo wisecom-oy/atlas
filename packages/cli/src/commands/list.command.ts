@@ -93,7 +93,7 @@ function print_mailbox_table(mailboxes: MailboxSummary[]): void {
   for (const m of mailboxes) {
     console.log(
       '  ' +
-        pad(m.mailbox_id, 36) +
+        pad(m.owner_id, 36) +
         pad(String(m.snapshot_count), 12) +
         pad(String(m.total_objects), 10) +
         pad(format_bytes(m.total_size_bytes), 12) +
@@ -165,7 +165,7 @@ async function print_snapshot_messages(
   const entries = manifest.entries.slice(0, limit);
 
   logger.info(`Snapshot ${snapshot_id}`);
-  logger.info(`Mailbox: ${manifest.mailbox_id}`);
+  logger.info(`Mailbox: ${manifest.owner_id}`);
   logger.info(`${total} message(s), ${format_bytes(manifest.total_size_bytes)}\n`);
 
   const has_att = entries.some((e) => e.attachments && e.attachments.length > 0);

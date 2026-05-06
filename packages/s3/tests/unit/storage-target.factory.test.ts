@@ -17,6 +17,13 @@ vi.mock('@/adapters/s3-object-storage.adapter', () => ({
     exists = async (): Promise<boolean> => mock_exists_returns;
     list = async (): Promise<string[]> => [];
     list_versions = async (): Promise<string[]> => [];
+    begin_multipart_upload = async () => ({
+      upload_part: async (): Promise<string> => '',
+      complete: async (): Promise<void> => {},
+      abort: async (): Promise<void> => {},
+    });
+    copy = async (): Promise<void> => {};
+    abort_incomplete_uploads = async (): Promise<number> => 0;
     probe_immutability = async (): Promise<Record<string, unknown>> => ({});
   },
 }));

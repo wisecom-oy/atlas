@@ -30,11 +30,11 @@ export class StatsService implements StatsUseCase {
   }
 
   /** Loads manifests for a single mailbox and computes its statistics. */
-  async get_mailbox_stats(tenant_id: string, mailbox_id: string): Promise<MailboxStats> {
-    mailbox_id = mailbox_id.toLowerCase();
+  async get_mailbox_stats(tenant_id: string, owner_id: string): Promise<MailboxStats> {
+    owner_id = owner_id.toLowerCase();
     const ctx = await this._tenant_factory.create(tenant_id);
     const all = await this._manifests.list_all_manifests(ctx);
-    const filtered = all.filter((m) => m.mailbox_id === mailbox_id);
-    return timed(() => aggregate_mailbox_stats(mailbox_id, filtered));
+    const filtered = all.filter((m) => m.owner_id === owner_id);
+    return timed(() => aggregate_mailbox_stats(owner_id, filtered));
   }
 }

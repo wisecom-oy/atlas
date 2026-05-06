@@ -12,9 +12,9 @@ const UNKNOWN_FOLDER_NAME = 'Unknown';
 export async function build_folder_map(
   connector: MailboxConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
 ): Promise<Map<string, string>> {
-  const folders = await connector.list_mail_folders(tenant_id, mailbox_id);
+  const folders = await connector.list_mail_folders(tenant_id, owner_id);
   const map = new Map<string, string>();
   for (const f of folders) {
     map.set(f.folder_id, f.display_name);
@@ -26,12 +26,12 @@ export async function build_folder_map(
 export async function create_restore_root(
   restore_connector: RestoreConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
 ): Promise<MailFolder> {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const name = `Restore-${ts}`;
   logger.info(`Creating restore folder: ${name}`);
-  return restore_connector.create_mail_folder(tenant_id, mailbox_id, name);
+  return restore_connector.create_mail_folder(tenant_id, owner_id, name);
 }
 
 /**
@@ -42,7 +42,7 @@ export async function create_restore_root(
 export async function ensure_subfolder(
   restore_connector: RestoreConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   root_folder_id: string,
   original_folder_id: string,
   folder_map: Map<string, string>,
@@ -54,7 +54,7 @@ export async function ensure_subfolder(
   const display_name = folder_map.get(original_folder_id) ?? UNKNOWN_FOLDER_NAME;
   const folder = await restore_connector.create_mail_folder(
     tenant_id,
-    mailbox_id,
+    owner_id,
     display_name,
     root_folder_id,
   );

@@ -20,18 +20,18 @@ export class MailboxStatusService implements StatusUseCase {
   ) {}
 
   /** Peeks at Graph delta state to report whether a mailbox backup is current. */
-  async check_mailbox_status(tenant_id: string, mailbox_id: string): Promise<MailboxStatusResult> {
-    mailbox_id = mailbox_id.toLowerCase();
-    await assert_mailbox_exists(this._connector, tenant_id, mailbox_id);
+  async check_mailbox_status(tenant_id: string, owner_id: string): Promise<MailboxStatusResult> {
+    owner_id = owner_id.toLowerCase();
+    await assert_mailbox_exists(this._connector, tenant_id, owner_id);
 
     const ctx = await this._tenant_factory.create(tenant_id);
-    const previous = await this._manifests.find_latest_by_mailbox(ctx, mailbox_id);
+    const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
     const saved_links = previous?.delta_links ?? {};
 
-    const all_folders = await this._connector.list_mail_folders(tenant_id, mailbox_id);
+    const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
     const folder_statuses = await this.peek_all_folders(
       tenant_id,
-      mailbox_id,
+      owner_id,
       all_folders,
       saved_links,
     );
@@ -42,7 +42,7 @@ export class MailboxStatusService implements StatusUseCase {
     );
 
     return {
-      mailbox_id,
+      owner_id,
       last_backup_at: previous?.created_at ? new Date(previous.created_at) : undefined,
       last_snapshot_id: previous?.snapshot_id,
       total_folders: all_folders.length,
@@ -54,7 +54,7 @@ export class MailboxStatusService implements StatusUseCase {
 
   private async peek_all_folders(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folders: MailFolder[],
     saved_links: Record<string, string>,
   ): Promise<FolderStatus[]> {
@@ -75,7 +75,7 @@ export class MailboxStatusService implements StatusUseCase {
       }
 
       try {
-        const peek = await this.peek_folder_delta(tenant_id, mailbox_id, folder, delta_link);
+        const peek = await this.peek_folder_delta(tenant_id, owner_id, folder, delta_link);
         results.push(peek);
       } catch (err) {
         logger.debug(
@@ -98,7 +98,7 @@ export class MailboxStatusService implements StatusUseCase {
   /** Fetches a single delta page to count pending changes without advancing state. */
   private async peek_folder_delta(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder: MailFolder,
     delta_link: string,
   ): Promise<FolderStatus> {
@@ -107,7 +107,7 @@ export class MailboxStatusService implements StatusUseCase {
 
     const result = await this._connector.fetch_delta(
       tenant_id,
-      mailbox_id,
+      owner_id,
       folder.folder_id,
       delta_link,
       (_page, _total, page_messages) => {

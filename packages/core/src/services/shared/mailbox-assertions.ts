@@ -4,12 +4,12 @@ import type { MailboxConnector } from '@atlas/types';
 export async function assert_mailbox_exists(
   connector: MailboxConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
 ): Promise<void> {
-  const exists = await connector.mailbox_exists(tenant_id, mailbox_id);
+  const exists = await connector.mailbox_exists(tenant_id, owner_id);
   if (!exists) {
     throw new Error(
-      `Mailbox "${mailbox_id}" does not exist in the tenant. ` +
+      `Mailbox "${owner_id}" does not exist in the tenant. ` +
         `Verify the email address and try again.`,
     );
   }

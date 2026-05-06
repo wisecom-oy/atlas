@@ -90,7 +90,7 @@ function log_tenant_result(result: TenantBackupResult): void {
 
   for (const outcome of result.outcomes) {
     if (outcome.error) {
-      logger.error(`  ${outcome.mailbox_id}: ${outcome.error}`);
+      logger.error(`  ${outcome.owner_id}: ${outcome.error}`);
     }
   }
 }

@@ -24,14 +24,14 @@ export class CatalogService implements CatalogUseCase {
     return build_mailbox_summaries(by_mailbox);
   }
 
-  /** Returns every manifest for a given mailbox, sorted newest-first. */
-  async list_snapshots(tenant_id: string, mailbox_id: string): Promise<Manifest[]> {
-    mailbox_id = mailbox_id.toLowerCase();
+  /** Returns every manifest for a given mailbox owner, sorted newest-first. */
+  async list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]> {
+    owner_id = owner_id.toLowerCase();
     const ctx = await this._tenant_factory.create(tenant_id);
     const all = await this._manifests.list_all_manifests(ctx);
 
     return all
-      .filter((m) => m.mailbox_id === mailbox_id)
+      .filter((m) => m.owner_id === owner_id)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
@@ -77,13 +77,13 @@ export class CatalogService implements CatalogUseCase {
   }
 }
 
-/** Groups manifests into a map keyed by mailbox_id. */
+/** Groups manifests into a map keyed by owner_id. */
 function group_by_mailbox(manifests: Manifest[]): Map<string, Manifest[]> {
   const map = new Map<string, Manifest[]>();
   for (const m of manifests) {
-    const arr = map.get(m.mailbox_id) ?? [];
+    const arr = map.get(m.owner_id) ?? [];
     arr.push(m);
-    map.set(m.mailbox_id, arr);
+    map.set(m.owner_id, arr);
   }
   return map;
 }
@@ -96,13 +96,13 @@ function group_by_mailbox(manifests: Manifest[]): Map<string, Manifest[]> {
 function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummary[] {
   const summaries: MailboxSummary[] = [];
 
-  for (const [mailbox_id, manifests] of groups) {
+  for (const [owner_id, manifests] of groups) {
     manifests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const latest = manifests[0]!;
     const cumulative_size = manifests.reduce((sum, m) => sum + m.total_size_bytes, 0);
 
     summaries.push({
-      mailbox_id,
+      owner_id,
       snapshot_count: manifests.length,
       total_objects: latest.total_objects,
       total_size_bytes: cumulative_size,
@@ -110,5 +110,5 @@ function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummar
     });
   }
 
-  return summaries.sort((a, b) => a.mailbox_id.localeCompare(b.mailbox_id));
+  return summaries.sort((a, b) => a.owner_id.localeCompare(b.owner_id));
 }

@@ -12,6 +12,7 @@ import type {
   StorageTargetFactory,
   DekValidationFn,
 } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 import type { AtlasConfig } from '@/utils/config';
 
 vi.mock('@/services/replication/rehydration-dek-helper', () => ({
@@ -27,6 +28,13 @@ function make_storage(): ObjectStorage {
     exists: vi.fn().mockResolvedValue(false),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn(),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
 }
@@ -42,13 +50,13 @@ function make_entry(key: string): ManifestEntry {
 
 function make_manifest(
   snapshot_id: string,
-  mailbox_id = 'mbx-1',
+  owner_id = 'mbx-1',
   entries: ManifestEntry[] = [],
 ): Manifest {
   return {
     id: `manifest-${snapshot_id}`,
     tenant_id: 'tenant-1',
-    mailbox_id,
+    owner_id,
     snapshot_id,
     created_at: new Date('2026-01-01'),
     total_objects: entries.length,
@@ -80,6 +88,7 @@ describe('ReplicationService', () => {
       storage: source_storage,
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
+      create_cipher: stub_tenant_create_cipher,
     };
 
     target_ctx = {
@@ -87,6 +96,7 @@ describe('ReplicationService', () => {
       storage: target_storage,
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
+      create_cipher: stub_tenant_create_cipher,
     };
 
     tenant_factory = { create: vi.fn().mockResolvedValue(source_ctx) };
@@ -94,7 +104,7 @@ describe('ReplicationService', () => {
     manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
-      find_latest_by_mailbox: vi.fn(),
+      find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 

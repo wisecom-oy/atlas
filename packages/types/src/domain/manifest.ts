@@ -18,7 +18,8 @@ export interface ManifestObjectLockPolicy {
 export interface Manifest {
   readonly id: string;
   readonly tenant_id: string;
-  readonly mailbox_id: string;
+  /** Entra object ID (UUID) of the mailbox owner; used as the storage partition key. */
+  readonly owner_id: string;
   readonly snapshot_id: string;
   readonly created_at: Date;
   readonly total_objects: number;

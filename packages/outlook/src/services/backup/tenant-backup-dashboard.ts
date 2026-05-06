@@ -9,7 +9,7 @@ import { format_duration } from '@atlas/core/services/shared/progress-rate';
 import type { TenantProgressReporter } from '@atlas/types';
 
 interface MailboxSlot {
-  mailbox_id: string;
+  owner_id: string;
   folder_name: string;
   pct: number;
   rate: number;
@@ -55,10 +55,10 @@ export class TenantBackupDashboard implements TenantProgressReporter {
     this.scheduleRender();
   }
 
-  mark_mailbox_active(slot: number, mailbox_id: string): void {
+  mark_mailbox_active(slot: number, owner_id: string): void {
     if (slot < 0 || slot >= this._max_slots) return;
     this._slots[slot] = {
-      mailbox_id,
+      owner_id,
       folder_name: '',
       pct: 0,
       rate: 0,
@@ -79,9 +79,9 @@ export class TenantBackupDashboard implements TenantProgressReporter {
     this.scheduleRender();
   }
 
-  mark_mailbox_done(slot: number, mailbox_id: string, stored: number, deduped: number): void {
+  mark_mailbox_done(slot: number, owner_id: string, stored: number, deduped: number): void {
     if (!this._is_tty) {
-      console.log(`  [ok] ${mailbox_id} -- ${stored} stored, ${deduped} dedup`);
+      console.log(`  [ok] ${owner_id} -- ${stored} stored, ${deduped} dedup`);
     }
     const s = this._slots[slot];
     if (s) {
@@ -93,9 +93,9 @@ export class TenantBackupDashboard implements TenantProgressReporter {
     this.scheduleRender();
   }
 
-  mark_mailbox_error(slot: number, mailbox_id: string, message: string): void {
+  mark_mailbox_error(slot: number, owner_id: string, message: string): void {
     if (!this._is_tty) {
-      console.log(`  [!!] ${mailbox_id} -- ERROR: ${message}`);
+      console.log(`  [!!] ${owner_id} -- ERROR: ${message}`);
     }
     const s = this._slots[slot];
     if (s) {
@@ -185,12 +185,12 @@ export class TenantBackupDashboard implements TenantProgressReporter {
       if (!s) {
         lines.push(chalk.gray('[  ] --'));
       } else {
-        const email = truncate(s.mailbox_id, 30);
+        const owner_label = truncate(s.owner_id, 30);
         const folder = s.folder_name ? truncate(s.folder_name, 14) : '';
         const pct_str = s.pct > 0 ? ` ${s.pct}%` : '';
         lines.push(
           chalk.cyan(
-            `[>>] ${pad(email, 32)}${pad(folder + pct_str, 18)}| ${s.rate.toFixed(1)} msg/s`,
+            `[>>] ${pad(owner_label, 32)}${pad(folder + pct_str, 18)}| ${s.rate.toFixed(1)} msg/s`,
           ),
         );
       }

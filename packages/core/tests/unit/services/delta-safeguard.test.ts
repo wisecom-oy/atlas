@@ -15,6 +15,7 @@ import {
   type TenantContextFactory,
   type ObjectStorage,
 } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_message(id: string, body: string): MailMessage {
   const raw = Buffer.from(body);
@@ -50,6 +51,13 @@ function make_mock_storage(): ObjectStorage {
     exists: vi.fn().mockResolvedValue(false),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
       reachable: true,
@@ -72,6 +80,7 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
       storage,
       encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+      create_cipher: stub_tenant_create_cipher,
     };
 
     mock_connector = {
@@ -86,7 +95,7 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_mailbox: vi.fn().mockResolvedValue(undefined),
+      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 
@@ -101,10 +110,10 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
   });
 
   it('ignores saved delta links when force_full is true', async () => {
-    vi.mocked(mock_manifests.find_latest_by_mailbox).mockResolvedValue({
+    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
       id: 'old',
       tenant_id: 't',
-      mailbox_id: 'user@test.com',
+      owner_id: 'user@test.com',
       snapshot_id: 'old-snap',
       created_at: new Date(),
       total_objects: 0,
@@ -126,10 +135,10 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
   });
 
   it('retries without delta link when saved delta returns 0 and prior backup was empty', async () => {
-    vi.mocked(mock_manifests.find_latest_by_mailbox).mockResolvedValue({
+    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
       id: 'old',
       tenant_id: 't',
-      mailbox_id: 'user@test.com',
+      owner_id: 'user@test.com',
       snapshot_id: 'old-snap',
       created_at: new Date(),
       total_objects: 0,
@@ -168,10 +177,10 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
   });
 
   it('trusts delta returning 0 when prior backup had data (nothing changed)', async () => {
-    vi.mocked(mock_manifests.find_latest_by_mailbox).mockResolvedValue({
+    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
       id: 'old',
       tenant_id: 't',
-      mailbox_id: 'user@test.com',
+      owner_id: 'user@test.com',
       snapshot_id: 'old-snap',
       created_at: new Date(),
       total_objects: 100,

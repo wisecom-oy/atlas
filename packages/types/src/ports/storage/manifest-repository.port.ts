@@ -6,7 +6,8 @@ export interface ManifestRepository {
 
   find_by_snapshot(ctx: TenantContext, snapshot_id: string): Promise<Manifest | undefined>;
 
-  find_latest_by_mailbox(ctx: TenantContext, mailbox_id: string): Promise<Manifest | undefined>;
+  /** Returns the newest manifest for the given mailbox owner (storage prefix `manifests/{owner_id}/`). */
+  find_latest_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest | undefined>;
 
   /** Downloads and decrypts every manifest in the tenant bucket. */
   list_all_manifests(ctx: TenantContext): Promise<Manifest[]>;

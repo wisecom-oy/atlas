@@ -18,7 +18,7 @@ export async function restore_entry_attachments(
   ctx: TenantContext,
   restore_connector: RestoreConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   new_message_id: string,
   attachments: AttachmentEntry[],
 ): Promise<AttachmentRestoreResult> {
@@ -36,7 +36,7 @@ export async function restore_entry_attachments(
     try {
       const content = await decrypt_attachment(ctx, att.storage_key);
 
-      await restore_connector.add_attachment(tenant_id, mailbox_id, new_message_id, {
+      await restore_connector.add_attachment(tenant_id, owner_id, new_message_id, {
         name: att.name,
         content_type: att.content_type,
         content,

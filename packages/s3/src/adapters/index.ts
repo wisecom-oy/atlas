@@ -16,3 +16,4 @@ export { validate_dek_match, DekMismatchError } from './dek-validator';
 export { DefaultTenantContextFactory } from './tenant-context.factory';
 export { create_storage_target, DefaultStorageTarget } from './storage-target.factory';
 export type { StorageTargetSdkConfig } from './storage-target.factory';
+export { S3IdentityRegistryRepository } from './s3-identity-registry-repository.adapter';

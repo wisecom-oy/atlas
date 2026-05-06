@@ -3,6 +3,7 @@ import { restore_entry_attachments } from '@/services/restore/restore-attachment
 import type { TenantContext } from '@atlas/types';
 import type { RestoreConnector } from '@atlas/types';
 import type { AttachmentEntry } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_ctx(): TenantContext {
   return {
@@ -15,10 +16,18 @@ function make_ctx(): TenantContext {
       exists: vi.fn(),
       list: vi.fn(),
       list_versions: vi.fn().mockResolvedValue([]),
+      begin_multipart_upload: vi.fn().mockResolvedValue({
+        upload_part: vi.fn(),
+        complete: vi.fn(),
+        abort: vi.fn(),
+      }),
+      copy: vi.fn(),
+      abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       probe_immutability: vi.fn(),
     },
     encrypt: vi.fn(),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 

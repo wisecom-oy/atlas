@@ -19,17 +19,17 @@ describe('aggregate_bucket_stats', () => {
   it('counts distinct mailboxes and sums across snapshots', () => {
     const manifests = [
       make_manifest({
-        mailbox_id: 'alice@test.com',
+        owner_id: 'alice@test.com',
         snapshot_id: 's1',
         entries: [make_entry({ size_bytes: 200 }), make_entry({ size_bytes: 300 })],
       }),
       make_manifest({
-        mailbox_id: 'alice@test.com',
+        owner_id: 'alice@test.com',
         snapshot_id: 's2',
         entries: [make_entry({ size_bytes: 150 })],
       }),
       make_manifest({
-        mailbox_id: 'bob@test.com',
+        owner_id: 'bob@test.com',
         snapshot_id: 's3',
         entries: [make_entry({ size_bytes: 400 })],
       }),

@@ -33,12 +33,12 @@ export interface ReplicationResult {
   readonly replicated_manifest_checksum?: string;
 }
 
-/** Durable sidecar record persisted at `_meta/replication/{mailbox}/{snapshot}/{target}.json`. */
+/** Durable sidecar record persisted at `_meta/replication/{owner_id}/{snapshot}/{target}.json`. */
 export interface ReplicationStatusRecord {
   readonly target_id: string;
   readonly target_endpoint: string;
   readonly snapshot_id: string;
-  readonly mailbox_id: string;
+  readonly owner_id: string;
   readonly status: ReplicationStatus;
   readonly started_at: string;
   readonly completed_at?: string;

@@ -4,8 +4,8 @@ import type { ReplicationStatusRecord } from '@atlas/types';
 const STATUS_PREFIX = '_meta/replication/';
 
 /** Builds the S3 key for a replication status sidecar. */
-function status_key(mailbox_id: string, snapshot_id: string, target_id: string): string {
-  return `${STATUS_PREFIX}${mailbox_id}/${snapshot_id}/${target_id}.json`;
+function status_key(owner_id: string, snapshot_id: string, target_id: string): string {
+  return `${STATUS_PREFIX}${owner_id}/${snapshot_id}/${target_id}.json`;
 }
 
 /** Persists an encrypted replication status sidecar to primary storage. */
@@ -13,7 +13,7 @@ export async function save_replication_status(
   ctx: TenantContext,
   record: ReplicationStatusRecord,
 ): Promise<void> {
-  const key = status_key(record.mailbox_id, record.snapshot_id, record.target_id);
+  const key = status_key(record.owner_id, record.snapshot_id, record.target_id);
   const plaintext = Buffer.from(JSON.stringify(record), 'utf-8');
   const ciphertext = ctx.encrypt(plaintext);
   await ctx.storage.put(key, ciphertext);
@@ -22,11 +22,11 @@ export async function save_replication_status(
 /** Loads a single replication status sidecar, or undefined if not found. */
 export async function load_replication_status(
   ctx: TenantContext,
-  mailbox_id: string,
+  owner_id: string,
   snapshot_id: string,
   target_id: string,
 ): Promise<ReplicationStatusRecord | undefined> {
-  const key = status_key(mailbox_id, snapshot_id, target_id);
+  const key = status_key(owner_id, snapshot_id, target_id);
   return decrypt_status_record(ctx, key);
 }
 
@@ -37,12 +37,12 @@ export async function list_all_replication_status(
   return list_and_decrypt(ctx, STATUS_PREFIX);
 }
 
-/** Lists replication status records for a specific mailbox. */
-export async function list_replication_status_by_mailbox(
+/** Lists replication status records for a specific mailbox owner. */
+export async function list_replication_status_by_owner(
   ctx: TenantContext,
-  mailbox_id: string,
+  owner_id: string,
 ): Promise<ReplicationStatusRecord[]> {
-  return list_and_decrypt(ctx, `${STATUS_PREFIX}${mailbox_id}/`);
+  return list_and_decrypt(ctx, `${STATUS_PREFIX}${owner_id}/`);
 }
 
 /** Lists replication status records for a specific snapshot across all targets. */

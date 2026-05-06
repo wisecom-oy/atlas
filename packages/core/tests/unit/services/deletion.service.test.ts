@@ -11,12 +11,13 @@ import {
   type ObjectStorage,
   type Manifest,
 } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 't',
-    mailbox_id: 'user@test.com',
+    owner_id: 'user@test.com',
     snapshot_id: 'snap-1',
     created_at: new Date('2026-03-01T10:00:00Z'),
     total_objects: 10,
@@ -36,6 +37,13 @@ function make_mock_storage(): ObjectStorage {
     exists: vi.fn().mockResolvedValue(false),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
       reachable: true,
@@ -52,6 +60,7 @@ function make_mock_context(): TenantContext {
     storage: make_mock_storage(),
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 
@@ -67,7 +76,7 @@ describe('DeletionService', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_mailbox: vi.fn().mockResolvedValue(undefined),
+      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 
@@ -136,7 +145,7 @@ describe('DeletionService', () => {
   describe('delete_snapshot', () => {
     it('deletes the manifest key and retains data objects', async () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({ mailbox_id: 'u@t.com', snapshot_id: 'snap-42' }),
+        make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
       );
       vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
         'manifests/u@t.com/snap-42.json',
@@ -162,7 +171,7 @@ describe('DeletionService', () => {
 
     it('reports retained manifest when backend blocks delete with Object Lock', async () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({ mailbox_id: 'u@t.com', snapshot_id: 'snap-42' }),
+        make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
       );
       vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
         'manifests/u@t.com/snap-42.json',

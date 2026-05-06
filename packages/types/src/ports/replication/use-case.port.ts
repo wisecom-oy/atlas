@@ -12,7 +12,7 @@ export interface ReplicationUseCase {
   /** Replicates all unreplicated snapshots for a mailbox to one or more targets. */
   replicate_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]>;
 
@@ -26,7 +26,7 @@ export interface ReplicationUseCase {
   /** DR: recover all snapshots for a mailbox from a designated replica. */
   rehydrate_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult>;
 
@@ -40,8 +40,8 @@ export interface ReplicationUseCase {
   ): Promise<ReplicationStatusRecord[]>;
 
   /** Queries durable replication status records for all snapshots of a mailbox. */
-  get_replication_status_by_mailbox(
+  get_replication_status_by_owner(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
   ): Promise<ReplicationStatusRecord[]>;
 }

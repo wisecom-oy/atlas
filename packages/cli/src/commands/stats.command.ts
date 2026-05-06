@@ -76,7 +76,7 @@ function print_bucket_stats(stats: BucketStats): void {
 
 function print_mailbox_stats(stats: MailboxStats): void {
   logger.banner('Atlas Mailbox Statistics');
-  logger.info(`Mailbox: ${stats.mailbox_id}\n`);
+  logger.info(`Mailbox: ${stats.owner_id}\n`);
 
   console.log('  Overview');
   console.log('  ' + '-'.repeat(44));

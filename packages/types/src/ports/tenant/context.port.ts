@@ -1,3 +1,5 @@
+import type { CipherGCM } from 'node:crypto';
+
 import type { ObjectStorage } from '@/ports/storage/object-storage.port';
 
 /** Tenant-scoped object storage accessor. */
@@ -13,6 +15,12 @@ export interface TenantCryptoContext {
 
   /** Decrypts ciphertext with this tenant's data encryption key. */
   decrypt(data: Buffer): Buffer;
+
+  /**
+   * Creates a streaming AES-256-GCM cipher and IV for payloads that match
+   * the non-streaming {@link TenantCryptoContext.encrypt} envelope layout on read.
+   */
+  create_cipher(): { cipher: CipherGCM; iv: Buffer };
 }
 
 /** Bundles tenant-scoped storage and encryption for a single tenant. */

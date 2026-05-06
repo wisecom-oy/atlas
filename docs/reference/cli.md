@@ -50,6 +50,59 @@ The `--page-size` flag controls how many messages are requested per Graph API de
 `--retention-days` makes the backup immutable-requested. Atlas resolves retention to an internal UTC `retain_until`, probes bucket capability (versioning + Object Lock), and fails fast when unsupported instead of silently downgrading to mutable writes.
 :::
 
+## `atlas onedrive`
+
+Back up and verify OneDrive files per user using Graph delta sync. Blobs and manifests live under the `onedrive/` prefix in the tenant bucket (see [OneDrive Backup](/onedrive-backup)). When `-o` contains `@`, Atlas resolves the mailbox to an Entra object ID via `GET /users/{email}` before touching storage keys.
+
+```bash
+atlas onedrive backup -o user@company.com
+atlas onedrive backup -o user@company.com --full
+atlas onedrive list-snapshots -o user@company.com
+atlas onedrive list-versions -o user@company.com -f "Documents/report.docx"
+atlas onedrive verify -s od-snap-1735689600000-a1b2c3
+```
+
+| Option | Description |
+| --- | --- |
+| `backup` | Incremental sync; use `--full` to ignore saved delta state |
+| `list-snapshots` | List snapshot IDs and timestamps for the owner |
+| `list-versions` | List indexed versions for one file (`-f` file ID or path) |
+| `verify` | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
+
+**`atlas onedrive backup`**
+
+| Option | Description |
+| --- | --- |
+| `-o, --owner <id>` | User email or Entra object ID (required) |
+| `--full` | Force full crawl ignoring saved delta links |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+**`atlas onedrive list-snapshots`**
+
+| Option | Description |
+| --- | --- |
+| `-o, --owner <id>` | User email or Entra object ID (required) |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+**`atlas onedrive list-versions`**
+
+| Option | Description |
+| --- | --- |
+| `-o, --owner <id>` | User email or Entra object ID (required) |
+| `-f, --file <ref>` | Graph file ID or drive path (required) |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+**`atlas onedrive verify`**
+
+| Option | Description |
+| --- | --- |
+| `-s, --snapshot <id>` | OneDrive snapshot id (required) |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+::: tip Permissions
+Application permissions `Files.Read.All` and `User.Read.All` are required in addition to the mailbox backup set. Details and storage layout are documented on the [OneDrive Backup](/onedrive-backup) page.
+:::
+
 ## `atlas status`
 
 Check whether a mailbox backup is up to date by peeking at Microsoft Graph delta state. This does **not** run a backup -- it only queries the delta endpoint with the saved delta links from the latest manifest to detect pending changes.

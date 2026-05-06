@@ -15,6 +15,7 @@
     { "path": "../core" },
     { "path": "../m365-graph" },
     { "path": "../s3" },
-    { "path": "../outlook" }
+    { "path": "../outlook" },
+    { "path": "../onedrive" }
   ]
 }

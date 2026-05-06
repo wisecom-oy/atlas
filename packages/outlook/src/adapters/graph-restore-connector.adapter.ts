@@ -36,13 +36,13 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Creates a mail folder at top-level or under a parent folder. */
   async create_mail_folder(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     display_name: string,
     parent_folder_id?: string,
   ): Promise<MailFolder> {
     const url = parent_folder_id
-      ? `/users/${mailbox_id}/mailFolders/${parent_folder_id}/childFolders`
-      : `/users/${mailbox_id}/mailFolders`;
+      ? `/users/${owner_id}/mailFolders/${parent_folder_id}/childFolders`
+      : `/users/${owner_id}/mailFolders`;
 
     try {
       const response = (await with_graph_retry(() =>
@@ -65,11 +65,11 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Creates a message in the target folder. Returns the new Graph message ID. */
   async create_message(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     message_body: Record<string, unknown>,
   ): Promise<string> {
-    const url = `/users/${mailbox_id}/mailFolders/${folder_id}/messages`;
+    const url = `/users/${owner_id}/mailFolders/${folder_id}/messages`;
 
     try {
       const response = (await with_graph_retry(() =>
@@ -88,16 +88,16 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Uploads a small attachment inline (<3 MB) or delegates to upload session. */
   async add_attachment(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
     attachment: AttachmentUpload,
   ): Promise<void> {
     if (attachment.content.length >= LARGE_ATTACHMENT_THRESHOLD) {
-      await this.upload_large_attachment(tenant_id, mailbox_id, message_id, attachment);
+      await this.upload_large_attachment(tenant_id, owner_id, message_id, attachment);
       return;
     }
 
-    const url = `/users/${mailbox_id}/messages/${message_id}/attachments`;
+    const url = `/users/${owner_id}/messages/${message_id}/attachments`;
     const payload: Record<string, unknown> = {
       '@odata.type': '#microsoft.graph.fileAttachment',
       name: attachment.name,
@@ -122,12 +122,12 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Opens an upload session for a large attachment. */
   async create_upload_session(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
     file_name: string,
     file_size: number,
   ): Promise<UploadSession> {
-    const url = `/users/${mailbox_id}/messages/${message_id}/attachments/createUploadSession`;
+    const url = `/users/${owner_id}/messages/${message_id}/attachments/createUploadSession`;
     const payload = {
       AttachmentItem: {
         attachmentType: 'file',
@@ -172,10 +172,10 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Returns the total message count in a folder via Graph. */
   async count_folder_messages(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
   ): Promise<number> {
-    const url = `/users/${mailbox_id}/mailFolders/${folder_id}?$select=totalItemCount`;
+    const url = `/users/${owner_id}/mailFolders/${folder_id}?$select=totalItemCount`;
     const response = (await with_graph_retry(() => this._client.api(url).get())) as {
       totalItemCount?: number;
     };
@@ -185,12 +185,12 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Lists messages in a folder with basic properties. */
   async list_folder_messages(
     _tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     top: number,
   ): Promise<Array<{ subject: string; is_draft: boolean }>> {
     const url =
-      `/users/${mailbox_id}/mailFolders/${folder_id}/messages` +
+      `/users/${owner_id}/mailFolders/${folder_id}/messages` +
       `?$select=subject,isDraft&$top=${top}`;
     const response = (await with_graph_retry(() => this._client.api(url).get())) as {
       value?: Array<{ subject?: string; isDraft?: boolean }>;
@@ -204,7 +204,7 @@ export class GraphRestoreConnector implements RestoreConnector {
   /** Handles large attachments by chunking through an upload session. */
   private async upload_large_attachment(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
     attachment: AttachmentUpload,
   ): Promise<void> {
@@ -214,7 +214,7 @@ export class GraphRestoreConnector implements RestoreConnector {
 
     const session = await this.create_upload_session(
       tenant_id,
-      mailbox_id,
+      owner_id,
       message_id,
       attachment.name,
       attachment.content.length,

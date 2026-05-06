@@ -20,3 +20,16 @@ export type {
   ReplicationStatusRecord,
 } from './replication';
 export { ReplicationStatus, ReplicationVerificationStatus } from './replication';
+export type {
+  OneDriveChangeType,
+  OneDriveSnapshotManifest,
+  OneDriveManifestEntry,
+  OneDriveFileVersionRecord,
+  OneDriveFileVersionIndex,
+  OneDriveDeltaCursor,
+} from './onedrive-manifest';
+export type {
+  IdentityRegistry,
+  IdentityRegistryEntry,
+  IdentityEntryStatus,
+} from './identity-registry';

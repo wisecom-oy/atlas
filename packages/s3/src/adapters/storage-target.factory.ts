@@ -99,6 +99,7 @@ export class DefaultStorageTarget implements StorageTarget {
         storage,
         encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
         decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
+        create_cipher: () => key_service.create_encrypt_cipher(dek),
       };
     }
 
@@ -110,6 +111,9 @@ export class DefaultStorageTarget implements StorageTarget {
       },
       decrypt: (): Buffer => {
         throw new Error('Cannot decrypt: no DEK on target. Copy _meta/dek.enc first.');
+      },
+      create_cipher: (): ReturnType<EnvelopeKeyService['create_encrypt_cipher']> => {
+        throw new Error('Cannot create_cipher: no DEK on target. Copy _meta/dek.enc first.');
       },
     };
   }

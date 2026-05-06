@@ -35,7 +35,7 @@ export function aggregate_bucket_stats(
   tenant_id: string,
   manifests: readonly Manifest[],
 ): BucketStats {
-  const mailbox_ids = new Set<string>();
+  const owner_ids = new Set<string>();
   let total_messages = 0;
   let total_size = 0;
   let att_count = 0;
@@ -47,7 +47,7 @@ export function aggregate_bucket_stats(
   >();
 
   for (const manifest of manifests) {
-    mailbox_ids.add(manifest.mailbox_id);
+    owner_ids.add(manifest.owner_id);
 
     const key = to_month_key(manifest.created_at);
     const bucket = monthly.get(key) ?? {
@@ -77,7 +77,7 @@ export function aggregate_bucket_stats(
 
   return {
     tenant_id,
-    mailbox_count: mailbox_ids.size,
+    mailbox_count: owner_ids.size,
     snapshot_count: manifests.length,
     total_messages,
     total_size_bytes: total_size,
@@ -90,7 +90,7 @@ export function aggregate_bucket_stats(
 
 /** Aggregates statistics for a single mailbox from its manifests. */
 export function aggregate_mailbox_stats(
-  mailbox_id: string,
+  owner_id: string,
   manifests: readonly Manifest[],
 ): MailboxStats {
   let total_messages = 0;
@@ -150,7 +150,7 @@ export function aggregate_mailbox_stats(
   }
 
   return {
-    mailbox_id,
+    owner_id,
     snapshot_count: manifests.length,
     total_messages,
     total_size_bytes: total_size,

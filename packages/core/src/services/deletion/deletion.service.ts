@@ -17,13 +17,13 @@ export class DeletionService implements DeletionUseCase {
    * Manifests are deleted first so an interrupted deletion leaves orphan data
    * objects (harmless) rather than manifests referencing deleted objects.
    */
-  async delete_mailbox_data(tenant_id: string, mailbox_id: string): Promise<DeletionResult> {
-    mailbox_id = mailbox_id.toLowerCase();
+  async delete_mailbox_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
+    owner_id = owner_id.toLowerCase();
     const ctx = await this._tenant_factory.create(tenant_id);
     return delete_prefixes(ctx.storage, [
-      `manifests/${mailbox_id}/`,
-      `data/${mailbox_id}/`,
-      `attachments/${mailbox_id}/`,
+      `manifests/${owner_id}/`,
+      `data/${owner_id}/`,
+      `attachments/${owner_id}/`,
     ]);
   }
 
@@ -41,7 +41,7 @@ export class DeletionService implements DeletionUseCase {
       return empty_deletion_result();
     }
 
-    const key = `manifests/${manifest.mailbox_id}/${manifest.snapshot_id}.json`;
+    const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
     const summary = await delete_prefixes(ctx.storage, [key]);
     if (summary.retained_manifests > 0 || summary.failed_manifests > 0) {
       logger.error('Snapshot manifest is protected by Object Lock and cannot be deleted yet.');

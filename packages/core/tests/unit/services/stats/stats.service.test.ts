@@ -11,12 +11,13 @@ import {
   type ObjectStorage,
   type Manifest,
 } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 't',
-    mailbox_id: 'user@test.com',
+    owner_id: 'user@test.com',
     snapshot_id: 'snap-1',
     created_at: new Date('2026-03-01T10:00:00Z'),
     total_objects: 1,
@@ -36,6 +37,13 @@ function make_mock_storage(): ObjectStorage {
     exists: vi.fn().mockResolvedValue(false),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
       reachable: true,
@@ -52,6 +60,7 @@ function make_mock_context(): TenantContext {
     storage: make_mock_storage(),
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
+    create_cipher: stub_tenant_create_cipher,
   };
 }
 
@@ -65,7 +74,7 @@ describe('StatsService', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_mailbox: vi.fn().mockResolvedValue(undefined),
+      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 
@@ -100,11 +109,11 @@ describe('StatsService', () => {
     it('aggregates across multiple mailboxes', async () => {
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
         make_manifest({
-          mailbox_id: 'alice@test.com',
+          owner_id: 'alice@test.com',
           entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 200 }],
         }),
         make_manifest({
-          mailbox_id: 'bob@test.com',
+          owner_id: 'bob@test.com',
           entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
         }),
       ]);
@@ -126,12 +135,12 @@ describe('StatsService', () => {
   describe('get_mailbox_stats', () => {
     it('returns zeroed stats when mailbox has no manifests', async () => {
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({ mailbox_id: 'other@test.com' }),
+        make_manifest({ owner_id: 'other@test.com' }),
       ]);
 
       const result = await service.get_mailbox_stats('t', 'missing@test.com');
 
-      expect(result.mailbox_id).toBe('missing@test.com');
+      expect(result.owner_id).toBe('missing@test.com');
       expect(result.snapshot_count).toBe(0);
       expect(result.total_messages).toBe(0);
       expect(result.aggregation_us).toBeGreaterThanOrEqual(0);
@@ -140,7 +149,7 @@ describe('StatsService', () => {
     it('filters manifests to the requested mailbox', async () => {
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
         make_manifest({
-          mailbox_id: 'alice@test.com',
+          owner_id: 'alice@test.com',
           entries: [
             {
               object_id: 'o1',
@@ -152,11 +161,11 @@ describe('StatsService', () => {
           ],
         }),
         make_manifest({
-          mailbox_id: 'bob@test.com',
+          owner_id: 'bob@test.com',
           entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
         }),
         make_manifest({
-          mailbox_id: 'alice@test.com',
+          owner_id: 'alice@test.com',
           entries: [
             {
               object_id: 'o3',
@@ -171,24 +180,24 @@ describe('StatsService', () => {
 
       const result = await service.get_mailbox_stats('t', 'alice@test.com');
 
-      expect(result.mailbox_id).toBe('alice@test.com');
+      expect(result.owner_id).toBe('alice@test.com');
       expect(result.snapshot_count).toBe(2);
       expect(result.total_messages).toBe(2);
       expect(result.total_size_bytes).toBe(350);
       expect(result.folders).toHaveLength(2);
     });
 
-    it('normalizes mailbox_id to lowercase', async () => {
+    it('normalizes owner_id to lowercase', async () => {
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
         make_manifest({
-          mailbox_id: 'alice@test.com',
+          owner_id: 'alice@test.com',
           entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 100 }],
         }),
       ]);
 
       const result = await service.get_mailbox_stats('t', 'Alice@Test.com');
 
-      expect(result.mailbox_id).toBe('alice@test.com');
+      expect(result.owner_id).toBe('alice@test.com');
       expect(result.snapshot_count).toBe(1);
       expect(result.total_messages).toBe(1);
     });

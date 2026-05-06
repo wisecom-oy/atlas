@@ -38,56 +38,49 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     return this._inner.list_mailboxes(tenant_id);
   }
 
-  async mailbox_exists(tenant_id: string, mailbox_id: string): Promise<boolean> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
-      this._inner.mailbox_exists(tenant_id, mailbox_id),
+  async mailbox_exists(tenant_id: string, owner_id: string): Promise<boolean> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.mailbox_exists(tenant_id, owner_id),
     );
   }
 
-  async list_mail_folders(tenant_id: string, mailbox_id: string): Promise<MailFolder[]> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
-      this._inner.list_mail_folders(tenant_id, mailbox_id),
+  async list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.list_mail_folders(tenant_id, owner_id),
     );
   }
 
   async fetch_delta(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     folder_id: string,
     prev_delta_link?: string,
     on_page?: DeltaPageCallback,
     page_size?: number,
   ): Promise<DeltaSyncResult> {
     const cost = prev_delta_link ? DELTA_WITH_TOKEN_COST : DELTA_WITHOUT_TOKEN_COST;
-    return this.rateLimited(mailbox_id, cost, () =>
-      this._inner.fetch_delta(
-        tenant_id,
-        mailbox_id,
-        folder_id,
-        prev_delta_link,
-        on_page,
-        page_size,
-      ),
+    return this.rateLimited(owner_id, cost, () =>
+      this._inner.fetch_delta(tenant_id, owner_id, folder_id, prev_delta_link, on_page, page_size),
     );
   }
 
   async fetch_message(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
   ): Promise<MailMessage> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
-      this._inner.fetch_message(tenant_id, mailbox_id, message_id),
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.fetch_message(tenant_id, owner_id, message_id),
     );
   }
 
   async fetch_attachments(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     message_id: string,
   ): Promise<MessageAttachment[]> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
-      this._inner.fetch_attachments(tenant_id, mailbox_id, message_id),
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.fetch_attachments(tenant_id, owner_id, message_id),
     );
   }
 
@@ -97,17 +90,17 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     this._limiters.clear();
   }
 
-  private getLimiter(mailbox_id: string): MailboxRateLimiter {
-    let limiter = this._limiters.get(mailbox_id);
+  private getLimiter(owner_id: string): MailboxRateLimiter {
+    let limiter = this._limiters.get(owner_id);
     if (!limiter) {
       limiter = this._factory.create();
-      this._limiters.set(mailbox_id, limiter);
+      this._limiters.set(owner_id, limiter);
     }
     return limiter;
   }
 
-  private async rateLimited<T>(mailbox_id: string, cost: number, fn: () => Promise<T>): Promise<T> {
-    const limiter = this.getLimiter(mailbox_id);
+  private async rateLimited<T>(owner_id: string, cost: number, fn: () => Promise<T>): Promise<T> {
+    const limiter = this.getLimiter(owner_id);
     await limiter.acquire(cost);
     try {
       return await fn();

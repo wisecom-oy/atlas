@@ -31,7 +31,7 @@ function make_sync_result(mailbox_id: string): SyncResult {
     snapshot: {
       id: `snap-${mailbox_id}`,
       tenant_id: 't1',
-      mailbox_id,
+      owner_id: mailbox_id,
       status: SnapshotStatus.COMPLETED,
       created_at: new Date(),
       completed_at: new Date(),
@@ -105,7 +105,7 @@ describe('DefaultTenantBackupOrchestrator', () => {
 
     expect(result.succeeded).toBe(2);
     expect(result.failed).toBe(1);
-    const failed = result.outcomes.find((o) => o.mailbox_id === 'b@t.com');
+    const failed = result.outcomes.find((o) => o.owner_id === 'b@t.com');
     expect(failed?.error).toBe('boom');
   });
 

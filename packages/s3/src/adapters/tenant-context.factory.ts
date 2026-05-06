@@ -36,6 +36,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       storage,
       encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
       decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
+      create_cipher: () => key_service.create_encrypt_cipher(dek),
     };
   }
 

@@ -8,7 +8,7 @@ export interface FolderStatus {
 }
 
 export interface MailboxStatusResult {
-  readonly mailbox_id: string;
+  readonly owner_id: string;
   readonly last_backup_at: Date | undefined;
   readonly last_snapshot_id: string | undefined;
   readonly total_folders: number;
@@ -19,5 +19,5 @@ export interface MailboxStatusResult {
 
 export interface StatusUseCase {
   /** Peeks at Graph delta state to report whether a mailbox backup is current. */
-  check_mailbox_status(tenant_id: string, mailbox_id: string): Promise<MailboxStatusResult>;
+  check_mailbox_status(tenant_id: string, owner_id: string): Promise<MailboxStatusResult>;
 }

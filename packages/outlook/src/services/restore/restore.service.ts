@@ -56,7 +56,7 @@ export class RestoreService implements RestoreUseCase {
   ): Promise<RestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
     const manifest = await this.load_manifest(ctx, snapshot_id);
-    const source_mailbox = manifest.mailbox_id;
+    const source_mailbox = manifest.owner_id;
     const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
 
     await this.assert_mailbox_exists(tenant_id, target_mailbox);
@@ -89,15 +89,15 @@ export class RestoreService implements RestoreUseCase {
    */
   async restore_mailbox(
     tenant_id: string,
-    mailbox_id: string,
+    owner_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const target = options.target_mailbox?.toLowerCase() ?? mailbox_id;
+    const target = options.target_mailbox?.toLowerCase() ?? owner_id;
 
     await this.assert_mailbox_exists(tenant_id, target);
 
-    const manifests = await this.load_mailbox_manifests(ctx, mailbox_id, options);
+    const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
     if (manifests.length === 0) {
       logger.warn('No snapshots found for this mailbox in the given date range');
       return this.empty_result('mailbox');
@@ -109,7 +109,7 @@ export class RestoreService implements RestoreUseCase {
       await backfill_missing_folder_ids(ctx, entries);
     }
 
-    const filtered = await this.apply_entry_filters(entries, mailbox_id, tenant_id, options);
+    const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
 
     if (filtered.length === 0) {
       logger.warn('No entries to restore after filtering');
@@ -121,18 +121,18 @@ export class RestoreService implements RestoreUseCase {
         `${chalk.cyan(String(filtered.length))} unique messages`,
     );
 
-    return this.restore_batch(ctx, tenant_id, mailbox_id, target, 'mailbox', filtered);
+    return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered);
   }
 
   /** Loads all manifests for a mailbox, sorted newest-first and date-filtered. */
   private async load_mailbox_manifests(
     ctx: TenantContext,
-    mailbox_id: string,
+    owner_id: string,
     options: RestoreOptions,
   ): Promise<Manifest[]> {
     const all = await this._manifests.list_all_manifests(ctx);
     const for_mailbox = all
-      .filter((m) => m.mailbox_id === mailbox_id)
+      .filter((m) => m.owner_id === owner_id)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
@@ -141,12 +141,12 @@ export class RestoreService implements RestoreUseCase {
   /** Applies folder filter to a set of entries. */
   private async apply_entry_filters(
     entries: ManifestEntry[],
-    mailbox_id: string,
+    owner_id: string,
     tenant_id: string,
     options: RestoreOptions,
   ): Promise<ManifestEntry[]> {
     if (options.folder_name) {
-      const folder_map = await build_folder_map(this._connector, tenant_id, mailbox_id);
+      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
       return filter_entries_by_folder_name(entries, options.folder_name, folder_map);
     }
     return entries;
@@ -163,7 +163,7 @@ export class RestoreService implements RestoreUseCase {
   private async resolve_entries(
     ctx: TenantContext,
     manifest: Manifest,
-    mailbox_id: string,
+    owner_id: string,
     tenant_id: string,
     options: RestoreOptions,
   ): Promise<ManifestEntry[]> {
@@ -174,7 +174,7 @@ export class RestoreService implements RestoreUseCase {
 
     if (options.folder_name) {
       await backfill_missing_folder_ids(ctx, manifest.entries);
-      const folder_map = await build_folder_map(this._connector, tenant_id, mailbox_id);
+      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
       return filter_entries_by_folder_name(manifest.entries, options.folder_name, folder_map);
     }
 
@@ -317,11 +317,11 @@ export class RestoreService implements RestoreUseCase {
   }
 
   /** Fails fast if the target mailbox does not exist in the tenant. */
-  private async assert_mailbox_exists(tenant_id: string, mailbox_id: string): Promise<void> {
-    const exists = await this._connector.mailbox_exists(tenant_id, mailbox_id);
+  private async assert_mailbox_exists(tenant_id: string, owner_id: string): Promise<void> {
+    const exists = await this._connector.mailbox_exists(tenant_id, owner_id);
     if (!exists) {
       throw new Error(
-        `Mailbox "${mailbox_id}" does not exist in the tenant. ` +
+        `Mailbox "${owner_id}" does not exist in the tenant. ` +
           `Verify the email address and try again.`,
       );
     }

@@ -47,6 +47,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     progress?.set_mailbox_count(mailboxes.length);
 
     const outcomes: MailboxBackupOutcome[] = [];
+    // TODO: resolve email -> object_id via UserIdentityResolver; pending queue should hold owner IDs for storage.
     const pending = mailboxes.map((m) => m.mail);
     let done_count = 0;
     let error_count = 0;
@@ -76,12 +77,12 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
             result.summary.stored,
             result.summary.deduplicated,
           );
-          outcomes.push({ mailbox_id, result });
+          outcomes.push({ owner_id: mailbox_id, result });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           error_count++;
           progress?.mark_mailbox_error(slot, mailbox_id, msg);
-          outcomes.push({ mailbox_id, error: msg });
+          outcomes.push({ owner_id: mailbox_id, error: msg });
           logger.error(`Mailbox ${mailbox_id} failed: ${msg}`);
         }
 

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { verify_replicated_snapshot } from '@/services/replication/replication-integrity-verifier';
 import { ReplicationVerificationStatus } from '@atlas/types';
 import type { Manifest, ManifestEntry, TenantContext, ObjectStorage } from '@atlas/types';
+import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
 
 function make_storage(): ObjectStorage {
   return {
@@ -13,6 +14,13 @@ function make_storage(): ObjectStorage {
     exists: vi.fn(),
     list: vi.fn(),
     list_versions: vi.fn(),
+    begin_multipart_upload: vi.fn().mockResolvedValue({
+      upload_part: vi.fn(),
+      complete: vi.fn(),
+      abort: vi.fn(),
+    }),
+    copy: vi.fn(),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
 }
@@ -30,7 +38,7 @@ function make_manifest(entries: ManifestEntry[]): Manifest {
   return {
     id: 'manifest-1',
     tenant_id: 'tenant-1',
-    mailbox_id: 'mbx-1',
+    owner_id: 'mbx-1',
     snapshot_id: 'snap-1',
     created_at: new Date('2026-01-01'),
     total_objects: entries.length,
@@ -51,6 +59,7 @@ describe('verify_replicated_snapshot', () => {
       storage,
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
+      create_cipher: stub_tenant_create_cipher,
     };
   });
 

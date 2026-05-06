@@ -24,7 +24,7 @@ export async function restore_one_entry(
   ctx: TenantContext,
   restore_connector: RestoreConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   target_folder_id: string,
   entry: ManifestEntry,
 ): Promise<{ att: number }> {
@@ -32,7 +32,7 @@ export async function restore_one_entry(
   const sanitized = sanitize_message_for_restore(json);
   const new_msg_id = await restore_connector.create_message(
     tenant_id,
-    mailbox_id,
+    owner_id,
     target_folder_id,
     sanitized,
   );
@@ -43,7 +43,7 @@ export async function restore_one_entry(
       ctx,
       restore_connector,
       tenant_id,
-      mailbox_id,
+      owner_id,
       new_msg_id,
       entry.attachments,
     );
@@ -58,7 +58,7 @@ export async function restore_folder_entries(
   ctx: TenantContext,
   restore_connector: RestoreConnector,
   tenant_id: string,
-  mailbox_id: string,
+  owner_id: string,
   target_folder_id: string,
   entries: ManifestEntry[],
   folder_index: number,
@@ -80,7 +80,7 @@ export async function restore_folder_entries(
         ctx,
         restore_connector,
         tenant_id,
-        mailbox_id,
+        owner_id,
         target_folder_id,
         entry,
       );
