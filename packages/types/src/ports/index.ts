@@ -1,5 +1,6 @@
 export type {
   ObjectStorage,
+  ObjectStorageEtagResult,
   MultipartUploadHandle,
   StorageObjectLockMode,
   StorageObjectLockPolicy,
@@ -119,6 +120,7 @@ export type {
   OneDriveRestoreUseCase,
   OneDriveRestoreResult,
   OneDriveRestoreOptions,
+  OneDriveRestoreConflictBehavior,
 } from './onedrive/restore.port';
 
 export {
