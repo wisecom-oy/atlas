@@ -6,6 +6,7 @@ import type {
   OneDriveBackupUseCase,
   OneDriveCatalogUseCase,
   OneDriveRestoreUseCase,
+  OneDriveSaveUseCase,
   OneDriveVerificationUseCase,
   UserIdentityResolver,
 } from '@atlas/types';
@@ -13,6 +14,7 @@ import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+  ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
 } from '@atlas/types';
@@ -50,6 +52,14 @@ interface OneDriveVerifyOptions extends OneDriveTenantOptions {
   snapshot: string;
 }
 
+interface OneDriveSaveCommandOptions extends OneDriveTenantOptions {
+  owner: string;
+  snapshot: string;
+  fileFilter?: string[];
+  output?: string;
+  skipVerify?: boolean;
+}
+
 /** Registers `atlas onedrive` command group with backup, list, and verify subcommands. */
 export function register_onedrive_command(program: Command, get_container: ContainerFactory): void {
   const group = program
@@ -57,6 +67,7 @@ export function register_onedrive_command(program: Command, get_container: Conta
     .description('OneDrive backup and verification commands');
   register_onedrive_backup(group, get_container);
   register_onedrive_restore(group, get_container);
+  register_onedrive_save(group, get_container);
   register_onedrive_list_snapshots(group, get_container);
   register_onedrive_list_versions(group, get_container);
   register_onedrive_verify(group, get_container);
@@ -87,6 +98,21 @@ function register_onedrive_restore(group: Command, get_container: ContainerFacto
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: OneDriveRestoreCommandOptions) =>
       execute_onedrive_restore(get_container(), options),
+    );
+}
+
+function register_onedrive_save(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('save')
+    .description('Save files from a OneDrive snapshot to a local zip archive')
+    .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
+    .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
+    .option('--file-filter <paths...>', 'only save specific files (by ID or path)')
+    .option('-O, --output <path>', 'output zip file path')
+    .option('--skip-verify', 'skip SHA-256 integrity checks')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: OneDriveSaveCommandOptions) =>
+      execute_onedrive_save(get_container(), options),
     );
 }
 
@@ -234,6 +260,35 @@ async function execute_onedrive_restore(
     process.exitCode = 1;
   } else {
     logger.success('Restore completed successfully');
+  }
+}
+
+async function execute_onedrive_save(
+  container: Container,
+  options: OneDriveSaveCommandOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const owner = await resolve_owner(container, tenant_id, options.owner);
+  const save_uc = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
+  const result = await save_uc.save_snapshot(tenant_id, owner.object_id, {
+    snapshot_id: options.snapshot,
+    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
+    ...(options.output ? { output_path: options.output } : {}),
+    ...(options.skipVerify ? { skip_integrity_check: true } : {}),
+  });
+
+  logger.banner('Atlas OneDrive Save');
+  logger.info(`Snapshot: ${result.snapshot_id}`);
+  logger.info(`Files saved: ${result.files_saved}`);
+  if (result.files_skipped > 0) logger.warn(`Files skipped: ${result.files_skipped}`);
+  if (result.integrity_failures.length > 0)
+    logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
+  if (result.errors.length > 0) {
+    for (const err of result.errors) logger.error(`  - ${err}`);
+    process.exitCode = 1;
+  } else {
+    const size_mb = (result.total_bytes / (1024 * 1024)).toFixed(1);
+    logger.success(`Saved to ${result.output_path} (${size_mb} MB)`);
   }
 }
 

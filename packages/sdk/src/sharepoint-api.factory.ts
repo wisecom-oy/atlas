@@ -4,12 +4,14 @@ import type {
   SharePointBackupUseCase,
   SharePointReplicationUseCase,
   SharePointRestoreUseCase,
+  SharePointSaveUseCase,
   SharePointVerificationUseCase,
 } from '@atlas/types';
 import {
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
 } from '@atlas/types';
 
@@ -23,6 +25,7 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   );
   const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
+  const save = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
 
   return {
     async backup(site_id, options) {
@@ -33,6 +36,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     },
     async restore(site_id, options) {
       return await restore.restore_sharepoint(tenant_id, site_id, options);
+    },
+    async save(site_id, options) {
+      return await save.save_snapshot(tenant_id, site_id, options);
     },
     async replicateSnapshot(site_id, snapshot_id, targets) {
       return await replication.replicate_site(tenant_id, site_id, snapshot_id, targets);

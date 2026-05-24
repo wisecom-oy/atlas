@@ -8,6 +8,7 @@ import {
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+  ONEDRIVE_SAVE_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
 import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adapter';
@@ -16,6 +17,7 @@ import { S3OneDriveDeltaCursorRepository } from '@/adapters/s3-onedrive-delta-cu
 import { S3OneDriveFileVersionIndexRepository } from '@/adapters/s3-onedrive-file-version-index-repository.adapter';
 import { OneDriveBackupService } from '@/services/onedrive-backup.service';
 import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
+import { OneDriveSaveService } from '@/services/onedrive-save.service';
 import { OneDriveCatalogService } from '@/services/onedrive-catalog.service';
 import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
 
@@ -47,4 +49,5 @@ export function bind_onedrive(container: Container): void {
     .to(OneDriveVerificationService)
     .inSingletonScope();
   container.bind(ONEDRIVE_RESTORE_USE_CASE_TOKEN).to(OneDriveRestoreService).inSingletonScope();
+  container.bind(ONEDRIVE_SAVE_USE_CASE_TOKEN).to(OneDriveSaveService).inSingletonScope();
 }

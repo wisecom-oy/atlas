@@ -108,6 +108,13 @@ const verify = await atlas.sharepoint.verify('site-id', 'sp-snap-1735689600000-a
 if (verify.failed_file_ids.length > 0) {
   console.error('Corrupt files:', verify.failed_file_ids);
 }
+
+// Save files to a local zip archive
+const saved = await atlas.sharepoint.save('site-id', {
+  snapshot_id: 'sp-snap-123',
+  output_path: 'sharepoint-backup.zip',
+});
+console.log(`Saved: ${saved.files_saved} files`);
 ```
 
 See [Programmatic SDK](./reference/sdk.md) for full method signatures and option types.
@@ -117,6 +124,8 @@ See [Programmatic SDK](./reference/sdk.md) for full method signatures and option
 | Command | Description |
 | --- | --- |
 | `atlas sharepoint backup` | Back up changed files for a SharePoint site |
+| `atlas sharepoint restore` | Restore files from a snapshot to the site |
+| `atlas sharepoint save` | Decrypt and save files from a snapshot to a local zip archive |
 | `atlas sharepoint verify` | Verify snapshot blob integrity |
 
 ### `atlas sharepoint backup`
@@ -126,6 +135,24 @@ See [Programmatic SDK](./reference/sdk.md) for full method signatures and option
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
 | `--full` | Force full crawl, ignore saved delta state | `false` |
 | `-t, --tenant <id>` | Tenant identifier | Config default |
+
+### `atlas sharepoint save`
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
+| `-s, --snapshot <id>` | Snapshot ID to save from (required) | -- |
+| `--file-filter <paths...>` | Only save specific files (by ID or path) | All files |
+| `-O, --output <path>` | Output zip file path | Auto-generated |
+| `--skip-verify` | Skip SHA-256 integrity checks | `false` |
+| `-t, --tenant <id>` | Tenant identifier | Config default |
+
+The zip archive preserves the SharePoint folder hierarchy from document libraries. Files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
+
+```bash
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 -O ~/Downloads/backup.zip
+```
 
 ### `atlas sharepoint verify`
 

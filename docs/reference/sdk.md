@@ -130,6 +130,20 @@ const restore = await atlas.onedrive.restore('owner-id', {
   conflict_behavior: 'rename',
 });
 
+// save files from a snapshot to a local zip archive
+const saved = await atlas.onedrive.save('owner-id', {
+  snapshot_id: 'od-snap-123',
+  output_path: 'onedrive-backup.zip',
+});
+console.log(`Saved: ${saved.files_saved} files (${saved.total_bytes} bytes)`);
+
+// save specific files only
+const partial = await atlas.onedrive.save('owner-id', {
+  snapshot_id: 'od-snap-123',
+  file_filter: ['/Documents/report.docx'],
+  skip_integrity_check: true,
+});
+
 // list snapshots for a user
 const snapshots = await atlas.onedrive.listSnapshots('owner-id');
 
@@ -175,6 +189,13 @@ await atlas.sharepoint.restore('site-id', {
   conflict_behavior: 'replace',
 });
 
+// save files from a snapshot to a local zip archive
+const saved = await atlas.sharepoint.save('site-id', {
+  snapshot_id: 'sp-snap-123',
+  output_path: 'sharepoint-backup.zip',
+});
+console.log(`Saved: ${saved.files_saved} files (${saved.total_bytes} bytes)`);
+
 // replicate to secondary storage
 const replication = await atlas.sharepoint.replicateAll('site-id', [offsite]);
 const single = await atlas.sharepoint.replicateSnapshot('site-id', 'snapshot-id', [offsite]);
@@ -206,6 +227,7 @@ Replication and rehydration methods mirror `atlas replicate` / `atlas rehydrate`
 | Method | Description |
 | ------ | ----------- |
 | `restore(siteId, options)` | Restore files from a snapshot to the site's document libraries |
+| `save(siteId, options)` | Decrypt and save files from a snapshot to a local zip archive |
 | `replicateSnapshot(siteId, snapshotId, targets)` | Replicate one sealed SharePoint snapshot |
 | `replicateAll(siteId, targets)` | Replicate all unreplicated snapshots for a site |
 | `rehydrateSnapshot(siteId, snapshotId, source)` | Recover one snapshot from a replica |
@@ -254,6 +276,8 @@ See [Replication](#replication) below for `createStorageTarget` setup and full r
 
 ## Save Options
 
+### Outlook Save Options
+
 The `atlas.outlook.save` and `atlas.outlook.saveMailbox` methods accept the following options:
 
 | Option                 | Type      | Description                                               |
@@ -277,6 +301,31 @@ interface SaveResult {
   output_path: string;
   total_bytes: number;
   integrity_failures: string[];
+}
+```
+
+### OneDrive / SharePoint Save Options
+
+The `atlas.onedrive.save` and `atlas.sharepoint.save` methods accept `FileSaveOptions`:
+
+| Option                 | Type       | Description                                                   |
+| ---------------------- | ---------- | ------------------------------------------------------------- |
+| `snapshot_id`          | `string`   | Snapshot to save from (required)                              |
+| `file_filter`          | `string[]` | Only save specific files (by ID or full path)                 |
+| `output_path`          | `string`   | Output zip file path (default: auto-generated)                |
+| `skip_integrity_check` | `boolean`  | Skip SHA-256 verification (default: `false`)                  |
+
+Both methods return a `FileSaveResult`:
+
+```typescript
+interface FileSaveResult {
+  snapshot_id: string;
+  files_saved: number;
+  files_skipped: number;
+  errors: string[];
+  integrity_failures: string[];
+  output_path: string;
+  total_bytes: number;
 }
 ```
 

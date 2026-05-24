@@ -74,6 +74,13 @@ export type { StatsUseCase } from './stats/use-case.port';
 
 export type { SaveOptions, SaveResult, SaveUseCase } from './save/use-case.port';
 
+export type {
+  FileSaveOptions,
+  FileSaveResult,
+  OneDriveSaveUseCase,
+  SharePointSaveUseCase,
+} from './save/file-save.port';
+
 export type { FolderStatus, MailboxStatusResult, StatusUseCase } from './status/use-case.port';
 
 export type { ReplicationUseCase } from './replication/use-case.port';
@@ -195,8 +202,10 @@ export {
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+  ONEDRIVE_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_SAVE_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

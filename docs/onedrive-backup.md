@@ -66,6 +66,7 @@ Mailbox backup currently keys `data/` and `manifests/` by the mailbox identifier
 | --- | --- |
 | `atlas onedrive backup` | Back up changed files for one user |
 | `atlas onedrive restore` | Restore files from a snapshot |
+| `atlas onedrive save` | Decrypt and save files from a snapshot to a local zip archive |
 | `atlas onedrive list-snapshots` | List all snapshots for a user |
 | `atlas onedrive list-versions` | Show version history for a file |
 | `atlas onedrive verify` | Verify snapshot blob integrity |
@@ -109,6 +110,25 @@ Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is 
 | `-o, --owner <id>` | User email or Entra object ID (required) |
 | `-f, --file <ref>` | File ID or path (required) |
 | `-t, --tenant <id>` | Tenant identifier |
+
+### `atlas onedrive save`
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `-o, --owner <id>` | User email or Entra object ID (required) | -- |
+| `-s, --snapshot <id>` | Snapshot ID to save from (required) | -- |
+| `--file-filter <paths...>` | Only save specific files (by ID or path) | All files |
+| `-O, --output <path>` | Output zip file path | Auto-generated |
+| `--skip-verify` | Skip SHA-256 integrity checks | `false` |
+| `-t, --tenant <id>` | Tenant identifier | Config default |
+
+The zip archive preserves the OneDrive folder hierarchy. Files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
+
+```bash
+atlas onedrive save -o user@company.com -s od-snap-123
+atlas onedrive save -o user@company.com -s od-snap-123 -O ~/Downloads/backup.zip
+atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents/report.docx"
+```
 
 ### `atlas onedrive verify`
 

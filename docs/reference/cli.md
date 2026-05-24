@@ -341,6 +341,39 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | `-f, --file <ref>` | Graph file ID or drive path (required) |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
+**`atlas onedrive save`**
+
+Save decrypted files from a OneDrive snapshot to a local zip archive. The archive preserves the original folder structure. Each file is SHA-256 verified after decryption by default.
+
+```bash
+atlas onedrive save -o user@company.com -s od-snap-1735689600000-a1b2c3
+atlas onedrive save -o user@company.com -s od-snap-123 -O ~/Downloads/backup.zip
+atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents/report.docx"
+atlas onedrive save -o user@company.com -s od-snap-123 --skip-verify
+```
+
+| Option | Description |
+| --- | --- |
+| `-o, --owner <id>` | User email or Entra object ID (required) |
+| `-s, --snapshot <id>` | OneDrive snapshot ID (required) |
+| `--file-filter <paths...>` | Only save specific files (by ID or path) |
+| `-O, --output <path>` | Output zip file path (default: auto-generated) |
+| `--skip-verify` | Skip SHA-256 integrity checks |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+The zip archive mirrors the OneDrive folder hierarchy:
+
+```
+onedrive-od-snap-123-2026-05-24T14-30-00.zip
+  Documents/
+    report.docx
+    budget.xlsx
+  Photos/
+    vacation.jpg
+```
+
+Files larger than 4 MiB use streaming decryption to avoid buffering the full ciphertext in memory.
+
 **`atlas onedrive verify`**
 
 | Option | Description |
@@ -361,6 +394,7 @@ Back up, restore, and verify SharePoint document library files per site using Gr
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 ```
 
@@ -368,6 +402,7 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | --- | --- |
 | `backup` | Incremental sync; use `--full` to ignore saved delta state |
 | `restore` | Restore files from a snapshot back to the site's document libraries |
+| `save` | Decrypt and save files from a snapshot to a local zip archive |
 | `verify` | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
 
 **`atlas sharepoint backup`**
@@ -387,6 +422,26 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | `--target-site <url-or-id>` | Restore to a different site (defaults to original) |
 | `--file-filter <paths...>` | Only restore specific files (by ID or path) |
 | `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+**`atlas sharepoint save`**
+
+Save decrypted files from a SharePoint snapshot to a local zip archive. The archive preserves the original folder structure from document libraries. Each file is SHA-256 verified after decryption by default.
+
+```bash
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 -O ~/Downloads/backup.zip
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --file-filter "/Documents/report.docx"
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --skip-verify
+```
+
+| Option | Description |
+| --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
+| `-s, --snapshot <id>` | SharePoint snapshot ID (required) |
+| `--file-filter <paths...>` | Only save specific files (by ID or path) |
+| `-O, --output <path>` | Output zip file path (default: auto-generated) |
+| `--skip-verify` | Skip SHA-256 integrity checks |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
 **`atlas sharepoint verify`**

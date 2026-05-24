@@ -5,6 +5,7 @@ import { ATLAS_CONFIG_TOKEN, logger } from '@atlas/core';
 import type {
   SharePointBackupUseCase,
   SharePointRestoreUseCase,
+  SharePointSaveUseCase,
   SharePointSiteConnector,
   SharePointVerificationUseCase,
 } from '@atlas/types';
@@ -12,6 +13,7 @@ import {
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
 } from '@atlas/types';
 
@@ -39,6 +41,14 @@ interface SharePointRestoreCommandOptions extends SharePointTenantOptions {
   conflict?: 'replace' | 'rename' | 'fail';
 }
 
+interface SharePointSaveCommandOptions extends SharePointTenantOptions {
+  site: string;
+  snapshot: string;
+  fileFilter?: string[];
+  output?: string;
+  skipVerify?: boolean;
+}
+
 /** Registers `atlas sharepoint` command group with backup and verify subcommands. */
 export function register_sharepoint_command(
   program: Command,
@@ -47,9 +57,21 @@ export function register_sharepoint_command(
   const group = program
     .command('sharepoint')
     .description('SharePoint backup, restore, and verification commands');
+  register_sharepoint_list_sites(group, get_container);
   register_sharepoint_backup(group, get_container);
   register_sharepoint_restore(group, get_container);
+  register_sharepoint_save(group, get_container);
   register_sharepoint_verify(group, get_container);
+}
+
+function register_sharepoint_list_sites(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('list-sites')
+    .description('List all SharePoint sites in the tenant')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: SharePointTenantOptions) =>
+      execute_sharepoint_list_sites(get_container(), options),
+    );
 }
 
 function register_sharepoint_backup(group: Command, get_container: ContainerFactory): void {
@@ -82,6 +104,21 @@ function register_sharepoint_restore(group: Command, get_container: ContainerFac
     );
 }
 
+function register_sharepoint_save(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('save')
+    .description('Save files from a SharePoint snapshot to a local zip archive')
+    .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID')
+    .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
+    .option('--file-filter <paths...>', 'only save specific files (by ID or path)')
+    .option('-O, --output <path>', 'output zip file path')
+    .option('--skip-verify', 'skip SHA-256 integrity checks')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: SharePointSaveCommandOptions) =>
+      execute_sharepoint_save(get_container(), options),
+    );
+}
+
 function register_sharepoint_verify(group: Command, get_container: ContainerFactory): void {
   group
     .command('verify')
@@ -97,6 +134,27 @@ function register_sharepoint_verify(group: Command, get_container: ContainerFact
 function resolve_tenant_id(container: Container, options: SharePointTenantOptions): string {
   if (options.tenant) return options.tenant;
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
+}
+
+async function execute_sharepoint_list_sites(
+  container: Container,
+  options: SharePointTenantOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
+  const sites = await connector.list_sites(tenant_id);
+
+  logger.banner('Atlas SharePoint Sites');
+  if (sites.length === 0) {
+    logger.info('No SharePoint sites found.');
+    return;
+  }
+
+  for (const site of sites) {
+    logger.info(`${site.site_id}  ${site.display_name}  ${site.site_url}`);
+  }
+
+  logger.info(`\n${sites.length} site(s) found.`);
 }
 
 async function execute_sharepoint_backup(
@@ -192,6 +250,38 @@ async function execute_sharepoint_restore(
     process.exitCode = 1;
   } else {
     logger.success('Restore completed successfully');
+  }
+}
+
+async function execute_sharepoint_save(
+  container: Container,
+  options: SharePointSaveCommandOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
+  const site = await connector.resolve_site(tenant_id, options.site);
+  logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
+
+  const save_uc = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
+  const result = await save_uc.save_snapshot(tenant_id, site.site_id, {
+    snapshot_id: options.snapshot,
+    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
+    ...(options.output ? { output_path: options.output } : {}),
+    ...(options.skipVerify ? { skip_integrity_check: true } : {}),
+  });
+
+  logger.banner('Atlas SharePoint Save');
+  logger.info(`Snapshot: ${result.snapshot_id}`);
+  logger.info(`Files saved: ${result.files_saved}`);
+  if (result.files_skipped > 0) logger.warn(`Files skipped: ${result.files_skipped}`);
+  if (result.integrity_failures.length > 0)
+    logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
+  if (result.errors.length > 0) {
+    for (const err of result.errors) logger.error(`  - ${err}`);
+    process.exitCode = 1;
+  } else {
+    const size_mb = (result.total_bytes / (1024 * 1024)).toFixed(1);
+    logger.success(`Saved to ${result.output_path} (${size_mb} MB)`);
   }
 }
 

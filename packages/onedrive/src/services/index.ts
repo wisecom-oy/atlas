@@ -1,5 +1,6 @@
 export { OneDriveBackupService } from './onedrive-backup.service';
 export { OneDriveRestoreService } from './onedrive-restore.service';
+export { OneDriveSaveService } from './onedrive-save.service';
 export { sync_file_versions } from './onedrive-version-sync';
 export { classify_change_type } from './onedrive-change-classifier';
 export { download_with_retry } from './onedrive-download-orchestrator';
