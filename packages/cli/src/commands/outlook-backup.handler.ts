@@ -1,4 +1,3 @@
-import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@atlas/core';
 import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
@@ -16,9 +15,7 @@ import { run_tenant_backup_with_cli_adapter } from '@/adapters/tenant-backup-ope
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@atlas/core';
 
-type ContainerFactory = () => Container;
-
-interface BackupOptions {
+export interface OutlookBackupOptions {
   tenant?: string;
   mailbox?: string;
   folder?: string[];
@@ -30,32 +27,15 @@ interface BackupOptions {
   concurrency?: string;
 }
 
-/** Registers the `atlas backup` subcommand. */
-export function register_backup_command(program: Command, get_container: ContainerFactory): void {
-  program
-    .command('backup')
-    .description('Back up mailboxes from M365 tenant to object storage')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('-m, --mailbox <id>', 'specific mailbox to back up (backs up all if omitted)')
-    .option('-f, --folder <name...>', 'specific folder(s) to back up (e.g. -f Inbox "Sent Items")')
-    .option('--full', 'force a full backup, ignoring saved delta state from prior runs')
-    .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
-    .option('--retention-days <n>', 'apply object lock retention for N days')
-    .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
-    .option('--require-immutability', 'fail when immutability cannot be enforced')
-    .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
-    .action((options: BackupOptions) => execute_backup(get_container(), options));
-}
-
 /** Resolves the tenant ID from CLI flag or config. */
-function resolve_tenant_id(container: Container, options: BackupOptions): string {
+function resolve_tenant_id(container: Container, options: OutlookBackupOptions): string {
   if (options.tenant) return options.tenant;
   const config = container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN);
   return config.tenant_id;
 }
 
 /** Builds SyncOptions from CLI flags. */
-function build_sync_options(options: BackupOptions): SyncOptions {
+function build_sync_options(options: OutlookBackupOptions): SyncOptions {
   const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));
   const object_lock_request = build_object_lock_request(options);
   const object_lock_policy = build_object_lock_policy(options);
@@ -68,7 +48,7 @@ function build_sync_options(options: BackupOptions): SyncOptions {
   };
 }
 
-function build_object_lock_request(options: BackupOptions): ObjectLockRequest | undefined {
+function build_object_lock_request(options: OutlookBackupOptions): ObjectLockRequest | undefined {
   const retention_days = parse_retention_days(options.retentionDays);
   const mode = parse_lock_mode(options.lockMode, retention_days ? 'GOVERNANCE' : undefined);
   if (!retention_days) {
@@ -81,7 +61,7 @@ function build_object_lock_request(options: BackupOptions): ObjectLockRequest | 
   };
 }
 
-function build_object_lock_policy(options: BackupOptions): ObjectLockPolicy | undefined {
+function build_object_lock_policy(options: OutlookBackupOptions): ObjectLockPolicy | undefined {
   const retention_days = parse_retention_days(options.retentionDays);
   const mode = parse_lock_mode(options.lockMode, retention_days ? 'GOVERNANCE' : undefined);
   const require_immutability = options.requireImmutability ?? true;
@@ -125,7 +105,10 @@ function compute_retain_until_utc(retention_days: number): string {
 }
 
 /** Dispatches a backup run for a single mailbox or the entire tenant. */
-async function execute_backup(container: Container, options: BackupOptions): Promise<void> {
+export async function execute_outlook_backup(
+  container: Container,
+  options: OutlookBackupOptions,
+): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
   logger.banner('Atlas Backup');
   logger.info(`Tenant:  ${tenant_id}`);
@@ -167,7 +150,7 @@ async function backup_single_mailbox(
 async function backup_all_mailboxes(
   container: Container,
   tenant_id: string,
-  options: BackupOptions,
+  options: OutlookBackupOptions,
 ): Promise<void> {
   const concurrency = Math.max(1, parseInt(options.concurrency ?? '4', 10) || 4);
   const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));

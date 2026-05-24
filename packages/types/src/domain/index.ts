@@ -33,3 +33,11 @@ export type {
   IdentityRegistryEntry,
   IdentityEntryStatus,
 } from './identity-registry';
+export type {
+  SharePointChangeType,
+  SharePointSnapshotManifest,
+  SharePointManifestEntry,
+  SharePointFileVersionRecord,
+  SharePointFileVersionIndex,
+  SharePointDeltaCursor,
+} from './sharepoint-manifest';

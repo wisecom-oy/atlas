@@ -26,6 +26,8 @@
     "@atlas/m365-graph": "workspace:*",
     "@atlas/s3": "workspace:*",
     "@atlas/outlook": "workspace:*",
+    "@atlas/onedrive": "workspace:*",
+    "@atlas/sharepoint": "workspace:*",
     "inversify": "^7.11.0",
     "reflect-metadata": "^0.2.2"
   }

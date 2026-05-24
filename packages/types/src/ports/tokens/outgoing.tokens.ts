@@ -11,5 +11,15 @@ export const USER_IDENTITY_RESOLVER_TOKEN = Symbol.for('UserIdentityResolver');
 export const IDENTITY_REGISTRY_REPOSITORY_TOKEN = Symbol.for('IdentityRegistryRepository');
 export const ONEDRIVE_CONNECTOR_TOKEN = Symbol.for('OneDriveConnector');
 export const ONEDRIVE_MANIFEST_REPOSITORY_TOKEN = Symbol.for('OneDriveManifestRepository');
-export const ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN = Symbol.for('OneDriveFileIndexRepository');
+export const ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(
+  'OneDriveFileVersionIndexRepository',
+);
 export const ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('OneDriveDeltaCursorRepository');
+export const SHAREPOINT_CONNECTOR_TOKEN = Symbol.for('SharePointSiteConnector');
+export const SHAREPOINT_MANIFEST_REPOSITORY_TOKEN = Symbol.for('SharePointManifestRepository');
+export const SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(
+  'SharePointFileVersionIndexRepository',
+);
+export const SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for(
+  'SharePointDeltaCursorRepository',
+);

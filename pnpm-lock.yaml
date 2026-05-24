@@ -78,6 +78,9 @@ importers:
       '@atlas/s3':
         specifier: workspace:*
         version: link:../s3
+      '@atlas/sharepoint':
+        specifier: workspace:*
+        version: link:../sharepoint
       '@atlas/types':
         specifier: workspace:*
         version: link:../types
@@ -213,12 +216,18 @@ importers:
       '@atlas/m365-graph':
         specifier: workspace:*
         version: link:../m365-graph
+      '@atlas/onedrive':
+        specifier: workspace:*
+        version: link:../onedrive
       '@atlas/outlook':
         specifier: workspace:*
         version: link:../outlook
       '@atlas/s3':
         specifier: workspace:*
         version: link:../s3
+      '@atlas/sharepoint':
+        specifier: workspace:*
+        version: link:../sharepoint
       '@atlas/types':
         specifier: workspace:*
         version: link:../types
@@ -240,6 +249,9 @@ importers:
       '@atlas/types':
         specifier: workspace:*
         version: link:../types
+      '@microsoft/microsoft-graph-client':
+        specifier: ^3.0.7
+        version: 3.0.7(@azure/identity@4.13.1)
       inversify:
         specifier: ^7.11.0
         version: 7.11.0(reflect-metadata@0.2.2)

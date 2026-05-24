@@ -43,7 +43,7 @@ For higher security, Azure AD supports **certificate-based authentication** as a
 
 ## Optional: Mailbox Size Reporting
 
-The `atlas mailboxes` command can show mailbox sizes if the `Reports.Read.All` permission is granted. If the permission is not present, the Size column is simply omitted without error.
+The `atlas outlook mailboxes` command can show mailbox sizes if the `Reports.Read.All` permission is granted. If the permission is not present, the Size column is simply omitted without error.
 
 | Permission         | Why                                        |
 | ------------------ | ------------------------------------------ |

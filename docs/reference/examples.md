@@ -26,7 +26,7 @@ const mailboxes = [
 ];
 
 for (const mailbox of mailboxes) {
-  const status = await atlas.checkMailboxStatus(mailbox);
+  const status = await atlas.outlook.checkMailboxStatus(mailbox);
 
   if (status.is_up_to_date) {
     console.log(`[skip] ${mailbox} — no changes since last backup`);
@@ -37,7 +37,7 @@ for (const mailbox of mailboxes) {
     `[backup] ${mailbox} — ${status.total_pending_changes} pending change(s) across ${status.total_folders} folder(s)`,
   );
 
-  const result = await atlas.backupMailbox(mailbox);
+  const result = await atlas.outlook.backup(mailbox);
 
   console.log(
     `[done] ${mailbox} — snapshot ${result.snapshot.id}, ` +
@@ -47,7 +47,7 @@ for (const mailbox of mailboxes) {
 }
 ```
 
-`checkMailboxStatus` is a lightweight delta peek -- it queries Graph without consuming the delta token, so the subsequent `backupMailbox` call still picks up from the correct sync point.
+`atlas.outlook.checkMailboxStatus` is a lightweight delta peek -- it queries Graph without consuming the delta token, so the subsequent `atlas.outlook.backup` call still picks up from the correct sync point.
 
 ## Nightly Backup Job with Error Handling
 
@@ -72,14 +72,14 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
 
   for (const mailbox of mailboxes) {
     try {
-      const status = await atlas.checkMailboxStatus(mailbox);
+      const status = await atlas.outlook.checkMailboxStatus(mailbox);
 
       if (status.is_up_to_date) {
         console.log(`[skip] ${mailbox} — already current`);
         continue;
       }
 
-      const result = await atlas.backupMailbox(mailbox);
+      const result = await atlas.outlook.backup(mailbox);
 
       succeeded.push({
         mailbox,
@@ -169,7 +169,7 @@ const replications: Promise<unknown>[] = [];
 
 for (const mailbox of mailboxes) {
   try {
-    const backup = await atlas.backupMailbox(mailbox);
+    const backup = await atlas.outlook.backup(mailbox);
 
     // Replication is S3-to-S3 only (no Graph API calls), so fire it off
     // concurrently while the next mailbox backup runs.
@@ -188,16 +188,16 @@ console.log(JSON.stringify(results, null, 2));
 process.exit(results.some((r) => !r.ok) ? 1 : 0);
 ```
 
-Backups run sequentially to avoid Graph API throttling, but each replication fires off immediately without blocking the next backup. Replication is pure S3-to-S3 traffic (typically LAN or inter-datacenter fiber), so it runs concurrently in the background. `Promise.allSettled` at the end ensures all replications finish before the process exits. If the job crashes partway, the next run picks up naturally -- `backupMailbox` produces a delta snapshot and `replicateSnapshot` skips objects already on the target.
+Backups run sequentially to avoid Graph API throttling, but each replication fires off immediately without blocking the next backup. Replication is pure S3-to-S3 traffic (typically LAN or inter-datacenter fiber), so it runs concurrently in the background. `Promise.allSettled` at the end ensures all replications finish before the process exits. If the job crashes partway, the next run picks up naturally -- `atlas.outlook.backup` produces a delta snapshot and `replicateSnapshot` skips objects already on the target.
 
 ## Periodic Integrity Verification
 
-Run `verifySnapshot` on recent snapshots to confirm that data in S3 has not been corrupted or tampered with. This is the programmatic equivalent of `atlas verify`.
+Run `atlas.outlook.verify` on recent snapshots to confirm that data in S3 has not been corrupted or tampered with. This is the programmatic equivalent of `atlas outlook verify`.
 
 ```typescript
 async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) {
   for (const mailbox of mailboxes) {
-    const snapshots = await atlas.listSnapshots(mailbox);
+    const snapshots = await atlas.outlook.listSnapshots(mailbox);
 
     if (snapshots.length === 0) {
       console.log(`[skip] ${mailbox} — no snapshots`);
@@ -205,7 +205,7 @@ async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) 
     }
 
     const latest = snapshots[snapshots.length - 1];
-    const result = await atlas.verifySnapshot(latest.snapshot_id);
+    const result = await atlas.outlook.verify(latest.snapshot_id);
 
     if (result.failed.length === 0) {
       console.log(
@@ -252,7 +252,7 @@ For per-mailbox breakdowns:
 
 ```typescript
 async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
-  const stats = await atlas.getMailboxStats(mailbox);
+  const stats = await atlas.outlook.getMailboxStats(mailbox);
 
   return {
     mailbox: stats.mailbox_id,
@@ -282,7 +282,7 @@ async function export_mailbox_archive(
   const timestamp = new Date().toISOString().slice(0, 10);
   const output_path = `${output_dir}/${mailbox.replace('@', '_at_')}_${timestamp}.zip`;
 
-  const result = await atlas.saveMailbox(mailbox, {
+  const result = await atlas.outlook.saveMailbox(mailbox, {
     output_path,
     skip_integrity_check: false,
   });
@@ -363,7 +363,7 @@ async function backup_all_tenants(
 
     for (const mailbox of tenant.mailboxes) {
       try {
-        const result = await atlas.backupMailbox(mailbox);
+        const result = await atlas.outlook.backup(mailbox);
         console.log(`  [done] ${mailbox} — ${result.summary.stored} stored`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -388,7 +388,7 @@ async function prune_old_snapshots(
   mailbox: string,
   keep_count: number,
 ) {
-  const snapshots = await atlas.listSnapshots(mailbox);
+  const snapshots = await atlas.outlook.listSnapshots(mailbox);
 
   if (snapshots.length <= keep_count) {
     console.log(`[skip] ${mailbox} — ${snapshots.length} snapshot(s), nothing to prune`);
@@ -398,7 +398,7 @@ async function prune_old_snapshots(
   const to_delete = snapshots.slice(0, snapshots.length - keep_count);
 
   for (const snapshot of to_delete) {
-    const result = await atlas.deleteSnapshot(snapshot.snapshot_id);
+    const result = await atlas.outlook.deleteSnapshot(snapshot.snapshot_id);
     console.log(
       `[prune] ${mailbox} — deleted snapshot ${snapshot.snapshot_id} ` +
       `(${result.deleted_count} objects removed)`,
@@ -412,5 +412,5 @@ async function prune_old_snapshots(
 ```
 
 ::: tip Snapshot Deletion vs. Data Deletion
-`deleteSnapshot` removes only the manifest file. The underlying data objects are retained because they may be referenced by other snapshots (content-addressed deduplication). To remove all data for a mailbox, use `deleteMailboxData`.
+`atlas.outlook.deleteSnapshot` removes only the manifest file. The underlying data objects are retained because they may be referenced by other snapshots (content-addressed deduplication). To remove all data for a mailbox, use `atlas.outlook.deleteMailboxData`.
 :::

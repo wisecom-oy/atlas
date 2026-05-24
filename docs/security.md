@@ -113,14 +113,14 @@ Atlas validates data integrity at three independent layers. Each layer catches a
 
 ### How Verification Works
 
-When you run `atlas verify`, Atlas performs a full integrity check for a snapshot:
+When you run `atlas outlook verify`, Atlas performs a full integrity check for a snapshot:
 
 1. Downloads each encrypted object from S3.
 2. Decrypts it with the tenant DEK (GCM auth tag validates ciphertext integrity).
 3. Computes SHA-256 of the decrypted plaintext.
 4. Compares against the checksum stored in the manifest using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
 
-Currently, `atlas verify` checks **message body entries** listed in the manifest. Attachments are implicitly protected by GCM authentication during any decrypt operation (backup, restore, save).
+Currently, `atlas outlook verify` checks **message body entries** listed in the manifest. Attachments are implicitly protected by GCM authentication during any decrypt operation (backup, restore, save).
 
 ### Content-MD5 on Uploads
 
@@ -153,7 +153,7 @@ Atlas validates encryption key consistency before every replication and rehydrat
 
 ### Replica Marker
 
-Atlas writes a marker file (`_meta/replica.marker`) on each target during first replication. If a user accidentally runs `atlas backup` against a replica target, Atlas detects the marker and logs a warning. This guards against accidental violation of the primary-is-truth principle, which could lead to data inconsistency.
+Atlas writes a marker file (`_meta/replica.marker`) on each target during first replication. If a user accidentally runs `atlas outlook backup` against a replica target, Atlas detects the marker and logs a warning. This guards against accidental violation of the primary-is-truth principle, which could lead to data inconsistency.
 
 ### Replication Status Encryption
 

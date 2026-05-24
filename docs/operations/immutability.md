@@ -58,7 +58,7 @@ Object Lock **prevents deletion** during the retention window but does **not aut
 
 ## Deletion Behavior Under Object Lock
 
-When you run `atlas delete` against immutable data, the deletion order is important:
+When you run `atlas outlook delete` against immutable data, the deletion order is important:
 
 1. **Manifests are deleted first** — this removes the index that references data objects.
 2. **Data objects are deleted second** — these are the actual encrypted messages and attachments.

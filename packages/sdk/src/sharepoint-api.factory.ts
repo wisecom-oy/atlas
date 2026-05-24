@@ -1,0 +1,50 @@
+import type { Container } from 'inversify';
+import type {
+  SharePointApi,
+  SharePointBackupUseCase,
+  SharePointReplicationUseCase,
+  SharePointRestoreUseCase,
+  SharePointVerificationUseCase,
+} from '@atlas/types';
+import {
+  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
+} from '@atlas/types';
+
+/** Builds the SharePointApi sub-namespace from the DI container. */
+export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {
+  const backup = container.get<SharePointBackupUseCase>(SHAREPOINT_BACKUP_USE_CASE_TOKEN);
+  const verification = container.get<SharePointVerificationUseCase>(
+    SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
+  );
+  const replication = container.get<SharePointReplicationUseCase>(
+    SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  );
+  const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
+
+  return {
+    async backup(site_id, options) {
+      return await backup.backup_site(tenant_id, site_id, options);
+    },
+    async verify(site_id, snapshot_id) {
+      return await verification.verify_sharepoint_snapshot(tenant_id, site_id, snapshot_id);
+    },
+    async restore(site_id, options) {
+      return await restore.restore_sharepoint(tenant_id, site_id, options);
+    },
+    async replicateSnapshot(site_id, snapshot_id, targets) {
+      return await replication.replicate_site(tenant_id, site_id, snapshot_id, targets);
+    },
+    async replicateAll(site_id, targets) {
+      return await replication.replicate_all_site_snapshots(tenant_id, site_id, targets);
+    },
+    async rehydrateSnapshot(site_id, snapshot_id, source) {
+      return await replication.rehydrate_site_snapshot(tenant_id, site_id, snapshot_id, source);
+    },
+    async rehydrateSite(site_id, source) {
+      return await replication.rehydrate_site(tenant_id, site_id, source);
+    },
+  };
+}

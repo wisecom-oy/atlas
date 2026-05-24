@@ -4,8 +4,8 @@ import chalk from 'chalk';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@atlas/core';
 import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
-import type { ReplicationUseCase } from '@atlas/types';
-import { REPLICATION_USE_CASE_TOKEN } from '@atlas/types';
+import type { ReplicationUseCase, SharePointReplicationUseCase } from '@atlas/types';
+import { REPLICATION_USE_CASE_TOKEN, SHAREPOINT_REPLICATION_USE_CASE_TOKEN } from '@atlas/types';
 import { create_storage_target } from '@atlas/s3';
 import type { StorageTarget } from '@atlas/types';
 import type { ReplicationResult } from '@atlas/types';
@@ -17,6 +17,7 @@ type ContainerFactory = () => Container;
 interface RehydrateOptions {
   snapshot?: string;
   mailbox?: string;
+  site?: string;
   all?: boolean;
   tenant?: string;
   sourceEndpoint?: string;
@@ -36,6 +37,7 @@ export function register_rehydrate_command(
     .description('Recover snapshots from a replica to primary (disaster recovery)')
     .option('-s, --snapshot <id>', 'recover a specific snapshot')
     .option('-m, --mailbox <id>', 'recover all snapshots for a mailbox')
+    .option('--site <url-or-id>', 'recover all snapshots for a SharePoint site')
     .option('--all', 'recover all mailboxes and snapshots (full tenant DR)')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--source-endpoint <url>', 'source replica S3 endpoint URL')
@@ -62,7 +64,25 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
 
   let result: ReplicationResult;
 
-  if (options.snapshot) {
+  if (options.site) {
+    const sharepoint_replication = container.get<SharePointReplicationUseCase>(
+      SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+    );
+    if (options.snapshot) {
+      logger.info(
+        `Mode:    recover SharePoint snapshot ${chalk.cyan(options.snapshot)} for site ${chalk.cyan(options.site)}`,
+      );
+      result = await sharepoint_replication.rehydrate_site_snapshot(
+        tenant_id,
+        options.site,
+        options.snapshot,
+        source,
+      );
+    } else {
+      logger.info(`Mode:    recover SharePoint site ${chalk.cyan(options.site)}`);
+      result = await sharepoint_replication.rehydrate_site(tenant_id, options.site, source);
+    }
+  } else if (options.snapshot) {
     logger.info(`Mode:    recover snapshot ${chalk.cyan(options.snapshot)}`);
     result = await use_case.rehydrate_snapshot(tenant_id, options.snapshot, source);
   } else if (options.mailbox) {

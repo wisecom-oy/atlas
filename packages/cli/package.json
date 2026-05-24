@@ -30,6 +30,7 @@
     "@atlas/s3": "workspace:*",
     "@atlas/outlook": "workspace:*",
     "@atlas/onedrive": "workspace:*",
+    "@atlas/sharepoint": "workspace:*",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "inversify": "^7.11.0",

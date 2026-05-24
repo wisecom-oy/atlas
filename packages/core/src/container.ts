@@ -5,12 +5,15 @@ import {
   VERIFICATION_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   REPLICATION_USE_CASE_TOKEN,
+  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  type SharePointReplicationUseCase,
 } from '@atlas/types';
 import { CatalogService } from '@/services/catalog/catalog.service';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { VerificationService } from '@/services/verification/verification.service';
 import { StatsService } from '@/services/stats/stats.service';
 import { ReplicationService } from '@/services/replication/replication.service';
+import { SharePointReplicationService } from '@/services/replication/sharepoint-replication.service';
 
 export function bind_core_services(container: Container): void {
   container.bind(CatalogService).toSelf();
@@ -23,4 +26,8 @@ export function bind_core_services(container: Container): void {
   container.bind(STATS_USE_CASE_TOKEN).toService(StatsService);
   container.bind(ReplicationService).toSelf();
   container.bind(REPLICATION_USE_CASE_TOKEN).toService(ReplicationService);
+  container.bind(SharePointReplicationService).toSelf();
+  container
+    .bind<SharePointReplicationUseCase>(SHAREPOINT_REPLICATION_USE_CASE_TOKEN)
+    .toService(SharePointReplicationService);
 }

@@ -50,10 +50,10 @@ The encryption passphrase is **irrecoverable**. If you lose it, all backup data 
 
 ```bash
 # back up a single mailbox
-atlas backup --mailbox user@company.com
+atlas outlook backup --mailbox user@company.com
 
 # back up all licensed mailboxes in the tenant
-atlas backup
+atlas outlook backup
 ```
 
 The first backup for a mailbox performs a full synchronization -- every message and attachment is downloaded and encrypted. Subsequent runs use [delta sync](./operations/delta-sync.md) to transfer only changes, which is dramatically faster.
@@ -62,16 +62,16 @@ The first backup for a mailbox performs a full synchronization -- every message 
 
 ```bash
 # check if a mailbox is up to date
-atlas status -m user@company.com
+atlas outlook status -m user@company.com
 
 # list what was backed up
-atlas list
+atlas outlook list
 
 # restore a folder from backup
-atlas restore -m user@company.com -f Inbox
+atlas outlook restore -m user@company.com -f Inbox
 
 # save as EML zip archive
-atlas save -m user@company.com -o backup.zip
+atlas outlook save -m user@company.com -o backup.zip
 ```
 
 See the full [CLI Reference](./reference/cli.md) for all commands and options.
@@ -93,7 +93,7 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: 'my-secret-passphrase',
 });
 
-const result = await atlas.backupMailbox('user@company.com');
+const result = await atlas.outlook.backup('user@company.com');
 ```
 
 See the [SDK Reference](./reference/sdk.md) for all available methods.

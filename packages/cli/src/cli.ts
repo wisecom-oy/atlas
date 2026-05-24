@@ -3,20 +3,13 @@ import 'reflect-metadata';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { compose_container } from '@/container';
-import { register_backup_command } from '@/commands/backup.command';
-import { register_verify_command } from '@/commands/verify.command';
-import { register_restore_command } from '@/commands/restore.command';
-import { register_list_command } from '@/commands/list.command';
-import { register_read_command } from '@/commands/read.command';
-import { register_delete_command } from '@/commands/delete.command';
-import { register_storage_check_command } from '@/commands/storage-check.command';
-import { register_save_command } from '@/commands/save.command';
+import { register_outlook_command } from '@/commands/outlook.command';
+import { register_onedrive_command } from '@/commands/onedrive.command';
+import { register_sharepoint_command } from '@/commands/sharepoint.command';
 import { register_stats_command } from '@/commands/stats.command';
-import { register_mailboxes_command } from '@/commands/mailboxes.command';
-import { register_status_command } from '@/commands/status.command';
+import { register_storage_check_command } from '@/commands/storage-check.command';
 import { register_replicate_command } from '@/commands/replicate.command';
 import { register_rehydrate_command } from '@/commands/rehydrate.command';
-import { register_onedrive_command } from '@/commands/onedrive.command';
 import { register_list_users_command } from '@/commands/list-users.command';
 import { logger } from '@atlas/core';
 import type { Container } from 'inversify';
@@ -35,26 +28,21 @@ export function get_container(): Container {
 function create_program(): Command {
   return new Command()
     .name('atlas')
-    .description(chalk.bold('m365-atlas') + ' – M365 email backup to S3-compatible object storage')
+    .description(
+      chalk.bold('m365-atlas') + ' – Microsoft 365 backup to S3-compatible object storage',
+    )
     .version('1.0.0');
 }
 
 /** Registers all CLI subcommands against the program. */
 function register_commands(program: Command): void {
-  register_backup_command(program, get_container);
-  register_verify_command(program, get_container);
-  register_restore_command(program, get_container);
-  register_list_command(program, get_container);
-  register_read_command(program, get_container);
-  register_delete_command(program, get_container);
-  register_storage_check_command(program, get_container);
-  register_save_command(program, get_container);
+  register_outlook_command(program, get_container);
+  register_onedrive_command(program, get_container);
+  register_sharepoint_command(program, get_container);
   register_stats_command(program, get_container);
-  register_mailboxes_command(program, get_container);
-  register_status_command(program, get_container);
+  register_storage_check_command(program, get_container);
   register_replicate_command(program, get_container);
   register_rehydrate_command(program, get_container);
-  register_onedrive_command(program, get_container);
   register_list_users_command(program, get_container);
 }
 

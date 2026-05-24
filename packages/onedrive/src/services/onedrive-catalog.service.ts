@@ -9,7 +9,7 @@ import type {
   TenantContextFactory,
 } from '@atlas/types';
 import {
-  ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN,
+  ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
@@ -21,7 +21,7 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: OneDriveManifestRepository,
-    @inject(ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN)
+    @inject(ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     private readonly _indexes: OneDriveFileVersionIndexRepository,
   ) {}
 

@@ -2,7 +2,7 @@ import { type Container } from 'inversify';
 import {
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
-  ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN,
+  ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
@@ -37,7 +37,7 @@ export function bind_onedrive(container: Container): void {
     .to(S3OneDriveDeltaCursorRepository)
     .inSingletonScope();
   container
-    .bind(ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN)
+    .bind(ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     .to(S3OneDriveFileVersionIndexRepository)
     .inSingletonScope();
   container.bind(ONEDRIVE_BACKUP_USE_CASE_TOKEN).to(OneDriveBackupService).inSingletonScope();

@@ -16,6 +16,7 @@
     { "path": "../m365-graph" },
     { "path": "../s3" },
     { "path": "../outlook" },
-    { "path": "../onedrive" }
+    { "path": "../onedrive" },
+    { "path": "../sharepoint" }
   ]
 }

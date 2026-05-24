@@ -13,6 +13,8 @@ export default defineConfig({
       '@atlas/m365-graph': resolve(root_dir, '../m365-graph/src/index.ts'),
       '@atlas/s3': resolve(root_dir, '../s3/src/index.ts'),
       '@atlas/outlook': resolve(root_dir, '../outlook/src/index.ts'),
+      '@atlas/onedrive': resolve(root_dir, '../onedrive/src/index.ts'),
+      '@atlas/sharepoint': resolve(root_dir, '../sharepoint/src/index.ts'),
     },
   },
   test: {

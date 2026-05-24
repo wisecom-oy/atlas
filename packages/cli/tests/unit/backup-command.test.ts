@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container } from 'inversify';
 import { Command } from 'commander';
-import { register_backup_command } from '@/commands/backup.command';
+import { register_outlook_command } from '@/commands/outlook.command';
 import { BACKUP_USE_CASE_TOKEN } from '@atlas/types';
 import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
 
@@ -12,7 +12,7 @@ vi.mock('@/adapters/backup-operation.adapter', () => ({
     mock_run_backup_with_cli_adapter(...args),
 }));
 
-describe('backup.command immutability options', () => {
+describe('outlook backup command immutability options', () => {
   let container: Container;
   let program: Command;
 
@@ -26,7 +26,7 @@ describe('backup.command immutability options', () => {
     });
 
     program = new Command();
-    register_backup_command(program, () => container);
+    register_outlook_command(program, () => container);
     mock_run_backup_with_cli_adapter.mockReset();
     mock_run_backup_with_cli_adapter.mockResolvedValue({
       snapshot: { id: 'snap-1' },
@@ -37,6 +37,7 @@ describe('backup.command immutability options', () => {
   it('resolves retention-days into retain_until and maps governance mode', async () => {
     await program.parseAsync(
       [
+        'outlook',
         'backup',
         '--mailbox',
         'user@test.com',
@@ -57,6 +58,7 @@ describe('backup.command immutability options', () => {
   it('accepts compliance mode', async () => {
     await program.parseAsync(
       [
+        'outlook',
         'backup',
         '--mailbox',
         'user@test.com',

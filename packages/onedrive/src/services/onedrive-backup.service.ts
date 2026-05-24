@@ -15,7 +15,7 @@ import type {
 import {
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
-  ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN,
+  ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
@@ -42,7 +42,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     @inject(ONEDRIVE_CONNECTOR_TOKEN) private readonly _connector: OneDriveConnector,
     @inject(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: OneDriveManifestRepository,
-    @inject(ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN)
+    @inject(ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     private readonly _file_indexes: OneDriveFileVersionIndexRepository,
     @inject(ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: OneDriveDeltaCursorRepository,

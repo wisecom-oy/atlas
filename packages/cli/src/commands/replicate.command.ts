@@ -4,8 +4,8 @@ import chalk from 'chalk';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@atlas/core';
 import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
-import type { ReplicationUseCase } from '@atlas/types';
-import { REPLICATION_USE_CASE_TOKEN } from '@atlas/types';
+import type { ReplicationUseCase, SharePointReplicationUseCase } from '@atlas/types';
+import { REPLICATION_USE_CASE_TOKEN, SHAREPOINT_REPLICATION_USE_CASE_TOKEN } from '@atlas/types';
 import { create_storage_target } from '@atlas/s3';
 import type { StorageTarget } from '@atlas/types';
 import type { ReplicationResult, ReplicationStatusRecord } from '@atlas/types';
@@ -17,6 +17,7 @@ type ContainerFactory = () => Container;
 interface ReplicateOptions {
   snapshot?: string;
   mailbox?: string;
+  site?: string;
   tenant?: string;
   targetEndpoint?: string;
   targetAccessKey?: string;
@@ -36,6 +37,7 @@ export function register_replicate_command(
     .description('Replicate snapshots to a secondary S3 storage target')
     .option('-s, --snapshot <id>', 'replicate a specific snapshot')
     .option('-m, --mailbox <id>', 'replicate all unreplicated snapshots for a mailbox')
+    .option('--site <url-or-id>', 'replicate all unreplicated snapshots for a SharePoint site')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--target-endpoint <url>', 'target S3 endpoint URL')
     .option('--target-access-key <key>', 'target S3 access key')
@@ -65,14 +67,36 @@ async function execute_replicate(container: Container, options: ReplicateOptions
   logger.info(`Tenant:  ${tenant_id}`);
   logger.info(`Target:  ${target.endpoint} (${target.target_id})`);
 
-  if (options.snapshot) {
+  if (options.site) {
+    const sharepoint_replication = container.get<SharePointReplicationUseCase>(
+      SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+    );
+    if (options.snapshot) {
+      const results = await sharepoint_replication.replicate_site(
+        tenant_id,
+        options.site,
+        options.snapshot,
+        [target],
+      );
+      report_results(results);
+    } else {
+      const results = await sharepoint_replication.replicate_all_site_snapshots(
+        tenant_id,
+        options.site,
+        [target],
+      );
+      report_results(results);
+    }
+  } else if (options.snapshot) {
     const results = await use_case.replicate_snapshot(tenant_id, options.snapshot, [target]);
     report_results(results);
   } else if (options.mailbox) {
     const results = await use_case.replicate_mailbox(tenant_id, options.mailbox, [target]);
     report_results(results);
   } else {
-    logger.error('Either --snapshot or --mailbox is required (or --status to view status)');
+    logger.error(
+      'Either --snapshot, --mailbox, or --site is required (or --status to view status)',
+    );
     process.exitCode = 1;
   }
 }
@@ -154,6 +178,8 @@ async function show_status(
     records = await use_case.get_replication_status(tenant_id, options.snapshot);
   } else if (options.mailbox) {
     records = await use_case.get_replication_status_by_owner(tenant_id, options.mailbox);
+  } else if (options.site) {
+    records = await use_case.get_replication_status_by_owner(tenant_id, options.site);
   } else {
     records = await use_case.get_replication_status(tenant_id);
   }

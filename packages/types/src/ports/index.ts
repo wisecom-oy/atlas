@@ -77,6 +77,7 @@ export type { SaveOptions, SaveResult, SaveUseCase } from './save/use-case.port'
 export type { FolderStatus, MailboxStatusResult, StatusUseCase } from './status/use-case.port';
 
 export type { ReplicationUseCase } from './replication/use-case.port';
+export type { SharePointReplicationUseCase } from './replication/sharepoint-replication.port';
 export type {
   StorageTarget,
   StorageTargetConfig,
@@ -85,6 +86,9 @@ export type {
 export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
+export type { OutlookApi } from './atlas/outlook-api.port';
+export type { OneDriveApi } from './atlas/onedrive-api.port';
+export type { SharePointApi } from './atlas/sharepoint-api.port';
 
 export type {
   UserIdentityResolver,
@@ -123,6 +127,36 @@ export type {
   OneDriveRestoreConflictBehavior,
 } from './onedrive/restore.port';
 
+export type {
+  SharePointSiteConnector,
+  SharePointSite,
+  SharePointDocumentLibrary,
+  SharePointDeltaItem,
+  SharePointDeltaItemKind,
+  SharePointDeltaResult,
+  SharePointFileVersion,
+} from './sharepoint/connector.port';
+
+export type { SharePointManifestRepository } from './sharepoint/manifest-repository.port';
+export type { SharePointDeltaCursorRepository } from './sharepoint/delta-cursor-repository.port';
+export type { SharePointFileVersionIndexRepository } from './sharepoint/file-version-index-repository.port';
+
+export type {
+  SharePointBackupUseCase,
+  SharePointBackupResult,
+  SharePointBackupSummary,
+  SharePointBackupOptions,
+  SharePointVerificationUseCase,
+  SharePointVerificationResult,
+} from './sharepoint/use-case.port';
+
+export type {
+  SharePointRestoreUseCase,
+  SharePointRestoreResult,
+  SharePointRestoreOptions,
+  SharePointRestoreConflictBehavior,
+} from './sharepoint/restore.port';
+
 export {
   OBJECT_STORAGE_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
@@ -137,8 +171,12 @@ export {
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
-  ONEDRIVE_FILE_INDEX_REPOSITORY_TOKEN,
+  ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
+  SHAREPOINT_CONNECTOR_TOKEN,
+  SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
+  SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from './tokens/outgoing.tokens';
 
 export {
@@ -157,4 +195,8 @@ export {
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
+  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  SHAREPOINT_RESTORE_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

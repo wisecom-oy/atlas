@@ -1,4 +1,3 @@
-import type { Command } from 'commander';
 import chalk from 'chalk';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@atlas/core';
@@ -7,9 +6,7 @@ import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@atlas/types
 import { RESTORE_USE_CASE_TOKEN } from '@atlas/types';
 import { logger } from '@atlas/core';
 
-type ContainerFactory = () => Container;
-
-interface CliRestoreOptions {
+export interface OutlookRestoreOptions {
   snapshot?: string;
   tenant?: string;
   mailbox?: string;
@@ -20,27 +17,8 @@ interface CliRestoreOptions {
   endDate?: string;
 }
 
-/** Registers the `atlas restore` subcommand. */
-export function register_restore_command(program: Command, get_container: ContainerFactory): void {
-  program
-    .command('restore')
-    .description('Restore emails from a backup snapshot or full mailbox backup')
-    .option('-s, --snapshot <id>', 'restore from a specific snapshot')
-    .option('-m, --mailbox <email>', 'restore from all snapshots for this mailbox')
-    .option('-T, --target <email>', 'target mailbox (defaults to source mailbox)')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('-f, --folder <name>', 'restore only messages from this folder')
-    .option('--message <ref>', 'restore a single message by # from atlas list, or full ID')
-    .option('--start-date <YYYY-MM-DD>', 'include snapshots created on or after this date')
-    .option('--end-date <YYYY-MM-DD>', 'include snapshots created on or before this date')
-    .action((options: CliRestoreOptions) => {
-      validate_restore_options(options);
-      return execute_restore(get_container(), options);
-    });
-}
-
 /** Validates that exactly one of --snapshot or --mailbox is provided. */
-function validate_restore_options(options: CliRestoreOptions): void {
+function validate_restore_options(options: OutlookRestoreOptions): void {
   if (!options.snapshot && !options.mailbox) {
     logger.error('Either --snapshot (-s) or --mailbox (-m) is required.');
     process.exit(1);
@@ -55,7 +33,7 @@ function validate_restore_options(options: CliRestoreOptions): void {
 }
 
 /** Resolves the tenant ID from CLI flag or config. */
-function resolve_tenant_id(container: Container, options: CliRestoreOptions): string {
+function resolve_tenant_id(container: Container, options: OutlookRestoreOptions): string {
   if (options.tenant) return options.tenant;
   const config = container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN);
   return config.tenant_id;
@@ -72,7 +50,12 @@ function parse_date(value: string, label: string): Date {
 }
 
 /** Runs the restore operation and logs the outcome. */
-async function execute_restore(container: Container, options: CliRestoreOptions): Promise<void> {
+export async function execute_outlook_restore(
+  container: Container,
+  options: OutlookRestoreOptions,
+): Promise<void> {
+  validate_restore_options(options);
+
   const tenant_id = resolve_tenant_id(container, options);
   const restore_service = container.get<RestoreUseCase>(RESTORE_USE_CASE_TOKEN);
 
@@ -95,7 +78,7 @@ async function execute_restore(container: Container, options: CliRestoreOptions)
 async function execute_snapshot_restore(
   service: RestoreUseCase,
   tenant_id: string,
-  options: CliRestoreOptions,
+  options: OutlookRestoreOptions,
 ): Promise<void> {
   logger.info(`Snapshot: ${chalk.cyan(options.snapshot!)}`);
   if (options.folder) logger.info(`Folder filter: ${chalk.cyan(options.folder)}`);
@@ -116,7 +99,7 @@ async function execute_snapshot_restore(
 async function execute_mailbox_restore(
   service: RestoreUseCase,
   tenant_id: string,
-  options: CliRestoreOptions,
+  options: OutlookRestoreOptions,
 ): Promise<void> {
   const mailbox_id = options.mailbox!.toLowerCase();
   logger.info(`Mailbox: ${chalk.cyan(mailbox_id)}`);

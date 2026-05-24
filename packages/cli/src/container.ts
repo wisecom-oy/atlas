@@ -12,6 +12,7 @@ import { bind_graph_client } from '@atlas/m365-graph';
 import { bind_s3_storage } from '@atlas/s3';
 import { bind_outlook } from '@atlas/outlook';
 import { bind_onedrive } from '@atlas/onedrive';
+import { bind_sharepoint } from '@atlas/sharepoint';
 
 /** Builds the DI container with Graph, S3, core services, and Outlook use cases. */
 export function compose_container(): Container {
@@ -29,5 +30,6 @@ export function compose_container_from_config(config: AtlasConfig): Container {
   container.bind(USER_IDENTITY_RESOLVER_TOKEN).to(CachingIdentityResolver).inSingletonScope();
   bind_outlook(container);
   bind_onedrive(container);
+  bind_sharepoint(container);
   return container;
 }

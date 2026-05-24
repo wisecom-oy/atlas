@@ -218,10 +218,10 @@ Example schedules:
 
 ```cron
 # Nightly incremental backup at 2 AM
-0 2 * * * /usr/bin/atlas backup >> /var/log/atlas-backup.log 2>&1
+0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-backup.log 2>&1
 
 # Weekly full backup (ignore delta state) every Sunday at 3 AM
-0 3 * * 0 /usr/bin/atlas backup --full >> /var/log/atlas-backup-full.log 2>&1
+0 3 * * 0 /usr/bin/atlas outlook backup --full >> /var/log/atlas-backup-full.log 2>&1
 ```
 
 ### Using systemd Timers
@@ -236,7 +236,7 @@ After=network-online.target docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/atlas backup
+ExecStart=/usr/bin/atlas outlook backup
 Environment=ATLAS_TENANT_ID=your-tenant-id
 Environment=ATLAS_CLIENT_ID=your-client-id
 EnvironmentFile=/etc/atlas/atlas.env
@@ -277,7 +277,7 @@ Atlas supports replicating completed snapshots to one or more secondary S3-compa
 Run a primary MinIO instance on your local backup server and a second MinIO instance at a remote site (colocation, another office, or a VPS). After each backup, replicate to the offsite target:
 
 ```bash
-atlas backup -m user@company.com
+atlas outlook backup -m user@company.com
 atlas replicate -m user@company.com --target-config ./offsite.json
 ```
 
@@ -301,7 +301,7 @@ Schedule replication after backups using a second cron entry or systemd timer:
 
 ```cron
 # Nightly backup at 2 AM, replicate at 4 AM
-0 2 * * * /usr/bin/atlas backup >> /var/log/atlas-backup.log 2>&1
+0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-backup.log 2>&1
 0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> /var/log/atlas-replicate.log 2>&1
 ```
 

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Command } from 'commander';
 import { Container } from 'inversify';
 import 'reflect-metadata';
-import { register_mailboxes_command } from '@/commands/mailboxes.command';
+import { register_outlook_command } from '@/commands/outlook.command';
 import { MAILBOX_DISCOVERY_TOKEN } from '@atlas/types';
 import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
 import type { MailboxDiscoveryService, TenantMailbox } from '@atlas/types';
@@ -17,7 +17,7 @@ function make_mailbox(mail: string, licensed = true): TenantMailbox {
   };
 }
 
-describe('register_mailboxes_command', () => {
+describe('register_outlook_command mailboxes subcommand', () => {
   let container: Container;
   let mock_discovery: MailboxDiscoveryService;
   let program: Command;
@@ -33,18 +33,19 @@ describe('register_mailboxes_command', () => {
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'test-tenant' });
 
     program = new Command();
-    register_mailboxes_command(program, () => container);
+    register_outlook_command(program, () => container);
   });
 
-  it('registers the mailboxes subcommand', () => {
-    const sub = program.commands.find((c) => c.name() === 'mailboxes');
-    expect(sub).toBeDefined();
+  it('registers the outlook mailboxes subcommand', () => {
+    const outlook = program.commands.find((c) => c.name() === 'outlook');
+    const mailboxes = outlook?.commands.find((c) => c.name() === 'mailboxes');
+    expect(mailboxes).toBeDefined();
   });
 
   it('lists all mailboxes', async () => {
     const log_spy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await program.parseAsync(['mailboxes'], { from: 'user' });
+    await program.parseAsync(['outlook', 'mailboxes'], { from: 'user' });
 
     expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('test-tenant', undefined);
     expect(log_spy).toHaveBeenCalled();
@@ -54,7 +55,7 @@ describe('register_mailboxes_command', () => {
   it('passes --licensed-only flag', async () => {
     const log_spy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await program.parseAsync(['mailboxes', '--licensed-only'], { from: 'user' });
+    await program.parseAsync(['outlook', 'mailboxes', '--licensed-only'], { from: 'user' });
 
     expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('test-tenant', {
       licensed_only: true,
