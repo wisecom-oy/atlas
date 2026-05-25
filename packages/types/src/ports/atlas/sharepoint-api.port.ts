@@ -7,6 +7,10 @@ import type {
   SharePointRestoreOptions,
   SharePointRestoreResult,
 } from '@/ports/sharepoint/restore.port';
+import type {
+  SharePointFileVersionRecord,
+  SharePointSnapshotManifest,
+} from '@/domain/sharepoint-manifest';
 import type { ReplicationResult } from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
@@ -16,6 +20,8 @@ export interface SharePointApi {
   verify(siteId: string, snapshotId: string): Promise<SharePointVerificationResult>;
   restore(siteId: string, options: SharePointRestoreOptions): Promise<SharePointRestoreResult>;
   save(siteId: string, options: FileSaveOptions): Promise<FileSaveResult>;
+  listSnapshots(siteId: string): Promise<SharePointSnapshotManifest[]>;
+  listFileVersions(siteId: string, fileRef: string): Promise<SharePointFileVersionRecord[]>;
   replicateSnapshot(
     siteId: string,
     snapshotId: string,

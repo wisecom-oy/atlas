@@ -8,6 +8,7 @@ import {
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
+  SHAREPOINT_CATALOG_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
 import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.adapter';
@@ -18,6 +19,7 @@ import { SharePointBackupService } from '@/services/sharepoint-backup.service';
 import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
 import { SharePointSaveService } from '@/services/sharepoint-save.service';
+import { SharePointCatalogService } from '@/services/sharepoint-catalog.service';
 
 /** Registers SharePoint-specific DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_sharepoint(container: Container): void {
@@ -47,4 +49,5 @@ export function bind_sharepoint(container: Container): void {
     .inSingletonScope();
   container.bind(SHAREPOINT_RESTORE_USE_CASE_TOKEN).to(SharePointRestoreService).inSingletonScope();
   container.bind(SHAREPOINT_SAVE_USE_CASE_TOKEN).to(SharePointSaveService).inSingletonScope();
+  container.bind(SHAREPOINT_CATALOG_USE_CASE_TOKEN).to(SharePointCatalogService).inSingletonScope();
 }

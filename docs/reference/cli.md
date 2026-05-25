@@ -393,6 +393,8 @@ Back up, restore, and verify SharePoint document library files per site using Gr
 ```bash
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
+atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
+atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
@@ -401,6 +403,8 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | Subcommand | Description |
 | --- | --- |
 | `backup` | Incremental sync; use `--full` to ignore saved delta state |
+| `list-snapshots` | List all SharePoint snapshots for a site |
+| `list-versions` | List all backed-up versions for a specific file |
 | `restore` | Restore files from a snapshot back to the site's document libraries |
 | `save` | Decrypt and save files from a snapshot to a local zip archive |
 | `verify` | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
@@ -411,6 +415,21 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | --- | --- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
 | `--full` | Force full crawl ignoring saved delta links |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+**`atlas sharepoint list-snapshots`**
+
+| Option | Description |
+| --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
+| `-t, --tenant <id>` | Override tenant ID from config |
+
+**`atlas sharepoint list-versions`**
+
+| Option | Description |
+| --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
+| `-f, --file <ref>` | File ID or path to look up (required) |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
 **`atlas sharepoint restore`**

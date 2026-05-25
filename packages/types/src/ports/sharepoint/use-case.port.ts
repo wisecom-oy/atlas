@@ -1,4 +1,7 @@
-import type { SharePointSnapshotManifest } from '../../domain/sharepoint-manifest';
+import type {
+  SharePointFileVersionRecord,
+  SharePointSnapshotManifest,
+} from '../../domain/sharepoint-manifest';
 
 export interface SharePointBackupSummary {
   readonly libraries_scanned: number;
@@ -51,4 +54,19 @@ export interface SharePointVerificationUseCase {
     site_id: string,
     snapshot_id: string,
   ): Promise<SharePointVerificationResult>;
+}
+
+export interface SharePointCatalogUseCase {
+  /** Lists all SharePoint snapshots for a site. */
+  list_sharepoint_snapshots(
+    tenant_id: string,
+    site_id: string,
+  ): Promise<SharePointSnapshotManifest[]>;
+
+  /** Lists all version records for a specific file. */
+  list_sharepoint_file_versions(
+    tenant_id: string,
+    site_id: string,
+    file_ref: string,
+  ): Promise<SharePointFileVersionRecord[]>;
 }

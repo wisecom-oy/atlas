@@ -196,6 +196,12 @@ const saved = await atlas.sharepoint.save('site-id', {
 });
 console.log(`Saved: ${saved.files_saved} files (${saved.total_bytes} bytes)`);
 
+// list all snapshots for a site
+const snapshots = await atlas.sharepoint.listSnapshots('site-id');
+
+// list all backed-up versions for a specific file
+const versions = await atlas.sharepoint.listFileVersions('site-id', 'file-ref');
+
 // replicate to secondary storage
 const replication = await atlas.sharepoint.replicateAll('site-id', [offsite]);
 const single = await atlas.sharepoint.replicateSnapshot('site-id', 'snapshot-id', [offsite]);
@@ -228,6 +234,8 @@ Replication and rehydration methods mirror `atlas replicate` / `atlas rehydrate`
 | ------ | ----------- |
 | `restore(siteId, options)` | Restore files from a snapshot to the site's document libraries |
 | `save(siteId, options)` | Decrypt and save files from a snapshot to a local zip archive |
+| `listSnapshots(siteId)` | List all snapshots for a site |
+| `listFileVersions(siteId, fileRef)` | List all backed-up versions for a specific file |
 | `replicateSnapshot(siteId, snapshotId, targets)` | Replicate one sealed SharePoint snapshot |
 | `replicateAll(siteId, targets)` | Replicate all unreplicated snapshots for a site |
 | `rehydrateSnapshot(siteId, snapshotId, source)` | Recover one snapshot from a replica |

@@ -153,6 +153,7 @@ export type {
   SharePointBackupResult,
   SharePointBackupSummary,
   SharePointBackupOptions,
+  SharePointCatalogUseCase,
   SharePointVerificationUseCase,
   SharePointVerificationResult,
 } from './sharepoint/use-case.port';
@@ -208,4 +209,5 @@ export {
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
+  SHAREPOINT_CATALOG_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

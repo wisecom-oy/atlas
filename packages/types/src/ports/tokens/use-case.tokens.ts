@@ -19,3 +19,4 @@ export const SHAREPOINT_VERIFICATION_USE_CASE_TOKEN = Symbol.for('SharePointVeri
 export const SHAREPOINT_REPLICATION_USE_CASE_TOKEN = Symbol.for('SharePointReplicationUseCase');
 export const SHAREPOINT_RESTORE_USE_CASE_TOKEN = Symbol.for('SharePointRestoreUseCase');
 export const SHAREPOINT_SAVE_USE_CASE_TOKEN = Symbol.for('SharePointSaveUseCase');
+export const SHAREPOINT_CATALOG_USE_CASE_TOKEN = Symbol.for('SharePointCatalogUseCase');

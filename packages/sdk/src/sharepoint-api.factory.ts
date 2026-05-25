@@ -2,6 +2,7 @@ import type { Container } from 'inversify';
 import type {
   SharePointApi,
   SharePointBackupUseCase,
+  SharePointCatalogUseCase,
   SharePointReplicationUseCase,
   SharePointRestoreUseCase,
   SharePointSaveUseCase,
@@ -9,6 +10,7 @@ import type {
 } from '@atlas/types';
 import {
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_CATALOG_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
@@ -26,6 +28,7 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   );
   const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
   const save = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
+  const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
 
   return {
     async backup(site_id, options) {
@@ -39,6 +42,12 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     },
     async save(site_id, options) {
       return await save.save_snapshot(tenant_id, site_id, options);
+    },
+    async listSnapshots(site_id) {
+      return await catalog.list_sharepoint_snapshots(tenant_id, site_id);
+    },
+    async listFileVersions(site_id, file_ref) {
+      return await catalog.list_sharepoint_file_versions(tenant_id, site_id, file_ref);
     },
     async replicateSnapshot(site_id, snapshot_id, targets) {
       return await replication.replicate_site(tenant_id, site_id, snapshot_id, targets);

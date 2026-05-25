@@ -16,6 +16,10 @@ import {
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
 } from '@atlas/types';
+import {
+  register_sharepoint_list_snapshots,
+  register_sharepoint_list_versions,
+} from '@/commands/sharepoint-catalog.command';
 
 type ContainerFactory = () => Container;
 
@@ -58,6 +62,8 @@ export function register_sharepoint_command(
     .command('sharepoint')
     .description('SharePoint backup, restore, and verification commands');
   register_sharepoint_list_sites(group, get_container);
+  register_sharepoint_list_snapshots(group, get_container);
+  register_sharepoint_list_versions(group, get_container);
   register_sharepoint_backup(group, get_container);
   register_sharepoint_restore(group, get_container);
   register_sharepoint_save(group, get_container);

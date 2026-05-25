@@ -73,8 +73,8 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         ctx,
         entry,
         folder_ids,
-        (restored) => {
-          files_restored += restored;
+        () => {
+          files_restored++;
         },
         () => {
           files_skipped++;
