@@ -14,6 +14,9 @@ import type {
 import type { ReplicationResult } from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
+import type { DeletionResult } from '@/ports/deletion/use-case.port';
+import type { SharePointSite } from '@/ports/sharepoint/connector.port';
+import type { SharePointStatusResult } from '@/ports/sharepoint/status.port';
 
 export interface SharePointApi {
   backup(siteId: string, options?: SharePointBackupOptions): Promise<SharePointBackupResult>;
@@ -22,6 +25,10 @@ export interface SharePointApi {
   save(siteId: string, options: FileSaveOptions): Promise<FileSaveResult>;
   listSnapshots(siteId: string): Promise<SharePointSnapshotManifest[]>;
   listFileVersions(siteId: string, fileRef: string): Promise<SharePointFileVersionRecord[]>;
+  listSites(): Promise<SharePointSite[]>;
+  resolveSite(urlOrId: string): Promise<SharePointSite>;
+  deleteSiteData(siteId: string): Promise<DeletionResult>;
+  deleteSnapshot(siteId: string, snapshotId: string): Promise<DeletionResult>;
   replicateSnapshot(
     siteId: string,
     snapshotId: string,
@@ -34,4 +41,5 @@ export interface SharePointApi {
     source: StorageTarget,
   ): Promise<ReplicationResult>;
   rehydrateSite(siteId: string, source: StorageTarget): Promise<ReplicationResult>;
+  checkStatus(siteId: string): Promise<SharePointStatusResult>;
 }

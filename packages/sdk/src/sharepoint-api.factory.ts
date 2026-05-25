@@ -7,6 +7,9 @@ import type {
   SharePointRestoreUseCase,
   SharePointSaveUseCase,
   SharePointVerificationUseCase,
+  SharePointDeletionUseCase,
+  SharePointStatusUseCase,
+  SharePointSiteConnector,
 } from '@atlas/types';
 import {
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
@@ -15,6 +18,9 @@ import {
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
+  SHAREPOINT_DELETION_USE_CASE_TOKEN,
+  SHAREPOINT_STATUS_USE_CASE_TOKEN,
+  SHAREPOINT_CONNECTOR_TOKEN,
 } from '@atlas/types';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
@@ -29,6 +35,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
   const save = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
+  const deletion = container.get<SharePointDeletionUseCase>(SHAREPOINT_DELETION_USE_CASE_TOKEN);
+  const status = container.get<SharePointStatusUseCase>(SHAREPOINT_STATUS_USE_CASE_TOKEN);
+  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
 
   return {
     async backup(site_id, options) {
@@ -49,6 +58,18 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async listFileVersions(site_id, file_ref) {
       return await catalog.list_sharepoint_file_versions(tenant_id, site_id, file_ref);
     },
+    async listSites() {
+      return await connector.list_sites(tenant_id);
+    },
+    async resolveSite(url_or_id) {
+      return await connector.resolve_site(tenant_id, url_or_id);
+    },
+    async deleteSiteData(site_id) {
+      return await deletion.delete_site_data(tenant_id, site_id);
+    },
+    async deleteSnapshot(site_id, snapshot_id) {
+      return await deletion.delete_snapshot(tenant_id, site_id, snapshot_id);
+    },
     async replicateSnapshot(site_id, snapshot_id, targets) {
       return await replication.replicate_site(tenant_id, site_id, snapshot_id, targets);
     },
@@ -60,6 +81,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     },
     async rehydrateSite(site_id, source) {
       return await replication.rehydrate_site(tenant_id, site_id, source);
+    },
+    async checkStatus(site_id) {
+      return await status.check_sharepoint_status(tenant_id, site_id);
     },
   };
 }

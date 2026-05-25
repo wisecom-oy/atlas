@@ -9,6 +9,7 @@ import {
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
+  ONEDRIVE_STATUS_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
 import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adapter';
@@ -20,6 +21,7 @@ import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
 import { OneDriveSaveService } from '@/services/onedrive-save.service';
 import { OneDriveCatalogService } from '@/services/onedrive-catalog.service';
 import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
+import { OneDriveStatusService } from '@/services/status/onedrive-status.service';
 
 /** Registers OneDrive-specific DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_onedrive(container: Container): void {
@@ -50,4 +52,5 @@ export function bind_onedrive(container: Container): void {
     .inSingletonScope();
   container.bind(ONEDRIVE_RESTORE_USE_CASE_TOKEN).to(OneDriveRestoreService).inSingletonScope();
   container.bind(ONEDRIVE_SAVE_USE_CASE_TOKEN).to(OneDriveSaveService).inSingletonScope();
+  container.bind(ONEDRIVE_STATUS_USE_CASE_TOKEN).to(OneDriveStatusService).inSingletonScope();
 }

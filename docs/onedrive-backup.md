@@ -60,6 +60,47 @@ If `--owner` contains `@`, the CLI resolves it via `GraphUserIdentityResolver`: 
 
 Mailbox backup currently keys `data/` and `manifests/` by the mailbox identifier supplied to sync (often the primary SMTP address). OneDrive is intentionally keyed by object ID after resolution so operators should not assume the same string appears in both trees for a given person.
 
+## SDK Usage
+
+The SDK exposes OneDrive backup, restore, verification, deletion, status, and replication as programmatic methods on `atlas.onedrive`:
+
+```typescript
+import { createAtlasInstance } from 'm365-atlas/sdk';
+
+const atlas = createAtlasInstance({
+  tenantId: 'your-azure-tenant-id',
+  clientId: 'app-client-id',
+  clientSecret: 'app-client-secret',
+  s3Endpoint: 'http://localhost:9000',
+  s3AccessKey: 'minioadmin',
+  s3SecretKey: 'minioadmin',
+  encryptionPassphrase: 'my-secret-passphrase',
+});
+
+// Incremental backup
+const result = await atlas.onedrive.backup('owner-id');
+console.log(`Snapshot: ${result.snapshot?.snapshot_id}`);
+
+// Force full crawl
+const full = await atlas.onedrive.backup('owner-id', { force_full: true });
+
+// Verify snapshot integrity
+const verify = await atlas.onedrive.verify('owner-id', 'od-snap-123');
+
+// Check backup status (fast delta peek)
+const status = await atlas.onedrive.checkStatus('owner-id');
+
+// Delete all data for a user
+const deletion = await atlas.onedrive.deleteOwnerData('owner-id');
+
+// Replicate and rehydrate
+const offsite = createStorageTarget({ /* ... */ });
+await atlas.onedrive.replicateAll('owner-id', [offsite]);
+await atlas.onedrive.rehydrateOwner('owner-id', offsite);
+```
+
+See [Programmatic SDK](./reference/sdk.md) for full method signatures and option types.
+
 ## CLI Reference
 
 | Command | Description |
@@ -139,6 +180,73 @@ atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents
 | `-t, --tenant <id>` | Tenant identifier |
 
 `atlas onedrive verify` loads the manifest under `onedrive/manifests/{owner_id}/` for the resolved owner and snapshot ID (never listing other owners' prefixes), decrypts each referenced blob, recomputes SHA-256 with `timingSafeEqual`, and checks that the per-file index contains a row for that snapshot.
+
+## Status Checking
+
+Check whether a OneDrive backup is up to date by peeking at Graph delta state. This queries the delta endpoint with the saved delta links from the latest cursor without advancing them, so it does not interfere with the next backup.
+
+**SDK:**
+
+```typescript
+const status = await atlas.onedrive.checkStatus('owner-id');
+console.log(`Up to date: ${status.is_up_to_date}`);
+console.log(`Pending changes: ${status.total_pending_changes}`);
+
+for (const drive of status.drives) {
+  console.log(`  ${drive.drive_name}: ${drive.pending_changes} pending, backed up: ${drive.has_backup}`);
+}
+```
+
+`checkStatus` returns an `OneDriveStatusResult`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `owner_id` | `string` | The user's Entra object ID |
+| `last_backup_at` | `Date \| undefined` | Timestamp of the most recent snapshot |
+| `last_snapshot_id` | `string \| undefined` | ID of the most recent snapshot |
+| `total_drives` | `number` | Number of drives discovered |
+| `drives` | `OneDriveDriveStatus[]` | Per-drive backup status |
+| `is_up_to_date` | `boolean` | `true` if all drives have been backed up with zero pending changes |
+| `total_pending_changes` | `number` | Sum of pending changes across all drives |
+
+## Deletion
+
+Delete backed-up OneDrive data via the SDK. The CLI uses the tenant-level `atlas outlook delete --purge` for full tenant cleanup; per-owner and per-snapshot deletion of OneDrive data is available through the SDK.
+
+**SDK:**
+
+```typescript
+// Delete all backed-up data for a user (manifests, blobs, indexes, cursors)
+const result = await atlas.onedrive.deleteOwnerData('owner-id');
+console.log(`Deleted: ${result.deleted_objects} objects, ${result.deleted_manifests} manifests`);
+
+// Delete a single snapshot manifest (data blobs are retained for deduplication)
+await atlas.onedrive.deleteSnapshot('owner-id', 'od-snap-123');
+```
+
+When Object Lock retention protects objects, deletion reports retained items separately from generic failures.
+
+## Replication
+
+OneDrive snapshots support the same replication workflow as Outlook and SharePoint backups -- ciphertext is copied as-is to a secondary S3 target. In addition to data blobs and manifests, replication also copies version index files and delta cursors so that incremental sync resumes correctly after rehydration.
+
+**SDK:**
+
+```typescript
+const offsite = createStorageTarget({ /* ... */ });
+
+// Replicate a snapshot
+await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123', [offsite]);
+
+// Replicate all unreplicated snapshots for a user
+await atlas.onedrive.replicateAll('owner-id', [offsite]);
+
+// Disaster recovery
+await atlas.onedrive.rehydrateOwner('owner-id', offsite);
+await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
+```
+
+See [Replication](./operations/replication.md) for the full replication architecture and disaster recovery procedures.
 
 ## Snapshot Health Status
 

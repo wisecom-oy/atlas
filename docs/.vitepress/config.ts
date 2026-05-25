@@ -2,7 +2,8 @@ import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   title: 'M365 Atlas',
-  description: 'Secure, deduplicated Microsoft 365 mailbox backups to S3-compatible storage.',
+  description:
+    'Secure, deduplicated Microsoft 365 backups for Outlook, OneDrive, and SharePoint to S3-compatible storage.',
 
   base: '/atlas/',
   cleanUrls: true,
@@ -13,7 +14,8 @@ export default defineConfig({
       'meta',
       {
         name: 'keywords',
-        content: 'm365, backup, email, microsoft 365, s3, minio, encryption, outlook',
+        content:
+          'm365, backup, email, microsoft 365, s3, minio, encryption, outlook, onedrive, sharepoint',
       },
     ],
   ],

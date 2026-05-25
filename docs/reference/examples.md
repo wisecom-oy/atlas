@@ -378,6 +378,112 @@ async function backup_all_tenants(
 Process tenants and mailboxes **sequentially**, not with `Promise.all`. Each backup makes hundreds or thousands of Microsoft Graph API calls. Parallel execution would trigger aggressive HTTP 429 throttling with exponential backoff, making the total runtime longer, not shorter.
 :::
 
+## Mailbox Discovery and Identity Resolution
+
+Discover available mailboxes in the tenant and resolve user identities before running backups. Useful for building onboarding workflows, audit dashboards, or automated user provisioning.
+
+```typescript
+import { createAtlasInstance } from 'm365-atlas/sdk';
+
+const atlas = createAtlasInstance({ /* config */ });
+
+// Discover all licensed mailboxes in the tenant
+const mailboxes = await atlas.outlook.listAvailableMailboxes({ licensed_only: true });
+
+console.log(`Found ${mailboxes.length} licensed mailboxes:`);
+for (const mb of mailboxes) {
+  console.log(`  ${mb.mail} — ${mb.display_name} (${mb.account_enabled ? 'active' : 'disabled'})`);
+}
+
+// Resolve a user email to their Entra object ID
+const user = await atlas.resolveUser('alice@company.com');
+console.log(`Resolved: ${user.display_name} → ${user.object_id}`);
+
+// List all users in the identity registry (previously backed-up users)
+const registry = await atlas.listUsers();
+if (registry) {
+  for (const entry of registry.entries) {
+    console.log(`  ${entry.email} — last seen: ${entry.last_backup_at}`);
+  }
+}
+```
+
+`listAvailableMailboxes` queries Microsoft Graph directly -- it returns all tenant mailboxes regardless of whether they have been backed up. Use it alongside `atlas.outlook.listMailboxes()` (which returns only backed-up mailboxes from the catalog) to find mailboxes that are not yet protected.
+
+## OneDrive and SharePoint Status Check
+
+Before running OneDrive or SharePoint backups, check whether there are pending changes. This avoids unnecessary backup cycles in scheduled jobs.
+
+```typescript
+// OneDrive status check
+const odStatus = await atlas.onedrive.checkStatus('owner-id');
+
+if (odStatus.is_up_to_date) {
+  console.log('[skip] OneDrive is current');
+} else {
+  console.log(`[backup] ${odStatus.total_pending_changes} pending changes across ${odStatus.total_drives} drive(s)`);
+  await atlas.onedrive.backup('owner-id');
+}
+
+// SharePoint status check
+const spStatus = await atlas.sharepoint.checkStatus('site-id');
+
+if (spStatus.is_up_to_date) {
+  console.log('[skip] SharePoint site is current');
+} else {
+  console.log(`[backup] ${spStatus.total_pending_changes} pending changes across ${spStatus.total_libraries} library/libraries`);
+  await atlas.sharepoint.backup('site-id');
+}
+```
+
+## SharePoint Site Discovery
+
+Discover available SharePoint sites and resolve site URLs before running backups. Useful for managed environments where site inventory is not maintained manually.
+
+```typescript
+// Discover all sites
+const sites = await atlas.sharepoint.listSites();
+for (const site of sites) {
+  console.log(`${site.displayName}: ${site.webUrl}`);
+}
+
+// Resolve a site URL to its Graph site ID
+const site = await atlas.sharepoint.resolveSite('https://contoso.sharepoint.com/sites/Engineering');
+console.log(`Site ID: ${site.id}`);
+
+// Back up the resolved site
+const result = await atlas.sharepoint.backup(site.id);
+```
+
+## OneDrive Lifecycle Management
+
+Clean up old OneDrive snapshots while keeping recent ones, and replicate the keepers to an offsite target.
+
+```typescript
+async function prune_and_replicate_onedrive(
+  atlas: AtlasInstance,
+  owner_id: string,
+  keep_count: number,
+  offsite: StorageTarget,
+) {
+  const snapshots = await atlas.onedrive.listSnapshots(owner_id);
+
+  if (snapshots.length <= keep_count) {
+    console.log(`[skip] ${owner_id} — ${snapshots.length} snapshot(s), nothing to prune`);
+  } else {
+    const to_delete = snapshots.slice(0, snapshots.length - keep_count);
+    for (const snap of to_delete) {
+      await atlas.onedrive.deleteSnapshot(owner_id, snap.snapshot_id);
+      console.log(`[prune] deleted ${snap.snapshot_id}`);
+    }
+  }
+
+  // Replicate remaining snapshots
+  await atlas.onedrive.replicateAll(owner_id, [offsite]);
+  console.log(`[replicated] ${owner_id} snapshots synced to offsite`);
+}
+```
+
 ## Snapshot Lifecycle Management
 
 Clean up old snapshots while keeping recent ones. Useful for environments where storage costs matter and you only need the last N snapshots per mailbox.

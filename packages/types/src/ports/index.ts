@@ -85,6 +85,7 @@ export type { FolderStatus, MailboxStatusResult, StatusUseCase } from './status/
 
 export type { ReplicationUseCase } from './replication/use-case.port';
 export type { SharePointReplicationUseCase } from './replication/sharepoint-replication.port';
+export type { OneDriveReplicationUseCase } from './replication/onedrive-replication.port';
 export type {
   StorageTarget,
   StorageTargetConfig,
@@ -127,6 +128,14 @@ export type {
   OneDriveVerificationResult,
 } from './onedrive/use-case.port';
 
+export type { OneDriveDeletionUseCase } from './onedrive/deletion.port';
+
+export type {
+  OneDriveStatusUseCase,
+  OneDriveStatusResult,
+  OneDriveDriveStatus,
+} from './onedrive/status.port';
+
 export type {
   OneDriveRestoreUseCase,
   OneDriveRestoreResult,
@@ -164,6 +173,14 @@ export type {
   SharePointRestoreOptions,
   SharePointRestoreConflictBehavior,
 } from './sharepoint/restore.port';
+
+export type { SharePointDeletionUseCase } from './sharepoint/deletion.port';
+
+export type {
+  SharePointStatusUseCase,
+  SharePointStatusResult,
+  SharePointLibraryStatus,
+} from './sharepoint/status.port';
 
 export {
   OBJECT_STORAGE_TOKEN,
@@ -210,4 +227,9 @@ export {
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
+  ONEDRIVE_DELETION_USE_CASE_TOKEN,
+  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+  ONEDRIVE_STATUS_USE_CASE_TOKEN,
+  SHAREPOINT_DELETION_USE_CASE_TOKEN,
+  SHAREPOINT_STATUS_USE_CASE_TOKEN,
 } from './tokens/use-case.tokens';

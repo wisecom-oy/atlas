@@ -107,7 +107,33 @@ const stats = await atlas.outlook.getMailboxStats('user@company.com');
 // check if a mailbox backup is current (fast delta peek)
 const status = await atlas.outlook.checkMailboxStatus('user@company.com');
 console.log(status.is_up_to_date, status.total_pending_changes);
+
+// purge all backed-up data for this tenant
+const purge = await atlas.outlook.purgeTenantData();
+
+// discover available mailboxes via Graph API (not just backed-up ones)
+const available = await atlas.outlook.listAvailableMailboxes();
+const licensedOnly = await atlas.outlook.listAvailableMailboxes({ licensed_only: true });
 ```
+
+| Method | Description |
+| ------ | ----------- |
+| `backup(mailboxId, options?)` | Back up a single mailbox |
+| `verify(snapshotId)` | Verify snapshot integrity |
+| `restore(snapshotId, options?)` | Restore from a specific snapshot |
+| `restoreMailbox(mailboxId, options?)` | Restore all snapshots for a mailbox |
+| `save(snapshotId, options?)` | Save snapshot as EML zip archive |
+| `saveMailbox(mailboxId, options?)` | Save all snapshots for a mailbox as EML zip |
+| `listMailboxes()` | List backed-up mailboxes from catalog |
+| `listSnapshots(mailboxId)` | List snapshots for a mailbox |
+| `getSnapshotDetail(snapshotId)` | Get full manifest for a snapshot |
+| `readMessage(snapshotId, messageRef)` | Decrypt and read a single message |
+| `deleteMailboxData(mailboxId)` | Delete all backed-up data for a mailbox |
+| `deleteSnapshot(snapshotId)` | Delete a single snapshot manifest |
+| `purgeTenantData()` | Delete all data, manifests, and keys for the tenant |
+| `getMailboxStats(mailboxId)` | Get storage stats for a mailbox |
+| `checkMailboxStatus(mailboxId)` | Peek at delta state to check if backup is current |
+| `listAvailableMailboxes(options?)` | Discover tenant mailboxes via Graph API |
 
 ## OneDrive Methods
 
@@ -149,7 +175,41 @@ const snapshots = await atlas.onedrive.listSnapshots('owner-id');
 
 // list version history for a file
 const versions = await atlas.onedrive.listFileVersions('owner-id', 'file-ref');
+
+// delete all backed-up data for a user
+const deletion = await atlas.onedrive.deleteOwnerData('owner-id');
+
+// delete a single snapshot
+await atlas.onedrive.deleteSnapshot('owner-id', 'snapshot-id');
+
+// check if a OneDrive backup is current (fast delta peek)
+const odStatus = await atlas.onedrive.checkStatus('owner-id');
+console.log(odStatus.is_up_to_date, odStatus.total_pending_changes);
+
+// replicate to secondary storage
+const odReplication = await atlas.onedrive.replicateAll('owner-id', [offsite]);
+const odSingle = await atlas.onedrive.replicateSnapshot('owner-id', 'snapshot-id', [offsite]);
+
+// disaster recovery from replica
+await atlas.onedrive.rehydrateOwner('owner-id', offsite);
+await atlas.onedrive.rehydrateSnapshot('owner-id', 'snapshot-id', offsite);
 ```
+
+| Method | Description |
+| ------ | ----------- |
+| `backup(ownerId, options?)` | Incremental backup of a user's OneDrive |
+| `verify(ownerId, snapshotId)` | Verify snapshot blob integrity and index consistency |
+| `restore(ownerId, options)` | Restore files from a snapshot to the user's OneDrive |
+| `save(ownerId, options)` | Decrypt and save files from a snapshot to a local zip archive |
+| `listSnapshots(ownerId)` | List all snapshots for a user |
+| `listFileVersions(ownerId, fileRef)` | List all backed-up versions for a specific file |
+| `deleteOwnerData(ownerId)` | Delete all backed-up data for a user |
+| `deleteSnapshot(ownerId, snapshotId)` | Delete a single snapshot manifest |
+| `checkStatus(ownerId)` | Peek at delta state to check if backup is current |
+| `replicateSnapshot(ownerId, snapshotId, targets)` | Replicate one sealed OneDrive snapshot |
+| `replicateAll(ownerId, targets)` | Replicate all unreplicated snapshots for a user |
+| `rehydrateSnapshot(ownerId, snapshotId, source)` | Recover one snapshot from a replica |
+| `rehydrateOwner(ownerId, source)` | Recover all snapshots for a user from a replica |
 
 `backup` accepts optional `OneDriveBackupOptions`:
 
@@ -202,6 +262,22 @@ const snapshots = await atlas.sharepoint.listSnapshots('site-id');
 // list all backed-up versions for a specific file
 const versions = await atlas.sharepoint.listFileVersions('site-id', 'file-ref');
 
+// discover available sites via Graph API
+const sites = await atlas.sharepoint.listSites();
+
+// resolve a site by URL or ID
+const site = await atlas.sharepoint.resolveSite('https://company.sharepoint.com/sites/project');
+
+// delete all backed-up data for a site
+const spDeletion = await atlas.sharepoint.deleteSiteData('site-id');
+
+// delete a single snapshot
+await atlas.sharepoint.deleteSnapshot('site-id', 'snapshot-id');
+
+// check if a SharePoint backup is current (fast delta peek)
+const spStatus = await atlas.sharepoint.checkStatus('site-id');
+console.log(spStatus.is_up_to_date, spStatus.total_pending_changes);
+
 // replicate to secondary storage
 const replication = await atlas.sharepoint.replicateAll('site-id', [offsite]);
 const single = await atlas.sharepoint.replicateSnapshot('site-id', 'snapshot-id', [offsite]);
@@ -228,14 +304,17 @@ await atlas.sharepoint.rehydrateSnapshot('site-id', 'snapshot-id', offsite);
 | `file_filter` | `string[]` | Only restore specific files (by ID or path) |
 | `conflict_behavior` | `'replace' \| 'rename' \| 'fail'` | File conflict policy (default: `rename`) |
 
-Replication and rehydration methods mirror `atlas replicate` / `atlas rehydrate` for SharePoint sites.
-
 | Method | Description |
 | ------ | ----------- |
 | `restore(siteId, options)` | Restore files from a snapshot to the site's document libraries |
 | `save(siteId, options)` | Decrypt and save files from a snapshot to a local zip archive |
 | `listSnapshots(siteId)` | List all snapshots for a site |
 | `listFileVersions(siteId, fileRef)` | List all backed-up versions for a specific file |
+| `listSites()` | Discover all SharePoint sites in the tenant |
+| `resolveSite(urlOrId)` | Resolve a site URL or ID to a site object |
+| `deleteSiteData(siteId)` | Delete all backed-up data for a site |
+| `deleteSnapshot(siteId, snapshotId)` | Delete a single snapshot manifest |
+| `checkStatus(siteId)` | Peek at delta state to check if backup is current |
 | `replicateSnapshot(siteId, snapshotId, targets)` | Replicate one sealed SharePoint snapshot |
 | `replicateAll(siteId, targets)` | Replicate all unreplicated snapshots for a site |
 | `rehydrateSnapshot(siteId, snapshotId, source)` | Recover one snapshot from a replica |
@@ -255,7 +334,7 @@ interface SharePointVerificationResult {
 
 ## Cross-cutting Methods
 
-Storage checks, bucket statistics, and replication/rehydration live at the root of the instance (not under a workload namespace).
+Storage checks, bucket statistics, identity resolution, and replication/rehydration live at the root of the instance (not under a workload namespace).
 
 ```typescript
 // check storage readiness
@@ -263,6 +342,18 @@ const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 
 
 // get tenant-wide bucket statistics
 const bucketStats = await atlas.getBucketStats();
+
+// resolve a user email/UPN to their Entra object ID
+const user = await atlas.resolveUser('alice@company.com');
+console.log(user.object_id, user.display_name);
+
+// list all users in the identity registry
+const registry = await atlas.listUsers();
+if (registry) {
+  for (const entry of registry.entries) {
+    console.log(entry.email, entry.display_name, entry.status);
+  }
+}
 
 // replicate a snapshot to secondary targets
 const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
@@ -404,6 +495,9 @@ From `m365-atlas/sdk`:
 - Instance types: `AtlasInstance`, `AtlasInstanceConfig`
 - Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
 - Stats types: `BucketStats`, `MailboxStats`, `FolderStats`, `MonthlyBreakdown`
-- Status types: `MailboxStatusResult`, `FolderStatus`
+- Status types: `MailboxStatusResult`, `FolderStatus`, `OneDriveStatusResult`, `OneDriveDriveStatus`, `SharePointStatusResult`, `SharePointLibraryStatus`
+- Identity types: `ResolvedUserIdentity`, `IdentityRegistry`, `IdentityRegistryEntry`
+- Discovery types: `TenantMailbox`, `MailboxDiscoveryOptions`
+- Deletion types: `DeletionResult`
 - Replication types: `ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`
 - Factory functions: `createAtlasInstance`, `createStorageTarget`

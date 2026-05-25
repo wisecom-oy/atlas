@@ -6,12 +6,18 @@ import type {
   StorageCheckUseCase,
   StatsUseCase,
   ReplicationUseCase,
+  UserIdentityResolver,
+  IdentityRegistryRepository,
 } from '@atlas/types';
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   REPLICATION_USE_CASE_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
+  IDENTITY_REGISTRY_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
+import type { TenantContextFactory } from '@atlas/types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
@@ -25,6 +31,11 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
   const storage_check = container.get<StorageCheckUseCase>(STORAGE_CHECK_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const replication = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
+  const identity_resolver = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
+  const identity_registry = container.get<IdentityRegistryRepository>(
+    IDENTITY_REGISTRY_REPOSITORY_TOKEN,
+  );
+  const tenant_factory = container.get<TenantContextFactory>(TENANT_CONTEXT_FACTORY_TOKEN);
 
   return {
     outlook: create_outlook_api(tenant_id, container),
@@ -36,6 +47,13 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     },
     async getBucketStats() {
       return await stats.get_bucket_stats(tenant_id);
+    },
+    async resolveUser(email) {
+      return await identity_resolver.resolve_user(tenant_id, email);
+    },
+    async listUsers() {
+      const ctx = await tenant_factory.create(tenant_id);
+      return await identity_registry.load(ctx);
     },
     async replicateSnapshot(snapshot_id, targets) {
       return await replication.replicate_snapshot(tenant_id, snapshot_id, targets);

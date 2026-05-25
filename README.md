@@ -8,15 +8,16 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
 [![Socket Badge](https://badge.socket.dev/npm/package/m365-atlas)](https://socket.dev/npm/package/m365-atlas)
 
-An open-source CLI backup and restore engine for Microsoft 365 mailboxes. Built with per-tenant envelope encryption, content-addressed deduplication, multi-layer integrity validation, and efficient delta synchronization for scalable, secure operations against S3-compatible object storage.
+An open-source CLI backup and restore engine for Microsoft 365. Protects Outlook mailboxes, OneDrive files, and SharePoint document libraries with per-tenant envelope encryption, content-addressed deduplication, multi-layer integrity validation, and efficient delta synchronization against S3-compatible object storage.
 
 ## Highlights
 
 - **Per-tenant encryption** — AES-256-GCM with scrypt-derived keys
-- **Content-addressed deduplication** — messages and attachments stored once by SHA-256 hash
+- **Content-addressed deduplication** — messages, attachments, and files stored once by SHA-256 hash
+- **Multi-workload protection** — Outlook mailboxes, OneDrive, and SharePoint document libraries
 - **Storage-level immutability** — S3/MinIO Object Lock with time-based retention
 - **Delta sync** — incremental backups via Microsoft Graph delta queries
-- **EML export** — save emails as `.eml` zip archives with Outlook folder structure
+- **Snapshot replication** — replicate encrypted snapshots to secondary S3 targets for DR
 - **Typed SDK** — embed in Node.js apps via `m365-atlas/sdk`
 - **Live dashboard** — real-time ANSI progress for single and tenant-wide backups
 
@@ -25,26 +26,33 @@ An open-source CLI backup and restore engine for Microsoft 365 mailboxes. Built 
 ```bash
 npm install -g m365-atlas
 
-atlas backup --mailbox user@company.com   # single mailbox
-atlas backup                              # all tenant mailboxes
-atlas status -m user@company.com          # check freshness
-atlas restore -m user@company.com -f Inbox
-atlas save -m user@company.com -o backup.zip
+# Outlook
+atlas outlook backup --mailbox user@company.com   # single mailbox
+atlas outlook backup                               # all tenant mailboxes
+atlas outlook status -m user@company.com           # check freshness
+
+# OneDrive
+atlas onedrive backup -o user@company.com
+
+# SharePoint
+atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
 See [Getting Started](https://miikaok.github.io/atlas/getting-started) for full setup instructions.
 
 ## Documentation
 
-| Topic           | Link                                                    |
-| --------------- | ------------------------------------------------------- |
-| Getting Started | [docs](https://miikaok.github.io/atlas/getting-started) |
-| Self-Hosting    | [docs](https://miikaok.github.io/atlas/self-hosting)    |
-| Configuration   | [docs](https://miikaok.github.io/atlas/configuration)   |
-| Azure AD Setup  | [docs](https://miikaok.github.io/atlas/azure-ad-setup)  |
-| Security Model  | [docs](https://miikaok.github.io/atlas/security)        |
-| CLI Reference   | [docs](https://miikaok.github.io/atlas/reference/cli)   |
-| SDK Reference   | [docs](https://miikaok.github.io/atlas/reference/sdk)   |
+| Topic              | Link                                                          |
+| ------------------ | ------------------------------------------------------------- |
+| Getting Started    | [docs](https://miikaok.github.io/atlas/getting-started)      |
+| Self-Hosting       | [docs](https://miikaok.github.io/atlas/self-hosting)         |
+| Configuration      | [docs](https://miikaok.github.io/atlas/configuration)        |
+| Azure AD Setup     | [docs](https://miikaok.github.io/atlas/azure-ad-setup)       |
+| OneDrive Backup    | [docs](https://miikaok.github.io/atlas/onedrive-backup)      |
+| SharePoint Backup  | [docs](https://miikaok.github.io/atlas/sharepoint-backup)    |
+| Security Model     | [docs](https://miikaok.github.io/atlas/security)             |
+| CLI Reference      | [docs](https://miikaok.github.io/atlas/reference/cli)        |
+| SDK Reference      | [docs](https://miikaok.github.io/atlas/reference/sdk)        |
 
 ## Development
 

@@ -5,6 +5,8 @@ import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
 import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
 import type { SharePointApi } from '@/ports/atlas/sharepoint-api.port';
+import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
+import type { IdentityRegistry } from '@/domain/identity-registry';
 
 export interface AtlasInstanceConfig {
   readonly tenantId: string;
@@ -24,6 +26,8 @@ export interface AtlasInstance {
 
   checkStorage(request?: StorageCheckRequest): Promise<StorageCheckResult>;
   getBucketStats(): Promise<BucketStats>;
+  resolveUser(email: string): Promise<ResolvedUserIdentity>;
+  listUsers(): Promise<IdentityRegistry | undefined>;
   replicateSnapshot(snapshotId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
   replicateMailbox(mailboxId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
   rehydrateSnapshot(snapshotId: string, source: StorageTarget): Promise<ReplicationResult>;

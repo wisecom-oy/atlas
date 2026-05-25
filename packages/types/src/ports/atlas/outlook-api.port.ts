@@ -7,6 +7,7 @@ import type { Manifest } from '@/domain/manifest';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { MailboxStats } from '@/domain/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
+import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/mail/discovery.port';
 
 export interface OutlookApi {
   backup(mailboxId: string, options?: SyncOptions): Promise<SyncResult>;
@@ -21,6 +22,8 @@ export interface OutlookApi {
   readMessage(snapshotId: string, messageRef: string): Promise<ReadMessageResult | undefined>;
   deleteMailboxData(mailboxId: string): Promise<DeletionResult>;
   deleteSnapshot(snapshotId: string): Promise<DeletionResult>;
+  purgeTenantData(): Promise<DeletionResult>;
   getMailboxStats(mailboxId: string): Promise<MailboxStats>;
   checkMailboxStatus(mailboxId: string): Promise<MailboxStatusResult>;
+  listAvailableMailboxes(options?: MailboxDiscoveryOptions): Promise<TenantMailbox[]>;
 }

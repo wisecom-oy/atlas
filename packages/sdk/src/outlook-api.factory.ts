@@ -9,6 +9,7 @@ import type {
   SaveUseCase,
   StatsUseCase,
   StatusUseCase,
+  MailboxDiscoveryService,
 } from '@atlas/types';
 import {
   BACKUP_USE_CASE_TOKEN,
@@ -19,6 +20,7 @@ import {
   SAVE_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
+  MAILBOX_DISCOVERY_TOKEN,
 } from '@atlas/types';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
@@ -31,6 +33,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   const save = container.get<SaveUseCase>(SAVE_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const status = container.get<StatusUseCase>(STATUS_USE_CASE_TOKEN);
+  const discovery = container.get<MailboxDiscoveryService>(MAILBOX_DISCOVERY_TOKEN);
 
   return {
     async backup(mailbox_id, options) {
@@ -69,11 +72,17 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     async deleteSnapshot(snapshot_id) {
       return await deletion.delete_snapshot(tenant_id, snapshot_id);
     },
+    async purgeTenantData() {
+      return await deletion.purge_tenant(tenant_id);
+    },
     async getMailboxStats(mailbox_id) {
       return await stats.get_mailbox_stats(tenant_id, mailbox_id);
     },
     async checkMailboxStatus(mailbox_id) {
       return await status.check_mailbox_status(tenant_id, mailbox_id);
+    },
+    async listAvailableMailboxes(options) {
+      return await discovery.list_tenant_mailboxes(tenant_id, options);
     },
   };
 }

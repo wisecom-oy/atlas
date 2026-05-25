@@ -6,6 +6,9 @@ import type {
   OneDriveCatalogUseCase,
   OneDriveRestoreUseCase,
   OneDriveSaveUseCase,
+  OneDriveDeletionUseCase,
+  OneDriveReplicationUseCase,
+  OneDriveStatusUseCase,
 } from '@atlas/types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
@@ -13,6 +16,9 @@ import {
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
+  ONEDRIVE_DELETION_USE_CASE_TOKEN,
+  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+  ONEDRIVE_STATUS_USE_CASE_TOKEN,
 } from '@atlas/types';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
@@ -24,6 +30,11 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
   const restore = container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
   const save = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
+  const deletion = container.get<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN);
+  const replication = container.get<OneDriveReplicationUseCase>(
+    ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+  );
+  const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
 
   return {
     async backup(owner_id, options) {
@@ -43,6 +54,27 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     },
     async listFileVersions(owner_id, file_ref) {
       return await catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref);
+    },
+    async deleteOwnerData(owner_id) {
+      return await deletion.delete_owner_data(tenant_id, owner_id);
+    },
+    async deleteSnapshot(owner_id, snapshot_id) {
+      return await deletion.delete_snapshot(tenant_id, owner_id, snapshot_id);
+    },
+    async replicateSnapshot(owner_id, snapshot_id, targets) {
+      return await replication.replicate_owner(tenant_id, owner_id, snapshot_id, targets);
+    },
+    async replicateAll(owner_id, targets) {
+      return await replication.replicate_all_owner_snapshots(tenant_id, owner_id, targets);
+    },
+    async rehydrateSnapshot(owner_id, snapshot_id, source) {
+      return await replication.rehydrate_owner_snapshot(tenant_id, owner_id, snapshot_id, source);
+    },
+    async rehydrateOwner(owner_id, source) {
+      return await replication.rehydrate_owner(tenant_id, owner_id, source);
+    },
+    async checkStatus(owner_id) {
+      return await status.check_onedrive_status(tenant_id, owner_id);
     },
   };
 }

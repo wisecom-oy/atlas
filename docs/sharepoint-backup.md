@@ -119,11 +119,76 @@ console.log(`Saved: ${saved.files_saved} files`);
 
 See [Programmatic SDK](./reference/sdk.md) for full method signatures and option types.
 
+## Status Checking
+
+Check whether a SharePoint site backup is up to date by peeking at Graph delta state. This queries the delta endpoint with the saved delta links from the latest cursor without advancing them, so it does not interfere with the next backup.
+
+**SDK:**
+
+```typescript
+const status = await atlas.sharepoint.checkStatus('site-id');
+console.log(`Up to date: ${status.is_up_to_date}`);
+console.log(`Pending changes: ${status.total_pending_changes}`);
+
+for (const lib of status.libraries) {
+  console.log(`  ${lib.library_name}: ${lib.pending_changes} pending, backed up: ${lib.has_backup}`);
+}
+```
+
+`checkStatus` returns a `SharePointStatusResult`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `site_id` | `string` | The Graph site ID |
+| `last_backup_at` | `Date \| undefined` | Timestamp of the most recent snapshot |
+| `last_snapshot_id` | `string \| undefined` | ID of the most recent snapshot |
+| `total_libraries` | `number` | Number of document libraries discovered |
+| `libraries` | `SharePointLibraryStatus[]` | Per-library backup status |
+| `is_up_to_date` | `boolean` | `true` if all libraries have been backed up with zero pending changes |
+| `total_pending_changes` | `number` | Sum of pending changes across all libraries |
+
+## Deletion
+
+Delete backed-up SharePoint data via the SDK. Per-site and per-snapshot deletion is available through the programmatic API.
+
+**SDK:**
+
+```typescript
+// Delete all backed-up data for a site (manifests, blobs, indexes, cursors)
+const result = await atlas.sharepoint.deleteSiteData('site-id');
+console.log(`Deleted: ${result.deleted_objects} objects, ${result.deleted_manifests} manifests`);
+
+// Delete a single snapshot manifest (data blobs are retained for deduplication)
+await atlas.sharepoint.deleteSnapshot('site-id', 'sp-snap-123');
+```
+
+When Object Lock retention protects objects, deletion reports retained items separately from generic failures.
+
+## Site Discovery
+
+Discover SharePoint sites available for backup or resolve a specific site by URL:
+
+**SDK:**
+
+```typescript
+// List all sites in the tenant
+const sites = await atlas.sharepoint.listSites();
+for (const site of sites) {
+  console.log(`${site.displayName}: ${site.webUrl} (${site.id})`);
+}
+
+// Resolve a site URL to its Graph site ID
+const site = await atlas.sharepoint.resolveSite('https://contoso.sharepoint.com/sites/Engineering');
+console.log(site.id);
+```
+
 ## CLI Reference
 
 | Command | Description |
 | --- | --- |
 | `atlas sharepoint backup` | Back up changed files for a SharePoint site |
+| `atlas sharepoint list-snapshots` | List all snapshots for a site |
+| `atlas sharepoint list-versions` | List all backed-up versions for a specific file |
 | `atlas sharepoint restore` | Restore files from a snapshot to the site |
 | `atlas sharepoint save` | Decrypt and save files from a snapshot to a local zip archive |
 | `atlas sharepoint verify` | Verify snapshot blob integrity |
@@ -134,6 +199,32 @@ See [Programmatic SDK](./reference/sdk.md) for full method signatures and option
 | --- | --- | --- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
 | `--full` | Force full crawl, ignore saved delta state | `false` |
+| `-t, --tenant <id>` | Tenant identifier | Config default |
+
+### `atlas sharepoint list-snapshots`
+
+| Flag | Description |
+| --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
+| `-t, --tenant <id>` | Tenant identifier |
+
+### `atlas sharepoint list-versions`
+
+| Flag | Description |
+| --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
+| `-f, --file <ref>` | File ID or path to look up (required) |
+| `-t, --tenant <id>` | Tenant identifier |
+
+### `atlas sharepoint restore`
+
+| Flag | Description | Default |
+| --- | --- | --- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
+| `-s, --snapshot <id>` | SharePoint snapshot ID (required) | -- |
+| `--target-site <url-or-id>` | Restore to a different site | Original site |
+| `--file-filter <paths...>` | Only restore specific files (by ID or path) | All files |
+| `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` | `rename` |
 | `-t, --tenant <id>` | Tenant identifier | Config default |
 
 ### `atlas sharepoint save`

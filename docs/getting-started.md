@@ -48,6 +48,8 @@ The encryption passphrase is **irrecoverable**. If you lose it, all backup data 
 
 ## First Backup
 
+**Outlook mailboxes:**
+
 ```bash
 # back up a single mailbox
 atlas outlook backup --mailbox user@company.com
@@ -56,7 +58,19 @@ atlas outlook backup --mailbox user@company.com
 atlas outlook backup
 ```
 
-The first backup for a mailbox performs a full synchronization -- every message and attachment is downloaded and encrypted. Subsequent runs use [delta sync](./operations/delta-sync.md) to transfer only changes, which is dramatically faster.
+**OneDrive files:**
+
+```bash
+atlas onedrive backup -o user@company.com
+```
+
+**SharePoint document libraries:**
+
+```bash
+atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
+```
+
+The first backup performs a full synchronization -- every message, attachment, or file is downloaded and encrypted. Subsequent runs use [delta sync](./operations/delta-sync.md) to transfer only changes, which is dramatically faster.
 
 ## Explore Your Backups
 
@@ -72,9 +86,15 @@ atlas outlook restore -m user@company.com -f Inbox
 
 # save as EML zip archive
 atlas outlook save -m user@company.com -o backup.zip
+
+# list OneDrive snapshots
+atlas onedrive list-snapshots -o user@company.com
+
+# list SharePoint snapshots
+atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-See the full [CLI Reference](./reference/cli.md) for all commands and options.
+See the full [CLI Reference](./reference/cli.md) for all commands and options, and the [OneDrive Backup](./onedrive-backup.md) and [SharePoint Backup](./sharepoint-backup.md) guides for workload-specific details.
 
 ## Use as a Library
 
@@ -93,7 +113,14 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: 'my-secret-passphrase',
 });
 
+// Outlook
 const result = await atlas.outlook.backup('user@company.com');
+
+// OneDrive
+const odResult = await atlas.onedrive.backup('owner-id');
+
+// SharePoint
+const spResult = await atlas.sharepoint.backup('site-id');
 ```
 
-See the [SDK Reference](./reference/sdk.md) for all available methods.
+See the [SDK Reference](./reference/sdk.md) for all available methods and [SDK Examples](./reference/examples.md) for production-ready patterns.

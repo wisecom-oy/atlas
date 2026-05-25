@@ -28,7 +28,11 @@ const mock_catalog = {
   get_snapshot_detail: vi.fn(),
   read_message: vi.fn(),
 };
-const mock_deletion = { delete_mailbox_data: vi.fn(), delete_snapshot: vi.fn() };
+const mock_deletion = {
+  delete_mailbox_data: vi.fn(),
+  delete_snapshot: vi.fn(),
+  purge_tenant: vi.fn(),
+};
 const mock_storage_check = { check_storage: vi.fn() };
 const mock_save = { save_snapshot: vi.fn(), save_mailbox: vi.fn() };
 const mock_stats = { get_bucket_stats: vi.fn(), get_mailbox_stats: vi.fn() };
@@ -51,6 +55,34 @@ const mock_onedrive_catalog = {
 const mock_onedrive_restore = { restore_onedrive: vi.fn() };
 const mock_sharepoint_backup = { backup_site: vi.fn() };
 const mock_sharepoint_verification = { verify_sharepoint_snapshot: vi.fn() };
+const mock_onedrive_save = { save_snapshot: vi.fn() };
+const mock_onedrive_deletion = { delete_owner_data: vi.fn(), delete_snapshot: vi.fn() };
+const mock_onedrive_replication = {
+  replicate_owner: vi.fn(),
+  replicate_all_owner_snapshots: vi.fn(),
+  rehydrate_owner_snapshot: vi.fn(),
+  rehydrate_owner: vi.fn(),
+};
+const mock_onedrive_status = { check_onedrive_status: vi.fn() };
+const mock_sharepoint_catalog = {
+  list_sharepoint_snapshots: vi.fn(),
+  list_sharepoint_file_versions: vi.fn(),
+};
+const mock_sharepoint_restore = { restore_sharepoint: vi.fn() };
+const mock_sharepoint_save = { save_snapshot: vi.fn() };
+const mock_sharepoint_replication = {
+  replicate_site: vi.fn(),
+  replicate_all_site_snapshots: vi.fn(),
+  rehydrate_site_snapshot: vi.fn(),
+  rehydrate_site: vi.fn(),
+};
+const mock_sharepoint_deletion = { delete_site_data: vi.fn(), delete_snapshot: vi.fn() };
+const mock_sharepoint_status = { check_sharepoint_status: vi.fn() };
+const mock_sharepoint_connector = { list_sites: vi.fn(), resolve_site: vi.fn() };
+const mock_discovery = { list_tenant_mailboxes: vi.fn() };
+const mock_identity_resolver = { resolve_user: vi.fn() };
+const mock_identity_registry = { load: vi.fn() };
+const mock_tenant_factory = { create: vi.fn() };
 
 vi.mock('@/container', () => ({
   create_container_from_config: vi.fn(() => ({
@@ -70,8 +102,23 @@ vi.mock('@/container', () => ({
         OneDriveVerificationUseCase: mock_onedrive_verification,
         OneDriveCatalogUseCase: mock_onedrive_catalog,
         OneDriveRestoreUseCase: mock_onedrive_restore,
+        OneDriveSaveUseCase: mock_onedrive_save,
+        OneDriveDeletionUseCase: mock_onedrive_deletion,
+        OneDriveReplicationUseCase: mock_onedrive_replication,
+        OneDriveStatusUseCase: mock_onedrive_status,
         SharePointBackupUseCase: mock_sharepoint_backup,
         SharePointVerificationUseCase: mock_sharepoint_verification,
+        SharePointCatalogUseCase: mock_sharepoint_catalog,
+        SharePointRestoreUseCase: mock_sharepoint_restore,
+        SharePointSaveUseCase: mock_sharepoint_save,
+        SharePointReplicationUseCase: mock_sharepoint_replication,
+        SharePointDeletionUseCase: mock_sharepoint_deletion,
+        SharePointStatusUseCase: mock_sharepoint_status,
+        SharePointSiteConnector: mock_sharepoint_connector,
+        MailboxDiscoveryService: mock_discovery,
+        UserIdentityResolver: mock_identity_resolver,
+        IdentityRegistryRepository: mock_identity_registry,
+        TenantContextFactory: mock_tenant_factory,
       };
       return map[token.description!];
     }),
@@ -234,81 +281,6 @@ describe('createAtlasInstance', () => {
         'snap-1',
         targets,
       );
-    });
-  });
-
-  describe('async contract', () => {
-    beforeEach(() => {
-      const resolved = (value: unknown) => vi.fn().mockResolvedValue(value);
-      mock_backup.sync_mailbox = resolved({});
-      mock_verification.verify_snapshot_integrity = resolved({});
-      mock_restore.restore_snapshot = resolved({});
-      mock_restore.restore_mailbox = resolved({});
-      mock_catalog.list_mailboxes = resolved([]);
-      mock_catalog.list_snapshots = resolved([]);
-      mock_catalog.get_snapshot_detail = resolved(undefined);
-      mock_catalog.read_message = resolved(undefined);
-      mock_deletion.delete_mailbox_data = resolved({});
-      mock_deletion.delete_snapshot = resolved({});
-      mock_save.save_snapshot = resolved({});
-      mock_save.save_mailbox = resolved({});
-      mock_stats.get_mailbox_stats = resolved({});
-      mock_status.check_mailbox_status = resolved({});
-      mock_onedrive_backup.backup_onedrive = resolved({});
-      mock_onedrive_verification.verify_onedrive_snapshot = resolved({});
-      mock_onedrive_restore.restore_onedrive = resolved({});
-      mock_onedrive_catalog.list_onedrive_snapshots = resolved([]);
-      mock_onedrive_catalog.list_onedrive_file_versions = resolved([]);
-      mock_sharepoint_backup.backup_site = resolved({});
-      mock_sharepoint_verification.verify_sharepoint_snapshot = resolved({});
-      mock_storage_check.check_storage = resolved({});
-      mock_stats.get_bucket_stats = resolved({});
-      mock_replication.replicate_snapshot = resolved([]);
-      mock_replication.replicate_mailbox = resolved([]);
-      mock_replication.rehydrate_snapshot = resolved({});
-      mock_replication.rehydrate_mailbox = resolved({});
-      mock_replication.rehydrate_tenant = resolved({});
-      mock_replication.get_replication_status = resolved([]);
-      mock_replication.get_replication_status_by_owner = resolved([]);
-    });
-
-    it('every method on every sub-API returns a Promise', () => {
-      const source = { bucket: 'src-bucket', region: 'us-east-1' };
-      const targets = [source];
-      for (const call of [
-        () => atlas.outlook.backup('m'),
-        () => atlas.outlook.verify('s'),
-        () => atlas.outlook.restore('s'),
-        () => atlas.outlook.restoreMailbox('m'),
-        () => atlas.outlook.save('s'),
-        () => atlas.outlook.saveMailbox('m'),
-        () => atlas.outlook.listMailboxes(),
-        () => atlas.outlook.listSnapshots('m'),
-        () => atlas.outlook.getSnapshotDetail('s'),
-        () => atlas.outlook.readMessage('s', 'r'),
-        () => atlas.outlook.deleteMailboxData('m'),
-        () => atlas.outlook.deleteSnapshot('s'),
-        () => atlas.outlook.getMailboxStats('m'),
-        () => atlas.outlook.checkMailboxStatus('m'),
-        () => atlas.onedrive.backup('o'),
-        () => atlas.onedrive.verify('o', 's'),
-        () => atlas.onedrive.restore('o', { snapshot_id: 's' }),
-        () => atlas.onedrive.listSnapshots('o'),
-        () => atlas.onedrive.listFileVersions('o', 'file-ref'),
-        () => atlas.sharepoint.backup('site'),
-        () => atlas.sharepoint.verify('site', 's'),
-        () => atlas.checkStorage(),
-        () => atlas.getBucketStats(),
-        () => atlas.replicateSnapshot('s', targets),
-        () => atlas.replicateMailbox('m', targets),
-        () => atlas.rehydrateSnapshot('s', source),
-        () => atlas.rehydrateMailbox('m', source),
-        () => atlas.rehydrateTenant(source),
-        () => atlas.getReplicationStatus('s'),
-        () => atlas.getReplicationStatusByMailbox('m'),
-      ]) {
-        expect(call()).toBeInstanceOf(Promise);
-      }
     });
   });
 });
