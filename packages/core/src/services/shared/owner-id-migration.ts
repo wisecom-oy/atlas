@@ -46,38 +46,56 @@ export async function migrate_owner_id_prefixes(
     keys_scanned += all_keys.length;
 
     for (const key of all_keys) {
-      const segments = key.split('/');
-      if (segments.length < 2) continue;
+      const new_key = resolve_migration_key(key, email_to_id);
+      if (!new_key) continue;
 
-      const owner_segment = segments[1];
-      if (!owner_segment || !EMAIL_PATTERN.test(owner_segment)) continue;
-
-      const object_id = email_to_id.get(owner_segment.toLowerCase());
-      if (!object_id) continue;
-
-      const new_key = [segments[0], object_id, ...segments.slice(2)].join('/');
-
-      if (dry_run) {
-        logger.info(`[DRY RUN] Would migrate: ${key} -> ${new_key}`);
-        keys_migrated++;
-        continue;
-      }
-
-      try {
-        await storage.copy(key, new_key);
-        await storage.delete(key);
-        keys_migrated++;
-        logger.info(`Migrated: ${key} -> ${new_key}`);
-      } catch (err) {
+      const result = await migrate_single_key(storage, key, new_key, dry_run);
+      if (result.error) {
         keys_failed++;
-        const msg = `Failed to migrate ${key}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
-        logger.error(msg);
+        errors.push(result.error);
+      } else {
+        keys_migrated++;
       }
     }
   }
 
   return { keys_scanned, keys_migrated, keys_failed, errors };
+}
+
+function resolve_migration_key(key: string, email_to_id: Map<string, string>): string | undefined {
+  const segments = key.split('/');
+  if (segments.length < 2) return undefined;
+
+  const owner_segment = segments[1];
+  if (!owner_segment || !EMAIL_PATTERN.test(owner_segment)) return undefined;
+
+  const object_id = email_to_id.get(owner_segment.toLowerCase());
+  if (!object_id) return undefined;
+
+  return [segments[0], object_id, ...segments.slice(2)].join('/');
+}
+
+async function migrate_single_key(
+  storage: ObjectStorage,
+  old_key: string,
+  new_key: string,
+  dry_run: boolean,
+): Promise<{ error?: string }> {
+  if (dry_run) {
+    logger.info(`[DRY RUN] Would migrate: ${old_key} -> ${new_key}`);
+    return {};
+  }
+
+  try {
+    await storage.copy(old_key, new_key);
+    await storage.delete(old_key);
+    logger.info(`Migrated: ${old_key} -> ${new_key}`);
+    return {};
+  } catch (err) {
+    const msg = `Failed to migrate ${old_key}: ${err instanceof Error ? err.message : String(err)}`;
+    logger.error(msg);
+    return { error: msg };
+  }
 }
 
 /**

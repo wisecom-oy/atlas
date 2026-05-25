@@ -66,66 +66,21 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     const restorable = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
     for (const entry of restorable) {
-      try {
-        const parent_id = await this.ensure_folder_path(
-          tenant_id,
-          target_site,
-          entry.drive_id,
-          entry.parent_path,
-          folder_ids,
-        );
-
-        if (parent_id === undefined) {
-          errors.push(
-            `Could not create folder path: ${entry.parent_path} in drive ${entry.drive_id}`,
-          );
+      await this.restore_single_entry(
+        tenant_id,
+        target_site,
+        conflict,
+        ctx,
+        entry,
+        folder_ids,
+        (restored) => {
+          files_restored += restored;
+        },
+        () => {
           files_skipped++;
-          continue;
-        }
-
-        const content = await this.download_and_decrypt(ctx, entry);
-        if (!content) {
-          files_skipped++;
-          continue;
-        }
-
-        if (content.length <= SMALL_FILE_LIMIT) {
-          await this._connector.upload_small_file(
-            tenant_id,
-            target_site,
-            entry.drive_id,
-            parent_id,
-            entry.file_name,
-            content,
-            conflict,
-          );
-        } else {
-          await this._connector.upload_large_file(
-            tenant_id,
-            target_site,
-            entry.drive_id,
-            parent_id,
-            entry.file_name,
-            content,
-            conflict,
-          );
-        }
-
-        files_restored++;
-        logger.info(`Restored: ${entry.parent_path}/${entry.file_name} (drive: ${entry.drive_id})`);
-      } catch (err) {
-        if (err instanceof SharePointDecryptAuthError) {
-          const msg = `${entry.file_name}: ${err.message}`;
-          errors.push(msg);
-          files_skipped++;
-          logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-          continue;
-        }
-        const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
-        files_skipped++;
-        logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-      }
+        },
+        errors,
+      );
     }
 
     const unique_drive_folder_keys = new Set([...folder_ids.keys()].map((k) => k));
@@ -138,6 +93,79 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       files_skipped,
       errors,
     };
+  }
+
+  private async restore_single_entry(
+    tenant_id: string,
+    target_site: string,
+    conflict: string,
+    ctx: TenantContext,
+    entry: SharePointManifestEntry,
+    folder_ids: Map<string, string>,
+    on_restored: () => void,
+    on_skipped: () => void,
+    errors: string[],
+  ): Promise<void> {
+    try {
+      const parent_id = await this.ensure_folder_path(
+        tenant_id,
+        target_site,
+        entry.drive_id,
+        entry.parent_path,
+        folder_ids,
+      );
+
+      if (parent_id === undefined) {
+        errors.push(
+          `Could not create folder path: ${entry.parent_path} in drive ${entry.drive_id}`,
+        );
+        on_skipped();
+        return;
+      }
+
+      const content = await this.download_and_decrypt(ctx, entry);
+      if (!content) {
+        on_skipped();
+        return;
+      }
+
+      if (content.length <= SMALL_FILE_LIMIT) {
+        await this._connector.upload_small_file(
+          tenant_id,
+          target_site,
+          entry.drive_id,
+          parent_id,
+          entry.file_name,
+          content,
+          conflict,
+        );
+      } else {
+        await this._connector.upload_large_file(
+          tenant_id,
+          target_site,
+          entry.drive_id,
+          parent_id,
+          entry.file_name,
+          content,
+          conflict,
+        );
+      }
+
+      on_restored();
+      logger.info(`Restored: ${entry.parent_path}/${entry.file_name} (drive: ${entry.drive_id})`);
+    } catch (err) {
+      if (err instanceof SharePointDecryptAuthError) {
+        const msg = `${entry.file_name}: ${err.message}`;
+        errors.push(msg);
+        on_skipped();
+        logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+        return;
+      }
+      const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
+      errors.push(msg);
+      on_skipped();
+      logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+    }
   }
 
   private filter_entries(

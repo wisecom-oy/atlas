@@ -1,9 +1,14 @@
 import type {
   OneDriveBackupResult,
   OneDriveChangeType,
+  OneDriveDeltaCursor,
+  OneDriveDeltaCursorRepository,
   OneDriveDeltaItem,
+  OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
+  OneDriveManifestRepository,
   OneDriveSnapshotManifest,
+  TenantContext,
 } from '@atlas/types';
 import type { VersionSyncResult } from '@/services/onedrive-version-sync';
 
@@ -116,4 +121,79 @@ export function accumulate_version_stats(
     current.total_versions_unavailable + result.versions_unavailable,
     current.total_versions_failed + result.versions_failed,
   );
+}
+
+/** Appends manifest entries to the per-file version index. */
+export async function append_entries_to_version_index(
+  file_indexes: OneDriveFileVersionIndexRepository,
+  ctx: TenantContext,
+  owner_id: string,
+  snapshot_id: string,
+  entries: OneDriveManifestEntry[],
+): Promise<void> {
+  for (const entry of entries) {
+    await file_indexes.append_version(ctx, owner_id, entry.file_id, {
+      snapshot_id,
+      backup_at: entry.backup_at,
+      drive_id: entry.drive_id,
+      file_name: entry.file_name,
+      parent_path: entry.parent_path,
+      size_bytes: entry.size_bytes,
+      change_type: entry.change_type,
+      ...(entry.web_url !== undefined ? { web_url: entry.web_url } : {}),
+      ...(entry.storage_key !== undefined ? { storage_key: entry.storage_key } : {}),
+      ...(entry.checksum !== undefined ? { checksum: entry.checksum } : {}),
+      ...(entry.etag !== undefined ? { etag: entry.etag } : {}),
+      ...(entry.last_modified_at !== undefined ? { last_modified_at: entry.last_modified_at } : {}),
+    });
+  }
+}
+
+/** Builds the success result after snapshot persistence. */
+export function build_success_result(
+  owner_id: string,
+  snapshot: OneDriveSnapshotManifest,
+  drives_scanned: number,
+  files_stored: number,
+  files_deduplicated: number,
+  deleted_items: number,
+  versions_stored: number,
+  versions_unavailable: number,
+  errors: string[],
+  warnings: string[],
+): OneDriveBackupResult {
+  return {
+    owner_id,
+    snapshot,
+    summary: {
+      drives_scanned,
+      files_changed: snapshot.entries.length,
+      files_stored,
+      files_deduplicated,
+      deleted_items,
+      cursor_updated: true,
+      snapshot_created: true,
+      versions_stored,
+      versions_unavailable,
+      errors,
+      warnings,
+      healthy: errors.length === 0,
+    },
+  };
+}
+
+/** Saves snapshot manifest, version index entries, and the delta cursor. */
+export async function persist_snapshot_backup(
+  manifests: OneDriveManifestRepository,
+  file_indexes: OneDriveFileVersionIndexRepository,
+  cursors: OneDriveDeltaCursorRepository,
+  ctx: TenantContext,
+  owner_id: string,
+  snapshot: OneDriveSnapshotManifest,
+  entries: OneDriveManifestEntry[],
+  cursor: OneDriveDeltaCursor,
+): Promise<void> {
+  await manifests.save(ctx, snapshot);
+  await append_entries_to_version_index(file_indexes, ctx, owner_id, snapshot.snapshot_id, entries);
+  await cursors.save(ctx, cursor);
 }

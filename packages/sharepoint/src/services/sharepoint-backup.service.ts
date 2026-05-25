@@ -20,20 +20,14 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@atlas/types';
 import { logger } from '@atlas/core/utils/logger';
+import { build_empty_result, build_snapshot_manifest } from '@/services/sharepoint-backup-builders';
+import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import {
-  accumulate_version_stats,
-  build_deleted_entry,
-  build_empty_result,
-  build_snapshot_manifest,
-  build_stored_entry,
-} from '@/services/sharepoint-backup-builders';
-import {
-  ensure_libraries_discovered,
-  process_backup_file,
-} from '@/services/sharepoint-backup-file-processor';
-import { classify_change_type } from '@/services/sharepoint-change-classifier';
+  process_single_library,
+  type FileTrackingState,
+  type VersionStatsState,
+} from '@/services/sharepoint-backup-library-processor';
 import { cleanup_stale_staging } from '@/services/sharepoint-large-file-pipeline';
-import { sync_file_versions } from '@/services/sharepoint-version-sync';
 
 @injectable()
 export class SharePointBackupService implements SharePointBackupUseCase {
@@ -63,202 +57,215 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     const delta_link_by_drive: Record<string, string> = {
       ...(previous_cursor?.delta_link_by_drive ?? {}),
     };
-    const previous_path_by_file_id: Record<string, string> = {
-      ...(previous_cursor?.previous_path_by_file_id ?? {}),
-    };
-    const previous_name_by_file_id: Record<string, string> = {
-      ...(previous_cursor?.previous_name_by_file_id ?? {}),
-    };
-    const previous_etag_by_file_id: Record<string, string> = {
-      ...(previous_cursor?.previous_etag_by_file_id ?? {}),
-    };
-    const previous_kind_by_file_id: Record<string, 'file' | 'folder'> = {
-      ...(previous_cursor?.previous_kind_by_file_id ?? {}),
-    };
+    const tracking = this.build_tracking_state(previous_cursor);
 
     await cleanup_stale_staging(ctx, site_id);
 
     const manifest_created_at = new Date();
     const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
-
-    const entries: SharePointManifestEntry[] = [];
-    let files_stored = 0;
-    let files_deduplicated = 0;
-    let deleted_items = 0;
-    let total_versions_stored = 0;
-    let total_versions_unavailable = 0;
-    let total_versions_failed = 0;
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    const failed_drive_ids = new Set<string>();
-
-    for (const library of libraries) {
-      try {
-        const prev_delta = options.force_full
-          ? undefined
-          : previous_cursor?.delta_link_by_drive[library.drive_id];
-        const delta = await this._connector.fetch_delta(
-          tenant_id,
-          site_id,
-          library.drive_id,
-          prev_delta,
-        );
-
-        if (delta.reset_detected) {
-          for (const [fid, kind] of Object.entries(previous_kind_by_file_id)) {
-            if (kind === 'file') {
-              delete previous_path_by_file_id[fid];
-              delete previous_name_by_file_id[fid];
-              delete previous_etag_by_file_id[fid];
-            }
-          }
-        }
-
-        let library_has_errors = false;
-        const library_entries: SharePointManifestEntry[] = [];
-        let library_files_stored = 0;
-        let library_files_deduplicated = 0;
-        let library_deleted_items = 0;
-
-        for (const item of delta.items) {
-          const effective_kind =
-            item.deleted && item.kind === 'file' && previous_kind_by_file_id[item.item_id]
-              ? previous_kind_by_file_id[item.item_id]
-              : item.kind;
-          if (effective_kind !== 'file') {
-            if (!item.deleted) previous_kind_by_file_id[item.item_id] = item.kind;
-            continue;
-          }
-
-          const change_type = classify_change_type(
-            item,
-            previous_path_by_file_id,
-            previous_name_by_file_id,
-            previous_etag_by_file_id,
-          );
-          if (!change_type) continue;
-
-          if (item.deleted) {
-            library_deleted_items++;
-            library_entries.push(build_deleted_entry(item, change_type));
-            continue;
-          }
-
-          const result = await process_backup_file(this._connector, item, site_id, ctx);
-          if (!result) {
-            library_has_errors = true;
-            errors.push(`Failed to process file ${item.file_name} (${item.item_id})`);
-            continue;
-          }
-
-          if (result.deduplicated) library_files_deduplicated++;
-          if (result.stored) library_files_stored++;
-
-          if (!result.deduplicated) {
-            const version_result = await sync_file_versions(
-              this._connector,
-              item,
-              site_id,
-              snapshot_id,
-              ctx,
-              this._file_indexes,
-            );
-            accumulate_version_stats(
-              version_result,
-              { total_versions_stored, total_versions_unavailable, total_versions_failed },
-              (s, u, f) => {
-                total_versions_stored = s;
-                total_versions_unavailable = u;
-                total_versions_failed = f;
-              },
-            );
-          }
-
-          library_entries.push(
-            build_stored_entry(item, result.storage_key, result.checksum, change_type),
-          );
-          previous_path_by_file_id[item.item_id] = item.parent_path;
-          previous_name_by_file_id[item.item_id] = item.file_name;
-          previous_kind_by_file_id[item.item_id] = 'file';
-          if (item.etag) previous_etag_by_file_id[item.item_id] = item.etag;
-        }
-
-        if (!library_has_errors) {
-          entries.push(...library_entries);
-          files_stored += library_files_stored;
-          files_deduplicated += library_files_deduplicated;
-          deleted_items += library_deleted_items;
-          delta_link_by_drive[library.drive_id] = delta.delta_link;
-
-          await this._cursors.save(ctx, {
-            site_id,
-            delta_link_by_drive,
-            previous_path_by_file_id,
-            previous_name_by_file_id,
-            previous_etag_by_file_id,
-            previous_kind_by_file_id,
-            updated_at: new Date().toISOString(),
-          });
-        } else {
-          failed_drive_ids.add(library.drive_id);
-          logger.warn(
-            `Library ${library.drive_id}: discarding ${library_entries.length} entries due to errors`,
-          );
-        }
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        logger.error(`Library ${library.drive_id} failed: ${reason}`);
-        errors.push(`Library ${library.drive_name} (${library.drive_id}): ${reason}`);
-        failed_drive_ids.add(library.drive_id);
-      }
-    }
-
-    const cursor: SharePointDeltaCursor = {
+    const scan = await this.scan_all_libraries(
+      tenant_id,
       site_id,
+      snapshot_id,
+      libraries,
+      options,
+      previous_cursor,
+      tracking,
       delta_link_by_drive,
-      previous_path_by_file_id,
-      previous_name_by_file_id,
-      previous_etag_by_file_id,
-      previous_kind_by_file_id,
-      updated_at: new Date().toISOString(),
-    };
+      ctx,
+    );
 
-    if (total_versions_failed > 0) {
-      warnings.push(`${total_versions_failed} version download(s) failed unexpectedly`);
-    }
-    const healthy = errors.length === 0;
+    const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking);
+    const warnings = this.build_version_warnings(scan.version_stats);
+    const healthy = scan.errors.length === 0;
 
-    if (entries.length === 0) {
+    if (scan.entries.length === 0) {
       await this._cursors.save(ctx, cursor);
       return build_empty_result(
         site_id,
         libraries.length,
-        files_stored,
-        files_deduplicated,
-        deleted_items,
-        total_versions_stored,
-        total_versions_unavailable,
-        errors,
+        scan.files_stored,
+        scan.files_deduplicated,
+        scan.deleted_items,
+        scan.version_stats.total_versions_stored,
+        scan.version_stats.total_versions_unavailable,
+        scan.errors,
         warnings,
         healthy,
       );
     }
 
+    return this.finalize_snapshot(
+      ctx,
+      tenant_id,
+      site_id,
+      scan,
+      snapshot_id,
+      manifest_created_at,
+      libraries.length,
+      options,
+      cursor,
+      warnings,
+      healthy,
+    );
+  }
+
+  private build_tracking_state(
+    previous_cursor: SharePointDeltaCursor | undefined,
+  ): FileTrackingState {
+    return {
+      previous_path_by_file_id: { ...(previous_cursor?.previous_path_by_file_id ?? {}) },
+      previous_name_by_file_id: { ...(previous_cursor?.previous_name_by_file_id ?? {}) },
+      previous_etag_by_file_id: { ...(previous_cursor?.previous_etag_by_file_id ?? {}) },
+      previous_kind_by_file_id: { ...(previous_cursor?.previous_kind_by_file_id ?? {}) },
+    };
+  }
+
+  private async scan_all_libraries(
+    tenant_id: string,
+    site_id: string,
+    snapshot_id: string,
+    libraries: Awaited<ReturnType<SharePointSiteConnector['list_document_libraries']>>,
+    options: SharePointBackupOptions,
+    previous_cursor: SharePointDeltaCursor | undefined,
+    tracking: FileTrackingState,
+    delta_link_by_drive: Record<string, string>,
+    ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
+  ): Promise<{
+    entries: SharePointManifestEntry[];
+    files_stored: number;
+    files_deduplicated: number;
+    deleted_items: number;
+    errors: string[];
+    version_stats: VersionStatsState;
+  }> {
+    const entries: SharePointManifestEntry[] = [];
+    let files_stored = 0;
+    let files_deduplicated = 0;
+    let deleted_items = 0;
+    const version_stats: VersionStatsState = {
+      total_versions_stored: 0,
+      total_versions_unavailable: 0,
+      total_versions_failed: 0,
+    };
+    const errors: string[] = [];
+
+    for (const library of libraries) {
+      try {
+        const library_result = await process_single_library(
+          this._connector,
+          this._cursors,
+          this._file_indexes,
+          tenant_id,
+          site_id,
+          snapshot_id,
+          library,
+          options,
+          previous_cursor,
+          tracking,
+          delta_link_by_drive,
+          ctx,
+          version_stats,
+          errors,
+        );
+
+        if (library_result.had_errors) continue;
+
+        entries.push(...library_result.entries);
+        files_stored += library_result.files_stored;
+        files_deduplicated += library_result.files_deduplicated;
+        deleted_items += library_result.deleted_items;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        logger.error(`Library ${library.drive_id} failed: ${reason}`);
+        errors.push(`Library ${library.drive_name} (${library.drive_id}): ${reason}`);
+      }
+    }
+
+    return { entries, files_stored, files_deduplicated, deleted_items, errors, version_stats };
+  }
+
+  private build_cursor(
+    site_id: string,
+    delta_link_by_drive: Record<string, string>,
+    tracking: FileTrackingState,
+  ): SharePointDeltaCursor {
+    return {
+      site_id,
+      delta_link_by_drive,
+      ...tracking,
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  private build_version_warnings(version_stats: VersionStatsState): string[] {
+    if (version_stats.total_versions_failed === 0) return [];
+    return [`${version_stats.total_versions_failed} version download(s) failed unexpectedly`];
+  }
+
+  private async finalize_snapshot(
+    ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
+    tenant_id: string,
+    site_id: string,
+    scan: {
+      entries: SharePointManifestEntry[];
+      files_stored: number;
+      files_deduplicated: number;
+      deleted_items: number;
+      errors: string[];
+      version_stats: VersionStatsState;
+    },
+    snapshot_id: string,
+    manifest_created_at: Date,
+    libraries_scanned: number,
+    options: SharePointBackupOptions,
+    cursor: SharePointDeltaCursor,
+    warnings: string[],
+    healthy: boolean,
+  ): Promise<SharePointBackupResult> {
     const snapshot = build_snapshot_manifest(
       tenant_id,
       site_id,
-      entries,
+      scan.entries,
       snapshot_id,
       manifest_created_at,
       options.site_url,
       options.site_display_name,
     );
     await this._manifests.save(ctx, snapshot);
+    await this.append_version_indexes(ctx, site_id, scan.entries, snapshot.snapshot_id);
 
+    await this._cursors.save(ctx, cursor);
+
+    return {
+      site_id,
+      snapshot,
+      summary: {
+        libraries_scanned,
+        files_changed: scan.entries.length,
+        files_stored: scan.files_stored,
+        files_deduplicated: scan.files_deduplicated,
+        deleted_items: scan.deleted_items,
+        cursor_updated: true,
+        snapshot_created: true,
+        versions_stored: scan.version_stats.total_versions_stored,
+        versions_unavailable: scan.version_stats.total_versions_unavailable,
+        errors: scan.errors,
+        warnings,
+        healthy,
+      },
+    };
+  }
+
+  private async append_version_indexes(
+    ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
+    site_id: string,
+    entries: SharePointManifestEntry[],
+    snapshot_id: string,
+  ): Promise<void> {
     for (const entry of entries) {
       await this._file_indexes.append_version(ctx, site_id, entry.file_id, {
-        snapshot_id: snapshot.snapshot_id,
+        snapshot_id,
         backup_at: entry.backup_at,
         drive_id: entry.drive_id,
         file_name: entry.file_name,
@@ -274,26 +281,5 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           : {}),
       });
     }
-
-    await this._cursors.save(ctx, cursor);
-
-    return {
-      site_id,
-      snapshot,
-      summary: {
-        libraries_scanned: libraries.length,
-        files_changed: entries.length,
-        files_stored,
-        files_deduplicated,
-        deleted_items,
-        cursor_updated: true,
-        snapshot_created: true,
-        versions_stored: total_versions_stored,
-        versions_unavailable: total_versions_unavailable,
-        errors,
-        warnings,
-        healthy,
-      },
-    };
   }
 }

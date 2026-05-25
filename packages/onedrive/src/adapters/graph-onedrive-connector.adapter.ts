@@ -238,17 +238,12 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     return [{ drive_id: default_drive.id, drive_name: default_drive.name ?? 'default' }];
   }
 
-  private async execute_delta(
+  private async fetch_initial_delta_page(
     owner_id: string,
     drive_id: string,
     prev_delta_link: string | undefined,
-    reset_detected: boolean,
-  ): Promise<OneDriveDeltaResult> {
-    const items: OneDriveDeltaItem[] = [];
-    let page: GraphCollectionResponse<GraphDeltaDriveItem>;
-    let delta_link = '';
-
-    const stale_cursor = prev_delta_link && !prev_delta_link.includes('$select=');
+  ): Promise<{ page: GraphCollectionResponse<GraphDeltaDriveItem>; stale_cursor: boolean }> {
+    const stale_cursor = Boolean(prev_delta_link && !prev_delta_link.includes('$select='));
     if (stale_cursor) {
       logger.warn(
         `Delta cursor for drive ${drive_id} predates field selection — performing fresh delta`,
@@ -256,21 +251,40 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     }
 
     if (prev_delta_link && !stale_cursor) {
-      page = await with_graph_retry(
+      const page = await with_graph_retry(
         () =>
           this._client.api(prev_delta_link).get() as Promise<
             GraphCollectionResponse<GraphDeltaDriveItem>
           >,
       );
-    } else {
-      page = await with_graph_retry(
-        () =>
-          this._client
-            .api(`/users/${owner_id}/drives/${drive_id}/root/delta`)
-            .select(DRIVE_DELTA_SELECT_FIELDS)
-            .get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
-      );
+      return { page, stale_cursor };
     }
+
+    const page = await with_graph_retry(
+      () =>
+        this._client
+          .api(`/users/${owner_id}/drives/${drive_id}/root/delta`)
+          .select(DRIVE_DELTA_SELECT_FIELDS)
+          .get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
+    );
+    return { page, stale_cursor };
+  }
+
+  private async execute_delta(
+    owner_id: string,
+    drive_id: string,
+    prev_delta_link: string | undefined,
+    reset_detected: boolean,
+  ): Promise<OneDriveDeltaResult> {
+    const items: OneDriveDeltaItem[] = [];
+    let delta_link = '';
+
+    const { page: initial_page, stale_cursor } = await this.fetch_initial_delta_page(
+      owner_id,
+      drive_id,
+      prev_delta_link,
+    );
+    let page = initial_page;
 
     while (true) {
       for (const raw of page.value ?? []) {

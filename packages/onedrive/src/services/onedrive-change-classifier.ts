@@ -19,22 +19,23 @@ export function classify_change_type(
   const current_path = item.parent_path;
   const path_changed = Boolean(previous_path && previous_path !== current_path);
   const name_changed = Boolean(previous_name && previous_name !== item.file_name);
-  const etag_missing_transition =
-    (Boolean(previous_etag) && !item.etag) || (!previous_etag && Boolean(item.etag));
   const etag_changed = Boolean(previous_etag && item.etag && previous_etag !== item.etag);
+  const etag_presence_changed = Boolean(previous_etag) !== Boolean(item.etag);
+  const both_etags_missing =
+    Boolean(previous_path || previous_name || previous_etag) && !previous_etag && !item.etag;
   const previously_known = Boolean(previous_path || previous_name || previous_etag);
 
-  if (!previous_path && !previous_name && !previous_etag) return 'created';
-  if (etag_missing_transition) return 'updated';
-  if (etag_changed) return 'updated';
+  if (!previously_known) return 'created';
+  if (etag_changed || etag_presence_changed || both_etags_missing) {
+    if (both_etags_missing) {
+      logger.warn(
+        `OneDrive delta item ${item.item_id}: missing etag on prior and current snapshot; classifying as updated`,
+      );
+    }
+    return 'updated';
+  }
   if (path_changed && name_changed) return 'moved_and_renamed';
   if (path_changed) return 'moved';
   if (name_changed) return 'renamed';
-  if (previously_known && !previous_etag && !item.etag) {
-    logger.warn(
-      `OneDrive delta item ${item.item_id}: missing etag on prior and current snapshot; classifying as updated`,
-    );
-    return 'updated';
-  }
   return undefined;
 }

@@ -1,6 +1,17 @@
 import tseslint from 'typescript-eslint';
 import checkFile from 'eslint-plugin-check-file';
+import sonarjs from 'eslint-plugin-sonarjs';
 import prettierConfig from 'eslint-config-prettier';
+
+const sonarjs_code_smell_rules = {
+  'sonarjs/cognitive-complexity': ['error', 15],
+  'sonarjs/no-identical-functions': 'error',
+  'sonarjs/no-duplicated-branches': 'error',
+  'sonarjs/no-all-duplicated-branches': 'error',
+  'sonarjs/no-identical-expressions': 'error',
+  'sonarjs/no-redundant-jump': 'error',
+  'sonarjs/no-unused-collection': 'error',
+};
 
 export default tseslint.config(
   {
@@ -17,8 +28,10 @@ export default tseslint.config(
     },
     plugins: {
       'check-file': checkFile,
+      sonarjs,
     },
     rules: {
+      ...sonarjs_code_smell_rules,
       'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
       'check-file/filename-naming-convention': [
         'error',
@@ -87,8 +100,12 @@ export default tseslint.config(
     },
     plugins: {
       'check-file': checkFile,
+      sonarjs,
     },
     rules: {
+      ...sonarjs_code_smell_rules,
+      'sonarjs/cognitive-complexity': 'off',
+      'sonarjs/no-identical-functions': 'off',
       'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
       'check-file/filename-naming-convention': [
         'error',

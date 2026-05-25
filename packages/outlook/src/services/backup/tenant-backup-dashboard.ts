@@ -179,23 +179,7 @@ export class TenantBackupDashboard implements TenantProgressReporter {
       ),
     );
     lines.push(chalk.gray('-'.repeat(63)));
-
-    for (let i = 0; i < this._max_slots; i++) {
-      const s = this._slots[i];
-      if (!s) {
-        lines.push(chalk.gray('[  ] --'));
-      } else {
-        const owner_label = truncate(s.owner_id, 30);
-        const folder = s.folder_name ? truncate(s.folder_name, 14) : '';
-        const pct_str = s.pct > 0 ? ` ${s.pct}%` : '';
-        lines.push(
-          chalk.cyan(
-            `[>>] ${pad(owner_label, 32)}${pad(folder + pct_str, 18)}| ${s.rate.toFixed(1)} msg/s`,
-          ),
-        );
-      }
-    }
-
+    this.render_slot_lines(lines);
     lines.push(chalk.gray('-'.repeat(63)));
 
     const done_str = chalk.green(`[ok] ${t.done} done`);
@@ -217,6 +201,25 @@ export class TenantBackupDashboard implements TenantProgressReporter {
     process.stdout.write(frame);
 
     this._rendered = true;
+  }
+
+  /** Renders one dashboard row per concurrent worker slot. */
+  private render_slot_lines(lines: string[]): void {
+    for (let i = 0; i < this._max_slots; i++) {
+      const s = this._slots[i];
+      if (!s) {
+        lines.push(chalk.gray('[  ] --'));
+      } else {
+        const owner_label = truncate(s.owner_id, 30);
+        const folder = s.folder_name ? truncate(s.folder_name, 14) : '';
+        const pct_str = s.pct > 0 ? ` ${s.pct}%` : '';
+        lines.push(
+          chalk.cyan(
+            `[>>] ${pad(owner_label, 32)}${pad(folder + pct_str, 18)}| ${s.rate.toFixed(1)} msg/s`,
+          ),
+        );
+      }
+    }
   }
 }
 

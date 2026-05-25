@@ -9,7 +9,11 @@ import type {
   SharePointDeltaResult,
   SharePointFileVersion,
 } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import {
+  fetch_initial_delta_page,
+  type GraphCollectionResponse,
+} from '@/adapters/graph-sharepoint-delta-fetch';
+import { map_delta_item, type GraphDeltaDriveItem } from '@/adapters/graph-sharepoint-delta-mapper';
 import {
   download_with_fallback,
   resolve_download_url as resolve_download_url_helper,
@@ -20,12 +24,8 @@ import {
   graph_sharepoint_upload_small_file,
   graph_sharepoint_upload_large_file,
 } from '@/adapters/graph-sharepoint-restore.adapter';
-
-interface GraphCollectionResponse<T> {
-  value?: T[];
-  '@odata.nextLink'?: string;
-  '@odata.deltaLink'?: string;
-}
+import { stream_to_buffer } from '@/adapters/graph-sharepoint-stream-utils';
+import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 
 interface GraphSiteRecord {
   id?: string;
@@ -38,38 +38,11 @@ interface GraphDriveRecord {
   name?: string;
 }
 
-interface GraphDeltaDriveItem {
-  id?: string;
-  name?: string;
-  size?: number;
-  webUrl?: string;
-  eTag?: string;
-  lastModifiedDateTime?: string;
-  parentReference?: { path?: string };
-  file?: Record<string, unknown>;
-  folder?: Record<string, unknown>;
-  '@removed'?: { reason: string };
-  '@microsoft.graph.downloadUrl'?: string;
-}
-
 interface GraphVersionRecord {
   id?: string;
   lastModifiedDateTime?: string;
   size?: number;
 }
-
-const DRIVE_DELTA_SELECT_FIELDS = [
-  'id',
-  'name',
-  'size',
-  'webUrl',
-  'eTag',
-  'lastModifiedDateTime',
-  'parentReference',
-  'file',
-  'folder',
-  '@microsoft.graph.downloadUrl',
-].join(',');
 
 const STREAM_TIMEOUT_MS = 120_000;
 
@@ -291,32 +264,14 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     reset_detected: boolean,
   ): Promise<SharePointDeltaResult> {
     const items: SharePointDeltaItem[] = [];
-    let page: GraphCollectionResponse<GraphDeltaDriveItem>;
     let delta_link = '';
 
-    const stale_cursor = prev_delta_link && !prev_delta_link.includes('$select=');
-    if (stale_cursor) {
-      logger.warn(
-        `Delta cursor for drive ${drive_id} predates field selection — performing fresh delta`,
-      );
-    }
-
-    if (prev_delta_link && !stale_cursor) {
-      page = await with_graph_retry(
-        () =>
-          this._client.api(prev_delta_link).get() as Promise<
-            GraphCollectionResponse<GraphDeltaDriveItem>
-          >,
-      );
-    } else {
-      page = await with_graph_retry(
-        () =>
-          this._client
-            .api(`/drives/${drive_id}/root/delta`)
-            .select(DRIVE_DELTA_SELECT_FIELDS)
-            .get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
-      );
-    }
+    const { page: initial_page, reset_detected: stale_reset } = await fetch_initial_delta_page(
+      this._client,
+      drive_id,
+      prev_delta_link,
+    );
+    let page = initial_page;
 
     while (true) {
       for (const raw of page.value ?? []) {
@@ -334,94 +289,11 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       );
     }
 
-    return { drive_id, delta_link, items, reset_detected: reset_detected || Boolean(stale_cursor) };
+    return {
+      drive_id,
+      delta_link,
+      items,
+      reset_detected: reset_detected || stale_reset,
+    };
   }
-}
-
-function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): SharePointDeltaItem {
-  const parent_path = normalize_path(extract_parent_path(raw.parentReference?.path));
-  const file_name = normalize_path(raw.name ?? '');
-  const is_deleted = Boolean(raw['@removed']);
-  const kind: 'file' | 'folder' = raw.file
-    ? 'file'
-    : raw.folder
-      ? 'folder'
-      : is_deleted
-        ? 'file'
-        : 'folder';
-  return {
-    item_id: raw.id!,
-    drive_id,
-    kind,
-    file_name,
-    parent_path,
-    size_bytes: raw.size ?? 0,
-    deleted: is_deleted,
-    ...(raw.webUrl ? { web_url: raw.webUrl } : {}),
-    ...(raw.eTag ? { etag: raw.eTag } : {}),
-    ...(raw.lastModifiedDateTime ? { last_modified_at: raw.lastModifiedDateTime } : {}),
-    ...(raw['@microsoft.graph.downloadUrl']
-      ? { download_url: raw['@microsoft.graph.downloadUrl'] }
-      : {}),
-  };
-}
-
-function normalize_path(raw: string): string {
-  return raw.normalize('NFC');
-}
-
-function extract_parent_path(raw_path: string | undefined): string {
-  if (!raw_path) return '/';
-  const marker = 'root:';
-  const marker_index = raw_path.indexOf(marker);
-  if (marker_index < 0) return raw_path;
-  const result = raw_path.slice(marker_index + marker.length);
-  return result.length === 0 ? '/' : result;
-}
-
-/**
- * Converts a site URL, hostname:/path, or GUID to a Graph `/sites` reference.
- * - GUID-only: returned as-is
- * - `hostname:/path` format: returned as-is
- * - Full URL (https://...): parsed to `hostname:/path` form
- */
-function parse_site_reference(input: string): string {
-  if (/^https?:\/\//i.test(input)) {
-    try {
-      const url = new URL(input);
-      const path_part = url.pathname === '/' ? '' : `:${url.pathname}`;
-      return `${url.hostname}${path_part}`;
-    } catch {
-      return input;
-    }
-  }
-  return input;
-}
-
-async function stream_to_buffer(
-  stream: NodeJS.ReadableStream,
-  timeout_ms: number,
-): Promise<Buffer> {
-  const readable = stream as import('node:stream').Readable;
-  const chunks: Buffer[] = [];
-  const read_stream = async (): Promise<void> => {
-    for await (const chunk of readable) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-  };
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    await Promise.race([
-      read_stream(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          readable.destroy();
-          reject(new Error('Graph content stream timed out'));
-        }, timeout_ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-  return Buffer.concat(chunks);
 }

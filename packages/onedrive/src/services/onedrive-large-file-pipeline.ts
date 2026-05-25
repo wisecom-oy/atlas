@@ -32,6 +32,39 @@ interface StreamUploadResult {
   readonly completed_parts: Array<{ ETag: string; PartNumber: number }>;
 }
 
+interface PendingPartState {
+  pending: Buffer[];
+  pending_bytes: number;
+  first_part_data: Buffer | null;
+  part_number: number;
+  completed_parts: Array<{ ETag: string; PartNumber: number }>;
+}
+
+/** Splits pending encrypted bytes into a full multipart upload part. */
+async function flush_pending_parts(
+  handle: MultipartUploadHandle,
+  state: PendingPartState,
+): Promise<void> {
+  const combined = Buffer.concat(state.pending);
+  state.pending.length = 0;
+  state.pending_bytes = 0;
+
+  const part_data = combined.subarray(0, PART_SIZE);
+  if (combined.length > PART_SIZE) {
+    const remainder = Buffer.from(combined.subarray(PART_SIZE));
+    state.pending.push(remainder);
+    state.pending_bytes = remainder.length;
+  }
+
+  if (!state.first_part_data) {
+    state.first_part_data = Buffer.from(part_data);
+  } else {
+    const etag = await handle.upload_part(state.part_number, Buffer.from(part_data));
+    state.completed_parts.push({ ETag: etag, PartNumber: state.part_number });
+    state.part_number++;
+  }
+}
+
 /**
  * Single-download, zero-disk pipeline for files >= 512 MB.
  * Streams encrypted parts to an S3 staging key, then either aborts
@@ -119,68 +152,53 @@ async function stream_encrypt_upload(
   const handle = await ctx.storage.begin_multipart_upload(staging_key);
 
   try {
-    const completed_parts: Array<{ ETag: string; PartNumber: number }> = [];
-    let part_number = 2;
-    const pending: Buffer[] = [];
-    let pending_bytes = 0;
-    let first_part_data: Buffer | null = null;
+    const part_state: PendingPartState = {
+      pending: [],
+      pending_bytes: 0,
+      first_part_data: null,
+      part_number: 2,
+      completed_parts: [],
+    };
 
     for await (const chunk of fetch_file_chunks(download_url, item.size_bytes, item.item_id)) {
       hash.update(chunk);
       const encrypted = cipher.update(chunk);
       if (encrypted.length === 0) continue;
 
-      pending.push(encrypted);
-      pending_bytes += encrypted.length;
+      part_state.pending.push(encrypted);
+      part_state.pending_bytes += encrypted.length;
 
-      while (pending_bytes >= PART_SIZE) {
-        const combined = Buffer.concat(pending);
-        pending.length = 0;
-        pending_bytes = 0;
-
-        const part_data = combined.subarray(0, PART_SIZE);
-        if (combined.length > PART_SIZE) {
-          const remainder = Buffer.from(combined.subarray(PART_SIZE));
-          pending.push(remainder);
-          pending_bytes = remainder.length;
-        }
-
-        if (!first_part_data) {
-          first_part_data = Buffer.from(part_data);
-        } else {
-          const etag = await handle.upload_part(part_number, Buffer.from(part_data));
-          completed_parts.push({ ETag: etag, PartNumber: part_number });
-          part_number++;
-        }
+      while (part_state.pending_bytes >= PART_SIZE) {
+        await flush_pending_parts(handle, part_state);
       }
     }
 
     const final_block = cipher.final();
     if (final_block.length > 0) {
-      pending.push(final_block);
-      pending_bytes += final_block.length;
+      part_state.pending.push(final_block);
+      part_state.pending_bytes += final_block.length;
     }
 
-    if (!first_part_data) {
-      first_part_data = Buffer.concat(pending);
-      pending.length = 0;
-      pending_bytes = 0;
+    if (!part_state.first_part_data) {
+      part_state.first_part_data = Buffer.concat(part_state.pending);
+      part_state.pending.length = 0;
+      part_state.pending_bytes = 0;
     }
 
-    if (pending_bytes > 0) {
-      const last_part = Buffer.concat(pending);
-      const etag = await handle.upload_part(part_number, last_part);
-      completed_parts.push({ ETag: etag, PartNumber: part_number });
+    if (part_state.pending_bytes > 0) {
+      const last_part = Buffer.concat(part_state.pending);
+      const etag = await handle.upload_part(part_state.part_number, last_part);
+      part_state.completed_parts.push({ ETag: etag, PartNumber: part_state.part_number });
     }
 
     const auth_tag = cipher.getAuthTag();
-    const header_part = Buffer.concat([iv, auth_tag, first_part_data]);
+    const header_part = Buffer.concat([iv, auth_tag, part_state.first_part_data]);
     const part1_etag = await handle.upload_part(1, header_part);
-    completed_parts.push({ ETag: part1_etag, PartNumber: 1 });
+    part_state.completed_parts.push({ ETag: part1_etag, PartNumber: 1 });
 
-    completed_parts.sort((a, b) => a.PartNumber - b.PartNumber);
+    part_state.completed_parts.sort((a, b) => a.PartNumber - b.PartNumber);
 
-    return { checksum: hash.digest('hex'), handle, completed_parts };
+    return { checksum: hash.digest('hex'), handle, completed_parts: part_state.completed_parts };
   } catch (err) {
     await safe_abort(handle, staging_key.substring(0, staging_key.lastIndexOf('/') + 1), ctx);
     throw err;

@@ -1,5 +1,5 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory } from '@atlas/types';
+import type { TenantContext, TenantContextFactory } from '@atlas/types';
 import type { MailboxConnector, MailFolder } from '@atlas/types';
 import type { ManifestRepository } from '@atlas/types';
 import type { ManifestEntry, ManifestObjectLockPolicy } from '@atlas/types';
@@ -98,56 +98,44 @@ export class MailboxSyncService implements BackupUseCase {
       const folder = folders[i]!;
       progress.mark_active(i);
 
-      let f_stored = 0;
-      let f_deduped = 0;
-      let f_att = 0;
-      try {
-        const prev_link = saved_links[folder.folder_id];
-        const result = await sync_single_folder({
-          ctx,
-          connector: this._connector,
-          tenant_id,
-          owner_id,
-          folder_id: folder.folder_id,
-          folder_index: i,
-          folder_total: folder.total_item_count,
-          global_total,
-          global_processed_before: global_processed,
-          sync_start,
-          progress,
-          is_interrupted: should_interrupt,
-          is_hard_stopped: should_force_stop,
-          ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
-          previous_manifest_entries: previous_entry_count,
-          ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
-          ...(options.object_lock_policy !== undefined
-            ? { object_lock_policy: options.object_lock_policy }
-            : {}),
-        });
-        all_entries.push(...result.entries);
-        if (result.delta_link) {
-          new_delta_links[folder.folder_id] = result.delta_link;
-        }
-        f_stored = result.stored;
-        f_deduped = result.deduplicated;
-        f_att = result.attachments_stored;
-        stored += f_stored;
-        deduplicated += f_deduped;
-        attachments_stored += f_att;
-        global_processed += result.folder_processed;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        folder_errors.push(`${folder.display_name}: ${msg}`);
-        progress.mark_error(i, msg);
+      const outcome = await this.sync_single_folder_with_progress(
+        ctx,
+        tenant_id,
+        owner_id,
+        folder,
+        i,
+        saved_links,
+        previous_entry_count,
+        global_total,
+        global_processed,
+        sync_start,
+        progress,
+        options,
+        should_interrupt,
+        should_force_stop,
+      );
+
+      if (outcome.error) {
+        folder_errors.push(`${folder.display_name}: ${outcome.error}`);
+        progress.mark_error(i, outcome.error);
         continue;
       }
+
+      all_entries.push(...outcome.entries);
+      if (outcome.delta_link) {
+        new_delta_links[folder.folder_id] = outcome.delta_link;
+      }
+      stored += outcome.stored;
+      deduplicated += outcome.deduplicated;
+      attachments_stored += outcome.attachments_stored;
+      global_processed += outcome.folder_processed;
 
       if (should_interrupt()) break;
 
       const rate = calc_rate(global_processed, Date.now() - sync_start);
       const eta = rate > 0 ? (global_total - global_processed) / rate : 0;
       progress.update_total(global_processed, global_total, rate, eta);
-      progress.mark_done(i, f_stored, f_deduped, f_att);
+      progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
     }
 
     if (should_interrupt()) progress.mark_all_pending_interrupted();
@@ -182,6 +170,75 @@ export class MailboxSyncService implements BackupUseCase {
         elapsed_ms: Date.now() - sync_start,
       },
     };
+  }
+
+  /** Syncs one folder and updates progress; returns aggregated results or an error message. */
+  private async sync_single_folder_with_progress(
+    ctx: TenantContext,
+    tenant_id: string,
+    owner_id: string,
+    folder: MailFolder,
+    folder_index: number,
+    saved_links: Record<string, string>,
+    previous_entry_count: number,
+    global_total: number,
+    global_processed_before: number,
+    sync_start: number,
+    progress: BackupProgressReporter,
+    options: SyncOptions,
+    should_interrupt: () => boolean,
+    should_force_stop: () => boolean,
+  ): Promise<{
+    entries: ManifestEntry[];
+    delta_link?: string;
+    stored: number;
+    deduplicated: number;
+    attachments_stored: number;
+    folder_processed: number;
+    error?: string;
+  }> {
+    try {
+      const prev_link = saved_links[folder.folder_id];
+      const result = await sync_single_folder({
+        ctx,
+        connector: this._connector,
+        tenant_id,
+        owner_id,
+        folder_id: folder.folder_id,
+        folder_index,
+        folder_total: folder.total_item_count,
+        global_total,
+        global_processed_before,
+        sync_start,
+        progress,
+        is_interrupted: should_interrupt,
+        is_hard_stopped: should_force_stop,
+        ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
+        previous_manifest_entries: previous_entry_count,
+        ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
+        ...(options.object_lock_policy !== undefined
+          ? { object_lock_policy: options.object_lock_policy }
+          : {}),
+      });
+      return {
+        entries: result.entries,
+        ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
+        stored: result.stored,
+        deduplicated: result.deduplicated,
+        attachments_stored: result.attachments_stored,
+        folder_processed: result.folder_processed,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        entries: [],
+        stored: 0,
+        deduplicated: 0,
+        attachments_stored: 0,
+        folder_processed: 0,
+        error: msg,
+      };
+    }
   }
 
   private build_manifest_object_lock_policy(

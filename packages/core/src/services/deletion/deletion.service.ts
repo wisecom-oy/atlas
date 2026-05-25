@@ -77,6 +77,13 @@ export class DeletionService implements DeletionUseCase {
   }
 }
 
+interface DeletionStorage {
+  delete(key: string): Promise<void>;
+  list(prefix: string): Promise<string[]>;
+  list_versions(prefix: string): Promise<{ key: string; version_id: string }[]>;
+  delete_version(key: string, version_id: string): Promise<void>;
+}
+
 type DeletionSummaryMutable = {
   deleted_objects: number;
   deleted_manifests: number;
@@ -88,12 +95,7 @@ type DeletionSummaryMutable = {
 
 /** Deletes all versions (or current keys) under the provided prefixes/keys. */
 async function delete_prefixes(
-  storage: {
-    delete(key: string): Promise<void>;
-    list(prefix: string): Promise<string[]>;
-    list_versions(prefix: string): Promise<{ key: string; version_id: string }[]>;
-    delete_version(key: string, version_id: string): Promise<void>;
-  },
+  storage: DeletionStorage,
   scopes: string[],
 ): Promise<DeletionResult> {
   const summary = empty_deletion_summary();
@@ -102,48 +104,56 @@ async function delete_prefixes(
     const version_entries = await storage.list_versions(scope);
     if (version_entries.length > 0) {
       for (const version of version_entries) {
-        try {
-          await storage.delete_version(version.key, version.version_id);
-          if (version.key.startsWith('manifests/')) summary.deleted_manifests++;
-          else summary.deleted_objects++;
-        } catch (err) {
-          if (is_object_lock_delete_error(err)) {
-            if (version.key.startsWith('manifests/')) summary.retained_manifests++;
-            else summary.retained_objects++;
-            continue;
-          }
-          if (version.key.startsWith('manifests/')) summary.failed_manifests++;
-          else summary.failed_objects++;
-        }
+        await delete_versioned_key(storage, version, summary);
       }
       continue;
     }
 
     const visible_keys = await storage.list(scope);
     for (const key of visible_keys) {
-      try {
-        await storage.delete(key);
-        if (key.startsWith('manifests/')) summary.deleted_manifests++;
-        else summary.deleted_objects++;
-      } catch (err) {
-        if (is_object_lock_delete_error(err)) {
-          if (key.startsWith('manifests/')) summary.retained_manifests++;
-          else summary.retained_objects++;
-          continue;
-        }
-        if (key.startsWith('manifests/')) summary.failed_manifests++;
-        else summary.failed_objects++;
-      }
+      await delete_single_key(storage, key, summary);
     }
   }
-  return {
-    deleted_objects: summary.deleted_objects,
-    deleted_manifests: summary.deleted_manifests,
-    retained_objects: summary.retained_objects,
-    retained_manifests: summary.retained_manifests,
-    failed_objects: summary.failed_objects,
-    failed_manifests: summary.failed_manifests,
-  };
+
+  return { ...summary };
+}
+
+async function delete_versioned_key(
+  storage: DeletionStorage,
+  version: { key: string; version_id: string },
+  summary: DeletionSummaryMutable,
+): Promise<void> {
+  try {
+    await storage.delete_version(version.key, version.version_id);
+    increment_summary(summary, version.key, 'deleted');
+  } catch (err) {
+    const bucket = is_object_lock_delete_error(err) ? 'retained' : 'failed';
+    increment_summary(summary, version.key, bucket);
+  }
+}
+
+async function delete_single_key(
+  storage: DeletionStorage,
+  key: string,
+  summary: DeletionSummaryMutable,
+): Promise<void> {
+  try {
+    await storage.delete(key);
+    increment_summary(summary, key, 'deleted');
+  } catch (err) {
+    const bucket = is_object_lock_delete_error(err) ? 'retained' : 'failed';
+    increment_summary(summary, key, bucket);
+  }
+}
+
+function increment_summary(
+  summary: DeletionSummaryMutable,
+  key: string,
+  outcome: 'deleted' | 'retained' | 'failed',
+): void {
+  const suffix = key.startsWith('manifests/') ? 'manifests' : 'objects';
+  const field = `${outcome}_${suffix}` as keyof DeletionSummaryMutable;
+  summary[field]++;
 }
 
 function is_object_lock_delete_error(err: unknown): boolean {

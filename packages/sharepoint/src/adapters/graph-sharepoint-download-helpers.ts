@@ -35,49 +35,56 @@ export async function download_with_fallback(
   client: Client,
   item: SharePointDeltaItem,
 ): Promise<Buffer> {
-  let download_url = item.download_url ?? (await resolve_download_url(client, item));
+  const download_url = item.download_url ?? (await resolve_download_url(client, item));
 
   if (download_url && item.size_bytes > CHUNK_DOWNLOAD_THRESHOLD) {
-    try {
-      return await download_file_chunked(download_url, item.size_bytes, item.item_id);
-    } catch (err) {
-      if (is_expired_url_error(err)) {
-        download_url = await resolve_download_url(client, item);
-        if (download_url) {
-          try {
-            return await download_file_chunked(download_url, item.size_bytes, item.item_id);
-          } catch (retry_err) {
-            logger.warn(`Chunked download retry failed for ${item.item_id}: ${retry_err}`);
-          }
-        }
-      } else {
-        logger.warn(`Chunked download failed for ${item.item_id}, falling back: ${err}`);
-      }
-      return await download_via_graph_content(client, item);
-    }
+    return await attempt_download_with_refresh(
+      client,
+      item,
+      download_url,
+      (url) => download_file_chunked(url, item.size_bytes, item.item_id),
+      'Chunked download',
+    );
   }
 
   if (download_url) {
-    try {
-      return await download_from_url(download_url, item.size_bytes, item.item_id);
-    } catch (err) {
-      if (is_expired_url_error(err)) {
-        download_url = await resolve_download_url(client, item);
-        if (download_url) {
-          try {
-            return await download_from_url(download_url, item.size_bytes, item.item_id);
-          } catch (retry_err) {
-            logger.warn(`URL download retry failed for ${item.item_id}: ${retry_err}`);
-          }
-        }
-      } else {
-        logger.warn(`URL download failed for ${item.item_id}, falling back: ${err}`);
-      }
-      return await download_via_graph_content(client, item);
-    }
+    return await attempt_download_with_refresh(
+      client,
+      item,
+      download_url,
+      (url) => download_from_url(url, item.size_bytes, item.item_id),
+      'URL download',
+    );
   }
 
   return await download_via_graph_content(client, item);
+}
+
+/** Attempts a CDN download, refreshing expired URLs once before falling back to Graph. */
+async function attempt_download_with_refresh(
+  client: Client,
+  item: SharePointDeltaItem,
+  download_url: string,
+  download_fn: (url: string) => Promise<Buffer>,
+  failure_label: string,
+): Promise<Buffer> {
+  try {
+    return await download_fn(download_url);
+  } catch (err) {
+    if (is_expired_url_error(err)) {
+      const refreshed_url = await resolve_download_url(client, item);
+      if (refreshed_url) {
+        try {
+          return await download_fn(refreshed_url);
+        } catch (retry_err) {
+          logger.warn(`${failure_label} retry failed for ${item.item_id}: ${retry_err}`);
+        }
+      }
+    } else {
+      logger.warn(`${failure_label} failed for ${item.item_id}, falling back: ${err}`);
+    }
+    return await download_via_graph_content(client, item);
+  }
 }
 
 /** Downloads via the Graph /content endpoint with stream drain. */

@@ -16,25 +16,40 @@ export function classify_change_type(
   const previous_path = previous_path_by_file_id[item.item_id];
   const previous_name = previous_name_by_file_id[item.item_id];
   const previous_etag = previous_etag_by_file_id[item.item_id];
-  const current_path = item.parent_path;
-  const path_changed = Boolean(previous_path && previous_path !== current_path);
-  const name_changed = Boolean(previous_name && previous_name !== item.file_name);
-  const etag_missing_transition =
-    (Boolean(previous_etag) && !item.etag) || (!previous_etag && Boolean(item.etag));
-  const etag_changed = Boolean(previous_etag && item.etag && previous_etag !== item.etag);
   const previously_known = Boolean(previous_path || previous_name || previous_etag);
 
-  if (!previous_path && !previous_name && !previous_etag) return 'created';
-  if (etag_missing_transition) return 'updated';
-  if (etag_changed) return 'updated';
+  if (!previously_known) return 'created';
+  if (is_etag_transition(previous_etag, item.etag, previously_known)) {
+    warn_missing_etag(item.item_id, previous_etag, item.etag);
+    return 'updated';
+  }
+
+  const path_changed = Boolean(previous_path && previous_path !== item.parent_path);
+  const name_changed = Boolean(previous_name && previous_name !== item.file_name);
   if (path_changed && name_changed) return 'moved_and_renamed';
   if (path_changed) return 'moved';
   if (name_changed) return 'renamed';
-  if (previously_known && !previous_etag && !item.etag) {
-    logger.warn(
-      `SharePoint delta item ${item.item_id}: missing etag on prior and current snapshot; classifying as updated`,
-    );
-    return 'updated';
-  }
   return undefined;
+}
+
+function is_etag_transition(
+  previous_etag: string | undefined,
+  current_etag: string | undefined,
+  previously_known: boolean,
+): boolean {
+  if (previous_etag && !current_etag) return true;
+  if (!previous_etag && current_etag) return true;
+  if (previous_etag && current_etag && previous_etag !== current_etag) return true;
+  return previously_known && !previous_etag && !current_etag;
+}
+
+function warn_missing_etag(
+  item_id: string,
+  previous_etag: string | undefined,
+  current_etag: string | undefined,
+): void {
+  if (previous_etag || current_etag) return;
+  logger.warn(
+    `SharePoint delta item ${item_id}: missing etag on prior and current snapshot; classifying as updated`,
+  );
 }

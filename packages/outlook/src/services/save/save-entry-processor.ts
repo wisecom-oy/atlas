@@ -43,8 +43,6 @@ export async function save_entries_to_archive(
   let global_saved = 0;
   let global_att = 0;
   let global_errors = 0;
-  let integrity_ok = 0;
-  let integrity_fail = 0;
   const all_errors: string[] = [];
   const integrity_failures: string[] = [];
   const start = Date.now();
@@ -57,57 +55,31 @@ export async function save_entries_to_archive(
 
     const folder_name = folder_map.get(fid) ?? 'Unknown';
     const used_names = new Set<string>();
-    let folder_saved = 0;
-    let folder_processed = 0;
-    let folder_att = 0;
 
-    for (const entry of folder_items) {
-      if (is_interrupted()) break;
+    const folder_result = await process_folder_entries(
+      ctx,
+      folder_items,
+      folder_name,
+      folder_index,
+      skip_integrity,
+      archive,
+      used_names,
+      groups,
+      global_total,
+      start,
+      dashboard,
+      is_interrupted,
+      { all_errors, integrity_failures },
+    );
 
-      try {
-        const result = await process_single_entry(
-          ctx,
-          entry,
-          folder_name,
-          skip_integrity,
-          archive,
-          used_names,
-        );
-
-        folder_saved++;
-        folder_att += result.attachment_count;
-        integrity_ok += result.integrity_ok;
-        integrity_fail += result.integrity_fail;
-        integrity_failures.push(...result.integrity_failures);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        all_errors.push(`${entry.object_id}: ${msg}`);
-        global_errors++;
-      }
-
-      folder_processed++;
-      const gp = count_processed_before(groups, folder_index) + folder_processed;
-      const rate = calc_rate(gp, Date.now() - start);
-      const eta = rate > 0 ? (global_total - gp) / rate : 0;
-
-      dashboard.update_active(
-        folder_index,
-        folder_saved,
-        folder_att,
-        integrity_ok,
-        integrity_fail,
-        rate,
-        eta,
-      );
-      dashboard.update_total(gp, global_total, rate, eta);
-    }
+    global_errors += folder_result.error_count;
 
     if (!is_interrupted()) {
-      dashboard.mark_done(folder_index, folder_saved, folder_att);
+      dashboard.mark_done(folder_index, folder_result.folder_saved, folder_result.folder_att);
     }
 
-    global_saved += folder_saved;
-    global_att += folder_att;
+    global_saved += folder_result.folder_saved;
+    global_att += folder_result.folder_att;
     folder_index++;
   }
 
@@ -133,6 +105,82 @@ interface EntryResult {
   integrity_ok: number;
   integrity_fail: number;
   integrity_failures: string[];
+}
+
+interface FolderEntryCounters {
+  all_errors: string[];
+  integrity_failures: string[];
+}
+
+/** Processes all manifest entries in one folder, updating dashboard progress. */
+async function process_folder_entries(
+  ctx: TenantContext,
+  folder_items: ManifestEntry[],
+  folder_name: string,
+  folder_index: number,
+  skip_integrity: boolean,
+  archive: Parameters<typeof add_eml_to_archive>[0],
+  used_names: Set<string>,
+  groups: Map<string, ManifestEntry[]>,
+  global_total: number,
+  start: number,
+  dashboard: SaveProgressDashboard,
+  is_interrupted: () => boolean,
+  counters: FolderEntryCounters,
+): Promise<{
+  folder_saved: number;
+  folder_att: number;
+  error_count: number;
+}> {
+  let folder_saved = 0;
+  let folder_processed = 0;
+  let folder_att = 0;
+  let integrity_ok = 0;
+  let integrity_fail = 0;
+  let error_count = 0;
+
+  for (const entry of folder_items) {
+    if (is_interrupted()) break;
+
+    try {
+      const result = await process_single_entry(
+        ctx,
+        entry,
+        folder_name,
+        skip_integrity,
+        archive,
+        used_names,
+      );
+
+      folder_saved++;
+      folder_att += result.attachment_count;
+      integrity_ok += result.integrity_ok;
+      integrity_fail += result.integrity_fail;
+      counters.integrity_failures.push(...result.integrity_failures);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      counters.all_errors.push(`${entry.object_id}: ${msg}`);
+      error_count++;
+    }
+
+    folder_processed++;
+    const gp = count_processed_before(groups, folder_index) + folder_processed;
+    const rate = calc_rate(gp, Date.now() - start);
+    const eta = rate > 0 ? (global_total - gp) / rate : 0;
+
+    dashboard.update_active(
+      folder_index,
+      folder_saved,
+      folder_att,
+      integrity_ok,
+      integrity_fail,
+      rate,
+      eta,
+    );
+    dashboard.update_total(gp, global_total, rate, eta);
+  }
+
+  return { folder_saved, folder_att, error_count };
 }
 
 async function process_single_entry(

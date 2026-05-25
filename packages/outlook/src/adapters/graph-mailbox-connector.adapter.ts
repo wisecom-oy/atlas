@@ -286,31 +286,22 @@ export class GraphMailboxConnector implements MailboxConnector {
     while (true) {
       page_count++;
       const items = (page.value ?? []) as GraphDeltaMessage[];
-      const page_messages: MailMessage[] = [];
+      const page_messages = this.extract_page_messages(items, removed_ids);
 
-      for (const item of items) {
-        if (item['@removed'] && item.id) {
-          removed_ids.push(item.id);
-        } else if (item.id) {
-          const msg = this.graph_message_to_mail_message(item);
-          page_messages.push(msg);
-        }
-      }
-
-      let should_continue: boolean | void = true;
-      if (on_page) {
-        total_streamed += page_messages.length;
-        const cb_result = on_page(page_count, total_streamed, page_messages);
-        should_continue = cb_result instanceof Promise ? await cb_result : cb_result;
-      } else {
-        messages.push(...page_messages);
-      }
+      const callback_result = await this.handle_page_callback(
+        on_page,
+        page_count,
+        total_streamed,
+        page_messages,
+        messages,
+      );
+      total_streamed = callback_result.new_total_streamed;
 
       if (page['@odata.deltaLink']) {
         delta_link = page['@odata.deltaLink'];
       }
 
-      if (should_continue === false) break;
+      if (callback_result.should_continue === false) break;
 
       const next_url = page['@odata.nextLink'];
       if (!next_url) break;
@@ -319,6 +310,38 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
 
     return { messages, removed_ids, delta_link, delta_reset };
+  }
+
+  /** Separates delta page items into live messages and removed message IDs. */
+  private extract_page_messages(items: GraphDeltaMessage[], removed_ids: string[]): MailMessage[] {
+    const page_messages: MailMessage[] = [];
+    for (const item of items) {
+      if (item['@removed'] && item.id) {
+        removed_ids.push(item.id);
+      } else if (item.id) {
+        page_messages.push(this.graph_message_to_mail_message(item));
+      }
+    }
+    return page_messages;
+  }
+
+  /** Invokes the page callback or accumulates messages; returns continuation flag. */
+  private async handle_page_callback(
+    on_page: DeltaPageCallback | undefined,
+    page_count: number,
+    total_streamed: number,
+    page_messages: MailMessage[],
+    messages: MailMessage[],
+  ): Promise<{ should_continue: boolean | void; new_total_streamed: number }> {
+    if (!on_page) {
+      messages.push(...page_messages);
+      return { should_continue: true, new_total_streamed: total_streamed };
+    }
+
+    const new_total_streamed = total_streamed + page_messages.length;
+    const cb_result = on_page(page_count, new_total_streamed, page_messages);
+    const should_continue = cb_result instanceof Promise ? await cb_result : cb_result;
+    return { should_continue, new_total_streamed };
   }
 
   /** Converts a raw Graph message response into our MailMessage domain type. */

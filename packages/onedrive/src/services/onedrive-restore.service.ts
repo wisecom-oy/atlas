@@ -73,63 +73,20 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     const sorted_entries = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
     for (const entry of sorted_entries) {
-      try {
-        const parent_id = await this.ensure_folder_path(
-          tenant_id,
-          target_owner,
-          drive_id,
-          entry.parent_path,
-          folder_ids,
-        );
-
-        if (parent_id === undefined) {
-          errors.push(`Could not create folder path: ${entry.parent_path}`);
-          files_skipped++;
-          continue;
-        }
-
-        const content = await this.download_and_decrypt(ctx, entry);
-        if (!content) {
-          files_skipped++;
-          continue;
-        }
-
-        if (content.length <= SMALL_FILE_LIMIT) {
-          await this._connector.upload_small_file(
-            tenant_id,
-            target_owner,
-            drive_id,
-            parent_id,
-            entry.file_name,
-            content,
-            conflict,
-          );
-        } else {
-          await this._connector.upload_large_file(
-            tenant_id,
-            target_owner,
-            drive_id,
-            parent_id,
-            entry.file_name,
-            content,
-            conflict,
-          );
-        }
-
+      const result = await this.restore_single_entry(
+        tenant_id,
+        target_owner,
+        drive_id,
+        entry,
+        ctx,
+        folder_ids,
+        conflict,
+      );
+      if (result.restored) {
         files_restored++;
-        logger.info(`Restored: ${entry.parent_path}/${entry.file_name}`);
-      } catch (err) {
-        if (err instanceof OneDriveDecryptAuthError) {
-          const msg = `${entry.file_name}: ${err.message}`;
-          errors.push(msg);
-          files_skipped++;
-          logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-          continue;
-        }
-        const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
+      } else {
         files_skipped++;
-        logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+        if (result.error) errors.push(result.error);
       }
     }
 
@@ -142,6 +99,70 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       files_skipped,
       errors,
     };
+  }
+
+  /** Restores one manifest entry to the target drive, returning success or skip reason. */
+  private async restore_single_entry(
+    tenant_id: string,
+    target_owner: string,
+    drive_id: string,
+    entry: OneDriveManifestEntry,
+    ctx: TenantContext,
+    folder_ids: Map<string, string>,
+    conflict: NonNullable<OneDriveRestoreOptions['conflict_behavior']>,
+  ): Promise<{ restored: boolean; error?: string }> {
+    try {
+      const parent_id = await this.ensure_folder_path(
+        tenant_id,
+        target_owner,
+        drive_id,
+        entry.parent_path,
+        folder_ids,
+      );
+
+      if (parent_id === undefined) {
+        return { restored: false, error: `Could not create folder path: ${entry.parent_path}` };
+      }
+
+      const content = await this.download_and_decrypt(ctx, entry);
+      if (!content) {
+        return { restored: false };
+      }
+
+      if (content.length <= SMALL_FILE_LIMIT) {
+        await this._connector.upload_small_file(
+          tenant_id,
+          target_owner,
+          drive_id,
+          parent_id,
+          entry.file_name,
+          content,
+          conflict,
+        );
+      } else {
+        await this._connector.upload_large_file(
+          tenant_id,
+          target_owner,
+          drive_id,
+          parent_id,
+          entry.file_name,
+          content,
+          conflict,
+        );
+      }
+
+      logger.info(`Restored: ${entry.parent_path}/${entry.file_name}`);
+      return { restored: true };
+    } catch (err) {
+      if (err instanceof OneDriveDecryptAuthError) {
+        const msg = `${entry.file_name}: ${err.message}`;
+        logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+        return { restored: false, error: msg };
+      }
+      const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
+      logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+      return { restored: false, error: msg };
+    }
   }
 
   private filter_entries(

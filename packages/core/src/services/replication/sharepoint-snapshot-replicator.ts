@@ -45,13 +45,43 @@ export async function replicate_sharepoint_snapshot(
   }
 
   const storage_keys = collect_sharepoint_storage_keys(manifest);
+  const all_keys = [...storage_keys, ...(options.ancillary_keys ?? [])];
+  const tally = await copy_keys_with_tally(source_ctx, target_ctx, all_keys);
+
+  const source_manifest_blob = await source_ctx.storage.get(manifest_key);
+  const source_manifest_checksum = sha256_hex(source_manifest_blob);
+  await target_ctx.storage.put(manifest_key, source_manifest_blob);
+  const target_manifest_blob = await target_ctx.storage.get(manifest_key);
+  const replicated_manifest_checksum = sha256_hex(target_manifest_blob);
+
+  return {
+    ...tally,
+    source_manifest_checksum,
+    replicated_manifest_checksum,
+  };
+}
+
+const DEK_META_KEY = '_meta/dek.enc';
+const REPLICA_MARKER_KEY = '_meta/replica.marker';
+
+async function copy_keys_with_tally(
+  source_ctx: TenantContext,
+  target_ctx: TenantContext,
+  keys: string[],
+): Promise<{
+  objects_copied: number;
+  objects_skipped: number;
+  objects_failed: number;
+  bytes_copied: number;
+  errors: string[];
+}> {
   let objects_copied = 0;
   let objects_skipped = 0;
   let objects_failed = 0;
   let bytes_copied = 0;
   const errors: string[] = [];
 
-  for (const key of storage_keys) {
+  for (const key of keys) {
     const result = await copy_object(source_ctx, target_ctx, key);
     if (result.outcome === 'copied') {
       objects_copied++;
@@ -64,40 +94,8 @@ export async function replicate_sharepoint_snapshot(
     }
   }
 
-  if (options.ancillary_keys) {
-    for (const key of options.ancillary_keys) {
-      const result = await copy_object(source_ctx, target_ctx, key);
-      if (result.outcome === 'copied') {
-        objects_copied++;
-        bytes_copied += (await source_ctx.storage.get(key)).length;
-      } else if (result.outcome === 'skipped') {
-        objects_skipped++;
-      } else {
-        objects_failed++;
-        if (result.error) errors.push(`${key}: ${result.error}`);
-      }
-    }
-  }
-
-  const source_manifest_blob = await source_ctx.storage.get(manifest_key);
-  const source_manifest_checksum = sha256_hex(source_manifest_blob);
-  await target_ctx.storage.put(manifest_key, source_manifest_blob);
-  const target_manifest_blob = await target_ctx.storage.get(manifest_key);
-  const replicated_manifest_checksum = sha256_hex(target_manifest_blob);
-
-  return {
-    objects_copied,
-    objects_skipped,
-    objects_failed,
-    bytes_copied,
-    errors,
-    source_manifest_checksum,
-    replicated_manifest_checksum,
-  };
+  return { objects_copied, objects_skipped, objects_failed, bytes_copied, errors };
 }
-
-const DEK_META_KEY = '_meta/dek.enc';
-const REPLICA_MARKER_KEY = '_meta/replica.marker';
 
 async function copy_object(
   source_ctx: TenantContext,
