@@ -115,8 +115,7 @@ describe('createAtlasInstance', () => {
 
       const result = await atlas.backupMailbox('user@test.com', { force_full: true });
 
-      expect(result).toMatchObject(sync_result);
-      expect(result).toHaveProperty('graph_cost');
+      expect(result).toBe(sync_result);
       expect(mock_backup.sync_mailbox).toHaveBeenCalledWith(TENANT_ID, 'user@test.com', {
         force_full: true,
       });
@@ -161,8 +160,7 @@ describe('createAtlasInstance', () => {
 
       const result = await atlas.restoreSnapshot('snap-1', { folder_name: 'Inbox' });
 
-      expect(result).toMatchObject(restore_result);
-      expect(result).toHaveProperty('graph_cost');
+      expect(result).toBe(restore_result);
       expect(mock_restore.restore_snapshot).toHaveBeenCalledWith(TENANT_ID, 'snap-1', {
         folder_name: 'Inbox',
       });
@@ -180,8 +178,7 @@ describe('createAtlasInstance', () => {
 
       const result = await atlas.restoreMailbox('user@test.com');
 
-      expect(result).toMatchObject(restore_result);
-      expect(result).toHaveProperty('graph_cost');
+      expect(result).toBe(restore_result);
       expect(mock_restore.restore_mailbox).toHaveBeenCalledWith(
         TENANT_ID,
         'user@test.com',

@@ -1,5 +1,3 @@
-import type { OperationCost } from '@/domain/graph-cost';
-
 export interface RestoreResult {
   readonly snapshot_id: string;
   readonly restored_count: number;
@@ -11,11 +9,6 @@ export interface RestoreResult {
   readonly attachment_errors: string[];
   readonly verification_warnings: string[];
   readonly restore_folder_name: string;
-  /**
-   * Graph API cost for this operation. Populated when called through the SDK;
-   * absent when called through the CLI (no AsyncLocalStorage counter active).
-   */
-  readonly graph_cost?: OperationCost;
 }
 
 export interface RestoreOptions {

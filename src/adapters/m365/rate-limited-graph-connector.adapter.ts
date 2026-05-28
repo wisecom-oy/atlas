@@ -1,13 +1,6 @@
 /**
- * Decorator around MailboxConnector that enforces per-mailbox rate limiting,
- * raises a global throttle fence on 429 responses, and records every Graph
- * request to the active GraphRequestCounter (if any).
- *
- * Pool attribution:
- *  - list_mail_folders, fetch_delta, fetch_message, fetch_attachments -> outlook pool
- *  - mailbox_exists, list_mailboxes -> identity pool (/users endpoints)
- *
- * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
+ * Decorator around MailboxConnector that enforces per-mailbox rate limiting
+ * and raises a global throttle fence on 429 responses.
  */
 
 import type {
@@ -23,8 +16,6 @@ import type {
   MailboxRateLimiterFactory,
 } from '@/services/shared/mailbox-rate-limiter';
 import type { ThrottleFence } from '@/services/shared/throttle-fence';
-import { get_active_counter } from '@/services/shared/graph-request-context';
-import { GRAPH_SERVICE_LIMITS } from '@/domain/graph-service-limits-values';
 import { logger } from '@/utils/logger';
 
 const DELTA_WITH_TOKEN_COST = 1;
@@ -44,28 +35,19 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   }
 
   async list_mailboxes(tenant_id: string): Promise<string[]> {
-    // GET /users -- Identity pool. Not rate-limited by mailbox semaphore.
-    get_active_counter()?.record('identity', 'list_users', {
-      resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
-    });
     return this._inner.list_mailboxes(tenant_id);
   }
 
   async mailbox_exists(tenant_id: string, mailbox_id: string): Promise<boolean> {
-    // GET /users/{id} -- Identity pool. Rate-limited by mailbox semaphore for backpressure.
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('identity', 'mailbox_exists', {
-        resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
-      });
-      return this._inner.mailbox_exists(tenant_id, mailbox_id);
-    });
+    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.mailbox_exists(tenant_id, mailbox_id),
+    );
   }
 
   async list_mail_folders(tenant_id: string, mailbox_id: string): Promise<MailFolder[]> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('outlook', 'list_folders');
-      return this._inner.list_mail_folders(tenant_id, mailbox_id);
-    });
+    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.list_mail_folders(tenant_id, mailbox_id),
+    );
   }
 
   async fetch_delta(
@@ -77,19 +59,16 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     page_size?: number,
   ): Promise<DeltaSyncResult> {
     const cost = prev_delta_link ? DELTA_WITH_TOKEN_COST : DELTA_WITHOUT_TOKEN_COST;
-    return this.rateLimited(mailbox_id, cost, () => {
-      // Each call to fetch_delta covers one page; the connector handles pagination internally.
-      // Record once per outer call (which may encompass multiple pages internally).
-      get_active_counter()?.record('outlook', 'delta_sync');
-      return this._inner.fetch_delta(
+    return this.rateLimited(mailbox_id, cost, () =>
+      this._inner.fetch_delta(
         tenant_id,
         mailbox_id,
         folder_id,
         prev_delta_link,
         on_page,
         page_size,
-      );
-    });
+      ),
+    );
   }
 
   async fetch_message(
@@ -97,10 +76,9 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     mailbox_id: string,
     message_id: string,
   ): Promise<MailMessage> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('outlook', 'fetch_message');
-      return this._inner.fetch_message(tenant_id, mailbox_id, message_id);
-    });
+    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.fetch_message(tenant_id, mailbox_id, message_id),
+    );
   }
 
   async fetch_attachments(
@@ -108,10 +86,9 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     mailbox_id: string,
     message_id: string,
   ): Promise<MessageAttachment[]> {
-    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('outlook', 'fetch_attachments');
-      return this._inner.fetch_attachments(tenant_id, mailbox_id, message_id);
-    });
+    return this.rateLimited(mailbox_id, DEFAULT_REQUEST_COST, () =>
+      this._inner.fetch_attachments(tenant_id, mailbox_id, message_id),
+    );
   }
 
   /** Shuts down all per-mailbox limiters. */

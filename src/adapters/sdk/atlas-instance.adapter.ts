@@ -1,7 +1,6 @@
 import { create_container_from_config } from '@/container';
 import type { AtlasConfig } from '@/utils/config';
 import type { AtlasInstance, AtlasInstanceConfig } from '@/ports/atlas/use-case.port';
-import { run_with_cost_tracking } from '@/services/shared/graph-request-context';
 import type { BackupUseCase } from '@/ports/backup/use-case.port';
 import type { VerificationUseCase } from '@/ports/verification/use-case.port';
 import type { RestoreUseCase } from '@/ports/restore/use-case.port';
@@ -43,25 +42,16 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
 
   return {
     async backupMailbox(mailboxId, options) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
-        backupUseCase.sync_mailbox(tenantId, mailboxId, options),
-      );
-      return { ...result, graph_cost: graphCost };
+      return await backupUseCase.sync_mailbox(tenantId, mailboxId, options);
     },
     async verifySnapshot(snapshotId) {
       return await verificationUseCase.verify_snapshot_integrity(tenantId, snapshotId);
     },
     async restoreSnapshot(snapshotId, options) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
-        restoreUseCase.restore_snapshot(tenantId, snapshotId, options),
-      );
-      return { ...result, graph_cost: graphCost };
+      return await restoreUseCase.restore_snapshot(tenantId, snapshotId, options);
     },
     async restoreMailbox(mailboxId, options) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
-        restoreUseCase.restore_mailbox(tenantId, mailboxId, options),
-      );
-      return { ...result, graph_cost: graphCost };
+      return await restoreUseCase.restore_mailbox(tenantId, mailboxId, options);
     },
     async saveSnapshot(snapshotId, options) {
       return await saveUseCase.save_snapshot(tenantId, snapshotId, options);
@@ -97,10 +87,7 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
       return await statsUseCase.get_mailbox_stats(tenantId, mailboxId);
     },
     async checkMailboxStatus(mailboxId) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
-        statusUseCase.check_mailbox_status(tenantId, mailboxId),
-      );
-      return { ...result, graph_cost: graphCost };
+      return await statusUseCase.check_mailbox_status(tenantId, mailboxId);
     },
     async replicateSnapshot(snapshotId, targets) {
       return await replicationUseCase.replicate_snapshot(tenantId, snapshotId, targets);

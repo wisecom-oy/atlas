@@ -1,6 +1,5 @@
 import type { Manifest } from '@/domain/manifest';
 import type { Snapshot } from '@/domain/snapshot';
-import type { OperationCost } from '@/domain/graph-cost';
 
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
@@ -65,11 +64,6 @@ export interface SyncResult {
   readonly manifest: Manifest;
   readonly mode: BackupSyncMode;
   readonly summary: BackupSyncSummary;
-  /**
-   * Graph API cost for this operation. Populated when called through the SDK;
-   * absent when called through the CLI (no AsyncLocalStorage counter active).
-   */
-  readonly graph_cost?: OperationCost;
 }
 
 export interface BackupUseCase {

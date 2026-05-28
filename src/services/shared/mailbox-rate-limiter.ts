@@ -2,20 +2,16 @@
  * Composes SlidingWindowLimiter + ConcurrencySemaphore + ThrottleFence into
  * a single per-mailbox rate limiter. Each mailbox gets its own sliding window
  * and semaphore, but they all share the same global throttle fence.
- *
- * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
  */
 
 import { SlidingWindowLimiter } from '@/services/shared/sliding-window-limiter';
 import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
 import type { ThrottleFence } from '@/services/shared/throttle-fence';
-import { GRAPH_SERVICE_LIMITS } from '@/domain/graph-service-limits-values';
 
-const EXCHANGE_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
+const EXCHANGE_WINDOW_MS = 10 * 60 * 1000;
 const EXCHANGE_SLIDE_MS = 1_000;
-// 96% of 10,000 to leave a safety margin before hitting the hard limit
-const EXCHANGE_CAPACITY = Math.floor(GRAPH_SERVICE_LIMITS.outlook.requests_per_window * 0.96);
-const EXCHANGE_CONCURRENCY = GRAPH_SERVICE_LIMITS.outlook.max_concurrent_requests;
+const EXCHANGE_CAPACITY = 9_600;
+const EXCHANGE_CONCURRENCY = 4;
 
 export interface MailboxRateLimiter {
   acquire(cost?: number): Promise<void>;
