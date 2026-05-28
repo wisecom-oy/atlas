@@ -149,8 +149,8 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       );
     }
 
-    if (all_versions.length === 0) return [];
-    return all_versions.filter((v) => v.version_id !== '1');
+    if (all_versions.length <= 1) return [];
+    return all_versions.slice(1);
   }
 
   /** Downloads a specific version's content with size-based timeout. */

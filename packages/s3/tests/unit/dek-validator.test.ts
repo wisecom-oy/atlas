@@ -49,9 +49,18 @@ describe('validate_dek_match', () => {
     const dek = key_service.generate_dek();
     const wrapped = key_service.wrap_dek(dek);
 
-    vi.mocked(target_storage.exists).mockResolvedValue(true);
-    vi.mocked(source_storage.get).mockResolvedValue(wrapped);
-    vi.mocked(target_storage.get).mockResolvedValue(wrapped);
+    vi.mocked(target_storage.exists).mockImplementation(async (key: string) =>
+      key === '_meta/dek.enc' ? true : false,
+    );
+    for (const s of [source_storage, target_storage]) {
+      vi.mocked(s.exists).mockImplementation(async (key: string) =>
+        key === '_meta/dek.enc' ? true : false,
+      );
+      vi.mocked(s.get).mockImplementation(async (key: string) => {
+        if (key === '_meta/dek.enc') return wrapped;
+        throw new Error(`unexpected get(${key})`);
+      });
+    }
 
     await expect(
       validate_dek_match(source_storage, target_storage, passphrase, tenant_id),
@@ -65,9 +74,18 @@ describe('validate_dek_match', () => {
     const wrapped_a = key_service.wrap_dek(dek_a);
     const wrapped_b = key_service.wrap_dek(dek_b);
 
-    vi.mocked(target_storage.exists).mockResolvedValue(true);
-    vi.mocked(source_storage.get).mockResolvedValue(wrapped_a);
-    vi.mocked(target_storage.get).mockResolvedValue(wrapped_b);
+    for (const [s, wrapped] of [
+      [source_storage, wrapped_a],
+      [target_storage, wrapped_b],
+    ] as const) {
+      vi.mocked(s.exists).mockImplementation(async (key: string) =>
+        key === '_meta/dek.enc' ? true : false,
+      );
+      vi.mocked(s.get).mockImplementation(async (key: string) => {
+        if (key === '_meta/dek.enc') return wrapped;
+        throw new Error(`unexpected get(${key})`);
+      });
+    }
 
     await expect(
       validate_dek_match(source_storage, target_storage, passphrase, tenant_id),

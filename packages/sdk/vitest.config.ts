@@ -3,19 +3,33 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const root_dir = dirname(fileURLToPath(import.meta.url));
+const types_src = resolve(root_dir, '../types/src');
+const core_src = resolve(root_dir, '../core/src');
+const m365_src = resolve(root_dir, '../m365-graph/src');
+const s3_src = resolve(root_dir, '../s3/src');
+const outlook_src = resolve(root_dir, '../outlook/src');
+const onedrive_src = resolve(root_dir, '../onedrive/src');
+const sharepoint_src = resolve(root_dir, '../sharepoint/src');
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@': resolve(root_dir, 'src'),
-      '@atlas/types': resolve(root_dir, '../types/src/index.ts'),
-      '@atlas/core': resolve(root_dir, '../core/src/index.ts'),
-      '@atlas/m365-graph': resolve(root_dir, '../m365-graph/src/index.ts'),
-      '@atlas/s3': resolve(root_dir, '../s3/src/index.ts'),
-      '@atlas/outlook': resolve(root_dir, '../outlook/src/index.ts'),
-      '@atlas/onedrive': resolve(root_dir, '../onedrive/src/index.ts'),
-      '@atlas/sharepoint': resolve(root_dir, '../sharepoint/src/index.ts'),
-    },
+    alias: [
+      { find: '@', replacement: resolve(root_dir, 'src') },
+      { find: /^@atlas\/types\/(.+)$/, replacement: `${types_src}/$1` },
+      { find: '@atlas/types', replacement: resolve(types_src, 'index.ts') },
+      { find: /^@atlas\/core\/(.+)$/, replacement: `${core_src}/$1` },
+      { find: '@atlas/core', replacement: resolve(core_src, 'index.ts') },
+      { find: /^@atlas\/m365-graph\/(.+)$/, replacement: `${m365_src}/$1` },
+      { find: '@atlas/m365-graph', replacement: resolve(m365_src, 'index.ts') },
+      { find: /^@atlas\/s3\/(.+)$/, replacement: `${s3_src}/$1` },
+      { find: '@atlas/s3', replacement: resolve(s3_src, 'index.ts') },
+      { find: /^@atlas\/outlook\/(.+)$/, replacement: `${outlook_src}/$1` },
+      { find: '@atlas/outlook', replacement: resolve(outlook_src, 'index.ts') },
+      { find: /^@atlas\/onedrive\/(.+)$/, replacement: `${onedrive_src}/$1` },
+      { find: '@atlas/onedrive', replacement: resolve(onedrive_src, 'index.ts') },
+      { find: /^@atlas\/sharepoint\/(.+)$/, replacement: `${sharepoint_src}/$1` },
+      { find: '@atlas/sharepoint', replacement: resolve(sharepoint_src, 'index.ts') },
+    ],
   },
   test: {
     globals: true,

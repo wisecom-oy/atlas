@@ -25,10 +25,16 @@ let mock_exists_returns = true;
 vi.mock('@/adapters/s3-object-storage.adapter', () => ({
   S3ObjectStorage: class MockS3ObjectStorage {
     put = async (): Promise<void> => {};
-    get = async (): Promise<Buffer> => wrapped_dek;
+    get = async (key: string): Promise<Buffer> => {
+      if (key === '_meta/dek.enc') return wrapped_dek;
+      throw new Error(`unexpected get(${key})`);
+    };
     delete = async (): Promise<void> => {};
     delete_version = async (): Promise<void> => {};
-    exists = async (): Promise<boolean> => mock_exists_returns;
+    exists = async (key: string): Promise<boolean> => {
+      if (key === '_meta/kek_params.json') return false;
+      return mock_exists_returns;
+    };
     list = async (): Promise<string[]> => [];
     list_versions = async (): Promise<string[]> => [];
     begin_multipart_upload = async () => ({

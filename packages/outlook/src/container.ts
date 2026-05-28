@@ -24,22 +24,23 @@ import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup
 
 /** Registers Outlook Graph adapters and backup/restore/save/status use cases on the container. */
 export function bind_outlook(container: Container): void {
-  // Rate limiting + cost-tracking decorator chain for the mailbox connector
   const fence = new ThrottleFence();
   const limiter_factory = new DefaultMailboxRateLimiterFactory(fence);
 
+  container.bind(GraphMailboxConnector).toSelf().inSingletonScope();
   container
     .bind(MAILBOX_CONNECTOR_TOKEN)
     .toDynamicValue((ctx) => {
-      const inner = ctx.container.resolve(GraphMailboxConnector);
+      const inner = ctx.get(GraphMailboxConnector);
       return new RateLimitedGraphConnector(inner, limiter_factory, fence);
     })
     .inSingletonScope();
 
+  container.bind(GraphRestoreConnector).toSelf().inSingletonScope();
   container
     .bind(RESTORE_CONNECTOR_TOKEN)
     .toDynamicValue((ctx) => {
-      const inner = ctx.container.resolve(GraphRestoreConnector);
+      const inner = ctx.get(GraphRestoreConnector);
       return new CostTrackingRestoreConnector(inner);
     })
     .inSingletonScope();

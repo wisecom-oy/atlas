@@ -187,7 +187,7 @@ describe('build_snapshot_manifest', () => {
 
 describe('build_empty_result', () => {
   it('produces a result with snapshot undefined and given counters', () => {
-    const result = build_empty_result('owner-1', 2, 5, 3, 1, 4, 2, [], true);
+    const result = build_empty_result('owner-1', 2, 5, 3, 1, 4, 2, [], [], true);
 
     expect(result.owner_id).toBe('owner-1');
     expect(result.snapshot).toBeUndefined();
@@ -205,7 +205,18 @@ describe('build_empty_result', () => {
   });
 
   it('marks unhealthy when errors are present', () => {
-    const result = build_empty_result('owner-1', 1, 0, 0, 0, 0, 0, ['timeout on file X'], false);
+    const result = build_empty_result(
+      'owner-1',
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      ['timeout on file X'],
+      [],
+      false,
+    );
 
     expect(result.summary.healthy).toBe(false);
     expect(result.summary.errors).toEqual(['timeout on file X']);

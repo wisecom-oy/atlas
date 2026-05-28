@@ -160,7 +160,8 @@ describe('createAtlasInstance', () => {
 
       const result = await atlas.outlook.backup('user@test.com', { force_full: true });
 
-      expect(result).toBe(sync_result);
+      expect(result).toMatchObject(sync_result);
+      expect(result).toHaveProperty('graph_cost');
       expect(mock_backup.sync_mailbox).toHaveBeenCalledWith(TENANT_ID, 'user@test.com', {
         force_full: true,
       });
