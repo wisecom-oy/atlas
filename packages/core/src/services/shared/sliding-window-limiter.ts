@@ -5,11 +5,15 @@
  * Default capacity is 9,600 (96%) to leave breathing room.
  *
  * Inspired by Corso's (alcionai/corso) sliding window implementation.
+ *
+ * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
  */
 
-const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
+import { GRAPH_SERVICE_LIMITS } from '@atlas/types';
+
+const DEFAULT_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const DEFAULT_SLIDE_INTERVAL_MS = 1_000;
-const DEFAULT_CAPACITY = 9_600;
+const DEFAULT_CAPACITY = Math.floor(GRAPH_SERVICE_LIMITS.outlook.requests_per_window * 0.96);
 
 interface PendingAcquire {
   needed: number;

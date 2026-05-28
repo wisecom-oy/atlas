@@ -1,3 +1,5 @@
+import type { OperationCost } from '@/domain/graph-cost';
+
 export interface FolderStatus {
   readonly folder_id: string;
   readonly folder_name: string;
@@ -15,6 +17,8 @@ export interface MailboxStatusResult {
   readonly folders: FolderStatus[];
   readonly is_up_to_date: boolean;
   readonly total_pending_changes: number;
+  /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
+  readonly graph_cost?: OperationCost;
 }
 
 export interface StatusUseCase {

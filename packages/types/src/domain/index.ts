@@ -41,3 +41,11 @@ export type {
   SharePointFileVersionIndex,
   SharePointDeltaCursor,
 } from './sharepoint-manifest';
+export type { OperationCost, ServicePoolCost, GraphServicePool } from './graph-cost';
+export type {
+  GraphServiceLimits,
+  OutlookServiceLimits,
+  SharePointServiceLimits,
+  IdentityServiceLimits,
+} from './graph-service-limits';
+export { GRAPH_SERVICE_LIMITS } from './graph-service-limits-values';

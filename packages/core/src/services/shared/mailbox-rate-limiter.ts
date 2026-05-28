@@ -4,14 +4,15 @@
  * and semaphore, but they all share the same global throttle fence.
  */
 
-import { SlidingWindowLimiter } from '@/services/shared/sliding-window-limiter';
-import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
-import type { ThrottleFence } from '@/services/shared/throttle-fence';
+import { SlidingWindowLimiter } from './sliding-window-limiter';
+import { ConcurrencySemaphore } from './concurrency-semaphore';
+import type { ThrottleFence } from './throttle-fence';
+import { GRAPH_SERVICE_LIMITS } from '@atlas/types';
 
-const EXCHANGE_WINDOW_MS = 10 * 60 * 1000;
+const EXCHANGE_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const EXCHANGE_SLIDE_MS = 1_000;
-const EXCHANGE_CAPACITY = 9_600;
-const EXCHANGE_CONCURRENCY = 4;
+const EXCHANGE_CAPACITY = Math.floor(GRAPH_SERVICE_LIMITS.outlook.requests_per_window * 0.96);
+const EXCHANGE_CONCURRENCY = GRAPH_SERVICE_LIMITS.outlook.max_concurrent_requests;
 
 export interface MailboxRateLimiter {
   acquire(cost?: number): Promise<void>;

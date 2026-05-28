@@ -32,352 +32,54 @@ The SDK uses standard ES6 camelCase naming. All methods are async and return Pro
 
 ## Available Methods
 
-The SDK exposes a nested API: workload-specific methods live under `outlook`, `onedrive`, and `sharepoint`; cross-cutting storage and replication methods stay at the root.
-
-```typescript
-// Outlook: backup a single mailbox
-const result = await atlas.outlook.backup('user@company.com', { force_full: true });
-
-// Outlook: list backed-up mailboxes
-const mailboxes = await atlas.outlook.listMailboxes();
-
-// Outlook: verify snapshot integrity
-const verification = await atlas.outlook.verify('snapshot-id');
-
-// OneDrive: backup user's drive
-const odResult = await atlas.onedrive.backup('owner-id');
-
-// SharePoint: backup a site
-const spResult = await atlas.sharepoint.backup('site-id');
-
-// Cross-cutting: check storage
-const check = await atlas.checkStorage();
-```
-
-## Outlook Methods
-
-All mailbox operations are scoped under `atlas.outlook`.
-
 ```typescript
 // backup a single mailbox (long-running)
-const result = await atlas.outlook.backup('user@company.com', { force_full: true });
+const result = await atlas.backupMailbox('user@company.com', { force_full: true });
+
+// list backed-up mailboxes
+const mailboxes = await atlas.listMailboxes();
+
+// list snapshots for a mailbox
+const snapshots = await atlas.listSnapshots('user@company.com');
 
 // verify snapshot integrity
-const verification = await atlas.outlook.verify('snapshot-id');
+const verification = await atlas.verifySnapshot('snapshot-id');
 
 // restore from a specific snapshot (long-running)
-const restore = await atlas.outlook.restore('snapshot-id', { folder_name: 'Inbox' });
+const restore = await atlas.restoreSnapshot('snapshot-id', { folder_name: 'Inbox' });
 
 // restore all snapshots for a mailbox (long-running)
-const fullRestore = await atlas.outlook.restoreMailbox('user@company.com');
+const fullRestore = await atlas.restoreMailbox('user@company.com');
 
 // save snapshot as EML zip archive
-const save = await atlas.outlook.save('snapshot-id', {
+const save = await atlas.saveSnapshot('snapshot-id', {
   folder_name: 'Inbox',
   output_path: 'backup.zip',
 });
 
 // save all snapshots for a mailbox as EML zip archive
-const fullSave = await atlas.outlook.saveMailbox('user@company.com', {
+const fullSave = await atlas.saveMailbox('user@company.com', {
   output_path: 'full-backup.zip',
   skip_integrity_check: true,
 });
 
-// list backed-up mailboxes
-const mailboxes = await atlas.outlook.listMailboxes();
-
-// list snapshots for a mailbox
-const snapshots = await atlas.outlook.listSnapshots('user@company.com');
-
-// get full manifest for a snapshot
-const detail = await atlas.outlook.getSnapshotDetail('snapshot-id');
-
 // read a single message
-const message = await atlas.outlook.readMessage('snapshot-id', 'msg-42');
+const message = await atlas.readMessage('snapshot-id', 'msg-42');
 
-// delete all data for a mailbox
-const deletion = await atlas.outlook.deleteMailboxData('user@company.com');
-
-// delete a single snapshot
-await atlas.outlook.deleteSnapshot('snapshot-id');
-
-// get storage stats for a mailbox
-const stats = await atlas.outlook.getMailboxStats('user@company.com');
+// delete mailbox data
+const deletion = await atlas.deleteMailboxData('user@company.com');
 
 // check if a mailbox backup is current (fast delta peek)
-const status = await atlas.outlook.checkMailboxStatus('user@company.com');
+const status = await atlas.checkMailboxStatus('user@company.com');
 console.log(status.is_up_to_date, status.total_pending_changes);
 
-// purge all backed-up data for this tenant
-const purge = await atlas.outlook.purgeTenantData();
-
-// discover available mailboxes via Graph API (not just backed-up ones)
-const available = await atlas.outlook.listAvailableMailboxes();
-const licensedOnly = await atlas.outlook.listAvailableMailboxes({ licensed_only: true });
-```
-
-| Method | Description |
-| ------ | ----------- |
-| `backup(mailboxId, options?)` | Back up a single mailbox |
-| `verify(snapshotId)` | Verify snapshot integrity |
-| `restore(snapshotId, options?)` | Restore from a specific snapshot |
-| `restoreMailbox(mailboxId, options?)` | Restore all snapshots for a mailbox |
-| `save(snapshotId, options?)` | Save snapshot as EML zip archive |
-| `saveMailbox(mailboxId, options?)` | Save all snapshots for a mailbox as EML zip |
-| `listMailboxes()` | List backed-up mailboxes from catalog |
-| `listSnapshots(mailboxId)` | List snapshots for a mailbox |
-| `getSnapshotDetail(snapshotId)` | Get full manifest for a snapshot |
-| `readMessage(snapshotId, messageRef)` | Decrypt and read a single message |
-| `deleteMailboxData(mailboxId)` | Delete all backed-up data for a mailbox |
-| `deleteSnapshot(snapshotId)` | Delete a single snapshot manifest |
-| `purgeTenantData()` | Delete all data, manifests, and keys for the tenant |
-| `getMailboxStats(mailboxId)` | Get storage stats for a mailbox |
-| `checkMailboxStatus(mailboxId)` | Peek at delta state to check if backup is current |
-| `listAvailableMailboxes(options?)` | Discover tenant mailboxes via Graph API |
-
-## OneDrive Methods
-
-OneDrive operations are scoped under `atlas.onedrive`. Methods take an `ownerId` -- the Entra object ID of the user whose drive is being backed up, verified, or restored.
-
-```typescript
-// incremental backup (delta sync)
-const result = await atlas.onedrive.backup('owner-id');
-
-// force full crawl
-const full = await atlas.onedrive.backup('owner-id', { force_full: true });
-
-// verify snapshot integrity (blob checksums + index consistency)
-const verify = await atlas.onedrive.verify('owner-id', 'snapshot-id');
-console.log(`Checked: ${verify.total_checked}, Passed: ${verify.passed}`);
-
-// restore files from a snapshot (long-running)
-const restore = await atlas.onedrive.restore('owner-id', {
-  snapshot_id: 'snapshot-id',
-  conflict_behavior: 'rename',
-});
-
-// save files from a snapshot to a local zip archive
-const saved = await atlas.onedrive.save('owner-id', {
-  snapshot_id: 'od-snap-123',
-  output_path: 'onedrive-backup.zip',
-});
-console.log(`Saved: ${saved.files_saved} files (${saved.total_bytes} bytes)`);
-
-// save specific files only
-const partial = await atlas.onedrive.save('owner-id', {
-  snapshot_id: 'od-snap-123',
-  file_filter: ['/Documents/report.docx'],
-  skip_integrity_check: true,
-});
-
-// list snapshots for a user
-const snapshots = await atlas.onedrive.listSnapshots('owner-id');
-
-// list version history for a file
-const versions = await atlas.onedrive.listFileVersions('owner-id', 'file-ref');
-
-// delete all backed-up data for a user
-const deletion = await atlas.onedrive.deleteOwnerData('owner-id');
-
-// delete a single snapshot
-await atlas.onedrive.deleteSnapshot('owner-id', 'snapshot-id');
-
-// check if a OneDrive backup is current (fast delta peek)
-const odStatus = await atlas.onedrive.checkStatus('owner-id');
-console.log(odStatus.is_up_to_date, odStatus.total_pending_changes);
-
-// replicate to secondary storage
-const odReplication = await atlas.onedrive.replicateAll('owner-id', [offsite]);
-const odSingle = await atlas.onedrive.replicateSnapshot('owner-id', 'snapshot-id', [offsite]);
-
-// disaster recovery from replica
-await atlas.onedrive.rehydrateOwner('owner-id', offsite);
-await atlas.onedrive.rehydrateSnapshot('owner-id', 'snapshot-id', offsite);
-```
-
-| Method | Description |
-| ------ | ----------- |
-| `backup(ownerId, options?)` | Incremental backup of a user's OneDrive |
-| `verify(ownerId, snapshotId)` | Verify snapshot blob integrity and index consistency |
-| `restore(ownerId, options)` | Restore files from a snapshot to the user's OneDrive |
-| `save(ownerId, options)` | Decrypt and save files from a snapshot to a local zip archive |
-| `listSnapshots(ownerId)` | List all snapshots for a user |
-| `listFileVersions(ownerId, fileRef)` | List all backed-up versions for a specific file |
-| `deleteOwnerData(ownerId)` | Delete all backed-up data for a user |
-| `deleteSnapshot(ownerId, snapshotId)` | Delete a single snapshot manifest |
-| `checkStatus(ownerId)` | Peek at delta state to check if backup is current |
-| `replicateSnapshot(ownerId, snapshotId, targets)` | Replicate one sealed OneDrive snapshot |
-| `replicateAll(ownerId, targets)` | Replicate all unreplicated snapshots for a user |
-| `rehydrateSnapshot(ownerId, snapshotId, source)` | Recover one snapshot from a replica |
-| `rehydrateOwner(ownerId, source)` | Recover all snapshots for a user from a replica |
-
-`backup` accepts optional `OneDriveBackupOptions`:
-
-| Option               | Type      | Description                          |
-| -------------------- | --------- | ------------------------------------ |
-| `force_full`         | `boolean` | Ignore saved delta links, full crawl |
-| `owner_email`        | `string`  | Display email for the owner          |
-| `owner_display_name` | `string`  | Human-readable owner name            |
-
-## SharePoint Methods
-
-SharePoint operations are scoped under `atlas.sharepoint`. Methods take a `siteId` -- the Graph API site identifier or a site URL resolved by the connector.
-
-```typescript
-// incremental backup (delta sync)
-const result = await atlas.sharepoint.backup('site-id');
-
-// force full crawl
-const full = await atlas.sharepoint.backup('site-id', { force_full: true });
-
-// verify snapshot integrity (blob checksums + index consistency)
-const verify = await atlas.sharepoint.verify('site-id', 'snapshot-id');
-console.log(`Checked: ${verify.total_checked}, Passed: ${verify.passed}`);
-if (verify.failed_file_ids.length > 0) {
-  console.error('Corrupt files:', verify.failed_file_ids);
-}
-
-// restore files from a snapshot back to the site
-const restored = await atlas.sharepoint.restore('site-id', { snapshot_id: 'sp-snap-123' });
-console.log(`Restored: ${restored.files_restored} files, ${restored.folders_created} folders`);
-
-// restore to a different site with file filter
-await atlas.sharepoint.restore('site-id', {
-  snapshot_id: 'sp-snap-123',
-  target_site_id: 'other-site-id',
-  file_filter: ['/Documents/report.docx'],
-  conflict_behavior: 'replace',
-});
-
-// save files from a snapshot to a local zip archive
-const saved = await atlas.sharepoint.save('site-id', {
-  snapshot_id: 'sp-snap-123',
-  output_path: 'sharepoint-backup.zip',
-});
-console.log(`Saved: ${saved.files_saved} files (${saved.total_bytes} bytes)`);
-
-// list all snapshots for a site
-const snapshots = await atlas.sharepoint.listSnapshots('site-id');
-
-// list all backed-up versions for a specific file
-const versions = await atlas.sharepoint.listFileVersions('site-id', 'file-ref');
-
-// discover available sites via Graph API
-const sites = await atlas.sharepoint.listSites();
-
-// resolve a site by URL or ID
-const site = await atlas.sharepoint.resolveSite('https://company.sharepoint.com/sites/project');
-
-// delete all backed-up data for a site
-const spDeletion = await atlas.sharepoint.deleteSiteData('site-id');
-
-// delete a single snapshot
-await atlas.sharepoint.deleteSnapshot('site-id', 'snapshot-id');
-
-// check if a SharePoint backup is current (fast delta peek)
-const spStatus = await atlas.sharepoint.checkStatus('site-id');
-console.log(spStatus.is_up_to_date, spStatus.total_pending_changes);
-
-// replicate to secondary storage
-const replication = await atlas.sharepoint.replicateAll('site-id', [offsite]);
-const single = await atlas.sharepoint.replicateSnapshot('site-id', 'snapshot-id', [offsite]);
-
-// disaster recovery from replica
-await atlas.sharepoint.rehydrateSite('site-id', offsite);
-await atlas.sharepoint.rehydrateSnapshot('site-id', 'snapshot-id', offsite);
-```
-
-`backup` accepts optional `SharePointBackupOptions`:
-
-| Option             | Type      | Description                              |
-| ------------------ | --------- | ---------------------------------------- |
-| `force_full`       | `boolean` | Ignore saved delta links, full crawl     |
-| `site_url`         | `string`  | Display URL for the site                 |
-| `site_display_name`| `string`  | Human-readable site name                 |
-
-`restore` accepts `SharePointRestoreOptions`:
-
-| Option | Type | Description |
-| --- | --- | --- |
-| `snapshot_id` | `string` | Snapshot to restore from (required) |
-| `target_site_id` | `string` | Restore to a different site (defaults to original) |
-| `file_filter` | `string[]` | Only restore specific files (by ID or path) |
-| `conflict_behavior` | `'replace' \| 'rename' \| 'fail'` | File conflict policy (default: `rename`) |
-
-| Method | Description |
-| ------ | ----------- |
-| `restore(siteId, options)` | Restore files from a snapshot to the site's document libraries |
-| `save(siteId, options)` | Decrypt and save files from a snapshot to a local zip archive |
-| `listSnapshots(siteId)` | List all snapshots for a site |
-| `listFileVersions(siteId, fileRef)` | List all backed-up versions for a specific file |
-| `listSites()` | Discover all SharePoint sites in the tenant |
-| `resolveSite(urlOrId)` | Resolve a site URL or ID to a site object |
-| `deleteSiteData(siteId)` | Delete all backed-up data for a site |
-| `deleteSnapshot(siteId, snapshotId)` | Delete a single snapshot manifest |
-| `checkStatus(siteId)` | Peek at delta state to check if backup is current |
-| `replicateSnapshot(siteId, snapshotId, targets)` | Replicate one sealed SharePoint snapshot |
-| `replicateAll(siteId, targets)` | Replicate all unreplicated snapshots for a site |
-| `rehydrateSnapshot(siteId, snapshotId, source)` | Recover one snapshot from a replica |
-| `rehydrateSite(siteId, source)` | Recover all site snapshots from a replica |
-
-`verify` returns a `SharePointVerificationResult`:
-
-```typescript
-interface SharePointVerificationResult {
-  snapshot_id: string;
-  total_checked: number;
-  passed: number;
-  failed_file_ids: string[];
-  index_issues: string[];
-}
-```
-
-## Cross-cutting Methods
-
-Storage checks, bucket statistics, identity resolution, and replication/rehydration live at the root of the instance (not under a workload namespace).
-
-```typescript
 // check storage readiness
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 });
-
-// get tenant-wide bucket statistics
-const bucketStats = await atlas.getBucketStats();
-
-// resolve a user email/UPN to their Entra object ID
-const user = await atlas.resolveUser('alice@company.com');
-console.log(user.object_id, user.display_name);
-
-// list all users in the identity registry
-const registry = await atlas.listUsers();
-if (registry) {
-  for (const entry of registry.entries) {
-    console.log(entry.email, entry.display_name, entry.status);
-  }
-}
-
-// replicate a snapshot to secondary targets
-const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
-
-// replicate all unreplicated snapshots for a mailbox
-const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
-
-// query replication status
-const status = await atlas.getReplicationStatus('snapshot-id');
-const mailboxStatus = await atlas.getReplicationStatusByMailbox('user@company.com');
-
-// disaster recovery: recover from a replica
-await atlas.rehydrateSnapshot('snapshot-id', offsite);
-await atlas.rehydrateMailbox('user@company.com', offsite);
-await atlas.rehydrateTenant(offsite);
 ```
-
-See [Replication](#replication) below for `createStorageTarget` setup and full replication workflow details.
 
 ## Save Options
 
-### Outlook Save Options
-
-The `atlas.outlook.save` and `atlas.outlook.saveMailbox` methods accept the following options:
+The `saveSnapshot` and `saveMailbox` methods accept the following options:
 
 | Option                 | Type      | Description                                               |
 | ---------------------- | --------- | --------------------------------------------------------- |
@@ -403,34 +105,47 @@ interface SaveResult {
 }
 ```
 
-### OneDrive / SharePoint Save Options
+## Restore Options
 
-The `atlas.onedrive.save` and `atlas.sharepoint.save` methods accept `FileSaveOptions`:
+The `restoreSnapshot` and `restoreMailbox` methods accept the following options:
 
-| Option                 | Type       | Description                                                   |
-| ---------------------- | ---------- | ------------------------------------------------------------- |
-| `snapshot_id`          | `string`   | Snapshot to save from (required)                              |
-| `file_filter`          | `string[]` | Only save specific files (by ID or full path)                 |
-| `output_path`          | `string`   | Output zip file path (default: auto-generated)                |
-| `skip_integrity_check` | `boolean`  | Skip SHA-256 verification (default: `false`)                  |
+| Option           | Type     | Description                              |
+| ---------------- | -------- | ---------------------------------------- |
+| `folder_name`    | `string` | Restore only messages from this folder   |
+| `message_ref`    | `string` | Restore a single message by index or ID  |
+| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore |
+| `start_date`     | `Date`   | Include snapshots on or after this date  |
+| `end_date`       | `Date`   | Include snapshots on or before this date |
 
-Both methods return a `FileSaveResult`:
+Both methods return a `RestoreResult`:
 
 ```typescript
-interface FileSaveResult {
+interface RestoreResult {
   snapshot_id: string;
-  files_saved: number;
-  files_skipped: number;
+  restored_count: number;
+  attachment_count: number;
+  error_count: number;
+  attachment_error_count: number;
+  verification_failures: number;
   errors: string[];
-  integrity_failures: string[];
-  output_path: string;
-  total_bytes: number;
+  attachment_errors: string[];
+  verification_warnings: string[];
+  restore_folder_name: string;
 }
 ```
 
+| Field                    | Description                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `error_count`            | Message-level failures. Matches `errors.length`.                                            |
+| `attachment_error_count` | Attachment-level failures. Matches `attachment_errors.length`.                              |
+| `verification_failures`  | Messages that may not have persisted, based on post-restore folder count verification.      |
+| `errors`                 | Human-readable detail for each message-level failure.                                       |
+| `attachment_errors`      | Human-readable detail for each attachment-level failure.                                    |
+| `verification_warnings`  | Per-folder verification warnings, including API failures that prevented count confirmation. |
+
 ## Batch Processing
 
-For backing up multiple mailboxes, the recommended approach is the CLI's built-in tenant-wide mode (`atlas outlook backup` without `-m`), which handles parallel workers with rate limiting and a live dashboard.
+For backing up multiple mailboxes, the recommended approach is the CLI's built-in tenant-wide mode (`atlas backup` without `-m`), which handles parallel workers with rate limiting and a live dashboard.
 
 For SDK usage, create one instance and iterate sequentially. Each backup/restore/save operation makes hundreds or thousands of Microsoft Graph API requests internally, so running mailboxes in parallel with `Promise.all` would overwhelm the Graph API and trigger aggressive throttling (HTTP 429 responses). Atlas retries throttled requests with exponential backoff up to 12 times, but parallel mailbox processing multiplies the request rate and makes throttling almost guaranteed. Sequential loops ensure reliable throughput:
 
@@ -438,7 +153,7 @@ For SDK usage, create one instance and iterate sequentially. Each backup/restore
 const mailboxIds = ['alice@company.com', 'bob@company.com', 'carol@company.com'];
 
 for (const mailboxId of mailboxIds) {
-  const result = await atlas.outlook.backup(mailboxId);
+  const result = await atlas.backupMailbox(mailboxId);
   console.log(`${mailboxId}: snapshot ${result.snapshot.id}`);
 }
 ```
@@ -450,7 +165,9 @@ The SDK supports snapshot-level replication and disaster recovery rehydration. A
 ```typescript
 import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
 
-const atlas = createAtlasInstance({ /* primary config */ });
+const atlas = createAtlasInstance({
+  /* primary config */
+});
 
 const offsite = createStorageTarget({
   targetId: 'offsite-dr',
@@ -477,27 +194,146 @@ await atlas.rehydrateTenant(offsite);
 
 `createStorageTarget` accepts a `StorageTargetConfig`:
 
-| Option                 | Type     | Description                                                    |
-| ---------------------- | -------- | -------------------------------------------------------------- |
+| Option                 | Type     | Description                                                      |
+| ---------------------- | -------- | ---------------------------------------------------------------- |
 | `targetId`             | `string` | Stable human-readable ID (auto-derived from endpoint if omitted) |
-| `s3Endpoint`           | `string` | S3 endpoint URL                                                |
-| `s3AccessKey`          | `string` | S3 access key                                                  |
-| `s3SecretKey`          | `string` | S3 secret key                                                  |
-| `s3Region`             | `string` | S3 region (default: `us-east-1`)                               |
-| `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)    |
+| `s3Endpoint`           | `string` | S3 endpoint URL                                                  |
+| `s3AccessKey`          | `string` | S3 access key                                                    |
+| `s3SecretKey`          | `string` | S3 secret key                                                    |
+| `s3Region`             | `string` | S3 region (default: `us-east-1`)                                 |
+| `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)      |
+
+## Graph API Cost Tracking
+
+Every SDK method that interacts with Microsoft Graph reports how many API requests it made, broken down by service pool. The cost is returned as a `graph_cost` field on the result:
+
+```typescript
+const result = await atlas.backupMailbox('user@company.com');
+
+console.log(result.graph_cost);
+// {
+//   requests_total: 852,
+//   by_service: {
+//     outlook: { requests: 847, resource_units: 847, upload_bytes: 0 },
+//     identity: { requests: 5, resource_units: 5, upload_bytes: 0 },
+//   },
+//   requests_by_type: {
+//     delta_sync: 312, fetch_attachments: 530,
+//     list_folders: 5, mailbox_exists: 2, list_users: 3,
+//   },
+//   elapsed_ms: 45200,
+// }
+```
+
+Methods that report `graph_cost`: `backupMailbox`, `restoreSnapshot`, `restoreMailbox`, `checkMailboxStatus`.
+
+### OperationCost Type
+
+```typescript
+interface OperationCost {
+  requests_total: number;
+  by_service: Partial<Record<GraphServicePool, ServicePoolCost>>;
+  requests_by_type: Record<string, number>;
+  elapsed_ms: number;
+}
+
+interface ServicePoolCost {
+  requests: number; // API calls made against this pool
+  resource_units: number; // RU consumed (equals requests for flat-cost Outlook pool)
+  upload_bytes: number; // Request body bytes (relevant for Outlook 150 MB/5min limit)
+}
+
+type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
+```
+
+Only pools that were actually used during the operation appear as keys in `by_service`. A mail backup typically has `outlook` and `identity` entries.
+
+### GRAPH_SERVICE_LIMITS
+
+The officially-sourced throttling limits are exported as a frozen constant so your scheduler can use the same numbers Atlas uses internally:
+
+```typescript
+import { GRAPH_SERVICE_LIMITS } from 'm365-atlas/sdk';
+
+const outlook = GRAPH_SERVICE_LIMITS.outlook;
+// outlook.requests_per_window      => 10,000
+// outlook.window_duration_ms       => 600,000 (10 min)
+// outlook.max_concurrent_requests  => 4
+
+const sp = GRAPH_SERVICE_LIMITS.sharepoint_onedrive;
+// sp.resource_units_per_minute['0-1000'] => 1,250
+// sp.delta_with_token_cost               => 1
+
+const identity = GRAPH_SERVICE_LIMITS.identity;
+// identity.resource_units_per_10s['L']   => 8,000
+// identity.users_list_cost               => 2
+```
+
+See the [Graph API Rate Limits](/operations/graph-rate-limits) page for the full reference including all pool limits, cost models, and official Microsoft documentation links.
+
+### Scheduling with pg-boss
+
+A common pattern for SaaS products is to queue one job per mailbox using pg-boss and use `graph_cost` to compute a cooldown before scheduling the next job:
+
+```typescript
+import { createAtlasInstance, GRAPH_SERVICE_LIMITS } from 'm365-atlas/sdk';
+import type { OperationCost } from 'm365-atlas/sdk';
+import PgBoss from 'pg-boss';
+
+const boss = new PgBoss(DATABASE_URL);
+
+boss.work('backup-mailbox', async (job) => {
+  const { tenant_config, mailbox_id } = job.data;
+  const atlas = createAtlasInstance(tenant_config);
+
+  const result = await atlas.backupMailbox(mailbox_id);
+  const cost: OperationCost = result.graph_cost;
+
+  // Store per-pool costs for trend analysis
+  await db.query(
+    `INSERT INTO backup_costs
+       (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
+     VALUES ($1, $2, $3, $4, NOW())`,
+    [
+      mailbox_id,
+      cost.by_service.outlook?.requests ?? 0,
+      cost.by_service.identity?.requests ?? 0,
+      cost.elapsed_ms,
+    ],
+  );
+
+  // Compute cooldown from the Outlook pool limit (bottleneck for mail backup)
+  const outlook_limits = GRAPH_SERVICE_LIMITS.outlook;
+  const outlook_used = cost.by_service.outlook?.requests ?? 0;
+  const usage_ratio = outlook_used / outlook_limits.requests_per_window;
+  const cooldown_ms = Math.ceil(usage_ratio * outlook_limits.window_duration_ms);
+
+  // Re-enqueue after cooldown
+  await boss.send('backup-mailbox', job.data, {
+    startAfter: new Date(Date.now() + cooldown_ms),
+  });
+});
+```
+
+Because the Outlook pool limit is per-mailbox, each mailbox's cooldown is independent. Running 50 parallel pg-boss workers for 50 different mailboxes is safe -- they do not share quota.
+
+For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. You would need to aggregate `resource_units` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resource_units_per_minute['<tier>']` before scheduling the next OneDrive job.
 
 ## Exports
 
-The SDK exports its own types via `m365-atlas/sdk`. Domain types, port interfaces, and result types are available from the root `m365-atlas` import for advanced use cases.
+The SDK exports its own types via `m365-atlas/sdk`. Domain types, port interfaces, and result types are available from the root `m365-atlas` import for advanced use cases. Status-related types (`MailboxStatusResult`, `FolderStatus`), replication types (`ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`), and `createStorageTarget` are also exported from `m365-atlas/sdk`.
 
-From `m365-atlas/sdk`:
+**Graph cost types** exported from `m365-atlas/sdk`:
 
-- Instance types: `AtlasInstance`, `AtlasInstanceConfig`
-- Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
-- Stats types: `BucketStats`, `MailboxStats`, `FolderStats`, `MonthlyBreakdown`
-- Status types: `MailboxStatusResult`, `FolderStatus`, `OneDriveStatusResult`, `OneDriveDriveStatus`, `SharePointStatusResult`, `SharePointLibraryStatus`
-- Identity types: `ResolvedUserIdentity`, `IdentityRegistry`, `IdentityRegistryEntry`
-- Discovery types: `TenantMailbox`, `MailboxDiscoveryOptions`
-- Deletion types: `DeletionResult`
-- Replication types: `ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`
-- Factory functions: `createAtlasInstance`, `createStorageTarget`
+| Export                    | Kind  | Description                                                            |
+| ------------------------- | ----- | ---------------------------------------------------------------------- |
+| `OperationCost`           | type  | Per-operation cost breakdown                                           |
+| `ServicePoolCost`         | type  | Cost for a single service pool                                         |
+| `GraphServicePool`        | type  | Pool identifier union type                                             |
+| `GraphServiceLimits`      | type  | Type for the full limits constant                                      |
+| `OutlookServiceLimits`    | type  | Outlook pool limits type                                               |
+| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                   |
+| `IdentityServiceLimits`   | type  | Identity pool limits type                                              |
+| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                        |
+| `SyncResult`              | type  | Result of `backupMailbox` (includes `graph_cost`)                      |
+| `RestoreResult`           | type  | Result of `restoreSnapshot` / `restoreMailbox` (includes `graph_cost`) |

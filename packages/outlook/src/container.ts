@@ -12,6 +12,10 @@ import {
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import { GraphRestoreConnector } from '@/adapters/graph-restore-connector.adapter';
 import { GraphMailboxDiscoveryAdapter } from '@/adapters/graph-mailbox-discovery.adapter';
+import { CostTrackingRestoreConnector } from '@/adapters/cost-tracking-restore-connector.adapter';
+import { RateLimitedGraphConnector } from '@atlas/m365-graph';
+import { ThrottleFence } from '@atlas/core/services/shared/throttle-fence';
+import { DefaultMailboxRateLimiterFactory } from '@atlas/core/services/shared/mailbox-rate-limiter';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import { RestoreService } from '@/services/restore/restore.service';
 import { SaveService } from '@/services/save/save.service';
@@ -20,8 +24,25 @@ import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup
 
 /** Registers Outlook Graph adapters and backup/restore/save/status use cases on the container. */
 export function bind_outlook(container: Container): void {
-  container.bind(MAILBOX_CONNECTOR_TOKEN).to(GraphMailboxConnector).inSingletonScope();
-  container.bind(RESTORE_CONNECTOR_TOKEN).to(GraphRestoreConnector).inSingletonScope();
+  // Rate limiting + cost-tracking decorator chain for the mailbox connector
+  const fence = new ThrottleFence();
+  const limiter_factory = new DefaultMailboxRateLimiterFactory(fence);
+
+  container
+    .bind(MAILBOX_CONNECTOR_TOKEN)
+    .toDynamicValue((ctx) => {
+      const inner = ctx.container.resolve(GraphMailboxConnector);
+      return new RateLimitedGraphConnector(inner, limiter_factory, fence);
+    })
+    .inSingletonScope();
+
+  container
+    .bind(RESTORE_CONNECTOR_TOKEN)
+    .toDynamicValue((ctx) => {
+      const inner = ctx.container.resolve(GraphRestoreConnector);
+      return new CostTrackingRestoreConnector(inner);
+    })
+    .inSingletonScope();
   container.bind(MAILBOX_DISCOVERY_TOKEN).to(GraphMailboxDiscoveryAdapter).inSingletonScope();
 
   container.bind(MailboxSyncService).toSelf();

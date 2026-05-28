@@ -2,8 +2,7 @@ import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   title: 'M365 Atlas',
-  description:
-    'Secure, deduplicated Microsoft 365 backups for Outlook, OneDrive, and SharePoint to S3-compatible storage.',
+  description: 'Secure, deduplicated Microsoft 365 mailbox backups to S3-compatible storage.',
 
   base: '/atlas/',
   cleanUrls: true,
@@ -14,8 +13,7 @@ export default defineConfig({
       'meta',
       {
         name: 'keywords',
-        content:
-          'm365, backup, email, microsoft 365, s3, minio, encryption, outlook, onedrive, sharepoint',
+        content: 'm365, backup, email, microsoft 365, s3, minio, encryption, outlook',
       },
     ],
   ],
@@ -37,12 +35,21 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Getting Started', link: '/getting-started' },
-          { text: 'Self-Hosting', link: '/self-hosting' },
+          {
+            text: 'Self-Hosting',
+            collapsed: false,
+            items: [
+              { text: 'Overview', link: '/self-hosting/' },
+              { text: 'Storage Setup', link: '/self-hosting/storage' },
+              { text: 'Scheduling & Bandwidth', link: '/self-hosting/scheduling' },
+              { text: 'Replication Setup', link: '/self-hosting/replication' },
+            ],
+          },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Azure AD Setup', link: '/azure-ad-setup' },
-          { text: 'OneDrive Backup', link: '/onedrive-backup' },
-          { text: 'SharePoint Backup', link: '/sharepoint-backup' },
           { text: 'Security', link: '/security' },
+          { text: 'Concepts', link: '/concepts' },
+          { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
       {
@@ -52,16 +59,29 @@ export default defineConfig({
           { text: 'Delta Sync', link: '/operations/delta-sync' },
           { text: 'Storage Layout', link: '/operations/storage-layout' },
           { text: 'Replication', link: '/operations/replication' },
-          { text: 'Performance Profiling', link: '/operations/performance-profiling' },
+          { text: 'Graph API Rate Limits', link: '/operations/graph-rate-limits' },
         ],
       },
       {
         text: 'Reference',
         items: [
           { text: 'CLI Commands', link: '/reference/cli' },
+          { text: 'CLI — Recovery & Management', link: '/reference/cli-recovery' },
           { text: 'Programmatic SDK', link: '/reference/sdk' },
-          { text: 'SDK Examples', link: '/reference/examples' },
+          {
+            text: 'Examples',
+            collapsed: false,
+            items: [
+              { text: 'Backup Patterns', link: '/reference/examples/backup' },
+              { text: 'Maintenance & Monitoring', link: '/reference/examples/maintenance' },
+              { text: 'Export & Compliance', link: '/reference/examples/export' },
+            ],
+          },
         ],
+      },
+      {
+        text: 'Project',
+        items: [{ text: 'Roadmap', link: '/roadmap' }],
       },
     ],
 
