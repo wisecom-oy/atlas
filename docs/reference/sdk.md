@@ -109,13 +109,13 @@ interface SaveResult {
 
 The `restoreSnapshot` and `restoreMailbox` methods accept the following options:
 
-| Option           | Type     | Description                                    |
-| ---------------- | -------- | ---------------------------------------------- |
-| `folder_name`    | `string` | Restore only messages from this folder         |
-| `message_ref`    | `string` | Restore a single message by index or ID        |
-| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore       |
-| `start_date`     | `Date`   | Include snapshots on or after this date         |
-| `end_date`       | `Date`   | Include snapshots on or before this date        |
+| Option           | Type     | Description                              |
+| ---------------- | -------- | ---------------------------------------- |
+| `folder_name`    | `string` | Restore only messages from this folder   |
+| `message_ref`    | `string` | Restore a single message by index or ID  |
+| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore |
+| `start_date`     | `Date`   | Include snapshots on or after this date  |
+| `end_date`       | `Date`   | Include snapshots on or before this date |
 
 Both methods return a `RestoreResult`:
 
@@ -134,14 +134,14 @@ interface RestoreResult {
 }
 ```
 
-| Field | Description |
-|-------|-------------|
-| `error_count` | Message-level failures. Matches `errors.length`. |
-| `attachment_error_count` | Attachment-level failures. Matches `attachment_errors.length`. |
-| `verification_failures` | Messages that may not have persisted, based on post-restore folder count verification. |
-| `errors` | Human-readable detail for each message-level failure. |
-| `attachment_errors` | Human-readable detail for each attachment-level failure. |
-| `verification_warnings` | Per-folder verification warnings, including API failures that prevented count confirmation. |
+| Field                    | Description                                                                                 |
+| ------------------------ | ------------------------------------------------------------------------------------------- |
+| `error_count`            | Message-level failures. Matches `errors.length`.                                            |
+| `attachment_error_count` | Attachment-level failures. Matches `attachment_errors.length`.                              |
+| `verification_failures`  | Messages that may not have persisted, based on post-restore folder count verification.      |
+| `errors`                 | Human-readable detail for each message-level failure.                                       |
+| `attachment_errors`      | Human-readable detail for each attachment-level failure.                                    |
+| `verification_warnings`  | Per-folder verification warnings, including API failures that prevented count confirmation. |
 
 ## Batch Processing
 
@@ -165,7 +165,9 @@ The SDK supports snapshot-level replication and disaster recovery rehydration. A
 ```typescript
 import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
 
-const atlas = createAtlasInstance({ /* primary config */ });
+const atlas = createAtlasInstance({
+  /* primary config */
+});
 
 const offsite = createStorageTarget({
   targetId: 'offsite-dr',
@@ -192,15 +194,146 @@ await atlas.rehydrateTenant(offsite);
 
 `createStorageTarget` accepts a `StorageTargetConfig`:
 
-| Option                 | Type     | Description                                                    |
-| ---------------------- | -------- | -------------------------------------------------------------- |
+| Option                 | Type     | Description                                                      |
+| ---------------------- | -------- | ---------------------------------------------------------------- |
 | `targetId`             | `string` | Stable human-readable ID (auto-derived from endpoint if omitted) |
-| `s3Endpoint`           | `string` | S3 endpoint URL                                                |
-| `s3AccessKey`          | `string` | S3 access key                                                  |
-| `s3SecretKey`          | `string` | S3 secret key                                                  |
-| `s3Region`             | `string` | S3 region (default: `us-east-1`)                               |
-| `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)    |
+| `s3Endpoint`           | `string` | S3 endpoint URL                                                  |
+| `s3AccessKey`          | `string` | S3 access key                                                    |
+| `s3SecretKey`          | `string` | S3 secret key                                                    |
+| `s3Region`             | `string` | S3 region (default: `us-east-1`)                                 |
+| `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)      |
+
+## Graph API Cost Tracking
+
+Every SDK method that interacts with Microsoft Graph reports how many API requests it made, broken down by service pool. The cost is returned as a `graph_cost` field on the result:
+
+```typescript
+const result = await atlas.backupMailbox('user@company.com');
+
+console.log(result.graph_cost);
+// {
+//   requests_total: 852,
+//   by_service: {
+//     outlook: { requests: 847, resource_units: 847, upload_bytes: 0 },
+//     identity: { requests: 5, resource_units: 5, upload_bytes: 0 },
+//   },
+//   requests_by_type: {
+//     delta_sync: 312, fetch_attachments: 530,
+//     list_folders: 5, mailbox_exists: 2, list_users: 3,
+//   },
+//   elapsed_ms: 45200,
+// }
+```
+
+Methods that report `graph_cost`: `backupMailbox`, `restoreSnapshot`, `restoreMailbox`, `checkMailboxStatus`.
+
+### OperationCost Type
+
+```typescript
+interface OperationCost {
+  requests_total: number;
+  by_service: Partial<Record<GraphServicePool, ServicePoolCost>>;
+  requests_by_type: Record<string, number>;
+  elapsed_ms: number;
+}
+
+interface ServicePoolCost {
+  requests: number; // API calls made against this pool
+  resource_units: number; // RU consumed (equals requests for flat-cost Outlook pool)
+  upload_bytes: number; // Request body bytes (relevant for Outlook 150 MB/5min limit)
+}
+
+type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
+```
+
+Only pools that were actually used during the operation appear as keys in `by_service`. A mail backup typically has `outlook` and `identity` entries.
+
+### GRAPH_SERVICE_LIMITS
+
+The officially-sourced throttling limits are exported as a frozen constant so your scheduler can use the same numbers Atlas uses internally:
+
+```typescript
+import { GRAPH_SERVICE_LIMITS } from 'm365-atlas/sdk';
+
+const outlook = GRAPH_SERVICE_LIMITS.outlook;
+// outlook.requests_per_window      => 10,000
+// outlook.window_duration_ms       => 600,000 (10 min)
+// outlook.max_concurrent_requests  => 4
+
+const sp = GRAPH_SERVICE_LIMITS.sharepoint_onedrive;
+// sp.resource_units_per_minute['0-1000'] => 1,250
+// sp.delta_with_token_cost               => 1
+
+const identity = GRAPH_SERVICE_LIMITS.identity;
+// identity.resource_units_per_10s['L']   => 8,000
+// identity.users_list_cost               => 2
+```
+
+See the [Graph API Rate Limits](/operations/graph-rate-limits) page for the full reference including all pool limits, cost models, and official Microsoft documentation links.
+
+### Scheduling with pg-boss
+
+A common pattern for SaaS products is to queue one job per mailbox using pg-boss and use `graph_cost` to compute a cooldown before scheduling the next job:
+
+```typescript
+import { createAtlasInstance, GRAPH_SERVICE_LIMITS } from 'm365-atlas/sdk';
+import type { OperationCost } from 'm365-atlas/sdk';
+import PgBoss from 'pg-boss';
+
+const boss = new PgBoss(DATABASE_URL);
+
+boss.work('backup-mailbox', async (job) => {
+  const { tenant_config, mailbox_id } = job.data;
+  const atlas = createAtlasInstance(tenant_config);
+
+  const result = await atlas.backupMailbox(mailbox_id);
+  const cost: OperationCost = result.graph_cost;
+
+  // Store per-pool costs for trend analysis
+  await db.query(
+    `INSERT INTO backup_costs
+       (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
+     VALUES ($1, $2, $3, $4, NOW())`,
+    [
+      mailbox_id,
+      cost.by_service.outlook?.requests ?? 0,
+      cost.by_service.identity?.requests ?? 0,
+      cost.elapsed_ms,
+    ],
+  );
+
+  // Compute cooldown from the Outlook pool limit (bottleneck for mail backup)
+  const outlook_limits = GRAPH_SERVICE_LIMITS.outlook;
+  const outlook_used = cost.by_service.outlook?.requests ?? 0;
+  const usage_ratio = outlook_used / outlook_limits.requests_per_window;
+  const cooldown_ms = Math.ceil(usage_ratio * outlook_limits.window_duration_ms);
+
+  // Re-enqueue after cooldown
+  await boss.send('backup-mailbox', job.data, {
+    startAfter: new Date(Date.now() + cooldown_ms),
+  });
+});
+```
+
+Because the Outlook pool limit is per-mailbox, each mailbox's cooldown is independent. Running 50 parallel pg-boss workers for 50 different mailboxes is safe -- they do not share quota.
+
+For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. You would need to aggregate `resource_units` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resource_units_per_minute['<tier>']` before scheduling the next OneDrive job.
 
 ## Exports
 
 The SDK exports its own types via `m365-atlas/sdk`. Domain types, port interfaces, and result types are available from the root `m365-atlas` import for advanced use cases. Status-related types (`MailboxStatusResult`, `FolderStatus`), replication types (`ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`), and `createStorageTarget` are also exported from `m365-atlas/sdk`.
+
+**Graph cost types** exported from `m365-atlas/sdk`:
+
+| Export                    | Kind  | Description                                                            |
+| ------------------------- | ----- | ---------------------------------------------------------------------- |
+| `OperationCost`           | type  | Per-operation cost breakdown                                           |
+| `ServicePoolCost`         | type  | Cost for a single service pool                                         |
+| `GraphServicePool`        | type  | Pool identifier union type                                             |
+| `GraphServiceLimits`      | type  | Type for the full limits constant                                      |
+| `OutlookServiceLimits`    | type  | Outlook pool limits type                                               |
+| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                   |
+| `IdentityServiceLimits`   | type  | Identity pool limits type                                              |
+| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                        |
+| `SyncResult`              | type  | Result of `backupMailbox` (includes `graph_cost`)                      |
+| `RestoreResult`           | type  | Result of `restoreSnapshot` / `restoreMailbox` (includes `graph_cost`) |

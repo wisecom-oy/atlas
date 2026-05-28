@@ -23,8 +23,13 @@ import {
   REPLICATION_USE_CASE_TOKEN,
 } from '@/ports/tokens/use-case.tokens';
 import { GraphMailboxConnector } from '@/adapters/m365/graph-mailbox-connector.adapter';
+import { RateLimitedGraphConnector } from '@/adapters/m365/rate-limited-graph-connector.adapter';
 import { GraphRestoreConnector } from '@/adapters/m365/graph-restore-connector.adapter';
+import { CostTrackingRestoreConnector } from '@/adapters/m365/cost-tracking-restore-connector.adapter';
 import { create_graph_client, GRAPH_CLIENT_TOKEN } from '@/adapters/m365/graph-client.factory';
+import type { Client } from '@microsoft/microsoft-graph-client';
+import { ThrottleFence } from '@/services/shared/throttle-fence';
+import { DefaultMailboxRateLimiterFactory } from '@/services/shared/mailbox-rate-limiter';
 import { create_s3_client, S3_CLIENT_TOKEN } from '@/adapters/storage-s3/s3-client.factory';
 import { S3ManifestRepository } from '@/adapters/storage-s3/s3-manifest-repository.adapter';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
@@ -79,8 +84,23 @@ function bind_infrastructure(container: Container): void {
 
 /** Binds adapters to their port tokens. */
 function bind_adapters(container: Container): void {
-  container.bind(MAILBOX_CONNECTOR_TOKEN).to(GraphMailboxConnector).inSingletonScope();
-  container.bind(RESTORE_CONNECTOR_TOKEN).to(GraphRestoreConnector).inSingletonScope();
+  // Rate limiting and cost-tracking stack for Graph API calls
+  const fence = new ThrottleFence();
+  const limiter_factory = new DefaultMailboxRateLimiterFactory(fence);
+  const graph_client = container.get<Client>(GRAPH_CLIENT_TOKEN);
+
+  const raw_mailbox_connector = new GraphMailboxConnector(graph_client);
+  const rate_limited_connector = new RateLimitedGraphConnector(
+    raw_mailbox_connector,
+    limiter_factory,
+    fence,
+  );
+  container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(rate_limited_connector);
+
+  const raw_restore_connector = new GraphRestoreConnector(graph_client);
+  const tracked_restore_connector = new CostTrackingRestoreConnector(raw_restore_connector);
+  container.bind(RESTORE_CONNECTOR_TOKEN).toConstantValue(tracked_restore_connector);
+
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).to(DefaultTenantContextFactory).inSingletonScope();
   container.bind(MANIFEST_REPOSITORY_TOKEN).to(S3ManifestRepository).inSingletonScope();
   container.bind(MAILBOX_DISCOVERY_TOKEN).to(GraphMailboxDiscoveryAdapter).inSingletonScope();
