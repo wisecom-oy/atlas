@@ -28,6 +28,7 @@ function make_ctx(): TenantContext {
     encrypt: vi.fn(),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     create_cipher: stub_tenant_create_cipher,
+    destroy: vi.fn(),
   };
 }
 

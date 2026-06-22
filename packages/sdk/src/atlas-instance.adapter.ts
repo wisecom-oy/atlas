@@ -53,7 +53,11 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     },
     async listUsers() {
       const ctx = await tenant_factory.create(tenant_id);
-      return await identity_registry.load(ctx);
+      try {
+        return await identity_registry.load(ctx);
+      } finally {
+        ctx.destroy();
+      }
     },
     async replicateSnapshot(snapshot_id, targets) {
       return await replication.replicate_snapshot(tenant_id, snapshot_id, targets);

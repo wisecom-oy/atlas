@@ -37,6 +37,7 @@ function make_context(storage: ObjectStorage): TenantContext {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('enc:'), data])),
     decrypt: vi.fn((data: Buffer) => Buffer.from(data.toString().replace('enc:', ''))),
     create_cipher: stub_tenant_create_cipher,
+    destroy: vi.fn(),
   };
 }
 

@@ -18,6 +18,7 @@ const ctx: TenantContext = {
   encrypt: vi.fn(),
   decrypt: vi.fn(),
   create_cipher: vi.fn(),
+  destroy: vi.fn(),
 } as unknown as TenantContext;
 
 function make_snapshot(snapshot_id: string, total_files: number): SharePointSnapshotManifest {

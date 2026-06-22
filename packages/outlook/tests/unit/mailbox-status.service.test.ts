@@ -58,6 +58,7 @@ function make_mock_context(): TenantContext {
     encrypt: vi.fn(),
     decrypt: vi.fn(),
     create_cipher: stub_tenant_create_cipher,
+    destroy: vi.fn(),
   };
 }
 

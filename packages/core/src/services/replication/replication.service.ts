@@ -13,6 +13,7 @@ import {
   STORAGE_TARGET_FACTORY_TOKEN,
 } from '@atlas/types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
+import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
 import {
   save_replication_status,
   list_all_replication_status,
@@ -44,16 +45,20 @@ export class ReplicationService implements ReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this.require_manifest(source_ctx, snapshot_id);
-    const results: ReplicationResult[] = [];
+    try {
+      const manifest = await this.require_manifest(source_ctx, snapshot_id);
+      const results: ReplicationResult[] = [];
 
-    for (const target of targets) {
-      const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
-      await save_replication_status(source_ctx, to_status_record(result, target, manifest));
-      results.push(result);
+      for (const target of targets) {
+        const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
+        await save_replication_status(source_ctx, to_status_record(result, target, manifest));
+        results.push(result);
+      }
+
+      return results;
+    } finally {
+      source_ctx.destroy();
     }
-
-    return results;
   }
 
   async replicate_mailbox(
@@ -62,21 +67,29 @@ export class ReplicationService implements ReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
-    const results: ReplicationResult[] = [];
+    try {
+      const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
+      const results: ReplicationResult[] = [];
 
-    for (const target of targets) {
-      const target_ctx = await target.create_context(tenant_id);
-      const missing = await this.diff_manifests(manifests, target_ctx, owner_id);
+      for (const target of targets) {
+        const target_ctx = await target.create_context(tenant_id);
+        try {
+          const missing = await this.diff_manifests(manifests, target_ctx, owner_id);
 
-      for (const manifest of missing) {
-        const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
-        await save_replication_status(source_ctx, to_status_record(result, target, manifest));
-        results.push(result);
+          for (const manifest of missing) {
+            const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
+            await save_replication_status(source_ctx, to_status_record(result, target, manifest));
+            results.push(result);
+          }
+        } finally {
+          target_ctx.destroy();
+        }
       }
-    }
 
-    return results;
+      return results;
+    } finally {
+      source_ctx.destroy();
+    }
   }
 
   async rehydrate_snapshot(
@@ -87,14 +100,26 @@ export class ReplicationService implements ReplicationUseCase {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifest = await this.require_manifest_from_ctx(source_ctx, snapshot_id);
+    try {
+      const manifest = await this.require_manifest_from_ctx(source_ctx, snapshot_id);
 
-    const manifest_key = `manifests/${manifest.owner_id}/${snapshot_id}.json`;
-    if (await primary_ctx.storage.exists(manifest_key)) {
-      return build_skip_result(snapshot_id, source.target_id);
+      const manifest_key = `manifests/${manifest.owner_id}/${snapshot_id}.json`;
+      if (await primary_ctx.storage.exists(manifest_key)) {
+        return build_skip_result(snapshot_id, source.target_id);
+      }
+
+      return await this.copy_between(
+        source_ctx,
+        primary_ctx,
+        manifest,
+        source.target_id,
+        tenant_id,
+        true,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
     }
-
-    return this.copy_between(source_ctx, primary_ctx, manifest, source.target_id, tenant_id, true);
   }
 
   async rehydrate_mailbox(
@@ -105,18 +130,42 @@ export class ReplicationService implements ReplicationUseCase {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
-
-    return this.rehydrate_manifests(source_ctx, primary_ctx, manifests, source, tenant_id);
+    try {
+      const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
+      return await rehydrate_manifests(
+        source_ctx,
+        primary_ctx,
+        manifests,
+        source,
+        tenant_id,
+        this._validate_dek,
+        this._config.encryption_passphrase,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
+    }
   }
 
   async rehydrate_tenant(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const all_manifests = await this._manifests.list_all_manifests(source_ctx);
-
-    return this.rehydrate_manifests(source_ctx, primary_ctx, all_manifests, source, tenant_id);
+    try {
+      const all_manifests = await this._manifests.list_all_manifests(source_ctx);
+      return await rehydrate_manifests(
+        source_ctx,
+        primary_ctx,
+        all_manifests,
+        source,
+        tenant_id,
+        this._validate_dek,
+        this._config.encryption_passphrase,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
+    }
   }
 
   async get_replication_status(
@@ -124,8 +173,12 @@ export class ReplicationService implements ReplicationUseCase {
     snapshot_id?: string,
   ): Promise<ReplicationStatusRecord[]> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    if (snapshot_id) return list_replication_status_by_snapshot(ctx, snapshot_id);
-    return list_all_replication_status(ctx);
+    try {
+      if (snapshot_id) return await list_replication_status_by_snapshot(ctx, snapshot_id);
+      return await list_all_replication_status(ctx);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   async get_replication_status_by_owner(
@@ -133,7 +186,11 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id: string,
   ): Promise<ReplicationStatusRecord[]> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    return list_replication_status_by_owner(ctx, owner_id);
+    try {
+      return await list_replication_status_by_owner(ctx, owner_id);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   private async copy_to_target(
@@ -144,19 +201,23 @@ export class ReplicationService implements ReplicationUseCase {
   ): Promise<ReplicationResult> {
     const start = Date.now();
     const target_ctx = await target.create_context(tenant_id);
-    await this._validate_dek(
-      source_ctx.storage,
-      target_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
-    );
-    const rep = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
-    return build_replication_result(
-      rep,
-      manifest.snapshot_id,
-      target.target_id,
-      Date.now() - start,
-    );
+    try {
+      await this._validate_dek(
+        source_ctx.storage,
+        target_ctx.storage,
+        this._config.encryption_passphrase,
+        tenant_id,
+      );
+      const rep = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
+      return build_replication_result(
+        rep,
+        manifest.snapshot_id,
+        target.target_id,
+        Date.now() - start,
+      );
+    } finally {
+      target_ctx.destroy();
+    }
   }
 
   private async copy_between(
@@ -178,64 +239,6 @@ export class ReplicationService implements ReplicationUseCase {
       skip_marker: is_rehydration,
     });
     return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
-  }
-
-  private async rehydrate_manifests(
-    source_ctx: TenantContext,
-    primary_ctx: TenantContext,
-    manifests: Manifest[],
-    source: StorageTarget,
-    tenant_id: string,
-  ): Promise<ReplicationResult> {
-    const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      primary_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
-    );
-
-    let total_copied = 0;
-    let total_skipped = 0;
-    let total_failed = 0;
-    let total_bytes = 0;
-    const all_errors: string[] = [];
-    let snapshot_count = 0;
-
-    for (const manifest of manifests) {
-      const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
-      if (await primary_ctx.storage.exists(key)) {
-        total_skipped++;
-        continue;
-      }
-
-      const rep = await replicate_snapshot_to_target(source_ctx, primary_ctx, manifest, {
-        skip_marker: true,
-      });
-
-      total_copied += rep.objects_copied;
-      total_skipped += rep.objects_skipped;
-      total_failed += rep.objects_failed;
-      total_bytes += rep.bytes_copied;
-      all_errors.push(...rep.errors);
-      snapshot_count++;
-    }
-
-    const snapshot_label =
-      manifests.length === 1 ? manifests[0]!.snapshot_id : `${snapshot_count}-snapshots`;
-
-    return build_replication_result(
-      {
-        objects_copied: total_copied,
-        objects_skipped: total_skipped,
-        objects_failed: total_failed,
-        bytes_copied: total_bytes,
-        errors: all_errors,
-      },
-      snapshot_label,
-      source.target_id,
-      Date.now() - start,
-    );
   }
 
   private async require_manifest(ctx: TenantContext, snapshot_id: string): Promise<Manifest> {

@@ -80,7 +80,7 @@ Exit code is `0` when all checked entries pass, `1` when any blob mismatch or in
 
 ## SDK Usage
 
-The SDK exposes SharePoint backup and verification as programmatic methods on `AtlasInstance`:
+The SDK exposes SharePoint backup and verification as programmatic methods on `atlas.sharepoint`:
 
 ```typescript
 import { createAtlasInstance } from '@atlas/sdk';

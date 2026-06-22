@@ -37,62 +37,66 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     options: FileSaveOptions,
   ): Promise<FileSaveResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
-    if (!manifest) {
-      throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
-    }
-
-    const entries = this.filter_entries(manifest.entries, options.file_filter);
-    const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
-
-    if (restorable.length === 0) {
-      return this.empty_result(options.snapshot_id, options.output_path ?? '');
-    }
-
-    const output_path =
-      options.output_path ?? build_default_output_path('sharepoint', options.snapshot_id);
-    const skip_integrity = options.skip_integrity_check ?? false;
-    const { archive, promise } = create_file_archive(output_path);
-
-    let files_saved = 0;
-    let files_skipped = 0;
-    const errors: string[] = [];
-    const integrity_failures: string[] = [];
-
-    for (const entry of restorable) {
-      try {
-        const content = await this.download_and_decrypt(
-          ctx,
-          entry,
-          skip_integrity,
-          integrity_failures,
-        );
-        if (!content) {
-          files_skipped++;
-          continue;
-        }
-        await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
-        files_saved++;
-        logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
-      } catch (err) {
-        const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
-        files_skipped++;
+    try {
+      const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
+      if (!manifest) {
+        throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
       }
+
+      const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
+
+      if (restorable.length === 0) {
+        return this.empty_result(options.snapshot_id, options.output_path ?? '');
+      }
+
+      const output_path =
+        options.output_path ?? build_default_output_path('sharepoint', options.snapshot_id);
+      const skip_integrity = options.skip_integrity_check ?? false;
+      const { archive, promise } = create_file_archive(output_path);
+
+      let files_saved = 0;
+      let files_skipped = 0;
+      const errors: string[] = [];
+      const integrity_failures: string[] = [];
+
+      for (const entry of restorable) {
+        try {
+          const content = await this.download_and_decrypt(
+            ctx,
+            entry,
+            skip_integrity,
+            integrity_failures,
+          );
+          if (!content) {
+            files_skipped++;
+            continue;
+          }
+          await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
+          files_saved++;
+          logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
+        } catch (err) {
+          const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
+          errors.push(msg);
+          files_skipped++;
+        }
+      }
+
+      await finalize_file_archive(archive);
+      const total_bytes = await promise;
+
+      return {
+        snapshot_id: options.snapshot_id,
+        files_saved,
+        files_skipped,
+        errors,
+        integrity_failures,
+        output_path,
+        total_bytes,
+      };
+    } finally {
+      ctx.destroy();
     }
-
-    await finalize_file_archive(archive);
-    const total_bytes = await promise;
-
-    return {
-      snapshot_id: options.snapshot_id,
-      files_saved,
-      files_skipped,
-      errors,
-      integrity_failures,
-      output_path,
-      total_bytes,
-    };
   }
 
   private filter_entries(

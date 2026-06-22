@@ -35,38 +35,42 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
     snapshot_id: string,
   ): Promise<OneDriveVerificationResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
-    if (!manifest) {
-      throw new Error(`No OneDrive manifest found for snapshot ${snapshot_id}`);
-    }
-
-    const failed_file_ids: string[] = [];
-    const index_issues: string[] = [];
-    let total_checked = 0;
-
-    for (const entry of manifest.entries) {
-      const idx = await this._indexes.find_by_file_id(ctx, manifest.owner_id, entry.file_id);
-      const has_version = idx?.versions.some((v) => v.snapshot_id === snapshot_id);
-      if (!has_version) {
-        index_issues.push(
-          `missing index version for file ${entry.file_id} snapshot ${snapshot_id}`,
-        );
+    try {
+      const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
+      if (!manifest) {
+        throw new Error(`No OneDrive manifest found for snapshot ${snapshot_id}`);
       }
 
-      if (!this.entry_has_blob(entry)) continue;
+      const failed_file_ids: string[] = [];
+      const index_issues: string[] = [];
+      let total_checked = 0;
 
-      total_checked++;
-      const corrupt = await this.is_blob_corrupt(ctx, entry);
-      if (corrupt) failed_file_ids.push(entry.file_id);
+      for (const entry of manifest.entries) {
+        const idx = await this._indexes.find_by_file_id(ctx, manifest.owner_id, entry.file_id);
+        const has_version = idx?.versions.some((v) => v.snapshot_id === snapshot_id);
+        if (!has_version) {
+          index_issues.push(
+            `missing index version for file ${entry.file_id} snapshot ${snapshot_id}`,
+          );
+        }
+
+        if (!this.entry_has_blob(entry)) continue;
+
+        total_checked++;
+        const corrupt = await this.is_blob_corrupt(ctx, entry);
+        if (corrupt) failed_file_ids.push(entry.file_id);
+      }
+
+      return {
+        snapshot_id,
+        total_checked,
+        passed: total_checked - failed_file_ids.length,
+        failed_file_ids,
+        index_issues,
+      };
+    } finally {
+      ctx.destroy();
     }
-
-    return {
-      snapshot_id,
-      total_checked,
-      passed: total_checked - failed_file_ids.length,
-      failed_file_ids,
-      index_issues,
-    };
   }
 
   private entry_has_blob(entry: OneDriveManifestEntry): boolean {

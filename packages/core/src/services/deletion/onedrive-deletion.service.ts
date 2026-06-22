@@ -11,12 +11,16 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
   /** Deletes all backed-up OneDrive data for a single owner. */
   async delete_owner_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    return delete_prefixes(ctx.storage, [
-      `onedrive/manifests/${owner_id}/`,
-      `onedrive/data/${owner_id}/`,
-      `onedrive/index/${owner_id}/`,
-      `onedrive/_meta/${owner_id}/`,
-    ]);
+    try {
+      return await delete_prefixes(ctx.storage, [
+        `onedrive/manifests/${owner_id}/`,
+        `onedrive/data/${owner_id}/`,
+        `onedrive/index/${owner_id}/`,
+        `onedrive/_meta/${owner_id}/`,
+      ]);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /**
@@ -29,10 +33,14 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const key = `onedrive/manifests/${owner_id}/${snapshot_id}.json`;
-    const summary = empty_deletion_summary();
-    await delete_single_key(ctx.storage, key, summary);
-    return { ...summary };
+    try {
+      const key = `onedrive/manifests/${owner_id}/${snapshot_id}.json`;
+      const summary = empty_deletion_summary();
+      await delete_single_key(ctx.storage, key, summary);
+      return { ...summary };
+    } finally {
+      ctx.destroy();
+    }
   }
 }
 

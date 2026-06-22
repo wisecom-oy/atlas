@@ -15,6 +15,7 @@ const NETWORK_ERROR_CODES = new Set([
 const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
+const REQUEST_TIMEOUT_MS = 60_000;
 
 /**
  * Detects Graph errors that indicate an invalid/expired delta token.
@@ -130,7 +131,7 @@ export function is_retryable_error(err: unknown): boolean {
 export async function with_graph_retry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await fn();
+      return await race_timeout(fn(), REQUEST_TIMEOUT_MS);
     } catch (err) {
       if (!is_retryable_error(err) || attempt === MAX_RETRIES) throw err;
 
@@ -180,4 +181,16 @@ function describe_error(err: unknown): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Races a promise against a timeout; rejects with ETIMEDOUT on expiry. */
+function race_timeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error('Request timed out'), { code: 'ETIMEDOUT' })),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }

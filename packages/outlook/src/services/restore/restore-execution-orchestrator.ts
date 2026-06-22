@@ -155,7 +155,9 @@ export async function restore_single_message(
     restored_count: 1,
     attachment_count: att_count,
     error_count: 0,
+    attachment_error_count: 0,
     errors: [],
+    verification_warnings: [],
     restore_folder_name: root.display_name,
   };
 }

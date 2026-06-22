@@ -5,7 +5,9 @@ export interface RestoreResult {
   readonly restored_count: number;
   readonly attachment_count: number;
   readonly error_count: number;
+  readonly attachment_error_count: number;
   readonly errors: string[];
+  readonly verification_warnings: string[];
   readonly restore_folder_name: string;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;

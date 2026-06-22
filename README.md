@@ -54,6 +54,8 @@ See [Getting Started](https://miikaok.github.io/atlas/getting-started) for full 
 | CLI Reference      | [docs](https://miikaok.github.io/atlas/reference/cli)        |
 | SDK Reference      | [docs](https://miikaok.github.io/atlas/reference/sdk)        |
 
+**Packages:** [`@atlas/cli`](https://www.npmjs.com/package/@atlas/cli) (shell deployment) · [`@atlas/sdk`](https://www.npmjs.com/package/@atlas/sdk) (programmatic API)
+
 ## Development
 
 ```bash

@@ -33,25 +33,34 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
     owner_id = owner_id.toLowerCase();
 
     const ctx = await this._tenant_factory.create(tenant_id);
-    const saved_cursor = await this._cursors.load(ctx, owner_id);
-    const saved_links = saved_cursor?.delta_link_by_drive ?? {};
+    try {
+      const saved_cursor = await this._cursors.load(ctx, owner_id);
+      const saved_links = saved_cursor?.delta_link_by_drive ?? {};
 
-    const all_drives = await this._connector.list_drives(tenant_id, owner_id);
-    const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
+      const all_drives = await this._connector.list_drives(tenant_id, owner_id);
+      const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
 
-    const drive_statuses = await this.peek_all_drives(tenant_id, owner_id, all_drives, saved_links);
+      const drive_statuses = await this.peek_all_drives(
+        tenant_id,
+        owner_id,
+        all_drives,
+        saved_links,
+      );
 
-    const total_pending = drive_statuses.reduce((sum, d) => sum + d.pending_changes, 0);
+      const total_pending = drive_statuses.reduce((sum, d) => sum + d.pending_changes, 0);
 
-    return {
-      owner_id,
-      last_backup_at: previous?.created_at ? new Date(previous.created_at) : undefined,
-      last_snapshot_id: previous?.snapshot_id,
-      total_drives: all_drives.length,
-      drives: drive_statuses,
-      is_up_to_date: total_pending === 0 && drive_statuses.every((d) => d.has_backup),
-      total_pending_changes: total_pending,
-    };
+      return {
+        owner_id,
+        last_backup_at: previous?.created_at ? new Date(previous.created_at) : undefined,
+        last_snapshot_id: previous?.snapshot_id,
+        total_drives: all_drives.length,
+        drives: drive_statuses,
+        is_up_to_date: total_pending === 0 && drive_statuses.every((d) => d.has_backup),
+        total_pending_changes: total_pending,
+      };
+    } finally {
+      ctx.destroy();
+    }
   }
 
   private async peek_all_drives(

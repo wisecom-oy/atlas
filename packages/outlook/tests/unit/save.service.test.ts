@@ -85,6 +85,7 @@ describe('SaveService', () => {
       },
       decrypt: vi.fn((buf: Buffer) => buf),
       encrypt: vi.fn((buf: Buffer) => buf),
+      destroy: vi.fn(),
     } as unknown as TenantContext;
 
     const mock_factory: TenantContextFactory = {

@@ -11,12 +11,16 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
   /** Deletes all backed-up SharePoint data for a single site. */
   async delete_site_data(tenant_id: string, site_id: string): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    return delete_prefixes(ctx.storage, [
-      `sharepoint/manifests/${site_id}/`,
-      `sharepoint/data/${site_id}/`,
-      `sharepoint/index/${site_id}/`,
-      `sharepoint/_meta/${site_id}/`,
-    ]);
+    try {
+      return await delete_prefixes(ctx.storage, [
+        `sharepoint/manifests/${site_id}/`,
+        `sharepoint/data/${site_id}/`,
+        `sharepoint/index/${site_id}/`,
+        `sharepoint/_meta/${site_id}/`,
+      ]);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /**
@@ -29,10 +33,14 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const key = `sharepoint/manifests/${site_id}/${snapshot_id}.json`;
-    const summary = empty_deletion_summary();
-    await delete_single_key(ctx.storage, key, summary);
-    return { ...summary };
+    try {
+      const key = `sharepoint/manifests/${site_id}/${snapshot_id}.json`;
+      const summary = empty_deletion_summary();
+      await delete_single_key(ctx.storage, key, summary);
+      return { ...summary };
+    } finally {
+      ctx.destroy();
+    }
   }
 }
 

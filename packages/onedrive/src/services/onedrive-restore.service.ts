@@ -48,57 +48,63 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     options: OneDriveRestoreOptions,
   ): Promise<OneDriveRestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
-    if (!manifest) {
-      throw new Error(`Snapshot ${options.snapshot_id} not found`);
-    }
-
-    const target_owner = options.target_owner_id ?? owner_id;
-    const drives = await this._connector.list_drives(tenant_id, target_owner);
-    const [primary_drive] = drives;
-    if (!primary_drive) {
-      throw new Error('No OneDrive drives found for target user');
-    }
-    const drive_id = primary_drive.drive_id;
-
-    const conflict = options.conflict_behavior ?? 'rename';
-    const entries = this.filter_entries(manifest.entries, options.file_filter);
-    const folder_ids = new Map<string, string>();
-    folder_ids.set('/', 'root');
-
-    let files_restored = 0;
-    let files_skipped = 0;
-    const errors: string[] = [];
-
-    const sorted_entries = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
-
-    for (const entry of sorted_entries) {
-      const result = await this.restore_single_entry(
-        tenant_id,
-        target_owner,
-        drive_id,
-        entry,
-        ctx,
-        folder_ids,
-        conflict,
-      );
-      if (result.restored) {
-        files_restored++;
-      } else {
-        files_skipped++;
-        if (result.error) errors.push(result.error);
+    try {
+      const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
+      if (!manifest) {
+        throw new Error(`Snapshot ${options.snapshot_id} not found`);
       }
+
+      const target_owner = options.target_owner_id ?? owner_id;
+      const drives = await this._connector.list_drives(tenant_id, target_owner);
+      const [primary_drive] = drives;
+      if (!primary_drive) {
+        throw new Error('No OneDrive drives found for target user');
+      }
+      const drive_id = primary_drive.drive_id;
+
+      const conflict = options.conflict_behavior ?? 'rename';
+      const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const folder_ids = new Map<string, string>();
+      folder_ids.set('/', 'root');
+
+      let files_restored = 0;
+      let files_skipped = 0;
+      const errors: string[] = [];
+
+      const sorted_entries = [...entries].filter(
+        (e) => e.change_type !== 'deleted' && e.storage_key,
+      );
+
+      for (const entry of sorted_entries) {
+        const result = await this.restore_single_entry(
+          tenant_id,
+          target_owner,
+          drive_id,
+          entry,
+          ctx,
+          folder_ids,
+          conflict,
+        );
+        if (result.restored) {
+          files_restored++;
+        } else {
+          files_skipped++;
+          if (result.error) errors.push(result.error);
+        }
+      }
+
+      const folders_created = Math.max(0, folder_ids.size - 1);
+
+      return {
+        snapshot_id: options.snapshot_id,
+        files_restored,
+        folders_created,
+        files_skipped,
+        errors,
+      };
+    } finally {
+      ctx.destroy();
     }
-
-    const folders_created = Math.max(0, folder_ids.size - 1);
-
-    return {
-      snapshot_id: options.snapshot_id,
-      files_restored,
-      folders_created,
-      files_skipped,
-      errors,
-    };
   }
 
   /** Restores one manifest entry to the target drive, returning success or skip reason. */

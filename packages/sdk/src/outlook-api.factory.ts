@@ -38,25 +38,25 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
 
   return {
     async backup(mailbox_id, options) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
+      const [result, cost_result] = await run_with_cost_tracking(() =>
         backup.sync_mailbox(tenant_id, mailbox_id, options),
       );
-      return { ...result, graph_cost: graphCost };
+      return { ...result, graph_cost: cost_result };
     },
     async verify(snapshot_id) {
       return await verification.verify_snapshot_integrity(tenant_id, snapshot_id);
     },
     async restore(snapshot_id, options) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
+      const [result, cost_result] = await run_with_cost_tracking(() =>
         restore.restore_snapshot(tenant_id, snapshot_id, options),
       );
-      return { ...result, graph_cost: graphCost };
+      return { ...result, graph_cost: cost_result };
     },
     async restoreMailbox(mailbox_id, options) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
+      const [result, cost_result] = await run_with_cost_tracking(() =>
         restore.restore_mailbox(tenant_id, mailbox_id, options),
       );
-      return { ...result, graph_cost: graphCost };
+      return { ...result, graph_cost: cost_result };
     },
     async save(snapshot_id, options) {
       return await save.save_snapshot(tenant_id, snapshot_id, options);
@@ -89,10 +89,10 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return await stats.get_mailbox_stats(tenant_id, mailbox_id);
     },
     async checkMailboxStatus(mailbox_id) {
-      const [result, graphCost] = await run_with_cost_tracking(() =>
+      const [result, cost_result] = await run_with_cost_tracking(() =>
         status.check_mailbox_status(tenant_id, mailbox_id),
       );
-      return { ...result, graph_cost: graphCost };
+      return { ...result, graph_cost: cost_result };
     },
     async listAvailableMailboxes(options) {
       return await discovery.list_tenant_mailboxes(tenant_id, options);

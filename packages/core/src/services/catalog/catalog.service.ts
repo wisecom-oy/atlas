@@ -18,27 +18,37 @@ export class CatalogService implements CatalogUseCase {
    */
   async list_mailboxes(tenant_id: string): Promise<MailboxSummary[]> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const all = await this._manifests.list_all_manifests(ctx);
-
-    const by_mailbox = group_by_mailbox(all);
-    return build_mailbox_summaries(by_mailbox);
+    try {
+      const all = await this._manifests.list_all_manifests(ctx);
+      const by_mailbox = group_by_mailbox(all);
+      return build_mailbox_summaries(by_mailbox);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /** Returns every manifest for a given mailbox owner, sorted newest-first. */
   async list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]> {
     owner_id = owner_id.toLowerCase();
     const ctx = await this._tenant_factory.create(tenant_id);
-    const all = await this._manifests.list_all_manifests(ctx);
-
-    return all
-      .filter((m) => m.owner_id === owner_id)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    try {
+      const all = await this._manifests.list_all_manifests(ctx);
+      return all
+        .filter((m) => m.owner_id === owner_id)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /** Loads and returns one manifest by snapshot ID. */
   async get_snapshot_detail(tenant_id: string, snapshot_id: string): Promise<Manifest | undefined> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    return this._manifests.find_by_snapshot(ctx, snapshot_id);
+    try {
+      return await this._manifests.find_by_snapshot(ctx, snapshot_id);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /**
@@ -55,16 +65,20 @@ export class CatalogService implements CatalogUseCase {
     message_ref: string,
   ): Promise<ReadMessageResult | undefined> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-    if (!manifest) return undefined;
+    try {
+      const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
+      if (!manifest) return undefined;
 
-    const entry = this.resolve_entry(manifest, message_ref);
-    if (!entry) return undefined;
+      const entry = this.resolve_entry(manifest, message_ref);
+      if (!entry) return undefined;
 
-    const encrypted = await ctx.storage.get(entry.storage_key);
-    const json = ctx.decrypt(encrypted);
-    const message = JSON.parse(json.toString('utf-8')) as Record<string, unknown>;
-    return { message, attachments: entry.attachments ?? [] };
+      const encrypted = await ctx.storage.get(entry.storage_key);
+      const json = ctx.decrypt(encrypted);
+      const message = JSON.parse(json.toString('utf-8')) as Record<string, unknown>;
+      return { message, attachments: entry.attachments ?? [] };
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /** Resolves a manifest entry by 1-based index or by object_id. */

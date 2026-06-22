@@ -5,7 +5,7 @@ import type { TenantContext } from '@atlas/types';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
-import { EnvelopeKeyService, load_dek_with_migration } from '@atlas/core';
+import { EnvelopeKeyService } from '@atlas/core';
 
 const DEK_META_KEY = '_meta/dek.enc';
 
@@ -93,11 +93,8 @@ export class DefaultStorageTarget implements StorageTarget {
     const has_dek = await storage.exists(DEK_META_KEY);
 
     if (has_dek) {
-      const { dek, key_service } = await load_dek_with_migration(
-        storage,
-        this._passphrase,
-        tenant_id,
-      );
+      const key_service = new EnvelopeKeyService(this._passphrase);
+      const dek = key_service.unwrap_dek(await storage.get(DEK_META_KEY), tenant_id);
       return {
         tenant_id,
         storage,
@@ -106,6 +103,7 @@ export class DefaultStorageTarget implements StorageTarget {
         create_cipher: () => key_service.create_encrypt_cipher(dek),
         create_decipher: (iv: Buffer, auth_tag: Buffer) =>
           key_service.create_decrypt_decipher(dek, iv, auth_tag),
+        destroy: (): void => key_service.destroy(),
       };
     }
 
@@ -125,6 +123,7 @@ export class DefaultStorageTarget implements StorageTarget {
       create_decipher: (): ReturnType<EnvelopeKeyService['create_decrypt_decipher']> => {
         throw new Error(`Cannot create_decipher: ${no_dek_msg}`);
       },
+      destroy: (): void => {},
     };
   }
 }

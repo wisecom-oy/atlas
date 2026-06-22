@@ -49,65 +49,69 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const previous_cursor =
-      options.force_full === true ? undefined : await this._cursors.load(ctx, site_id);
-    const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
-    ensure_libraries_discovered(libraries.length);
+    try {
+      const previous_cursor =
+        options.force_full === true ? undefined : await this._cursors.load(ctx, site_id);
+      const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
+      ensure_libraries_discovered(libraries.length);
 
-    const delta_link_by_drive: Record<string, string> = {
-      ...(previous_cursor?.delta_link_by_drive ?? {}),
-    };
-    const tracking = this.build_tracking_state(previous_cursor);
+      const delta_link_by_drive: Record<string, string> = {
+        ...(previous_cursor?.delta_link_by_drive ?? {}),
+      };
+      const tracking = this.build_tracking_state(previous_cursor);
 
-    await cleanup_stale_staging(ctx, site_id);
+      await cleanup_stale_staging(ctx, site_id);
 
-    const manifest_created_at = new Date();
-    const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
-    const scan = await this.scan_all_libraries(
-      tenant_id,
-      site_id,
-      snapshot_id,
-      libraries,
-      options,
-      previous_cursor,
-      tracking,
-      delta_link_by_drive,
-      ctx,
-    );
-
-    const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking);
-    const warnings = this.build_version_warnings(scan.version_stats);
-    const healthy = scan.errors.length === 0;
-
-    if (scan.entries.length === 0) {
-      await this._cursors.save(ctx, cursor);
-      return build_empty_result(
+      const manifest_created_at = new Date();
+      const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
+      const scan = await this.scan_all_libraries(
+        tenant_id,
         site_id,
+        snapshot_id,
+        libraries,
+        options,
+        previous_cursor,
+        tracking,
+        delta_link_by_drive,
+        ctx,
+      );
+
+      const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking);
+      const warnings = this.build_version_warnings(scan.version_stats);
+      const healthy = scan.errors.length === 0;
+
+      if (scan.entries.length === 0) {
+        await this._cursors.save(ctx, cursor);
+        return build_empty_result(
+          site_id,
+          libraries.length,
+          scan.files_stored,
+          scan.files_deduplicated,
+          scan.deleted_items,
+          scan.version_stats.total_versions_stored,
+          scan.version_stats.total_versions_unavailable,
+          scan.errors,
+          warnings,
+          healthy,
+        );
+      }
+
+      return this.finalize_snapshot(
+        ctx,
+        tenant_id,
+        site_id,
+        scan,
+        snapshot_id,
+        manifest_created_at,
         libraries.length,
-        scan.files_stored,
-        scan.files_deduplicated,
-        scan.deleted_items,
-        scan.version_stats.total_versions_stored,
-        scan.version_stats.total_versions_unavailable,
-        scan.errors,
+        options,
+        cursor,
         warnings,
         healthy,
       );
+    } finally {
+      ctx.destroy();
     }
-
-    return this.finalize_snapshot(
-      ctx,
-      tenant_id,
-      site_id,
-      scan,
-      snapshot_id,
-      manifest_created_at,
-      libraries.length,
-      options,
-      cursor,
-      warnings,
-      healthy,
-    );
   }
 
   private build_tracking_state(

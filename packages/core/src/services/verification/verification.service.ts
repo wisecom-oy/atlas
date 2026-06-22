@@ -24,9 +24,13 @@ export class VerificationService implements VerificationUseCase {
     snapshot_id: string,
   ): Promise<VerificationResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this.load_manifest_for_snapshot(ctx, snapshot_id);
-    const failed_ids = await this.check_all_entries(ctx, manifest.entries);
-    return this.build_verification_result(snapshot_id, manifest.entries.length, failed_ids);
+    try {
+      const manifest = await this.load_manifest_for_snapshot(ctx, snapshot_id);
+      const failed_ids = await this.check_all_entries(ctx, manifest.entries);
+      return this.build_verification_result(snapshot_id, manifest.entries.length, failed_ids);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /** Loads the manifest for a snapshot, throwing if none exists. */

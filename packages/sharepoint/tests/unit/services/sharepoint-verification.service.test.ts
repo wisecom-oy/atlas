@@ -85,6 +85,7 @@ function create_mocks() {
     encrypt: vi.fn().mockReturnValue(ciphertext),
     decrypt: vi.fn().mockReturnValue(plaintext),
     create_cipher: vi.fn(),
+    destroy: vi.fn(),
   } as unknown as TenantContext;
 
   const tenant_factory: TenantContextFactory = {

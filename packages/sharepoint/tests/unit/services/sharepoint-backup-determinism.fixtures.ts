@@ -43,6 +43,7 @@ export function make_ctx(): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: vi.fn(),
+    destroy: vi.fn(),
   } as unknown as TenantContext;
 }
 

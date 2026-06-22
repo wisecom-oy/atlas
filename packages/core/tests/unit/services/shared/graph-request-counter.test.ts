@@ -127,7 +127,7 @@ describe('run_with_cost_tracking and get_active_counter', () => {
   });
 
   it('concurrent calls do not share counters', async () => {
-    const [costA, costB] = await Promise.all([
+    const [cost_a, cost_b] = await Promise.all([
       run_with_cost_tracking(async () => {
         await new Promise<void>((r) => setTimeout(r, 10));
         get_active_counter()?.record('outlook', 'delta_sync');
@@ -139,9 +139,9 @@ describe('run_with_cost_tracking and get_active_counter', () => {
       }).then(([, c]) => c),
     ]);
 
-    expect(costA.requests_by_type['delta_sync']).toBe(1);
-    expect(costA.requests_by_type['fetch_attachments']).toBeUndefined();
-    expect(costB.requests_by_type['fetch_attachments']).toBe(2);
-    expect(costB.requests_by_type['delta_sync']).toBeUndefined();
+    expect(cost_a.requests_by_type['delta_sync']).toBe(1);
+    expect(cost_a.requests_by_type['fetch_attachments']).toBeUndefined();
+    expect(cost_b.requests_by_type['fetch_attachments']).toBe(2);
+    expect(cost_b.requests_by_type['delta_sync']).toBeUndefined();
   });
 });

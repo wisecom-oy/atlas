@@ -39,6 +39,7 @@ function make_context(storage: ObjectStorage, tenant_id = 'tenant-1'): TenantCon
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: stub_tenant_create_cipher,
+    destroy: vi.fn(),
   };
 }
 
@@ -194,5 +195,24 @@ describe('replicate_snapshot_to_target', () => {
     expect(result.objects_failed).toBe(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('Network error');
+  });
+
+  it('skips manifest write when any object copy fails', async () => {
+    const entry = make_entry({ storage_key: 'data/mailbox-1/hash-fail' });
+    const manifest = make_manifest([entry]);
+    const manifest_key = 'manifests/mailbox-1/snapshot-1.json';
+
+    vi.mocked(target_storage.exists).mockResolvedValue(false);
+    vi.mocked(source_storage.get).mockImplementation(async (key: string) => {
+      if (key === 'data/mailbox-1/hash-fail') throw new Error('Network error');
+      return Buffer.from('encrypted-manifest');
+    });
+
+    const result = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
+
+    expect(result.objects_failed).toBe(1);
+    expect(result.source_manifest_checksum).toBe('');
+    expect(result.replicated_manifest_checksum).toBe('');
+    expect(target_storage.put).not.toHaveBeenCalledWith(manifest_key, expect.any(Buffer));
   });
 });

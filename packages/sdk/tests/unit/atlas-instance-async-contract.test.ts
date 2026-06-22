@@ -78,7 +78,7 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
   SharePointSiteConnector: { list_sites: resolved([]), resolve_site: resolved({}) },
   UserIdentityResolver: { resolve_user: resolved({}) },
   IdentityRegistryRepository: { load: resolved(undefined) },
-  TenantContextFactory: { create: resolved({}) },
+  TenantContextFactory: { create: resolved({ destroy: vi.fn() }) },
 };
 
 vi.mock('@/container', () => ({

@@ -61,6 +61,7 @@ function make_mock_context(): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: stub_tenant_create_cipher,
+    destroy: vi.fn(),
   };
 }
 
@@ -68,6 +69,7 @@ describe('DeletionService', () => {
   let container: Container;
   let mock_manifests: ManifestRepository;
   let mock_context: TenantContext;
+  let mock_factory: TenantContextFactory;
   let service: DeletionService;
 
   beforeEach(() => {
@@ -80,8 +82,12 @@ describe('DeletionService', () => {
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
 
-    const mock_factory: TenantContextFactory = {
+    mock_factory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_storage_only: vi.fn().mockResolvedValue({
+        tenant_id: mock_context.tenant_id,
+        storage: mock_context.storage,
+      }),
     };
 
     container = new Container();
@@ -136,6 +142,13 @@ describe('DeletionService', () => {
       expect(result.retained_objects).toBe(0);
       expect(mock_context.storage.delete).not.toHaveBeenCalled();
     });
+
+    it('uses create_storage_only instead of create', async () => {
+      await service.delete_mailbox_data('t', 'user@test.com');
+
+      expect(mock_factory.create_storage_only).toHaveBeenCalledWith('t');
+      expect(mock_factory.create).not.toHaveBeenCalled();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -186,6 +199,13 @@ describe('DeletionService', () => {
       expect(result.retained_manifests).toBe(1);
       expect(result.failed_manifests).toBe(0);
     });
+
+    it('uses create instead of create_storage_only', async () => {
+      await service.delete_snapshot('t', 'missing');
+
+      expect(mock_factory.create).toHaveBeenCalledWith('t');
+      expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -226,6 +246,13 @@ describe('DeletionService', () => {
       expect(result.deleted_manifests).toBe(0);
       expect(result.retained_objects).toBe(0);
       expect(result.retained_manifests).toBe(0);
+    });
+
+    it('uses create_storage_only instead of create', async () => {
+      await service.purge_tenant('t');
+
+      expect(mock_factory.create_storage_only).toHaveBeenCalledWith('t');
+      expect(mock_factory.create).not.toHaveBeenCalled();
     });
   });
 });

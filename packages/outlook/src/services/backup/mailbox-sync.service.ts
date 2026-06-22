@@ -57,119 +57,123 @@ export class MailboxSyncService implements BackupUseCase {
     owner_id = owner_id.toLowerCase();
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
-    await this.warn_if_replica(ctx);
-    const snapshot = create_pending_snapshot(tenant_id, owner_id, {
-      owner_email: options.owner_email,
-      owner_display_name: options.owner_display_name,
-    });
-    const sync_start = Date.now();
-    const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
-    const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
+    try {
+      await this.warn_if_replica(ctx);
+      const snapshot = create_pending_snapshot(tenant_id, owner_id, {
+        owner_email: options.owner_email,
+        owner_display_name: options.owner_display_name,
+      });
+      const sync_start = Date.now();
+      const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
+      const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
-    const previous = options.force_full
-      ? undefined
-      : await this._manifests.find_latest_by_owner(ctx, owner_id);
-    const saved_links = previous?.delta_links ?? {};
-    const previous_entry_count = previous?.total_objects ?? 0;
-    const mode = this.resolve_sync_mode(options, saved_links);
+      const previous = options.force_full
+        ? undefined
+        : await this._manifests.find_latest_by_owner(ctx, owner_id);
+      const saved_links = previous?.delta_links ?? {};
+      const previous_entry_count = previous?.total_objects ?? 0;
+      const mode = this.resolve_sync_mode(options, saved_links);
 
-    const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
-    const folder_selection = this.apply_folder_filter(all_folders, options.folder_filter);
-    const folders = folder_selection.folders;
-    const warnings = [...folder_selection.warnings];
-    const progress =
-      options.progress ??
-      options.create_progress?.(
-        folders.map((f) => ({ name: f.display_name, total_items: f.total_item_count })),
-      ) ??
-      NOOP_BACKUP_PROGRESS_REPORTER;
-    const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
+      const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
+      const folder_selection = this.apply_folder_filter(all_folders, options.folder_filter);
+      const folders = folder_selection.folders;
+      const warnings = [...folder_selection.warnings];
+      const progress =
+        options.progress ??
+        options.create_progress?.(
+          folders.map((f) => ({ name: f.display_name, total_items: f.total_item_count })),
+        ) ??
+        NOOP_BACKUP_PROGRESS_REPORTER;
+      const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
 
-    const all_entries: ManifestEntry[] = [];
-    const new_delta_links: Record<string, string> = {};
-    let global_processed = 0;
-    let stored = 0;
-    let deduplicated = 0;
-    let attachments_stored = 0;
-    const folder_errors: string[] = [];
+      const all_entries: ManifestEntry[] = [];
+      const new_delta_links: Record<string, string> = {};
+      let global_processed = 0;
+      let stored = 0;
+      let deduplicated = 0;
+      let attachments_stored = 0;
+      const folder_errors: string[] = [];
 
-    for (let i = 0; i < folders.length; i++) {
-      if (should_interrupt()) break;
-      const folder = folders[i]!;
-      progress.mark_active(i);
+      for (let i = 0; i < folders.length; i++) {
+        if (should_interrupt()) break;
+        const folder = folders[i]!;
+        progress.mark_active(i);
 
-      const outcome = await this.sync_single_folder_with_progress(
-        ctx,
-        tenant_id,
+        const outcome = await this.sync_single_folder_with_progress(
+          ctx,
+          tenant_id,
+          owner_id,
+          folder,
+          i,
+          saved_links,
+          previous_entry_count,
+          global_total,
+          global_processed,
+          sync_start,
+          progress,
+          options,
+          should_interrupt,
+          should_force_stop,
+        );
+
+        if (outcome.error) {
+          folder_errors.push(`${folder.display_name}: ${outcome.error}`);
+          progress.mark_error(i, outcome.error);
+          continue;
+        }
+
+        all_entries.push(...outcome.entries);
+        if (outcome.delta_link) {
+          new_delta_links[folder.folder_id] = outcome.delta_link;
+        }
+        stored += outcome.stored;
+        deduplicated += outcome.deduplicated;
+        attachments_stored += outcome.attachments_stored;
+        global_processed += outcome.folder_processed;
+
+        if (should_interrupt()) break;
+
+        const rate = calc_rate(global_processed, Date.now() - sync_start);
+        const eta = rate > 0 ? (global_total - global_processed) / rate : 0;
+        progress.update_total(global_processed, global_total, rate, eta);
+        progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
+      }
+
+      if (should_interrupt()) progress.mark_all_pending_interrupted();
+      progress.finish(global_processed);
+
+      const merged_links = { ...saved_links, ...new_delta_links };
+      const manifest = build_manifest(
         owner_id,
-        folder,
-        i,
-        saved_links,
+        snapshot.id,
+        all_entries,
+        merged_links,
         previous_entry_count,
-        global_total,
-        global_processed,
-        sync_start,
-        progress,
-        options,
-        should_interrupt,
-        should_force_stop,
+        this.build_manifest_object_lock_policy(options),
       );
+      await this._manifests.save(ctx, manifest);
 
-      if (outcome.error) {
-        folder_errors.push(`${folder.display_name}: ${outcome.error}`);
-        progress.mark_error(i, outcome.error);
-        continue;
-      }
-
-      all_entries.push(...outcome.entries);
-      if (outcome.delta_link) {
-        new_delta_links[folder.folder_id] = outcome.delta_link;
-      }
-      stored += outcome.stored;
-      deduplicated += outcome.deduplicated;
-      attachments_stored += outcome.attachments_stored;
-      global_processed += outcome.folder_processed;
-
-      if (should_interrupt()) break;
-
-      const rate = calc_rate(global_processed, Date.now() - sync_start);
-      const eta = rate > 0 ? (global_total - global_processed) / rate : 0;
-      progress.update_total(global_processed, global_total, rate, eta);
-      progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
+      const completed = mark_snapshot_completed(snapshot, all_entries.length);
+      return {
+        snapshot: completed,
+        manifest,
+        mode,
+        summary: {
+          stored,
+          deduplicated,
+          attachments_stored,
+          processed: global_processed,
+          folder_errors,
+          warnings,
+          interrupted: should_interrupt(),
+          completed_folder_count: Object.keys(new_delta_links).length,
+          total_folder_count: folders.length,
+          elapsed_ms: Date.now() - sync_start,
+        },
+      };
+    } finally {
+      ctx.destroy();
     }
-
-    if (should_interrupt()) progress.mark_all_pending_interrupted();
-    progress.finish(global_processed);
-
-    const merged_links = { ...saved_links, ...new_delta_links };
-    const manifest = build_manifest(
-      owner_id,
-      snapshot.id,
-      all_entries,
-      merged_links,
-      previous_entry_count,
-      this.build_manifest_object_lock_policy(options),
-    );
-    await this._manifests.save(ctx, manifest);
-
-    const completed = mark_snapshot_completed(snapshot, all_entries.length);
-    return {
-      snapshot: completed,
-      manifest,
-      mode,
-      summary: {
-        stored,
-        deduplicated,
-        attachments_stored,
-        processed: global_processed,
-        folder_errors,
-        warnings,
-        interrupted: should_interrupt(),
-        completed_folder_count: Object.keys(new_delta_links).length,
-        total_folder_count: folders.length,
-        elapsed_ms: Date.now() - sync_start,
-      },
-    };
   }
 
   /** Syncs one folder and updates progress; returns aggregated results or an error message. */

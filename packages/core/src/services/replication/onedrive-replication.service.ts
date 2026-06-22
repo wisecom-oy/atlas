@@ -46,38 +46,12 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
-    const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
-    const results: ReplicationResult[] = [];
+    try {
+      const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
+      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+      const results: ReplicationResult[] = [];
 
-    for (const target of targets) {
-      const result = await this.copy_to_target(source_ctx, target, manifest, ancillary, tenant_id);
-      await save_replication_status(
-        source_ctx,
-        to_onedrive_status_record(result, target, manifest),
-      );
-      results.push(result);
-    }
-
-    return results;
-  }
-
-  /** Replicates all unreplicated OneDrive snapshots for an owner. */
-  async replicate_all_owner_snapshots(
-    tenant_id: string,
-    owner_id: string,
-    targets: StorageTarget[],
-  ): Promise<ReplicationResult[]> {
-    const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
-    const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
-    const results: ReplicationResult[] = [];
-
-    for (const target of targets) {
-      const target_ctx = await target.create_context(tenant_id);
-      const missing = await diff_od_manifests(manifests, target_ctx, owner_id);
-
-      for (const manifest of missing) {
+      for (const target of targets) {
         const result = await this.copy_to_target(
           source_ctx,
           target,
@@ -91,9 +65,53 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
         );
         results.push(result);
       }
-    }
 
-    return results;
+      return results;
+    } finally {
+      source_ctx.destroy();
+    }
+  }
+
+  /** Replicates all unreplicated OneDrive snapshots for an owner. */
+  async replicate_all_owner_snapshots(
+    tenant_id: string,
+    owner_id: string,
+    targets: StorageTarget[],
+  ): Promise<ReplicationResult[]> {
+    const source_ctx = await this._tenant_factory.create(tenant_id);
+    try {
+      const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
+      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+      const results: ReplicationResult[] = [];
+
+      for (const target of targets) {
+        const target_ctx = await target.create_context(tenant_id);
+        try {
+          const missing = await diff_od_manifests(manifests, target_ctx, owner_id);
+
+          for (const manifest of missing) {
+            const result = await this.copy_to_target(
+              source_ctx,
+              target,
+              manifest,
+              ancillary,
+              tenant_id,
+            );
+            await save_replication_status(
+              source_ctx,
+              to_onedrive_status_record(result, target, manifest),
+            );
+            results.push(result);
+          }
+        } finally {
+          target_ctx.destroy();
+        }
+      }
+
+      return results;
+    } finally {
+      source_ctx.destroy();
+    }
   }
 
   /** DR: recover a specific OneDrive snapshot from a replica. */
@@ -106,23 +124,28 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
-    const manifest_key = `${OD_MANIFEST_PREFIX}/${owner_id}/${snapshot_id}.json`;
+    try {
+      const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
+      const manifest_key = `${OD_MANIFEST_PREFIX}/${owner_id}/${snapshot_id}.json`;
 
-    if (await primary_ctx.storage.exists(manifest_key)) {
-      return build_skip_result(snapshot_id, source.target_id);
+      if (await primary_ctx.storage.exists(manifest_key)) {
+        return build_skip_result(snapshot_id, source.target_id);
+      }
+
+      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+      return this.copy_between(
+        source_ctx,
+        primary_ctx,
+        manifest,
+        ancillary,
+        source.target_id,
+        tenant_id,
+        true,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
     }
-
-    const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
-    return this.copy_between(
-      source_ctx,
-      primary_ctx,
-      manifest,
-      ancillary,
-      source.target_id,
-      tenant_id,
-      true,
-    );
   }
 
   /** DR: recover all OneDrive snapshots for an owner from a replica. */
@@ -134,17 +157,22 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
-    const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+    try {
+      const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
+      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
 
-    return this.rehydrate_manifests(
-      source_ctx,
-      primary_ctx,
-      manifests,
-      ancillary,
-      source,
-      tenant_id,
-    );
+      return this.rehydrate_manifests(
+        source_ctx,
+        primary_ctx,
+        manifests,
+        ancillary,
+        source,
+        tenant_id,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
+    }
   }
 
   private async copy_to_target(

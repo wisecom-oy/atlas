@@ -75,6 +75,19 @@ export async function replicate_snapshot_to_target(
     }
   }
 
+  if (objects_failed > 0) {
+    return {
+      object_results,
+      objects_copied,
+      objects_skipped,
+      objects_failed,
+      bytes_copied,
+      errors,
+      source_manifest_checksum: '',
+      replicated_manifest_checksum: '',
+    };
+  }
+
   const manifest_key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
   const source_manifest_blob = await source_ctx.storage.get(manifest_key);
   const source_manifest_checksum = sha256_hex(source_manifest_blob);

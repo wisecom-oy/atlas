@@ -1,8 +1,17 @@
+export { EnvelopeKeyService } from './envelope-key-service.adapter';
 export {
-  EnvelopeKeyService,
-  derive_kek,
-  CURRENT_KEK_PARAMS,
-  KEK_PARAMS_HISTORY,
-} from './envelope-key-service.adapter';
-export type { KekParams } from './envelope-key-service.adapter';
-export { load_dek_with_migration, load_kek_params, save_kek_params } from './kek-params-store';
+  DEFAULT_KDF_STRATEGY,
+  KDF_STRATEGIES,
+  KDF_SCRYPT,
+  ScryptKdfStrategy,
+  SCRYPT_PARAMS_LENGTH,
+  type KdfStrategy,
+} from './kdf-strategy';
+export {
+  DEK_BLOB_VERSION,
+  build_header_bytes,
+  parse_dek_blob,
+  serialize_dek_blob,
+  type DekBlobHeader,
+  type ParsedDekBlob,
+} from './dek-blob-codec';

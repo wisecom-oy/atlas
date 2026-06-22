@@ -12,6 +12,9 @@ hero:
       text: CLI Reference
       link: /reference/cli
     - theme: alt
+      text: SDK Reference
+      link: /reference/sdk
+    - theme: alt
       text: View on GitHub
       link: https://github.com/miikaok/atlas
 
@@ -28,6 +31,8 @@ features:
     details: Back up Outlook mailboxes, OneDrive files, and SharePoint document libraries with a single tool and unified encryption.
   - title: Snapshot Replication
     details: Replicate encrypted snapshots to secondary S3 targets for disaster recovery across all workloads.
+  - title: CLI & SDK Packages
+    details: "@atlas/cli for shell deployment and cron jobs; @atlas/sdk for embedding in Node.js apps with a typed, namespaced API."
   - title: Typed SDK
     details: Programmatic API for embedding in other Node.js applications via the standalone @atlas/sdk package.
 ---

@@ -48,51 +48,55 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     options: SharePointRestoreOptions,
   ): Promise<SharePointRestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
-    if (!manifest) {
-      throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
-    }
+    try {
+      const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
+      if (!manifest) {
+        throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
+      }
 
-    const target_site = options.target_site_id ?? site_id;
-    const conflict = options.conflict_behavior ?? 'rename';
-    const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const target_site = options.target_site_id ?? site_id;
+      const conflict = options.conflict_behavior ?? 'rename';
+      const entries = this.filter_entries(manifest.entries, options.file_filter);
 
-    // Folder cache keyed by "drive_id:path" since entries span multiple document libraries
-    const folder_ids = new Map<string, string>();
-    let files_restored = 0;
-    let files_skipped = 0;
-    const errors: string[] = [];
+      // Folder cache keyed by "drive_id:path" since entries span multiple document libraries
+      const folder_ids = new Map<string, string>();
+      let files_restored = 0;
+      let files_skipped = 0;
+      const errors: string[] = [];
 
-    const restorable = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
+      const restorable = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
-    for (const entry of restorable) {
-      await this.restore_single_entry(
-        tenant_id,
-        target_site,
-        conflict,
-        ctx,
-        entry,
-        folder_ids,
-        () => {
-          files_restored++;
-        },
-        () => {
-          files_skipped++;
-        },
+      for (const entry of restorable) {
+        await this.restore_single_entry(
+          tenant_id,
+          target_site,
+          conflict,
+          ctx,
+          entry,
+          folder_ids,
+          () => {
+            files_restored++;
+          },
+          () => {
+            files_skipped++;
+          },
+          errors,
+        );
+      }
+
+      const unique_drive_folder_keys = new Set([...folder_ids.keys()].map((k) => k));
+      const folders_created = Math.max(0, unique_drive_folder_keys.size);
+
+      return {
+        snapshot_id: options.snapshot_id,
+        files_restored,
+        folders_created,
+        files_skipped,
         errors,
-      );
+      };
+    } finally {
+      ctx.destroy();
     }
-
-    const unique_drive_folder_keys = new Set([...folder_ids.keys()].map((k) => k));
-    const folders_created = Math.max(0, unique_drive_folder_keys.size);
-
-    return {
-      snapshot_id: options.snapshot_id,
-      files_restored,
-      folders_created,
-      files_skipped,
-      errors,
-    };
   }
 
   private async restore_single_entry(

@@ -41,16 +41,20 @@ export class SaveService implements SaveUseCase {
     options: SaveOptions = {},
   ): Promise<SaveResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this.load_manifest(ctx, snapshot_id);
-    const owner_id = manifest.owner_id;
+    try {
+      const manifest = await this.load_manifest(ctx, snapshot_id);
+      const owner_id = manifest.owner_id;
 
-    const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
-    if (entries.length === 0) {
-      logger.warn('No entries to save');
-      return this.empty_result(snapshot_id, options.output_path ?? '');
+      const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
+      if (entries.length === 0) {
+        logger.warn('No entries to save');
+        return this.empty_result(snapshot_id, options.output_path ?? '');
+      }
+
+      return this.save_batch(ctx, tenant_id, owner_id, snapshot_id, entries, options);
+    } finally {
+      ctx.destroy();
     }
-
-    return this.save_batch(ctx, tenant_id, owner_id, snapshot_id, entries, options);
   }
 
   async save_mailbox(
@@ -59,31 +63,35 @@ export class SaveService implements SaveUseCase {
     options: SaveOptions = {},
   ): Promise<SaveResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
+    try {
+      const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
 
-    if (manifests.length === 0) {
-      logger.warn('No snapshots found for this mailbox in the given date range');
-      return this.empty_result('mailbox', options.output_path ?? '');
+      if (manifests.length === 0) {
+        logger.warn('No snapshots found for this mailbox in the given date range');
+        return this.empty_result('mailbox', options.output_path ?? '');
+      }
+
+      const entries = merge_snapshot_entries(manifests);
+
+      if (options.folder_name) {
+        await backfill_missing_folder_ids(ctx, entries);
+      }
+
+      const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
+      if (filtered.length === 0) {
+        logger.warn('No entries to save after filtering');
+        return this.empty_result('mailbox', options.output_path ?? '');
+      }
+
+      logger.info(
+        `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
+          `${chalk.cyan(String(filtered.length))} unique messages`,
+      );
+
+      return this.save_batch(ctx, tenant_id, owner_id, 'mailbox', filtered, options);
+    } finally {
+      ctx.destroy();
     }
-
-    const entries = merge_snapshot_entries(manifests);
-
-    if (options.folder_name) {
-      await backfill_missing_folder_ids(ctx, entries);
-    }
-
-    const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
-    if (filtered.length === 0) {
-      logger.warn('No entries to save after filtering');
-      return this.empty_result('mailbox', options.output_path ?? '');
-    }
-
-    logger.info(
-      `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
-        `${chalk.cyan(String(filtered.length))} unique messages`,
-    );
-
-    return this.save_batch(ctx, tenant_id, owner_id, 'mailbox', filtered, options);
   }
 
   private async load_manifest(ctx: TenantContext, snapshot_id: string): Promise<Manifest> {

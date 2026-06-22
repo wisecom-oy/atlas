@@ -31,7 +31,11 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    return this._manifests.list_snapshots_by_site(ctx, site_id);
+    try {
+      return await this._manifests.list_snapshots_by_site(ctx, site_id);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /** Resolves `file_ref` to a Graph file id (or path) and returns stored version rows. */
@@ -41,10 +45,14 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
     file_ref: string,
   ): Promise<SharePointFileVersionRecord[]> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const file_id = await this.resolve_file_id(ctx, site_id, file_ref);
-    if (!file_id) return [];
-    const index = await this._indexes.find_by_file_id(ctx, site_id, file_id);
-    return index?.versions ?? [];
+    try {
+      const file_id = await this.resolve_file_id(ctx, site_id, file_ref);
+      if (!file_id) return [];
+      const index = await this._indexes.find_by_file_id(ctx, site_id, file_id);
+      return index?.versions ?? [];
+    } finally {
+      ctx.destroy();
+    }
   }
 
   /** Maps a CLI file reference (Graph item id or rooted path) to a file id, if known. */

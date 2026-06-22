@@ -5,17 +5,19 @@ Atlas uses **envelope encryption** to isolate tenants cryptographically. This pa
 ## Key Hierarchy
 
 ```
-Master passphrase (env var)
+Master passphrase (env var or SDK config)
     |
     v
-scrypt(passphrase, tenant_id, N=32768, r=8, p=1)  -->  KEK (256-bit, per-tenant)
+scrypt(passphrase, [tenant_id + per-wrap random salt], N=65536, r=8, p=1)  -->  KEK (256-bit)
     |
     v
-KEK wraps/unwraps a random DEK (AES-256-GCM)
+KEK wraps/unwraps a random DEK (AES-256-GCM, header authenticated as AAD)
     |
     v
 DEK encrypts all data + manifests for that tenant
 ```
+
+The wrapped DEK at `_meta/dek.enc` is a **versioned blob**: a self-describing header (KDF id, scrypt parameters including a 32-byte random salt) followed by the encrypted DEK. Each time the DEK is re-wrapped, a fresh salt is generated. The header is authenticated as additional data (AAD) on the GCM envelope, so version or parameter tampering is detected on unwrap.
 
 ### Why Envelope Encryption
 
@@ -29,22 +31,23 @@ Envelope encryption separates the key that protects your data (DEK) from the key
 
 The KEK is derived using **scrypt**, a memory-hard key derivation function designed to resist brute-force attacks from GPUs and custom hardware (ASICs). Unlike simpler hash functions, scrypt requires a large amount of RAM for each derivation attempt, making parallel attacks expensive.
 
-Parameters used by Atlas:
+Parameters used by Atlas for **new** DEK wraps:
 
 | Parameter | Value | Purpose |
 | --- | --- | --- |
-| N (cost) | 32768 | CPU/memory cost factor (2^15 iterations, OWASP Interactive minimum) |
+| N (cost) | 65536 | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads) |
 | r (block size) | 8 | Memory usage multiplier |
 | p (parallelism) | 1 | Sequential derivation (no parallel lanes) |
-| Salt | `tenant_id` string | Ensures different KEKs per tenant |
+| Salt | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
 | Output | 32 bytes (256 bits) | AES-256 key length |
+| Minimum N on unwrap | 16384 | Blobs with weaker parameters are rejected |
 
-The **tenant ID as salt** is a deliberate design choice. It means that the same master passphrase used across multiple tenants produces completely different KEKs for each tenant. An attacker who compromises one tenant's KEK gains nothing toward decrypting another tenant's data.
+The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
 
 ### DEK: Data Encryption Key
 
 - **Generated once** per tenant: a cryptographically random 256-bit key.
-- **Stored wrapped** (encrypted with the KEK) at `_meta/dek.enc` in the tenant's S3 bucket.
+- **Stored wrapped** as a versioned blob at `_meta/dek.enc` in the tenant's S3 bucket (KDF parameters and encrypted DEK in one self-describing object).
 - **Never stored in plaintext** -- only exists in memory during a backup/restore run.
 - **Re-derived on every run**: Atlas reads `_meta/dek.enc`, derives the KEK from the passphrase, unwraps the DEK, and holds it in memory for the session.
 

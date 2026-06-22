@@ -220,6 +220,49 @@ describe('with_graph_retry', () => {
     expect(calls).toBe(4);
   });
 
+  it('succeeds when request resolves before the 60s timeout', async () => {
+    const fn = vi.fn().mockResolvedValue('ok');
+
+    const result = await with_graph_retry(fn);
+
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('succeeds when request resolves within the 60s timeout window', async () => {
+    const fn = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          setTimeout(() => resolve('ok'), 5_000);
+        }),
+    );
+
+    const promise = with_graph_retry(fn);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await promise;
+
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on ETIMEDOUT error', async () => {
+    let calls = 0;
+    const fn = (): Promise<string> => {
+      calls++;
+      if (calls === 1) {
+        return Promise.reject(Object.assign(new Error('Request timed out'), { code: 'ETIMEDOUT' }));
+      }
+      return Promise.resolve('recovered');
+    };
+
+    const promise = with_graph_retry(fn);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await promise;
+
+    expect(result).toBe('recovered');
+    expect(calls).toBe(2);
+  });
+
   it('respects Retry-After header', async () => {
     let calls = 0;
     const fn = (): Promise<string> => {

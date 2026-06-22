@@ -26,7 +26,10 @@ export default defineConfig({
       { text: 'Reference', link: '/reference/cli' },
       {
         text: 'npm',
-        link: 'https://www.npmjs.com/package/@atlas/cli',
+        items: [
+          { text: '@atlas/cli', link: 'https://www.npmjs.com/package/@atlas/cli' },
+          { text: '@atlas/sdk', link: 'https://www.npmjs.com/package/@atlas/sdk' },
+        ],
       },
     ],
 

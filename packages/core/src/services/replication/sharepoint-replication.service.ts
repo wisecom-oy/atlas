@@ -14,6 +14,7 @@ import {
 import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
 import {
   build_replication_result,
   build_skip_result,
@@ -47,44 +48,12 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this.require_sp_manifest(source_ctx, site_id, snapshot_id);
-    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
-    const results: ReplicationResult[] = [];
+    try {
+      const manifest = await this.require_sp_manifest(source_ctx, site_id, snapshot_id);
+      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+      const results: ReplicationResult[] = [];
 
-    for (const target of targets) {
-      const result = await this.copy_sp_to_target(
-        source_ctx,
-        target,
-        manifest,
-        ancillary,
-        tenant_id,
-      );
-      await save_replication_status(
-        source_ctx,
-        to_sharepoint_status_record(result, target, manifest),
-      );
-      results.push(result);
-    }
-
-    return results;
-  }
-
-  /** Replicates all unreplicated SharePoint snapshots for a site. */
-  async replicate_all_site_snapshots(
-    tenant_id: string,
-    site_id: string,
-    targets: StorageTarget[],
-  ): Promise<ReplicationResult[]> {
-    const source_ctx = await this._tenant_factory.create(tenant_id);
-    const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
-    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
-    const results: ReplicationResult[] = [];
-
-    for (const target of targets) {
-      const target_ctx = await target.create_context(tenant_id);
-      const missing = await diff_sp_manifests(manifests, target_ctx, site_id);
-
-      for (const manifest of missing) {
+      for (const target of targets) {
         const result = await this.copy_sp_to_target(
           source_ctx,
           target,
@@ -98,9 +67,53 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
         );
         results.push(result);
       }
-    }
 
-    return results;
+      return results;
+    } finally {
+      source_ctx.destroy();
+    }
+  }
+
+  /** Replicates all unreplicated SharePoint snapshots for a site. */
+  async replicate_all_site_snapshots(
+    tenant_id: string,
+    site_id: string,
+    targets: StorageTarget[],
+  ): Promise<ReplicationResult[]> {
+    const source_ctx = await this._tenant_factory.create(tenant_id);
+    try {
+      const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
+      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+      const results: ReplicationResult[] = [];
+
+      for (const target of targets) {
+        const target_ctx = await target.create_context(tenant_id);
+        try {
+          const missing = await diff_sp_manifests(manifests, target_ctx, site_id);
+
+          for (const manifest of missing) {
+            const result = await this.copy_sp_to_target(
+              source_ctx,
+              target,
+              manifest,
+              ancillary,
+              tenant_id,
+            );
+            await save_replication_status(
+              source_ctx,
+              to_sharepoint_status_record(result, target, manifest),
+            );
+            results.push(result);
+          }
+        } finally {
+          target_ctx.destroy();
+        }
+      }
+
+      return results;
+    } finally {
+      source_ctx.destroy();
+    }
   }
 
   /** DR: recover a specific SharePoint snapshot from a replica. */
@@ -113,23 +126,28 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifest = await this.require_sp_manifest_from_ctx(source_ctx, site_id, snapshot_id);
-    const manifest_key = `${SP_MANIFEST_PREFIX}/${site_id}/${snapshot_id}.json`;
+    try {
+      const manifest = await this.require_sp_manifest_from_ctx(source_ctx, site_id, snapshot_id);
+      const manifest_key = `${SP_MANIFEST_PREFIX}/${site_id}/${snapshot_id}.json`;
 
-    if (await primary_ctx.storage.exists(manifest_key)) {
-      return build_skip_result(snapshot_id, source.target_id);
+      if (await primary_ctx.storage.exists(manifest_key)) {
+        return build_skip_result(snapshot_id, source.target_id);
+      }
+
+      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+      return this.copy_sp_between(
+        source_ctx,
+        primary_ctx,
+        manifest,
+        ancillary,
+        source.target_id,
+        tenant_id,
+        true,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
     }
-
-    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
-    return this.copy_sp_between(
-      source_ctx,
-      primary_ctx,
-      manifest,
-      ancillary,
-      source.target_id,
-      tenant_id,
-      true,
-    );
   }
 
   /** DR: recover all SharePoint snapshots for a site from a replica. */
@@ -141,17 +159,24 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
-    const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
-    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+    try {
+      const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
+      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
 
-    return this.rehydrate_sp_manifests(
-      source_ctx,
-      primary_ctx,
-      manifests,
-      ancillary,
-      source,
-      tenant_id,
-    );
+      return rehydrate_sp_manifests(
+        source_ctx,
+        primary_ctx,
+        manifests,
+        ancillary,
+        source,
+        tenant_id,
+        this._validate_dek,
+        this._config.encryption_passphrase,
+      );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
+    }
   }
 
   private async copy_sp_to_target(
@@ -215,64 +240,6 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
       },
     );
     return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
-  }
-
-  private async rehydrate_sp_manifests(
-    source_ctx: TenantContext,
-    primary_ctx: TenantContext,
-    manifests: SharePointSnapshotManifest[],
-    ancillary_keys: string[],
-    source: StorageTarget,
-    tenant_id: string,
-  ): Promise<ReplicationResult> {
-    const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      primary_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
-    );
-
-    let total_copied = 0;
-    let total_skipped = 0;
-    let total_failed = 0;
-    let total_bytes = 0;
-    const all_errors: string[] = [];
-    let snapshot_count = 0;
-
-    for (const manifest of manifests) {
-      const key = `${SP_MANIFEST_PREFIX}/${manifest.site_id}/${manifest.snapshot_id}.json`;
-      if (await primary_ctx.storage.exists(key)) {
-        total_skipped++;
-        continue;
-      }
-
-      const rep = await replicate_sharepoint_snapshot(source_ctx, primary_ctx, manifest, key, {
-        skip_marker: true,
-        ancillary_keys,
-      });
-      total_copied += rep.objects_copied;
-      total_skipped += rep.objects_skipped;
-      total_failed += rep.objects_failed;
-      total_bytes += rep.bytes_copied;
-      all_errors.push(...rep.errors);
-      snapshot_count++;
-    }
-
-    const label =
-      manifests.length === 1 ? manifests[0]!.snapshot_id : `${snapshot_count}-snapshots`;
-    return build_replication_result(
-      {
-        objects_copied: total_copied,
-        objects_skipped: total_skipped,
-        objects_failed: total_failed,
-        bytes_copied: total_bytes,
-        errors: all_errors,
-      },
-      label,
-      source.target_id,
-      Date.now() - start,
-    );
   }
 
   private async require_sp_manifest(

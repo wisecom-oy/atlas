@@ -1,40 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
 import { create_storage_target } from '@/adapters/storage-target.factory';
+import { EnvelopeKeyService } from '@atlas/core';
 import type { StorageTargetConfig } from '@atlas/types';
 
-const { wrapped_dek } = vi.hoisted(() => {
-  const { scryptSync, randomBytes, createCipheriv } =
-    // Vitest hoists this factory above ESM imports; use CJS require for crypto.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require('node:crypto') as typeof import('node:crypto');
-  const kek = scryptSync('test-pass', 'tenant-1', 32, {
-    N: 32768,
-    r: 8,
-    p: 1,
-    maxmem: 64 * 1024 * 1024,
-  });
-  const dek = randomBytes(32);
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', kek, iv, { authTagLength: 16 });
-  const encrypted = Buffer.concat([cipher.update(dek), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return { wrapped_dek: Buffer.concat([iv, tag, encrypted]) };
-});
+// Holder the hoisted mock can close over; populated by the crypto test before use.
+const crypto_state = vi.hoisted(() => ({ wrapped_dek: Buffer.alloc(0) }));
 
 let mock_exists_returns = true;
 vi.mock('@/adapters/s3-object-storage.adapter', () => ({
   S3ObjectStorage: class MockS3ObjectStorage {
     put = async (): Promise<void> => {};
     get = async (key: string): Promise<Buffer> => {
-      if (key === '_meta/dek.enc') return wrapped_dek;
+      if (key === '_meta/dek.enc') return crypto_state.wrapped_dek;
       throw new Error(`unexpected get(${key})`);
     };
     delete = async (): Promise<void> => {};
     delete_version = async (): Promise<void> => {};
-    exists = async (key: string): Promise<boolean> => {
-      if (key === '_meta/kek_params.json') return false;
-      return mock_exists_returns;
-    };
+    exists = async (): Promise<boolean> => mock_exists_returns;
     list = async (): Promise<string[]> => [];
     list_versions = async (): Promise<string[]> => [];
     begin_multipart_upload = async () => ({
@@ -81,15 +63,20 @@ describe('create_storage_target', () => {
     expect(target.target_id).toBe('my-offsite');
   });
 
-  it('creates a context with crypto when DEK exists', async () => {
+  it('creates a context with working crypto when DEK exists', async () => {
+    const svc = new EnvelopeKeyService('test-pass');
+    const dek = svc.generate_dek();
+    crypto_state.wrapped_dek = svc.wrap_dek(dek, 'tenant-1');
     mock_exists_returns = true;
+
     const target = create_storage_target(base_config);
     const ctx = await target.create_context('tenant-1');
 
     expect(ctx.tenant_id).toBe('tenant-1');
     expect(ctx.storage).toBeDefined();
-    expect(typeof ctx.encrypt).toBe('function');
-    expect(typeof ctx.decrypt).toBe('function');
+    // Round-trip proves unwrap_dek recovered the original DEK.
+    const plaintext = Buffer.from('round-trip');
+    expect(ctx.decrypt(ctx.encrypt(plaintext)).equals(plaintext)).toBe(true);
   });
 
   it('creates a storage-only context when no DEK exists', async () => {

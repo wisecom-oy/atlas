@@ -2,13 +2,14 @@
 
 ## Installation
 
-Install the Atlas CLI globally from npm:
+Atlas is published as two npm packages. Choose based on how you plan to run it:
 
-```bash
-npm install -g @atlas/cli
-```
+| Package | Command | Best for |
+| ------- | ------- | -------- |
+| **`@atlas/cli`** | `npm install -g @atlas/cli` | Shell operations, cron/systemd jobs, operator workflows. Reads `.env` automatically. |
+| **`@atlas/sdk`** | `npm add @atlas/sdk` | Node.js apps, custom schedulers, multi-tenant SaaS, portals. Explicit config, typed API. |
 
-Requires **Node.js 20** or later.
+This guide uses the **CLI**. Requires **Node.js 20** or later.
 
 ## Start an S3-Compatible Backend
 
@@ -18,7 +19,7 @@ Atlas stores backups in any S3-compatible object storage. For local development 
 cd docker && docker compose up -d
 ```
 
-This starts MinIO on port **9000** (S3 API) and port **9001** (web console). See the [Self-Hosting Guide](./self-hosting.md) for production deployment with external storage, RAID, and security hardening.
+This starts MinIO on port **9000** (S3 API) and port **9001** (web console). See the [Self-Hosting Guide](./self-hosting/) for production deployment with external storage, RAID, and security hardening.
 
 ## Configure
 
@@ -98,7 +99,13 @@ See the full [CLI Reference](./reference/cli.md) for all commands and options, a
 
 ## Use as a Library
 
-Atlas also exposes a typed SDK for embedding in Node.js applications:
+If you need Atlas inside your own application — custom backup portals, multi-tenant schedulers, or SaaS integrations — install **`@atlas/sdk`** instead of (or alongside) the CLI:
+
+```bash
+npm add @atlas/sdk
+```
+
+The SDK exposes the same workloads as the CLI, organized by namespace. Config is passed explicitly at construction time (the SDK does not read `.env`):
 
 ```typescript
 import { createAtlasInstance } from '@atlas/sdk';
@@ -113,13 +120,13 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: 'my-secret-passphrase',
 });
 
-// Outlook
+// Outlook — mirrors `atlas outlook backup`
 const result = await atlas.outlook.backup('user@company.com');
 
-// OneDrive
+// OneDrive — mirrors `atlas onedrive backup`
 const odResult = await atlas.onedrive.backup('owner-id');
 
-// SharePoint
+// SharePoint — mirrors `atlas sharepoint backup`
 const spResult = await atlas.sharepoint.backup('site-id');
 ```
 

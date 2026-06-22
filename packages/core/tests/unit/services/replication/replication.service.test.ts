@@ -89,6 +89,7 @@ describe('ReplicationService', () => {
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
       create_cipher: stub_tenant_create_cipher,
+      destroy: vi.fn(),
     };
 
     target_ctx = {
@@ -97,6 +98,7 @@ describe('ReplicationService', () => {
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
       create_cipher: stub_tenant_create_cipher,
+      destroy: vi.fn(),
     };
 
     tenant_factory = { create: vi.fn().mockResolvedValue(source_ctx) };

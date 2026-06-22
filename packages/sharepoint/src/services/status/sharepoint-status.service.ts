@@ -34,31 +34,35 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     site_id: string,
   ): Promise<SharePointStatusResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const previous_cursor = await this._cursors.load(ctx, site_id);
-    const saved_links = previous_cursor?.delta_link_by_drive ?? {};
+    try {
+      const previous_cursor = await this._cursors.load(ctx, site_id);
+      const saved_links = previous_cursor?.delta_link_by_drive ?? {};
 
-    const previous_manifest = await this._manifests.find_latest_by_site(ctx, site_id);
-    const all_libraries = await this._connector.list_document_libraries(tenant_id, site_id);
-    const library_statuses = await this.peek_all_libraries(
-      tenant_id,
-      site_id,
-      all_libraries,
-      saved_links,
-    );
+      const previous_manifest = await this._manifests.find_latest_by_site(ctx, site_id);
+      const all_libraries = await this._connector.list_document_libraries(tenant_id, site_id);
+      const library_statuses = await this.peek_all_libraries(
+        tenant_id,
+        site_id,
+        all_libraries,
+        saved_links,
+      );
 
-    const total_pending = library_statuses.reduce((sum, lib) => sum + lib.pending_changes, 0);
+      const total_pending = library_statuses.reduce((sum, lib) => sum + lib.pending_changes, 0);
 
-    return {
-      site_id,
-      last_backup_at: previous_manifest?.created_at
-        ? new Date(previous_manifest.created_at)
-        : undefined,
-      last_snapshot_id: previous_manifest?.snapshot_id,
-      total_libraries: all_libraries.length,
-      libraries: library_statuses,
-      is_up_to_date: total_pending === 0 && library_statuses.every((lib) => lib.has_backup),
-      total_pending_changes: total_pending,
-    };
+      return {
+        site_id,
+        last_backup_at: previous_manifest?.created_at
+          ? new Date(previous_manifest.created_at)
+          : undefined,
+        last_snapshot_id: previous_manifest?.snapshot_id,
+        total_libraries: all_libraries.length,
+        libraries: library_statuses,
+        is_up_to_date: total_pending === 0 && library_statuses.every((lib) => lib.has_backup),
+        total_pending_changes: total_pending,
+      };
+    } finally {
+      ctx.destroy();
+    }
   }
 
   private async peek_all_libraries(

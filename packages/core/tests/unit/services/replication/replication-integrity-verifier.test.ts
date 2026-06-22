@@ -60,6 +60,7 @@ describe('verify_replicated_snapshot', () => {
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
       create_cipher: stub_tenant_create_cipher,
+      destroy: vi.fn(),
     };
   });
 

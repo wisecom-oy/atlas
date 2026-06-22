@@ -55,32 +55,43 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const manifest = await this.load_manifest(ctx, snapshot_id);
-    const source_mailbox = manifest.owner_id;
-    const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
+    try {
+      const manifest = await this.load_manifest(ctx, snapshot_id);
+      const source_mailbox = manifest.owner_id;
+      const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
 
-    await this.assert_mailbox_exists(tenant_id, target_mailbox);
+      await this.assert_mailbox_exists(tenant_id, target_mailbox);
 
-    const entries = await this.resolve_entries(ctx, manifest, source_mailbox, tenant_id, options);
-    if (entries.length === 0) {
-      logger.warn('No entries to restore');
-      return this.empty_result(snapshot_id);
-    }
+      const entries = await this.resolve_entries(ctx, manifest, source_mailbox, tenant_id, options);
+      if (entries.length === 0) {
+        logger.warn('No entries to restore');
+        return this.empty_result(snapshot_id);
+      }
 
-    if (options.message_ref) {
-      return restore_single_message(
+      if (options.message_ref) {
+        return restore_single_message(
+          ctx,
+          this._connector,
+          this._restore_connector,
+          tenant_id,
+          source_mailbox,
+          target_mailbox,
+          snapshot_id,
+          entries[0]!,
+        );
+      }
+
+      return this.restore_batch(
         ctx,
-        this._connector,
-        this._restore_connector,
         tenant_id,
         source_mailbox,
         target_mailbox,
         snapshot_id,
-        entries[0]!,
+        entries,
       );
+    } finally {
+      ctx.destroy();
     }
-
-    return this.restore_batch(ctx, tenant_id, source_mailbox, target_mailbox, snapshot_id, entries);
   }
 
   /**
@@ -93,35 +104,39 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
-    const target = options.target_mailbox?.toLowerCase() ?? owner_id;
+    try {
+      const target = options.target_mailbox?.toLowerCase() ?? owner_id;
 
-    await this.assert_mailbox_exists(tenant_id, target);
+      await this.assert_mailbox_exists(tenant_id, target);
 
-    const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
-    if (manifests.length === 0) {
-      logger.warn('No snapshots found for this mailbox in the given date range');
-      return this.empty_result('mailbox');
+      const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
+      if (manifests.length === 0) {
+        logger.warn('No snapshots found for this mailbox in the given date range');
+        return this.empty_result('mailbox');
+      }
+
+      const entries = merge_snapshot_entries(manifests);
+
+      if (options.folder_name) {
+        await backfill_missing_folder_ids(ctx, entries);
+      }
+
+      const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
+
+      if (filtered.length === 0) {
+        logger.warn('No entries to restore after filtering');
+        return this.empty_result('mailbox');
+      }
+
+      logger.info(
+        `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
+          `${chalk.cyan(String(filtered.length))} unique messages`,
+      );
+
+      return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered);
+    } finally {
+      ctx.destroy();
     }
-
-    const entries = merge_snapshot_entries(manifests);
-
-    if (options.folder_name) {
-      await backfill_missing_folder_ids(ctx, entries);
-    }
-
-    const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
-
-    if (filtered.length === 0) {
-      logger.warn('No entries to restore after filtering');
-      return this.empty_result('mailbox');
-    }
-
-    logger.info(
-      `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
-        `${chalk.cyan(String(filtered.length))} unique messages`,
-    );
-
-    return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered);
   }
 
   /** Loads all manifests for a mailbox, sorted newest-first and date-filtered. */
@@ -308,7 +323,9 @@ export class RestoreService implements RestoreUseCase {
         restored_count: global_restored,
         attachment_count: global_att,
         error_count: global_errors,
+        attachment_error_count: 0,
         errors: all_errors,
+        verification_warnings: [],
         restore_folder_name: root.display_name,
       };
     } finally {
@@ -333,7 +350,9 @@ export class RestoreService implements RestoreUseCase {
       restored_count: 0,
       attachment_count: 0,
       error_count: 0,
+      attachment_error_count: 0,
       errors: [],
+      verification_warnings: [],
       restore_folder_name: '',
     };
   }
