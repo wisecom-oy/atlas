@@ -29,5 +29,5 @@ features:
   - title: Snapshot Replication
     details: Replicate encrypted snapshots to secondary S3 targets for disaster recovery across all workloads.
   - title: Typed SDK
-    details: Programmatic API for embedding in other Node.js applications via the m365-atlas/sdk subpath.
+    details: Programmatic API for embedding in other Node.js applications via the standalone @atlas/sdk package.
 ---

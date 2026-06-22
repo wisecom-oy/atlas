@@ -2,10 +2,10 @@
 
 ## Installation
 
-Install Atlas globally from npm:
+Install the Atlas CLI globally from npm:
 
 ```bash
-npm install -g m365-atlas
+npm install -g @atlas/cli
 ```
 
 Requires **Node.js 20** or later.
@@ -101,7 +101,7 @@ See the full [CLI Reference](./reference/cli.md) for all commands and options, a
 Atlas also exposes a typed SDK for embedding in Node.js applications:
 
 ```typescript
-import { createAtlasInstance } from 'm365-atlas/sdk';
+import { createAtlasInstance } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',

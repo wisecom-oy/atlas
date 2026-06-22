@@ -4,9 +4,9 @@
 
 [![CI](https://github.com/miikaok/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/miikaok/atlas/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/miikaok/34b7e6013b428e289db442d3d28f4f14/raw/m365-atlas-coverage.json)](https://github.com/miikaok/atlas/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/m365-atlas)](https://www.npmjs.com/package/m365-atlas)
+[![npm](https://img.shields.io/npm/v/@atlas/cli)](https://www.npmjs.com/package/@atlas/cli)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Socket Badge](https://badge.socket.dev/npm/package/m365-atlas)](https://socket.dev/npm/package/m365-atlas)
+[![Socket Badge](https://badge.socket.dev/npm/package/@atlas/cli)](https://socket.dev/npm/package/@atlas/cli)
 
 An open-source CLI backup and restore engine for Microsoft 365. Protects Outlook mailboxes, OneDrive files, and SharePoint document libraries with per-tenant envelope encryption, content-addressed deduplication, multi-layer integrity validation, and efficient delta synchronization against S3-compatible object storage.
 
@@ -18,13 +18,13 @@ An open-source CLI backup and restore engine for Microsoft 365. Protects Outlook
 - **Storage-level immutability** — S3/MinIO Object Lock with time-based retention
 - **Delta sync** — incremental backups via Microsoft Graph delta queries
 - **Snapshot replication** — replicate encrypted snapshots to secondary S3 targets for DR
-- **Typed SDK** — embed in Node.js apps via `m365-atlas/sdk`
+- **Typed SDK** — embed in Node.js apps via `@atlas/sdk`
 - **Live dashboard** — real-time ANSI progress for single and tenant-wide backups
 
 ## Quick Start
 
 ```bash
-npm install -g m365-atlas
+npm install -g @atlas/cli
 
 # Outlook
 atlas outlook backup --mailbox user@company.com   # single mailbox

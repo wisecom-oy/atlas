@@ -26,7 +26,7 @@ export default defineConfig({
       { text: 'Reference', link: '/reference/cli' },
       {
         text: 'npm',
-        link: 'https://www.npmjs.com/package/m365-atlas',
+        link: 'https://www.npmjs.com/package/@atlas/cli',
       },
     ],
 

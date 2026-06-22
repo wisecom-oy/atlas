@@ -1,6 +1,6 @@
 {
   "name": "@atlas/sharepoint",
-  "version": "1.2.3",
+  "version": "2.0.0-beta.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

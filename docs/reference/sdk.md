@@ -1,17 +1,17 @@
 # Programmatic SDK
 
-Atlas can be used as a typed library in other Node.js applications. The SDK is available as a separate subpath import.
+Atlas can be used as a typed library in other Node.js applications. The SDK ships as a standalone npm package, `@atlas/sdk`, with all internal modules bundled in — a single install, no peer `@atlas/*` packages to add.
 
 ## Installation
 
 ```bash
-npm add m365-atlas
+npm add @atlas/sdk
 ```
 
 ## Creating an Instance
 
 ```typescript
-import { createAtlasInstance } from 'm365-atlas/sdk';
+import { createAtlasInstance } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',
@@ -163,7 +163,7 @@ for (const mailboxId of mailboxIds) {
 The SDK supports snapshot-level replication and disaster recovery rehydration. A `StorageTarget` represents a secondary S3 endpoint -- it only needs S3 credentials and the shared passphrase (no M365 credentials).
 
 ```typescript
-import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
+import { createAtlasInstance, createStorageTarget } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({
   /* primary config */
@@ -321,9 +321,19 @@ For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. Y
 
 ## Exports
 
-The SDK exports its own types via `m365-atlas/sdk`. Domain types, port interfaces, and result types are available from the root `m365-atlas` import for advanced use cases. Status-related types (`MailboxStatusResult`, `FolderStatus`), replication types (`ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`), and `createStorageTarget` are also exported from `m365-atlas/sdk`.
+`@atlas/sdk` re-exports all domain types, port interfaces, and result types, so everything below is available from a single `@atlas/sdk` import.
 
-**Graph cost types** exported from `m365-atlas/sdk`:
+- Instance types: `AtlasInstance`, `AtlasInstanceConfig`
+- Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
+- Stats types: `BucketStats`, `MailboxStats`, `FolderStats`, `MonthlyBreakdown`
+- Status types: `MailboxStatusResult`, `FolderStatus`, `OneDriveStatusResult`, `OneDriveDriveStatus`, `SharePointStatusResult`, `SharePointLibraryStatus`
+- Identity types: `ResolvedUserIdentity`, `IdentityRegistry`, `IdentityRegistryEntry`
+- Discovery types: `TenantMailbox`, `MailboxDiscoveryOptions`
+- Deletion types: `DeletionResult`
+- Replication types: `ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`
+- Factory functions: `createAtlasInstance`, `createStorageTarget`
+
+**Graph cost types:**
 
 | Export                    | Kind  | Description                                                            |
 | ------------------------- | ----- | ---------------------------------------------------------------------- |

@@ -3,7 +3,7 @@ import type { TenantContextFactory, TenantContext } from '@atlas/types';
 import type { SharePointManifestRepository, SharePointSnapshotManifest } from '@atlas/types';
 import type { StorageTarget, StorageTargetFactory } from '@atlas/types';
 import type { DekValidationFn } from '@atlas/types';
-import type { ReplicationResult, ReplicationStatusRecord } from '@atlas/types';
+import type { ReplicationResult } from '@atlas/types';
 import type { SharePointReplicationUseCase } from '@atlas/types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -21,37 +21,12 @@ import {
 import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 
-/** Builds a SharePointReplicationStatusRecord-compatible object for the status repository. */
-function to_sharepoint_status_record(
-  result: ReplicationResult,
-  target: StorageTarget,
-  manifest: SharePointSnapshotManifest,
-): ReplicationStatusRecord {
-  const last_err = result.errors.length > 0 ? result.errors[result.errors.length - 1] : undefined;
-  return {
-    target_id: target.target_id,
-    target_endpoint: target.endpoint,
-    snapshot_id: manifest.snapshot_id,
-    owner_id: manifest.site_id,
-    status: result.status,
-    started_at: new Date(Date.now() - result.elapsed_ms).toISOString(),
-    completed_at: new Date().toISOString(),
-    objects_total: result.objects_total,
-    objects_copied: result.objects_copied,
-    objects_skipped: result.objects_skipped,
-    objects_failed: result.objects_failed,
-    bytes_total: manifest.total_size_bytes,
-    bytes_copied: result.bytes_copied,
-    ...(last_err !== undefined ? { last_error: last_err } : {}),
-    verification_status: result.verification_status,
-    source_manifest_checksum: result.source_manifest_checksum ?? '',
-    replicated_manifest_checksum: result.replicated_manifest_checksum ?? '',
-  };
-}
-
-const SP_MANIFEST_PREFIX = 'sharepoint/manifests';
-const SP_INDEX_PREFIX = 'sharepoint/index';
-const SP_META_PREFIX = 'sharepoint/_meta';
+import {
+  SP_MANIFEST_PREFIX,
+  to_sharepoint_status_record,
+  collect_sp_ancillary_keys,
+  diff_sp_manifests,
+} from '@/services/replication/sharepoint-replication-helpers';
 
 @injectable()
 export class SharePointReplicationService implements SharePointReplicationUseCase {
@@ -73,7 +48,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
     const manifest = await this.require_sp_manifest(source_ctx, site_id, snapshot_id);
-    const ancillary = await this.collect_ancillary_keys(source_ctx, site_id);
+    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
     const results: ReplicationResult[] = [];
 
     for (const target of targets) {
@@ -102,12 +77,12 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
     const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
-    const ancillary = await this.collect_ancillary_keys(source_ctx, site_id);
+    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
     const results: ReplicationResult[] = [];
 
     for (const target of targets) {
       const target_ctx = await target.create_context(tenant_id);
-      const missing = await this.diff_sp_manifests(manifests, target_ctx, site_id);
+      const missing = await diff_sp_manifests(manifests, target_ctx, site_id);
 
       for (const manifest of missing) {
         const result = await this.copy_sp_to_target(
@@ -145,7 +120,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
       return build_skip_result(snapshot_id, source.target_id);
     }
 
-    const ancillary = await this.collect_ancillary_keys(source_ctx, site_id);
+    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
     return this.copy_sp_between(
       source_ctx,
       primary_ctx,
@@ -167,7 +142,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
-    const ancillary = await this.collect_ancillary_keys(source_ctx, site_id);
+    const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
 
     return this.rehydrate_sp_manifests(
       source_ctx,
@@ -300,16 +275,6 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     );
   }
 
-  /** Collects ancillary S3 keys for a site: version indexes + delta cursor. */
-  private async collect_ancillary_keys(ctx: TenantContext, site_id: string): Promise<string[]> {
-    const keys: string[] = [];
-    const index_keys = await ctx.storage.list(`${SP_INDEX_PREFIX}/${site_id}/files/`);
-    keys.push(...index_keys);
-    const cursor_key = `${SP_META_PREFIX}/${site_id}/delta.json`;
-    if (await ctx.storage.exists(cursor_key)) keys.push(cursor_key);
-    return keys;
-  }
-
   private async require_sp_manifest(
     ctx: TenantContext,
     site_id: string,
@@ -333,18 +298,6 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
       );
     }
     return m;
-  }
-
-  private async diff_sp_manifests(
-    source: SharePointSnapshotManifest[],
-    target_ctx: TenantContext,
-    site_id: string,
-  ): Promise<SharePointSnapshotManifest[]> {
-    const target_keys = await target_ctx.storage.list(`${SP_MANIFEST_PREFIX}/${site_id}/`);
-    const ids = new Set(
-      target_keys.map((k) => k.split('/').pop()?.replace('.json', '')).filter(Boolean) as string[],
-    );
-    return source.filter((m) => !ids.has(m.snapshot_id));
   }
 
   private create_primary_target(): StorageTarget {

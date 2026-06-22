@@ -83,7 +83,7 @@ Exit code is `0` when all checked entries pass, `1` when any blob mismatch or in
 The SDK exposes SharePoint backup and verification as programmatic methods on `AtlasInstance`:
 
 ```typescript
-import { createAtlasInstance } from 'm365-atlas/sdk';
+import { createAtlasInstance } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',

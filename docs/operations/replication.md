@@ -173,7 +173,7 @@ The file contains S3 credentials for the target:
 ## SDK Usage
 
 ```typescript
-import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
+import { createAtlasInstance, createStorageTarget } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({ /* primary config */ });
 

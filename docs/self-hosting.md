@@ -188,7 +188,7 @@ The default MinIO credentials (`minioadmin`/`minioadmin`) are public knowledge. 
 
 Set strong credentials in your `docker/.env`:
 
-```env
+```ini
 MINIO_ROOT_USER=atlas-backup-admin
 MINIO_ROOT_PASSWORD=a-long-random-passphrase-at-least-32-characters
 ```
@@ -199,7 +199,7 @@ If MinIO is accessible from the network (not just `localhost`), you should enabl
 
 MinIO supports TLS natively by placing certificate files in the container. See the [MinIO TLS documentation](https://min.io/docs/minio/linux/operations/network-encryption.html) for setup instructions. When TLS is enabled, update your Atlas endpoint to use `https://`:
 
-```env
+```ini
 ATLAS_S3_ENDPOINT="https://minio.internal:9000"
 ```
 
@@ -216,7 +216,7 @@ crontab -e
 
 Example schedules:
 
-```cron
+```bash
 # Nightly incremental backup at 2 AM
 0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-backup.log 2>&1
 
@@ -299,7 +299,7 @@ Run MinIO locally for fast backups, then replicate to AWS S3, Backblaze B2, Wasa
 
 Schedule replication after backups using a second cron entry or systemd timer:
 
-```cron
+```bash
 # Nightly backup at 2 AM, replicate at 4 AM
 0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-backup.log 2>&1
 0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> /var/log/atlas-replicate.log 2>&1
