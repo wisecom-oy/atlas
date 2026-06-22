@@ -51,7 +51,9 @@ jobs:
       - name: Test
         run: pnpm run test
 
-      - name: Publish SDK to npm (Trusted Publishing via OIDC)
+      - name: Publish SDK to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/sdk
           VERSION=$(node -p "require('./package.json').version")
@@ -62,9 +64,15 @@ jobs:
             DIST_TAG="latest"
           fi
           echo "Publishing $VERSION to dist-tag: $DIST_TAG"
-          npm publish --provenance --access public --tag "$DIST_TAG"
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            npm publish --access public --tag "$DIST_TAG"
+          else
+            npm publish --provenance --access public --tag "$DIST_TAG"
+          fi
 
-      - name: Publish CLI to npm (Trusted Publishing via OIDC)
+      - name: Publish CLI to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cd packages/cli
           VERSION=$(node -p "require('./package.json').version")
@@ -75,7 +83,11 @@ jobs:
             DIST_TAG="latest"
           fi
           echo "Publishing $VERSION to dist-tag: $DIST_TAG"
-          npm publish --provenance --access public --tag "$DIST_TAG"
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            npm publish --access public --tag "$DIST_TAG"
+          else
+            npm publish --provenance --access public --tag "$DIST_TAG"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
