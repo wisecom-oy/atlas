@@ -1,23 +1,36 @@
 # Storage Layout
 
-Each tenant gets its own S3 bucket named `atlas-{tenant_id}`:
+Each tenant gets its own S3 bucket named `atlas-{tenant_id}`. The bucket contains three workload prefixes (Outlook at the root, OneDrive under `onedrive/`, and SharePoint under `sharepoint/`) plus shared metadata under `_meta/`:
 
 ```
 atlas-{tenant_id}/
 ├── _meta/
-│   └── dek.enc                         # versioned wrapped DEK (KEK from scrypt + random salt; see security.md)
+│   ├── dek.enc                              # wrapped DEK (encrypted with KEK)
+│   └── replication/                         # replication status sidecars
+│       ├── {mailbox_id}/                    # Outlook replication status
+│       ├── onedrive/{owner_id}/             # OneDrive replication status
+│       └── sharepoint/{site_id}/            # SharePoint replication status
 ├── data/
 │   └── {mailbox_id}/
-│       ├── {sha256_a}                  # encrypted message (content-addressed)
-│       └── ...
+│       └── {sha256}                         # encrypted message (content-addressed)
 ├── attachments/
 │   └── {mailbox_id}/
-│       ├── {sha256_x}                  # encrypted attachment (content-addressed)
-│       └── ...
-└── manifests/
-    └── {mailbox_id}/
-        ├── {snapshot_id_1}.json        # encrypted manifest
-        └── {snapshot_id_2}.json
+│       └── {sha256}                         # encrypted attachment (content-addressed)
+├── manifests/
+│   └── {mailbox_id}/
+│       └── {snapshot_id}.json               # encrypted Outlook manifest
+├── onedrive/
+│   ├── data/{owner_id}/{sha256}             # encrypted file blobs
+│   ├── manifests/{owner_id}/{snapshot_id}.json
+│   ├── index/{owner_id}/files/{file_id}.json
+│   ├── staging/{owner_id}/{item_id}-{rand}  # temporary multipart staging
+│   └── _meta/{owner_id}/delta.json          # encrypted delta cursors
+└── sharepoint/
+    ├── data/{site_id}/{sha256}              # encrypted file blobs
+    ├── manifests/{site_id}/{snapshot_id}.json
+    ├── index/{site_id}/files/{file_id}.json
+    ├── staging/{site_id}/{item_id}-{rand}   # temporary multipart staging
+    └── _meta/{site_id}/delta.json           # encrypted delta cursors
 ```
 
 ## Per-Tenant Bucket Isolation
@@ -28,6 +41,8 @@ For managed service providers backing up multiple tenants, this isolation means 
 
 ## Key Paths
 
+### Outlook
+
 | Prefix | Contents | Security Notes |
 | --- | --- | --- |
 | `_meta/dek.enc` | Wrapped data encryption key (one per tenant) | **Most critical object** -- losing this means losing access to all tenant data |
@@ -35,9 +50,27 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `attachments/{mailbox}/` | Encrypted attachments, addressed by SHA-256 | Content is encrypted; S3 metadata is not |
 | `manifests/{mailbox}/` | Encrypted snapshot manifests (JSON) | Contains subjects, folder names, delta URLs -- all encrypted |
 
+### OneDrive
+
+| Prefix | Contents | Security Notes |
+| --- | --- | --- |
+| `onedrive/data/{owner_id}/` | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID |
+| `onedrive/manifests/{owner_id}/` | Encrypted snapshot manifests | Contains file paths, checksums, change types |
+| `onedrive/index/{owner_id}/files/` | Per-file version indexes | Maps file IDs to snapshot versions |
+| `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors | Required for incremental sync |
+
+### SharePoint
+
+| Prefix | Contents | Security Notes |
+| --- | --- | --- |
+| `sharepoint/data/{site_id}/` | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID |
+| `sharepoint/manifests/{site_id}/` | Encrypted snapshot manifests | Contains file paths, checksums, change types |
+| `sharepoint/index/{site_id}/files/` | Per-file version indexes | Maps file IDs to snapshot versions |
+| `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors | Required for incremental sync |
+
 ### The `_meta/dek.enc` Object
 
-This is the single most important object in the entire bucket. It contains the **Data Encryption Key (DEK)** wrapped (encrypted) with a KEK derived from your passphrase and KDF parameters stored in the blob header. Without this file:
+This is the single most important object in the entire bucket. It contains the **Data Encryption Key (DEK)** wrapped (encrypted) with the KEK derived from your passphrase. Without this file:
 
 - No message can be decrypted
 - No manifest can be read

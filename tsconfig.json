@@ -1,34 +1,14 @@
 {
-  "compilerOptions": {
-    "rootDir": "./src",
-    "outDir": "./dist",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "target": "esnext",
-    "lib": ["esnext"],
-    "types": ["node", "reflect-metadata"],
-
-    "sourceMap": true,
-    "declaration": true,
-    "declarationMap": true,
-
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-
-    "exactOptionalPropertyTypes": true,
-
-    "strict": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "noUncheckedIndexedAccess": true,
-    "moduleDetection": "force",
-    "skipLibCheck": true
-  },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "references": [
+    { "path": "packages/types" },
+    { "path": "packages/core" },
+    { "path": "packages/m365-graph" },
+    { "path": "packages/s3" },
+    { "path": "packages/outlook" },
+    { "path": "packages/onedrive" },
+    { "path": "packages/sharepoint" },
+    { "path": "packages/cli" },
+    { "path": "packages/sdk" }
+  ],
+  "files": []
 }

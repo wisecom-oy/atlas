@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+pnpm-lock.yaml
+.turbo/
+.perf-output/
+tools/perf/dist/
+docs/.vitepress/dist/
+docs/.vitepress/cache/

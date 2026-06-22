@@ -17,7 +17,7 @@ Subsequent run     Atlas sends saved deltaLink ───────────
 
 3. **Stale-delta safeguard** — if a saved delta link returns zero items but the previous manifest had zero stored entries (indicating the prior backup was interrupted before storing anything), Atlas discards the stale link and runs a full enumeration automatically. This prevents a scenario where an interrupted backup saves a delta link that skips all the messages it never actually stored.
 
-4. **Force full** — `atlas backup --full` ignores all saved delta links and performs a complete enumeration. Useful for periodic audits or when you suspect a delta link may be corrupted.
+4. **Force full** — `atlas outlook backup --full` ignores all saved delta links and performs a complete enumeration. Useful for periodic audits or when you suspect a delta link may be corrupted.
 
 5. **Graceful interruption** — Ctrl+C during a backup sets an interrupt flag. Atlas finishes processing the current delta page, saves all already-stored objects and completed delta links into a partial manifest, and marks interrupted folders in the dashboard. A second Ctrl+C force-quits immediately without saving.
 

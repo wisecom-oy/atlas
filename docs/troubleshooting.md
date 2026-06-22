@@ -48,6 +48,39 @@ Atlas honors Microsoft's `Retry-After` header and retries up to **12 times** wit
 
 Even with unlimited bandwidth, Graph API throttling caps effective throughput. For a first full tenant backup, monitor actual transfer rates and use the baseline to plan your scheduling window. See [Scheduling & Bandwidth](/self-hosting/scheduling) for sizing estimates.
 
+## OneDrive & SharePoint Permission Errors
+
+File workload backups require additional Graph API permissions beyond Outlook mailbox access.
+
+### OneDrive: user not found or no drive
+
+```
+Error: Failed to resolve owner: user not found
+```
+
+- Verify the email/UPN in `-o` exists in the tenant and has a licensed OneDrive.
+- Confirm `User.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
+
+### SharePoint: site not found
+
+```
+Error: Failed to resolve site: itemNotFound
+```
+
+- Verify the site URL is correct and the site has not been deleted or renamed.
+- Confirm `Sites.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
+- Some sites require the full URL including `/sites/SiteName` -- root site URLs use a different path format.
+
+### SharePoint restore: insufficient write permission
+
+```
+Error: accessDenied
+```
+
+Restore requires `Sites.ReadWrite.All` in addition to the read permissions needed for backup. Grant admin consent after adding the permission.
+
+See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for the full permission matrix per command.
+
 ## S3 Connectivity Errors
 
 S3 errors prevent Atlas from reading or writing backup data. These are configuration problems, not transient failures.
@@ -117,11 +150,11 @@ Error: GCM authentication failed: data may be corrupted or tampered with
 
 The GCM authentication tag on an encrypted object does not match. This means either:
 
-1. **Corruption in transit or at rest**: the ciphertext was modified after being written. Run `atlas verify -s <snapshot-id>` to identify which objects are affected.
+1. **Corruption in transit or at rest**: the ciphertext was modified after being written. Run `atlas outlook verify -m <mailbox> -s <snapshot-id>`, `atlas onedrive verify -o <owner> -s <snapshot-id>`, or `atlas sharepoint verify --site <url> -s <snapshot-id>` to identify which objects are affected.
 2. **Wrong DEK**: the object was encrypted by a different tenant or after a tenant re-initialization. This can happen if objects from two different Atlas instances end up in the same bucket.
 3. **Deliberate tampering**: the object was modified by an attacker or a misconfigured tool.
 
-In all cases, the affected messages cannot be decrypted. The remaining messages in the snapshot are not affected.
+In all cases, the affected items cannot be decrypted. The remaining items in the snapshot are not affected.
 
 ## Object Lock Errors
 

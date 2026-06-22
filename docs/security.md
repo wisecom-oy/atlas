@@ -5,19 +5,19 @@ Atlas uses **envelope encryption** to isolate tenants cryptographically. This pa
 ## Key Hierarchy
 
 ```
-Master passphrase (env var)
+Master passphrase (env var or SDK config)
     |
     v
-scrypt(passphrase, [len][tenant_id][random_salt], N=65536, r=8, p=1)  -->  KEK (256-bit, per wrap)
+scrypt(passphrase, [tenant_id + per-wrap random salt], N=65536, r=8, p=1)  -->  KEK (256-bit)
     |
     v
-KEK wraps/unwraps a random DEK (AES-256-GCM with header as AAD)
+KEK wraps/unwraps a random DEK (AES-256-GCM, header authenticated as AAD)
     |
     v
 DEK encrypts all data + manifests for that tenant
 ```
 
-The effective scrypt salt is a **length-prefixed domain separator**: `[2-byte tenant_id length, big-endian][tenant_id UTF-8][32 random bytes from CSPRNG]`. The random salt is stored inside the wrapped DEK blob at `_meta/dek.enc`; the tenant ID is not stored in the blob (it is already known from the bucket context). This ensures that even with the same passphrase, each tenant derives a unique KEK -- an attacker who compromises one tenant's blob cannot use it to attack another tenant's DEK. The blob format is versioned so future releases can add new KDF algorithms (e.g. Argon2) without ambiguity.
+The wrapped DEK at `_meta/dek.enc` is a **versioned blob**: a self-describing header (KDF id, scrypt parameters including a 32-byte random salt) followed by the encrypted DEK. Each time the DEK is re-wrapped, a fresh salt is generated. The header is authenticated as additional data (AAD) on the GCM envelope, so version or parameter tampering is detected on unwrap.
 
 ### Why Envelope Encryption
 
@@ -29,60 +29,33 @@ Envelope encryption separates the key that protects your data (DEK) from the key
 
 ### KEK Derivation: scrypt
 
-The KEK is derived using **scrypt**, a memory-hard key derivation function designed to resist brute-force attacks from GPUs and custom hardware (ASICs). Unlike simpler hash functions, scrypt requires a large amount of RAM for each derivation attempt, making parallel attacks expensive. With N=65536 and r=8, Node/OpenSSL needs a raised `maxmem` ceiling (~128 MiB) per unwrap; expect a short CPU+memory spike when loading `_meta/dek.enc`.
+The KEK is derived using **scrypt**, a memory-hard key derivation function designed to resist brute-force attacks from GPUs and custom hardware (ASICs). Unlike simpler hash functions, scrypt requires a large amount of RAM for each derivation attempt, making parallel attacks expensive.
 
-Parameters used by Atlas (scrypt strategy, `kdf_id = 0x01` in the wrapped DEK blob):
+Parameters used by Atlas for **new** DEK wraps:
 
+| Parameter | Value | Purpose |
+| --- | --- | --- |
+| N (cost) | 65536 | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads) |
+| r (block size) | 8 | Memory usage multiplier |
+| p (parallelism) | 1 | Sequential derivation (no parallel lanes) |
+| Salt | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
+| Output | 32 bytes (256 bits) | AES-256 key length |
+| Minimum N on unwrap | 16384 | Blobs with weaker parameters are rejected |
 
-| Parameter       | Value                                                | Purpose                                                                         |
-| --------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------- |
-| N (cost)        | 65536 (minimum enforced: 16384)                      | CPU/memory cost factor (2^16 iterations; OWASP-aligned for sensitive workloads) |
-| r (block size)  | 8                                                    | Memory usage multiplier                                                         |
-| p (parallelism) | 1                                                    | Sequential derivation (no parallel lanes)                                       |
-| Salt            | `[2-byte len][tenant_id][32 random bytes]`, per wrap | Domain-separated per tenant; random component stored in the blob                |
-| Output          | 32 bytes (256 bits)                                  | AES-256 key length                                                              |
-
-
-**Tenant isolation** comes from three layers: separate S3 buckets per tenant, separate random DEKs, and tenant-scoped KEK derivation. The passphrase is global to the Atlas deployment, but each tenant's KEK is derived with a length-prefixed domain separator that includes the tenant ID and a unique random salt. An attacker who obtains one tenant's wrapped DEK blob cannot use it to derive another tenant's KEK -- each derivation is cryptographically bound to its tenant. The enforced minimum N=16384 ensures that even with full knowledge of the code, tenant IDs, and blob contents, brute-forcing the passphrase through scrypt remains costly.
-
-### Wrapped DEK blob format (v1)
-
-`_meta/dek.enc` is not raw AES-GCM output. It is a **versioned envelope**:
-
-```
-[1 byte: format version 0x01]                              ┐
-[1 byte: KDF id, e.g. 0x01 = scrypt]                       │  header (used as GCM AAD)
-[2 bytes: KDF params length, big-endian]                    │
-[variable: KDF-specific params — for scrypt: N, r, p, salt] ┘
-[12-byte IV][16-byte GCM tag][ciphertext]  ← AES-256-GCM encryption of the DEK
-```
-
-The entire header (version through KDF params) is passed as **Additional Authenticated Data (AAD)** to AES-256-GCM. This means tampering with any header field -- the version byte, the KDF identifier, the scrypt parameters, or the salt -- is detected by the GCM authentication tag and causes decryption to fail. An attacker with S3 write access cannot downgrade KDF parameters or swap salts without being detected.
-
-New KDF algorithms can be registered in code alongside scrypt; the outer length-prefixed header keeps parsing unambiguous. Application data ciphertext format (`[IV][tag][ciphertext]`) is unchanged.
+The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
 
 ### DEK: Data Encryption Key
 
 - **Generated once** per tenant: a cryptographically random 256-bit key.
-- **Stored wrapped** (encrypted with the KEK) at `_meta/dek.enc` in the tenant's S3 bucket.
+- **Stored wrapped** as a versioned blob at `_meta/dek.enc` in the tenant's S3 bucket (KDF parameters and encrypted DEK in one self-describing object).
 - **Never stored in plaintext** -- only exists in memory during a backup/restore run.
-- **Re-derived on every run**: Atlas reads `_meta/dek.enc`, parses the versioned header, derives the KEK from the passphrase and embedded KDF parameters, unwraps the DEK, and holds it in memory for the session.
+- **Re-derived on every run**: Atlas reads `_meta/dek.enc`, derives the KEK from the passphrase, unwraps the DEK, and holds it in memory for the session.
 
 ::: danger Passphrase Is Irrecoverable
-There is **no recovery path** if the passphrase is lost: the DEK cannot be unwrapped. Changing the passphrase without re-wrapping `_meta/dek.enc` (or restoring from a backup of the wrapped file under the old passphrase) will cause GCM authentication failures.
+There is **no key rotation mechanism** and **no recovery path**. If you lose the passphrase, the DEK cannot be unwrapped, and all data for that tenant is permanently inaccessible. Changing the passphrase without migrating the wrapped DEK will cause GCM authentication failures when Atlas tries to unwrap `_meta/dek.enc`.
 
 **Treat the passphrase as critically as the data itself.** Store it in a password manager, a sealed envelope in a safe, or a secrets management system -- but never lose it.
 :::
-
-### Passphrase Strength
-
-The encryption scheme follows Kerckhoffs's principle: security rests entirely on the passphrase, not on secrecy of the code, algorithms, or parameters. The source code is public, tenant IDs are discoverable, and the blob header (including scrypt parameters and the random salt) is stored in plaintext. The only secret is the passphrase.
-
-With scrypt at N=65536 and r=8, each brute-force guess costs ~64 MiB of RAM and significant CPU. Atlas warns at startup if the passphrase is shorter than 14 characters. For production deployments:
-
-- Use **at least 5 random words** (diceware) or **20+ random characters** with mixed case, digits, and symbols.
-- A passphrase shorter than 14 characters is vulnerable to brute-force with commodity GPUs.
-- Store the passphrase in a password manager or secrets management system (e.g. HashiCorp Vault, AWS Secrets Manager).
 
 ## Encryption Details
 
@@ -103,42 +76,54 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 
 ### What Is Encrypted at Rest
 
+| Data | Encrypted | Notes |
+| --- | --- | --- |
+| Email message bodies | Yes | Stored as encrypted JSON under `data/{mailbox}/{sha256}` |
+| Attachments | Yes | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}` |
+| Manifests | Yes | Contains subjects, folder names, delta URLs, checksums |
+| OneDrive file blobs | Yes | Keys under `onedrive/data/{owner_id}/{sha256}` |
+| OneDrive manifests / indexes / delta state | Yes | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta` |
+| Wrapped DEK | Yes | `_meta/dek.enc` is encrypted with the KEK |
+| S3 object metadata | **No** | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
 
-| Data                 | Encrypted | Notes                                                                                     |
-| -------------------- | --------- | ----------------------------------------------------------------------------------------- |
-| Email message bodies | Yes       | Stored as encrypted JSON under `data/{mailbox}/{sha256}`                                  |
-| Attachments          | Yes       | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}`                          |
-| Manifests            | Yes       | Contains subjects, folder names, delta URLs, checksums                                    |
-| Wrapped DEK          | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                 |
-| S3 object metadata   | **No**    | `x-message-id` and `x-plaintext-sha256` headers are visible to anyone with S3 read access |
-
-
-The S3 object metadata is intentionally not encrypted because it is used for deduplication checks without requiring decryption. However, this means that the **Graph message ID** and **plaintext SHA-256 hash** of each message are visible to anyone who can list or read S3 object metadata. The message content itself remains encrypted.
+Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
 Manifests deserve special attention: they contain email subjects, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines and folder names are never exposed at rest in the S3 bucket.
+
+### OneDrive blobs and sidecars
+
+OneDrive file ciphertext uses keys such as `onedrive/data/{owner_id}/{sha256}` (see [OneDrive Backup](./onedrive-backup.md)). The `{owner_id}` segment is the **Entra object ID**, not an SMTP address, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs.
+
+OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version identifiers, and plaintext checksums are stored exclusively inside encrypted manifests and version indexes, preventing known-plaintext fingerprinting via S3 `HeadObject`/`ListObjects` access.
+
+## User identity in storage paths
+
+**OneDrive (CLI `atlas onedrive`)** always resolves interactive owner inputs that look like email/UPN to an Entra object ID (`GET /users/{email}` with `id` selected) before computing S3 prefixes. Passing a bare UUID to `--owner` skips resolution and must match the user's directory object ID.
+
+**Mailbox backup** still namespaces `data/`, `attachments/`, and `manifests/` by the mailbox identifier wired into the sync job (today this is commonly the primary SMTP address from discovery). That is a separate layout from OneDrive's object-ID paths. Operators who rely on privacy through opaque IDs should prefer object IDs for new automation and be aware older mailbox prefixes may still contain human-readable addresses.
+
+There is **no built-in S3 object rename** between email-keyed and ID-keyed mailbox prefixes in the open-source CLI as shipped; migrating layout is an operational exercise (re-backup, copy, or custom tooling) if you need to align naming.
 
 ## Integrity Validation
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
 
-
-| Layer         | Mechanism                           | What It Catches                                          | When                                 |
-| ------------- | ----------------------------------- | -------------------------------------------------------- | ------------------------------------ |
-| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs           | Backup, verify, save                 |
-| **Transport** | `Content-MD5` header on S3 PUT      | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
-| **At-rest**   | AES-256-GCM authentication tag      | Storage-level tampering or corruption                    | Every decrypt operation              |
-
+| Layer | Mechanism | What It Catches | When |
+| --- | --- | --- | --- |
+| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs | Backup, verify, save |
+| **Transport** | `Content-MD5` header on S3 PUT | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
+| **At-rest** | AES-256-GCM authentication tag | Storage-level tampering or corruption | Every decrypt operation |
 
 ### How Verification Works
 
-When you run `atlas verify`, Atlas performs a full integrity check for a snapshot:
+When you run `atlas outlook verify`, Atlas performs a full integrity check for a snapshot:
 
 1. Downloads each encrypted object from S3.
 2. Decrypts it with the tenant DEK (GCM auth tag validates ciphertext integrity).
 3. Computes SHA-256 of the decrypted plaintext.
 4. Compares against the checksum stored in the manifest using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
 
-Currently, `atlas verify` checks **message body entries** listed in the manifest. Attachments are implicitly protected by GCM authentication during any decrypt operation (backup, restore, save).
+Currently, `atlas outlook verify` checks **message body entries** listed in the manifest. Attachments are implicitly protected by GCM authentication during any decrypt operation (backup, restore, save).
 
 ### Content-MD5 on Uploads
 
@@ -146,6 +131,47 @@ Every object uploaded to S3 includes a `Content-MD5` header computed from the **
 
 ## Replication Security
 
-Atlas replication uses a **shared encryption model**: all storage targets share the same master passphrase and the same per-tenant DEK, so ciphertext is copied byte-for-byte without decryption or re-encryption. Because one passphrase protects all copies, S3 access credentials must be separate per target -- an attacker who compromises one target's S3 credentials cannot reach other targets. A replica marker (`_meta/replica.marker`) on each target prevents accidental direct backup writes to replicas. Replication status sidecars are themselves encrypted with the tenant DEK, so target endpoints and checksums are not exposed at rest.
+### Shared Encryption Model
 
-For the full operational detail -- including DEK mismatch protection, the primary-is-truth principle, and disaster recovery via `atlas rehydrate` -- see [Replication: Shared Encryption Model](/operations/replication#shared-encryption-model).
+Atlas replication uses a shared encryption model: all storage targets (primary and secondary) share the same master passphrase and the same per-tenant DEK. Ciphertext is copied byte-for-byte during replication -- no decryption or re-encryption occurs.
+
+This means:
+
+- **One passphrase protects all copies.** Compromising the passphrase compromises data on every target.
+- **One DEK per tenant across all targets.** The wrapped DEK (`_meta/dek.enc`) is copied to each target on first replication.
+
+### Access Isolation
+
+While encryption keys are shared, **S3 access credentials should be separate per target**. Use independent IAM principals for each storage endpoint:
+
+- Primary MinIO: `atlas-primary` user with full read/write
+- Offsite MinIO: `atlas-offsite` user with full read/write
+- Cloud S3: dedicated IAM role with scoped permissions
+
+If an attacker compromises one target's S3 credentials, they can read that target's data (which is encrypted) but cannot reach other targets. Combined with a strong passphrase, this provides defense in depth.
+
+### DEK Mismatch Protection
+
+Atlas validates encryption key consistency before every replication and rehydration. If the primary tenant was purged and re-initialized (generating a new DEK), replication to a target with the old DEK is refused with an explicit error. This prevents a scenario where objects encrypted with different keys coexist on the same target, making older objects permanently undecryptable.
+
+### Replica Marker
+
+Atlas writes a marker file (`_meta/replica.marker`) on each target during first replication. If a user accidentally runs `atlas outlook backup` against a replica target, Atlas detects the marker and logs a warning. This guards against accidental violation of the primary-is-truth principle, which could lead to data inconsistency.
+
+### Replication Status Encryption
+
+Replication status sidecar files stored under `_meta/replication/` in the primary bucket are encrypted with the tenant DEK. Target endpoints, checksums, and error messages are not exposed at rest in S3.
+
+## Configuration File Security
+
+### Filesystem Permission Check
+
+`atlas.config.json` may contain `encryption_passphrase` and `client_secret` in plaintext. On Unix systems, Atlas checks the file's permissions at load time and logs a warning if the file is group- or world-readable (i.e., any bits in `0o077` are set):
+
+```
+WARN Config file /home/user/atlas.config.json has overly permissive permissions (mode 0644). Recommended: chmod 600 /home/user/atlas.config.json
+```
+
+This check is skipped on Windows where Unix permission bits do not apply. The check is advisory (warning, not error) to avoid breaking existing deployments, but operators are strongly encouraged to restrict config files to owner-only access (`chmod 600`).
+
+Environment variables (`ATLAS_*`) and `.env` files are an alternative that avoids storing secrets in a JSON file entirely.

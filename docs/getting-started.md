@@ -2,13 +2,14 @@
 
 ## Installation
 
-Install Atlas globally from npm:
+Atlas is published as two npm packages. Choose based on how you plan to run it:
 
-```bash
-npm install -g m365-atlas
-```
+| Package | Command | Best for |
+| ------- | ------- | -------- |
+| **`@atlas/cli`** | `npm install -g @atlas/cli` | Shell operations, cron/systemd jobs, operator workflows. Reads `.env` automatically. |
+| **`@atlas/sdk`** | `npm add @atlas/sdk` | Node.js apps, custom schedulers, multi-tenant SaaS, portals. Explicit config, typed API. |
 
-Requires **Node.js 20** or later.
+This guide uses the **CLI**. Requires **Node.js 20** or later.
 
 ## Start an S3-Compatible Backend
 
@@ -18,7 +19,7 @@ Atlas stores backups in any S3-compatible object storage. For local development 
 cd docker && docker compose up -d
 ```
 
-This starts MinIO on port **9000** (S3 API) and port **9001** (web console). See the [Self-Hosting Guide](/self-hosting/) for production deployment with external storage, RAID, and security hardening.
+This starts MinIO on port **9000** (S3 API) and port **9001** (web console). See the [Self-Hosting Guide](./self-hosting/) for production deployment with external storage, RAID, and security hardening.
 
 ## Configure
 
@@ -48,40 +49,66 @@ The encryption passphrase is **irrecoverable**. If you lose it, all backup data 
 
 ## First Backup
 
+**Outlook mailboxes:**
+
 ```bash
 # back up a single mailbox
-atlas backup --mailbox user@company.com
+atlas outlook backup --mailbox user@company.com
 
 # back up all licensed mailboxes in the tenant
-atlas backup
+atlas outlook backup
 ```
 
-The first backup for a mailbox performs a full synchronization -- every message and attachment is downloaded and encrypted. Subsequent runs use [delta sync](./operations/delta-sync.md) to transfer only changes, which is dramatically faster.
+**OneDrive files:**
+
+```bash
+atlas onedrive backup -o user@company.com
+```
+
+**SharePoint document libraries:**
+
+```bash
+atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
+```
+
+The first backup performs a full synchronization -- every message, attachment, or file is downloaded and encrypted. Subsequent runs use [delta sync](./operations/delta-sync.md) to transfer only changes, which is dramatically faster.
 
 ## Explore Your Backups
 
 ```bash
 # check if a mailbox is up to date
-atlas status -m user@company.com
+atlas outlook status -m user@company.com
 
 # list what was backed up
-atlas list
+atlas outlook list
 
 # restore a folder from backup
-atlas restore -m user@company.com -f Inbox
+atlas outlook restore -m user@company.com -f Inbox
 
 # save as EML zip archive
-atlas save -m user@company.com -o backup.zip
+atlas outlook save -m user@company.com -o backup.zip
+
+# list OneDrive snapshots
+atlas onedrive list-snapshots -o user@company.com
+
+# list SharePoint snapshots
+atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-See the full [CLI Reference](/reference/cli) for all commands and options.
+See the full [CLI Reference](./reference/cli.md) for all commands and options, and the [OneDrive Backup](./onedrive-backup.md) and [SharePoint Backup](./sharepoint-backup.md) guides for workload-specific details.
 
 ## Use as a Library
 
-Atlas also exposes a typed SDK for embedding in Node.js applications:
+If you need Atlas inside your own application — custom backup portals, multi-tenant schedulers, or SaaS integrations — install **`@atlas/sdk`** instead of (or alongside) the CLI:
+
+```bash
+npm add @atlas/sdk
+```
+
+The SDK exposes the same workloads as the CLI, organized by namespace. Config is passed explicitly at construction time (the SDK does not read `.env`):
 
 ```typescript
-import { createAtlasInstance } from 'm365-atlas/sdk';
+import { createAtlasInstance } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',
@@ -93,7 +120,14 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: 'my-secret-passphrase',
 });
 
-const result = await atlas.backupMailbox('user@company.com');
+// Outlook — mirrors `atlas outlook backup`
+const result = await atlas.outlook.backup('user@company.com');
+
+// OneDrive — mirrors `atlas onedrive backup`
+const odResult = await atlas.onedrive.backup('owner-id');
+
+// SharePoint — mirrors `atlas sharepoint backup`
+const spResult = await atlas.sharepoint.backup('site-id');
 ```
 
-See the [SDK Reference](./reference/sdk.md) for all available methods.
+See the [SDK Reference](./reference/sdk.md) for all available methods and [SDK Examples](./reference/examples.md) for production-ready patterns.

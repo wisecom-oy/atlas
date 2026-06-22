@@ -2,8 +2,8 @@
 layout: home
 hero:
   name: M365 Atlas
-  text: Secure Microsoft 365 Mailbox Backups
-  tagline: Open-source CLI and SDK for encrypted, deduplicated mailbox backups to S3-compatible storage.
+  text: Secure Microsoft 365 Backups
+  tagline: Open-source CLI and SDK for encrypted, deduplicated backups of Outlook mailboxes, OneDrive, and SharePoint to S3-compatible storage.
   actions:
     - theme: brand
       text: Get Started
@@ -12,6 +12,9 @@ hero:
       text: CLI Reference
       link: /reference/cli
     - theme: alt
+      text: SDK Reference
+      link: /reference/sdk
+    - theme: alt
       text: View on GitHub
       link: https://github.com/miikaok/atlas
 
@@ -19,13 +22,17 @@ features:
   - title: Per-Tenant Encryption
     details: Each tenant gets a unique AES-256-GCM key derived via scrypt. Data stays encrypted even if storage is breached.
   - title: Content-Addressed Deduplication
-    details: Messages and attachments are stored by SHA-256 hash per mailbox. Identical files are stored once.
+    details: Messages, attachments, and files are stored by SHA-256 hash. Identical content is stored once across snapshots.
   - title: Storage-Level Immutability
     details: S3/MinIO Object Lock with time-based retention enforced by storage itself, not app metadata.
   - title: Delta Sync
     details: Microsoft Graph delta queries for incremental backups with automatic full-scan fallback on interrupted runs.
-  - title: EML Export
-    details: Save backed-up emails as standard .eml files in compressed zip archives with Outlook-compatible folder structure.
+  - title: Multi-Workload Protection
+    details: Back up Outlook mailboxes, OneDrive files, and SharePoint document libraries with a single tool and unified encryption.
+  - title: Snapshot Replication
+    details: Replicate encrypted snapshots to secondary S3 targets for disaster recovery across all workloads.
+  - title: CLI & SDK Packages
+    details: "@atlas/cli for shell deployment and cron jobs; @atlas/sdk for embedding in Node.js apps with a typed, namespaced API."
   - title: Typed SDK
-    details: Programmatic API for embedding in other Node.js applications via the m365-atlas/sdk subpath.
+    details: Programmatic API for embedding in other Node.js applications via the standalone @atlas/sdk package.
 ---

@@ -4,42 +4,45 @@ Reference for Atlas commands used in restore, export, integrity verification, da
 
 For day-to-day backup, status, and inspection commands, see [CLI Commands](/reference/cli).
 
-## `atlas verify`
+## `atlas outlook verify`
 
-Verify integrity of a backup snapshot. Downloads every encrypted object from S3, decrypts it (which validates the GCM authentication tag against tampering), recomputes the SHA-256 hash of the plaintext, and compares it against the checksum stored in the manifest using constant-time comparison (`timingSafeEqual`).
+Verify integrity of an Outlook backup snapshot. Downloads every encrypted object from S3, decrypts it (which validates the GCM authentication tag against tampering), recomputes the SHA-256 hash of the plaintext, and compares it against the checksum stored in the manifest using constant-time comparison (`timingSafeEqual`).
 
 ```bash
-atlas verify -s <snapshot-id>
+atlas outlook verify -m user@company.com -s <snapshot-id>
+atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
 ```
 
 ::: details What exactly is verified?
-`atlas verify` checks **message body entries** listed in the manifest. Each message is downloaded, decrypted (GCM auth tag validates ciphertext integrity), and its plaintext SHA-256 is compared against the manifest checksum.
+`atlas outlook verify` checks **message body entries** listed in the manifest. Each message is downloaded, decrypted (GCM auth tag validates ciphertext integrity), and its plaintext SHA-256 is compared against the manifest checksum.
 
 Attachments are **not separately verified** by this command. However, attachments are protected by GCM authentication -- any tampering will cause a decryption failure during restore or save operations. The verification scope is message bodies because those are the primary data objects tracked in manifests.
 :::
 
-## `atlas restore`
+For OneDrive and SharePoint verification, see `atlas onedrive verify` and `atlas sharepoint verify` in [CLI Commands](/reference/cli).
+
+## `atlas outlook restore`
 
 Restore emails from backup to an M365 mailbox.
 
 **Snapshot mode** -- restore from a specific snapshot:
 
 ```bash
-atlas restore -s <snapshot-id>
-atlas restore -s <snapshot-id> -f Inbox
-atlas restore -s <snapshot-id> --message 42
-atlas restore -s <snapshot-id> -T target@company.com
+atlas outlook restore -s <snapshot-id>
+atlas outlook restore -s <snapshot-id> -f Inbox
+atlas outlook restore -s <snapshot-id> --message 42
+atlas outlook restore -s <snapshot-id> -T target@company.com
 ```
 
 **Mailbox mode** -- aggregate all snapshots for a mailbox, deduplicate, and restore:
 
 ```bash
-atlas restore -m user@company.com
-atlas restore -m user@company.com -f Inbox
-atlas restore -m user@company.com --start-date 2026-01-01
-atlas restore -m user@company.com --start-date 2026-01-01 --end-date 2026-06-30
-atlas restore -m user@company.com -T other@company.com
-atlas restore -m user@company.com -T other@company.com -f Inbox
+atlas outlook restore -m user@company.com
+atlas outlook restore -m user@company.com -f Inbox
+atlas outlook restore -m user@company.com --start-date 2026-01-01
+atlas outlook restore -m user@company.com --start-date 2026-01-01 --end-date 2026-06-30
+atlas outlook restore -m user@company.com -T other@company.com
+atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 ```
 
 | Option                      | Description                                                   |
@@ -48,7 +51,7 @@ atlas restore -m user@company.com -T other@company.com -f Inbox
 | `-m, --mailbox <email>`     | Restore from all snapshots for this mailbox                   |
 | `-T, --target <email>`      | Target mailbox for cross-mailbox restore (defaults to source) |
 | `-f, --folder <name>`       | Restore only messages from this folder                        |
-| `--message <ref>`           | Restore a single message by `#` index from `atlas list`       |
+| `--message <ref>`           | Restore a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date               |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date              |
 | `-t, --tenant <id>`         | Override tenant ID                                            |
@@ -57,27 +60,27 @@ Either `--snapshot` or `--mailbox` is required. Using both `--snapshot` and `--m
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
-## `atlas save`
+## `atlas outlook save`
 
 Export backed-up emails as standard `.eml` files (RFC 5322) in a compressed zip archive. Messages include all backed-up attachments embedded as MIME parts. Every message and attachment is SHA-256 verified after decryption by default.
 
 **Snapshot mode:**
 
 ```bash
-atlas save -s <snapshot-id>
-atlas save -s <snapshot-id> -f Inbox
-atlas save -s <snapshot-id> --message 42
-atlas save -s <snapshot-id> -o ~/Downloads/backup.zip
-atlas save -s <snapshot-id> --skip-verify
+atlas outlook save -s <snapshot-id>
+atlas outlook save -s <snapshot-id> -f Inbox
+atlas outlook save -s <snapshot-id> --message 42
+atlas outlook save -s <snapshot-id> -o ~/Downloads/backup.zip
+atlas outlook save -s <snapshot-id> --skip-verify
 ```
 
 **Mailbox mode:**
 
 ```bash
-atlas save -m user@company.com
-atlas save -m user@company.com -f Inbox
-atlas save -m user@company.com --start-date 2026-01-01
-atlas save -m user@company.com --start-date 2026-01-01 --end-date 2026-06-30
+atlas outlook save -m user@company.com
+atlas outlook save -m user@company.com -f Inbox
+atlas outlook save -m user@company.com --start-date 2026-01-01
+atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-06-30
 ```
 
 | Option                      | Description                                                 |
@@ -85,7 +88,7 @@ atlas save -m user@company.com --start-date 2026-01-01 --end-date 2026-06-30
 | `-s, --snapshot <id>`       | Save from a specific snapshot                               |
 | `-m, --mailbox <email>`     | Save from all snapshots for this mailbox                    |
 | `-f, --folder <name>`       | Save only messages from this folder                         |
-| `--message <ref>`           | Save a single message by `#` index from `atlas list`        |
+| `--message <ref>`           | Save a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date             |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date            |
 | `-o, --output <path>`       | Output file path (default: `Restore-<timestamp>.zip`)       |
@@ -109,15 +112,15 @@ EML filenames use the format `YYYY-MM-DD_HHmmss_Sanitized-subject.eml` with time
 
 If the output file already exists, Atlas prompts `Overwrite? [Y/n]` before proceeding.
 
-## `atlas delete`
+## `atlas outlook delete`
 
-Delete backed-up data with confirmation prompt.
+Delete backed-up Outlook data with confirmation prompt.
 
 ```bash
-atlas delete -m user@company.com        # delete all data + manifests for a mailbox
-atlas delete -s <snapshot-id>           # delete one snapshot manifest (data retained)
-atlas delete --purge                    # delete EVERYTHING in the tenant bucket
-atlas delete --purge -y                 # skip confirmation prompt
+atlas outlook delete -m user@company.com        # delete all data + manifests for a mailbox
+atlas outlook delete -s <snapshot-id>           # delete one snapshot manifest (data retained)
+atlas outlook delete --purge                    # delete EVERYTHING in the tenant bucket
+atlas outlook delete --purge -y                 # skip confirmation prompt
 ```
 
 | Option                  | Description                                                    |
@@ -152,15 +155,20 @@ atlas replicate -s <snapshot-id> \
 
 atlas replicate -m user@company.com --target-config ./offsite.json
 
+atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target-config ./offsite.json
+atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --target-config ./offsite.json
+
 atlas replicate --status
 atlas replicate --status -m user@company.com
 atlas replicate --status -s <snapshot-id>
+atlas replicate --status --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
 | Option                       | Description                                           |
 | ---------------------------- | ----------------------------------------------------- |
 | `-s, --snapshot <id>`        | Replicate a specific snapshot                         |
 | `-m, --mailbox <email>`      | Replicate all unreplicated snapshots for a mailbox    |
+| `--site <url-or-id>`         | Replicate all unreplicated snapshots for a SharePoint site |
 | `--target-endpoint <url>`    | Target S3 endpoint URL                                |
 | `--target-access-key <key>`  | Target S3 access key                                  |
 | `--target-secret-key <key>`  | Target S3 secret key                                  |
@@ -185,12 +193,16 @@ atlas rehydrate -s <snapshot-id> \
 
 atlas rehydrate -m user@company.com --source-config ./offsite.json
 atlas rehydrate --all --source-config ./offsite.json
+
+atlas rehydrate --site https://contoso.sharepoint.com/sites/Engineering --source-config ./offsite.json
+atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --source-config ./offsite.json
 ```
 
 | Option                       | Description                                              |
 | ---------------------------- | -------------------------------------------------------- |
 | `-s, --snapshot <id>`        | Recover a specific snapshot from the replica             |
 | `-m, --mailbox <email>`      | Recover all snapshots for a mailbox from the replica     |
+| `--site <url-or-id>`         | Recover all SharePoint snapshots for a site from the replica |
 | `--all`                      | Recover all mailboxes and snapshots (full tenant DR)     |
 | `--source-endpoint <url>`    | Source replica S3 endpoint URL                           |
 | `--source-access-key <key>`  | Source replica S3 access key                             |
@@ -205,5 +217,7 @@ Rehydration copies explicitly selected data from a designated replica to primary
 
 ## See Also
 
-- [CLI Commands](/reference/cli) — `backup`, `status`, `mailboxes`, `storage-check`, `list`, `read`, `stats`
+- [CLI Commands](/reference/cli) — `backup`, `status`, `mailboxes`, `storage-check`, `list`, `read`, `stats` for all workloads
+- [OneDrive Backup](/onedrive-backup) — OneDrive restore, save, and verify
+- [SharePoint Backup](/sharepoint-backup) — SharePoint restore, save, and verify
 - [Replication](/operations/replication) — full operational detail on the replication and rehydration engine

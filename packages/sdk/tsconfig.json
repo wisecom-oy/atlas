@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "declarationMap": false,
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"],
+  "references": [
+    { "path": "../types" },
+    { "path": "../core" },
+    { "path": "../m365-graph" },
+    { "path": "../s3" },
+    { "path": "../outlook" },
+    { "path": "../onedrive" },
+    { "path": "../sharepoint" }
+  ]
+}

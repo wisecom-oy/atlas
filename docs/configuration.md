@@ -3,25 +3,23 @@
 Atlas loads configuration from three sources, merged in this order (later wins):
 
 1. **Config file** — `atlas.config.json` or `.atlas/config.json` (searched in cwd, then `~/.atlas/`)
-2. `**.env` file** — loaded via dotenv; does not overwrite existing environment variables
+2. **`.env` file** — loaded via dotenv; does not overwrite existing environment variables
 3. **Environment variables** — always take precedence
 
 This precedence means you can set defaults in a config file, override specific values in `.env` for a particular deployment, and use environment variables for CI/CD or container orchestration where secrets are injected at runtime.
 
 ## Reference
 
-
-| Variable                      | Config field            | Required | Description                                                                                                                                         |
-| ----------------------------- | ----------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ATLAS_TENANT_ID`             | `tenant_id`             | yes      | Azure AD tenant ID                                                                                                                                  |
-| `ATLAS_CLIENT_ID`             | `client_id`             | yes      | App registration client ID                                                                                                                          |
-| `ATLAS_CLIENT_SECRET`         | `client_secret`         | yes      | App registration client secret                                                                                                                      |
-| `ATLAS_S3_ENDPOINT`           | `s3_endpoint`           | yes      | S3 endpoint URL (e.g. `http://localhost:9000`)                                                                                                      |
-| `ATLAS_S3_ACCESS_KEY`         | `s3_access_key`         | yes      | S3 access key                                                                                                                                       |
-| `ATLAS_S3_SECRET_KEY`         | `s3_secret_key`         | yes      | S3 secret key                                                                                                                                       |
-| `ATLAS_S3_REGION`             | `s3_region`             | no       | S3 region (default: `us-east-1`)                                                                                                                    |
-| `ATLAS_ENCRYPTION_PASSPHRASE` | `encryption_passphrase` | yes      | Master passphrase for envelope encryption. Use at least 14 characters (5+ random words recommended). See [Security](/security#passphrase-strength). |
-
+| Variable                      | Config field            | Required | Description                                    |
+| ----------------------------- | ----------------------- | -------- | ---------------------------------------------- |
+| `ATLAS_TENANT_ID`             | `tenant_id`             | yes      | Azure AD tenant ID                             |
+| `ATLAS_CLIENT_ID`             | `client_id`             | yes      | App registration client ID                     |
+| `ATLAS_CLIENT_SECRET`         | `client_secret`         | yes      | App registration client secret                 |
+| `ATLAS_S3_ENDPOINT`           | `s3_endpoint`           | yes      | S3 endpoint URL (e.g. `http://localhost:9000`) |
+| `ATLAS_S3_ACCESS_KEY`         | `s3_access_key`         | yes      | S3 access key                                  |
+| `ATLAS_S3_SECRET_KEY`         | `s3_secret_key`         | yes      | S3 secret key                                  |
+| `ATLAS_S3_REGION`             | `s3_region`             | no       | S3 region (default: `us-east-1`)               |
+| `ATLAS_ENCRYPTION_PASSPHRASE` | `encryption_passphrase` | yes      | Master passphrase for envelope encryption      |
 
 ## Config File Example
 
@@ -60,6 +58,8 @@ The config file and `.env` file contain sensitive credentials: Azure client secr
 chmod 600 .env atlas.config.json
 ```
 
+Atlas enforces this at runtime: on Unix systems, if a config file has group- or world-readable bits set (`mode & 0o077 !== 0`), a warning is logged recommending `chmod 600`. This is a warning rather than a hard error to avoid breaking existing deployments, but it should be addressed promptly.
+
 Never commit these files to version control. The included `.gitignore` already excludes `.env`, but verify that your config file is also excluded. In multi-user environments, ensure only the service account running Atlas can read these files.
 :::
 
@@ -77,15 +77,13 @@ The `atlas replicate` command accepts `--target-config` and the `atlas rehydrate
 }
 ```
 
-
-| Field           | Required | Description                                        |
-| --------------- | -------- | -------------------------------------------------- |
-| `target_id`     | no       | Stable human-readable ID (auto-derived if omitted) |
-| `s3_endpoint`   | yes      | S3 endpoint URL for the target                     |
-| `s3_access_key` | yes      | S3 access key for the target                       |
-| `s3_secret_key` | yes      | S3 secret key for the target                       |
-| `s3_region`     | no       | S3 region (default: `us-east-1`)                   |
-
+| Field          | Required | Description                                          |
+| -------------- | -------- | ---------------------------------------------------- |
+| `target_id`    | no       | Stable human-readable ID (auto-derived if omitted)   |
+| `s3_endpoint`  | yes      | S3 endpoint URL for the target                       |
+| `s3_access_key`| yes      | S3 access key for the target                         |
+| `s3_secret_key`| yes      | S3 secret key for the target                         |
+| `s3_region`    | no       | S3 region (default: `us-east-1`)                     |
 
 The encryption passphrase is **not** included in this file. Atlas uses the shared encryption model -- the passphrase from the main configuration applies to all targets.
 

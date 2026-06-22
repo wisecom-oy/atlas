@@ -26,7 +26,10 @@ export default defineConfig({
       { text: 'Reference', link: '/reference/cli' },
       {
         text: 'npm',
-        link: 'https://www.npmjs.com/package/m365-atlas',
+        items: [
+          { text: '@atlas/cli', link: 'https://www.npmjs.com/package/@atlas/cli' },
+          { text: '@atlas/sdk', link: 'https://www.npmjs.com/package/@atlas/sdk' },
+        ],
       },
     ],
 
@@ -59,6 +62,7 @@ export default defineConfig({
           { text: 'Delta Sync', link: '/operations/delta-sync' },
           { text: 'Storage Layout', link: '/operations/storage-layout' },
           { text: 'Replication', link: '/operations/replication' },
+          { text: 'Graph API Rate Limits', link: '/operations/graph-rate-limits' },
         ],
       },
       {

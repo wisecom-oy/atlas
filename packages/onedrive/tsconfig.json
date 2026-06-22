@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@atlas/types": ["../types/src/index.ts"],
+      "@atlas/types/*": ["../types/src/*"],
+      "@atlas/core": ["../core/src/index.ts"],
+      "@atlas/core/*": ["../core/src/*"],
+      "@atlas/m365-graph": ["../m365-graph/src/index.ts"],
+      "@atlas/m365-graph/*": ["../m365-graph/src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"],
+  "references": [
+    { "path": "../types" },
+    { "path": "../core" },
+    { "path": "../m365-graph" }
+  ]
+}

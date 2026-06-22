@@ -1,0 +1,30 @@
+{
+  "name": "@atlas/s3",
+  "version": "2.0.0-beta.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json && tsc-alias --project tsconfig.json -f",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src/ tests/",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "@atlas/types": "workspace:*",
+    "@atlas/core": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1004.0",
+    "inversify": "^7.11.0",
+    "reflect-metadata": "^0.2.2"
+  }
+}

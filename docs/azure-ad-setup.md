@@ -2,54 +2,26 @@
 
 Atlas authenticates with Microsoft Graph using the **OAuth2 Client Credentials flow** via `@azure/identity` `ClientSecretCredential`. This flow authenticates the application itself (not a user), which has specific security implications covered below.
 
-## Required Graph API Permissions
+## Register an Application
 
-All permissions are **Application** type (not Delegated). The Client Credentials flow does not act on behalf of a user, so delegated permissions are not applicable.
+In the Azure Portal, register an application with the following **Application** permissions (not Delegated):
 
-| Permission             | Type        | Why It's Needed                                         | Required For                     |
-| ---------------------- | ----------- | ------------------------------------------------------- | -------------------------------- |
-| `Mail.Read`            | Application | Read mailbox contents via Graph API                     | Backup, list, read, save, verify |
-| `Mail.ReadWrite`       | Application | Restore messages and create folders in target mailboxes | Restore only                     |
-| `User.Read.All`        | Application | Enumerate users and resolve mailbox IDs                 | User discovery                   |
-| `MailboxSettings.Read` | Application | Read mailbox metadata and folder structure              | Folder enumeration               |
-| `Reports.Read.All`     | Application | Access mailbox usage reports for size data              | `atlas mailboxes` size column (optional) |
+| Permission             | Why                                                     | Required For                     |
+| ---------------------- | ------------------------------------------------------- | -------------------------------- |
+| `Mail.Read`            | Read mailbox contents via Graph API                     | Backup, list, read, save, verify |
+| `Mail.ReadWrite`       | Restore messages and create folders in target mailboxes | Restore only                     |
+| `User.Read.All`        | Enumerate users and resolve mailbox IDs                 | User discovery                   |
+| `MailboxSettings.Read` | Read mailbox metadata and folder structure              | Folder enumeration               |
+
+### Principle of Least Privilege
 
 ::: tip Start with Read-Only
 If you only need backups (no restore), grant only `Mail.Read` instead of `Mail.ReadWrite`. This limits the application's ability to modify mailbox contents, reducing the blast radius if the client secret is compromised. Add `Mail.ReadWrite` later only when restore functionality is needed.
 :::
 
-## Creating the App Registration
+## Grant Admin Consent
 
-1. Sign in to the [Azure Portal](https://portal.azure.com) and navigate to **Microsoft Entra ID** (formerly Azure Active Directory).
-2. In the left sidebar, select **App registrations**, then click **New registration**.
-3. Fill in the registration form:
-   - **Name**: Choose a descriptive name, e.g. `Atlas M365 Backup`.
-   - **Supported account types**: Select **Accounts in this organizational directory only (Single tenant)**.
-   - **Redirect URI**: Leave blank. The Client Credentials flow does not use redirect URIs.
-4. Click **Register**. You will be taken to the application overview page.
-5. Copy the **Application (client) ID** and **Directory (tenant) ID** from the overview. You need both for Atlas configuration (`ATLAS_CLIENT_ID` and `ATLAS_TENANT_ID`).
-
-### Adding API Permissions
-
-6. In the left sidebar, select **API permissions**, then click **Add a permission**.
-7. Choose **Microsoft Graph**, then select **Application permissions**.
-8. Search for and add each permission from the table above. For a backup-only setup, the minimum required set is `Mail.Read`, `User.Read.All`, and `MailboxSettings.Read`.
-9. After adding all permissions, click **Grant admin consent for [your tenant]**. A confirmation dialog will appear. Click **Yes**.
-
-The status column next to each permission must show a green checkmark (**Granted for [tenant]**). Permissions without admin consent will cause authentication errors at runtime.
-
-## Creating a Client Secret
-
-10. In the left sidebar, select **Certificates & secrets**, then click **Client secrets**.
-11. Click **New client secret**.
-12. Enter a description (e.g. `Atlas production`) and choose an expiry period. 24 months is the maximum Azure allows; 12 months is a reasonable default for production.
-13. Click **Add**.
-
-::: warning Secret Value Shown Once
-The secret **Value** is only shown immediately after creation. Copy it now and store it in your secrets manager. Once you navigate away from this page, the value is no longer retrievable -- you must create a new secret.
-:::
-
-14. Copy the **Value** (not the Secret ID) and set it as `ATLAS_CLIENT_SECRET` in your Atlas environment.
+After adding permissions, click **Grant admin consent for [your tenant]** in the API Permissions blade.
 
 ## Security Implications of Client Credentials
 
@@ -69,27 +41,12 @@ This makes the client secret one of the most sensitive credentials in your Atlas
 
 For higher security, Azure AD supports **certificate-based authentication** as an alternative to client secrets. Certificates are harder to exfiltrate than string secrets and can be stored in hardware security modules (HSMs). Atlas currently uses client secrets, but Azure AD allows both methods for the same application registration -- you can create a certificate credential alongside or instead of a secret.
 
-## Client Secret Rotation
+## Optional: Mailbox Size Reporting
 
-Client secrets have a finite expiry. When a secret expires, Atlas will fail with the following error on every authentication attempt:
+The `atlas outlook mailboxes` command can show mailbox sizes if the `Reports.Read.All` permission is granted. If the permission is not present, the Size column is simply omitted without error.
 
-```
-AADSTS7000215: Invalid client secret provided. Ensure the secret being sent in the request is the client secret value, not the client secret ID.
-```
+| Permission         | Why                                        |
+| ------------------ | ------------------------------------------ |
+| `Reports.Read.All` | Access mailbox usage reports for size data |
 
-Despite the misleading wording, this error means the secret has **expired** (or the wrong value was provided). Check the expiry date in **Certificates & secrets** first.
-
-### Zero-Downtime Rotation Procedure
-
-1. In the Azure Portal, navigate to **App registrations → [your app] → Certificates & secrets → Client secrets**.
-2. Click **New client secret**, add a description (e.g. `Atlas production 2027`), and set the expiry.
-3. Copy the new secret **Value** immediately.
-4. Update `ATLAS_CLIENT_SECRET` in your Atlas environment or secrets manager with the new value.
-5. Restart or re-run Atlas to confirm authentication succeeds with the new secret.
-6. Return to the Azure Portal and **Delete** the old (expired or expiring) secret.
-
-Adding the new secret before removing the old one ensures Atlas is never in a state where it has no valid credentials. Both secrets are valid simultaneously until you delete the old one.
-
-::: tip Set a Calendar Reminder
-Azure does not send expiry warnings by default unless you configure monitoring. Set a calendar reminder 2--4 weeks before the secret expiry date so you have time to rotate without an incident.
-:::
+This permission grants read access to all usage reports in the tenant, not just mailbox sizes. Grant it only if you need the sizing information for capacity planning.

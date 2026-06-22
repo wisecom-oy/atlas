@@ -1,64 +1,26 @@
 {
-  "name": "m365-atlas",
-  "version": "1.3.0",
-  "description": "An open-source CLI backup engine for Microsoft 365 mailboxes, designed with per-tenant encryption, content-addressed storage, and efficient delta synchronization for scalable, secure backups.",
+  "name": "atlas-monorepo",
+  "version": "0.0.0",
+  "private": true,
   "type": "module",
-  "main": "./dist/index.mjs",
-  "types": "./dist/index.d.mts",
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
-      }
-    },
-    "./sdk": {
-      "import": {
-        "types": "./dist/sdk.d.mts",
-        "default": "./dist/sdk.mjs"
-      }
-    }
-  },
-  "bin": {
-    "atlas": "./dist/cli.mjs"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "LICENSE"
-  ],
   "scripts": {
-    "build": "tsdown src/index.ts src/sdk.ts src/cli.ts --dts",
-    "test": "vitest run",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "lint": "eslint src/ tests/",
-    "lint:fix": "eslint src/ tests/ --fix",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "test:coverage": "turbo run test -- --coverage",
+    "lint": "turbo run lint",
+    "lint:fix": "eslint packages/*/src/ packages/*/tests/ --fix",
+    "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\"",
+    "format:check": "turbo run format:check",
+    "perf:build": "tsc --project tools/perf/tsconfig.json",
+    "perf:backup": "node tools/perf/dist/cli.js profile -- backup",
+    "perf:restore": "node tools/perf/dist/cli.js profile -- restore",
+    "perf:analyze": "node tools/perf/dist/cli.js analyze",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "prepublishOnly": "pnpm build",
     "prepare": "husky"
-  },
-  "keywords": [
-    "m365",
-    "backup",
-    "email",
-    "o365",
-    "s3",
-    "minio"
-  ],
-  "author": "Miika Oja-Kaukola",
-  "license": "Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/miikaok/atlas.git"
-  },
-  "homepage": "https://miikaok.github.io/atlas/",
-  "bugs": {
-    "url": "https://github.com/miikaok/atlas/issues"
   },
   "engines": {
     "node": ">=20"
@@ -66,18 +28,21 @@
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.3.5",
-    "@vitest/coverage-v8": "^4.1.4",
+    "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-check-file": "^3.3.1",
+    "eslint-plugin-sonarjs": "^4.0.3",
     "husky": "^9.1.7",
     "lint-staged": "^16.3.2",
     "prettier": "^3.8.1",
-    "tsdown": "^0.21.8",
+    "tsc-alias": "^1.8.17",
+    "tsdown": "^0.21.0",
+    "turbo": "^2.9.18",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "vitepress": "^1.6.4",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.9"
   },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx}": "prettier --write"
@@ -85,26 +50,8 @@
   "pnpm": {
     "overrides": {
       "flatted": "3.4.2",
-      "fast-xml-parser": "5.5.7",
-      "lodash@<4.18.0": "4.18.1",
-      "brace-expansion@>=2.0.0 <2.0.3": "2.0.3",
-      "picomatch@>=2.0.0 <2.3.2": "2.3.2",
-      "picomatch@>=4.0.0 <4.0.4": "4.0.4",
-      "defu@<6.1.5": "6.1.5",
-      "vite@>=5.0.0 <6.4.2": "6.4.2"
+      "fast-xml-parser": "5.5.7"
     }
   },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.1004.0",
-    "@azure/identity": "^4.13.0",
-    "@microsoft/microsoft-graph-client": "^3.0.7",
-    "archiver": "^7.0.1",
-    "chalk": "^5.6.2",
-    "commander": "^14.0.3",
-    "dotenv": "^17.3.1",
-    "htmlparser2": "^12.0.0",
-    "inversify": "^7.11.0",
-    "mimetext": "^3.0.28",
-    "reflect-metadata": "^0.2.2"
-  }
+  "packageManager": "pnpm@10.30.3"
 }

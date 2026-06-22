@@ -1,0 +1,54 @@
+# Performance Profiling
+
+## When to Profile
+
+Run profiling when making changes that could affect throughput or latency in the critical paths:
+
+- **S3 storage layer** (`packages/s3/`): upload concurrency, encryption pipeline, object operations
+- **Graph API layer** (`packages/m365-graph/`, `packages/outlook/src/adapters/`): page fetch parallelism, rate limiting, retry logic
+- **Encryption** (`packages/core/src/adapters/keystore/`): key derivation, AES-GCM throughput, DEK operations
+- **Backup orchestration** (`packages/outlook/src/services/backup/`): folder sync, attachment handling, manifest building
+- **Restore orchestration** (`packages/outlook/src/services/restore/`): message reconstruction, batch processing
+
+If your change touches any of these areas or modifies concurrency/parallelism settings, **run a profiled backup and restore** before and after to measure impact.
+
+## How to Profile
+
+```bash
+# Build the profiler (one-time after changes to tools/perf/)
+pnpm run perf:build
+
+# Profile a backup run
+pnpm run perf:backup -- -m user@example.com
+
+# Profile a restore run
+pnpm run perf:restore -- -s <snapshot-id> -m target@example.com
+
+# Analyze an existing .cpuprofile
+pnpm run perf:analyze -- .perf-output/CPU.*.cpuprofile
+
+# Generate flamegraph HTML (requires 0x)
+node tools/perf/dist/cli.js profile --flamegraph -- backup -m user@example.com
+```
+
+## Reading the Output
+
+The profiler outputs structured text suitable for LLM analysis:
+
+1. **Top Functions by Self-Time**: Where CPU is actually spent (not including callees)
+2. **Domain Breakdown**: Aggregated by Atlas package -- immediately shows which subsystem dominates
+3. **Hot Paths**: Critical call chains from root to leaf, following the heaviest branch at each level
+4. **Observations**: Auto-generated notes about crypto, S3, Graph, and network proportions
+
+## Important Caveats
+
+- CPU profiles only capture **compute time**. Network I/O (Graph API latency, S3 upload waits) appears as idle and is NOT shown.
+- For I/O bottleneck analysis, supplement with wall-clock timers (already present as `elapsed_ms` in backup/restore output).
+- Profile under realistic load -- a single-message backup won't reveal concurrency bottlenecks.
+
+## Commit Checklist for Performance-Sensitive Changes
+
+1. Profile before your change (baseline)
+2. Implement the change
+3. Profile after your change
+4. Include the delta in your PR description (or paste the report for LLM review)

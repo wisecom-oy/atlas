@@ -12,3 +12,7 @@ docs/.vitepress/cache/
 
 *.tsbuildinfo
 *.log
+
+.turbo/
+.perf-output/
+tools/perf/dist/

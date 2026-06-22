@@ -31,7 +31,7 @@ Replication is **idempotent**. Running it again for the same snapshot skips all 
 ## Primary-Is-Truth Principle
 
 ::: danger Primary Is Authoritative
-Primary storage is always the source of truth during normal operation. Secondary targets receive data only through replication. Never run `atlas backup` directly against a replica target -- Atlas detects the replica marker file and logs a warning if this is attempted.
+Primary storage is always the source of truth during normal operation. Secondary targets receive data only through replication. Never run `atlas outlook backup` directly against a replica target -- Atlas detects the replica marker file and logs a warning if this is attempted.
 :::
 
 Replication is one-directional: primary to target. There is no bidirectional sync and no automatic conflict resolution. If you need to recover data from a secondary target (disaster recovery), use `atlas rehydrate` -- a separate, explicit operation described below.
@@ -67,19 +67,26 @@ Objects are always copied in this order:
 2. `_meta/dek.enc` -- copied to target if not already present
 3. `_meta/replica.marker` -- written on target (skipped during rehydration to primary)
 4. Data and attachment objects -- copied in manifest order, skipping objects already on target
-5. Manifest file (`manifests/{mailbox}/{snapshot_id}.json`) -- **always last**
+5. Ancillary objects (OneDrive and SharePoint) -- file version indexes and delta cursors
+6. Manifest file -- **always last**
 
 If replication crashes at any point, the target is left in a safe state: orphan data blobs exist (harmless, reclaimable), but no manifest ever references missing objects. Rerunning replication picks up where it left off.
 
 ## Replication Status
 
-Replication status is persisted as encrypted sidecar files in the primary tenant bucket:
+Replication status is persisted as encrypted sidecar files in the primary tenant bucket. The path structure varies by workload:
 
 ```
 atlas-{tenant_id}/
 └── _meta/
     └── replication/
-        └── {mailbox_id}/
+        ├── {mailbox_id}/                          # Outlook
+        │   └── {snapshot_id}/
+        │       └── {target_id}.json
+        ├── onedrive/{owner_id}/                   # OneDrive
+        │   └── {snapshot_id}/
+        │       └── {target_id}.json
+        └── sharepoint/{site_id}/                  # SharePoint
             └── {snapshot_id}/
                 └── {target_id}.json
 ```
@@ -89,6 +96,7 @@ Each sidecar records: target ID, status (COMPLETED/PARTIAL/FAILED), object count
 ```bash
 atlas replicate --status                          # all snapshots, all targets
 atlas replicate --status -m user@company.com      # filter by mailbox
+atlas replicate --status --site <site-id>         # filter by SharePoint site
 atlas replicate --status -s <snapshot-id>         # filter by snapshot
 ```
 
@@ -114,6 +122,34 @@ atlas replicate -m user@company.com \
 
 Only unreplicated snapshots are copied (the service diffs manifest lists).
 
+### Replicate OneDrive Snapshots (SDK)
+
+OneDrive per-owner replication is available through the SDK:
+
+```typescript
+const offsite = createStorageTarget({ /* ... */ });
+
+// Replicate all unreplicated snapshots for a user
+await atlas.onedrive.replicateAll('owner-id', [offsite]);
+
+// Replicate a specific snapshot
+await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123', [offsite]);
+```
+
+OneDrive replication copies data blobs, file version index files, delta cursors, and manifests -- the same ancillary set as SharePoint.
+
+### Replicate SharePoint Site Snapshots
+
+```bash
+# Replicate all unreplicated snapshots for a SharePoint site
+atlas replicate --site contoso.sharepoint.com,guid,guid --target-config ./offsite.json
+
+# Replicate a specific SharePoint snapshot
+atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --target-config ./offsite.json
+```
+
+SharePoint replication copies data blobs, file version index files, delta cursors, and manifests. Ancillary objects (indexes + cursors) are replicated alongside data so that incremental sync resumes correctly after rehydration.
+
 ### Using a Target Config File
 
 ```bash
@@ -137,7 +173,7 @@ The file contains S3 credentials for the target:
 ## SDK Usage
 
 ```typescript
-import { createAtlasInstance, createStorageTarget } from 'm365-atlas/sdk';
+import { createAtlasInstance, createStorageTarget } from '@atlas/sdk';
 
 const atlas = createAtlasInstance({ /* primary config */ });
 
@@ -154,6 +190,14 @@ const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
 
 // Replicate all unreplicated snapshots for a mailbox
 const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
+
+// Replicate OneDrive snapshots
+const odResults = await atlas.onedrive.replicateAll('owner-id', [offsite]);
+const odSingle = await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123', [offsite]);
+
+// Replicate SharePoint site snapshots
+const spResults = await atlas.sharepoint.replicateAll('site-id', [offsite]);
+const spSingle = await atlas.sharepoint.replicateSnapshot('site-id', 'sp-snap-123', [offsite]);
 
 // Query replication status
 const status = await atlas.getReplicationStatus('snapshot-id');
@@ -184,6 +228,15 @@ atlas rehydrate -s <snapshot-id> \
 atlas rehydrate -m user@company.com --source-config ./offsite.json
 ```
 
+**Recover a SharePoint site:**
+
+```bash
+atlas rehydrate --site contoso.sharepoint.com,guid,guid --source-config ./offsite.json
+
+# Or a specific SharePoint snapshot
+atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --source-config ./offsite.json
+```
+
 **Full tenant recovery:**
 
 ```bash
@@ -195,11 +248,19 @@ Rehydration skips snapshots that already exist on primary. It does not merge, di
 ### SDK Rehydration
 
 ```typescript
-// Recover a single snapshot
+// Recover a single Outlook snapshot
 await atlas.rehydrateSnapshot('snapshot-id', offsite);
 
 // Recover a mailbox
 await atlas.rehydrateMailbox('user@company.com', offsite);
+
+// Recover a OneDrive user
+await atlas.onedrive.rehydrateOwner('owner-id', offsite);
+await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
+
+// Recover a SharePoint site
+await atlas.sharepoint.rehydrateSite('site-id', offsite);
+await atlas.sharepoint.rehydrateSnapshot('site-id', 'sp-snap-123', offsite);
 
 // Full tenant DR
 await atlas.rehydrateTenant(offsite);
@@ -224,13 +285,17 @@ If primary storage fails and you need to restore from a replica:
 
 4. **Verify recovered data:**
    ```bash
-   atlas list                              # check recovered mailboxes
-   atlas verify -s <snapshot-id>           # verify integrity
+   atlas outlook list                       # check recovered mailboxes
+   atlas outlook verify -m <mailbox> -s <snapshot-id>  # verify Outlook integrity
+   atlas onedrive verify -o <owner> -s <snapshot-id>   # verify OneDrive integrity
+   atlas sharepoint verify --site <site-url> -s <snapshot-id>  # verify SharePoint integrity
    ```
 
 5. **Run a fresh backup** to capture any changes since the last replication:
    ```bash
-   atlas backup
+   atlas outlook backup
+   atlas onedrive backup -o <owner>
+   atlas sharepoint backup --site <site-url>
    ```
    Stale delta links are handled automatically -- Atlas falls back to full sync.
 

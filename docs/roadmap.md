@@ -50,7 +50,7 @@ Added disaster recovery and the documentation site.
 - **VitePress documentation site** — full docs with self-hosting guide, security model, operations guides, and SDK examples
 - **Security fix** — replaced regex-based HTML stripper with parser-based `html-to-text` to prevent ReDoS
 
-### v1.3.0 — Security Hardening & Restore Reliability *(current branch)*
+### v1.3.0 — Security Hardening & Restore Reliability
 
 Comprehensive security audit and restore-flow hardening driven by external review findings.
 
@@ -68,6 +68,17 @@ Comprehensive security audit and restore-flow hardening driven by external revie
 - **Restore-integrity verification** — post-restore folder verification integrated into the restore pipeline
 - **Dependency security patches** — Dependabot vulnerability fixes
 
+### v2.0.0 — Multi-Workload & Monorepo *(current branch)*
+
+Extended Atlas beyond Outlook mailboxes to additional Microsoft 365 workloads and restructured the codebase for independent package releases.
+
+- **OneDrive backup** — incremental file backup via Graph delta queries with zero-disk streaming for large files (512 MiB+), version history, and content-addressed deduplication under `onedrive/` storage prefixes
+- **SharePoint backup** — site-targeted document library backup with per-library delta cursors, zero-disk streaming, and version history under `sharepoint/` storage prefixes
+- **Namespaced CLI** — workload commands grouped under `atlas outlook`, `atlas onedrive`, and `atlas sharepoint`; cross-cutting operations (`replicate`, `rehydrate`, `stats`, `storage-check`) remain at the root
+- **Monorepo restructure** — split into dedicated packages (`@atlas/cli`, `@atlas/sdk`, shared domain/ports) with independent versioning and smaller install footprints
+- **Multi-workload replication** — `atlas replicate` and `atlas rehydrate` extended with `--site` for SharePoint; OneDrive and Outlook snapshots replicate through the same tenant bucket and DEK
+- **Unified encryption model** — all workloads share the per-tenant DEK and scrypt-derived KEK; storage layout documented per workload in [Storage Layout](/operations/storage-layout)
+
 ---
 
 ## Upcoming
@@ -84,14 +95,6 @@ Evaluate replacing scrypt with Argon2id for KEK derivation. The versioned DEK bl
 
 Instrument the backup and restore pipelines with flamechart analysis to identify bottlenecks. Candidates include S3 upload concurrency, Graph API page fetch parallelism, and encryption throughput. Targeted optimizations based on measured data rather than assumptions.
 
-### Monorepo Restructuring
-
-Split the current single-package layout into a monorepo with dedicated apps (CLI, SDK library, documentation site) and shared packages (domain models, ports, crypto). This enables independent versioning, smaller install footprints, and clearer dependency boundaries.
-
-### OneDrive Backup
-
-Extend Atlas to back up OneDrive files alongside mailbox data. Early groundwork exists on the `feat/onedrive-backup` branch with a zero-disk streaming pipeline for large file backup. Remaining work includes folder hierarchy preservation, delta sync for file changes, and restore-to-OneDrive support.
-
 ### CI/CD Restore & Backup Validation
 
 Add automated end-to-end pipeline stages that run a full backup → verify → restore → compare cycle against a dedicated testing tenant on every merge request. This replaces manual E2E testing and catches regressions before they reach a release branch.
@@ -99,3 +102,7 @@ Add automated end-to-end pipeline stages that run a full backup → verify → r
 ### SDK Documentation & Hosted Docs
 
 Write comprehensive SDK documentation with API reference, integration guides, and production deployment patterns. Host the VitePress documentation site on a dedicated server with versioned docs per release branch, replacing the current local-only build.
+
+### OneDrive & SharePoint Restore Enhancements
+
+Expand restore capabilities for file workloads: cross-owner OneDrive restore, selective file filtering at scale, and SharePoint library-level restore with conflict resolution policies.

@@ -1,0 +1,51 @@
+{
+  "name": "@atlas/cli",
+  "version": "2.0.0-beta.0",
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "bin": {
+    "atlas": "./dist/cli.mjs"
+  },
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      }
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src/ tests/",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1004.0",
+    "@azure/identity": "^4.13.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "archiver": "^7.0.1",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "dotenv": "^17.3.1",
+    "htmlparser2": "^12.0.0",
+    "inversify": "^7.11.0",
+    "mimetext": "^3.0.28",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@atlas/types": "workspace:*",
+    "@atlas/core": "workspace:*",
+    "@atlas/m365-graph": "workspace:*",
+    "@atlas/s3": "workspace:*",
+    "@atlas/outlook": "workspace:*",
+    "@atlas/onedrive": "workspace:*",
+    "@atlas/sharepoint": "workspace:*"
+  }
+}

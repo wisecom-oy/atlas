@@ -1,0 +1,19 @@
+{
+  "name": "@atlas/perf",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "atlas-perf": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.3"
+  },
+  "devDependencies": {
+    "0x": "^6.0.0"
+  }
+}

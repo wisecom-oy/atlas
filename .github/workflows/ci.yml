@@ -21,7 +21,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -42,7 +42,7 @@ jobs:
         run: pnpm run format:check
 
       - name: Test with coverage
-        run: pnpm run test:coverage
+        run: pnpm run test -- --coverage
 
       - name: Upload coverage artifact
         if: always()
@@ -50,34 +50,9 @@ jobs:
         with:
           name: coverage-report
           path: |
-            coverage/
+            packages/*/coverage/
           retention-days: 30
-
-      - name: Extract coverage percentage
-        if: success() && github.ref == 'refs/heads/main'
-        id: coverage
-        run: |
-          COVERAGE=$(node -e "
-            const r = require('./coverage/coverage-summary.json');
-            console.log(r.total.lines.pct);
-          ")
-          echo "percentage=${COVERAGE}" >> "$GITHUB_OUTPUT"
-
-          if (( $(echo "$COVERAGE >= 80" | bc -l) )); then
-            echo "color=brightgreen" >> "$GITHUB_OUTPUT"
-          elif (( $(echo "$COVERAGE >= 60" | bc -l) )); then
-            echo "color=yellow" >> "$GITHUB_OUTPUT"
-          else
-            echo "color=red" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Update coverage badge
         if: success() && github.ref == 'refs/heads/main' && vars.GIST_ID != ''
-        uses: schneegans/dynamic-badges-action@v1.7.0
-        with:
-          auth: ${{ secrets.GIST_SECRET }}
-          gistID: ${{ vars.GIST_ID }}
-          filename: m365-atlas-coverage.json
-          label: coverage
-          message: "${{ steps.coverage.outputs.percentage }}%"
-          color: "${{ steps.coverage.outputs.color }}"
+        run: echo "Coverage badge update skipped -- monorepo coverage aggregation TBD"
