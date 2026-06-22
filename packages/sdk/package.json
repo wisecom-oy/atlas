@@ -1,13 +1,22 @@
 {
   "name": "@wisecom/atlas-sdk",
-  "version": "2.0.0-beta.0",
+  "version": "2.0.0-beta.1",
   "description": "Programmatic API for embedding Atlas M365 backup and restore in Node.js applications.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wisecom-oy/atlas.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://wisecom-oy.github.io/atlas/reference/sdk",
+  "bugs": {
+    "url": "https://github.com/wisecom-oy/atlas/issues"
+  },
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
   "exports": {
     ".": {
       "import": {
