@@ -1,16 +1,25 @@
 {
   "name": "@wisecom/atlas-cli",
-  "version": "2.0.0-beta.0",
+  "version": "2.0.0-beta.1",
   "description": "CLI for Atlas — secure Microsoft 365 backup and restore to S3-compatible storage.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wisecom-oy/atlas.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://wisecom-oy.github.io/atlas/reference/cli",
+  "bugs": {
+    "url": "https://github.com/wisecom-oy/atlas/issues"
+  },
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "bin": {
-    "atlas": "./dist/cli.mjs"
+    "atlas": "dist/cli.mjs"
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
   "exports": {
     ".": {
       "import": {
