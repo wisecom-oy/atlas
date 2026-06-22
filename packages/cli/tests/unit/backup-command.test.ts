@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container } from 'inversify';
 import { Command } from 'commander';
 import { register_outlook_command } from '@/commands/outlook.command';
-import { BACKUP_USE_CASE_TOKEN } from '@atlas/types';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
+import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 
 const mock_run_backup_with_cli_adapter = vi.fn();
 

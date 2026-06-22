@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/perf",
+  "name": "@wisecom/atlas-perf",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -10,7 +10,7 @@ import type {
   SharePointDeletionUseCase,
   SharePointStatusUseCase,
   SharePointSiteConnector,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
@@ -21,7 +21,7 @@ import {
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
 export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {

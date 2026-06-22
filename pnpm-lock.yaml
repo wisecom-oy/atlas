@@ -100,31 +100,31 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2
     devDependencies:
-      '@atlas/core':
+      '@wisecom/atlas-core':
         specifier: workspace:*
         version: link:../core
-      '@atlas/m365-graph':
+      '@wisecom/atlas-m365-graph':
         specifier: workspace:*
         version: link:../m365-graph
-      '@atlas/onedrive':
+      '@wisecom/atlas-onedrive':
         specifier: workspace:*
         version: link:../onedrive
-      '@atlas/outlook':
+      '@wisecom/atlas-outlook':
         specifier: workspace:*
         version: link:../outlook
-      '@atlas/s3':
+      '@wisecom/atlas-s3':
         specifier: workspace:*
         version: link:../s3
-      '@atlas/sharepoint':
+      '@wisecom/atlas-sharepoint':
         specifier: workspace:*
         version: link:../sharepoint
-      '@atlas/types':
+      '@wisecom/atlas-types':
         specifier: workspace:*
         version: link:../types
 
   packages/core:
     dependencies:
-      '@atlas/types':
+      '@wisecom/atlas-types':
         specifier: workspace:*
         version: link:../types
       archiver:
@@ -148,18 +148,18 @@ importers:
 
   packages/m365-graph:
     dependencies:
-      '@atlas/core':
-        specifier: workspace:*
-        version: link:../core
-      '@atlas/types':
-        specifier: workspace:*
-        version: link:../types
       '@azure/identity':
         specifier: ^4.13.0
         version: 4.13.1
       '@microsoft/microsoft-graph-client':
         specifier: ^3.0.7
         version: 3.0.7(@azure/identity@4.13.1)
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../core
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../types
       inversify:
         specifier: ^7.11.0
         version: 7.11.0(reflect-metadata@0.2.2)
@@ -169,18 +169,18 @@ importers:
 
   packages/onedrive:
     dependencies:
-      '@atlas/core':
-        specifier: workspace:*
-        version: link:../core
-      '@atlas/m365-graph':
-        specifier: workspace:*
-        version: link:../m365-graph
-      '@atlas/types':
-        specifier: workspace:*
-        version: link:../types
       '@microsoft/microsoft-graph-client':
         specifier: ^3.0.7
         version: 3.0.7(@azure/identity@4.13.1)
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../core
+      '@wisecom/atlas-m365-graph':
+        specifier: workspace:*
+        version: link:../m365-graph
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../types
       inversify:
         specifier: ^7.11.0
         version: 7.11.0(reflect-metadata@0.2.2)
@@ -190,18 +190,18 @@ importers:
 
   packages/outlook:
     dependencies:
-      '@atlas/core':
-        specifier: workspace:*
-        version: link:../core
-      '@atlas/m365-graph':
-        specifier: workspace:*
-        version: link:../m365-graph
-      '@atlas/types':
-        specifier: workspace:*
-        version: link:../types
       '@microsoft/microsoft-graph-client':
         specifier: ^3.0.7
         version: 3.0.7(@azure/identity@4.13.1)
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../core
+      '@wisecom/atlas-m365-graph':
+        specifier: workspace:*
+        version: link:../m365-graph
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../types
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
@@ -220,15 +220,15 @@ importers:
 
   packages/s3:
     dependencies:
-      '@atlas/core':
-        specifier: workspace:*
-        version: link:../core
-      '@atlas/types':
-        specifier: workspace:*
-        version: link:../types
       '@aws-sdk/client-s3':
         specifier: ^3.1004.0
         version: 3.1043.0
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../core
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../types
       inversify:
         specifier: ^7.11.0
         version: 7.11.0(reflect-metadata@0.2.2)
@@ -269,42 +269,42 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2
     devDependencies:
-      '@atlas/core':
+      '@wisecom/atlas-core':
         specifier: workspace:*
         version: link:../core
-      '@atlas/m365-graph':
+      '@wisecom/atlas-m365-graph':
         specifier: workspace:*
         version: link:../m365-graph
-      '@atlas/onedrive':
+      '@wisecom/atlas-onedrive':
         specifier: workspace:*
         version: link:../onedrive
-      '@atlas/outlook':
+      '@wisecom/atlas-outlook':
         specifier: workspace:*
         version: link:../outlook
-      '@atlas/s3':
+      '@wisecom/atlas-s3':
         specifier: workspace:*
         version: link:../s3
-      '@atlas/sharepoint':
+      '@wisecom/atlas-sharepoint':
         specifier: workspace:*
         version: link:../sharepoint
-      '@atlas/types':
+      '@wisecom/atlas-types':
         specifier: workspace:*
         version: link:../types
 
   packages/sharepoint:
     dependencies:
-      '@atlas/core':
-        specifier: workspace:*
-        version: link:../core
-      '@atlas/m365-graph':
-        specifier: workspace:*
-        version: link:../m365-graph
-      '@atlas/types':
-        specifier: workspace:*
-        version: link:../types
       '@microsoft/microsoft-graph-client':
         specifier: ^3.0.7
         version: 3.0.7(@azure/identity@4.13.1)
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../core
+      '@wisecom/atlas-m365-graph':
+        specifier: workspace:*
+        version: link:../m365-graph
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../types
       inversify:
         specifier: ^7.11.0
         version: 7.11.0(reflect-metadata@0.2.2)

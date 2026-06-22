@@ -43,15 +43,18 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: /^@atlas\/core\/(.+)$/,
+        find: /^@wisecom\/atlas-core\/(.+)$/,
         replacement: resolve(root_dir, '../core/src/$1'),
       },
-      { find: '@atlas/types/ports', replacement: resolve(root_dir, '../types/src/ports') },
-      { find: '@atlas/types', replacement: resolve(root_dir, '../types/src/index.ts') },
-      { find: '@atlas/m365-graph', replacement: resolve(root_dir, '../m365-graph/src/index.ts') },
-      { find: '@atlas/s3', replacement: resolve(root_dir, '../s3/src/index.ts') },
-      { find: '@atlas/outlook', replacement: resolve(root_dir, '../outlook/src/index.ts') },
-      { find: '@atlas/core', replacement: resolve(root_dir, '../core/src/index.ts') },
+      { find: '@wisecom/atlas-types/ports', replacement: resolve(root_dir, '../types/src/ports') },
+      { find: '@wisecom/atlas-types', replacement: resolve(root_dir, '../types/src/index.ts') },
+      {
+        find: '@wisecom/atlas-m365-graph',
+        replacement: resolve(root_dir, '../m365-graph/src/index.ts'),
+      },
+      { find: '@wisecom/atlas-s3', replacement: resolve(root_dir, '../s3/src/index.ts') },
+      { find: '@wisecom/atlas-outlook', replacement: resolve(root_dir, '../outlook/src/index.ts') },
+      { find: '@wisecom/atlas-core', replacement: resolve(root_dir, '../core/src/index.ts') },
     ],
   },
   test: {

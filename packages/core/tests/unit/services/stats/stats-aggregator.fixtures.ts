@@ -1,4 +1,4 @@
-import type { Manifest, ManifestEntry } from '@atlas/types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 
 export function make_entry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
   return {

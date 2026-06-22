@@ -256,8 +256,8 @@ Key implications for SaaS scheduling:
 Atlas exports the `GRAPH_SERVICE_LIMITS` constant so your SaaS layer can use the same authoritative numbers for scheduling decisions:
 
 ```typescript
-import { GRAPH_SERVICE_LIMITS } from '@atlas/sdk';
-import type { OperationCost } from '@atlas/sdk';
+import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
+import type { OperationCost } from '@wisecom/atlas-sdk';
 
 // After a backup job completes:
 const cost: OperationCost = result.graph_cost;

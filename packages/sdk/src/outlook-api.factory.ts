@@ -10,7 +10,7 @@ import type {
   StatsUseCase,
   StatusUseCase,
   MailboxDiscoveryService,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   BACKUP_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
@@ -21,8 +21,8 @@ import {
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
-} from '@atlas/types';
-import { run_with_cost_tracking } from '@atlas/core/services/shared/graph-request-context';
+} from '@wisecom/atlas-types';
+import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {

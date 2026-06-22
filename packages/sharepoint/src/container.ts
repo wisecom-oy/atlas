@@ -11,7 +11,7 @@ import {
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.adapter';
 import { S3SharePointManifestRepository } from '@/adapters/s3-sharepoint-manifest-repository.adapter';
 import { S3SharePointDeltaCursorRepository } from '@/adapters/s3-sharepoint-delta-cursor-repository.adapter';

@@ -3,9 +3,9 @@ import type {
   BackupUseCase,
   SyncOptions,
   SyncResult,
-} from '@atlas/types/ports/backup/use-case.port';
-import { BackupProgressDashboard } from '@atlas/outlook';
-import { logger } from '@atlas/core';
+} from '@wisecom/atlas-types/ports/backup/use-case.port';
+import { BackupProgressDashboard } from '@wisecom/atlas-outlook';
+import { logger } from '@wisecom/atlas-core';
 
 interface InterruptState {
   interrupted: boolean;

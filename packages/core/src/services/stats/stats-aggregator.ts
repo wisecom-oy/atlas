@@ -1,5 +1,10 @@
-import type { Manifest, ManifestEntry } from '@atlas/types';
-import type { BucketStats, MailboxStats, FolderStats, MonthlyBreakdown } from '@atlas/types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type {
+  BucketStats,
+  MailboxStats,
+  FolderStats,
+  MonthlyBreakdown,
+} from '@wisecom/atlas-types';
 
 interface EntryAccumulator {
   readonly message_size: number;

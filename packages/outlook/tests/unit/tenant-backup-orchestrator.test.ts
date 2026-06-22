@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup-orchestrator';
-import { MAILBOX_DISCOVERY_TOKEN } from '@atlas/types';
-import { BACKUP_USE_CASE_TOKEN } from '@atlas/types';
-import type { MailboxDiscoveryService, TenantMailbox } from '@atlas/types';
-import type { BackupUseCase, SyncResult, BackupSyncSummary } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
-import type { Snapshot } from '@atlas/types';
-import { SnapshotStatus } from '@atlas/types';
+import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
+import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import type { MailboxDiscoveryService, TenantMailbox } from '@wisecom/atlas-types';
+import type { BackupUseCase, SyncResult, BackupSyncSummary } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
+import type { Snapshot } from '@wisecom/atlas-types';
+import { SnapshotStatus } from '@wisecom/atlas-types';
 
 function make_mailbox(mail: string, licensed = true): TenantMailbox {
   return { user_id: `uid-${mail}`, mail, display_name: mail, has_exchange_license: licensed };

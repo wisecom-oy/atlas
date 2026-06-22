@@ -1,6 +1,10 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN, is_invalid_delta_error, with_graph_retry } from '@atlas/m365-graph';
+import {
+  GRAPH_CLIENT_TOKEN,
+  is_invalid_delta_error,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
 import type {
   SharePointSiteConnector,
   SharePointSite,
@@ -8,7 +12,7 @@ import type {
   SharePointDeltaItem,
   SharePointDeltaResult,
   SharePointFileVersion,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   fetch_initial_delta_page,
   type GraphCollectionResponse,

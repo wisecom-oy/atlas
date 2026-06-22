@@ -1,5 +1,5 @@
 ---
-description: Core development rules for the m365-atlas CLI project
+description: Core development rules for the Atlas (Wisecom Oy) monorepo
 alwaysApply: true
 ---
 

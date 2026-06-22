@@ -1,9 +1,9 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { StatsUseCase } from '@atlas/types';
-import type { BucketStats, MailboxStats } from '@atlas/types';
-import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@atlas/types';
+import type { TenantContextFactory } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { StatsUseCase } from '@wisecom/atlas-types';
+import type { BucketStats, MailboxStats } from '@wisecom/atlas-types';
+import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { aggregate_bucket_stats, aggregate_mailbox_stats } from '@/services/stats/stats-aggregator';
 import { performance } from 'node:perf_hooks';
 

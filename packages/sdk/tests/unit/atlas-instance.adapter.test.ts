@@ -6,7 +6,7 @@ import type {
   SyncResult,
   VerificationResult,
   StorageCheckResult,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
 const VALID_CONFIG: AtlasInstanceConfig = {

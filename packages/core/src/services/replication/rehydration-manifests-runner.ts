@@ -1,7 +1,7 @@
-import type { TenantContext } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
-import type { StorageTarget, DekValidationFn } from '@atlas/types';
-import type { ReplicationResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
+import type { StorageTarget, DekValidationFn } from '@wisecom/atlas-types';
+import type { ReplicationResult } from '@wisecom/atlas-types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
 import { build_replication_result } from '@/services/replication/replication-result-builder';
 

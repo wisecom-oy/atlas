@@ -1,13 +1,17 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN, is_invalid_delta_error, with_graph_retry } from '@atlas/m365-graph';
+import {
+  GRAPH_CLIENT_TOKEN,
+  is_invalid_delta_error,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
 import type {
   OneDriveConnector,
   OneDriveDeltaItem,
   OneDriveDeltaResult,
   OneDriveDrive,
   OneDriveFileVersion,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
 import { stream_to_buffer } from '@/adapters/graph-onedrive-connector-stream';
 import {
@@ -22,7 +26,7 @@ import {
   throw_missing_permissions,
 } from '@/adapters/graph-onedrive-download-helpers';
 import { map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 interface GraphCollectionResponse<T> {
   value?: T[];

@@ -8,14 +8,14 @@ import type {
   OneDriveStatusUseCase,
   OneDriveStatusResult,
   OneDriveDriveStatus,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 @injectable()
 export class OneDriveStatusService implements OneDriveStatusUseCase {

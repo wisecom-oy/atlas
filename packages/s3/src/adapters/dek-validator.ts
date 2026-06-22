@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
-import type { ObjectStorage } from '@atlas/types';
-import { EnvelopeKeyService } from '@atlas/core';
+import type { ObjectStorage } from '@wisecom/atlas-types';
+import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { validate_dek_match, DekMismatchError } from '@/adapters/dek-validator';
-import { EnvelopeKeyService } from '@atlas/core';
-import type { ObjectStorage } from '@atlas/types';
+import { EnvelopeKeyService } from '@wisecom/atlas-core';
+import type { ObjectStorage } from '@wisecom/atlas-types';
 
 function make_storage(): ObjectStorage {
   return {

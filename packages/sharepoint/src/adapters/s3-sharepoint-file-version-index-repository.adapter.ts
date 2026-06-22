@@ -1,11 +1,11 @@
 import { injectable } from 'inversify';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   SharePointFileVersionIndex,
   SharePointFileVersionRecord,
   SharePointFileVersionIndexRepository,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { sharepoint_index_key, sharepoint_index_prefix } from '@/services/sharepoint-storage-keys';
 
 const MAX_APPEND_RETRIES = 3;

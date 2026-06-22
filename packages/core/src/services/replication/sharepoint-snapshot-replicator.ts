@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import type { TenantContext } from '@atlas/types';
-import type { SharePointSnapshotManifest } from '@atlas/types';
-import type { ReplicationObjectResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { SharePointSnapshotManifest } from '@wisecom/atlas-types';
+import type { ReplicationObjectResult } from '@wisecom/atlas-types';
 
 export interface SharePointReplicationResult {
   readonly objects_copied: number;

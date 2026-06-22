@@ -1,7 +1,7 @@
-import type { TenantContext } from '@atlas/types';
-import type { SharePointSnapshotManifest } from '@atlas/types';
-import type { ReplicationResult, ReplicationStatusRecord } from '@atlas/types';
-import type { StorageTarget } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { SharePointSnapshotManifest } from '@wisecom/atlas-types';
+import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
+import type { StorageTarget } from '@wisecom/atlas-types';
 
 export const SP_MANIFEST_PREFIX = 'sharepoint/manifests';
 export const SP_INDEX_PREFIX = 'sharepoint/index';

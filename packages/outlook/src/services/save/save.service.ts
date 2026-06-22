@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
 import chalk from 'chalk';
-import type { TenantContextFactory, TenantContext } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { MailboxConnector } from '@atlas/types';
-import type { Manifest, ManifestEntry } from '@atlas/types';
-import type { SaveUseCase, SaveResult, SaveOptions } from '@atlas/types';
+import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { SaveUseCase, SaveResult, SaveOptions } from '@wisecom/atlas-types';
 import {
   build_folder_map,
   group_entries_by_folder,
@@ -17,12 +17,12 @@ import {
 } from '@/services/restore/manifest-entry-merger';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 import { SaveProgressDashboard } from '@/services/save/save-progress-dashboard';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { save_entries_to_archive } from '@/services/save/save-entry-processor';
 
 @injectable()

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
-import type { TenantContext } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_mock_context(): TenantContext {
   return {

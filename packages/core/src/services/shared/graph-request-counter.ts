@@ -6,7 +6,7 @@
  * scoped via AsyncLocalStorage (see graph-request-context.ts).
  */
 
-import type { GraphServicePool, OperationCost, ServicePoolCost } from '@atlas/types';
+import type { GraphServicePool, OperationCost, ServicePoolCost } from '@wisecom/atlas-types';
 
 interface PoolAccumulator {
   requests: number;

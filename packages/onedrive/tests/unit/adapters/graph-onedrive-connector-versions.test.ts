@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
-import { GRAPH_CLIENT_TOKEN } from '@atlas/m365-graph';
+import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adapter';
 
 function make_mock_client(versions_response: { value: unknown[] }) {

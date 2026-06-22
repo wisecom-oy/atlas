@@ -1,6 +1,6 @@
 import chalk from 'chalk';
-import { format_duration } from '@atlas/core/services/shared/progress-rate';
-import type { BackupProgressReporter } from '@atlas/types';
+import { format_duration } from '@wisecom/atlas-core/services/shared/progress-rate';
+import type { BackupProgressReporter } from '@wisecom/atlas-types';
 
 interface FolderRow {
   name: string;

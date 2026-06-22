@@ -7,12 +7,12 @@ import type {
   OneDriveSnapshotManifest,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 /** Lists OneDrive snapshots and per-file version history from manifest and index repositories. */
 @injectable()

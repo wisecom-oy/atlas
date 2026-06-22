@@ -65,11 +65,11 @@ Aggregated by Atlas package. Tells you **which subsystem** dominates CPU.
 
 | Domain | Meaning |
 |--------|---------|
-| `@atlas/core/crypto` | Key derivation (scrypt), AES-GCM encrypt/decrypt |
-| `@atlas/s3` | S3 PutObject/GetObject, MD5 computation, TLS |
-| `@atlas/m365-graph` | Graph client, rate limiting, retry wrappers |
-| `@atlas/outlook/backup` | Folder sync, attachment fetch, manifest building |
-| `@atlas/outlook/restore` | Message reconstruction, folder creation |
+| `@wisecom/atlas-core/crypto` | Key derivation (scrypt), AES-GCM encrypt/decrypt |
+| `@wisecom/atlas-s3` | S3 PutObject/GetObject, MD5 computation, TLS |
+| `@wisecom/atlas-m365-graph` | Graph client, rate limiting, retry wrappers |
+| `@wisecom/atlas-outlook/backup` | Folder sync, attachment fetch, manifest building |
+| `@wisecom/atlas-outlook/restore` | Message reconstruction, folder creation |
 | `node:crypto` | Node.js native crypto primitives |
 | `node:network` | TLS handshakes, TCP, HTTP/2 framing |
 | `aws-sdk` | AWS SDK v3 internals |
@@ -116,17 +116,17 @@ Paste both reports into the conversation for diff analysis.
 ## Common Bottleneck Patterns
 
 ### Encryption too slow
-- **Symptom**: `node:crypto` + `@atlas/core/crypto` > 30% self-time
+- **Symptom**: `node:crypto` + `@wisecom/atlas-core/crypto` > 30% self-time
 - **Root cause**: scrypt key derivation runs per-message instead of once per session
 - **Fix**: Cache the derived KEK for the session lifetime (already done via TenantContext)
 
 ### S3 uploads blocking
-- **Symptom**: `@atlas/s3` high self-time, especially MD5/checksum computation
+- **Symptom**: `@wisecom/atlas-s3` high self-time, especially MD5/checksum computation
 - **Root cause**: ContentMD5 computed synchronously for each object
 - **Fix**: Stream-based checksums or worker thread offload
 
 ### Graph API client overhead
-- **Symptom**: `@atlas/m365-graph` or `ms-graph-sdk` high self-time
+- **Symptom**: `@wisecom/atlas-m365-graph` or `ms-graph-sdk` high self-time
 - **Root cause**: Response parsing, token refresh serialization
 - **Fix**: Check if JSON parsing of large responses dominates; consider streaming
 

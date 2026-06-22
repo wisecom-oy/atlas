@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
-import type { TenantContext } from '@atlas/types';
-import type { MailboxConnector, MessageAttachment } from '@atlas/types';
-import type { AttachmentEntry } from '@atlas/types';
-import type { ObjectLockPolicy } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { MailboxConnector, MessageAttachment } from '@wisecom/atlas-types';
+import type { AttachmentEntry } from '@wisecom/atlas-types';
+import type { ObjectLockPolicy } from '@wisecom/atlas-types';
 
 /** Invoked after each attachment is stored: (done_so_far, total_attachments). */
 export type AttachmentProgressCallback = (done: number, total: number) => void;

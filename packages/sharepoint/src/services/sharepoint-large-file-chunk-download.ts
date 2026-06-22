@@ -1,4 +1,4 @@
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;

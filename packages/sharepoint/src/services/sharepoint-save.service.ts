@@ -8,14 +8,17 @@ import type {
   FileSaveResult,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
-import { SHAREPOINT_MANIFEST_REPOSITORY_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import {
+  SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   create_file_archive,
   add_file_to_archive,
   finalize_file_archive,
-} from '@atlas/core/services/shared/file-save-zip-writer';
+} from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
 import {
   should_stream_restore,
   stream_decrypt_from_storage,

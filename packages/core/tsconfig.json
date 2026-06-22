@@ -6,8 +6,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@atlas/types": ["../types/src/index.ts"],
-      "@atlas/types/*": ["../types/src/*"]
+      "@wisecom/atlas-types": ["../types/src/index.ts"],
+      "@wisecom/atlas-types/*": ["../types/src/*"]
     }
   },
   "include": ["src"],

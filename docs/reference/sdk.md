@@ -4,23 +4,23 @@ Atlas ships as two npm packages:
 
 | Package | Install | Use when |
 | ------- | ------- | -------- |
-| **`@atlas/cli`** | `npm install -g @atlas/cli` | Day-to-day operations from a shell: cron jobs, one-off backups, operator workflows. Reads `.env` and config files. |
-| **`@atlas/sdk`** | `npm add @atlas/sdk` | Embedding Atlas in your own Node.js app: multi-tenant SaaS, custom schedulers, portals, or automation that needs typed programmatic control. |
+| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Day-to-day operations from a shell: cron jobs, one-off backups, operator workflows. Reads `.env` and config files. |
+| **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk` | Embedding Atlas in your own Node.js app: multi-tenant SaaS, custom schedulers, portals, or automation that needs typed programmatic control. |
 
-This page documents **`@atlas/sdk`**. For shell commands and flags, see [CLI Commands](/reference/cli).
+This page documents **`@wisecom/atlas-sdk`**. For shell commands and flags, see [CLI Commands](/reference/cli).
 
-The SDK is a standalone package with all internal modules bundled in — a single install, no peer `@atlas/*` packages to add. The API is organized by workload namespace (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`) plus cross-cutting methods on the root instance (`replicateSnapshot`, `getBucketStats`, etc.).
+The SDK is a standalone package with all internal modules bundled in — a single install, no peer `@wisecom/atlas-*` packages to add. The API is organized by workload namespace (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`) plus cross-cutting methods on the root instance (`replicateSnapshot`, `getBucketStats`, etc.).
 
 ## Installation
 
 ```bash
-npm add @atlas/sdk
+npm add @wisecom/atlas-sdk
 ```
 
 ## Creating an Instance
 
 ```typescript
-import { createAtlasInstance } from '@atlas/sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',
@@ -178,7 +178,7 @@ for (const mailboxId of mailboxIds) {
 The SDK supports snapshot-level replication and disaster recovery rehydration. A `StorageTarget` represents a secondary S3 endpoint -- it only needs S3 credentials and the shared passphrase (no M365 credentials).
 
 ```typescript
-import { createAtlasInstance, createStorageTarget } from '@atlas/sdk';
+import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   /* primary config */
@@ -268,7 +268,7 @@ Only pools that were actually used during the operation appear as keys in `by_se
 The officially-sourced throttling limits are exported as a frozen constant so your scheduler can use the same numbers Atlas uses internally:
 
 ```typescript
-import { GRAPH_SERVICE_LIMITS } from '@atlas/sdk';
+import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
 
 const outlook = GRAPH_SERVICE_LIMITS.outlook;
 // outlook.requests_per_window      => 10,000
@@ -291,8 +291,8 @@ See the [Graph API Rate Limits](/operations/graph-rate-limits) page for the full
 A common pattern for SaaS products is to queue one job per mailbox using pg-boss and use `graph_cost` to compute a cooldown before scheduling the next job:
 
 ```typescript
-import { createAtlasInstance, GRAPH_SERVICE_LIMITS } from '@atlas/sdk';
-import type { OperationCost } from '@atlas/sdk';
+import { createAtlasInstance, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
+import type { OperationCost } from '@wisecom/atlas-sdk';
 import PgBoss from 'pg-boss';
 
 const boss = new PgBoss(DATABASE_URL);
@@ -336,7 +336,7 @@ For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. Y
 
 ## Exports
 
-`@atlas/sdk` re-exports all domain types, port interfaces, and result types, so everything below is available from a single `@atlas/sdk` import.
+`@wisecom/atlas-sdk` re-exports all domain types, port interfaces, and result types, so everything below is available from a single `@wisecom/atlas-sdk` import.
 
 - Instance types: `AtlasInstance`, `AtlasInstanceConfig`
 - Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`

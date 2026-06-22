@@ -4,7 +4,7 @@ import type {
   SharePointDeltaItem,
   SharePointManifestEntry,
   SharePointSnapshotManifest,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import type { VersionSyncResult } from '@/services/sharepoint-version-sync';
 
 export function build_deleted_entry(

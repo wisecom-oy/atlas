@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/s3",
+  "name": "@wisecom/atlas-s3",
   "version": "2.0.0-beta.0",
   "private": true,
   "type": "module",
@@ -21,8 +21,8 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@atlas/types": "workspace:*",
-    "@atlas/core": "workspace:*",
+    "@wisecom/atlas-types": "workspace:*",
+    "@wisecom/atlas-core": "workspace:*",
     "@aws-sdk/client-s3": "^3.1004.0",
     "inversify": "^7.11.0",
     "reflect-metadata": "^0.2.2"

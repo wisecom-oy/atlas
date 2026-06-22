@@ -6,11 +6,11 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
-import type { MailboxConnector } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { TenantContext, TenantContextFactory } from '@atlas/types';
-import type { Manifest, ManifestEntry } from '@atlas/types';
+} from '@wisecom/atlas-types';
+import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 
 vi.mock('@/services/save/save-entry-processor', () => ({
   save_entries_to_archive: vi.fn().mockResolvedValue({

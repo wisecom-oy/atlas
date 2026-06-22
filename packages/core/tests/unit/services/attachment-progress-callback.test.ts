@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
-import type { MailboxConnector, TenantContext, ObjectStorage } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+import type { MailboxConnector, TenantContext, ObjectStorage } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_mock_storage(): ObjectStorage {
   return {

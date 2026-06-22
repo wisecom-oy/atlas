@@ -7,7 +7,7 @@ import type {
   SharePointFileVersionIndexRepository,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { SharePointCatalogService } from '@/services/sharepoint-catalog.service';
 
 const TENANT_ID = 'tenant-1';

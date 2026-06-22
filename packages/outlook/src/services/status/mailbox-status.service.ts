@@ -1,15 +1,15 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory } from '@atlas/types';
-import type { MailboxConnector, MailFolder } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { StatusUseCase, MailboxStatusResult, FolderStatus } from '@atlas/types';
-import { assert_mailbox_exists } from '@atlas/core/services/shared/mailbox-assertions';
+import type { TenantContextFactory } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { StatusUseCase, MailboxStatusResult, FolderStatus } from '@wisecom/atlas-types';
+import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 @injectable()
 export class MailboxStatusService implements StatusUseCase {

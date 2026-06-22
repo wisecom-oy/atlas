@@ -19,7 +19,7 @@ import type {
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
   StorageObjectLockPolicy,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
 import {

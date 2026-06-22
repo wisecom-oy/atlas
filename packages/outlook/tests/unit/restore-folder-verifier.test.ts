@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { verify_folder_message_count } from '@/services/restore/restore-folder-verifier';
-import type { RestoreConnector } from '@atlas/types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
 
 function make_restore_connector(
   count_folder_messages: RestoreConnector['count_folder_messages'],

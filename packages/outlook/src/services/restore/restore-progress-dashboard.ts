@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { format_duration } from '@atlas/core/services/shared/progress-rate';
+import { format_duration } from '@wisecom/atlas-core/services/shared/progress-rate';
 
 type FolderStatus = 'pending' | 'active' | 'done' | 'skipped' | 'interrupted' | 'error';
 

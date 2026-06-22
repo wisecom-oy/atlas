@@ -5,18 +5,18 @@
  */
 
 import { inject, injectable } from 'inversify';
-import type { MailboxDiscoveryService } from '@atlas/types';
-import type { BackupUseCase } from '@atlas/types';
+import type { MailboxDiscoveryService } from '@wisecom/atlas-types';
+import type { BackupUseCase } from '@wisecom/atlas-types';
 import type {
   TenantBackupOrchestrator as ITenantBackupOrchestrator,
   TenantBackupOptions,
   TenantBackupResult,
   MailboxBackupOutcome,
-} from '@atlas/types';
-import { MAILBOX_DISCOVERY_TOKEN } from '@atlas/types';
-import { BACKUP_USE_CASE_TOKEN } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
+} from '@wisecom/atlas-types';
+import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
+import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { create_mailbox_progress_adapter } from '@/services/backup/tenant-backup-progress-adapter';
 
 const DEFAULT_CONCURRENCY = 4;

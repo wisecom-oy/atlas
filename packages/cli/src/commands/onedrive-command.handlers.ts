@@ -1,6 +1,6 @@
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN, logger } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
   OneDriveBackupUseCase,
   OneDriveCatalogUseCase,
@@ -8,7 +8,7 @@ import type {
   OneDriveSaveUseCase,
   OneDriveVerificationUseCase,
   UserIdentityResolver,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
@@ -16,7 +16,7 @@ import {
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 export interface OneDriveTenantOptions {
   tenant?: string;

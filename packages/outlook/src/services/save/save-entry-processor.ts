@@ -1,7 +1,7 @@
 import chalk from 'chalk';
-import type { TenantContext } from '@atlas/types';
-import type { ManifestEntry, AttachmentEntry } from '@atlas/types';
-import type { SaveResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { ManifestEntry, AttachmentEntry } from '@wisecom/atlas-types';
+import type { SaveResult } from '@wisecom/atlas-types';
 import { build_eml, build_eml_filename, deduplicate_filename } from '@/services/save/eml-builder';
 import { verify_checksum } from '@/services/save/save-integrity-validator';
 import {
@@ -10,8 +10,8 @@ import {
   finalize_archive,
 } from '@/services/save/save-zip-writer';
 import type { SaveProgressDashboard } from '@/services/save/save-progress-dashboard';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
-import { logger } from '@atlas/core/utils/logger';
+import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 interface DecryptedAttachment {
   readonly name: string;

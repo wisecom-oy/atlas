@@ -9,7 +9,7 @@
  * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
  */
 
-import { GRAPH_SERVICE_LIMITS } from '@atlas/types';
+import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
 
 const DEFAULT_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const DEFAULT_SLIDE_INTERVAL_MS = 1_000;

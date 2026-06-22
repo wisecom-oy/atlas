@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/m365-graph",
+  "name": "@wisecom/atlas-m365-graph",
   "version": "2.0.0-beta.0",
   "private": true,
   "type": "module",
@@ -21,8 +21,8 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@atlas/types": "workspace:*",
-    "@atlas/core": "workspace:*",
+    "@wisecom/atlas-types": "workspace:*",
+    "@wisecom/atlas-core": "workspace:*",
     "@azure/identity": "^4.13.0",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "inversify": "^7.11.0",

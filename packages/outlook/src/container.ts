@@ -8,14 +8,14 @@ import {
   SAVE_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
   TENANT_ORCHESTRATOR_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import { GraphRestoreConnector } from '@/adapters/graph-restore-connector.adapter';
 import { GraphMailboxDiscoveryAdapter } from '@/adapters/graph-mailbox-discovery.adapter';
 import { CostTrackingRestoreConnector } from '@/adapters/cost-tracking-restore-connector.adapter';
-import { RateLimitedGraphConnector } from '@atlas/m365-graph';
-import { ThrottleFence } from '@atlas/core/services/shared/throttle-fence';
-import { DefaultMailboxRateLimiterFactory } from '@atlas/core/services/shared/mailbox-rate-limiter';
+import { RateLimitedGraphConnector } from '@wisecom/atlas-m365-graph';
+import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
+import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import { RestoreService } from '@/services/restore/restore.service';
 import { SaveService } from '@/services/save/save.service';

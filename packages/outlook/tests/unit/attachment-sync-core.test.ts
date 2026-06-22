@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { MailboxConnector } from '@atlas/types';
-import type { TenantContext } from '@atlas/types';
+import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { TenantContext } from '@wisecom/atlas-types';
 import {
   create_mailbox_sync_harness,
   make_delta,

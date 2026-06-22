@@ -1,6 +1,6 @@
-import { logger } from '@atlas/core/utils/logger';
-import { is_retryable_error } from '@atlas/m365-graph';
-import type { OneDriveConnector, OneDriveDeltaItem } from '@atlas/types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_retryable_error } from '@wisecom/atlas-m365-graph';
+import type { OneDriveConnector, OneDriveDeltaItem } from '@wisecom/atlas-types';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 2_000;

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { create_storage_target } from '@/adapters/storage-target.factory';
-import { EnvelopeKeyService } from '@atlas/core';
-import type { StorageTargetConfig } from '@atlas/types';
+import { EnvelopeKeyService } from '@wisecom/atlas-core';
+import type { StorageTargetConfig } from '@wisecom/atlas-types';
 
 // Holder the hoisted mock can close over; populated by the crypto test before use.
 const crypto_state = vi.hoisted(() => ({ wrapped_dek: Buffer.alloc(0) }));

@@ -1,5 +1,5 @@
-import { logger } from '@atlas/core/utils/logger';
-import { is_retryable_error } from '@atlas/m365-graph';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_retryable_error } from '@wisecom/atlas-m365-graph';
 
 /** Maximum bytes per HTTP Range chunk (4 MiB). */
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;

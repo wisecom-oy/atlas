@@ -1,4 +1,4 @@
-import type { SharePointDeltaItem } from '@atlas/types';
+import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 
 export interface GraphDeltaDriveItem {
   id?: string;

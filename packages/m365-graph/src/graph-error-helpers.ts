@@ -1,4 +1,4 @@
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const RETRYABLE_STATUS_CODES = new Set([429, 503, 504]);
 const NETWORK_ERROR_CODES = new Set([

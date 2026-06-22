@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { TenantContext } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
-import { ReplicationVerificationStatus } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
+import { ReplicationVerificationStatus } from '@wisecom/atlas-types';
 import { collect_storage_keys } from '@/services/replication/snapshot-replicator';
 
 export interface VerificationOutcome {

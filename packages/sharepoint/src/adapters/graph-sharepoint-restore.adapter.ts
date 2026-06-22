@@ -1,5 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@atlas/m365-graph';
+import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 
 const LARGE_UPLOAD_CHUNK = 10 * 1024 * 1024;
 const CHUNK_PUT_ATTEMPTS = 3;

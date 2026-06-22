@@ -1,7 +1,7 @@
-import { logger } from '@atlas/core/utils/logger';
-import type { SharePointDeltaItem } from '@atlas/types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@atlas/m365-graph';
+import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import {
   CdnHttpError,
   CHUNK_DOWNLOAD_THRESHOLD,

@@ -2,15 +2,15 @@
 
 Complete reference for every Atlas CLI command.
 
-Atlas ships as **`@atlas/cli`** — install globally for shell-based operations:
+Atlas ships as **`@wisecom/atlas-cli`** — install globally for shell-based operations:
 
 ```bash
-npm install -g @atlas/cli
+npm install -g @wisecom/atlas-cli
 ```
 
 The CLI reads credentials from `.env` and environment variables (see [Configuration](/configuration)). It is the right choice for cron jobs, operator workflows, and simple deployments where you run commands directly.
 
-For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@atlas/sdk`** instead — see [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
+For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@wisecom/atlas-sdk`** instead — see [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
 
 ## `atlas outlook`
 

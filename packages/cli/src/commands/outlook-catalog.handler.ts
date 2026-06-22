@@ -1,12 +1,12 @@
 import type { Container } from 'inversify';
 import chalk from 'chalk';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN, html_to_text } from '@atlas/core';
-import type { CatalogUseCase, MailboxSummary } from '@atlas/types';
-import { CATALOG_USE_CASE_TOKEN } from '@atlas/types';
-import type { Manifest, AttachmentEntry } from '@atlas/types';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN, html_to_text } from '@wisecom/atlas-core';
+import type { CatalogUseCase, MailboxSummary } from '@wisecom/atlas-types';
+import { CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import type { Manifest, AttachmentEntry } from '@wisecom/atlas-types';
 import { format_bytes, pad_cell } from '@/command-formatters';
-import { logger } from '@atlas/core';
+import { logger } from '@wisecom/atlas-core';
 
 export interface OutlookListOptions {
   tenant?: string;

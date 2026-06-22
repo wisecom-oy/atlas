@@ -10,14 +10,14 @@ import type {
   OneDriveFileVersionIndexRepository,
   OneDriveManifestRepository,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   build_empty_result,
   build_snapshot_manifest,

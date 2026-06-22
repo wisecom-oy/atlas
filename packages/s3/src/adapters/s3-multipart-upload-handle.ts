@@ -4,7 +4,7 @@ import {
   UploadPartCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import type { MultipartUploadHandle } from '@atlas/types';
+import type { MultipartUploadHandle } from '@wisecom/atlas-types';
 
 /** S3 multipart upload session; completes or aborts via {@link MultipartUploadHandle}. */
 export class S3MultipartUploadHandle implements MultipartUploadHandle {

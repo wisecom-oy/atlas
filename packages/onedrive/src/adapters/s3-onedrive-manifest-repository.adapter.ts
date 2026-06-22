@@ -3,7 +3,7 @@ import type {
   OneDriveSnapshotManifest,
   OneDriveManifestRepository,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { onedrive_manifest_key, onedrive_manifest_prefix } from '@/services/onedrive-storage-keys';
 
 class InvalidOneDriveManifestDateError extends Error {

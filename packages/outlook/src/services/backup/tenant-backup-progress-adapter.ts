@@ -1,5 +1,5 @@
-import type { BackupProgressReporter } from '@atlas/types';
-import type { TenantProgressReporter } from '@atlas/types';
+import type { BackupProgressReporter } from '@wisecom/atlas-types';
+import type { TenantProgressReporter } from '@wisecom/atlas-types';
 
 interface FolderProgressInfo {
   readonly name: string;

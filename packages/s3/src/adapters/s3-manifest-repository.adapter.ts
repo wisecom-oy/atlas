@@ -1,8 +1,8 @@
 import { injectable } from 'inversify';
-import type { Manifest } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { TenantContext } from '@atlas/types';
-import type { StorageObjectLockPolicy } from '@atlas/types';
+import type { Manifest } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
 
 const MANIFEST_PREFIX = 'manifests';
 

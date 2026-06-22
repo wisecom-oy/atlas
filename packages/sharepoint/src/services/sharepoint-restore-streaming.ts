@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
-import type { TenantContext, SharePointManifestEntry } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { TenantContext, SharePointManifestEntry } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;

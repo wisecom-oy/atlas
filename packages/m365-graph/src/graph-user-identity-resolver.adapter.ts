@@ -1,6 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import type { UserIdentityResolver, ResolvedUserIdentity } from '@atlas/types';
+import type { UserIdentityResolver, ResolvedUserIdentity } from '@wisecom/atlas-types';
 import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */

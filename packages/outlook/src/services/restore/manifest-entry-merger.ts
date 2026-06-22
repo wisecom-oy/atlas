@@ -1,4 +1,4 @@
-import type { Manifest, ManifestEntry } from '@atlas/types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 
 /**
  * Filters manifests to those whose created_at falls within the date range.

@@ -4,9 +4,9 @@
 
 [![CI](https://github.com/miikaok/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/miikaok/atlas/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/miikaok/34b7e6013b428e289db442d3d28f4f14/raw/m365-atlas-coverage.json)](https://github.com/miikaok/atlas/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/@atlas/cli)](https://www.npmjs.com/package/@atlas/cli)
+[![npm](https://img.shields.io/npm/v/@wisecom/atlas-cli)](https://www.npmjs.com/package/@wisecom/atlas-cli)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Socket Badge](https://badge.socket.dev/npm/package/@atlas/cli)](https://socket.dev/npm/package/@atlas/cli)
+[![Socket Badge](https://badge.socket.dev/npm/package/@wisecom/atlas-cli)](https://socket.dev/npm/package/@wisecom/atlas-cli)
 
 An open-source CLI backup and restore engine for Microsoft 365. Protects Outlook mailboxes, OneDrive files, and SharePoint document libraries with per-tenant envelope encryption, content-addressed deduplication, multi-layer integrity validation, and efficient delta synchronization against S3-compatible object storage.
 
@@ -18,13 +18,13 @@ An open-source CLI backup and restore engine for Microsoft 365. Protects Outlook
 - **Storage-level immutability** — S3/MinIO Object Lock with time-based retention
 - **Delta sync** — incremental backups via Microsoft Graph delta queries
 - **Snapshot replication** — replicate encrypted snapshots to secondary S3 targets for DR
-- **Typed SDK** — embed in Node.js apps via `@atlas/sdk`
+- **Typed SDK** — embed in Node.js apps via `@wisecom/atlas-sdk`
 - **Live dashboard** — real-time ANSI progress for single and tenant-wide backups
 
 ## Quick Start
 
 ```bash
-npm install -g @atlas/cli
+npm install -g @wisecom/atlas-cli
 
 # Outlook
 atlas outlook backup --mailbox user@company.com   # single mailbox
@@ -54,7 +54,7 @@ See [Getting Started](https://miikaok.github.io/atlas/getting-started) for full 
 | CLI Reference      | [docs](https://miikaok.github.io/atlas/reference/cli)        |
 | SDK Reference      | [docs](https://miikaok.github.io/atlas/reference/sdk)        |
 
-**Packages:** [`@atlas/cli`](https://www.npmjs.com/package/@atlas/cli) (shell deployment) · [`@atlas/sdk`](https://www.npmjs.com/package/@atlas/sdk) (programmatic API)
+**Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) (shell deployment) · [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) (programmatic API)
 
 ## Development
 
@@ -74,7 +74,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions, code convention
 
 ## License
 
-Copyright 2026 Miika Oja-Kaukola
+Copyright 2026 Wisecom Oy (Y-tunnus: 3629087-1)
 
 This project is licensed under the Apache License, Version 2.0.  
 See the [LICENSE](./LICENSE) file for details.

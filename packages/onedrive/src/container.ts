@@ -11,7 +11,7 @@ import {
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adapter';
 import { S3OneDriveManifestRepository } from '@/adapters/s3-onedrive-manifest-repository.adapter';
 import { S3OneDriveDeltaCursorRepository } from '@/adapters/s3-onedrive-delta-cursor-repository.adapter';

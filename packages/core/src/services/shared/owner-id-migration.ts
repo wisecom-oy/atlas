@@ -1,4 +1,4 @@
-import type { ObjectStorage } from '@atlas/types';
+import type { ObjectStorage } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
 
 const EMAIL_PATTERN = /^[^@]+@[^@]+\.[^@]+$/;

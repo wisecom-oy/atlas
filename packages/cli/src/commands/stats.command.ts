@@ -1,11 +1,16 @@
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
-import type { StatsUseCase } from '@atlas/types';
-import { STATS_USE_CASE_TOKEN } from '@atlas/types';
-import type { BucketStats, MailboxStats, FolderStats, MonthlyBreakdown } from '@atlas/types';
-import { logger } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
+import type { StatsUseCase } from '@wisecom/atlas-types';
+import { STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import type {
+  BucketStats,
+  MailboxStats,
+  FolderStats,
+  MonthlyBreakdown,
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core';
 import { format_bytes, format_microseconds, pad_cell, truncate_cell } from '@/command-formatters';
 
 type ContainerFactory = () => Container;

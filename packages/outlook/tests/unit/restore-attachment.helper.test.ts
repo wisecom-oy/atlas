@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { restore_entry_attachments } from '@/services/restore/restore-attachment-writer';
-import type { TenantContext } from '@atlas/types';
-import type { RestoreConnector } from '@atlas/types';
-import type { AttachmentEntry } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import type { AttachmentEntry } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_ctx(): TenantContext {
   return {

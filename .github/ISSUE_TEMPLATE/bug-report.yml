@@ -49,7 +49,7 @@ body:
       description: Were you using the CLI or the programmatic SDK?
       options:
         - CLI
-        - SDK (m365-atlas/sdk)
+        - SDK (@wisecom/atlas-sdk)
         - Both
     validations:
       required: true

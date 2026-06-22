@@ -7,8 +7,8 @@ import type {
   OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
   TenantContext,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   accumulate_version_stats,
   build_deleted_entry,

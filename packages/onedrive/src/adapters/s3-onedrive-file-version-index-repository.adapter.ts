@@ -1,11 +1,11 @@
 import { injectable } from 'inversify';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   OneDriveFileVersionIndex,
   OneDriveFileVersionRecord,
   OneDriveFileVersionIndexRepository,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { onedrive_index_key, onedrive_index_prefix } from '@/services/onedrive-storage-keys';
 
 const MAX_APPEND_RETRIES = 3;

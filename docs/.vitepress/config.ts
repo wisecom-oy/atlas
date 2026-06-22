@@ -27,8 +27,8 @@ export default defineConfig({
       {
         text: 'npm',
         items: [
-          { text: '@atlas/cli', link: 'https://www.npmjs.com/package/@atlas/cli' },
-          { text: '@atlas/sdk', link: 'https://www.npmjs.com/package/@atlas/sdk' },
+          { text: '@wisecom/atlas-cli', link: 'https://www.npmjs.com/package/@wisecom/atlas-cli' },
+          { text: '@wisecom/atlas-sdk', link: 'https://www.npmjs.com/package/@wisecom/atlas-sdk' },
         ],
       },
     ],

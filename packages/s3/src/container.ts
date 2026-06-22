@@ -1,5 +1,5 @@
 import { type Container } from 'inversify';
-import type { S3Config, CryptoConfig } from '@atlas/core';
+import type { S3Config, CryptoConfig } from '@wisecom/atlas-core';
 import {
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -7,7 +7,7 @@ import {
   STORAGE_TARGET_FACTORY_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { create_s3_client, S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
 import { S3IdentityRegistryRepository } from '@/adapters/s3-identity-registry-repository.adapter';

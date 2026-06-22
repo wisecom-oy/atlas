@@ -1,4 +1,4 @@
-import type { OneDriveDeltaItem } from '@atlas/types';
+import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 
 interface GraphParentReference {
   path?: string;

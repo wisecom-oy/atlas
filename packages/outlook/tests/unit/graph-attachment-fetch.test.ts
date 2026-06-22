@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
-import { GRAPH_CLIENT_TOKEN } from '@atlas/m365-graph';
+import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 
 interface MockChain {
   select: ReturnType<typeof vi.fn>;

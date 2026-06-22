@@ -1,6 +1,6 @@
-import type { MailFolder, MessageAttachment } from '@atlas/types';
-import type { TenantMailbox } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { MailFolder, MessageAttachment } from '@wisecom/atlas-types';
+import type { TenantMailbox } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const EXCLUDED_FOLDERS = new Set(['drafts', 'outbox', 'recoverableitemsdeletions', 'junkemail']);
 

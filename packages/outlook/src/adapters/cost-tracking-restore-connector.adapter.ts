@@ -9,9 +9,9 @@
  * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
  */
 
-import type { RestoreConnector, AttachmentUpload, UploadSession } from '@atlas/types';
-import type { MailFolder } from '@atlas/types';
-import { get_active_counter } from '@atlas/core/services/shared/graph-request-context';
+import type { RestoreConnector, AttachmentUpload, UploadSession } from '@wisecom/atlas-types';
+import type { MailFolder } from '@wisecom/atlas-types';
+import { get_active_counter } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
 export class CostTrackingRestoreConnector implements RestoreConnector {
   private readonly _inner: RestoreConnector;

@@ -1,7 +1,7 @@
 import { ClientSecretCredential } from '@azure/identity';
 import { Client } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
-import type { GraphConfig } from '@atlas/core/utils/config';
+import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
 

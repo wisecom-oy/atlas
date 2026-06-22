@@ -1,7 +1,7 @@
-import type { RestoreConnector } from '@atlas/types';
-import type { MailboxConnector, MailFolder } from '@atlas/types';
-import type { ManifestEntry } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const UNKNOWN_FOLDER_NAME = 'Unknown';
 

@@ -1,5 +1,5 @@
-import { logger } from '@atlas/core/utils/logger';
-import type { MultipartUploadHandle, TenantContext } from '@atlas/types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import type { MultipartUploadHandle, TenantContext } from '@wisecom/atlas-types';
 
 export const PART_SIZE = 8 * 1024 * 1024;
 

@@ -2,17 +2,17 @@ import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import chalk from 'chalk';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type {
   SaveUseCase,
   SaveResult,
   SaveOptions,
   DeletionUseCase,
   DeletionResult,
-} from '@atlas/types';
-import { SAVE_USE_CASE_TOKEN, DELETION_USE_CASE_TOKEN } from '@atlas/types';
-import { logger } from '@atlas/core';
+} from '@wisecom/atlas-types';
+import { SAVE_USE_CASE_TOKEN, DELETION_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core';
 
 export interface OutlookSaveOptions {
   snapshot?: string;

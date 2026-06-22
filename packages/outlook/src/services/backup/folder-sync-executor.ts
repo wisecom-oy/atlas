@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { TenantContext } from '@atlas/types';
-import type { MailboxConnector, MailMessage } from '@atlas/types';
-import type { ManifestEntry } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
-import type { BackupProgressReporter, ObjectLockPolicy } from '@atlas/types';
+import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import type { BackupProgressReporter, ObjectLockPolicy } from '@wisecom/atlas-types';
 
 export interface FolderSyncResult {
   entries: ManifestEntry[];

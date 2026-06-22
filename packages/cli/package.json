@@ -1,6 +1,9 @@
 {
-  "name": "@atlas/cli",
+  "name": "@wisecom/atlas-cli",
   "version": "2.0.0-beta.0",
+  "description": "CLI for Atlas — secure Microsoft 365 backup and restore to S3-compatible storage.",
+  "license": "Apache-2.0",
+  "author": "Wisecom Oy <https://wisecom.fi>",
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
@@ -40,12 +43,12 @@
     "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
-    "@atlas/types": "workspace:*",
-    "@atlas/core": "workspace:*",
-    "@atlas/m365-graph": "workspace:*",
-    "@atlas/s3": "workspace:*",
-    "@atlas/outlook": "workspace:*",
-    "@atlas/onedrive": "workspace:*",
-    "@atlas/sharepoint": "workspace:*"
+    "@wisecom/atlas-types": "workspace:*",
+    "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-m365-graph": "workspace:*",
+    "@wisecom/atlas-s3": "workspace:*",
+    "@wisecom/atlas-outlook": "workspace:*",
+    "@wisecom/atlas-onedrive": "workspace:*",
+    "@wisecom/atlas-sharepoint": "workspace:*"
   }
 }
