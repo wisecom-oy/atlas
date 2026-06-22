@@ -8,7 +8,6 @@ import type { Manifest, ManifestEntry } from '@atlas/types';
 import {
   build_folder_map,
   create_restore_root,
-  ensure_subfolder,
   group_entries_by_folder,
   filter_entries_by_folder_name,
   count_unique_folders,
@@ -19,12 +18,10 @@ import {
 } from '@/services/restore/manifest-entry-merger';
 import {
   restore_single_message,
-  restore_folder_entries,
   backfill_missing_folder_ids,
-  log_restore_summary,
 } from '@/services/restore/restore-execution-orchestrator';
+import { execute_restore_loop } from '@/services/restore/restore-loop-executor';
 import { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
 import { logger } from '@atlas/core/utils/logger';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@atlas/types';
 import {
@@ -36,8 +33,6 @@ import {
 
 @injectable()
 export class RestoreService implements RestoreUseCase {
-  private _interrupted = false;
-
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
@@ -231,8 +226,9 @@ export class RestoreService implements RestoreUseCase {
       })),
     );
 
-    return this.execute_restore_loop(
+    return execute_restore_loop(
       ctx,
+      this._restore_connector,
       tenant_id,
       target_mailbox,
       snapshot_id,
@@ -242,95 +238,6 @@ export class RestoreService implements RestoreUseCase {
       created_folders,
       dashboard,
     );
-  }
-
-  /** Main restore loop: iterates folders then messages with dashboard updates. */
-  private async execute_restore_loop(
-    ctx: TenantContext,
-    tenant_id: string,
-    target_mailbox: string,
-    snapshot_id: string,
-    root: { folder_id: string; display_name: string },
-    groups: Map<string, ManifestEntry[]>,
-    folder_map: Map<string, string>,
-    created_folders: Map<string, string>,
-    dashboard: RestoreProgressDashboard,
-  ): Promise<RestoreResult> {
-    let global_restored = 0;
-    let global_att = 0;
-    let global_errors = 0;
-    const all_errors: string[] = [];
-    const start = Date.now();
-    const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
-
-    this._interrupted = false;
-    const on_sigint = (): void => {
-      this._interrupted = true;
-    };
-    process.on('SIGINT', on_sigint);
-
-    try {
-      let folder_index = 0;
-      for (const [fid, folder_items] of groups) {
-        if (this._interrupted) break;
-        dashboard.mark_active(folder_index);
-
-        const target_fid = await ensure_subfolder(
-          this._restore_connector,
-          tenant_id,
-          target_mailbox,
-          root.folder_id,
-          fid,
-          folder_map,
-          created_folders,
-        );
-
-        const result = await restore_folder_entries(
-          ctx,
-          this._restore_connector,
-          tenant_id,
-          target_mailbox,
-          target_fid,
-          folder_items,
-          folder_index,
-          global_restored,
-          global_total,
-          start,
-          dashboard,
-          () => this._interrupted,
-        );
-
-        global_restored += result.restored;
-        global_att += result.attachments;
-        global_errors += result.errors.length;
-        all_errors.push(...result.errors);
-
-        const rate = calc_rate(global_restored, Date.now() - start);
-        const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
-        dashboard.update_total(global_restored, global_total, rate, eta);
-
-        if (this._interrupted) break;
-        dashboard.mark_done(folder_index, result.restored, result.attachments);
-        folder_index++;
-      }
-
-      if (this._interrupted) dashboard.mark_all_pending_interrupted();
-      dashboard.finish(global_restored);
-      log_restore_summary(global_restored, global_att, global_errors, start);
-
-      return {
-        snapshot_id,
-        restored_count: global_restored,
-        attachment_count: global_att,
-        error_count: global_errors,
-        attachment_error_count: 0,
-        errors: all_errors,
-        verification_warnings: [],
-        restore_folder_name: root.display_name,
-      };
-    } finally {
-      process.removeListener('SIGINT', on_sigint);
-    }
   }
 
   /** Fails fast if the target mailbox does not exist in the tenant. */

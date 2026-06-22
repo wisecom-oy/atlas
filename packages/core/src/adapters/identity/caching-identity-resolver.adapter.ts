@@ -1,6 +1,5 @@
 import { inject, injectable } from 'inversify';
 import type {
-  IdentityRegistry,
   IdentityRegistryEntry,
   IdentityRegistryRepository,
   ResolvedUserIdentity,
