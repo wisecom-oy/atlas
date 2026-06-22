@@ -1,4 +1,4 @@
-import type { OneDriveDeltaItem } from '@atlas/types';
+import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import {
   CdnHttpError,
   CHUNK_DOWNLOAD_THRESHOLD,
@@ -10,9 +10,9 @@ import {
   stream_to_buffer,
   with_timeout,
 } from '@/adapters/graph-onedrive-connector-stream';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@atlas/m365-graph';
+import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 
 interface GraphDriveItemDownload {
   '@microsoft.graph.downloadUrl'?: string;

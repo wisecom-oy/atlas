@@ -7,7 +7,7 @@ import type {
   TenantContext,
   TenantContextFactory,
   UserIdentityResolver,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { CachingIdentityResolver } from '@/adapters/identity/caching-identity-resolver.adapter';
 
 function make_graph_resolver(overrides: Partial<UserIdentityResolver> = {}): UserIdentityResolver {

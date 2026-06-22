@@ -4,7 +4,7 @@ import type {
   OneDriveDeltaItem,
   OneDriveFileVersionIndexRepository,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { sync_file_versions } from '@/services/onedrive-version-sync';
 
 function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaItem {

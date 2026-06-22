@@ -1,5 +1,9 @@
 import { injectable } from 'inversify';
-import type { IdentityRegistry, IdentityRegistryRepository, TenantContext } from '@atlas/types';
+import type {
+  IdentityRegistry,
+  IdentityRegistryRepository,
+  TenantContext,
+} from '@wisecom/atlas-types';
 
 const REGISTRY_KEY = 'identity-registry.json';
 

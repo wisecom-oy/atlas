@@ -65,7 +65,7 @@ Mailbox backup currently keys `data/` and `manifests/` by the mailbox identifier
 The SDK exposes OneDrive backup, restore, verification, deletion, status, and replication as programmatic methods on `atlas.onedrive`:
 
 ```typescript
-import { createAtlasInstance } from '@atlas/sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',
@@ -271,7 +271,7 @@ Outlook backup already expects application permissions such as `Mail.Read` / `Ma
 
 ## File Size Handling
 
-Implementation thresholds from `@atlas/onedrive`:
+Implementation thresholds from `@wisecom/atlas-onedrive`:
 
 | Size | Strategy |
 | --- | --- |

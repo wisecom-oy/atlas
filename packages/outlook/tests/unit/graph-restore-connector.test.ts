@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { GraphRestoreConnector } from '@/adapters/graph-restore-connector.adapter';
-import { GRAPH_CLIENT_TOKEN } from '@atlas/m365-graph';
+import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 
 function make_mock_client(): {
   api: ReturnType<typeof vi.fn>;

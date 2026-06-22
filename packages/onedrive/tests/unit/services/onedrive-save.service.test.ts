@@ -2,16 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { OneDriveSaveService } from '@/services/onedrive-save.service';
-import { ONEDRIVE_MANIFEST_REPOSITORY_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@atlas/types';
+import {
+  ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import type {
   OneDriveManifestEntry,
   OneDriveManifestRepository,
   OneDriveSnapshotManifest,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
-vi.mock('@atlas/core/services/shared/file-save-zip-writer', () => {
+vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   const mock_archive = {
     append: vi.fn(),
     finalize: vi.fn().mockResolvedValue(undefined),

@@ -7,7 +7,7 @@
 import { SlidingWindowLimiter } from './sliding-window-limiter';
 import { ConcurrencySemaphore } from './concurrency-semaphore';
 import type { ThrottleFence } from './throttle-fence';
-import { GRAPH_SERVICE_LIMITS } from '@atlas/types';
+import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
 
 const EXCHANGE_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const EXCHANGE_SLIDE_MS = 1_000;

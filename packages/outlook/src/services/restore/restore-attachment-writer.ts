@@ -1,7 +1,7 @@
-import type { TenantContext } from '@atlas/types';
-import type { RestoreConnector } from '@atlas/types';
-import type { AttachmentEntry } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import type { AttachmentEntry } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface AttachmentRestoreResult {
   readonly restored: number;

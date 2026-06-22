@@ -1,5 +1,5 @@
-import type { TenantContext } from '@atlas/types';
-import type { ManifestEntry } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 
 /**
  * Read-only fields that Graph returns on GET but rejects on POST.

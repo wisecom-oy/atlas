@@ -6,8 +6,8 @@ import type {
   OneDriveFileVersionIndexRepository,
   OneDriveFileVersionRecord,
   TenantContext,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { onedrive_data_key } from '@/services/onedrive-storage-keys';
 
 export interface VersionSyncResult {

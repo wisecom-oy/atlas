@@ -1,11 +1,11 @@
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
-import type { ObjectLockMode } from '@atlas/types/ports/backup/use-case.port';
-import type { StorageCheckUseCase } from '@atlas/types';
-import { STORAGE_CHECK_USE_CASE_TOKEN } from '@atlas/types';
-import { logger } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
+import type { ObjectLockMode } from '@wisecom/atlas-types/ports/backup/use-case.port';
+import type { StorageCheckUseCase } from '@wisecom/atlas-types';
+import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core';
 
 type ContainerFactory = () => Container;
 

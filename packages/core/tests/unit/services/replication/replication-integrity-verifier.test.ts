@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { verify_replicated_snapshot } from '@/services/replication/replication-integrity-verifier';
-import { ReplicationVerificationStatus } from '@atlas/types';
-import type { Manifest, ManifestEntry, TenantContext, ObjectStorage } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+import { ReplicationVerificationStatus } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry, TenantContext, ObjectStorage } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_storage(): ObjectStorage {
   return {

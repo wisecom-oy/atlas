@@ -5,10 +5,10 @@ import {
   list_all_replication_status,
   list_replication_status_by_owner,
 } from '@/services/replication/replication-status-repository';
-import type { ReplicationStatusRecord } from '@atlas/types';
-import { ReplicationStatus, ReplicationVerificationStatus } from '@atlas/types';
-import type { TenantContext, ObjectStorage } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+import type { ReplicationStatusRecord } from '@wisecom/atlas-types';
+import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
+import type { TenantContext, ObjectStorage } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_storage(): ObjectStorage {
   return {

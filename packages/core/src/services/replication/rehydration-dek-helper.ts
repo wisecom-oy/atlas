@@ -1,4 +1,4 @@
-import type { StorageTarget } from '@atlas/types';
+import type { StorageTarget } from '@wisecom/atlas-types';
 
 const DEK_META_KEY = '_meta/dek.enc';
 

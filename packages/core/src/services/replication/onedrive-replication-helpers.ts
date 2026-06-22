@@ -1,7 +1,7 @@
-import type { TenantContext } from '@atlas/types';
-import type { OneDriveSnapshotManifest } from '@atlas/types';
-import type { ReplicationResult, ReplicationStatusRecord } from '@atlas/types';
-import type { StorageTarget } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { OneDriveSnapshotManifest } from '@wisecom/atlas-types';
+import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
+import type { StorageTarget } from '@wisecom/atlas-types';
 
 export const OD_MANIFEST_PREFIX = 'onedrive/manifests';
 export const OD_INDEX_PREFIX = 'onedrive/index';

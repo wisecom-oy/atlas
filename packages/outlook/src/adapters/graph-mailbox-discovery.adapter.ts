@@ -6,12 +6,16 @@
 
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN } from '@atlas/m365-graph';
-import type { MailboxDiscoveryService, MailboxDiscoveryOptions, TenantMailbox } from '@atlas/types';
+import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
+import type {
+  MailboxDiscoveryService,
+  MailboxDiscoveryOptions,
+  TenantMailbox,
+} from '@wisecom/atlas-types';
 import type { GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers';
 import { map_users_to_tenant_mailboxes } from '@/adapters/graph-mailbox-response-mappers';
-import { rethrow_if_access_denied, with_graph_retry } from '@atlas/m365-graph';
-import { logger } from '@atlas/core/utils/logger';
+import { rethrow_if_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const USERS_SELECT = 'id,mail,displayName,createdDateTime,assignedPlans';
 const USERS_URL = `/users?$select=${USERS_SELECT}&$top=999`;

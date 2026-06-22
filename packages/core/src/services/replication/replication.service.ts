@@ -1,17 +1,17 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory, TenantContext } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { ReplicationUseCase } from '@atlas/types';
-import type { StorageTarget, StorageTargetFactory } from '@atlas/types';
-import type { DekValidationFn } from '@atlas/types';
-import type { ReplicationResult, ReplicationStatusRecord } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
+import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { ReplicationUseCase } from '@wisecom/atlas-types';
+import type { StorageTarget, StorageTargetFactory } from '@wisecom/atlas-types';
+import type { DekValidationFn } from '@wisecom/atlas-types';
+import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   DEK_VALIDATION_FN_TOKEN,
   STORAGE_TARGET_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
 import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
 import {

@@ -108,7 +108,7 @@ function format_observations(domains: DomainStats[], total_ms: number): string {
   const lines: string[] = ['--- OBSERVATIONS ---'];
 
   const crypto_domains = domains.filter(
-    (d) => d.domain === 'node:crypto' || d.domain === '@atlas/core/crypto',
+    (d) => d.domain === 'node:crypto' || d.domain === '@wisecom/atlas-core/crypto',
   );
   const crypto_self = crypto_domains.reduce((sum, d) => sum + d.self_time_us, 0);
   if (crypto_self > 0) {
@@ -116,13 +116,13 @@ function format_observations(domains: DomainStats[], total_ms: number): string {
     lines.push(`- Encryption/crypto accounts for ${pct}% of CPU self-time`);
   }
 
-  const s3_domain = domains.find((d) => d.domain === '@atlas/s3');
+  const s3_domain = domains.find((d) => d.domain === '@wisecom/atlas-s3');
   if (s3_domain && s3_domain.self_time_us > 0) {
     const pct = ((s3_domain.self_time_us / total_us) * 100).toFixed(1);
     lines.push(`- S3 storage operations account for ${pct}% of CPU self-time`);
   }
 
-  const graph_domain = domains.find((d) => d.domain === '@atlas/m365-graph');
+  const graph_domain = domains.find((d) => d.domain === '@wisecom/atlas-m365-graph');
   if (graph_domain && graph_domain.self_time_us > 0) {
     const pct = ((graph_domain.self_time_us / total_us) * 100).toFixed(1);
     lines.push(`- Graph API client accounts for ${pct}% of CPU self-time`);

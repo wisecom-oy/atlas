@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { download_with_retry } from '@/services/onedrive-download-orchestrator';
 import { LARGE_FILE_THRESHOLD, process_large_file } from '@/services/onedrive-large-file-pipeline';
 import { onedrive_data_key } from '@/services/onedrive-storage-keys';

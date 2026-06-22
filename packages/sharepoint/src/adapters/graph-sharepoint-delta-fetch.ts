@@ -1,6 +1,6 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@atlas/m365-graph';
-import { logger } from '@atlas/core/utils/logger';
+import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { GraphDeltaDriveItem } from '@/adapters/graph-sharepoint-delta-mapper';
 
 interface GraphCollectionResponse<T> {

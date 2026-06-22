@@ -5,14 +5,14 @@ import {
   load_config,
   ATLAS_CONFIG_TOKEN,
   CachingIdentityResolver,
-} from '@atlas/core';
-import { bind_core_services } from '@atlas/core';
-import { USER_IDENTITY_RESOLVER_TOKEN } from '@atlas/types';
-import { bind_graph_client } from '@atlas/m365-graph';
-import { bind_s3_storage } from '@atlas/s3';
-import { bind_outlook } from '@atlas/outlook';
-import { bind_onedrive } from '@atlas/onedrive';
-import { bind_sharepoint } from '@atlas/sharepoint';
+} from '@wisecom/atlas-core';
+import { bind_core_services } from '@wisecom/atlas-core';
+import { USER_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-types';
+import { bind_graph_client } from '@wisecom/atlas-m365-graph';
+import { bind_s3_storage } from '@wisecom/atlas-s3';
+import { bind_outlook } from '@wisecom/atlas-outlook';
+import { bind_onedrive } from '@wisecom/atlas-onedrive';
+import { bind_sharepoint } from '@wisecom/atlas-sharepoint';
 
 export function create_container(): Container {
   const config = load_config();

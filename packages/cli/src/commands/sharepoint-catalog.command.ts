@@ -1,9 +1,12 @@
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN, logger } from '@atlas/core';
-import type { SharePointCatalogUseCase, SharePointSiteConnector } from '@atlas/types';
-import { SHAREPOINT_CATALOG_USE_CASE_TOKEN, SHAREPOINT_CONNECTOR_TOKEN } from '@atlas/types';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
+import type { SharePointCatalogUseCase, SharePointSiteConnector } from '@wisecom/atlas-types';
+import {
+  SHAREPOINT_CATALOG_USE_CASE_TOKEN,
+  SHAREPOINT_CONNECTOR_TOKEN,
+} from '@wisecom/atlas-types';
 
 type ContainerFactory = () => Container;
 

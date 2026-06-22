@@ -1,7 +1,7 @@
-import type { ReplicationResult, ReplicationStatusRecord } from '@atlas/types';
-import { ReplicationStatus, ReplicationVerificationStatus } from '@atlas/types';
-import type { StorageTarget } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
+import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
+import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
+import type { StorageTarget } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
 
 /** Raw counts returned by the snapshot replicator. */
 export interface RawCopyResult {

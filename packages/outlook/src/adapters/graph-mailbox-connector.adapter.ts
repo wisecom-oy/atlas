@@ -1,6 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN } from '@atlas/m365-graph';
+import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type {
   MailboxConnector,
   MailFolder,
@@ -8,14 +8,14 @@ import type {
   MessageAttachment,
   DeltaSyncResult,
   DeltaPageCallback,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   is_invalid_delta_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
-} from '@atlas/m365-graph';
+} from '@wisecom/atlas-m365-graph';
 import type {
   GraphUserRecord,
   GraphFolderRecord,

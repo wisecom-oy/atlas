@@ -1,16 +1,16 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory, TenantContext } from '@atlas/types';
-import type { OneDriveManifestRepository, OneDriveSnapshotManifest } from '@atlas/types';
-import type { StorageTarget, StorageTargetFactory } from '@atlas/types';
-import type { DekValidationFn } from '@atlas/types';
-import type { ReplicationResult } from '@atlas/types';
-import type { OneDriveReplicationUseCase } from '@atlas/types';
+import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
+import type { OneDriveManifestRepository, OneDriveSnapshotManifest } from '@wisecom/atlas-types';
+import type { StorageTarget, StorageTargetFactory } from '@wisecom/atlas-types';
+import type { DekValidationFn } from '@wisecom/atlas-types';
+import type { ReplicationResult } from '@wisecom/atlas-types';
+import type { OneDriveReplicationUseCase } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   DEK_VALIDATION_FN_TOKEN,
   STORAGE_TARGET_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';

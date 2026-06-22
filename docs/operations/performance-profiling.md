@@ -58,11 +58,11 @@ Aggregates all functions by their Atlas package, giving a high-level view of whe
 
 | Domain | What it covers |
 |--------|---------------|
-| `@atlas/core/crypto` | Key derivation (scrypt), AES-256-GCM encrypt/decrypt |
-| `@atlas/s3` | S3 PutObject/GetObject, MD5 checksum, client operations |
-| `@atlas/m365-graph` | Graph client factory, rate limiting, retry logic |
-| `@atlas/outlook/backup` | Folder sync, delta processing, attachment storage |
-| `@atlas/outlook/restore` | Message reconstruction, folder creation, uploads |
+| `@wisecom/atlas-core/crypto` | Key derivation (scrypt), AES-256-GCM encrypt/decrypt |
+| `@wisecom/atlas-s3` | S3 PutObject/GetObject, MD5 checksum, client operations |
+| `@wisecom/atlas-m365-graph` | Graph client factory, rate limiting, retry logic |
+| `@wisecom/atlas-outlook/backup` | Folder sync, delta processing, attachment storage |
+| `@wisecom/atlas-outlook/restore` | Message reconstruction, folder creation, uploads |
 | `node:crypto` | Native crypto primitives (called by core/crypto) |
 | `node:network` | TLS handshakes, HTTP framing, TCP |
 | `aws-sdk` | AWS SDK v3 internals |

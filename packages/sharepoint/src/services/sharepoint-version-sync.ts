@@ -6,8 +6,8 @@ import type {
   SharePointFileVersionIndexRepository,
   SharePointFileVersionRecord,
   TenantContext,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { sharepoint_data_key } from '@/services/sharepoint-storage-keys';
 
 export interface VersionSyncResult {

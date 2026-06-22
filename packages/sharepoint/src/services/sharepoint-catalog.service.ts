@@ -7,12 +7,12 @@ import type {
   SharePointSnapshotManifest,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 /** Lists SharePoint snapshots and per-file version history from manifest and index repositories. */
 @injectable()

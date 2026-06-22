@@ -1,19 +1,19 @@
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type {
   BackupUseCase,
   ObjectLockMode,
   ObjectLockPolicy,
   ObjectLockRequest,
   SyncOptions,
-} from '@atlas/types/ports/backup/use-case.port';
-import type { TenantBackupOrchestrator } from '@atlas/types';
-import { BACKUP_USE_CASE_TOKEN, TENANT_ORCHESTRATOR_TOKEN } from '@atlas/types';
+} from '@wisecom/atlas-types/ports/backup/use-case.port';
+import type { TenantBackupOrchestrator } from '@wisecom/atlas-types';
+import { BACKUP_USE_CASE_TOKEN, TENANT_ORCHESTRATOR_TOKEN } from '@wisecom/atlas-types';
 import { run_backup_with_cli_adapter } from '@/adapters/backup-operation.adapter';
 import { run_tenant_backup_with_cli_adapter } from '@/adapters/tenant-backup-operation.adapter';
 import { format_bytes } from '@/command-formatters';
-import { logger } from '@atlas/core';
+import { logger } from '@wisecom/atlas-core';
 
 export interface OutlookBackupOptions {
   tenant?: string;

@@ -7,8 +7,11 @@ import {
   type ObjectLockEnabled,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import type { StorageImmutabilityProbeRequest, StorageImmutabilityProbeResult } from '@atlas/types';
-import { logger } from '@atlas/core';
+import type {
+  StorageImmutabilityProbeRequest,
+  StorageImmutabilityProbeResult,
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core';
 
 const _checked_buckets = new Set<string>();
 const _immutability_probe_cache = new Map<string, StorageImmutabilityProbeResult>();

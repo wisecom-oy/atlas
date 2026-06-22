@@ -1,5 +1,5 @@
-import type { TenantContext } from '@atlas/types';
-import type { ReplicationStatusRecord } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { ReplicationStatusRecord } from '@wisecom/atlas-types';
 
 const STATUS_PREFIX = '_meta/replication/';
 

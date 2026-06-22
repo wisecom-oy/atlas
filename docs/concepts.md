@@ -6,9 +6,9 @@ A mental model for how Atlas works before diving into CLI flags and configuratio
 
 Atlas is published as two npm packages that share the same engine but target different integration styles:
 
-| | `@atlas/cli` | `@atlas/sdk` |
+| | `@wisecom/atlas-cli` | `@wisecom/atlas-sdk` |
 | --- | --- | --- |
-| **Install** | `npm install -g @atlas/cli` | `npm add @atlas/sdk` |
+| **Install** | `npm install -g @wisecom/atlas-cli` | `npm add @wisecom/atlas-sdk` |
 | **Interface** | Shell commands (`atlas outlook backup`, etc.) | Typed TypeScript methods (`atlas.outlook.backup()`, etc.) |
 | **Config** | `.env` file and environment variables | Explicit object passed to `createAtlasInstance()` |
 | **Best for** | Cron jobs, systemd timers, operator workflows | Custom apps, multi-tenant SaaS, portals, automation |

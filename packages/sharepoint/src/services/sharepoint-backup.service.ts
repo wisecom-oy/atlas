@@ -11,15 +11,15 @@ import type {
   SharePointManifestEntry,
   SharePointManifestRepository,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN,
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { build_empty_result, build_snapshot_manifest } from '@/services/sharepoint-backup-builders';
 import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import {

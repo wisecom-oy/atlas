@@ -2,15 +2,18 @@ import { readFileSync } from 'node:fs';
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
-import type { ReplicationUseCase, SharePointReplicationUseCase } from '@atlas/types';
-import { REPLICATION_USE_CASE_TOKEN, SHAREPOINT_REPLICATION_USE_CASE_TOKEN } from '@atlas/types';
-import { create_storage_target } from '@atlas/s3';
-import type { StorageTarget } from '@atlas/types';
-import type { ReplicationResult } from '@atlas/types';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
+import type { ReplicationUseCase, SharePointReplicationUseCase } from '@wisecom/atlas-types';
+import {
+  REPLICATION_USE_CASE_TOKEN,
+  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+} from '@wisecom/atlas-types';
+import { create_storage_target } from '@wisecom/atlas-s3';
+import type { StorageTarget } from '@wisecom/atlas-types';
+import type { ReplicationResult } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
-import { logger } from '@atlas/core';
+import { logger } from '@wisecom/atlas-core';
 
 type ContainerFactory = () => Container;
 

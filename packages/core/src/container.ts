@@ -13,7 +13,7 @@ import {
   type OneDriveReplicationUseCase,
   type OneDriveDeletionUseCase,
   type SharePointDeletionUseCase,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { CatalogService } from '@/services/catalog/catalog.service';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';

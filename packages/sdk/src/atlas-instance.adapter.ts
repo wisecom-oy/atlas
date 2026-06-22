@@ -1,5 +1,5 @@
 import { create_container_from_config } from '@/container';
-import type { AtlasConfig } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
 import type {
   AtlasInstance,
   AtlasInstanceConfig,
@@ -8,7 +8,7 @@ import type {
   ReplicationUseCase,
   UserIdentityResolver,
   IdentityRegistryRepository,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
@@ -16,8 +16,8 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
-import type { TenantContextFactory } from '@atlas/types';
+} from '@wisecom/atlas-types';
+import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';

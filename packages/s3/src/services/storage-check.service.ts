@@ -3,7 +3,11 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
-import type { StorageCheckRequest, StorageCheckResult, StorageCheckUseCase } from '@atlas/types';
+import type {
+  StorageCheckRequest,
+  StorageCheckResult,
+  StorageCheckUseCase,
+} from '@wisecom/atlas-types';
 
 @injectable()
 export class StorageCheckService implements StorageCheckUseCase {

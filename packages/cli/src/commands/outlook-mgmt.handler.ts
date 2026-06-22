@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type {
   VerificationUseCase,
   VerificationResult,
@@ -10,14 +10,14 @@ import type {
   FolderStatus,
   MailboxDiscoveryService,
   TenantMailbox,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   VERIFICATION_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { format_bytes, pad_cell, truncate_cell } from '@/command-formatters';
-import { logger } from '@atlas/core';
+import { logger } from '@wisecom/atlas-core';
 
 export interface OutlookVerifyOptions {
   snapshot: string;

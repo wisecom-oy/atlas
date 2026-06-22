@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { TenantContextFactory, TenantContext } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { Manifest, ManifestEntry } from '@atlas/types';
-import type { VerificationResult, VerificationUseCase } from '@atlas/types';
-import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@atlas/types';
+import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { VerificationResult, VerificationUseCase } from '@wisecom/atlas-types';
+import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 
 @injectable()
 export class VerificationService implements VerificationUseCase {

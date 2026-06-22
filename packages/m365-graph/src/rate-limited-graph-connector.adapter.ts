@@ -17,15 +17,15 @@ import type {
   DeltaSyncResult,
   DeltaPageCallback,
   MessageAttachment,
-} from '@atlas/types/ports/mail/connector.port';
+} from '@wisecom/atlas-types/ports/mail/connector.port';
 import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,
-} from '@atlas/core/services/shared/mailbox-rate-limiter';
-import type { ThrottleFence } from '@atlas/core/services/shared/throttle-fence';
-import { get_active_counter } from '@atlas/core/services/shared/graph-request-context';
-import { GRAPH_SERVICE_LIMITS } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
+import type { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
+import { get_active_counter } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const DELTA_WITH_TOKEN_COST = 1;
 const DELTA_WITHOUT_TOKEN_COST = 2;

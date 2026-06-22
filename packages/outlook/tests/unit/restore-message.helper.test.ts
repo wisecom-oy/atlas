@@ -4,9 +4,9 @@ import {
   extract_folder_id_from_json,
   decrypt_and_parse_message,
 } from '@/services/restore/restore-message-transformer';
-import type { TenantContext } from '@atlas/types';
-import type { ManifestEntry } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_graph_message(): Record<string, unknown> {
   return {

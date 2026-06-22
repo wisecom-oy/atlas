@@ -1,7 +1,7 @@
-import type { TenantContext } from '@atlas/types';
-import type { SharePointSnapshotManifest } from '@atlas/types';
-import type { StorageTarget, DekValidationFn } from '@atlas/types';
-import type { ReplicationResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { SharePointSnapshotManifest } from '@wisecom/atlas-types';
+import type { StorageTarget, DekValidationFn } from '@wisecom/atlas-types';
+import type { ReplicationResult } from '@wisecom/atlas-types';
 import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
 import { build_replication_result } from '@/services/replication/replication-result-builder';
 

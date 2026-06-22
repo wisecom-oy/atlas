@@ -1,5 +1,5 @@
 import { S3Client } from '@aws-sdk/client-s3';
-import type { S3Config } from '@atlas/core';
+import type { S3Config } from '@wisecom/atlas-core';
 
 export const S3_CLIENT_TOKEN = Symbol.for('S3Client');
 

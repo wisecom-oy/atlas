@@ -7,7 +7,7 @@ Production-ready patterns for integrating Atlas into your Node.js applications. 
 The most common pattern. Check which mailboxes actually have pending changes before running expensive backup operations. This avoids unnecessary Graph API calls and reduces bandwidth during scheduled runs.
 
 ```typescript
-import { createAtlasInstance } from '@atlas/sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   tenantId: process.env.ATLAS_TENANT_ID!,
@@ -54,8 +54,8 @@ for (const mailbox of mailboxes) {
 A robust scheduled job that backs up all mailboxes, collects results, and exits with an appropriate code for your process manager (cron, systemd, orchestration platform).
 
 ```typescript
-import { createAtlasInstance } from '@atlas/sdk';
-import type { AtlasInstance } from '@atlas/sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
+import type { AtlasInstance } from '@wisecom/atlas-sdk';
 
 interface BackupReport {
   mailbox: string;
@@ -144,7 +144,7 @@ The non-zero exit code on failure integrates with cron (which can send alert ema
 Back up each mailbox, immediately replicate the snapshot to an offsite target, and collect the results. This is the core loop for a 3-2-1 strategy -- adapt the reporting to whatever fits your stack (webhook, database row, structured log, email).
 
 ```typescript
-import { createAtlasInstance, createStorageTarget } from '@atlas/sdk';
+import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   tenantId: process.env.ATLAS_TENANT_ID!,
@@ -383,7 +383,7 @@ Process tenants and mailboxes **sequentially**, not with `Promise.all`. Each bac
 Discover available mailboxes in the tenant and resolve user identities before running backups. Useful for building onboarding workflows, audit dashboards, or automated user provisioning.
 
 ```typescript
-import { createAtlasInstance } from '@atlas/sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({ /* config */ });
 

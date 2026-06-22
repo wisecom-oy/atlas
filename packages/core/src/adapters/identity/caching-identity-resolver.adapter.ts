@@ -5,9 +5,12 @@ import type {
   ResolvedUserIdentity,
   TenantContextFactory,
   UserIdentityResolver,
-} from '@atlas/types';
-import { IDENTITY_REGISTRY_REPOSITORY_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import {
+  IDENTITY_REGISTRY_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export const GRAPH_IDENTITY_RESOLVER_TOKEN = Symbol.for('GraphIdentityResolver');
 

@@ -3,7 +3,7 @@ import type {
   OneDriveDeltaCursor,
   OneDriveDeltaCursorRepository,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { onedrive_delta_cursor_key } from '@/services/onedrive-storage-keys';
 
 /** Persists the delta sync cursor (delta links + change tracking state) in S3. */

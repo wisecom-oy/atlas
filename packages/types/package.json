@@ -1,5 +1,5 @@
 {
-  "name": "@atlas/types",
+  "name": "@wisecom/atlas-types",
   "version": "2.0.0-beta.0",
   "private": true,
   "type": "module",

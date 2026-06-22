@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { Snapshot } from '@atlas/types';
-import { SnapshotStatus } from '@atlas/types';
-import type { Manifest, ManifestEntry, ManifestObjectLockPolicy } from '@atlas/types';
+import type { Snapshot } from '@wisecom/atlas-types';
+import { SnapshotStatus } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
 
 export interface OwnerIdentityHint {
   readonly owner_email?: string | undefined;

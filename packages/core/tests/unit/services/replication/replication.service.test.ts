@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReplicationService } from '@/services/replication/replication.service';
-import { ReplicationStatus } from '@atlas/types';
+import { ReplicationStatus } from '@wisecom/atlas-types';
 import type {
   TenantContext,
   TenantContextFactory,
@@ -11,8 +11,8 @@ import type {
   StorageTarget,
   StorageTargetFactory,
   DekValidationFn,
-} from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+} from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import type { AtlasConfig } from '@/utils/config';
 
 vi.mock('@/services/replication/rehydration-dek-helper', () => ({

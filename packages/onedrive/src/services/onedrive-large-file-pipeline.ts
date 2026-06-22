@@ -5,14 +5,14 @@ import {
   onedrive_staging_key,
   onedrive_staging_prefix,
 } from '@/services/onedrive-storage-keys';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   MultipartUploadHandle,
   OneDriveConnector,
   OneDriveDeltaItem,
   StorageObjectLockPolicy,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 /** Files at or above this size use the chunked staging + multipart pipeline. */
 export const LARGE_FILE_THRESHOLD = 512 * 1024 * 1024;

@@ -1,6 +1,10 @@
 import { inject, injectable } from 'inversify';
-import type { SharePointDeletionUseCase, TenantContextFactory, DeletionResult } from '@atlas/types';
-import { TENANT_CONTEXT_FACTORY_TOKEN } from '@atlas/types';
+import type {
+  SharePointDeletionUseCase,
+  TenantContextFactory,
+  DeletionResult,
+} from '@wisecom/atlas-types';
+import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 
 @injectable()
 export class SharePointDeletionService implements SharePointDeletionUseCase {

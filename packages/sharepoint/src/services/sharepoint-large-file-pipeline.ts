@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
-import { logger } from '@atlas/core/utils/logger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   MultipartUploadHandle,
   SharePointSiteConnector,
   SharePointDeltaItem,
   StorageObjectLockPolicy,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { fetch_file_chunks } from '@/services/sharepoint-large-file-chunk-download';
 import {
   flush_pending_parts,

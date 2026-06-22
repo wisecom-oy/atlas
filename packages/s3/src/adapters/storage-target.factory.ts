@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
-import type { StorageTarget, StorageTargetConfig } from '@atlas/types';
-import type { TenantContext } from '@atlas/types';
+import type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
+import type { TenantContext } from '@wisecom/atlas-types';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
-import { EnvelopeKeyService } from '@atlas/core';
+import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
 

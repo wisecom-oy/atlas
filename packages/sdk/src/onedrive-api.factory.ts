@@ -9,7 +9,7 @@ import type {
   OneDriveDeletionUseCase,
   OneDriveReplicationUseCase,
   OneDriveStatusUseCase,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
@@ -19,7 +19,7 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {

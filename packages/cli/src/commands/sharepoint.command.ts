@@ -1,21 +1,21 @@
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
-import type { AtlasConfig } from '@atlas/core';
-import { ATLAS_CONFIG_TOKEN, logger } from '@atlas/core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
   SharePointBackupUseCase,
   SharePointRestoreUseCase,
   SharePointSaveUseCase,
   SharePointSiteConnector,
   SharePointVerificationUseCase,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   register_sharepoint_list_snapshots,
   register_sharepoint_list_versions,

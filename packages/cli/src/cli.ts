@@ -11,7 +11,7 @@ import { register_storage_check_command } from '@/commands/storage-check.command
 import { register_replicate_command } from '@/commands/replicate.command';
 import { register_rehydrate_command } from '@/commands/rehydrate.command';
 import { register_list_users_command } from '@/commands/list-users.command';
-import { logger } from '@atlas/core';
+import { logger } from '@wisecom/atlas-core';
 import type { Container } from 'inversify';
 
 let _container: Container | undefined;
@@ -29,7 +29,7 @@ function create_program(): Command {
   return new Command()
     .name('atlas')
     .description(
-      chalk.bold('m365-atlas') + ' – Microsoft 365 backup to S3-compatible object storage',
+      chalk.bold('Atlas') + ' – Microsoft 365 backup to S3-compatible object storage (Wisecom Oy)',
     )
     .version('2.0.0-beta.0');
 }

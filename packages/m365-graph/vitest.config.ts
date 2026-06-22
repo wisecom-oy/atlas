@@ -9,10 +9,10 @@ const core_src = resolve(root_dir, '../core/src');
 export default defineConfig({
   resolve: {
     alias: [
-      { find: /^@atlas\/types\/(.+)$/, replacement: `${types_src}/$1` },
-      { find: '@atlas/types', replacement: resolve(types_src, 'index.ts') },
-      { find: /^@atlas\/core\/(.+)$/, replacement: `${core_src}/$1` },
-      { find: '@atlas/core', replacement: resolve(core_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-types\/(.+)$/, replacement: `${types_src}/$1` },
+      { find: '@wisecom/atlas-types', replacement: resolve(types_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-core\/(.+)$/, replacement: `${core_src}/$1` },
+      { find: '@wisecom/atlas-core', replacement: resolve(core_src, 'index.ts') },
       { find: '@', replacement: resolve(root_dir, 'src') },
     ],
   },

@@ -3,9 +3,9 @@ import { Command } from 'commander';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { register_outlook_command } from '@/commands/outlook.command';
-import { MAILBOX_DISCOVERY_TOKEN } from '@atlas/types';
-import { ATLAS_CONFIG_TOKEN } from '@atlas/core';
-import type { MailboxDiscoveryService, TenantMailbox } from '@atlas/types';
+import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
+import type { MailboxDiscoveryService, TenantMailbox } from '@wisecom/atlas-types';
 
 function make_mailbox(mail: string, licensed = true): TenantMailbox {
   return {

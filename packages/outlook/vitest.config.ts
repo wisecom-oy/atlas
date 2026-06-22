@@ -47,15 +47,15 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@atlas/types/testing/stub-tenant-create-cipher',
+        find: '@wisecom/atlas-types/testing/stub-tenant-create-cipher',
         replacement: resolve(types_src, 'testing/stub-tenant-create-cipher.ts'),
       },
-      { find: /^@atlas\/types\/(.+)$/, replacement: `${types_src}/$1` },
-      { find: '@atlas/types', replacement: resolve(types_src, 'index.ts') },
-      { find: /^@atlas\/core\/(.+)$/, replacement: `${core_src}/$1` },
-      { find: '@atlas/core', replacement: resolve(core_src, 'index.ts') },
-      { find: /^@atlas\/m365-graph\/(.+)$/, replacement: `${m365_src}/$1` },
-      { find: '@atlas/m365-graph', replacement: resolve(m365_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-types\/(.+)$/, replacement: `${types_src}/$1` },
+      { find: '@wisecom/atlas-types', replacement: resolve(types_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-core\/(.+)$/, replacement: `${core_src}/$1` },
+      { find: '@wisecom/atlas-core', replacement: resolve(core_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-m365-graph\/(.+)$/, replacement: `${m365_src}/$1` },
+      { find: '@wisecom/atlas-m365-graph', replacement: resolve(m365_src, 'index.ts') },
     ],
   },
   test: {

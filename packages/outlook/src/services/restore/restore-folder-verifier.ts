@@ -1,5 +1,5 @@
-import type { RestoreConnector } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /** Outcome of a post-restore folder message-count check. */
 export interface FolderVerifyResult {

@@ -9,7 +9,7 @@ import type {
   OneDriveManifestRepository,
   OneDriveSnapshotManifest,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import type { VersionSyncResult } from '@/services/onedrive-version-sync';
 
 export function build_deleted_entry(

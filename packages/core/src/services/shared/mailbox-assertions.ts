@@ -1,4 +1,4 @@
-import type { MailboxConnector } from '@atlas/types';
+import type { MailboxConnector } from '@wisecom/atlas-types';
 
 /** Fails fast if the mailbox does not exist in the tenant. */
 export async function assert_mailbox_exists(

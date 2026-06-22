@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { AtlasInstance, AtlasInstanceConfig } from '@atlas/types';
+import type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: 'test-tenant-id',

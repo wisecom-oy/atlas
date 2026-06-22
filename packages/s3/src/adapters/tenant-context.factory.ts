@@ -4,9 +4,13 @@ import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
-import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@atlas/core';
-import type { AtlasConfig } from '@atlas/core';
-import type { TenantContext, TenantContextFactory, TenantStorageContext } from '@atlas/types';
+import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import type {
+  TenantContext,
+  TenantContextFactory,
+  TenantStorageContext,
+} from '@wisecom/atlas-types';
 
 const DEK_META_KEY = '_meta/dek.enc';
 

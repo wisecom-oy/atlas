@@ -37,7 +37,7 @@ body:
       multiple: true
       options:
         - CLI
-        - SDK (m365-atlas/sdk)
+        - SDK (@wisecom/atlas-sdk)
         - Backup
         - Restore
         - Verification

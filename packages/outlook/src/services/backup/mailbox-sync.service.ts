@@ -1,10 +1,10 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContext, TenantContextFactory } from '@atlas/types';
-import type { MailboxConnector, MailFolder } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { ManifestEntry, ManifestObjectLockPolicy } from '@atlas/types';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
-import { assert_mailbox_exists } from '@atlas/core/services/shared/mailbox-assertions';
+import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
+import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
 import {
   build_manifest,
@@ -17,13 +17,13 @@ import type {
   SyncOptions,
   SyncResult,
   BackupSyncMode,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
-} from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 class NoopBackupProgressReporter implements BackupProgressReporter {
   set_status(): void {}

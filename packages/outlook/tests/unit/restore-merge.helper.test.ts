@@ -3,7 +3,7 @@ import {
   merge_snapshot_entries,
   filter_manifests_by_date,
 } from '@/services/restore/manifest-entry-merger';
-import type { Manifest, ManifestEntry } from '@atlas/types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 
 function make_entry(id: string, folder_id = 'f1'): ManifestEntry {
   return {

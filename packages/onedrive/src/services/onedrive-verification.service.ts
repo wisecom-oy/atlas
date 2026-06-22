@@ -8,12 +8,12 @@ import type {
   OneDriveVerificationUseCase,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 
 const HASH_CHUNK_SIZE = 64 * 1024 * 1024;
 

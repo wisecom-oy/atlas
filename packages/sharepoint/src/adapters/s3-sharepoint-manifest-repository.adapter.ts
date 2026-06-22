@@ -3,7 +3,7 @@ import type {
   SharePointSnapshotManifest,
   SharePointManifestRepository,
   TenantContext,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   sharepoint_manifest_key,
   sharepoint_manifest_prefix,

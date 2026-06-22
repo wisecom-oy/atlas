@@ -4,7 +4,7 @@ import type {
   SharePointDeltaCursorRepository,
   SharePointFileVersionIndexRepository,
   SharePointManifestRepository,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import {
   make_connector,
   make_cursors,

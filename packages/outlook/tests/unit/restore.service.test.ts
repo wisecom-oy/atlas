@@ -7,13 +7,13 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
-} from '@atlas/types';
-import type { MailboxConnector, MailFolder } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { TenantContext, TenantContextFactory } from '@atlas/types';
-import type { RestoreConnector } from '@atlas/types';
-import type { Manifest, ManifestEntry } from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+} from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_entry(id: string, folder_id: string): ManifestEntry {
   return {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { RestoreConnector } from '@atlas/types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
 import { CostTrackingRestoreConnector } from '@/adapters/cost-tracking-restore-connector.adapter';
-import { run_with_cost_tracking } from '@atlas/core/services/shared/graph-request-context';
+import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
 function make_restore_stub(): RestoreConnector {
   return {

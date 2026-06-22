@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import type { TenantContext } from '@atlas/types';
-import type { OneDriveSnapshotManifest } from '@atlas/types';
-import type { ReplicationObjectResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { OneDriveSnapshotManifest } from '@wisecom/atlas-types';
+import type { ReplicationObjectResult } from '@wisecom/atlas-types';
 
 export interface OneDriveReplicationResult {
   readonly objects_copied: number;

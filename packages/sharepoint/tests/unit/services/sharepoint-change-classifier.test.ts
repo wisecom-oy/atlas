@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { SharePointDeltaItem } from '@atlas/types';
+import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import { classify_change_type } from '@/services/sharepoint-change-classifier';
 
 function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDeltaItem {

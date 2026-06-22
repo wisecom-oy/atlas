@@ -83,7 +83,7 @@ Exit code is `0` when all checked entries pass, `1` when any blob mismatch or in
 The SDK exposes SharePoint backup and verification as programmatic methods on `atlas.sharepoint`:
 
 ```typescript
-import { createAtlasInstance } from '@atlas/sdk';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
   tenantId: 'your-azure-tenant-id',
@@ -275,7 +275,7 @@ SharePoint backup requires only read permissions (`Sites.Read.All`, `Files.Read.
 
 ## File Size Handling
 
-Implementation thresholds from `@atlas/sharepoint`:
+Implementation thresholds from `@wisecom/atlas-sharepoint`:
 
 | Size | Strategy |
 | --- | --- |

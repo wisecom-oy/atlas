@@ -1,5 +1,5 @@
-import type { SharePointChangeType, SharePointDeltaItem } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type { SharePointChangeType, SharePointDeltaItem } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /**
  * Determines the type of change for a delta item based on previous state.

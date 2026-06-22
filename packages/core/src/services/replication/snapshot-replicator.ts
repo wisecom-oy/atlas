@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import type { TenantContext } from '@atlas/types';
-import type { Manifest } from '@atlas/types';
-import type { ReplicationObjectResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { Manifest } from '@wisecom/atlas-types';
+import type { ReplicationObjectResult } from '@wisecom/atlas-types';
 
 const DEK_META_KEY = '_meta/dek.enc';
 const REPLICA_MARKER_KEY = '_meta/replica.marker';

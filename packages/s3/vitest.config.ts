@@ -19,7 +19,7 @@ function resolve_ts_under(base: string, subpath: string): string | undefined {
 }
 
 /**
- * `@atlas/s3` and `@atlas/core` both use `@/`; a single Vitest `alias: { '@': ... }` would
+ * `@wisecom/atlas-s3` and `@wisecom/atlas-core` both use `@/`; a single Vitest `alias: { '@': ... }` would
  * mis-resolve core's `@/` as paths under this package.
  */
 function resolve_atlas_at_path_aliases(): Plugin {
@@ -50,13 +50,13 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@atlas/types/testing/stub-tenant-create-cipher',
+        find: '@wisecom/atlas-types/testing/stub-tenant-create-cipher',
         replacement: resolve(types_src, 'testing/stub-tenant-create-cipher.ts'),
       },
-      { find: /^@atlas\/types\/(.+)$/, replacement: `${types_src}/$1` },
-      { find: '@atlas/types', replacement: resolve(types_src, 'index.ts') },
-      { find: /^@atlas\/core\/(.+)$/, replacement: `${core_src}/$1` },
-      { find: '@atlas/core', replacement: resolve(core_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-types\/(.+)$/, replacement: `${types_src}/$1` },
+      { find: '@wisecom/atlas-types', replacement: resolve(types_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-core\/(.+)$/, replacement: `${core_src}/$1` },
+      { find: '@wisecom/atlas-core', replacement: resolve(core_src, 'index.ts') },
     ],
   },
   test: {

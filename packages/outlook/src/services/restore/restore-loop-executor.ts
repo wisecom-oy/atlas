@@ -1,8 +1,8 @@
-import type { TenantContext } from '@atlas/types';
-import type { ManifestEntry } from '@atlas/types';
-import type { RestoreConnector } from '@atlas/types';
-import type { RestoreResult } from '@atlas/types';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import type { RestoreResult } from '@wisecom/atlas-types';
+import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
 import {
   log_restore_summary,

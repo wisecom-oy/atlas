@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { OneDriveDeltaItem } from '@atlas/types';
+import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { VersionSyncResult } from '@/services/onedrive-version-sync';
 import {
   build_deleted_entry,

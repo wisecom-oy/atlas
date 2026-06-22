@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { MailboxConnector } from '@atlas/types/ports/mail/connector.port';
+import type { MailboxConnector } from '@wisecom/atlas-types/ports/mail/connector.port';
 import { RateLimitedGraphConnector } from '@/rate-limited-graph-connector.adapter';
-import { ThrottleFence } from '@atlas/core/services/shared/throttle-fence';
-import { DefaultMailboxRateLimiterFactory } from '@atlas/core/services/shared/mailbox-rate-limiter';
-import { run_with_cost_tracking } from '@atlas/core/services/shared/graph-request-context';
-import { GRAPH_SERVICE_LIMITS } from '@atlas/types';
+import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
+import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
+import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
 
 function make_mailbox_stub(): MailboxConnector {
   return {

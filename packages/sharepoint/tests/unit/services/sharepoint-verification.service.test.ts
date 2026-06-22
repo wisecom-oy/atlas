@@ -9,7 +9,7 @@ import type {
   SharePointFileVersionIndexRepository,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 
 const TENANT_ID = 'tenant-1';

@@ -8,8 +8,8 @@ import type {
   TenantContextFactory,
   ManifestRepository,
   ObjectStorage,
-} from '@atlas/types';
-import { stub_tenant_create_cipher } from '@atlas/types/testing/stub-tenant-create-cipher';
+} from '@wisecom/atlas-types';
+import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 
 function make_entry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
   return {

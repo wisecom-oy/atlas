@@ -1,8 +1,8 @@
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory } from '@atlas/types';
-import type { ManifestRepository } from '@atlas/types';
-import type { DeletionResult, DeletionUseCase } from '@atlas/types';
-import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@atlas/types';
+import type { TenantContextFactory } from '@wisecom/atlas-types';
+import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { DeletionResult, DeletionUseCase } from '@wisecom/atlas-types';
+import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
 
 @injectable()

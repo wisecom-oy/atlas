@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { SharePointSiteConnector, SharePointDeltaItem, TenantContext } from '@atlas/types';
-import { logger } from '@atlas/core/utils/logger';
+import type {
+  SharePointSiteConnector,
+  SharePointDeltaItem,
+  TenantContext,
+} from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { download_with_retry } from '@/services/sharepoint-download-orchestrator';
 import {
   LARGE_FILE_THRESHOLD,

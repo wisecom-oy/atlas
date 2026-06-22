@@ -11,7 +11,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GraphRequestCounter } from './graph-request-counter';
-import type { OperationCost } from '@atlas/types';
+import type { OperationCost } from '@wisecom/atlas-types';
 
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
 

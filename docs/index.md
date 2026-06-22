@@ -32,7 +32,7 @@ features:
   - title: Snapshot Replication
     details: Replicate encrypted snapshots to secondary S3 targets for disaster recovery across all workloads.
   - title: CLI & SDK Packages
-    details: "@atlas/cli for shell deployment and cron jobs; @atlas/sdk for embedding in Node.js apps with a typed, namespaced API."
+    details: "@wisecom/atlas-cli for shell deployment and cron jobs; @wisecom/atlas-sdk for embedding in Node.js apps with a typed, namespaced API."
   - title: Typed SDK
-    details: Programmatic API for embedding in other Node.js applications via the standalone @atlas/sdk package.
+    details: Programmatic API for embedding in other Node.js applications via the standalone @wisecom/atlas-sdk package.
 ---

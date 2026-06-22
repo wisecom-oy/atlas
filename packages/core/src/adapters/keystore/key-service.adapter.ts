@@ -1,5 +1,5 @@
 import { injectable } from 'inversify';
-import type { KeyService } from '@atlas/types';
+import type { KeyService } from '@wisecom/atlas-types';
 
 @injectable()
 export class DefaultKeyService implements KeyService {

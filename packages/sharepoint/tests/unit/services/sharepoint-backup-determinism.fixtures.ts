@@ -7,7 +7,7 @@ import type {
   SharePointManifestRepository,
   TenantContext,
   TenantContextFactory,
-} from '@atlas/types';
+} from '@wisecom/atlas-types';
 import { SharePointBackupService } from '@/services/sharepoint-backup.service';
 
 export function make_file_item(

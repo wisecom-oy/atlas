@@ -1,9 +1,9 @@
 import chalk from 'chalk';
-import type { TenantContext } from '@atlas/types';
-import type { MailboxConnector } from '@atlas/types';
-import type { RestoreConnector } from '@atlas/types';
-import type { ManifestEntry } from '@atlas/types';
-import type { RestoreResult } from '@atlas/types';
+import type { TenantContext } from '@wisecom/atlas-types';
+import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { RestoreConnector } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { RestoreResult } from '@wisecom/atlas-types';
 import {
   decrypt_and_parse_message,
   sanitize_message_for_restore,
@@ -16,8 +16,8 @@ import {
   ensure_subfolder,
 } from '@/services/restore/folder-restore-planner';
 import type { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
-import { calc_rate } from '@atlas/core/services/shared/progress-rate';
-import { logger } from '@atlas/core/utils/logger';
+import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /** Decrypts, sanitizes, creates one message via Graph, then uploads attachments. */
 export async function restore_one_entry(
