@@ -142,6 +142,22 @@ describe('MailboxSyncService', () => {
     expect(mock_connector.list_mail_folders).toHaveBeenCalledWith('t', 'user@test.com');
   });
 
+  it('records mailbox_purpose in the manifest when the connector reports it', async () => {
+    mock_connector.get_mailbox_purpose = vi.fn().mockResolvedValue('shared');
+
+    await service.sync_mailbox('t', 'shared@test.com');
+
+    const [, manifest] = vi.mocked(mock_manifests.save).mock.calls[0]!;
+    expect(manifest.mailbox_purpose).toBe('shared');
+  });
+
+  it('omits mailbox_purpose when the connector does not implement the lookup', async () => {
+    await service.sync_mailbox('t', 'user@test.com');
+
+    const [, manifest] = vi.mocked(mock_manifests.save).mock.calls[0]!;
+    expect('mailbox_purpose' in manifest).toBe(false);
+  });
+
   it('fetches delta for each folder', async () => {
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([
       make_folder('Inbox', 'f1'),

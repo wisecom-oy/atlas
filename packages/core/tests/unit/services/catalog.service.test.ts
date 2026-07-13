@@ -142,6 +142,53 @@ describe('CatalogService', () => {
       expect(bob.total_objects).toBe(5);
     });
 
+    it('reports mailbox_purpose from the latest manifest after conversion', async () => {
+      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+        make_manifest({
+          owner_id: 'converted@test.com',
+          snapshot_id: 's1',
+          created_at: new Date('2026-03-01'),
+          mailbox_purpose: 'user',
+        }),
+        make_manifest({
+          owner_id: 'converted@test.com',
+          snapshot_id: 's2',
+          created_at: new Date('2026-03-05'),
+          mailbox_purpose: 'shared',
+        }),
+        make_manifest({ owner_id: 'legacy@test.com', snapshot_id: 's3' }),
+      ]);
+
+      const result = await service.list_mailboxes('t');
+
+      const converted = result.find((m) => m.owner_id === 'converted@test.com')!;
+      expect(converted.mailbox_purpose).toBe('shared');
+
+      const legacy = result.find((m) => m.owner_id === 'legacy@test.com')!;
+      expect('mailbox_purpose' in legacy).toBe(false);
+    });
+
+    it('falls back to the newest manifest that recorded a purpose when the latest lacks one', async () => {
+      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+        make_manifest({
+          owner_id: 'team@test.com',
+          snapshot_id: 's1',
+          created_at: new Date('2026-03-01'),
+          mailbox_purpose: 'shared',
+        }),
+        // Latest backup's purpose lookup failed -- field absent.
+        make_manifest({
+          owner_id: 'team@test.com',
+          snapshot_id: 's2',
+          created_at: new Date('2026-03-05'),
+        }),
+      ]);
+
+      const result = await service.list_mailboxes('t');
+
+      expect(result[0]!.mailbox_purpose).toBe('shared');
+    });
+
     it('returns summaries sorted alphabetically by owner_id', async () => {
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
         make_manifest({ owner_id: 'zara@test.com', snapshot_id: 's1' }),

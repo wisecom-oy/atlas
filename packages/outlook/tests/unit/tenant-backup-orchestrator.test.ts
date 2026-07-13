@@ -4,14 +4,20 @@ import 'reflect-metadata';
 import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup-orchestrator';
 import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
 import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import type { MailboxDiscoveryService, TenantMailbox } from '@wisecom/atlas-types';
+import type { MailboxDiscoveryService, MailboxPurpose, TenantMailbox } from '@wisecom/atlas-types';
 import type { BackupUseCase, SyncResult, BackupSyncSummary } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { Snapshot } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 
-function make_mailbox(mail: string, licensed = true): TenantMailbox {
-  return { user_id: `uid-${mail}`, mail, display_name: mail, has_exchange_license: licensed };
+function make_mailbox(mail: string, licensed = true, purpose?: MailboxPurpose): TenantMailbox {
+  return {
+    user_id: `uid-${mail}`,
+    mail,
+    display_name: mail,
+    has_exchange_license: licensed,
+    ...(purpose ? { mailbox_purpose: purpose } : {}),
+  };
 }
 
 function make_sync_result(mailbox_id: string): SyncResult {
@@ -83,13 +89,23 @@ describe('DefaultTenantBackupOrchestrator', () => {
     expect(mock_backup.sync_mailbox).toHaveBeenCalledTimes(3);
   });
 
-  it('always discovers licensed-only mailboxes', async () => {
-    const orch = container.get(DefaultTenantBackupOrchestrator);
-    await orch.backup_tenant('t1');
+  it('includes shared mailboxes and skips plain unlicensed ones', async () => {
+    vi.mocked(mock_discovery.list_tenant_mailboxes).mockResolvedValue([
+      make_mailbox('licensed@t.com', true),
+      make_mailbox('shared@t.com', false, 'shared'),
+      make_mailbox('unlicensed@t.com', false),
+    ]);
 
-    expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('t1', {
-      licensed_only: true,
-    });
+    const orch = container.get(DefaultTenantBackupOrchestrator);
+    const result = await orch.backup_tenant('t1');
+
+    expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('t1');
+    expect(mock_backup.sync_mailbox).toHaveBeenCalledTimes(2);
+    const backed_up = vi.mocked(mock_backup.sync_mailbox).mock.calls.map((c) => c[1]);
+    expect(backed_up).toContain('licensed@t.com');
+    expect(backed_up).toContain('shared@t.com');
+    expect(backed_up).not.toContain('unlicensed@t.com');
+    expect(result.total_mailboxes).toBe(2);
   });
 
   it('captures errors per mailbox without aborting', async () => {

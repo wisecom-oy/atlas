@@ -105,6 +105,7 @@ function print_mailbox_table(mailboxes: MailboxSummary[]): void {
   const header =
     '  ' +
     pad_cell('Mailbox', 36) +
+    pad_cell('Type', 10) +
     pad_cell('Snapshots', 12) +
     pad_cell('Objects', 10) +
     pad_cell('Size', 12) +
@@ -116,6 +117,7 @@ function print_mailbox_table(mailboxes: MailboxSummary[]): void {
     console.log(
       '  ' +
         pad_cell(m.owner_id, 36) +
+        pad_cell(m.mailbox_purpose ?? '--', 10) +
         pad_cell(String(m.snapshot_count), 12) +
         pad_cell(String(m.total_objects), 10) +
         pad_cell(format_bytes(m.total_size_bytes), 12) +

@@ -387,12 +387,16 @@ import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({ /* config */ });
 
-// Discover all licensed mailboxes in the tenant
-const mailboxes = await atlas.outlook.listAvailableMailboxes({ licensed_only: true });
+// Discover all tenant mailboxes (licensed users + shared mailboxes)
+const mailboxes = await atlas.outlook.listAvailableMailboxes();
 
-console.log(`Found ${mailboxes.length} licensed mailboxes:`);
+console.log(`Found ${mailboxes.length} mailboxes:`);
 for (const mb of mailboxes) {
-  console.log(`  ${mb.mail} — ${mb.display_name} (${mb.account_enabled ? 'active' : 'disabled'})`);
+  if (mb.mailbox_purpose === 'shared') {
+    console.log(`  ${mb.mail} — ${mb.display_name} (shared mailbox)`);
+  } else {
+    console.log(`  ${mb.mail} — ${mb.display_name} (${mb.has_exchange_license ? 'licensed' : 'unlicensed'})`);
+  }
 }
 
 // Resolve a user email to their Entra object ID

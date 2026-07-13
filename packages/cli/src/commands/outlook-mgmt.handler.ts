@@ -90,7 +90,10 @@ export async function execute_outlook_mailboxes(
   }
 
   const licensed = mailboxes.filter((m) => m.has_exchange_license).length;
-  logger.info(`${mailboxes.length} mailbox(es) found (${licensed} Exchange-licensed)\n`);
+  const shared = mailboxes.filter((m) => m.mailbox_purpose === 'shared').length;
+  logger.info(
+    `${mailboxes.length} mailbox(es) found (${licensed} Exchange-licensed, ${shared} shared)\n`,
+  );
 
   print_mailbox_table(mailboxes);
 }
@@ -186,6 +189,7 @@ function print_mailbox_table(mailboxes: TenantMailbox[]): void {
     pad_cell('Display Name', 24) +
     pad_cell('Exchange', 10) +
     pad_cell('Status', 10) +
+    pad_cell('Type', 10) +
     (has_sizes ? pad_cell('Size', 12) : '') +
     'Created';
   console.log(header);
@@ -202,6 +206,7 @@ function print_mailbox_table(mailboxes: TenantMailbox[]): void {
         pad_cell(truncate_cell(m.display_name, 22), 24) +
         pad_cell(license_flag, 10) +
         pad_cell(status, 10) +
+        pad_cell(m.mailbox_purpose ?? '--', 10) +
         size +
         created,
     );

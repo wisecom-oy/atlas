@@ -95,6 +95,21 @@ Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.out
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
+### Shared mailbox identity
+
+Three result types carry an optional `mailbox_purpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property — `'shared'` identifies a shared mailbox:
+
+- `TenantMailbox.mailbox_purpose` (from `listAvailableMailboxes()`; resolved only for unlicensed mailboxes during discovery)
+- `MailboxSummary.mailbox_purpose` (from `listMailboxes()`; taken from the newest manifest that recorded one, so a transient lookup failure in the latest backup does not blank the field)
+- `Manifest.mailbox_purpose` (from `backup()`, `listSnapshots()`, `getSnapshotDetail()`; recorded at backup time)
+
+The field is absent when the purpose was never resolved (pre-feature manifests, lookup failures):
+
+```typescript
+const mailboxes = await atlas.outlook.listAvailableMailboxes();
+const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
+```
+
 ## Save Options
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:

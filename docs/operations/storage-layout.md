@@ -50,6 +50,8 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `attachments/{mailbox}/` | Encrypted attachments, addressed by SHA-256 | Content is encrypted; S3 metadata is not |
 | `manifests/{mailbox}/` | Encrypted snapshot manifests (JSON) | Contains subjects, folder names, delta URLs -- all encrypted |
 
+Each Outlook manifest records an optional `mailbox_purpose` field -- the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, ...) at backup time. This makes shared mailboxes auditable: they are typically unlicensed and therefore invisible to license-based inventories, but the manifest flag identifies them in the backup catalog. Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the `manifests/{mailbox}/` prefix stays stable across the conversion: manifests written before the conversion read `user`, later ones read `shared`, and content blobs under `data/{mailbox}/` (addressed by SHA-256) are shared across both -- message data is stored once. Manifests written before this field existed simply omit it.
+
 ### OneDrive
 
 | Prefix | Contents | Security Notes |

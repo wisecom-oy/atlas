@@ -155,12 +155,17 @@ async function backup_all_mailboxes(
   const concurrency = Math.max(1, parseInt(options.concurrency ?? '4', 10) || 4);
   const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));
 
-  logger.info(`Backing up all licensed mailboxes (concurrency=${concurrency})`);
+  logger.info(`Backing up all licensed and shared mailboxes (concurrency=${concurrency})`);
 
   const orchestrator = container.get<TenantBackupOrchestrator>(TENANT_ORCHESTRATOR_TOKEN);
-  await run_tenant_backup_with_cli_adapter(orchestrator, tenant_id, {
+  const result = await run_tenant_backup_with_cli_adapter(orchestrator, tenant_id, {
     concurrency,
     force_full: options.full ?? false,
     page_size,
   });
+
+  if (result.failed > 0) {
+    logger.error(`Tenant backup finished with ${result.failed} failed mailbox(es)`);
+    process.exitCode = 1;
+  }
 }

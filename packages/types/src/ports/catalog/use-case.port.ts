@@ -1,7 +1,9 @@
-import type { AttachmentEntry, Manifest } from '@/domain/manifest';
+import type { AttachmentEntry, MailboxPurpose, Manifest } from '@/domain/manifest';
 
 export interface MailboxSummary {
   readonly owner_id: string;
+  /** Purpose from the newest manifest that recorded one; 'shared' = shared mailbox. Absent when never recorded. */
+  readonly mailbox_purpose?: MailboxPurpose;
   readonly snapshot_count: number;
   readonly total_objects: number;
   readonly total_size_bytes: number;

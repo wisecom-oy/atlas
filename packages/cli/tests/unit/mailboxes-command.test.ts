@@ -5,15 +5,16 @@ import 'reflect-metadata';
 import { register_outlook_command } from '@/commands/outlook.command';
 import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { MailboxDiscoveryService, TenantMailbox } from '@wisecom/atlas-types';
+import type { MailboxDiscoveryService, MailboxPurpose, TenantMailbox } from '@wisecom/atlas-types';
 
-function make_mailbox(mail: string, licensed = true): TenantMailbox {
+function make_mailbox(mail: string, licensed = true, purpose?: MailboxPurpose): TenantMailbox {
   return {
     user_id: `uid-${mail}`,
     mail,
     display_name: mail.split('@')[0]!,
     has_exchange_license: licensed,
     exchange_plan_status: licensed ? 'Enabled' : undefined,
+    ...(purpose ? { mailbox_purpose: purpose } : {}),
   };
 }
 
@@ -60,6 +61,20 @@ describe('register_outlook_command mailboxes subcommand', () => {
     expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('test-tenant', {
       licensed_only: true,
     });
+    log_spy.mockRestore();
+  });
+
+  it('reports the shared mailbox count in the summary line', async () => {
+    vi.mocked(mock_discovery.list_tenant_mailboxes).mockResolvedValue([
+      make_mailbox('alice@t.com'),
+      make_mailbox('team@t.com', false, 'shared'),
+    ]);
+    const log_spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await program.parseAsync(['outlook', 'mailboxes'], { from: 'user' });
+
+    const logged = log_spy.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(logged).toContain('2 mailbox(es) found (1 Exchange-licensed, 1 shared)');
     log_spy.mockRestore();
   });
 });
