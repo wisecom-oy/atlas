@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   extract_exchange_license_status,
   map_users_to_tenant_mailboxes,
+  parse_mailbox_purpose,
 } from '@/adapters/graph-mailbox-response-mappers';
 import { parse_usage_csv } from '@/adapters/graph-mailbox-discovery.adapter';
 import type { GraphAssignedPlan, GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers';
@@ -43,6 +44,24 @@ describe('extract_exchange_license_status', () => {
       { service: 'SharePoint', capabilityStatus: 'Enabled', servicePlanId: 'abc' },
     ];
     expect(extract_exchange_license_status(plans)).toEqual({ has_license: false });
+  });
+});
+
+describe('parse_mailbox_purpose', () => {
+  it('passes through known purposes', () => {
+    expect(parse_mailbox_purpose('shared')).toBe('shared');
+    expect(parse_mailbox_purpose('user')).toBe('user');
+    expect(parse_mailbox_purpose('room')).toBe('room');
+  });
+
+  it('maps unknown strings to others', () => {
+    expect(parse_mailbox_purpose('unknownFutureValue')).toBe('others');
+  });
+
+  it('returns undefined for empty or non-string values', () => {
+    expect(parse_mailbox_purpose(undefined)).toBeUndefined();
+    expect(parse_mailbox_purpose('')).toBeUndefined();
+    expect(parse_mailbox_purpose(42)).toBeUndefined();
   });
 });
 

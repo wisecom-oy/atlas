@@ -106,6 +106,8 @@ function group_by_mailbox(manifests: Manifest[]): Map<string, Manifest[]> {
  * Builds one MailboxSummary per group. Uses the latest manifest for
  * object count and date, and sums total_size_bytes across all snapshots
  * since each incremental snapshot only contains newly arrived data.
+ * mailbox_purpose comes from the newest manifest that recorded one, so a
+ * transient lookup failure in the latest backup does not blank the type.
  */
 function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummary[] {
   const summaries: MailboxSummary[] = [];
@@ -113,10 +115,12 @@ function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummar
   for (const [owner_id, manifests] of groups) {
     manifests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const latest = manifests[0]!;
+    const purpose = manifests.find((m) => m.mailbox_purpose)?.mailbox_purpose;
     const cumulative_size = manifests.reduce((sum, m) => sum + m.total_size_bytes, 0);
 
     summaries.push({
       owner_id,
+      ...(purpose ? { mailbox_purpose: purpose } : {}),
       snapshot_count: manifests.length,
       total_objects: latest.total_objects,
       total_size_bytes: cumulative_size,

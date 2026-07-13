@@ -1,3 +1,6 @@
+/** Mailbox purpose from Graph mailboxSettings.userPurpose. 'shared' identifies shared mailboxes. */
+export type MailboxPurpose = 'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others';
+
 export type ManifestObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
 
 export interface ManifestObjectLockRequestedPolicy {
@@ -20,6 +23,8 @@ export interface Manifest {
   readonly tenant_id: string;
   /** Entra object ID (UUID) of the mailbox owner; used as the storage partition key. */
   readonly owner_id: string;
+  /** Graph mailboxSettings.userPurpose at backup time; 'shared' = shared mailbox. Absent on pre-feature manifests or when the lookup failed. */
+  readonly mailbox_purpose?: MailboxPurpose;
   readonly snapshot_id: string;
   readonly created_at: Date;
   readonly total_objects: number;

@@ -1,6 +1,7 @@
 /**
- * Orchestrates parallel backup of all licensed mailboxes in a tenant.
- * Always filters to Exchange-licensed mailboxes -- unlicensed ones cause Graph errors.
+ * Orchestrates parallel backup of all licensed and shared mailboxes in a tenant.
+ * Unlicensed non-shared users are skipped -- Graph rejects their mail endpoints.
+ * Shared mailboxes are detected via mailboxSettings.userPurpose during discovery.
  * CLI-only -- not wired into the SDK adapter.
  */
 
@@ -39,11 +40,14 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     const should_force_stop = options.should_force_stop ?? always_false;
     const progress = options.progress;
 
-    const mailboxes = await this._discovery.list_tenant_mailboxes(tenant_id, {
-      licensed_only: true,
-    });
+    const all = await this._discovery.list_tenant_mailboxes(tenant_id);
+    const mailboxes = all.filter((m) => m.has_exchange_license || m.mailbox_purpose === 'shared');
+    const shared_count = mailboxes.filter((m) => m.mailbox_purpose === 'shared').length;
+    const skipped_count = all.length - mailboxes.length;
 
-    logger.info(`Discovered ${mailboxes.length} mailbox(es) for backup`);
+    logger.info(
+      `Discovered ${mailboxes.length} mailbox(es) for backup (${shared_count} shared, ${skipped_count} unlicensed non-shared skipped)`,
+    );
     progress?.set_mailbox_count(mailboxes.length);
 
     const outcomes: MailboxBackupOutcome[] = [];

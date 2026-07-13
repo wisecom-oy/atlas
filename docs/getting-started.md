@@ -55,7 +55,7 @@ The encryption passphrase is **irrecoverable**. If you lose it, all backup data 
 # back up a single mailbox
 atlas outlook backup --mailbox user@company.com
 
-# back up all licensed mailboxes in the tenant
+# back up all licensed and shared mailboxes in the tenant
 atlas outlook backup
 ```
 

@@ -18,6 +18,7 @@ import type {
   DeltaPageCallback,
   MessageAttachment,
 } from '@wisecom/atlas-types/ports/mail/connector.port';
+import type { MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
 import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,
@@ -58,6 +59,20 @@ export class RateLimitedGraphConnector implements MailboxConnector {
         resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
       });
       return this._inner.mailbox_exists(tenant_id, owner_id);
+    });
+  }
+
+  async get_mailbox_purpose(
+    tenant_id: string,
+    owner_id: string,
+  ): Promise<MailboxPurpose | undefined> {
+    if (!this._inner.get_mailbox_purpose) return undefined;
+    // GET /users/{id}/mailboxSettings -- Identity pool
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () => {
+      get_active_counter()?.record('identity', 'get_mailbox_purpose', {
+        resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
+      });
+      return this._inner.get_mailbox_purpose!(tenant_id, owner_id);
     });
   }
 

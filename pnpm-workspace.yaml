@@ -3,3 +3,7 @@ packages:
   - 'tools/*'
 
 minimumReleaseAge: 1440
+
+overrides:
+  flatted: 3.4.2
+  fast-xml-parser: 5.5.7

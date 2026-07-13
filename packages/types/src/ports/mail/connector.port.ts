@@ -1,3 +1,5 @@
+import type { MailboxPurpose } from '@/domain/manifest';
+
 export interface MailFolder {
   readonly folder_id: string;
   readonly display_name: string;
@@ -50,6 +52,13 @@ export interface MailboxConnector {
 
   /** Returns true if the mailbox exists in the tenant, false otherwise. */
   mailbox_exists(tenant_id: string, owner_id: string): Promise<boolean>;
+
+  /**
+   * Resolves the mailbox purpose (user/shared/...) via mailboxSettings.
+   * Optional: absent or resolving undefined means unknown; callers must treat both the same.
+   */
+  // ponytail: optional method — keeps ~10 existing MailboxConnector test literals compiling; make it required if a second caller ever needs it guaranteed
+  get_mailbox_purpose?(tenant_id: string, owner_id: string): Promise<MailboxPurpose | undefined>;
 
   list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]>;
 

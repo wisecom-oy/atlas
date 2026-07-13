@@ -56,6 +56,7 @@ export class MailboxSyncService implements BackupUseCase {
   ): Promise<SyncResult> {
     owner_id = owner_id.toLowerCase();
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
+    const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       await this.warn_if_replica(ctx);
@@ -150,6 +151,7 @@ export class MailboxSyncService implements BackupUseCase {
         merged_links,
         previous_entry_count,
         this.build_manifest_object_lock_policy(options),
+        mailbox_purpose,
       );
       await this._manifests.save(ctx, manifest);
 

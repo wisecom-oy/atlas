@@ -1,6 +1,7 @@
 /**
  * Graph API adapter for discovering tenant mailboxes with Exchange license information.
  * Queries /users with assignedPlans to detect Exchange Online licensing,
+ * resolves mailboxSettings.userPurpose for unlicensed mailboxes (shared-mailbox detection),
  * and enriches with mailbox size from the usage reports API when available.
  */
 
@@ -10,10 +11,14 @@ import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type {
   MailboxDiscoveryService,
   MailboxDiscoveryOptions,
+  MailboxPurpose,
   TenantMailbox,
 } from '@wisecom/atlas-types';
 import type { GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers';
-import { map_users_to_tenant_mailboxes } from '@/adapters/graph-mailbox-response-mappers';
+import {
+  map_users_to_tenant_mailboxes,
+  parse_mailbox_purpose,
+} from '@/adapters/graph-mailbox-response-mappers';
 import { rethrow_if_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -49,6 +54,16 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
         mailboxes = mailboxes.filter((m) => m.has_exchange_license);
       }
 
+      // ponytail: purpose fetched for unlicensed only; per-user N+1 at concurrency 5 — switch to Graph $batch if unlicensed counts make discovery slow
+      const unlicensed_ids = mailboxes.filter((m) => !m.has_exchange_license).map((m) => m.user_id);
+      const purposes = await this.fetchPurposes(unlicensed_ids);
+      if (purposes.size > 0) {
+        mailboxes = mailboxes.map((m) => {
+          const p = purposes.get(m.user_id);
+          return p ? { ...m, mailbox_purpose: p } : m;
+        });
+      }
+
       const usage = await this.fetchMailboxUsage();
       if (usage.size > 0) {
         mailboxes = mailboxes.map((m) => {
@@ -82,6 +97,39 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
     }
 
     return all;
+  }
+
+  /** Resolves mailboxSettings.userPurpose per user at bounded concurrency; failed lookups are logged and skipped. */
+  private async fetchPurposes(user_ids: string[]): Promise<Map<string, MailboxPurpose>> {
+    const CONCURRENCY = 5;
+    const purposes = new Map<string, MailboxPurpose>();
+    const queue = [...user_ids];
+
+    const worker = async (): Promise<void> => {
+      while (queue.length > 0) {
+        const user_id = queue.shift()!;
+        try {
+          const res = await with_graph_retry(() =>
+            this._client.api(`/users/${user_id}/mailboxSettings?$select=userPurpose`).get(),
+          );
+          const purpose = parse_mailbox_purpose(
+            (res as { userPurpose?: unknown } | undefined)?.userPurpose,
+          );
+          if (purpose) purposes.set(user_id, purpose);
+        } catch (err) {
+          // Purpose is optional metadata; a 403/404 here must never fail discovery.
+          // But an undetected shared mailbox is silently excluded from tenant backup, so make it visible.
+          logger.warn(
+            `Could not resolve mailbox purpose for ${user_id}; ` +
+              `if this is a shared mailbox it will be skipped by tenant backup (${(err as Error).message})`,
+          );
+        }
+      }
+    };
+
+    const workers = Array.from({ length: Math.min(CONCURRENCY, user_ids.length) }, () => worker());
+    await Promise.all(workers);
+    return purposes;
   }
 
   /** Fetches the mailbox usage report CSV. Returns empty map if Reports.Read.All is missing. */

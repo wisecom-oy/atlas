@@ -3,6 +3,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type {
   MailboxConnector,
+  MailboxPurpose,
   MailFolder,
   MailMessage,
   MessageAttachment,
@@ -25,54 +26,14 @@ import {
   extract_user_ids,
   filter_and_map_folders,
   map_file_attachments,
+  parse_mailbox_purpose,
 } from '@/adapters/graph-mailbox-response-mappers';
-
-/**
- * Fields to request from the delta endpoint so each page contains
- * the full message body, eliminating the need for per-message fetches.
- */
-const DELTA_SELECT_FIELDS = [
-  'id',
-  'subject',
-  'body',
-  'bodyPreview',
-  'from',
-  'sender',
-  'toRecipients',
-  'ccRecipients',
-  'bccRecipients',
-  'replyTo',
-  'receivedDateTime',
-  'sentDateTime',
-  'createdDateTime',
-  'lastModifiedDateTime',
-  'parentFolderId',
-  'importance',
-  'isRead',
-  'isDraft',
-  'hasAttachments',
-  'internetMessageId',
-  'conversationId',
-  'flag',
-  'categories',
-].join(',');
-
-interface GraphPageResponse {
-  value?: GraphUserRecord[] | GraphFolderRecord[] | GraphDeltaMessage[];
-  '@odata.nextLink'?: string;
-  '@odata.deltaLink'?: string;
-}
-
-interface GraphDeltaMessage {
-  id?: string;
-  subject?: string;
-  body?: { contentType?: string; content?: string };
-  hasAttachments?: boolean;
-  receivedDateTime?: string;
-  parentFolderId?: string;
-  '@removed'?: { reason: string };
-  [key: string]: unknown;
-}
+import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
+import {
+  DELTA_SELECT_FIELDS,
+  extract_page_messages,
+  graph_message_to_mail_message,
+} from '@/adapters/graph-delta-message-mapper';
 
 @injectable()
 export class GraphMailboxConnector implements MailboxConnector {
@@ -104,6 +65,23 @@ export class GraphMailboxConnector implements MailboxConnector {
       if ((err as Record<string, unknown>).statusCode === 404) return false;
       rethrow_if_access_denied(err);
       throw err;
+    }
+  }
+
+  /** Resolves userPurpose from mailboxSettings; returns undefined on any error (metadata must never fail a backup). */
+  async get_mailbox_purpose(
+    _tenant_id: string,
+    owner_id: string,
+  ): Promise<MailboxPurpose | undefined> {
+    try {
+      const res = await with_graph_retry(() =>
+        this._client.api(`/users/${owner_id}/mailboxSettings?$select=userPurpose`).get(),
+      );
+      return parse_mailbox_purpose((res as { userPurpose?: unknown } | undefined)?.userPurpose);
+    } catch (err) {
+      // ponytail: swallow-all — 403/404 on some shared/resource mailboxes is a known Graph quirk
+      logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${(err as Error).message}`);
+      return undefined;
     }
   }
 
@@ -181,7 +159,7 @@ export class GraphMailboxConnector implements MailboxConnector {
             .get() as Promise<GraphDeltaMessage>,
       );
 
-      return this.graph_message_to_mail_message(response);
+      return graph_message_to_mail_message(response);
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
@@ -286,7 +264,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     while (true) {
       page_count++;
       const items = (page.value ?? []) as GraphDeltaMessage[];
-      const page_messages = this.extract_page_messages(items, removed_ids);
+      const page_messages = extract_page_messages(items, removed_ids);
 
       const callback_result = await this.handle_page_callback(
         on_page,
@@ -312,19 +290,6 @@ export class GraphMailboxConnector implements MailboxConnector {
     return { messages, removed_ids, delta_link, delta_reset };
   }
 
-  /** Separates delta page items into live messages and removed message IDs. */
-  private extract_page_messages(items: GraphDeltaMessage[], removed_ids: string[]): MailMessage[] {
-    const page_messages: MailMessage[] = [];
-    for (const item of items) {
-      if (item['@removed'] && item.id) {
-        removed_ids.push(item.id);
-      } else if (item.id) {
-        page_messages.push(this.graph_message_to_mail_message(item));
-      }
-    }
-    return page_messages;
-  }
-
   /** Invokes the page callback or accumulates messages; returns continuation flag. */
   private async handle_page_callback(
     on_page: DeltaPageCallback | undefined,
@@ -342,20 +307,6 @@ export class GraphMailboxConnector implements MailboxConnector {
     const cb_result = on_page(page_count, new_total_streamed, page_messages);
     const should_continue = cb_result instanceof Promise ? await cb_result : cb_result;
     return { should_continue, new_total_streamed };
-  }
-
-  /** Converts a raw Graph message response into our MailMessage domain type. */
-  private graph_message_to_mail_message(msg: GraphDeltaMessage): MailMessage {
-    const body_buffer = Buffer.from(JSON.stringify(msg));
-    return {
-      message_id: msg.id ?? '',
-      folder_id: (msg.parentFolderId as string) ?? '',
-      subject: (msg.subject as string) ?? '',
-      received_at: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
-      size_bytes: body_buffer.length,
-      raw_body: body_buffer,
-      has_attachments: msg.hasAttachments === true,
-    };
   }
 
   // ---------------------------------------------------------------------------

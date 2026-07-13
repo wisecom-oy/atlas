@@ -1,4 +1,4 @@
-import type { MailFolder, MessageAttachment } from '@wisecom/atlas-types';
+import type { MailboxPurpose, MailFolder, MessageAttachment } from '@wisecom/atlas-types';
 import type { TenantMailbox } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -40,6 +40,23 @@ export interface GraphAttachmentRecord {
 /** Extracts non-null user IDs from Graph user records. */
 export function extract_user_ids(users: GraphUserRecord[]): string[] {
   return users.filter((u) => u.id).map((u) => u.id!);
+}
+
+const KNOWN_PURPOSES: readonly MailboxPurpose[] = [
+  'user',
+  'linked',
+  'shared',
+  'room',
+  'equipment',
+  'others',
+];
+
+/** Normalizes a Graph userPurpose value; unknown strings (e.g. unknownFutureValue) map to 'others'. */
+export function parse_mailbox_purpose(value: unknown): MailboxPurpose | undefined {
+  if (typeof value !== 'string' || value === '') return undefined;
+  return (KNOWN_PURPOSES as readonly string[]).includes(value)
+    ? (value as MailboxPurpose)
+    : 'others';
 }
 
 /** Filters out excluded system folders and maps to our MailFolder type. */

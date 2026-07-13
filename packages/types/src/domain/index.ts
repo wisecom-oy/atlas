@@ -4,6 +4,7 @@ export { SnapshotStatus } from './snapshot';
 export type { BackupObject } from './backup-object';
 export type {
   Manifest,
+  MailboxPurpose,
   ManifestEntry,
   AttachmentEntry,
   ManifestObjectLockMode,
