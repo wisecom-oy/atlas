@@ -6,4 +6,13 @@ minimumReleaseAge: 1440
 
 overrides:
   flatted: 3.4.2
-  fast-xml-parser: 5.5.7
+  fast-xml-parser: 5.7.2
+  vite: ^6.4.3
+  'esbuild@<0.25.0': ^0.25.0
+  'esbuild@>=0.27.3 <0.28.1': ^0.28.1
+  'shell-quote@<1.8.4': ^1.8.4
+  'qs@<6.15.2': ^6.15.2
+  'postcss@<8.5.10': ^8.5.10
+  'picomatch@<2.3.2': ^2.3.2
+  'picomatch@>=4.0.0 <4.0.4': ^4.0.4
+  'defu@<6.1.5': ^6.1.5
