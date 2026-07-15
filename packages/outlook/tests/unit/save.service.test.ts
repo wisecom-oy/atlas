@@ -24,20 +24,6 @@ vi.mock('@/services/save/save-entry-processor', () => ({
   }),
 }));
 
-vi.mock('@/services/save/save-progress-dashboard', () => {
-  return {
-    SaveProgressDashboard: class {
-      mark_active = vi.fn();
-      update_active = vi.fn();
-      mark_done = vi.fn();
-      mark_error = vi.fn();
-      update_total = vi.fn();
-      finish = vi.fn();
-      mark_all_pending_interrupted = vi.fn();
-    },
-  };
-});
-
 function make_entry(id: string, folder_id: string): ManifestEntry {
   return {
     object_id: id,

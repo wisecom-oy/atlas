@@ -122,6 +122,7 @@ const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 | `end_date`             | `Date`    | Include snapshots on or before this date                  |
 | `output_path`          | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
 | `skip_integrity_check` | `boolean` | Skip SHA-256 verification (default: `false`)              |
+| `create_progress`      | `(folders) => TransferProgressReporter` | Progress reporter factory invoked with the folder list before the transfer starts; each reporter callback receives per-folder counts. The CLI injects its dashboard here; SDK callers can plug their own observer. When omitted, progress is not reported. |
 
 Both methods return a `SaveResult`:
 
@@ -149,6 +150,7 @@ interface SaveResult {
 | `target_mailbox` | `string` | Target mailbox for cross-mailbox restore |
 | `start_date`     | `Date`   | Include snapshots on or after this date  |
 | `end_date`       | `Date`   | Include snapshots on or before this date |
+| `create_progress` | `(folders) => TransferProgressReporter` | Progress reporter factory; same contract as in Save Options. When omitted, progress is not reported. |
 
 Both methods return a `RestoreResult`:
 

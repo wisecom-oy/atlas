@@ -19,7 +19,7 @@ An open-source CLI backup and restore engine for Microsoft 365. Protects Outlook
 - **Delta sync** — incremental backups via Microsoft Graph delta queries
 - **Snapshot replication** — replicate encrypted snapshots to secondary S3 targets for DR
 - **Typed SDK** — embed in Node.js apps via `@wisecom/atlas-sdk`
-- **Live dashboard** — real-time ANSI progress for single and tenant-wide backups
+- **Live dashboard** — real-time Ink-rendered progress for single and tenant-wide backups
 
 ## Quick Start
 

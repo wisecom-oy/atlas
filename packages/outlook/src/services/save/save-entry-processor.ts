@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry, AttachmentEntry } from '@wisecom/atlas-types';
 import type { SaveResult } from '@wisecom/atlas-types';
@@ -9,7 +8,7 @@ import {
   add_eml_to_archive,
   finalize_archive,
 } from '@/services/save/save-zip-writer';
-import type { SaveProgressDashboard } from '@/services/save/save-progress-dashboard';
+import type { TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -35,7 +34,7 @@ export async function save_entries_to_archive(
   skip_integrity: boolean,
   groups: Map<string, ManifestEntry[]>,
   folder_map: Map<string, string>,
-  dashboard: SaveProgressDashboard,
+  dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
 ): Promise<Omit<SaveResult, 'snapshot_id'>> {
   const { archive, promise } = create_save_archive(output_path);
@@ -124,7 +123,7 @@ async function process_folder_entries(
   groups: Map<string, ManifestEntry[]>,
   global_total: number,
   start: number,
-  dashboard: SaveProgressDashboard,
+  dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
   counters: FolderEntryCounters,
 ): Promise<{
@@ -168,15 +167,14 @@ async function process_folder_entries(
     const rate = calc_rate(gp, Date.now() - start);
     const eta = rate > 0 ? (global_total - gp) / rate : 0;
 
-    dashboard.update_active(
-      folder_index,
-      folder_saved,
-      folder_att,
+    dashboard.update_active(folder_index, {
+      transferred: folder_saved,
+      attachments: folder_att,
       integrity_ok,
       integrity_fail,
       rate,
-      eta,
-    );
+      eta_seconds: eta,
+    });
     dashboard.update_total(gp, global_total, rate, eta);
   }
 
@@ -304,9 +302,6 @@ function log_save_summary(
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const size_mb = (total_bytes / (1024 * 1024)).toFixed(1);
   logger.info(
-    `${chalk.green(String(saved))} saved, ` +
-      `${chalk.cyan(String(attachments))} attachments, ` +
-      `${chalk.red(String(errors))} errors, ` +
-      `${chalk.cyan(size_mb + ' MB')} -- ${elapsed}s`,
+    `${saved} saved, ${attachments} attachments, ${errors} errors, ${size_mb} MB -- ${elapsed}s`,
   );
 }

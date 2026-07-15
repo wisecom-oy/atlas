@@ -1,4 +1,5 @@
 import type { OperationCost } from '@/domain/graph-cost';
+import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
 
 export interface RestoreResult {
   readonly snapshot_id: string;
@@ -19,6 +20,10 @@ export interface RestoreOptions {
   readonly target_mailbox?: string;
   readonly start_date?: Date;
   readonly end_date?: Date;
+  /** CLI presenter hook; when absent the service reports progress nowhere. */
+  readonly create_progress?: (
+    folders: { name: string; total_items: number }[],
+  ) => TransferProgressReporter;
 }
 
 export interface RestoreUseCase {

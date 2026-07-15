@@ -1,10 +1,14 @@
 import { inject, injectable } from 'inversify';
-import chalk from 'chalk';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
-import type { SaveUseCase, SaveResult, SaveOptions } from '@wisecom/atlas-types';
+import type {
+  SaveUseCase,
+  SaveResult,
+  SaveOptions,
+  TransferProgressReporter,
+} from '@wisecom/atlas-types';
 import {
   build_folder_map,
   group_entries_by_folder,
@@ -16,7 +20,7 @@ import {
   merge_snapshot_entries,
 } from '@/services/restore/manifest-entry-merger';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
-import { SaveProgressDashboard } from '@/services/save/save-progress-dashboard';
+import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -83,10 +87,7 @@ export class SaveService implements SaveUseCase {
         return this.empty_result('mailbox', options.output_path ?? '');
       }
 
-      logger.info(
-        `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
-          `${chalk.cyan(String(filtered.length))} unique messages`,
-      );
+      logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
 
       return this.save_batch(ctx, tenant_id, owner_id, 'mailbox', filtered, options);
     } finally {
@@ -169,19 +170,19 @@ export class SaveService implements SaveUseCase {
 
     logger.info(
       `Saving ${entries.length} messages across ` +
-        `${count_unique_folders(entries)} folders to ${chalk.cyan(output_path)}`,
+        `${count_unique_folders(entries)} folders to ${output_path}`,
     );
 
     if (skip_integrity) {
       logger.warn('Integrity verification is DISABLED (--skip-verify)');
     }
 
-    const dashboard = new SaveProgressDashboard(
-      [...groups.entries()].map(([fid, items]) => ({
-        name: folder_map.get(fid) ?? fid.slice(0, 12),
-        total_items: items.length,
-      })),
-    );
+    const folder_summaries = [...groups.entries()].map(([fid, items]) => ({
+      name: folder_map.get(fid) ?? fid.slice(0, 12),
+      total_items: items.length,
+    }));
+    const dashboard =
+      options.create_progress?.(folder_summaries) ?? new NoopTransferProgressReporter();
 
     return this.execute_save_loop(
       ctx,
@@ -201,7 +202,7 @@ export class SaveService implements SaveUseCase {
     skip_integrity: boolean,
     groups: Map<string, ManifestEntry[]>,
     folder_map: Map<string, string>,
-    dashboard: SaveProgressDashboard,
+    dashboard: TransferProgressReporter,
   ): Promise<SaveResult> {
     this._interrupted = false;
     const on_sigint = (): void => {

@@ -1,3 +1,5 @@
+import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
+
 export interface SaveOptions {
   readonly folder_name?: string;
   readonly message_ref?: string;
@@ -5,6 +7,10 @@ export interface SaveOptions {
   readonly end_date?: Date;
   readonly output_path?: string;
   readonly skip_integrity_check?: boolean;
+  /** CLI presenter hook; when absent the service reports progress nowhere. */
+  readonly create_progress?: (
+    folders: { name: string; total_items: number }[],
+  ) => TransferProgressReporter;
 }
 
 export interface SaveResult {

@@ -258,19 +258,18 @@ atlas outlook status -m user@company.com -t <tenant-id>
 Example output:
 
 ```
-------------------
--- Atlas Status --
-------------------
-[*] Tenant:  ec216cb5-...
-[*] Mailbox: user@company.com
+╭────────────────╮
+│  Atlas Status  │
+╰────────────────╯
+Tenant:  ec216cb5-...
+Mailbox: user@company.com
 [*] Last backup: 2026-03-18 14:30 (snap-abc123)
 
-  Folder                      Status              Pending
-  ---------------------------------------------------------
-  Inbox                       up-to-date          0
-  Sent Items                  3 change(s)         3
-  Archive                     never backed up     -
-  ---------------------------------------------------------
+Folder      Status           Pending
+----------  ---------------  -------
+Inbox       up-to-date             0
+Sent Items  3 change(s)            3
+Archive     never backed up        -
 
 [*] Overall: 3 pending change(s), 1 folder(s) never backed up across 3 folder(s)
 ```

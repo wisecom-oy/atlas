@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import 'reflect-metadata';
 import { Command } from 'commander';
-import chalk from 'chalk';
 import { compose_container } from '@/container';
 import { register_outlook_command } from '@/commands/outlook.command';
 import { register_onedrive_command } from '@/commands/onedrive.command';
@@ -28,9 +27,7 @@ export function get_container(): Container {
 function create_program(): Command {
   return new Command()
     .name('atlas')
-    .description(
-      chalk.bold('Atlas') + ' – Microsoft 365 backup to S3-compatible object storage (Wisecom Oy)',
-    )
+    .description('Atlas – Microsoft 365 backup to S3-compatible object storage (Wisecom Oy)')
     .version('2.0.0-beta.0');
 }
 

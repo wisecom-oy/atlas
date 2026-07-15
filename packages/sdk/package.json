@@ -58,5 +58,8 @@
     "@wisecom/atlas-outlook": "workspace:*",
     "@wisecom/atlas-onedrive": "workspace:*",
     "@wisecom/atlas-sharepoint": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

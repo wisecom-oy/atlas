@@ -2,18 +2,20 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import {
   execute_onedrive_backup,
-  execute_onedrive_list_snapshots,
-  execute_onedrive_list_versions,
   execute_onedrive_restore,
   execute_onedrive_save,
   execute_onedrive_verify,
   type OneDriveBackupOptions,
-  type OneDriveListSnapshotsOptions,
-  type OneDriveListVersionsOptions,
   type OneDriveRestoreCommandOptions,
   type OneDriveSaveCommandOptions,
   type OneDriveVerifyOptions,
 } from '@/commands/onedrive-command.handlers';
+import {
+  execute_onedrive_list_snapshots,
+  execute_onedrive_list_versions,
+  type OneDriveListSnapshotsOptions,
+  type OneDriveListVersionsOptions,
+} from '@/commands/onedrive-catalog-command.handlers';
 
 type ContainerFactory = () => Container;
 
