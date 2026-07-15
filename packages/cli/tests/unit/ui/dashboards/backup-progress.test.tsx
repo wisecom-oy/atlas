@@ -93,4 +93,37 @@ describe('BackupProgressView', () => {
     expect(lastFrame()).toContain('150/150');
     expect(lastFrame()).toContain('done');
   });
+
+  it('supports OneDrive-style rows: unknown totals, set_row_total, custom units', async () => {
+    const store = new BackupProgressStore([
+      { name: 'Documents', total_items: 0 },
+      { name: 'SitePages', total_items: 0 },
+      { name: 'CacheLibrary', total_items: 0 },
+    ]);
+    const { lastFrame } = render(
+      <BackupProgressView
+        store={store}
+        units={{ rate: 'files/s', extra: 'ver', row_noun: 'drive' }}
+      />,
+    );
+
+    store.update_paging(0, 0, 0, 0);
+    await sleep(0);
+    expect(lastFrame()).toContain('[>>] Documents');
+    expect(lastFrame()).toContain('fetching changes...');
+    expect(lastFrame()).toContain('2 drive(s) pending');
+
+    store.set_row_total(0, 131);
+    store.mark_active(0);
+    store.update_active(0, 40, 2.5, 36);
+    await sleep(0);
+    expect(lastFrame()).toContain('40/131');
+    expect(lastFrame()).toContain('2.5 files/s');
+
+    store.mark_done(0, 128, 3, 18);
+    store.mark_synced(1);
+    await sleep(0);
+    expect(lastFrame()).toContain('128 stored, 3 dedup, 18 ver');
+    expect(lastFrame()).toMatch(/\[==\] SitePages\s+-- up to date/);
+  });
 });

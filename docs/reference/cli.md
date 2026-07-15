@@ -328,6 +328,8 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | `--full` | Force full crawl ignoring saved delta links |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
+While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
+
 **`atlas onedrive restore`**
 
 | Option | Description |

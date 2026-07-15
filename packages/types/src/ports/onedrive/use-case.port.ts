@@ -2,6 +2,7 @@ import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive-manifest';
+import type { BackupProgressReporter } from '../backup/use-case.port';
 
 export interface OneDriveBackupSummary {
   readonly drives_scanned: number;
@@ -28,6 +29,13 @@ export interface OneDriveBackupOptions {
   readonly force_full?: boolean | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
+  /**
+   * CLI presenter hook: builds a per-drive progress reporter before the scan
+   * starts. Drive totals arrive via `set_row_total` once each delta is fetched.
+   * When absent the service reports progress nowhere.
+   */
+  readonly create_progress?:
+    ((drives: { name: string; total_items: number }[]) => BackupProgressReporter) | undefined;
 }
 
 export interface OneDriveCatalogUseCase {

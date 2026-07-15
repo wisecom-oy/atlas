@@ -21,6 +21,7 @@ import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
+import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -88,23 +89,29 @@ export async function execute_onedrive_backup(
   const tenant_id = resolve_tenant_id(container, options);
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const backup = container.get<OneDriveBackupUseCase>(ONEDRIVE_BACKUP_USE_CASE_TOKEN);
-  const result = await backup.backup_onedrive(tenant_id, owner.object_id, {
-    force_full: options.full ?? false,
-    owner_email: owner.email,
-    owner_display_name: owner.display_name,
-  });
 
   await render_static_view(
     <Box flexDirection="column">
       <Banner title="Atlas OneDrive Backup" />
       <KeyValueList
         items={[
-          { label: 'Owner', value: result.owner_id },
-          { label: 'Drives scanned', value: String(result.summary.drives_scanned) },
+          {
+            label: 'Owner',
+            value: owner.display_name
+              ? `${owner.display_name} (${owner.object_id})`
+              : owner.object_id,
+          },
         ]}
       />
     </Box>,
   );
+
+  const result = await backup.backup_onedrive(tenant_id, owner.object_id, {
+    force_full: options.full ?? false,
+    owner_email: owner.email,
+    owner_display_name: owner.display_name,
+    create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
+  });
 
   if (result.snapshot) {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);

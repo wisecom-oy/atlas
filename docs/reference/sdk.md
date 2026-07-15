@@ -73,6 +73,8 @@ await atlas.replicateSnapshot('snapshot-id', [offsite]);
 
 Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. See [SDK Examples](/reference/examples) for production-ready patterns.
 
+`OneDriveBackupOptions.create_progress` takes the same reporter-factory hook documented under [Save Options](#save-options): the CLI injects its per-drive dashboard there, and SDK callers can plug their own observer (drive totals arrive via `set_row_total` once each delta is fetched). When omitted, progress is not reported.
+
 ## Outlook API Reference
 
 | Method | CLI equivalent | Description |

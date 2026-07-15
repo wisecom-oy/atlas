@@ -8,12 +8,21 @@ import type {
   FolderRow,
 } from '@/ui/dashboards/backup-progress-store';
 
+/** Wording for rate, extra-counter, and row-noun suffixes; Outlook and OneDrive differ. */
+export interface BackupUnits {
+  rate: string;
+  extra: string;
+  row_noun: string;
+}
+
+const DEFAULT_UNITS: BackupUnits = { rate: 'msg/s', extra: 'att', row_noun: 'folder' };
+
 function pad_name(name: string, width = 28): string {
   return name.length > width ? name.slice(0, width - 1) + '~' : name.padEnd(width);
 }
 
 /** One folder line; glyphs and wording match the pre-Ink dashboard. */
-function FolderRowLine({ row }: { row: FolderRow }): ReactElement {
+function FolderRowLine({ row, units }: { row: FolderRow; units: BackupUnits }): ReactElement {
   const name = pad_name(row.name);
 
   switch (row.status) {
@@ -23,11 +32,14 @@ function FolderRowLine({ row }: { row: FolderRow }): ReactElement {
       return (
         <Text color="cyan">
           {`[>>] ${name} ${row.processed}/${row.total_items}` +
-            ` | ${row.rate.toFixed(1)} msg/s` +
+            ` | ${row.rate.toFixed(1)} ${units.rate}` +
             ` | ETA ${format_duration(row.eta_seconds)}`}
         </Text>
       );
     case 'paging':
+      if (row.total_items === 0) {
+        return <Text color="cyan">{`[>>] ${name} fetching changes...`}</Text>;
+      }
       return (
         <Text color="cyan">
           {`[>>] ${name} fetching ${row.paging_fetched}/${row.total_items}` +
@@ -40,10 +52,13 @@ function FolderRowLine({ row }: { row: FolderRow }): ReactElement {
         <Text color="green">
           {`[ok] ${name} ${row.processed} items` +
             ` -- ${row.stored} stored, ${row.deduped} dedup` +
-            (row.attachments > 0 ? `, ${row.attachments} att` : '')}
+            (row.attachments > 0 ? `, ${row.attachments} ${units.extra}` : '')}
         </Text>
       );
     case 'synced':
+      if (row.total_items === 0) {
+        return <Text color="yellow">{`[==] ${name} -- up to date`}</Text>;
+      }
       return <Text color="yellow">{`[==] ${name} ${row.total_items} items -- up to date`}</Text>;
     case 'interrupted':
       return <Text color="yellow">{`[~~] ${name} -- interrupted`}</Text>;
@@ -54,7 +69,13 @@ function FolderRowLine({ row }: { row: FolderRow }): ReactElement {
   }
 }
 
-function TotalRow({ state }: { state: BackupProgressState }): ReactElement {
+function TotalRow({
+  state,
+  units,
+}: {
+  state: BackupProgressState;
+  units: BackupUnits;
+}): ReactElement {
   if (state.global_total === 0) {
     return <Text>{'---- TOTAL                          --'}</Text>;
   }
@@ -64,7 +85,7 @@ function TotalRow({ state }: { state: BackupProgressState }): ReactElement {
     <Text>
       {`---- TOTAL${' '.repeat(18)} ` +
         `${state.global_processed}/${state.global_total}` +
-        ` | ${state.rate.toFixed(1)} msg/s` +
+        ` | ${state.rate.toFixed(1)} ${units.rate}` +
         ` | ${eta_str}`}
     </Text>
   );
@@ -75,7 +96,13 @@ function TotalRow({ state }: { state: BackupProgressState }): ReactElement {
  * via `<Static>`; the live region stays small (active rows + pending count +
  * TOTAL), so mailboxes with hundreds of folders never overflow the screen.
  */
-export function BackupProgressView({ store }: { store: BackupProgressStore }): ReactElement {
+export function BackupProgressView({
+  store,
+  units = DEFAULT_UNITS,
+}: {
+  store: BackupProgressStore;
+  units?: BackupUnits;
+}): ReactElement {
   const state = useSyncExternalStore(store.subscribe, store.get_snapshot);
 
   const in_flight = state.rows.filter((row) => row.status === 'active' || row.status === 'paging');
@@ -84,15 +111,17 @@ export function BackupProgressView({ store }: { store: BackupProgressStore }): R
   return (
     <Box flexDirection="column">
       <Static items={state.completed_order}>
-        {(row_index) => <FolderRowLine key={row_index} row={state.rows[row_index]!} />}
+        {(row_index) => (
+          <FolderRowLine key={row_index} row={state.rows[row_index]!} units={units} />
+        )}
       </Static>
       {in_flight.map((row) => (
-        <FolderRowLine key={row.name} row={row} />
+        <FolderRowLine key={row.name} row={row} units={units} />
       ))}
       {pending_count > 0 ? (
-        <Text color="gray">{`[  ] ${pending_count} folder(s) pending`}</Text>
+        <Text color="gray">{`[  ] ${pending_count} ${units.row_noun}(s) pending`}</Text>
       ) : undefined}
-      <TotalRow state={state} />
+      <TotalRow state={state} units={units} />
       {state.status_message === '' ? undefined : <Text color="yellow">{state.status_message}</Text>}
     </Box>
   );

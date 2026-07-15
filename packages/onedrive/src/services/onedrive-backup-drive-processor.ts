@@ -1,4 +1,5 @@
 import type {
+  BackupProgressReporter,
   OneDriveConnector,
   OneDriveDeltaItem,
   OneDriveDeltaResult,
@@ -17,6 +18,11 @@ import {
 import { process_backup_file } from '@/services/onedrive-backup-file-processor';
 import { classify_change_type } from '@/services/onedrive-change-classifier';
 import { sync_file_versions } from '@/services/onedrive-version-sync';
+import {
+  make_item_progress_callback,
+  report_drive_success,
+  type ScanProgressTotals,
+} from '@/services/onedrive-scan-progress';
 
 export interface DriveTrackingState {
   previous_path_by_file_id: Record<string, string>;
@@ -160,6 +166,7 @@ export async function scan_all_drives(
   force_full: boolean,
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
+  progress?: BackupProgressReporter,
 ): Promise<DriveScanAccumulators> {
   const accumulators: DriveScanAccumulators = {
     entries: [],
@@ -169,12 +176,21 @@ export async function scan_all_drives(
     errors: [],
   };
 
-  for (const drive of drives) {
+  const totals: ScanProgressTotals = { processed: 0, total: 0, started_at: Date.now() };
+
+  for (const [index, drive] of drives.entries()) {
     try {
       const prev_delta = force_full
         ? undefined
         : previous_cursor?.delta_link_by_drive[drive.drive_id];
+      progress?.update_paging(index, 0, 0, 0);
       const delta = await connector.fetch_delta(tenant_id, owner_id, drive.drive_id, prev_delta);
+      progress?.set_row_total?.(index, delta.items.length);
+      totals.total += delta.items.length;
+      progress?.mark_active(index);
+
+      const versions_before = version_stats.total_versions_stored;
+      const on_item_processed = make_item_progress_callback(progress, index, totals);
 
       const drive_result = await process_single_drive(
         connector,
@@ -188,6 +204,7 @@ export async function scan_all_drives(
         delta,
         version_stats,
         on_version_stats_update,
+        on_item_processed,
       );
 
       if (drive_result.success) {
@@ -205,13 +222,22 @@ export async function scan_all_drives(
           ...tracking_state,
           updated_at: new Date().toISOString(),
         });
+        report_drive_success(
+          progress,
+          index,
+          delta.items.length === 0 && prev_delta !== undefined,
+          drive_result,
+          version_stats.total_versions_stored - versions_before,
+        );
       } else {
         accumulators.errors.push(...drive_result.errors);
+        progress?.mark_error(index, drive_result.errors[0] ?? 'drive failed');
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`Drive ${drive.drive_id} failed: ${reason}`);
       accumulators.errors.push(`Drive ${drive.drive_name} (${drive.drive_id}): ${reason}`);
+      progress?.mark_error(index, reason);
     }
   }
 
@@ -231,6 +257,7 @@ export async function process_single_drive(
   delta: OneDriveDeltaResult,
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
+  on_item_processed?: () => void,
 ): Promise<SingleDriveResult> {
   if (delta.reset_detected) {
     clear_file_tracking_on_reset(state);
@@ -254,6 +281,7 @@ export async function process_single_drive(
       version_stats,
       on_version_stats_update,
     );
+    on_item_processed?.();
 
     if (outcome.error) {
       item_errors.push(outcome.error);

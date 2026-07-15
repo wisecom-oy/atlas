@@ -108,6 +108,21 @@ export class BackupProgressStore
     });
   }
 
+  set_row_total(index: number, total_items: number): void {
+    this.mutate_row(index, (row) => {
+      row.total_items = total_items;
+    });
+  }
+
+  mark_synced(index: number): void {
+    this.update((draft) => {
+      const row = draft.rows[index];
+      if (!row) return;
+      draft.rows = draft.rows.with(index, { ...row, status: 'synced' });
+      draft.completed_order = [...draft.completed_order, index];
+    });
+  }
+
   mark_done(index: number, stored: number, deduped: number, attachments: number): void {
     this.update((draft) => {
       const row = draft.rows[index];

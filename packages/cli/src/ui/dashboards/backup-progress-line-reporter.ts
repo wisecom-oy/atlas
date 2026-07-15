@@ -41,6 +41,18 @@ export class BackupProgressLineReporter implements BackupProgressReporter {
     _eta_seconds: number,
   ): void {}
 
+  set_row_total(index: number, total_items: number): void {
+    const row = this._rows[index];
+    if (row) row.total_items = total_items;
+  }
+
+  mark_synced(index: number): void {
+    const row = this._rows[index];
+    if (!row) return;
+    row.terminal = true;
+    console.log(`  [==] ${row.name} -- up to date`);
+  }
+
   mark_done(index: number, stored: number, deduped: number, _attachments: number): void {
     const row = this._rows[index];
     if (!row) return;

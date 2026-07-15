@@ -21,7 +21,11 @@ export interface BackupProgressReporter {
   mark_active(index: number): void;
   update_active(index: number, processed: number, rate: number, eta_seconds: number): void;
   update_paging(index: number, items_fetched: number, rate: number, eta_seconds: number): void;
+  /** Sets a row's item total once known (e.g. after a delta fetch reveals the count). */
+  set_row_total?(index: number, total_items: number): void;
   mark_done(index: number, stored: number, deduped: number, attachments: number): void;
+  /** Marks a row up to date without counters (e.g. an incremental delta with no changes). */
+  mark_synced?(index: number): void;
   mark_all_pending_interrupted(): void;
   mark_error(index: number, message: string): void;
   update_total(
