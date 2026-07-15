@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
 import { Command } from 'commander';
 import { compose_container } from '@/container';
 import { register_outlook_command } from '@/commands/outlook.command';
@@ -25,10 +26,14 @@ export function get_container(): Container {
 
 /** Builds the top-level Commander program with metadata. */
 function create_program(): Command {
+  // Works from src (tsx) and dist (bundle): both sit one level below package.json.
+  const { version } = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { version: string };
   return new Command()
     .name('atlas')
     .description('Atlas – Microsoft 365 backup to S3-compatible object storage (Wisecom Oy)')
-    .version('2.0.0-beta.0');
+    .version(version);
 }
 
 /** Registers all CLI subcommands against the program. */

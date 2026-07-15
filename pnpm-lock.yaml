@@ -90,9 +90,6 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
-      chalk:
-        specifier: ^5.6.2
-        version: 5.6.2
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -229,9 +226,6 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
-      chalk:
-        specifier: ^5.6.2
-        version: 5.6.2
       inversify:
         specifier: ^7.11.0
         version: 7.11.0(reflect-metadata@0.2.2)
