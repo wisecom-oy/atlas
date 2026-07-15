@@ -1,9 +1,3 @@
-import type { Command } from 'commander';
-import type { Container } from 'inversify';
-import type { AtlasConfig } from '@wisecom/atlas-core';
-import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { StatsUseCase } from '@wisecom/atlas-types';
-import { STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import type {
   BucketStats,
   MailboxStats,
@@ -20,54 +14,8 @@ import type { TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
 import { format_bytes, format_microseconds } from '@/command-formatters';
 
-type ContainerFactory = () => Container;
-
-interface StatsOptions {
-  tenant?: string;
-  mailbox?: string;
-  json?: boolean;
-}
-
-/** Registers the `atlas stats` subcommand for storage statistics. */
-export function register_stats_command(program: Command, get_container: ContainerFactory): void {
-  program
-    .command('stats')
-    .description('Show storage statistics for the bucket or a specific mailbox')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('-m, --mailbox <email>', 'show statistics for a specific mailbox')
-    .option('--json', 'output raw JSON instead of formatted table')
-    .action((options: StatsOptions) => execute_stats(get_container(), options));
-}
-
-/** Routes to bucket-level or mailbox-level stats based on flags. */
-async function execute_stats(container: Container, options: StatsOptions): Promise<void> {
-  const tenant_id = resolve_tenant_id(container, options);
-  const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
-
-  if (options.mailbox) {
-    const result = await stats.get_mailbox_stats(tenant_id, options.mailbox);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      await print_mailbox_stats(result);
-    }
-  } else {
-    const result = await stats.get_bucket_stats(tenant_id);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      await print_bucket_stats(result);
-    }
-  }
-}
-
-/** Resolves the tenant ID from CLI flag or config. */
-function resolve_tenant_id(container: Container, options: StatsOptions): string {
-  if (options.tenant) return options.tenant;
-  return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
-}
-
-async function print_bucket_stats(stats: BucketStats): Promise<void> {
+/** Renders bucket-wide Outlook statistics as banner, overview, and monthly table. */
+export async function print_bucket_stats(stats: BucketStats): Promise<void> {
   await render_static_view(
     <Box flexDirection="column">
       <Banner title="Atlas Bucket Statistics" subtitle={`Tenant: ${stats.tenant_id}`} />
@@ -80,7 +28,8 @@ async function print_bucket_stats(stats: BucketStats): Promise<void> {
   );
 }
 
-async function print_mailbox_stats(stats: MailboxStats): Promise<void> {
+/** Renders single-mailbox Outlook statistics as banner, overview, and tables. */
+export async function print_mailbox_stats(stats: MailboxStats): Promise<void> {
   await render_static_view(
     <Box flexDirection="column">
       <Banner title="Atlas Mailbox Statistics" subtitle={`Mailbox: ${stats.owner_id}`} />

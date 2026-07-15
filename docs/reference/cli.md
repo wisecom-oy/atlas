@@ -508,21 +508,29 @@ atlas storage-check --lock-mode compliance --retention-days 365
 
 ## `atlas stats`
 
-Show storage statistics for the entire bucket or a specific mailbox. Reports object counts and total storage size across data, attachments, and manifest prefixes.
+Show storage statistics across all backed-up services. By default the command reports Outlook, OneDrive, and SharePoint in one pass: per-service snapshot counts, item counts (messages or files), total encrypted storage size, and a monthly breakdown. Statistics are computed purely from the encrypted snapshot manifests in the bucket -- no Microsoft Graph calls are made unless you scope to a OneDrive owner or SharePoint site that needs identity resolution.
 
 ```bash
-atlas stats                            # bucket-level overview
-atlas stats -m user@company.com        # mailbox-level breakdown
+atlas stats                            # all services: Outlook, OneDrive, SharePoint
+atlas stats --service outlook          # Outlook bucket-level overview only
+atlas stats -m user@company.com        # Outlook mailbox-level breakdown
+atlas stats -o user@company.com        # OneDrive statistics for one owner
+atlas stats -s https://contoso.sharepoint.com/sites/Engineering   # one site
+atlas stats --top 5                    # limit owner/site tables to 5 rows
 atlas stats --json                     # raw JSON output
 ```
 
-| Option                  | Description                                |
-| ----------------------- | ------------------------------------------ |
-| `-m, --mailbox <email>` | Show statistics for a specific mailbox     |
-| `--json`                | Output raw JSON instead of formatted table |
-| `-t, --tenant <id>`     | Override tenant ID from config             |
+| Option                  | Description                                                          |
+| ----------------------- | -------------------------------------------------------------------- |
+| `-m, --mailbox <email>` | Outlook statistics for a specific mailbox (implies `--service outlook`) |
+| `-o, --owner <email\|id>` | OneDrive statistics for a specific owner (implies `--service onedrive`) |
+| `-s, --site <url\|id>`  | SharePoint statistics for a specific site (implies `--service sharepoint`) |
+| `--service <name>`      | Limit output to one service: `outlook`, `onedrive`, `sharepoint`, or `all` (default `all`) |
+| `--top <n>`             | Maximum owner/site rows in OneDrive/SharePoint tables (default 20)   |
+| `--json`                | Output raw JSON instead of formatted tables                          |
+| `-t, --tenant <id>`     | Override tenant ID from config                                       |
 
-The bucket-level overview shows total object counts and storage consumption across all mailboxes. The mailbox breakdown shows per-prefix statistics (data, attachments, manifests) so you can identify which mailboxes consume the most storage. Use `--json` for programmatic consumption in monitoring scripts or dashboards.
+Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards -- with multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
 
 ## `atlas replicate`
 

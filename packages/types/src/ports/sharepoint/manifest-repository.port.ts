@@ -23,4 +23,7 @@ export interface SharePointManifestRepository {
     ctx: TenantContext,
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]>;
+
+  /** Lists snapshot manifests for every site in the tenant. */
+  list_all_manifests(ctx: TenantContext): Promise<SharePointSnapshotManifest[]>;
 }
