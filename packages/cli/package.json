@@ -21,6 +21,7 @@
   },
   "files": [
     "dist",
+    "scripts",
     "README.md"
   ],
   "exports": {
@@ -36,6 +37,8 @@
   },
   "scripts": {
     "build": "tsdown",
+    "postinstall": "node scripts/postinstall.mjs",
+    "link-cli": "node scripts/postinstall.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src/ tests/",

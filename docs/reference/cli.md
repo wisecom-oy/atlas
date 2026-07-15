@@ -10,6 +10,8 @@ npm install -g @wisecom/atlas-cli
 
 The CLI reads credentials from `.env` and environment variables (see [Configuration](/configuration)). It is the right choice for cron jobs, operator workflows, and simple deployments where you run commands directly.
 
+With a **local** (non-global) install, a postinstall hook links `atlas` into `/usr/local/bin` or `~/.local/bin` so the command works system-wide. The hook is conservative: if `atlas` is already a shell alias or an existing command on PATH, it skips with a warning and leaves your setup untouched (use `npx atlas` in that case). It never fails the install. Opt out with `ATLAS_SKIP_POSTINSTALL=1`; re-run manually with `npm run link-cli --prefix node_modules/@wisecom/atlas-cli`. Note: pnpm blocks dependency lifecycle scripts by default — run `pnpm approve-builds` to allow it. Windows relies on npm's own `.cmd` shims (global install).
+
 For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@wisecom/atlas-sdk`** instead — see [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
 
 ## `atlas outlook`
