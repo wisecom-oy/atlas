@@ -1,0 +1,194 @@
+{
+  "main": {
+    "id": "4d46489ee64ea2f3",
+    "type": "split",
+    "children": [
+      {
+        "id": "5fb6bc7e18c9abc3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "15211ffb4d8098d7",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "atlas-repository-map.canvas",
+                "viewState": {
+                  "x": 563.5653294872509,
+                  "y": 122.00484973813994,
+                  "zoom": -0.534711770503227
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "atlas-repository-map"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e73f1ccff3a8da73",
+    "type": "split",
+    "children": [
+      {
+        "id": "a1344b96c1d83d4c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "95674405354e2f84",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "d1fb778c2fd116fb",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "0be9d8614f71af5d",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "686dfdc16ea79f8c",
+    "type": "split",
+    "children": [
+      {
+        "id": "fc7bc22a2e4e96c3",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f7557ef68f7b0b2b",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "atlas-repository-map.canvas",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for atlas-repository-map"
+            }
+          },
+          {
+            "id": "7cb8ed95f20b0fb9",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "atlas-repository-map.canvas",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from atlas-repository-map"
+            }
+          },
+          {
+            "id": "f9957c639f32696b",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "d317813d5fe4f1b5",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "088515c75132e7ee",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "atlas-repository-map.canvas",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of atlas-repository-map"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "15211ffb4d8098d7",
+  "lastOpenFiles": [
+    "atlas-repository-map.md",
+    "atlas-repository-map.canvas"
+  ]
+}

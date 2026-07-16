@@ -174,4 +174,10 @@ WARN Config file /home/user/atlas.config.json has overly permissive permissions 
 
 This check is skipped on Windows where Unix permission bits do not apply. The check is advisory (warning, not error) to avoid breaking existing deployments, but operators are strongly encouraged to restrict config files to owner-only access (`chmod 600`).
 
-Environment variables (`ATLAS_*`) and `.env` files are an alternative that avoids storing secrets in a JSON file entirely.
+Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file but remain readable from the process environment and from plaintext dotfiles — the exact locations credential-stealing malware sweeps first.
+
+### Encrypted Secure Store
+
+`atlas config` stores configuration in `~/.atlas/config.enc`, encrypted with AES-256-GCM (12-byte IV, 16-byte auth tag, layout `[iv][tag][ciphertext]`). The 256-bit store key is held in the OS keyring — macOS Keychain (`security`) or libsecret (`secret-tool`) on Linux — so a disk or dotfile sweep yields only ciphertext, and tampering with the store file fails authentication at load time rather than silently feeding Atlas modified settings.
+
+Threat model: the store defends against offline file exfiltration and environment-variable grabbing by unprivileged malware. It does **not** defend against malware running interactively as the logged-in user (which can invoke the keyring the same way Atlas does), nor against an attacker with root. On systems without a keyring the store key falls back to `~/.atlas/config.key` (mode `0600`, with a warning) — equivalent to file-permission security, still one step above plaintext env files because the config values themselves are never on disk in the clear.

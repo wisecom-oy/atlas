@@ -532,6 +532,29 @@ atlas stats --json                     # raw JSON output
 
 Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards -- with multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
 
+## `atlas config`
+
+Manage Atlas configuration in an encrypted local store, git-config style. Values are written to `~/.atlas/config.enc` (AES-256-GCM); the store key lives in the OS keyring (macOS Keychain or libsecret), so credentials never sit on disk or in the environment in plaintext. See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
+
+```bash
+atlas config tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f   # set + validate
+pbpaste | atlas config client.secret -                        # "-" reads from stdin (no shell history)
+atlas config client.secret                                    # get (secrets masked)
+atlas config list                                             # all keys, values, sources
+atlas config unset client.secret                              # remove from the store
+atlas config validate                                         # live Graph + S3 connectivity check
+```
+
+| Usage                        | Description                                                    |
+| ---------------------------- | -------------------------------------------------------------- |
+| `config <key> <value>`       | Validate and save a value to the encrypted store               |
+| `config <key>`               | Print the current effective value (secrets masked)             |
+| `config list`                | Print every key with its value and source (`env`, `secure store`, `config file`) |
+| `config unset <key>`         | Remove a key from the encrypted store                          |
+| `config validate`            | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config; exits non-zero on failure |
+
+Keys: `tenant.id`, `client.id`, `client.secret`, `s3.endpoint`, `s3.access-key`, `s3.secret-key`, `s3.region`, `encryption.passphrase`. Each value is format-checked on save (GUIDs, URL scheme, 12-character passphrase minimum), and once a credential group is complete the matching live probe runs automatically. Note that `ATLAS_*` environment variables still override stored values; the command warns when a saved value is shadowed.
+
 ## `atlas replicate`
 
 Replicate snapshots to a secondary S3-compatible storage target. Ciphertext is copied as-is (no decryption). Only unreplicated snapshots and missing objects are transferred.
