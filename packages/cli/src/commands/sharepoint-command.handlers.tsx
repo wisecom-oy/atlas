@@ -22,6 +22,7 @@ import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
+import { build_object_lock_request } from '@/command-object-lock';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -30,6 +31,8 @@ export interface SharePointTenantOptions {
 export interface SharePointBackupOptions extends SharePointTenantOptions {
   site: string;
   full?: boolean;
+  retentionDays?: string;
+  lockMode?: string;
 }
 
 export interface SharePointVerifyOptions extends SharePointTenantOptions {
@@ -107,6 +110,7 @@ export async function execute_sharepoint_backup(
     force_full: options.full ?? false,
     site_url: site.site_url,
     site_display_name: site.display_name,
+    object_lock_request: build_object_lock_request(options),
   });
 
   await render_static_view(

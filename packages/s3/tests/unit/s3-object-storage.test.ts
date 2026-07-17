@@ -212,4 +212,28 @@ describe('S3ObjectStorage', () => {
       expect(mock_s3.send).toHaveBeenCalledTimes(3);
     });
   });
+
+  describe('apply_default_retention', () => {
+    it('sets bucket default retention with mode and days', async () => {
+      mock_s3.send.mockResolvedValueOnce({});
+
+      await storage.apply_default_retention('COMPLIANCE', 30);
+
+      const cmd = mock_s3.send.mock.calls[0][0];
+      expect(cmd.constructor.name).toBe('PutObjectLockConfigurationCommand');
+      expect(cmd.input.ObjectLockConfiguration.Rule.DefaultRetention).toEqual({
+        Mode: 'COMPLIANCE',
+        Days: 30,
+      });
+    });
+
+    it('maps InvalidBucketState to ObjectLockUnsupportedError', async () => {
+      const err = Object.assign(new Error('no lock'), { name: 'InvalidBucketState' });
+      mock_s3.send.mockRejectedValueOnce(err);
+
+      await expect(storage.apply_default_retention('GOVERNANCE', 7)).rejects.toBeInstanceOf(
+        ObjectLockUnsupportedError,
+      );
+    });
+  });
 });

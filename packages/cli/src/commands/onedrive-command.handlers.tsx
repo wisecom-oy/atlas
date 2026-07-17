@@ -22,6 +22,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
+import { build_object_lock_request } from '@/command-object-lock';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -30,6 +31,8 @@ export interface OneDriveTenantOptions {
 export interface OneDriveBackupOptions extends OneDriveTenantOptions {
   owner: string;
   full?: boolean;
+  retentionDays?: string;
+  lockMode?: string;
 }
 
 export interface OneDriveRestoreCommandOptions extends OneDriveTenantOptions {
@@ -110,6 +113,7 @@ export async function execute_onedrive_backup(
     force_full: options.full ?? false,
     owner_email: owner.email,
     owner_display_name: owner.display_name,
+    object_lock_request: build_object_lock_request(options),
     create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
   });
 

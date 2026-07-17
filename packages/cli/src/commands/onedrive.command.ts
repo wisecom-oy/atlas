@@ -39,6 +39,11 @@ function register_onedrive_backup(group: Command, get_container: ContainerFactor
     .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
     .option('--full', 'force full crawl ignoring saved delta state')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .option(
+      '--retention-days <n>',
+      'apply Object Lock default retention for N days (persists on the bucket)',
+    )
+    .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
     .action((options: OneDriveBackupOptions) => execute_onedrive_backup(get_container(), options));
 }
 

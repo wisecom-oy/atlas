@@ -130,4 +130,18 @@ describe('outlook backup command exit code for tenant runs', () => {
 
     expect(process.exitCode).toBeUndefined();
   });
+
+  it('forwards lock flags to the tenant-wide orchestrator run (issue #29)', async () => {
+    mock_run_tenant_backup_with_cli_adapter.mockResolvedValue(make_tenant_result(0));
+
+    await program.parseAsync(
+      ['outlook', 'backup', '--retention-days', '30', '--lock-mode', 'compliance'],
+      { from: 'user' },
+    );
+
+    const tenant_options = mock_run_tenant_backup_with_cli_adapter.mock.calls[0][2];
+    expect(tenant_options.object_lock_request).toEqual({ mode: 'COMPLIANCE', retention_days: 30 });
+    expect(tenant_options.object_lock_policy.mode).toBe('COMPLIANCE');
+    expect(tenant_options.object_lock_policy.retain_until).toBeDefined();
+  });
 });

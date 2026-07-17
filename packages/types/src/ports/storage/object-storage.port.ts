@@ -89,6 +89,14 @@ export interface ObjectStorage {
     request?: StorageImmutabilityProbeRequest,
   ): Promise<StorageImmutabilityProbeResult>;
 
+  /**
+   * Sets the bucket's Object Lock default retention: every new object version
+   * inherits the lock automatically, so no write path can forget it. Persists
+   * on the bucket until replaced. Requires a lock-capable bucket (rejects
+   * otherwise).
+   */
+  apply_default_retention(mode: StorageObjectLockMode, retention_days: number): Promise<void>;
+
   /** Starts a multipart upload, returning a handle for part-level control. */
   begin_multipart_upload(
     key: string,

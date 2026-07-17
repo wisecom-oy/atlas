@@ -10,6 +10,7 @@ import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import type { KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
+import { parse_lock_mode, parse_retention_days } from '@/command-object-lock';
 
 type ContainerFactory = () => Container;
 
@@ -99,23 +100,4 @@ function build_request(options: StorageCheckOptions): {
     ...(mode !== undefined ? { mode } : {}),
     ...(retention_days !== undefined ? { retention_days } : {}),
   };
-}
-
-function parse_lock_mode(raw_mode?: string): ObjectLockMode | undefined {
-  if (!raw_mode) return undefined;
-  const normalized = raw_mode.trim().toUpperCase();
-  if (normalized === 'GOVERNANCE') return 'GOVERNANCE';
-  if (normalized === 'COMPLIANCE') return 'COMPLIANCE';
-  throw new Error(
-    `Invalid --lock-mode value "${raw_mode}". Expected "governance" or "compliance".`,
-  );
-}
-
-function parse_retention_days(raw_days?: string): number | undefined {
-  if (!raw_days) return undefined;
-  const parsed = parseInt(raw_days, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Invalid --retention-days value "${raw_days}". Expected a positive integer.`);
-  }
-  return parsed;
 }
