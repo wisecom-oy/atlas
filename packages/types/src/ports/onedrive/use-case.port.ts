@@ -2,7 +2,7 @@ import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive-manifest';
-import type { BackupProgressReporter } from '../backup/use-case.port';
+import type { BackupProgressReporter, ObjectLockRequest } from '../backup/use-case.port';
 
 export interface OneDriveBackupSummary {
   readonly drives_scanned: number;
@@ -29,6 +29,12 @@ export interface OneDriveBackupOptions {
   readonly force_full?: boolean | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
+  /**
+   * Object Lock retention applied as the bucket's default retention before
+   * the run: every new object version (files, versions, manifests, cursors)
+   * inherits the lock. Persists on the bucket for subsequent writes.
+   */
+  readonly object_lock_request?: ObjectLockRequest | undefined;
   /**
    * CLI presenter hook: builds a per-drive progress reporter before the scan
    * starts. Drive totals arrive via `set_row_total` once each delta is fetched.

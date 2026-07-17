@@ -49,6 +49,14 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
+    if (options.object_lock_request?.retention_days) {
+      // Bucket default retention: every new object version (files, versions,
+      // manifests, cursors) inherits the lock - no write path can forget it.
+      await ctx.storage.apply_default_retention(
+        options.object_lock_request.mode ?? 'GOVERNANCE',
+        options.object_lock_request.retention_days,
+      );
+    }
     try {
       const previous_cursor =
         options.force_full === true ? undefined : await this._cursors.load(ctx, site_id);

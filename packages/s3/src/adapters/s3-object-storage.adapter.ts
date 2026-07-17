@@ -18,9 +18,13 @@ import type {
   MultipartUploadHandle,
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
+  StorageObjectLockMode,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
+import {
+  apply_bucket_default_retention,
+  probe_bucket_immutability,
+} from '@/adapters/s3-bucket-manager';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
 import {
   ObjectLockModeRejectedError,
@@ -217,6 +221,14 @@ export class S3ObjectStorage implements ObjectStorage {
     } while (true);
 
     return versions;
+  }
+
+  /** Sets the bucket's Object Lock default retention (see s3-bucket-manager). */
+  async apply_default_retention(
+    mode: StorageObjectLockMode,
+    retention_days: number,
+  ): Promise<void> {
+    await apply_bucket_default_retention(this._client, this._bucket, mode, retention_days);
   }
 
   /** Starts a multipart upload with optional metadata and object lock. */

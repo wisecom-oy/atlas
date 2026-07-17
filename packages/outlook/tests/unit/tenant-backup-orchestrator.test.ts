@@ -154,4 +154,26 @@ describe('DefaultTenantBackupOrchestrator', () => {
     expect(result.succeeded).toBe(0);
     expect(result.outcomes).toHaveLength(0);
   });
+
+  it('forwards object lock options to every mailbox sync (issue #29)', async () => {
+    const orch = container.get(DefaultTenantBackupOrchestrator);
+    await orch.backup_tenant('t1', {
+      object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+      object_lock_policy: {
+        mode: 'COMPLIANCE',
+        require_immutability: true,
+        retain_until: '2030-01-01T00:00:00.000Z',
+      },
+    });
+
+    const calls = vi.mocked(mock_backup.sync_mailbox).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    for (const [, , sync_options] of calls) {
+      expect(sync_options?.object_lock_request).toEqual({
+        mode: 'COMPLIANCE',
+        retention_days: 30,
+      });
+      expect(sync_options?.object_lock_policy?.mode).toBe('COMPLIANCE');
+    }
+  });
 });

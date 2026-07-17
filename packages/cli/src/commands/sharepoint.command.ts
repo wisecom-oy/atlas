@@ -53,6 +53,11 @@ function register_sharepoint_backup(group: Command, get_container: ContainerFact
     .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID')
     .option('--full', 'force full crawl ignoring saved delta state')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .option(
+      '--retention-days <n>',
+      'apply Object Lock default retention for N days (persists on the bucket)',
+    )
+    .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
     .action((options: SharePointBackupOptions) =>
       execute_sharepoint_backup(get_container(), options),
     );

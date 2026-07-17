@@ -326,9 +326,15 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | --- | --- |
 | `-o, --owner <id>` | User email or Entra object ID (required) |
 | `--full` | Force full crawl ignoring saved delta links |
+| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below) |
+| `--lock-mode <mode>` | Object Lock mode (`governance` or `compliance`, default `governance`) |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
 While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
+
+::: details Object Lock semantics for OneDrive/SharePoint
+Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDrive and SharePoint apply immutability as **bucket default retention** (`PutObjectLockConfiguration`): every new object version — files, file versions, manifests, delta cursors — inherits the lock automatically, so no write path can bypass it. Two consequences: the setting **persists on the bucket** and covers all subsequent writes from any command, and the bucket must be lock-capable (created with Object Lock; see `atlas storage-check` and the migration runbook in the self-hosting docs) or the backup fails fast with `ObjectLockUnsupportedError`. Frequently-overwritten small objects (cursors, indexes) accumulate locked noncurrent versions until retention expires; the bucket housekeeping lifecycle rules clean them up afterwards.
+:::
 
 **`atlas onedrive restore`**
 
@@ -430,6 +436,8 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | --- | --- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
 | `--full` | Force full crawl ignoring saved delta links |
+| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive) |
+| `--lock-mode <mode>` | Object Lock mode (`governance` or `compliance`, default `governance`) |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
 **`atlas sharepoint list-snapshots`**

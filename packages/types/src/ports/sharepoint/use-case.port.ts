@@ -2,6 +2,7 @@ import type {
   SharePointFileVersionRecord,
   SharePointSnapshotManifest,
 } from '../../domain/sharepoint-manifest';
+import type { ObjectLockRequest } from '../backup/use-case.port';
 
 export interface SharePointBackupSummary {
   readonly libraries_scanned: number;
@@ -28,6 +29,12 @@ export interface SharePointBackupOptions {
   readonly force_full?: boolean | undefined;
   readonly site_url?: string | undefined;
   readonly site_display_name?: string | undefined;
+  /**
+   * Object Lock retention applied as the bucket's default retention before
+   * the run: every new object version (files, versions, manifests, cursors)
+   * inherits the lock. Persists on the bucket for subsequent writes.
+   */
+  readonly object_lock_request?: ObjectLockRequest | undefined;
 }
 
 export interface SharePointBackupUseCase {
