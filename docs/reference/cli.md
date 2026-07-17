@@ -626,3 +626,7 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000
 ::: danger Rehydration Is Not Sync
 Rehydration copies explicitly selected data from a designated replica to primary. It does not merge, diff, or resolve conflicts. After rehydration, primary resumes as the source of truth. Delta links in recovered manifests may be stale -- Atlas falls back to full sync on the next backup automatically.
 :::
+
+::: warning Encryption Key Safety
+Rehydration needs the source replica's encryption key (`_meta/dek.enc`) on the primary. Atlas copies it automatically when the primary has none, and replaces it only when the key is provably the sole object in the primary bucket (a freshly auto-initialized bucket). If the primary already contains **any** other object -- Outlook, OneDrive, or SharePoint data, or replication records -- and its key differs from the source's, rehydration aborts with `DekOverwriteRefusedError` instead of making that data permanently undecryptable. If the primary's content is disposable, run `atlas delete --purge` first and rehydrate into the empty bucket.
+:::
