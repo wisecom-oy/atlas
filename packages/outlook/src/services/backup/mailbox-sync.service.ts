@@ -124,7 +124,9 @@ export class MailboxSyncService implements BackupUseCase {
         }
 
         all_entries.push(...outcome.entries);
-        if (outcome.delta_link) {
+        // Persist a folder's delta link only when every page was fully processed;
+        // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
+        if (outcome.delta_link && outcome.complete) {
           new_delta_links[folder.folder_id] = outcome.delta_link;
         }
         stored += outcome.stored;
@@ -197,6 +199,7 @@ export class MailboxSyncService implements BackupUseCase {
   ): Promise<{
     entries: ManifestEntry[];
     delta_link?: string;
+    complete: boolean;
     stored: number;
     deduplicated: number;
     attachments_stored: number;
@@ -229,6 +232,7 @@ export class MailboxSyncService implements BackupUseCase {
       return {
         entries: result.entries,
         ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
+        complete: result.complete,
         stored: result.stored,
         deduplicated: result.deduplicated,
         attachments_stored: result.attachments_stored,
@@ -238,6 +242,7 @@ export class MailboxSyncService implements BackupUseCase {
       const msg = err instanceof Error ? err.message : String(err);
       return {
         entries: [],
+        complete: false,
         stored: 0,
         deduplicated: 0,
         attachments_stored: 0,
