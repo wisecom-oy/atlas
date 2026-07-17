@@ -106,7 +106,11 @@ export function map_users_to_tenant_mailboxes(users: GraphUserRecord[]): TenantM
     });
 }
 
-/** Filters to fileAttachment, decodes base64 content, warns on missing bytes. */
+/**
+ * Filters to fileAttachment and decodes base64 content. Records without
+ * contentBytes (above the Graph inline limit) are returned with an empty
+ * buffer; the connector downloads their binary separately via /$value.
+ */
 export function map_file_attachments(records: GraphAttachmentRecord[]): MessageAttachment[] {
   const results: MessageAttachment[] = [];
 
@@ -114,9 +118,9 @@ export function map_file_attachments(records: GraphAttachmentRecord[]): MessageA
     if (r['@odata.type'] !== '#microsoft.graph.fileAttachment') continue;
 
     if (!r.contentBytes) {
-      logger.warn(
-        `Attachment "${r.name ?? '?'}" (${r.size ?? 0} bytes) has no contentBytes -- ` +
-          `likely exceeds Graph API inline limit (>4MB). Metadata recorded, binary skipped.`,
+      logger.debug(
+        `Attachment "${r.name ?? '?'}" (${r.size ?? 0} bytes) has no inline contentBytes -- ` +
+          `will download via /$value`,
       );
       results.push({
         attachment_id: r.id ?? '',
