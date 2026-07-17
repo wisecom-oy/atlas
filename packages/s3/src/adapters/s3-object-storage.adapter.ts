@@ -51,6 +51,7 @@ export class S3ObjectStorage implements ObjectStorage {
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
     if_match?: string,
+    if_none_match?: boolean,
   ): Promise<void> {
     await this.validate_immutability_policy(object_lock_policy);
     const content_md5 = createHash('md5').update(data).digest('base64');
@@ -68,6 +69,7 @@ export class S3ObjectStorage implements ObjectStorage {
             ? new Date(object_lock_policy.retain_until)
             : undefined,
           ...(if_match ? { IfMatch: if_match } : {}),
+          ...(if_none_match ? { IfNoneMatch: '*' } : {}),
         }),
       );
     } catch (err) {
