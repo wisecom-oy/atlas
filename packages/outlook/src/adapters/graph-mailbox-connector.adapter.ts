@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
+import { ResponseType } from '@microsoft/microsoft-graph-client';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type {
   MailboxConnector,
@@ -169,8 +170,9 @@ export class GraphMailboxConnector implements MailboxConnector {
 
   /**
    * Fetches file attachments for a message. Filters to fileAttachment type only,
-   * decodes contentBytes from base64. Logs a warning and skips storage for
-   * attachments where contentBytes is missing (typically >4MB).
+   * decodes contentBytes from base64. Attachments above the Graph inline limit
+   * (~3 MB) arrive without contentBytes and are downloaded individually via the
+   * /$value endpoint, which streams raw bytes with no size ceiling.
    */
   async fetch_attachments(
     _tenant_id: string,
@@ -182,12 +184,42 @@ export class GraphMailboxConnector implements MailboxConnector {
       const records = await with_graph_retry(() =>
         this.collect_all_pages<GraphAttachmentRecord>(url),
       );
-      return map_file_attachments(records);
+      const attachments = map_file_attachments(records);
+
+      for (let i = 0; i < attachments.length; i++) {
+        const att = attachments[i]!;
+        if (att.content.length > 0 || att.size_bytes === 0 || !att.attachment_id) continue;
+        const content = await this.download_attachment_content(
+          owner_id,
+          message_id,
+          att.attachment_id,
+        );
+        attachments[i] = { ...att, content };
+      }
+      return attachments;
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
       throw err;
     }
+  }
+
+  /**
+   * Downloads raw attachment bytes via /attachments/{id}/$value. Raw transfer
+   * avoids the +33% base64 overhead of contentBytes. Each attachment gets its
+   * own retry window so a large binary cannot starve the page-listing budget.
+   */
+  private async download_attachment_content(
+    owner_id: string,
+    message_id: string,
+    attachment_id: string,
+  ): Promise<Buffer> {
+    const url = `/users/${owner_id}/messages/${message_id}/attachments/${attachment_id}/$value`;
+    const data = await with_graph_retry(
+      () =>
+        this._client.api(url).responseType(ResponseType.ARRAYBUFFER).get() as Promise<ArrayBuffer>,
+    );
+    return Buffer.from(data);
   }
 
   // ---------------------------------------------------------------------------
