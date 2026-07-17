@@ -68,11 +68,12 @@ The `--page-size` flag controls how many messages are requested per Graph API de
 
 ### `atlas outlook verify`
 
-Verify integrity of a backup snapshot. Downloads every encrypted object from S3, decrypts it (which validates the GCM authentication tag against tampering), recomputes the SHA-256 hash of the plaintext, and compares it against the checksum stored in the manifest using constant-time comparison (`timingSafeEqual`).
+Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object -- message bodies and attachments**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
 
 ```bash
 atlas outlook verify -m user@company.com -s <snapshot-id>
 atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
+atlas outlook verify -m user@company.com -s <snapshot-id> --fast
 ```
 
 | Option                  | Description                                |
@@ -80,11 +81,14 @@ atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
 | `-m, --mailbox <email>` | Mailbox that owns the snapshot (required)  |
 | `-s, --snapshot <id>`   | Snapshot identifier to verify (required)   |
 | `-t, --tenant <id>`     | Override tenant ID from config             |
+| `--fast`                | Existence-only checks (`HeadObject` per referenced key) -- no download, decrypt, or hashing |
 
 ::: details What exactly is verified?
-`atlas outlook verify` checks **message body entries** listed in the manifest. Each message is downloaded, decrypted (GCM auth tag validates ciphertext integrity), and its plaintext SHA-256 is compared against the manifest checksum.
+Verification covers the **merged entry set of the snapshot's manifest chain**: the target delta manifest plus every older manifest of the same mailbox, deduplicated newest-first -- the same routine restore uses, so the two views cannot drift. A corrupt or missing object from an *older* backup run fails verification of every later snapshot that still references it.
 
-Attachments are **not separately verified** by this command. However, attachments are protected by GCM authentication -- any tampering will cause a decryption failure during restore or save operations. The verification scope is message bodies because those are the primary data objects tracked in manifests.
+Both message blobs and `attachments` are checked (storage key + checksum). Entries with no stored blob at all (e.g. large attachments skipped by pre-v2.1.0 backups) are reported as **unverifiable** and fail the run with a non-zero exit code -- they represent content a restore cannot reproduce.
+
+`--fast` trades depth for cost: it only confirms every referenced object exists in the bucket, which catches the most common real-world damage (lifecycle deletion, failed replication, manual cleanup) at near-zero bandwidth. Scheduled deep verification should use full mode, which also validates ciphertext integrity via the GCM authentication tag.
 :::
 
 ### `atlas outlook restore`
