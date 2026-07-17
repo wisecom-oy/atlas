@@ -41,13 +41,19 @@ export interface ObjectStorageEtagResult {
 }
 
 export interface ObjectStorage {
-  /** Writes an object to storage under the given key. */
+  /**
+   * Writes an object to storage under the given key.
+   * `if_match` performs a compare-and-swap on the ETag; `if_none_match` makes
+   * the write create-only (fails if the key exists). Both reject with a
+   * precondition error (HTTP 412) when the condition does not hold.
+   */
   put(
     key: string,
     data: Buffer,
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
     if_match?: string,
+    if_none_match?: boolean,
   ): Promise<void>;
 
   /** Reads the full content of an object from storage. */

@@ -141,3 +141,29 @@ MinIO supports TLS natively by placing certificate files in the container. See t
 ```env
 ATLAS_S3_ENDPOINT="https://minio.internal:9000"
 ```
+
+### Protecting the Tenant Encryption Key
+
+Each tenant bucket stores its wrapped data-encryption key at `_meta/dek.enc`. Atlas writes this object exactly once, with a create-only conditional write (`If-None-Match: *`, supported by AWS S3 and MinIO): if two processes bootstrap the same tenant concurrently, the second write fails with `412 Precondition Failed` and that process adopts the already-stored key. Overwriting a live DEK would make every object encrypted with it permanently undecryptable.
+
+As defense in depth, a bucket policy can *mandate* the create-only header on the key object, so even a buggy or outdated client cannot overwrite it (AWS S3; uses the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html)):
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyDekOverwrite",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::atlas-*/_meta/dek.enc",
+      "Condition": { "StringNotEquals": { "s3:if-none-match": "*" } }
+    }
+  ]
+}
+```
+
+::: warning S3-compatible stores
+Some S3-compatible backends (older MinIO releases, some Ceph RGW versions, various emulators) silently ignore unknown conditional headers instead of rejecting the write. On such a backend the create-only guarantee is illusory -- verify support by writing the same key twice with `If-None-Match: *` and confirming the second write fails with 412. Atlas additionally reads the stored key back after bootstrap and always proceeds with what storage actually holds, which converges concurrent bootstraps even where the header is ignored.
+:::
