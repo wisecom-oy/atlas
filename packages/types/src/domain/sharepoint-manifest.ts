@@ -1,10 +1,5 @@
 export type SharePointChangeType =
-  | 'created'
-  | 'updated'
-  | 'moved'
-  | 'renamed'
-  | 'moved_and_renamed'
-  | 'deleted';
+  'created' | 'updated' | 'moved' | 'renamed' | 'moved_and_renamed' | 'deleted';
 
 export interface SharePointSnapshotManifest {
   readonly id: string;

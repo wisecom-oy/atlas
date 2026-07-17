@@ -75,6 +75,11 @@ export type { StatsUseCase } from './stats/use-case.port';
 export type { SaveOptions, SaveResult, SaveUseCase } from './save/use-case.port';
 
 export type {
+  TransferProgressReporter,
+  TransferProgressUpdate,
+} from './shared/transfer-progress.port';
+
+export type {
   FileSaveOptions,
   FileSaveResult,
   OneDriveSaveUseCase,

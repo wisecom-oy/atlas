@@ -3,6 +3,7 @@ import { resolve, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { config as load_dotenv } from 'dotenv';
 import { logger } from '@/utils/logger';
+import { read_secure_config } from '@/utils/secure-config-store';
 
 export interface GraphConfig {
   readonly tenant_id: string;
@@ -42,15 +43,17 @@ const ENV_MAP: Record<string, keyof AtlasConfig> = {
  * Loads Atlas configuration by merging sources in this order
  * (later sources override earlier ones):
  *   1. atlas.config.json file
- *   2. .env file (loaded into process.env via dotenv, does NOT overwrite existing vars)
- *   3. Real environment variables (always win)
+ *   2. Encrypted secure store (~/.atlas/config.enc, managed via "atlas config")
+ *   3. .env file (loaded into process.env via dotenv, does NOT overwrite existing vars)
+ *   4. Real environment variables (always win)
  * Throws if any required field is missing after merging.
  */
 export function load_config(): AtlasConfig {
   load_dotenv();
   const file_config = try_load_config_file();
+  const secure_config = read_secure_config();
   const env_overrides = read_env_overrides();
-  return merge_and_validate({ ...file_config, ...env_overrides });
+  return merge_and_validate({ ...file_config, ...secure_config, ...env_overrides });
 }
 
 /**
@@ -141,7 +144,7 @@ export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
   if (missing.length > 0) {
     throw new Error(
       `Missing required config fields: ${missing.join(', ')}. ` +
-        'Provide them via atlas.config.json or ATLAS_* environment variables.',
+        'Set them via "atlas config <key> <value>", atlas.config.json, or ATLAS_* environment variables.',
     );
   }
 

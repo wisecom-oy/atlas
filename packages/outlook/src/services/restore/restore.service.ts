@@ -1,5 +1,4 @@
 import { inject, injectable } from 'inversify';
-import chalk from 'chalk';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
@@ -21,7 +20,7 @@ import {
   backfill_missing_folder_ids,
 } from '@/services/restore/restore-execution-orchestrator';
 import { execute_restore_loop } from '@/services/restore/restore-loop-executor';
-import { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
+import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atlas-types';
 import {
@@ -83,6 +82,7 @@ export class RestoreService implements RestoreUseCase {
         target_mailbox,
         snapshot_id,
         entries,
+        options,
       );
     } finally {
       ctx.destroy();
@@ -123,12 +123,9 @@ export class RestoreService implements RestoreUseCase {
         return this.empty_result('mailbox');
       }
 
-      logger.info(
-        `Aggregated ${chalk.cyan(String(manifests.length))} snapshots -- ` +
-          `${chalk.cyan(String(filtered.length))} unique messages`,
-      );
+      logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
 
-      return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered);
+      return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered, options);
     } finally {
       ctx.destroy();
     }
@@ -206,6 +203,7 @@ export class RestoreService implements RestoreUseCase {
     target_mailbox: string,
     snapshot_id: string,
     entries: ManifestEntry[],
+    options: RestoreOptions,
   ): Promise<RestoreResult> {
     const folder_map = await build_folder_map(this._connector, tenant_id, source_mailbox);
     await backfill_missing_folder_ids(ctx, entries);
@@ -219,12 +217,12 @@ export class RestoreService implements RestoreUseCase {
         `${count_unique_folders(entries)} folders into ${root.display_name}`,
     );
 
-    const dashboard = new RestoreProgressDashboard(
-      [...groups.entries()].map(([fid, items]) => ({
-        name: folder_map.get(fid) ?? fid.slice(0, 12),
-        total_items: items.length,
-      })),
-    );
+    const folder_summaries = [...groups.entries()].map(([fid, items]) => ({
+      name: folder_map.get(fid) ?? fid.slice(0, 12),
+      total_items: items.length,
+    }));
+    const dashboard =
+      options.create_progress?.(folder_summaries) ?? new NoopTransferProgressReporter();
 
     return execute_restore_loop(
       ctx,

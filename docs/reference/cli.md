@@ -10,6 +10,8 @@ npm install -g @wisecom/atlas-cli
 
 The CLI reads credentials from `.env` and environment variables (see [Configuration](/configuration)). It is the right choice for cron jobs, operator workflows, and simple deployments where you run commands directly.
 
+With a **local** (non-global) install, a postinstall hook links `atlas` into `/usr/local/bin` or `~/.local/bin` so the command works system-wide. The hook is conservative: if `atlas` is already a shell alias or an existing command on PATH, it skips with a warning and leaves your setup untouched (use `npx atlas` in that case). It never fails the install. Opt out with `ATLAS_SKIP_POSTINSTALL=1`; re-run manually with `npm run link-cli --prefix node_modules/@wisecom/atlas-cli`. Note: pnpm blocks dependency lifecycle scripts by default — run `pnpm approve-builds` to allow it. Windows relies on npm's own `.cmd` shims (global install).
+
 For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@wisecom/atlas-sdk`** instead — see [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
 
 ## `atlas outlook`
@@ -258,19 +260,18 @@ atlas outlook status -m user@company.com -t <tenant-id>
 Example output:
 
 ```
-------------------
--- Atlas Status --
-------------------
-[*] Tenant:  ec216cb5-...
-[*] Mailbox: user@company.com
+╭────────────────╮
+│  Atlas Status  │
+╰────────────────╯
+Tenant:  ec216cb5-...
+Mailbox: user@company.com
 [*] Last backup: 2026-03-18 14:30 (snap-abc123)
 
-  Folder                      Status              Pending
-  ---------------------------------------------------------
-  Inbox                       up-to-date          0
-  Sent Items                  3 change(s)         3
-  Archive                     never backed up     -
-  ---------------------------------------------------------
+Folder      Status           Pending
+----------  ---------------  -------
+Inbox       up-to-date             0
+Sent Items  3 change(s)            3
+Archive     never backed up        -
 
 [*] Overall: 3 pending change(s), 1 folder(s) never backed up across 3 folder(s)
 ```
@@ -326,6 +327,8 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | `-o, --owner <id>` | User email or Entra object ID (required) |
 | `--full` | Force full crawl ignoring saved delta links |
 | `-t, --tenant <id>` | Override tenant ID from config |
+
+While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
 
 **`atlas onedrive restore`**
 
@@ -505,21 +508,52 @@ atlas storage-check --lock-mode compliance --retention-days 365
 
 ## `atlas stats`
 
-Show storage statistics for the entire bucket or a specific mailbox. Reports object counts and total storage size across data, attachments, and manifest prefixes.
+Show storage statistics across all backed-up services. By default the command reports Outlook, OneDrive, and SharePoint in one pass: per-service snapshot counts, item counts (messages or files), total encrypted storage size, and a monthly breakdown. Statistics are computed purely from the encrypted snapshot manifests in the bucket -- no Microsoft Graph calls are made unless you scope to a OneDrive owner or SharePoint site that needs identity resolution.
 
 ```bash
-atlas stats                            # bucket-level overview
-atlas stats -m user@company.com        # mailbox-level breakdown
+atlas stats                            # all services: Outlook, OneDrive, SharePoint
+atlas stats --service outlook          # Outlook bucket-level overview only
+atlas stats -m user@company.com        # Outlook mailbox-level breakdown
+atlas stats -o user@company.com        # OneDrive statistics for one owner
+atlas stats -s https://contoso.sharepoint.com/sites/Engineering   # one site
+atlas stats --top 5                    # limit owner/site tables to 5 rows
 atlas stats --json                     # raw JSON output
 ```
 
-| Option                  | Description                                |
-| ----------------------- | ------------------------------------------ |
-| `-m, --mailbox <email>` | Show statistics for a specific mailbox     |
-| `--json`                | Output raw JSON instead of formatted table |
-| `-t, --tenant <id>`     | Override tenant ID from config             |
+| Option                  | Description                                                          |
+| ----------------------- | -------------------------------------------------------------------- |
+| `-m, --mailbox <email>` | Outlook statistics for a specific mailbox (implies `--service outlook`) |
+| `-o, --owner <email\|id>` | OneDrive statistics for a specific owner (implies `--service onedrive`) |
+| `-s, --site <url\|id>`  | SharePoint statistics for a specific site (implies `--service sharepoint`) |
+| `--service <name>`      | Limit output to one service: `outlook`, `onedrive`, `sharepoint`, or `all` (default `all`) |
+| `--top <n>`             | Maximum owner/site rows in OneDrive/SharePoint tables (default 20)   |
+| `--json`                | Output raw JSON instead of formatted tables                          |
+| `-t, --tenant <id>`     | Override tenant ID from config                                       |
 
-The bucket-level overview shows total object counts and storage consumption across all mailboxes. The mailbox breakdown shows per-prefix statistics (data, attachments, manifests) so you can identify which mailboxes consume the most storage. Use `--json` for programmatic consumption in monitoring scripts or dashboards.
+Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards -- with multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
+
+## `atlas config`
+
+Manage Atlas configuration in an encrypted local store, git-config style. Values are written to `~/.atlas/config.enc` (AES-256-GCM); the store key lives in the OS keyring (macOS Keychain or libsecret), so credentials never sit on disk or in the environment in plaintext. See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
+
+```bash
+atlas config tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f   # set + validate
+pbpaste | atlas config client.secret -                        # "-" reads from stdin (no shell history)
+atlas config client.secret                                    # get (secrets masked)
+atlas config list                                             # all keys, values, sources
+atlas config unset client.secret                              # remove from the store
+atlas config validate                                         # live Graph + S3 connectivity check
+```
+
+| Usage                        | Description                                                    |
+| ---------------------------- | -------------------------------------------------------------- |
+| `config <key> <value>`       | Validate and save a value to the encrypted store               |
+| `config <key>`               | Print the current effective value (secrets masked)             |
+| `config list`                | Print every key with its value and source (`env`, `secure store`, `config file`) |
+| `config unset <key>`         | Remove a key from the encrypted store                          |
+| `config validate`            | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config; exits non-zero on failure |
+
+Keys: `tenant.id`, `client.id`, `client.secret`, `s3.endpoint`, `s3.access-key`, `s3.secret-key`, `s3.region`, `encryption.passphrase`. Each value is format-checked on save (GUIDs, URL scheme, 12-character passphrase minimum), and once a credential group is complete the matching live probe runs automatically. Note that `ATLAS_*` environment variables still override stored values; the command warns when a saved value is shadowed.
 
 ## `atlas replicate`
 

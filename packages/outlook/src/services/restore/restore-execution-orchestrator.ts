@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
@@ -15,7 +14,7 @@ import {
   create_restore_root,
   ensure_subfolder,
 } from '@/services/restore/folder-restore-planner';
-import type { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
+import type { TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -65,7 +64,7 @@ export async function restore_folder_entries(
   global_before: number,
   global_total: number,
   start: number,
-  dashboard: RestoreProgressDashboard,
+  dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
 ): Promise<{ restored: number; attachments: number; errors: string[] }> {
   let restored = 0;
@@ -94,7 +93,12 @@ export async function restore_folder_entries(
     const gp = global_before + restored;
     const rate = calc_rate(gp, Date.now() - start);
     const eta = rate > 0 ? (global_total - gp) / rate : 0;
-    dashboard.update_active(folder_index, restored, restored, attachments, rate, eta);
+    dashboard.update_active(folder_index, {
+      transferred: restored,
+      attachments,
+      rate,
+      eta_seconds: eta,
+    });
     dashboard.update_total(gp, global_total, rate, eta);
   }
 
@@ -186,9 +190,5 @@ export function log_restore_summary(
   start: number,
 ): void {
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  logger.info(
-    `${chalk.green(String(restored))} restored, ` +
-      `${chalk.cyan(String(attachments))} attachments, ` +
-      `${chalk.red(String(errors))} errors -- ${elapsed}s`,
-  );
+  logger.info(`${restored} restored, ${attachments} attachments, ${errors} errors -- ${elapsed}s`);
 }

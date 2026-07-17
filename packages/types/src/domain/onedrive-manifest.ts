@@ -1,10 +1,5 @@
 export type OneDriveChangeType =
-  | 'created'
-  | 'updated'
-  | 'moved'
-  | 'renamed'
-  | 'moved_and_renamed'
-  | 'deleted';
+  'created' | 'updated' | 'moved' | 'renamed' | 'moved_and_renamed' | 'deleted';
 
 export interface OneDriveSnapshotManifest {
   readonly id: string;

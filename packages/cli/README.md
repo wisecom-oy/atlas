@@ -6,7 +6,7 @@ Protects Outlook mailboxes, OneDrive files, and SharePoint document libraries wi
 
 ## Requirements
 
-- Node.js 20 or later
+- Node.js 22 or later
 
 ## Install
 

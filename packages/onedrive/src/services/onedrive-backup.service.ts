@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
+  BackupProgressReporter,
   OneDriveBackupOptions,
   OneDriveBackupResult,
   OneDriveBackupUseCase,
@@ -48,11 +49,15 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     options: OneDriveBackupOptions = {},
   ): Promise<OneDriveBackupResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
+    let progress: BackupProgressReporter | undefined;
     try {
       const previous_cursor =
         options.force_full === true ? undefined : await this._cursors.load(ctx, owner_id);
       const drives = await this._connector.list_drives(tenant_id, owner_id);
       ensure_drives_discovered(drives.length);
+      progress = options.create_progress?.(
+        drives.map((drive) => ({ name: drive.drive_name, total_items: 0 })),
+      );
 
       const delta_link_by_drive: Record<string, string> = {
         ...(previous_cursor?.delta_link_by_drive ?? {}),
@@ -110,6 +115,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         options.force_full === true,
         version_stats,
         update_version_stats,
+        progress,
       );
 
       const cursor: OneDriveDeltaCursor = {
@@ -173,6 +179,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         warnings,
       );
     } finally {
+      progress?.finish();
       ctx.destroy();
     }
   }

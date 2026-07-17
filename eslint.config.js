@@ -19,7 +19,7 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
-    files: ['packages/*/src/**/*.ts'],
+    files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: {
         project: ['./packages/*/tsconfig.json'],
@@ -35,7 +35,7 @@ export default tseslint.config(
       'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
       'check-file/filename-naming-convention': [
         'error',
-        { '**/*.ts': 'KEBAB_CASE' },
+        { '**/*.{ts,tsx}': 'KEBAB_CASE' },
         { ignoreMiddleExtensions: true },
       ],
       '@typescript-eslint/naming-convention': [
@@ -91,7 +91,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/*/tests/**/*.ts'],
+    files: ['packages/*/tests/**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: {
         project: ['./packages/*/tsconfig.test.json'],
@@ -165,9 +165,49 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/cli/src/**/*.ts'],
+    files: ['packages/cli/src/**/*.{ts,tsx}'],
     rules: {
       'no-console': 'off',
+    },
+  },
+  {
+    files: ['packages/**/*.tsx'],
+    rules: {
+      '@typescript-eslint/naming-convention': [
+        'error',
+        {
+          selector: 'variable',
+          format: ['snake_case', 'UPPER_CASE', 'PascalCase'],
+          leadingUnderscore: 'allow',
+        },
+        {
+          selector: 'variable',
+          modifiers: ['destructured'],
+          format: null,
+        },
+        {
+          selector: 'function',
+          format: ['snake_case', 'camelCase', 'PascalCase'],
+        },
+        {
+          selector: 'parameter',
+          format: ['snake_case'],
+          leadingUnderscore: 'allow',
+        },
+        {
+          selector: 'parameter',
+          modifiers: ['destructured'],
+          format: null,
+        },
+        {
+          selector: 'typeLike',
+          format: ['PascalCase'],
+        },
+        {
+          selector: 'objectLiteralProperty',
+          format: null,
+        },
+      ],
     },
   },
   {

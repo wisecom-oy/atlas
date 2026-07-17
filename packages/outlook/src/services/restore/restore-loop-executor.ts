@@ -8,7 +8,7 @@ import {
   log_restore_summary,
   restore_folder_entries,
 } from '@/services/restore/restore-execution-orchestrator';
-import type { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
+import type { TransferProgressReporter } from '@wisecom/atlas-types';
 
 /** Iterates folder groups and restores messages with dashboard progress and SIGINT handling. */
 export async function execute_restore_loop(
@@ -21,7 +21,7 @@ export async function execute_restore_loop(
   groups: Map<string, ManifestEntry[]>,
   folder_map: Map<string, string>,
   created_folders: Map<string, string>,
-  dashboard: RestoreProgressDashboard,
+  dashboard: TransferProgressReporter,
 ): Promise<RestoreResult> {
   let global_restored = 0;
   let global_att = 0;

@@ -10,6 +10,7 @@
     "test:watch": "vitest",
     "test:coverage": "turbo run test -- --coverage",
     "lint": "turbo run lint",
+    "link-cli": "pnpm --filter @wisecom/atlas-cli run build && pnpm --filter @wisecom/atlas-cli run link-cli",
     "lint:fix": "eslint packages/*/src/ packages/*/tests/ --fix",
     "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\"",
     "format:check": "turbo run format:check",
@@ -23,7 +24,7 @@
     "prepare": "husky"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
