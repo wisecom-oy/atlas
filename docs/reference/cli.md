@@ -500,7 +500,7 @@ Application permissions `Sites.Read.All` and `Files.Read.All` are required for S
 
 ## `atlas storage-check`
 
-Validate immutable backup readiness without running a backup. Reports versioning and Object Lock status.
+Validate immutable backup readiness without running a backup. Reports versioning, Object Lock status, and the bucket class: `lock-capable` (can take retention policies), `versioned-only (legacy)`, or `unversioned (legacy)` -- legacy classes mean the bucket predates v2.1.0 auto-provisioning and needs the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket-to-object-lock) before immutability can be used. Exits non-zero when the bucket is not lock-ready, so it can gate scheduled jobs.
 
 ```bash
 atlas storage-check

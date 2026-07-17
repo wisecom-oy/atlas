@@ -2,6 +2,29 @@
 
 Atlas stores backups in any S3-compatible object storage. For self-hosted deployments, MinIO running in Docker is the recommended option.
 
+
+## Bucket Provisioning and Object Lock
+
+Atlas creates each tenant's bucket automatically on first backup (`atlas-{tenant_id}`), and since v2.1.0 creates it **lock-capable**: `CreateBucket` is issued with `ObjectLockEnabledForBucket: true`, which also enables versioning. This is deliberate front-loading -- on both AWS S3 and MinIO, Object Lock can only be enabled at bucket creation (AWS requires a support ticket to retrofit it; MinIO refuses outright). A lock-capable bucket without a retention policy behaves exactly like a normal versioned bucket, so this changes nothing until you opt into immutability with `--retention-days` on a backup command.
+
+New buckets also receive housekeeping lifecycle rules: incomplete multipart uploads are aborted after 7 days, orphaned delete markers are removed, and noncurrent object versions expire after 30 days (versioning means overwritten delta cursors and indexes leave stale versions behind; Atlas never reads them -- its file version history is stored as first-class objects, not S3 versions).
+
+Backends that reject `ObjectLockEnabledForBucket` get a plain bucket and a loud warning at creation time; immutability will not work there.
+
+Run `atlas storage-check` to see which class a tenant's bucket is: `lock-capable`, `versioned-only (legacy)`, or `unversioned (legacy)`.
+
+### Migrating a Legacy Bucket to Object Lock
+
+Buckets created before v2.1.0 are not lock-capable and cannot be upgraded in place. The migration is a tenant-by-tenant re-pointing, using Atlas's own replication machinery:
+
+1. **Create a lock-capable target bucket** manually: `aws s3api create-bucket --bucket atlas-{tenant}-v2 --object-lock-enabled-for-bucket` (MinIO: `mc mb --with-lock`).
+2. **Replicate the tenant** into it: `atlas replicate --tenant <id>` with the target configured as the replication destination -- this copies the DEK first, then all snapshots, and verifies checksums. (Plain `aws s3 sync` also works; the DEK object `_meta/dek.enc` must be copied as-is.)
+3. **Repoint the tenant** at the new bucket (rename or alias so `atlas-{tenant_id}` resolves to the new bucket, e.g. delete the old bucket and rename via a final sync).
+4. **Verify**: `atlas storage-check -t <id>` should report `lock-capable`; run `atlas verify` for content integrity.
+5. **Decommission** the old bucket once a full backup cycle has succeeded against the new one.
+
+Until migrated, backups to legacy buckets keep working -- only `--retention-days` immutability is unavailable (the backup fails fast with `ObjectLockUnsupportedError` rather than pretending to be immutable).
+
 ## Storage Backend: MinIO on Docker
 
 The included `docker/docker-compose.yml` starts MinIO with a Docker named volume:

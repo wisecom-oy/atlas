@@ -60,11 +60,13 @@ async function execute_storage_check(
 }
 
 function build_result_items(result: StorageCheckResult, ready: boolean): KeyValueItem[] {
+  const bucket_class = classify_bucket(result);
   const items: KeyValueItem[] = [
     { label: 'Bucket', value: result.bucket },
     { label: 'Reachable', value: result.reachable ? 'yes' : 'no' },
     { label: 'Versioning', value: result.versioning_enabled ? 'enabled' : 'disabled' },
     { label: 'Object Lock', value: result.object_lock_enabled ? 'enabled' : 'disabled' },
+    { label: 'Bucket class', value: bucket_class.label, color: bucket_class.color },
     { label: 'Governance mode', value: result.mode_supported ? 'supported' : 'unsupported' },
     { label: 'Compliance mode', value: result.mode_supported ? 'supported' : 'unsupported' },
   ];
@@ -83,6 +85,17 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
     color: ready ? 'green' : 'red',
   });
   return items;
+}
+
+/**
+ * Classifies the bucket for operators: lock-capable buckets can take
+ * retention policies, versioned-only and unversioned ones are legacy
+ * (pre-#30) and need the migration runbook in docs/self-hosting/storage.md.
+ */
+function classify_bucket(result: StorageCheckResult): { label: string; color: string } {
+  if (result.object_lock_enabled) return { label: 'lock-capable', color: 'green' };
+  if (result.versioning_enabled) return { label: 'versioned-only (legacy)', color: 'yellow' };
+  return { label: 'unversioned (legacy)', color: 'red' };
 }
 
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {
