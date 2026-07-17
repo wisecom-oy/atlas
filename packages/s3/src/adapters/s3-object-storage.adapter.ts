@@ -152,8 +152,8 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  /** Lists all keys sharing the given prefix. */
-  async list(prefix: string): Promise<string[]> {
+  /** Lists keys sharing the given prefix; `limit` stops enumeration early. */
+  async list(prefix: string, limit?: number): Promise<string[]> {
     const keys: string[] = [];
     let continuation_token: string | undefined;
 
@@ -163,12 +163,14 @@ export class S3ObjectStorage implements ObjectStorage {
           Bucket: this._bucket,
           Prefix: prefix,
           ContinuationToken: continuation_token,
+          ...(limit !== undefined ? { MaxKeys: Math.min(limit, 1000) } : {}),
         }),
       );
 
       for (const obj of response.Contents ?? []) {
         if (obj.Key) keys.push(obj.Key);
       }
+      if (limit !== undefined && keys.length >= limit) return keys.slice(0, limit);
       continuation_token = response.NextContinuationToken;
     } while (continuation_token);
 

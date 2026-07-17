@@ -71,8 +71,12 @@ export interface ObjectStorage {
   /** Returns true if the key exists in storage. */
   exists(key: string): Promise<boolean>;
 
-  /** Lists all keys that share the given prefix. */
-  list(prefix: string): Promise<string[]>;
+  /**
+   * Lists keys that share the given prefix. `limit` caps the number of keys
+   * returned and stops enumeration early - use it for cheap existence checks
+   * on potentially large buckets.
+   */
+  list(prefix: string, limit?: number): Promise<string[]>;
 
   /** Lists object versions and delete markers for a prefix. */
   list_versions(prefix: string): Promise<StorageObjectVersion[]>;
