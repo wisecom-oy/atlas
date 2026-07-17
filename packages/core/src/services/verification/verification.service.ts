@@ -10,6 +10,11 @@ import type {
 } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
+import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
+
+// S3 handles this easily; Graph limits don't apply -- verify never touches Graph.
+// ponytail: fixed constant, make configurable only if a backend ever chokes.
+const VERIFY_CONCURRENCY = 16;
 
 /** A single verifiable object: a message blob or an attachment blob. */
 interface CheckItem {
@@ -83,22 +88,32 @@ export class VerificationService implements VerificationUseCase {
     );
   }
 
-  /** Checks every item and returns the identifiers that failed verification. */
+  /**
+   * Checks every item with bounded concurrency and returns the identifiers
+   * that failed verification, in manifest order. Verification is
+   * embarrassingly parallel S3 reads; serial awaits would leave the process
+   * idle most of the run (measured 49% idle against localhost MinIO --
+   * far worse over real S3 latency).
+   */
   private async check_all_items(
     ctx: TenantContext,
     items: CheckItem[],
     fast: boolean,
   ): Promise<string[]> {
-    const failed: string[] = [];
-    for (const item of items) {
-      const is_corrupt = fast
-        ? !(await this.object_exists(ctx, item))
-        : await this.is_item_corrupt(ctx, item);
-      if (is_corrupt) {
-        failed.push(item.id);
-      }
-    }
-    return failed;
+    const semaphore = new ConcurrencySemaphore(VERIFY_CONCURRENCY);
+    const corrupt = await Promise.all(
+      items.map(async (item) => {
+        await semaphore.acquire();
+        try {
+          return fast
+            ? !(await this.object_exists(ctx, item))
+            : await this.is_item_corrupt(ctx, item);
+        } finally {
+          semaphore.release();
+        }
+      }),
+    );
+    return items.filter((_, i) => corrupt[i]).map((item) => item.id);
   }
 
   /** Existence-only probe for fast mode; any error counts as missing. */
@@ -111,15 +126,13 @@ export class VerificationService implements VerificationUseCase {
   }
 
   /**
-   * Downloads, decrypts, and hashes a single object.
-   * Returns true if it is missing, decryption fails (tampered), or the
-   * checksum mismatches.
+   * Downloads, decrypts, and hashes a single object. A missing object
+   * surfaces as a storage error (no separate HEAD round trip -- GET already
+   * fails on absent keys). Returns true if the object is missing, decryption
+   * fails (tampered), or the checksum mismatches.
    */
   private async is_item_corrupt(ctx: TenantContext, item: CheckItem): Promise<boolean> {
     try {
-      const exists = await ctx.storage.exists(item.storage_key);
-      if (!exists) return true;
-
       const ciphertext = await ctx.storage.get(item.storage_key);
       const plaintext = ctx.decrypt(ciphertext);
       const actual_checksum = compute_sha256(plaintext);

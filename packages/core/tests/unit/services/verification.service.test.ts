@@ -182,7 +182,10 @@ describe('VerificationService', () => {
     vi.mocked(manifests.find_by_snapshot).mockResolvedValue(target);
     vi.mocked(manifests.list_all_manifests).mockResolvedValue([target, older]);
     vi.mocked(storage.exists).mockImplementation(async (key: string) => key !== 'data/k-old');
-    vi.mocked(storage.get).mockResolvedValue(plaintext);
+    vi.mocked(storage.get).mockImplementation(async (key: string) => {
+      if (key === 'data/k-old') throw new Error('NoSuchKey');
+      return plaintext;
+    });
 
     const result = await service.verify_snapshot_integrity('tenant-1', 'snap-2');
 
