@@ -253,6 +253,11 @@ Key implications for SaaS scheduling:
 
 ## Using the Limits in Code
 
+`graph_cost` is measured at the transport, so one recorded request is one HTTP
+request: each `@odata.nextLink` page and each retried attempt is counted
+separately. Cooldowns computed from it therefore reflect the quota actually
+consumed rather than the number of connector calls made.
+
 Atlas exports the `GRAPH_SERVICE_LIMITS` constant so your SaaS layer can use the same authoritative numbers for scheduling decisions:
 
 ```typescript

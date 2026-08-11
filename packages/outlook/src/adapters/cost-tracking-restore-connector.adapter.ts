@@ -1,17 +1,19 @@
 /**
- * Decorator around RestoreConnector that records every Graph API request to
- * the active GraphRequestCounter (if any).
+ * Decorator around RestoreConnector that labels every Graph request a restore
+ * makes, so the transport-level cost counter can charge it correctly.
  *
  * All restore operations target the Outlook service pool (Exchange Online mail,
- * folder, and attachment endpoints). upload_bytes is populated for attachment
- * uploads to track against the Outlook 150 MB / 5-minute upload window.
+ * folder, and attachment endpoints). Upload bytes are measured at the transport
+ * from the request body rather than declared here: a resumable chunk that is
+ * retried is sent twice, and the tenant's 150 MB / 5-minute upload window is
+ * charged twice for it.
  *
  * @see https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits
  */
 
 import type { RestoreConnector, AttachmentUpload, UploadSession } from '@wisecom/atlas-types';
 import type { MailFolder } from '@wisecom/atlas-types';
-import { get_active_counter } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { run_with_graph_operation } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
 export class CostTrackingRestoreConnector implements RestoreConnector {
   private readonly _inner: RestoreConnector;
@@ -26,8 +28,9 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     display_name: string,
     parent_folder_id?: string,
   ): Promise<MailFolder> {
-    get_active_counter()?.record('outlook', 'create_folder');
-    return this._inner.create_mail_folder(tenant_id, owner_id, display_name, parent_folder_id);
+    return run_with_graph_operation({ pool: 'outlook', request_type: 'create_folder' }, () =>
+      this._inner.create_mail_folder(tenant_id, owner_id, display_name, parent_folder_id),
+    );
   }
 
   async create_message(
@@ -36,8 +39,9 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     folder_id: string,
     message_body: Record<string, unknown>,
   ): Promise<string> {
-    get_active_counter()?.record('outlook', 'create_message');
-    return this._inner.create_message(tenant_id, owner_id, folder_id, message_body);
+    return run_with_graph_operation({ pool: 'outlook', request_type: 'create_message' }, () =>
+      this._inner.create_message(tenant_id, owner_id, folder_id, message_body),
+    );
   }
 
   async add_attachment(
@@ -46,10 +50,9 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     message_id: string,
     attachment: AttachmentUpload,
   ): Promise<void> {
-    get_active_counter()?.record('outlook', 'add_attachment', {
-      upload_bytes: attachment.content.length,
-    });
-    return this._inner.add_attachment(tenant_id, owner_id, message_id, attachment);
+    return run_with_graph_operation({ pool: 'outlook', request_type: 'add_attachment' }, () =>
+      this._inner.add_attachment(tenant_id, owner_id, message_id, attachment),
+    );
   }
 
   async create_upload_session(
@@ -59,8 +62,11 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     file_name: string,
     file_size: number,
   ): Promise<UploadSession> {
-    get_active_counter()?.record('outlook', 'create_upload_session');
-    return this._inner.create_upload_session(tenant_id, owner_id, message_id, file_name, file_size);
+    return run_with_graph_operation(
+      { pool: 'outlook', request_type: 'create_upload_session' },
+      () =>
+        this._inner.create_upload_session(tenant_id, owner_id, message_id, file_name, file_size),
+    );
   }
 
   async upload_attachment_chunk(
@@ -69,10 +75,9 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     range_start: number,
     total_size: number,
   ): Promise<void> {
-    get_active_counter()?.record('outlook', 'upload_chunk', {
-      upload_bytes: chunk.length,
-    });
-    return this._inner.upload_attachment_chunk(upload_url, chunk, range_start, total_size);
+    return run_with_graph_operation({ pool: 'outlook', request_type: 'upload_chunk' }, () =>
+      this._inner.upload_attachment_chunk(upload_url, chunk, range_start, total_size),
+    );
   }
 
   async count_folder_messages(
@@ -80,8 +85,10 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     owner_id: string,
     folder_id: string,
   ): Promise<number> {
-    get_active_counter()?.record('outlook', 'count_folder_messages');
-    return this._inner.count_folder_messages(tenant_id, owner_id, folder_id);
+    return run_with_graph_operation(
+      { pool: 'outlook', request_type: 'count_folder_messages' },
+      () => this._inner.count_folder_messages(tenant_id, owner_id, folder_id),
+    );
   }
 
   async list_folder_messages(
@@ -90,7 +97,8 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
     folder_id: string,
     top: number,
   ): Promise<Array<{ subject: string; is_draft: boolean }>> {
-    get_active_counter()?.record('outlook', 'list_folder_messages');
-    return this._inner.list_folder_messages(tenant_id, owner_id, folder_id, top);
+    return run_with_graph_operation({ pool: 'outlook', request_type: 'list_folder_messages' }, () =>
+      this._inner.list_folder_messages(tenant_id, owner_id, folder_id, top),
+    );
   }
 }
