@@ -12,6 +12,10 @@ import type {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
+  summarize_package_items,
+  type PackageReport,
+} from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import {
   accumulate_version_stats,
   build_deleted_entry,
   build_stored_entry,
@@ -34,6 +38,7 @@ export interface LibraryProcessingResult {
   deleted_items: number;
   delta_link?: string;
   had_errors: boolean;
+  package_report: PackageReport;
 }
 
 export interface VersionStatsState {
@@ -67,6 +72,7 @@ export async function process_delta_item(
     library_files_stored: number;
     library_files_deduplicated: number;
     library_deleted_items: number;
+    failed_item_ids: Set<string>;
   },
   file_indexes: SharePointFileVersionIndexRepository,
   version_stats: VersionStatsState,
@@ -98,6 +104,7 @@ export async function process_delta_item(
   const result = await process_backup_file(connector, item, site_id, ctx);
   if (!result) {
     library_state.library_has_errors = true;
+    library_state.failed_item_ids.add(item.item_id);
     errors.push(`Failed to process file ${item.file_name} (${item.item_id})`);
     return;
   }
@@ -168,6 +175,7 @@ export async function process_single_library(
     library_files_stored: 0,
     library_files_deduplicated: 0,
     library_deleted_items: 0,
+    failed_item_ids: new Set<string>(),
   };
 
   for (const item of delta.items) {
@@ -185,6 +193,8 @@ export async function process_single_library(
     );
   }
 
+  const package_report = summarize_package_items(delta.items, library_state.failed_item_ids);
+
   if (library_state.library_has_errors) {
     logger.warn(
       `Library ${library.drive_id}: discarding ${library_state.library_entries.length} entries due to errors`,
@@ -195,6 +205,7 @@ export async function process_single_library(
       files_deduplicated: 0,
       deleted_items: 0,
       had_errors: true,
+      package_report,
     };
   }
 
@@ -213,5 +224,6 @@ export async function process_single_library(
     deleted_items: library_state.library_deleted_items,
     delta_link: delta.delta_link,
     had_errors: false,
+    package_report,
   };
 }

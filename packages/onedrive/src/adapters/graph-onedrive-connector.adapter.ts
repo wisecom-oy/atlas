@@ -66,6 +66,7 @@ const DRIVE_DELTA_SELECT_FIELDS = [
   'parentReference',
   'file',
   'folder',
+  'package',
   '@microsoft.graph.downloadUrl',
 ].join(',');
 
@@ -247,10 +248,10 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     drive_id: string,
     prev_delta_link: string | undefined,
   ): Promise<{ page: GraphCollectionResponse<GraphDeltaDriveItem>; stale_cursor: boolean }> {
-    const stale_cursor = Boolean(prev_delta_link && !prev_delta_link.includes('$select='));
+    const stale_cursor = Boolean(prev_delta_link && !prev_delta_link.includes('package'));
     if (stale_cursor) {
       logger.warn(
-        `Delta cursor for drive ${drive_id} predates field selection — performing fresh delta`,
+        `Delta cursor for drive ${drive_id} predates package-facet selection — performing fresh delta`,
       );
     }
 

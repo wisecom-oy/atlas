@@ -26,7 +26,10 @@ import {
   persist_snapshot_backup,
 } from '@/services/onedrive-backup-builders';
 import { ensure_drives_discovered } from '@/services/onedrive-backup-file-processor';
-import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
+import {
+  scan_all_drives,
+  type PackageReportTotals,
+} from '@/services/onedrive-backup-drive-processor';
 import { cleanup_stale_staging } from '@/services/onedrive-large-file-pipeline';
 
 @injectable()
@@ -136,6 +139,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       if (total_versions_failed > 0) {
         warnings.push(`${total_versions_failed} version download(s) failed unexpectedly`);
       }
+      warnings.push(...build_package_warnings(scan_result.package_report));
       const healthy = scan_result.errors.length === 0;
 
       if (scan_result.entries.length === 0) {
@@ -191,4 +195,14 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       ctx.destroy();
     }
   }
+}
+
+/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
+function build_package_warnings(report: PackageReportTotals): string[] {
+  if (report.notebooks_detected === 0) return [];
+  return [
+    `OneNote notebooks detected: ${report.notebooks_detected} ` +
+      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
+    ...report.warnings,
+  ];
 }

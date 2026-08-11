@@ -29,6 +29,8 @@ export interface SharePointDeltaItem {
   readonly file_name: string;
   readonly parent_path: string;
   readonly web_url?: string;
+  /** Graph package facet type (e.g. `oneNote`) when this item is a package root. */
+  readonly package_type?: string | undefined;
   readonly size_bytes: number;
   readonly etag?: string;
   readonly last_modified_at?: string;
