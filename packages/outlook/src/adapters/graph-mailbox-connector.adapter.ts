@@ -36,6 +36,10 @@ import {
   graph_message_to_mail_message,
 } from '@/adapters/graph-delta-message-mapper';
 
+// 30 min per attempt for attachment $value transfers (up to ~150 MB); the
+// default 60s per-request window kills large bodies on slow links (issue #33).
+const LARGE_DOWNLOAD_TIMEOUT_MS = 1_800_000;
+
 @injectable()
 export class GraphMailboxConnector implements MailboxConnector {
   constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
@@ -47,9 +51,7 @@ export class GraphMailboxConnector implements MailboxConnector {
   async list_mailboxes(_tenant_id: string): Promise<string[]> {
     try {
       const url = '/users?$select=id,mail,displayName&$filter=mail ne null&$top=999';
-      const user_records = await with_graph_retry(() =>
-        this.collect_all_pages<GraphUserRecord>(url),
-      );
+      const user_records = await this.collect_all_pages<GraphUserRecord>(url);
       return extract_user_ids(user_records);
     } catch (err) {
       rethrow_if_access_denied(err);
@@ -95,9 +97,7 @@ export class GraphMailboxConnector implements MailboxConnector {
       const url =
         `/users/${owner_id}/mailFolders` +
         '?$select=id,displayName,parentFolderId,totalItemCount&$top=250';
-      const folder_records = await with_graph_retry(() =>
-        this.collect_all_pages<GraphFolderRecord>(url),
-      );
+      const folder_records = await this.collect_all_pages<GraphFolderRecord>(url);
       return filter_and_map_folders(folder_records);
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
@@ -181,9 +181,7 @@ export class GraphMailboxConnector implements MailboxConnector {
   ): Promise<MessageAttachment[]> {
     try {
       const url = `/users/${owner_id}/messages/${message_id}/attachments`;
-      const records = await with_graph_retry(() =>
-        this.collect_all_pages<GraphAttachmentRecord>(url),
-      );
+      const records = await this.collect_all_pages<GraphAttachmentRecord>(url);
       const attachments = map_file_attachments(records);
 
       for (let i = 0; i < attachments.length; i++) {
@@ -208,6 +206,8 @@ export class GraphMailboxConnector implements MailboxConnector {
    * Downloads raw attachment bytes via /attachments/{id}/$value. Raw transfer
    * avoids the +33% base64 overhead of contentBytes. Each attachment gets its
    * own retry window so a large binary cannot starve the page-listing budget.
+   * The widened timeout follows corso's large-file calibration: attachments
+   * run up to 150 MB and the default 60s window kills them on slow links.
    */
   private async download_attachment_content(
     owner_id: string,
@@ -218,6 +218,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     const data = await with_graph_retry(
       () =>
         this._client.api(url).responseType(ResponseType.ARRAYBUFFER).get() as Promise<ArrayBuffer>,
+      { timeout_ms: LARGE_DOWNLOAD_TIMEOUT_MS },
     );
     return Buffer.from(data);
   }
@@ -345,7 +346,14 @@ export class GraphMailboxConnector implements MailboxConnector {
   // Pagination helpers
   // ---------------------------------------------------------------------------
 
-  /** Generic paginator that follows @odata.nextLink and collects all items. */
+  /**
+   * Generic paginator that follows @odata.nextLink and collects all items.
+   * Retry/timeout lives INSIDE the loop (fetch_continuation_page wraps each
+   * page in with_graph_retry), so a failed page resumes from the current
+   * nextLink. NEVER wrap calls to this in with_graph_retry: the outer 60s
+   * timeout races the whole enumeration and restarts it from page 1 --
+   * large tenants can never finish (issue #33).
+   */
   private async collect_all_pages<T>(start_url: string): Promise<T[]> {
     const all_items: T[] = [];
     let current_url: string | undefined = start_url;

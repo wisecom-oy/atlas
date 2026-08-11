@@ -1,10 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import 'reflect-metadata';
+import { describe, it, expect, vi } from 'vitest';
+import { Container } from 'inversify';
 import {
   extract_exchange_license_status,
   map_users_to_tenant_mailboxes,
   parse_mailbox_purpose,
 } from '@/adapters/graph-mailbox-response-mappers';
-import { parse_usage_csv } from '@/adapters/graph-mailbox-discovery.adapter';
+import {
+  GraphMailboxDiscoveryAdapter,
+  parse_usage_csv,
+} from '@/adapters/graph-mailbox-discovery.adapter';
+import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type { GraphAssignedPlan, GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers';
 
 describe('extract_exchange_license_status', () => {
@@ -163,5 +169,51 @@ describe('parse_usage_csv', () => {
     const bob = result.get('bob@contoso.com');
     expect(bob?.storage_bytes).toBe(52428800);
     expect(bob?.item_count).toBe(150);
+  });
+});
+
+describe('GraphMailboxDiscoveryAdapter pagination (issue #33)', () => {
+  it('resumes a failed /users page from its nextLink instead of restarting from page 1', async () => {
+    const get = vi.fn();
+    const chain = { header: vi.fn(), get };
+    chain.header.mockReturnValue(chain);
+    const api = vi.fn().mockReturnValue(chain);
+
+    const licensed_plan = [
+      { service: 'exchange', capabilityStatus: 'Enabled', servicePlanId: 'p' },
+    ];
+    get
+      .mockResolvedValueOnce({
+        value: [{ id: 'u1', mail: 'a@t.com', displayName: 'A', assignedPlans: licensed_plan }],
+        '@odata.nextLink': 'https://graph/users?$skiptoken=page2',
+      })
+      .mockRejectedValueOnce(Object.assign(new Error('throttled'), { statusCode: 429 }))
+      .mockResolvedValueOnce({
+        value: [{ id: 'u2', mail: 'b@t.com', displayName: 'B', assignedPlans: licensed_plan }],
+      })
+      // usage report CSV fetch -- unavailable in this test
+      .mockRejectedValue(new Error('no Reports.Read.All'));
+
+    const container = new Container();
+    container.bind(GRAPH_CLIENT_TOKEN).toConstantValue({ api });
+    container.bind(GraphMailboxDiscoveryAdapter).toSelf();
+    const adapter = container.get(GraphMailboxDiscoveryAdapter);
+
+    vi.useFakeTimers();
+    try {
+      const promise = adapter.list_tenant_mailboxes('t1', { licensed_only: true });
+      await vi.advanceTimersByTimeAsync(5_000); // skip the retry backoff
+      const result = await promise;
+
+      expect(result.map((m) => m.user_id)).toEqual(['u1', 'u2']);
+      const user_urls = api.mock.calls
+        .map((c) => c[0] as string)
+        .filter((u) => u.includes('users'));
+      // Page 1 fetched exactly once: the 429 retried only page 2.
+      expect(user_urls.filter((u) => !u.includes('skiptoken')).length).toBe(1);
+      expect(user_urls.filter((u) => u.includes('skiptoken')).length).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
