@@ -261,6 +261,39 @@ console.log(result.graph_cost);
 
 Methods that report `graph_cost`: `atlas.outlook.backup`, `atlas.outlook.restore`, `atlas.outlook.restoreMailbox`, `atlas.outlook.checkMailboxStatus`.
 
+### Cost when an operation fails
+
+Failures are the most expensive runs a tenant pays for: a delta sync that dies on
+page 400, or a request that spent its whole retry budget against a 429, has burned
+more quota than any successful run in the job. That cost is attached to the thrown
+error and read with `getGraphCost`:
+
+```typescript
+import { createAtlasInstance, getGraphCost } from '@wisecom/atlas-sdk';
+
+try {
+  const result = await atlas.outlook.backup('user@company.com');
+  record_cost(result.graph_cost);
+} catch (err) {
+  // Requests already burned before the failure -- undefined if the error came
+  // from somewhere other than a tracked SDK operation.
+  const cost = getGraphCost(err);
+  if (cost) record_cost(cost);
+  throw err;
+}
+```
+
+The error itself is rethrown unchanged, so `instanceof` checks and existing catch
+filters keep working, and the cost is a non-enumerable property, so error logging
+and serialisation are unaffected. A failure that happened before any Graph call
+reports `requests_total: 0` -- that is a fact worth recording, not a missing value.
+
+::: warning Ignoring this skews your scheduling in the wrong direction
+A scheduler that reads cost only on the success path treats the most expensive
+runs as free, and re-queues the next mailbox into a tenant that is already
+throttled -- producing another 429 and raising the throttle fence again.
+:::
+
 ### OperationCost Type
 
 ```typescript
@@ -310,7 +343,7 @@ See the [Graph API Rate Limits](/operations/graph-rate-limits) page for the full
 A common pattern for SaaS products is to queue one job per mailbox using pg-boss and use `graph_cost` to compute a cooldown before scheduling the next job:
 
 ```typescript
-import { createAtlasInstance, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
+import { createAtlasInstance, getGraphCost, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
 import type { OperationCost } from '@wisecom/atlas-sdk';
 import PgBoss from 'pg-boss';
 
@@ -320,32 +353,43 @@ boss.work('backup-mailbox', async (job) => {
   const { tenant_config, mailbox_id } = job.data;
   const atlas = createAtlasInstance(tenant_config);
 
-  const result = await atlas.outlook.backup(mailbox_id);
-  const cost: OperationCost = result.graph_cost;
+  let cost: OperationCost | undefined;
+  try {
+    const result = await atlas.outlook.backup(mailbox_id);
+    cost = result.graph_cost;
+  } catch (err) {
+    // A failed run has usually burned MORE quota than a successful one. Bill it
+    // and cool down on it, then let pg-boss see the failure.
+    cost = getGraphCost(err);
+    throw err;
+  } finally {
+    if (cost) {
+      // Store per-pool costs for trend analysis
+      await db.query(
+        `INSERT INTO backup_costs
+           (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [
+          mailbox_id,
+          cost.by_service.outlook?.requests ?? 0,
+          cost.by_service.identity?.requests ?? 0,
+          cost.elapsed_ms,
+        ],
+      );
 
-  // Store per-pool costs for trend analysis
-  await db.query(
-    `INSERT INTO backup_costs
-       (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
-     VALUES ($1, $2, $3, $4, NOW())`,
-    [
-      mailbox_id,
-      cost.by_service.outlook?.requests ?? 0,
-      cost.by_service.identity?.requests ?? 0,
-      cost.elapsed_ms,
-    ],
-  );
+      // Compute cooldown from the Outlook pool limit (bottleneck for mail backup)
+      const outlook_limits = GRAPH_SERVICE_LIMITS.outlook;
+      const outlook_used = cost.by_service.outlook?.requests ?? 0;
+      const usage_ratio = outlook_used / outlook_limits.requests_per_window;
+      const cooldown_ms = Math.ceil(usage_ratio * outlook_limits.window_duration_ms);
 
-  // Compute cooldown from the Outlook pool limit (bottleneck for mail backup)
-  const outlook_limits = GRAPH_SERVICE_LIMITS.outlook;
-  const outlook_used = cost.by_service.outlook?.requests ?? 0;
-  const usage_ratio = outlook_used / outlook_limits.requests_per_window;
-  const cooldown_ms = Math.ceil(usage_ratio * outlook_limits.window_duration_ms);
-
-  // Re-enqueue after cooldown
-  await boss.send('backup-mailbox', job.data, {
-    startAfter: new Date(Date.now() + cooldown_ms),
-  });
+      // Re-enqueue after cooldown -- on the failure path this is what stops the
+      // retry from landing straight back on a throttled tenant.
+      await boss.send('backup-mailbox', job.data, {
+        startAfter: new Date(Date.now() + cooldown_ms),
+      });
+    }
+  }
 });
 ```
 
@@ -366,6 +410,7 @@ For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. Y
 - Deletion types: `DeletionResult`
 - Replication types: `ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
+- Cost helpers: `getGraphCost`
 
 **Graph cost types:**
 
@@ -379,5 +424,6 @@ For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. Y
 | `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                   |
 | `IdentityServiceLimits`   | type  | Identity pool limits type                                              |
 | `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                        |
+| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                  |
 | `SyncResult`              | type  | Result of `atlas.outlook.backup` (includes `graph_cost`)                      |
 | `RestoreResult`           | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graph_cost`) |
