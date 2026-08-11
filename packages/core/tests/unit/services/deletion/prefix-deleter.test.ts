@@ -83,6 +83,19 @@ describe('delete_scopes', () => {
     expect(order).toEqual(['manifests/u/snap.json', 'data/u/blob']);
   });
 
+  it('reports a delete marker it could not remove', async () => {
+    const storage = make_storage({
+      versions: [{ key: 'data/u/blob', version_id: 'marker', is_delete_marker: true }],
+    });
+    vi.mocked(storage.delete_version).mockRejectedValue(new Error('AccessDenied: Access Denied'));
+
+    const result = await delete_scopes(storage, ['data/u/']);
+
+    // Uncounted on success, but a marker that outlived the sweep is a survivor:
+    // a purge reading this summary as clean would drop the DEK.
+    expect(result.failed_objects).toBe(1);
+  });
+
   it('falls back to visible keys when the backend lists no versions', async () => {
     const storage = make_storage({ keys: ['data/u/blob'] });
 

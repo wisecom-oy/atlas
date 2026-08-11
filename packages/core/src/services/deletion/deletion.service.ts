@@ -11,8 +11,14 @@ import {
 } from '@/services/deletion/shared/prefix-deleter';
 import { logger } from '@/utils/logger';
 
-/** Holds the encrypted DEK; deleted last so a blocked purge stays recoverable. */
-const DEK_PREFIX = '_meta/';
+/**
+ * The wrapped DEK, deleted last so a blocked purge stays recoverable.
+ *
+ * Held back as this exact key, not as the whole `_meta/` prefix: replica markers
+ * and replication status records share that tree and are themselves encrypted
+ * with the DEK, so they have to go before the key that reads them.
+ */
+const DEK_KEY = '_meta/dek.enc';
 
 @injectable()
 export class DeletionService implements DeletionUseCase {
@@ -78,13 +84,13 @@ export class DeletionService implements DeletionUseCase {
   async purge_tenant(tenant_id: string): Promise<DeletionResult> {
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
 
-    const data = await delete_scopes(storage, [''], [DEK_PREFIX]);
+    const data = await delete_scopes(storage, [''], [DEK_KEY]);
     if (has_survivors(data)) {
       logger.error('Tenant purge left objects behind; keeping the DEK so they stay recoverable.');
       return data;
     }
 
-    const dek = await delete_scopes(storage, [DEK_PREFIX]);
+    const dek = await delete_scopes(storage, [DEK_KEY]);
     return merge_deletion_results(data, dek);
   }
 }

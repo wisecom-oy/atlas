@@ -253,7 +253,29 @@ describe('DeletionService', () => {
       await service.purge_tenant('t');
 
       const scopes = vi.mocked(mock_context.storage.list).mock.calls.map(([scope]) => scope);
-      expect(scopes).toEqual(['', '_meta/']);
+      expect(scopes).toEqual(['', '_meta/dek.enc']);
+    });
+
+    it('erases the DEK-encrypted neighbours in _meta before the DEK itself', async () => {
+      // Replica markers and replication records share _meta/ with the key that
+      // decrypts them, and sort after it. Holding back the whole prefix would
+      // let a retained record outlive its key.
+      vi.mocked(mock_context.storage.list)
+        .mockResolvedValueOnce([
+          '_meta/dek.enc',
+          '_meta/replica.marker',
+          '_meta/replication/u/snap/target.json',
+        ])
+        .mockResolvedValueOnce(['_meta/dek.enc']);
+
+      await service.purge_tenant('t');
+
+      const order = vi.mocked(mock_context.storage.delete).mock.calls.map(([key]) => key);
+      expect(order).toEqual([
+        '_meta/replica.marker',
+        '_meta/replication/u/snap/target.json',
+        '_meta/dek.enc',
+      ]);
     });
 
     it('leaves the DEK out of the bucket-wide sweep', async () => {

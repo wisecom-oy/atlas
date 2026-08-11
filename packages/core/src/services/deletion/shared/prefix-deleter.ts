@@ -31,6 +31,11 @@ type MutableResult = {
  * Deletes every version under each scope, where a scope is a key prefix or one
  * exact key.
  *
+ * ponytail: one listing buffered per scope, one DELETE per version, measured at
+ * ~1500 versions in 2.6s. Fine for a tenant; if million-object buckets show up,
+ * switch to the DeleteObjects batch API (1000 per call) and map its per-key
+ * error entries onto the same retained/failed split.
+ *
  * @param skip_prefixes - Scopes left untouched. A tenant purge uses this to hold
  *   the encrypted DEK back until the data it protects is confirmed gone.
  */
@@ -132,8 +137,12 @@ function count(
   outcome: 'deleted' | 'retained' | 'failed',
 ): void {
   // Removing a delete marker uncovers the versions beneath it rather than
-  // erasing anything, so it is swept but never counted as data.
-  if ('is_delete_marker' in entry && entry.is_delete_marker === true) return;
+  // erasing anything, so a successful sweep of one is not counted as data. A
+  // marker we could not remove still counts: it is an entry that outlived the
+  // sweep, and a purge must not read the summary as clean and drop the DEK.
+  if (outcome === 'deleted' && 'is_delete_marker' in entry && entry.is_delete_marker === true) {
+    return;
+  }
 
   const kind = is_manifest_key(entry.key) ? 'manifests' : 'objects';
   summary[`${outcome}_${kind}` as keyof MutableResult]++;
