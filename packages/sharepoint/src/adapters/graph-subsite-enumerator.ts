@@ -10,7 +10,49 @@
  * @see https://learn.microsoft.com/en-us/graph/api/site-list-subsites
  */
 
+import type { Client } from '@microsoft/microsoft-graph-client';
+import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { SharePointSite, SharePointSubsiteTree } from '@wisecom/atlas-types';
+
+interface GraphSiteRecord {
+  id?: string;
+  webUrl?: string;
+  displayName?: string;
+}
+
+interface GraphSiteCollection {
+  value?: GraphSiteRecord[];
+  '@odata.nextLink'?: string;
+}
+
+/** Pages through `GET /sites/{id}/sites`, the direct subsites of one site. */
+export async function fetch_direct_subsites(
+  client: Client,
+  site_id: string,
+): Promise<SharePointSite[]> {
+  const sites: SharePointSite[] = [];
+  let next_url: string | undefined = `/sites/${site_id}/sites?$select=id,webUrl,displayName`;
+
+  while (next_url) {
+    const url = next_url;
+    const page: GraphSiteCollection = await with_graph_retry(
+      () => client.api(url).get() as Promise<GraphSiteCollection>,
+    );
+
+    for (const raw of page.value ?? []) {
+      if (!raw.id) continue;
+      sites.push({
+        site_id: raw.id,
+        site_url: raw.webUrl ?? '',
+        display_name: raw.displayName ?? '',
+      });
+    }
+
+    next_url = page['@odata.nextLink'];
+  }
+
+  return sites;
+}
 
 /**
  * Depth ceiling for the walk. SharePoint site trees are shallow in practice;

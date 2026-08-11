@@ -60,4 +60,35 @@ export async function fetch_initial_delta_page(
   return { page, reset_detected: Boolean(stale_cursor) };
 }
 
+/**
+ * Fetches one drive item by id with the same field selection as the delta call,
+ * so a retried item maps identically to one delivered by delta.
+ * Resolves undefined when Graph reports the item no longer exists.
+ */
+export async function fetch_drive_item_by_id(
+  client: Client,
+  drive_id: string,
+  item_id: string,
+): Promise<GraphDeltaDriveItem | undefined> {
+  try {
+    return await with_graph_retry(
+      () =>
+        client
+          .api(`/drives/${drive_id}/items/${item_id}`)
+          .select(DRIVE_DELTA_SELECT_FIELDS)
+          .get() as Promise<GraphDeltaDriveItem>,
+    );
+  } catch (err) {
+    if (is_item_not_found(err)) return undefined;
+    throw err;
+  }
+}
+
+/** True when Graph reports the requested drive item does not exist. */
+function is_item_not_found(err: unknown): boolean {
+  const graph_err = err as Record<string, unknown> | null;
+  if (!graph_err) return false;
+  return graph_err.statusCode === 404 || graph_err.code === 'itemNotFound';
+}
+
 export type { GraphCollectionResponse };

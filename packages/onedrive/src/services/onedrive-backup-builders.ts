@@ -161,6 +161,7 @@ export function build_success_result(
   versions_unavailable: number,
   errors: string[],
   warnings: string[],
+  healthy: boolean,
 ): OneDriveBackupResult {
   return {
     owner_id,
@@ -177,7 +178,7 @@ export function build_success_result(
       versions_unavailable,
       errors,
       warnings,
-      healthy: errors.length === 0,
+      healthy,
     },
   };
 }

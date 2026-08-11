@@ -27,7 +27,7 @@ describe('SharePoint backup determinism — error isolation', () => {
     cursors = make_cursors();
   });
 
-  it('discards ALL library entries when a single file fails to process', async () => {
+  it('keeps successful entries when a single file fails to process', async () => {
     const good_file = make_file_item('good-1');
     const bad_file = make_file_item('bad-1');
 
@@ -48,14 +48,17 @@ describe('SharePoint backup determinism — error isolation', () => {
     const result = await service.backup_site('tenant-1', 'site-1');
 
     expect(result.summary.healthy).toBe(false);
-    expect(result.summary.errors.length).toBeGreaterThan(0);
-    expect(result.snapshot).toBeUndefined();
-    expect(result.summary.files_stored).toBe(0);
-    expect(result.summary.files_changed).toBe(0);
-    expect(manifests.save).not.toHaveBeenCalled();
+    expect(result.snapshot).toBeDefined();
+    expect(result.snapshot!.entries.map((e) => e.file_id)).toEqual(['good-1']);
+    expect(result.summary.files_stored).toBe(1);
+    expect(result.summary.files_changed).toBe(1);
+    expect(result.summary.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining('bad-1')]),
+    );
+    expect(manifests.save).toHaveBeenCalledTimes(1);
   });
 
-  it('does NOT update delta cursor for a library with errors', async () => {
+  it('advances the delta cursor even when every item in the library fails', async () => {
     connector = make_connector({
       fetch_delta: vi.fn().mockResolvedValue({
         drive_id: 'drive-1',
@@ -71,10 +74,9 @@ describe('SharePoint backup determinism — error isolation', () => {
 
     expect(result.summary.healthy).toBe(false);
 
-    const cursor_save_calls = (cursors.save as ReturnType<typeof vi.fn>).mock.calls;
-    for (const [, saved_cursor] of cursor_save_calls) {
-      expect(saved_cursor.delta_link_by_drive).not.toHaveProperty('drive-1');
-    }
+    const last_cursor = (cursors.save as ReturnType<typeof vi.fn>).mock.calls.at(-1)![1];
+    expect(last_cursor.delta_link_by_drive['drive-1']).toBe('https://new-delta-link');
+    expect(last_cursor.failed_items['f1'].attempts).toBe(1);
   });
 
   it('marks result as UNHEALTHY when a library-level exception occurs', async () => {
@@ -93,7 +95,7 @@ describe('SharePoint backup determinism — error isolation', () => {
     expect(manifests.save).not.toHaveBeenCalled();
   });
 
-  it('does NOT persist version indexes for files in a failed library', async () => {
+  it('persists version indexes only for the files that succeeded', async () => {
     connector = make_connector({
       fetch_delta: vi.fn().mockResolvedValue({
         drive_id: 'drive-1',
@@ -111,11 +113,11 @@ describe('SharePoint backup determinism — error isolation', () => {
     const service = make_service({ connector, manifests, file_indexes, cursors });
     await service.backup_site('tenant-1', 'site-1');
 
-    expect(manifests.save).not.toHaveBeenCalled();
+    expect(manifests.save).toHaveBeenCalledTimes(1);
 
     const append_calls = (file_indexes.append_version as ReturnType<typeof vi.fn>).mock.calls;
     const appended_file_ids = append_calls.map((c: unknown[]) => c[2]);
-    expect(appended_file_ids).not.toContain('f1');
+    expect(appended_file_ids).toContain('f1');
     expect(appended_file_ids).not.toContain('f2');
   });
 
@@ -208,7 +210,7 @@ describe('SharePoint backup determinism — error isolation', () => {
     expect(manifests.save).not.toHaveBeenCalled();
   });
 
-  it('files_stored count is zero when all files fail', async () => {
+  it('counts only the files that stored successfully', async () => {
     connector = make_connector({
       fetch_delta: vi.fn().mockResolvedValue({
         drive_id: 'drive-1',
@@ -227,8 +229,9 @@ describe('SharePoint backup determinism — error isolation', () => {
     const result = await service.backup_site('tenant-1', 'site-1');
 
     expect(result.summary.healthy).toBe(false);
-    expect(result.summary.files_stored).toBe(0);
-    expect(result.summary.files_changed).toBe(0);
+    expect(result.summary.files_stored).toBe(2);
+    expect(result.summary.files_changed).toBe(2);
+    expect(result.snapshot!.entries.map((e) => e.file_id)).toEqual(['f1', 'f3']);
   });
 
   it('no changes detected produces HEALTHY result with no snapshot', async () => {

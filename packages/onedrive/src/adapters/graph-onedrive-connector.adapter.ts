@@ -25,7 +25,8 @@ import {
   rethrow_if_access_denied,
   throw_missing_permissions,
 } from '@/adapters/graph-onedrive-download-helpers';
-import { map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 interface GraphCollectionResponse<T> {
@@ -55,20 +56,6 @@ interface GraphVersionRecord {
   lastModifiedDateTime?: string;
   size?: number;
 }
-
-const DRIVE_DELTA_SELECT_FIELDS = [
-  'id',
-  'name',
-  'size',
-  'webUrl',
-  'eTag',
-  'lastModifiedDateTime',
-  'parentReference',
-  'file',
-  'folder',
-  'package',
-  '@microsoft.graph.downloadUrl',
-].join(',');
 
 /** Microsoft Graph adapter for OneDrive delta sync and file download. */
 @injectable()
@@ -111,6 +98,16 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       }
       throw err;
     }
+  }
+
+  /** Reads one item by id to retry a past failure; undefined once Graph reports it gone. */
+  async fetch_item_by_id(
+    _tenant_id: string,
+    _owner_id: string,
+    drive_id: string,
+    item_id: string,
+  ): Promise<OneDriveDeltaItem | undefined> {
+    return graph_onedrive_fetch_item_by_id(this._client, drive_id, item_id);
   }
 
   /** Downloads full file content with URL refresh and Graph content fallback. */

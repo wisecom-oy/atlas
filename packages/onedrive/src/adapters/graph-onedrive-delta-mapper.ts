@@ -4,7 +4,7 @@ interface GraphParentReference {
   path?: string;
 }
 
-interface GraphDeltaDriveItem {
+export interface GraphDeltaDriveItem {
   id?: string;
   name?: string;
   size?: number;
@@ -18,6 +18,25 @@ interface GraphDeltaDriveItem {
   '@removed'?: { reason: string };
   '@microsoft.graph.downloadUrl'?: string;
 }
+
+/**
+ * Fields Graph must return for a drive item -- exactly the set `map_delta_item`
+ * reads. Shared by the delta call and the single-item retry fetch so a retried
+ * item maps identically to one that arrived through delta.
+ */
+export const DRIVE_DELTA_SELECT_FIELDS = [
+  'id',
+  'name',
+  'size',
+  'webUrl',
+  'eTag',
+  'lastModifiedDateTime',
+  'parentReference',
+  'file',
+  'folder',
+  'package',
+  '@microsoft.graph.downloadUrl',
+].join(',');
 
 function normalize_path(raw: string): string {
   return raw.normalize('NFC');

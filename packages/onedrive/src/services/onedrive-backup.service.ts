@@ -31,6 +31,7 @@ import {
   type PackageReportTotals,
 } from '@/services/onedrive-backup-drive-processor';
 import { cleanup_stale_staging } from '@/services/onedrive-large-file-pipeline';
+import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 
 @injectable()
 export class OneDriveBackupService implements OneDriveBackupUseCase {
@@ -133,6 +134,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         owner_id,
         delta_link_by_drive,
         ...tracking_state,
+        failed_items: scan_result.failed_items,
         updated_at: new Date().toISOString(),
       };
 
@@ -140,7 +142,11 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         warnings.push(`${total_versions_failed} version download(s) failed unexpectedly`);
       }
       warnings.push(...build_package_warnings(scan_result.package_report));
-      const healthy = scan_result.errors.length === 0;
+      // Files left un-backed-up are the run's headline problem: warn per item and
+      // hold the run unhealthy until the ledger is empty.
+      warnings.push(...describe_failed_items(scan_result.failed_items));
+      const healthy =
+        scan_result.errors.length === 0 && Object.keys(scan_result.failed_items).length === 0;
 
       if (scan_result.entries.length === 0) {
         await this._cursors.save(ctx, cursor);
@@ -189,6 +195,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         total_versions_unavailable,
         scan_result.errors,
         warnings,
+        healthy,
       );
     } finally {
       progress?.finish();
