@@ -49,9 +49,13 @@ export class GraphRestoreConnector implements RestoreConnector {
         this._client.api(url).post({ displayName: display_name }),
       )) as GraphFolderResponse;
 
+      const created_name = response.displayName ?? display_name;
       return {
         folder_id: response.id ?? '',
-        display_name: response.displayName ?? display_name,
+        display_name: created_name,
+        // Freshly created folder: the caller owns the surrounding hierarchy, so
+        // the path it knows about is just this folder's own name.
+        folder_path: created_name,
         parent_folder_id: response.parentFolderId ?? parent_folder_id,
         total_item_count: response.totalItemCount ?? 0,
       };

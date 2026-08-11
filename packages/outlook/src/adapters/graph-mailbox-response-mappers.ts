@@ -1,8 +1,6 @@
-import type { MailboxPurpose, MailFolder, MessageAttachment } from '@wisecom/atlas-types';
+import type { MailboxPurpose, MessageAttachment } from '@wisecom/atlas-types';
 import type { TenantMailbox } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-
-const EXCLUDED_FOLDERS = new Set(['drafts', 'outbox', 'recoverableitemsdeletions', 'junkemail']);
 
 export interface GraphAssignedPlan {
   service?: string;
@@ -24,6 +22,7 @@ export interface GraphFolderRecord {
   displayName?: string;
   parentFolderId?: string;
   totalItemCount?: number;
+  childFolderCount?: number;
 }
 
 export interface GraphAttachmentRecord {
@@ -59,17 +58,8 @@ export function parse_mailbox_purpose(value: unknown): MailboxPurpose | undefine
     : 'others';
 }
 
-/** Filters out excluded system folders and maps to our MailFolder type. */
-export function filter_and_map_folders(folders: GraphFolderRecord[]): MailFolder[] {
-  return folders
-    .filter((f) => f.id && !EXCLUDED_FOLDERS.has((f.displayName ?? '').toLowerCase()))
-    .map((f) => ({
-      folder_id: f.id!,
-      display_name: f.displayName ?? '',
-      parent_folder_id: f.parentFolderId ?? undefined,
-      total_item_count: f.totalItemCount ?? 0,
-    }));
-}
+/* Folder filtering and mapping lives in graph-folder-tree-enumerator.ts, which
+   needs the whole hierarchy in hand to resolve each folder's path. */
 
 /** Extracts Exchange Online license status from a user's assignedPlans. */
 export function extract_exchange_license_status(plans?: GraphAssignedPlan[]): {

@@ -6,6 +6,7 @@ import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-typ
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
+import { folder_matches_selector } from '@/services/shared/folder-selector';
 import {
   build_manifest,
   create_pending_snapshot,
@@ -82,7 +83,7 @@ export class MailboxSyncService implements BackupUseCase {
       const progress =
         options.progress ??
         options.create_progress?.(
-          folders.map((f) => ({ name: f.display_name, total_items: f.total_item_count })),
+          folders.map((f) => ({ name: f.folder_path, total_items: f.total_item_count })),
         ) ??
         NOOP_BACKUP_PROGRESS_REPORTER;
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
@@ -118,7 +119,7 @@ export class MailboxSyncService implements BackupUseCase {
         );
 
         if (outcome.error) {
-          folder_errors.push(`${folder.display_name}: ${outcome.error}`);
+          folder_errors.push(`${folder.folder_path}: ${outcome.error}`);
           progress.mark_error(i, outcome.error);
           continue;
         }
@@ -278,7 +279,9 @@ export class MailboxSyncService implements BackupUseCase {
   }
 
   /**
-   * Filters the full folder list by display name (case-insensitive).
+   * Filters the folder list by user-supplied selectors. A selector matches a
+   * full path (`Inbox/Projects`) or a bare folder name at any depth
+   * (`Projects`), and always includes the matched folder's subtree.
    * Returns all folders if no filter is specified.
    */
   private apply_folder_filter(
@@ -287,16 +290,15 @@ export class MailboxSyncService implements BackupUseCase {
   ): { folders: MailFolder[]; warnings: string[] } {
     if (!filter || filter.length === 0) return { folders, warnings: [] };
 
-    const lower_filter = new Set(filter.map((f) => f.toLowerCase()));
-    const matched = folders.filter((f) => lower_filter.has(f.display_name.toLowerCase()));
-    const matched_names = new Set(matched.map((f) => f.display_name.toLowerCase()));
+    const matched = folders.filter((f) =>
+      filter.some((selector) => folder_matches_selector(f.folder_path, selector)),
+    );
     const warnings: string[] = [];
 
-    for (const name of lower_filter) {
-      if (!matched_names.has(name)) {
-        const available = folders.map((f) => f.display_name).join(', ');
-        warnings.push(`Folder "${name}" not found. Available: ${available}`);
-      }
+    for (const selector of filter) {
+      if (matched.some((f) => folder_matches_selector(f.folder_path, selector))) continue;
+      const available = folders.map((f) => f.folder_path).join(', ');
+      warnings.push(`Folder "${selector}" not found. Available: ${available}`);
     }
 
     return { folders: matched, warnings };

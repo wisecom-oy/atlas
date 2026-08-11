@@ -137,6 +137,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
       expect(result[0]).toEqual({
         folder_id: 'f-inbox',
         display_name: 'Inbox',
+        folder_path: 'Inbox',
         parent_folder_id: 'root',
         total_item_count: 42,
       });
@@ -154,6 +155,66 @@ describe('GraphMailboxConnector - listing APIs', () => {
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1');
       expect(result).toHaveLength(2);
+    });
+
+    it('descends into child folders and reports their full path', async () => {
+      mock_client._chain.get
+        .mockResolvedValueOnce({
+          value: [{ id: 'f-inbox', displayName: 'Inbox', totalItemCount: 1, childFolderCount: 1 }],
+        })
+        .mockResolvedValueOnce({
+          value: [
+            {
+              id: 'f-projects',
+              displayName: 'Projects',
+              parentFolderId: 'f-inbox',
+              totalItemCount: 2,
+              childFolderCount: 1,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          value: [
+            {
+              id: 'f-2026',
+              displayName: '2026',
+              parentFolderId: 'f-projects',
+              totalItemCount: 3,
+            },
+          ],
+        });
+
+      const result = await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(result.map((f) => f.folder_path)).toEqual([
+        'Inbox',
+        'Inbox/Projects',
+        'Inbox/Projects/2026',
+      ]);
+      expect(mock_client.api).toHaveBeenCalledWith(
+        expect.stringContaining('/mailFolders/f-inbox/childFolders'),
+      );
+    });
+
+    it('does not request children for leaf folders', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({
+        value: [{ id: 'f-inbox', displayName: 'Inbox', childFolderCount: 0 }],
+      });
+
+      await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(mock_client.api).toHaveBeenCalledTimes(1);
+    });
+
+    it('prunes the subtree of an excluded folder', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({
+        value: [{ id: 'f-junk', displayName: 'JunkEmail', childFolderCount: 2 }],
+      });
+
+      const result = await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(result).toEqual([]);
+      expect(mock_client.api).toHaveBeenCalledTimes(1);
     });
   });
 });

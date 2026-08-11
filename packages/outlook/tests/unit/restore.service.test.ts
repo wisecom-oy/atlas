@@ -93,8 +93,8 @@ describe('RestoreService', () => {
     };
 
     const folders: MailFolder[] = [
-      { folder_id: 'f1', display_name: 'Inbox', total_item_count: 10 },
-      { folder_id: 'f2', display_name: 'Sent', total_item_count: 5 },
+      { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox', total_item_count: 10 },
+      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent', total_item_count: 5 },
     ];
 
     mock_connector = {
@@ -110,6 +110,7 @@ describe('RestoreService', () => {
       create_mail_folder: vi.fn().mockResolvedValue({
         folder_id: 'restore-root',
         display_name: 'Restore-2026-03-08',
+        folder_path: 'Restore-2026-03-08',
         total_item_count: 0,
       }),
       create_message: vi.fn().mockResolvedValue('new-msg-id'),

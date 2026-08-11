@@ -45,7 +45,7 @@ atlas outlook backup --full                                    # force full sync
 | Option                   | Description                                                    |
 | ------------------------ | -------------------------------------------------------------- |
 | `-m, --mailbox <id>`     | Specific mailbox to back up (backs up all licensed and shared if omitted) |
-| `-f, --folder <name...>` | Filter to specific folder(s) by display name                   |
+| `-f, --folder <name...>` | Filter to specific folder(s) by name or path (see below)       |
 | `--full`                 | Ignore saved delta links, run full enumeration                 |
 | `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)     |
 | `-C, --concurrency <n>`  | Parallel mailbox count for tenant backup (default 4)           |
@@ -64,6 +64,14 @@ When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and sha
 ::: details Page size tuning
 The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_ -- the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
 :::
+
+:::: tip Nested folders and `--folder` matching
+Atlas walks the whole mail-folder hierarchy, not just the folders directly under the mailbox root: `GET /users/{id}/mailFolders` returns only top-level folders, so every folder reporting child folders is expanded through `/childFolders` until the tree is exhausted. Folders are identified by their root-relative path (`Inbox/Projects/2026`), which is what `status`, backup progress, and `save` archive directories display.
+
+A `--folder` selector matches either a full path (`Inbox/Projects`) or a bare folder name at any depth (`Projects`), case-insensitively, and always includes everything nested beneath the match -- `--folder Inbox` backs up `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when the same folder name exists under several parents. Excluded system folders (Drafts, Outbox, recoverable items) are pruned together with their subtrees.
+
+Recursion is bounded at 300 levels, matching Exchange's own folder-depth limit; anything deeper is skipped with a warning rather than recursed forever.
+::::
 
 ::: details Immutability behavior
 `--retention-days` makes the backup immutable-requested. Atlas resolves retention to an internal UTC `retain_until`, probes bucket capability (versioning + Object Lock), and fails fast when unsupported instead of silently downgrading to mutable writes.
@@ -123,13 +131,13 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `-s, --snapshot <id>`       | Restore from a specific snapshot                              |
 | `-m, --mailbox <email>`     | Restore from all snapshots for this mailbox                   |
 | `-T, --target <email>`      | Target mailbox for cross-mailbox restore (defaults to source) |
-| `-f, --folder <name>`       | Restore only messages from this folder                        |
+| `-f, --folder <name>`       | Restore only messages from this folder or its subfolders      |
 | `--message <ref>`           | Restore a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date               |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date              |
 | `-t, --tenant <id>`         | Override tenant ID                                            |
 
-Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox.
+Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
@@ -196,7 +204,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | --------------------------- | ----------------------------------------------------------- |
 | `-s, --snapshot <id>`       | Save from a specific snapshot                               |
 | `-m, --mailbox <email>`     | Save from all snapshots for this mailbox                    |
-| `-f, --folder <name>`       | Save only messages from this folder                         |
+| `-f, --folder <name>`       | Save only messages from this folder or its subfolders       |
 | `--message <ref>`           | Save a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date             |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date            |

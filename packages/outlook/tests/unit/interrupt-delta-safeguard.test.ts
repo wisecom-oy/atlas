@@ -37,7 +37,12 @@ function make_message(id: string): MailMessage {
   };
 }
 
-const FOLDER: MailFolder = { folder_id: 'folder-1', display_name: 'Inbox', total_item_count: 10 };
+const FOLDER: MailFolder = {
+  folder_id: 'folder-1',
+  display_name: 'Inbox',
+  folder_path: 'Inbox',
+  total_item_count: 10,
+};
 
 const PREVIOUS_MANIFEST: Manifest = {
   id: 'old-manifest',

@@ -90,8 +90,8 @@ describe('SaveService', () => {
       list_mailboxes: vi.fn().mockResolvedValue([]),
       mailbox_exists: vi.fn().mockResolvedValue(true),
       list_mail_folders: vi.fn().mockResolvedValue([
-        { folder_id: 'f1', display_name: 'Inbox' },
-        { folder_id: 'f2', display_name: 'Sent Items' },
+        { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox' },
+        { folder_id: 'f2', display_name: 'Sent Items', folder_path: 'Sent Items' },
       ]),
       fetch_delta: vi.fn(),
       fetch_message: vi.fn(),
