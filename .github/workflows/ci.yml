@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
-    branches: [main]
+    # Release branches are integration targets for a whole beta line, so they
+    # need the same gate as main -- without this, PRs into release/** merge
+    # with no build, lint, format, or test run at all.
+    branches: [main, 'release/**']
 
 permissions:
   contents: read
