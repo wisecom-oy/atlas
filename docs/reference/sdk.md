@@ -118,7 +118,7 @@ const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 
 | Option                 | Type      | Description                                               |
 | ---------------------- | --------- | --------------------------------------------------------- |
-| `folder_name`          | `string`  | Save only messages from this folder                       |
+| `folder_name`          | `string`  | Save only this folder and its subfolders (name or path)   |
 | `message_ref`          | `string`  | Save a single message by index or ID                      |
 | `start_date`           | `Date`    | Include snapshots on or after this date                   |
 | `end_date`             | `Date`    | Include snapshots on or before this date                  |
@@ -147,7 +147,7 @@ interface SaveResult {
 
 | Option           | Type     | Description                              |
 | ---------------- | -------- | ---------------------------------------- |
-| `folder_name`    | `string` | Restore only messages from this folder   |
+| `folder_name`    | `string` | Restore only this folder and its subfolders (name or path) |
 | `message_ref`    | `string` | Restore a single message by index or ID  |
 | `target_mailbox` | `string` | Target mailbox for cross-mailbox restore |
 | `start_date`     | `Date`   | Include snapshots on or after this date  |

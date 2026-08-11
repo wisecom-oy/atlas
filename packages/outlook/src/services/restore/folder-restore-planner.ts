@@ -2,12 +2,15 @@ import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
+import { folder_matches_selector } from '@/services/shared/folder-selector';
 
 const UNKNOWN_FOLDER_NAME = 'Unknown';
 
 /**
- * Builds a mapping from Graph folder_id to display name using
- * the live folder list and the manifest's delta_links keys.
+ * Builds a mapping from Graph folder_id to the folder's root-relative path
+ * (e.g. `Inbox/Projects/2026`), so nested folders stay distinguishable in
+ * restore targets, save archives, and folder filters.
  */
 export async function build_folder_map(
   connector: MailboxConnector,
@@ -17,7 +20,7 @@ export async function build_folder_map(
   const folders = await connector.list_mail_folders(tenant_id, owner_id);
   const map = new Map<string, string>();
   for (const f of folders) {
-    map.set(f.folder_id, f.display_name);
+    map.set(f.folder_id, f.folder_path);
   }
   return map;
 }
@@ -35,9 +38,11 @@ export async function create_restore_root(
 }
 
 /**
- * Ensures a subfolder exists under the restore root for a given folder_id.
- * Uses a cache to avoid creating the same folder twice.
- * Returns the new (restore-side) folder ID to put messages into.
+ * Ensures the restore-side folder for a given original folder_id exists,
+ * recreating the source nesting (`Inbox/Projects/2026`) as real subfolders of
+ * the restore root. Every level is cached by its path, so sibling folders
+ * sharing a parent create that parent once.
+ * Returns the restore-side folder ID to put messages into.
  */
 export async function ensure_subfolder(
   restore_connector: RestoreConnector,
@@ -51,16 +56,29 @@ export async function ensure_subfolder(
   const cached = created_folders.get(original_folder_id);
   if (cached) return cached;
 
-  const display_name = folder_map.get(original_folder_id) ?? UNKNOWN_FOLDER_NAME;
-  const folder = await restore_connector.create_mail_folder(
-    tenant_id,
-    owner_id,
-    display_name,
-    root_folder_id,
-  );
+  const folder_path = folder_map.get(original_folder_id) ?? UNKNOWN_FOLDER_NAME;
+  let parent_id = root_folder_id;
+  let path_so_far = '';
 
-  created_folders.set(original_folder_id, folder.folder_id);
-  return folder.folder_id;
+  for (const segment of folder_path.split(FOLDER_PATH_SEPARATOR)) {
+    path_so_far = path_so_far ? `${path_so_far}${FOLDER_PATH_SEPARATOR}${segment}` : segment;
+    const existing = created_folders.get(path_so_far);
+    if (existing) {
+      parent_id = existing;
+      continue;
+    }
+    const folder = await restore_connector.create_mail_folder(
+      tenant_id,
+      owner_id,
+      segment,
+      parent_id,
+    );
+    created_folders.set(path_so_far, folder.folder_id);
+    parent_id = folder.folder_id;
+  }
+
+  created_folders.set(original_folder_id, parent_id);
+  return parent_id;
 }
 
 /**
@@ -81,31 +99,26 @@ export function group_entries_by_folder(entries: ManifestEntry[]): Map<string, M
 }
 
 /**
- * Filters entries belonging to a specific folder by display name.
- * Looks up the folder_id from the folder map, then filters entries.
+ * Filters entries to a folder selected by path (`Inbox/Projects`) or bare name
+ * (`Projects`), including everything nested beneath the match.
  */
 export function filter_entries_by_folder_name(
   entries: ManifestEntry[],
   folder_name: string,
   folder_map: Map<string, string>,
 ): ManifestEntry[] {
-  const lower = folder_name.toLowerCase();
-  let target_id: string | undefined;
-
-  for (const [fid, name] of folder_map) {
-    if (name.toLowerCase() === lower) {
-      target_id = fid;
-      break;
-    }
+  const target_ids = new Set<string>();
+  for (const [fid, path] of folder_map) {
+    if (folder_matches_selector(path, folder_name)) target_ids.add(fid);
   }
 
-  if (!target_id) {
+  if (target_ids.size === 0) {
     const available = [...folder_map.values()].join(', ');
     logger.warn(`Folder "${folder_name}" not found. Available: ${available}`);
     return [];
   }
 
-  return entries.filter((e) => e.folder_id === target_id);
+  return entries.filter((e) => e.folder_id !== undefined && target_ids.has(e.folder_id));
 }
 
 /** Counts unique folder_ids across a set of entries. */

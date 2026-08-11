@@ -25,10 +25,10 @@ import type {
 } from '@/adapters/graph-mailbox-response-mappers';
 import {
   extract_user_ids,
-  filter_and_map_folders,
   map_file_attachments,
   parse_mailbox_purpose,
 } from '@/adapters/graph-mailbox-response-mappers';
+import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
   DELTA_SELECT_FIELDS,
@@ -87,23 +87,29 @@ export class GraphMailboxConnector implements MailboxConnector {
   }
 
   /**
-   * Lists all mail folders for a mailbox, excluding system folders
-   * (drafts, outbox, junk, recoverable items).
+   * Lists every mail folder in the mailbox, at any nesting depth, excluding
+   * system folders (drafts, outbox, junk, recoverable items) and their subtrees.
    */
   async list_mail_folders(_tenant_id: string, owner_id: string): Promise<MailFolder[]> {
     try {
-      const url =
-        `/users/${owner_id}/mailFolders` +
-        '?$select=id,displayName,parentFolderId,totalItemCount&$top=250';
-      const folder_records = await with_graph_retry(() =>
-        this.collect_all_pages<GraphFolderRecord>(url),
+      return await enumerate_folder_tree((parent_folder_id) =>
+        with_graph_retry(() =>
+          this.collect_all_pages<GraphFolderRecord>(this.folder_url(owner_id, parent_folder_id)),
+        ),
       );
-      return filter_and_map_folders(folder_records);
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
       throw err;
     }
+  }
+
+  /** Builds the folder-collection URL for the mailbox root or one parent folder. */
+  private folder_url(owner_id: string, parent_folder_id?: string): string {
+    const collection = parent_folder_id
+      ? `/users/${owner_id}/mailFolders/${parent_folder_id}/childFolders`
+      : `/users/${owner_id}/mailFolders`;
+    return `${collection}?$select=id,displayName,parentFolderId,totalItemCount,childFolderCount&$top=250`;
   }
 
   /**
