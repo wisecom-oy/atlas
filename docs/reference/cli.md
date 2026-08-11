@@ -54,8 +54,11 @@ atlas outlook backup --full                                    # force full sync
 | `--require-immutability` | Fail if immutability cannot be enforced                        |
 | `-t, --tenant <id>`      | Override tenant ID from config                                 |
 
+::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
+`0` -- complete: every folder/file/mailbox processed without error. `1` -- hard failure: the run aborted (auth, storage, unhandled error). `2` -- **partial**: a snapshot was saved but the run is incomplete -- per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+:::
 ::: tip Tenant-wide mode
-When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox -- one failing mailbox never aborts the others -- but the command exits non-zero when any mailbox failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
+When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox -- one failing mailbox never aborts the others -- but the command exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
 :::
 
 ::: details Page size tuning

@@ -23,6 +23,7 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
+import { report_run_outcome } from '@/command-run-outcome';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -139,19 +140,12 @@ export async function execute_onedrive_backup(
     );
   }
 
-  for (const w of result.summary.warnings) {
-    logger.warn(w);
-  }
-
   if (result.summary.healthy) {
     logger.success('Status: HEALTHY');
   } else {
     logger.error('Status: UNHEALTHY');
-    await render_static_view(
-      <ErrorList errors={result.summary.errors} max={result.summary.errors.length} />,
-    );
-    process.exitCode = 1;
   }
+  report_run_outcome({ errors: result.summary.errors, warnings: result.summary.warnings }, 'file');
 }
 
 export async function execute_onedrive_restore(

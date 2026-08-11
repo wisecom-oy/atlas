@@ -23,6 +23,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
+import { report_run_outcome } from '@/command-run-outcome';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -147,19 +148,12 @@ export async function execute_sharepoint_backup(
     );
   }
 
-  for (const w of result.summary.warnings) {
-    logger.warn(w);
-  }
-
   if (result.summary.healthy) {
     logger.success('Status: HEALTHY');
   } else {
     logger.error('Status: UNHEALTHY');
-    await render_static_view(
-      <ErrorList errors={result.summary.errors} max={result.summary.errors.length} />,
-    );
-    process.exitCode = 1;
   }
+  report_run_outcome({ errors: result.summary.errors, warnings: result.summary.warnings }, 'file');
 }
 
 export async function execute_sharepoint_restore(
