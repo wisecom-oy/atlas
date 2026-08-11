@@ -159,8 +159,7 @@ function extract_retry_after(err: unknown): number | undefined {
     graph_err.headers as Record<string, string> | undefined,
     graph_err.responseHeaders as Record<string, string> | undefined,
     (graph_err.response as Record<string, unknown> | undefined)?.headers as
-      | Record<string, string>
-      | undefined,
+      Record<string, string> | undefined,
   ];
   for (const headers of headers_sources) {
     if (!headers) continue;
