@@ -2,7 +2,10 @@ import type { MailboxPurpose } from '@/domain/manifest';
 
 export interface MailFolder {
   readonly folder_id: string;
+  /** Leaf name as shown in Outlook, e.g. `2026`. */
   readonly display_name: string;
+  /** Root-relative path with `/` between levels, e.g. `Inbox/Projects/2026`. */
+  readonly folder_path: string;
   readonly parent_folder_id?: string | undefined;
   readonly total_item_count: number;
 }

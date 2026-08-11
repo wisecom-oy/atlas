@@ -50,13 +50,13 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `-s, --snapshot <id>`       | Restore from a specific snapshot                              |
 | `-m, --mailbox <email>`     | Restore from all snapshots for this mailbox                   |
 | `-T, --target <email>`      | Target mailbox for cross-mailbox restore (defaults to source) |
-| `-f, --folder <name>`       | Restore only messages from this folder                        |
+| `-f, --folder <name>`       | Restore only messages from this folder or its subfolders      |
 | `--message <ref>`           | Restore a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date               |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date              |
 | `-t, --tenant <id>`         | Override tenant ID                                            |
 
-Either `--snapshot` or `--mailbox` is required. Using both `--snapshot` and `--mailbox` together requires `--target` (`-T`) to explicitly specify the restore destination. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox.
+Either `--snapshot` or `--mailbox` is required. Using both `--snapshot` and `--mailbox` together requires `--target` (`-T`) to explicitly specify the restore destination. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
@@ -87,7 +87,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | --------------------------- | ----------------------------------------------------------- |
 | `-s, --snapshot <id>`       | Save from a specific snapshot                               |
 | `-m, --mailbox <email>`     | Save from all snapshots for this mailbox                    |
-| `-f, --folder <name>`       | Save only messages from this folder                         |
+| `-f, --folder <name>`       | Save only messages from this folder or its subfolders       |
 | `--message <ref>`           | Save a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date             |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date            |

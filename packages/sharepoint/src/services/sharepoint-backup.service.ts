@@ -24,7 +24,12 @@ import {
   describe_failed_items,
   type FailedItemLedger,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import { build_empty_result, build_snapshot_manifest } from '@/services/sharepoint-backup-builders';
+import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import {
+  build_empty_result,
+  build_package_warnings,
+  build_snapshot_manifest,
+} from '@/services/sharepoint-backup-builders';
 import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import { process_single_library } from '@/services/sharepoint-backup-library-processor';
 import type {
@@ -93,6 +98,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking, scan.failed_items);
       const warnings = [
         ...this.build_version_warnings(scan.version_stats),
+        ...build_package_warnings(scan.package_reports),
         ...describe_failed_items(scan.failed_items),
       ];
       const healthy = scan.errors.length === 0 && Object.keys(scan.failed_items).length === 0;
@@ -161,6 +167,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     errors: string[];
     failed_items: FailedItemLedger;
     version_stats: VersionStatsState;
+    package_reports: PackageReport[];
   }> {
     const entries: SharePointManifestEntry[] = [];
     let files_stored = 0;
@@ -173,6 +180,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     };
     const errors: string[] = [];
     let failed_items = initial_failed_items;
+    const package_reports: PackageReport[] = [];
 
     for (const library of libraries) {
       try {
@@ -194,6 +202,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         );
 
         failed_items = library_result.failed_items;
+        package_reports.push(library_result.package_report);
         entries.push(...library_result.entries);
         files_stored += library_result.files_stored;
         files_deduplicated += library_result.files_deduplicated;
@@ -213,6 +222,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       errors,
       failed_items,
       version_stats,
+      package_reports,
     };
   }
 

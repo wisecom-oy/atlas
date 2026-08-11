@@ -70,6 +70,8 @@ Each Outlook manifest records an optional `mailbox_purpose` field -- the Graph `
 | `sharepoint/index/{site_id}/files/` | Per-file version indexes | Maps file IDs to snapshot versions |
 | `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors | Required for incremental sync |
 
+Subsites are stored exactly like any other site: a subsite is a Graph site with its own `site_id`, so `atlas sharepoint backup --include-subsites` writes one snapshot per subsite under that subsite's own `sharepoint/manifests/{site_id}/` prefix rather than folding its files into the parent site's manifest. Blobs, indexes, and delta cursors follow the same per-`site_id` split, which keeps a subsite's backup, restore, and retention independent of its parent.
+
 ### The `_meta/dek.enc` Object
 
 This is the single most important object in the entire bucket. It contains the **Data Encryption Key (DEK)** wrapped (encrypted) with the KEK derived from your passphrase. Without this file:

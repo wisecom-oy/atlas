@@ -8,6 +8,7 @@ function make_restore_stub(): RestoreConnector {
     create_mail_folder: vi.fn().mockResolvedValue({
       folder_id: 'f1',
       display_name: 'Test',
+      folder_path: 'Test',
       total_item_count: 0,
     }),
     create_message: vi.fn().mockResolvedValue('msg-id'),

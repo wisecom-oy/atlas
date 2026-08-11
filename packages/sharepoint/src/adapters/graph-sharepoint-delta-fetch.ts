@@ -19,6 +19,7 @@ const DRIVE_DELTA_SELECT_FIELDS = [
   'parentReference',
   'file',
   'folder',
+  'package',
   '@microsoft.graph.downloadUrl',
 ].join(',');
 
@@ -33,10 +34,10 @@ export async function fetch_initial_delta_page(
   drive_id: string,
   prev_delta_link: string | undefined,
 ): Promise<InitialDeltaPageResult> {
-  const stale_cursor = prev_delta_link && !prev_delta_link.includes('$select=');
+  const stale_cursor = prev_delta_link && !prev_delta_link.includes('package');
   if (stale_cursor) {
     logger.warn(
-      `Delta cursor for drive ${drive_id} predates field selection — performing fresh delta`,
+      `Delta cursor for drive ${drive_id} predates package-facet selection — performing fresh delta`,
     );
   }
 

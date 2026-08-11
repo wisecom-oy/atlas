@@ -17,6 +17,10 @@ import {
   type LibraryProcessingState,
   type VersionStatsState,
 } from '@/services/sharepoint-library-item-processor';
+import {
+  summarize_package_items,
+  type PackageReport,
+} from '@wisecom/atlas-core/services/shared/package-item-reporter';
 
 export interface LibraryProcessingResult {
   entries: SharePointManifestEntry[];
@@ -26,6 +30,7 @@ export interface LibraryProcessingResult {
   delta_link?: string;
   /** Site-wide ledger after this library's retries and new failures. */
   failed_items: FailedItemLedger;
+  package_report: PackageReport;
 }
 
 /** Clears file tracking maps when Graph signals a delta reset. */
@@ -83,6 +88,7 @@ export async function process_single_library(
     library_files_deduplicated: 0,
     library_deleted_items: 0,
     failed_items,
+    failed_item_ids: new Set<string>(),
   };
 
   await retry_failed_items(
@@ -112,6 +118,8 @@ export async function process_single_library(
     );
   }
 
+  const package_report = summarize_package_items(delta.items, library_state.failed_item_ids);
+
   delta_link_by_drive[library.drive_id] = delta.delta_link;
   await cursors.save(ctx, {
     site_id,
@@ -128,5 +136,6 @@ export async function process_single_library(
     deleted_items: library_state.library_deleted_items,
     delta_link: delta.delta_link,
     failed_items: library_state.failed_items,
+    package_report,
   };
 }

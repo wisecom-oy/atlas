@@ -56,7 +56,11 @@ export type {
 
 export type { TenantProgressReporter } from './backup/tenant-progress.port';
 
-export type { VerificationUseCase, VerificationResult } from './verification/use-case.port';
+export type {
+  VerificationUseCase,
+  VerificationResult,
+  VerificationOptions,
+} from './verification/use-case.port';
 
 export type { RestoreUseCase, RestoreResult, RestoreOptions } from './restore/use-case.port';
 
@@ -151,6 +155,7 @@ export type {
 export type {
   SharePointSiteConnector,
   SharePointSite,
+  SharePointSubsiteTree,
   SharePointDocumentLibrary,
   SharePointDeltaItem,
   SharePointDeltaItemKind,
@@ -164,6 +169,7 @@ export type { SharePointFileVersionIndexRepository } from './sharepoint/file-ver
 
 export type {
   SharePointBackupUseCase,
+  SharePointSiteTreeBackupUseCase,
   SharePointBackupResult,
   SharePointBackupSummary,
   SharePointBackupOptions,
@@ -227,6 +233,7 @@ export {
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,

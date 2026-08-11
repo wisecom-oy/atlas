@@ -3,14 +3,15 @@ import { Box } from 'ink';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
-  SharePointBackupUseCase,
+  SharePointBackupResult,
+  SharePointSiteTreeBackupUseCase,
   SharePointRestoreUseCase,
   SharePointSaveUseCase,
   SharePointSiteConnector,
   SharePointVerificationUseCase,
 } from '@wisecom/atlas-types';
 import {
-  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
@@ -23,6 +24,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
+import { report_run_outcome } from '@/command-run-outcome';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -31,6 +33,7 @@ export interface SharePointTenantOptions {
 export interface SharePointBackupOptions extends SharePointTenantOptions {
   site: string;
   full?: boolean;
+  includeSubsites?: boolean;
   retentionDays?: string;
   lockMode?: string;
 }
@@ -105,17 +108,40 @@ export async function execute_sharepoint_backup(
   const site = await connector.resolve_site(tenant_id, options.site);
   logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
 
-  const backup = container.get<SharePointBackupUseCase>(SHAREPOINT_BACKUP_USE_CASE_TOKEN);
-  const result = await backup.backup_site(tenant_id, site.site_id, {
+  const backup = container.get<SharePointSiteTreeBackupUseCase>(
+    SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
+  );
+  const results = await backup.backup_site_tree(tenant_id, site.site_id, {
     force_full: options.full ?? false,
+    include_subsites: options.includeSubsites ?? false,
     site_url: site.site_url,
     site_display_name: site.display_name,
     object_lock_request: build_object_lock_request(options),
   });
 
+  await render_static_view(<Banner title="Atlas SharePoint Backup" />);
+  if (results.length > 1) {
+    logger.info(`Backed up ${results.length} site(s) including subsites`);
+  }
+
+  for (const result of results) {
+    await report_site_backup(result);
+  }
+
+  // Per-site reporting already listed the errors and set the partial-run exit
+  // code; all that is left is the verdict over the whole site tree.
+  if (results.every((r) => r.summary.healthy)) {
+    logger.success('Status: HEALTHY');
+    return;
+  }
+
+  logger.error('Status: UNHEALTHY');
+}
+
+/** Renders the per-site section of a backup run. */
+async function report_site_backup(result: SharePointBackupResult): Promise<void> {
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas SharePoint Backup" />
       <KeyValueList
         items={[
           { label: 'Site', value: result.site_id },
@@ -147,19 +173,10 @@ export async function execute_sharepoint_backup(
     );
   }
 
-  for (const w of result.summary.warnings) {
-    logger.warn(w);
-  }
-
-  if (result.summary.healthy) {
-    logger.success('Status: HEALTHY');
-  } else {
-    logger.error('Status: UNHEALTHY');
-    await render_static_view(
-      <ErrorList errors={result.summary.errors} max={result.summary.errors.length} />,
-    );
-    process.exitCode = 1;
-  }
+  // Warnings, errors, and the partial-run exit code go through the shared
+  // reporter so every site's failures are attributed to that site. The overall
+  // HEALTHY/UNHEALTHY verdict is the caller's, once every site has reported.
+  report_run_outcome({ errors: result.summary.errors, warnings: result.summary.warnings }, 'file');
 }
 
 export async function execute_sharepoint_restore(

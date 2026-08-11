@@ -12,7 +12,9 @@ import type {
   SharePointDeltaItem,
   SharePointDeltaResult,
   SharePointFileVersion,
+  SharePointSubsiteTree,
 } from '@wisecom/atlas-types';
+import { enumerate_subsite_tree, fetch_direct_subsites } from '@/adapters/graph-subsite-enumerator';
 import {
   fetch_drive_item_by_id,
   fetch_initial_delta_page,
@@ -109,6 +111,13 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       site_url: raw.webUrl ?? '',
       display_name: raw.displayName ?? '',
     };
+  }
+
+  /** Recursively lists every subsite beneath a site. */
+  async list_subsites(_tenant_id: string, site_id: string): Promise<SharePointSubsiteTree> {
+    return enumerate_subsite_tree(site_id, (parent_site_id) =>
+      fetch_direct_subsites(this._client, parent_site_id),
+    );
   }
 
   /** Lists document libraries (drives) within a site. */

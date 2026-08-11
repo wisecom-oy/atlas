@@ -26,7 +26,10 @@ import {
   persist_snapshot_backup,
 } from '@/services/onedrive-backup-builders';
 import { ensure_drives_discovered } from '@/services/onedrive-backup-file-processor';
-import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
+import {
+  scan_all_drives,
+  type PackageReportTotals,
+} from '@/services/onedrive-backup-drive-processor';
 import { cleanup_stale_staging } from '@/services/onedrive-large-file-pipeline';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 
@@ -138,6 +141,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       if (total_versions_failed > 0) {
         warnings.push(`${total_versions_failed} version download(s) failed unexpectedly`);
       }
+      warnings.push(...build_package_warnings(scan_result.package_report));
       // Files left un-backed-up are the run's headline problem: warn per item and
       // hold the run unhealthy until the ledger is empty.
       warnings.push(...describe_failed_items(scan_result.failed_items));
@@ -198,4 +202,14 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       ctx.destroy();
     }
   }
+}
+
+/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
+function build_package_warnings(report: PackageReportTotals): string[] {
+  if (report.notebooks_detected === 0) return [];
+  return [
+    `OneNote notebooks detected: ${report.notebooks_detected} ` +
+      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
+    ...report.warnings,
+  ];
 }

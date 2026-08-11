@@ -16,6 +16,10 @@ import {
   type FailedItemLedger,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import {
+  summarize_package_items,
+  type PackageReport,
+} from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import {
   clear_file_tracking_on_reset,
   process_delta_item,
   type DriveTrackingState,
@@ -28,6 +32,13 @@ import {
   type ScanProgressTotals,
 } from '@/services/onedrive-scan-progress';
 
+/** Package accounting summed across every drive in one run. */
+export interface PackageReportTotals {
+  notebooks_detected: number;
+  section_files_backed_up: number;
+  warnings: string[];
+}
+
 export interface SingleDriveResult {
   entries: OneDriveManifestEntry[];
   files_stored: number;
@@ -38,6 +49,7 @@ export interface SingleDriveResult {
   failed_items: FailedItemLedger;
   /** Reason per item that failed this run. */
   errors: string[];
+  package_report: PackageReport;
 }
 
 export interface DriveScanAccumulators {
@@ -49,6 +61,7 @@ export interface DriveScanAccumulators {
   failed_items: FailedItemLedger;
   /** Drive-level failures. Per-item failures live in `failed_items` instead. */
   errors: string[];
+  package_report: PackageReportTotals;
 }
 
 /** Fetches delta changes across all drives and accumulates manifest entries. */
@@ -78,6 +91,7 @@ export async function scan_all_drives(
     deleted_items: 0,
     failed_items: { ...(previous_cursor?.failed_items ?? {}) },
     errors: [],
+    package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
   };
 
   const totals: ScanProgressTotals = { processed: 0, total: 0, started_at: Date.now() };
@@ -112,6 +126,10 @@ export async function scan_all_drives(
         on_item_processed,
       );
 
+      // Notebook accounting stands apart from the entry bookkeeping: a drive
+      // whose items failed is exactly the one whose notebooks came through
+      // incomplete, so it is folded in for every drive, failed or not.
+      accumulate_package_report(accumulators.package_report, drive_result.package_report);
       accumulate_drive_result(accumulators, delta_link_by_drive, drive, drive_result);
 
       // Saved even when items failed: the successful entries are real, and the
@@ -165,6 +183,13 @@ function accumulate_drive_result(
   }
 }
 
+/** Folds one drive's package report into the run-wide totals. */
+function accumulate_package_report(totals: PackageReportTotals, report: PackageReport): void {
+  totals.notebooks_detected += report.notebooks_detected;
+  totals.section_files_backed_up += report.section_files_backed_up;
+  totals.warnings.push(...report.warnings);
+}
+
 /**
  * Processes delta changes for a single OneDrive drive.
  *
@@ -200,6 +225,9 @@ export async function process_single_drive(
     failed_items,
     delta_item_ids,
   );
+  // Ids that failed in THIS run drive notebook completeness; the ledger also
+  // carries older failures, which say nothing about this batch.
+  const failed_item_ids = new Set<string>();
 
   const queue: Array<{ item: OneDriveDeltaItem; from_delta: boolean }> = [
     ...retry.items.map((item) => ({ item, from_delta: false })),
@@ -214,6 +242,8 @@ export async function process_single_drive(
     delta_link: delta.delta_link,
     failed_items: retry.ledger,
     errors: [],
+    // Replaced once every item in this batch has been processed.
+    package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
   };
 
   for (const { item, from_delta } of queue) {
@@ -234,6 +264,7 @@ export async function process_single_drive(
     if (outcome.error) {
       logger.warn(`Drive ${drive.drive_id}: ${outcome.error}`);
       result.errors.push(outcome.error);
+      failed_item_ids.add(item.item_id);
       result.failed_items = record_item_failure(result.failed_items, {
         item_id: item.item_id,
         drive_id: drive.drive_id,
@@ -250,5 +281,6 @@ export async function process_single_drive(
     if (outcome.entry) result.entries.push(outcome.entry);
   }
 
+  result.package_report = summarize_package_items(delta.items, failed_item_ids);
   return result;
 }

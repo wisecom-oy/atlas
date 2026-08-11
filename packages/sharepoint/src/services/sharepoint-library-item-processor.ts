@@ -35,6 +35,11 @@ export interface LibraryProcessingState {
   library_deleted_items: number;
   /** Site-wide failed-item ledger, updated in place as items succeed or fail. */
   failed_items: FailedItemLedger;
+  /**
+   * Items that failed in THIS run. The ledger also carries older failures,
+   * which say nothing about whether this batch's notebooks came through whole.
+   */
+  failed_item_ids: Set<string>;
 }
 
 export interface VersionStatsState {
@@ -81,6 +86,7 @@ export async function process_delta_item(
 
   const result = await process_backup_file(connector, item, site_id, ctx);
   if (!result) {
+    library_state.failed_item_ids.add(item.item_id);
     library_state.failed_items = record_item_failure(library_state.failed_items, {
       item_id: item.item_id,
       drive_id: item.drive_id,
@@ -146,6 +152,7 @@ export async function process_item_guarded(
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`SharePoint item ${item.item_id} (${item.file_name}) failed: ${reason}`);
+    library_state.failed_item_ids.add(item.item_id);
     library_state.failed_items = record_item_failure(library_state.failed_items, {
       item_id: item.item_id,
       drive_id: item.drive_id,

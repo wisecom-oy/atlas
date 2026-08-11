@@ -47,7 +47,7 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
     options?: MailboxDiscoveryOptions,
   ): Promise<TenantMailbox[]> {
     try {
-      const users = await with_graph_retry(() => this.collectAllUsers());
+      const users = await this.collectAllUsers();
       let mailboxes = map_users_to_tenant_mailboxes(users);
 
       if (options?.licensed_only) {
@@ -80,15 +80,21 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
     }
   }
 
+  /**
+   * Pages through /users, retrying each page individually so a failed page
+   * resumes from the current @odata.nextLink. NEVER wrap this whole loop in
+   * with_graph_retry -- the 60s per-request timeout would race the entire
+   * enumeration and restart it from page 1 (issue #33).
+   */
   private async collectAllUsers(): Promise<GraphUserRecord[]> {
     const all: GraphUserRecord[] = [];
     let url: string | undefined = USERS_URL;
 
     while (url) {
-      const page: GraphPageResponse = await this._client
-        .api(url)
-        .header('Prefer', 'odata.maxpagesize=999')
-        .get();
+      const current_url = url;
+      const page: GraphPageResponse = await with_graph_retry(() =>
+        this._client.api(current_url).header('Prefer', 'odata.maxpagesize=999').get(),
+      );
 
       if (page.value) {
         all.push(...page.value);
