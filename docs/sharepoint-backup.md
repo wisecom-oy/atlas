@@ -229,6 +229,36 @@ console.log(site.id);
 | `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` | `rename` |
 | `-t, --tenant <id>` | Tenant identifier | Config default |
 
+#### Where a cross-site restore lands
+
+A manifest entry records the `drive_id` of the library it came from, and that id
+is only meaningful inside the site that owns it -- Graph addresses an upload as
+`/sites/{site}/drives/{drive}/...`, and the drive wins. `--target-site`
+therefore has to pick a library belonging to the target site, which Atlas does
+per entry:
+
+1. **Same library name.** The target library whose name matches the one the file
+   was backed up from (case-insensitive). This keeps a multi-library site's
+   structure intact when the names line up on both ends.
+2. **The only library.** If the target site has exactly one document library, it
+   receives everything. Library names are localised -- a Finnish tenant's default
+   library is `Tiedostot`, an English one's is `Documents` -- so a single-library
+   target must not be decided by name.
+3. **Neither.** If several libraries exist and none matches, Atlas refuses the
+   file, names the candidates, and the run exits non-zero. It never guesses which
+   production library should receive the data, and never falls back to the
+   library the file came from.
+
+If the target site has no document libraries at all, the restore fails before
+uploading anything.
+
+::: warning Snapshots taken before 2.1.0-beta
+Library names were not recorded in older manifests, so rule 1 cannot apply to
+them. Restoring such a snapshot into a target site with several libraries fails
+by rule 3 rather than choosing one. Take a fresh backup, or restore into a
+single-library site.
+:::
+
 ### `atlas sharepoint save`
 
 | Flag | Description | Default |
@@ -366,7 +396,7 @@ SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.g
 
 ## Restore
 
-Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to the site's document libraries via Graph API. Each manifest entry carries its own `drive_id`, so files are restored to the correct document library automatically.
+Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site -- see [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 
 **CLI:**
 

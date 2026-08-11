@@ -490,6 +490,12 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 | `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
 | `-t, --tenant <id>` | Override tenant ID from config |
 
+With `--target-site`, each file goes to the target library whose name matches the
+one it was backed up from, or to the target's only library when it has just one.
+If several libraries exist and none matches, the file is refused and the command
+exits non-zero -- Atlas never writes into the source library instead. See
+[Where a cross-site restore lands](../sharepoint-backup.md#where-a-cross-site-restore-lands).
+
 **`atlas sharepoint save`**
 
 Save decrypted files from a SharePoint snapshot to a local zip archive. The archive preserves the original folder structure from document libraries. Each file is SHA-256 verified after decryption by default.

@@ -28,10 +28,12 @@ export function build_package_warnings(reports: readonly PackageReport[]): strin
 export function build_deleted_entry(
   item: SharePointDeltaItem,
   change_type: SharePointChangeType,
+  library_name: string,
 ): SharePointManifestEntry {
   return {
     file_id: item.item_id,
     drive_id: item.drive_id,
+    library_name,
     file_name: item.file_name,
     parent_path: item.parent_path,
     size_bytes: item.size_bytes,
@@ -48,10 +50,12 @@ export function build_stored_entry(
   storage_key: string,
   checksum: string,
   change_type: SharePointChangeType,
+  library_name: string,
 ): SharePointManifestEntry {
   return {
     file_id: item.item_id,
     drive_id: item.drive_id,
+    library_name,
     file_name: item.file_name,
     parent_path: item.parent_path,
     size_bytes: item.size_bytes,

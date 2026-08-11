@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointSiteConnector,
@@ -17,20 +16,15 @@ import {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
-  should_stream_restore,
-  stream_decrypt_from_storage,
-  verify_streaming_checksum,
-} from '@/services/sharepoint-restore-streaming';
+  download_and_decrypt,
+  SharePointDecryptAuthError,
+} from '@/services/sharepoint-restore-content';
+import {
+  describe_unresolved_destination,
+  resolve_destination_library,
+} from '@/services/sharepoint-restore-target';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
-
-/** Thrown when ciphertext decrypts with AES-GCM but fails the authentication tag check. */
-export class SharePointDecryptAuthError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = 'SharePointDecryptAuthError';
-  }
-}
 
 @injectable()
 export class SharePointRestoreService implements SharePointRestoreUseCase {
@@ -58,6 +52,19 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       const conflict = options.conflict_behavior ?? 'rename';
       const entries = this.filter_entries(manifest.entries, options.file_filter);
 
+      // Entry drive ids belong to the source site, so a cross-site restore has to
+      // re-point every upload at a library of the target site.
+      const target_libraries =
+        target_site === site_id
+          ? []
+          : await this._connector.list_document_libraries(tenant_id, target_site);
+      if (target_site !== site_id && target_libraries.length === 0) {
+        throw new Error(
+          `Target site ${target_site} has no document libraries to restore into; ` +
+            `refusing to fall back to the source site`,
+        );
+      }
+
       // Folder cache keyed by "drive_id:path" since entries span multiple document libraries
       const folder_ids = new Map<string, string>();
       let files_restored = 0;
@@ -67,9 +74,23 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       const restorable = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
       for (const entry of restorable) {
+        const destination =
+          target_site === site_id
+            ? { drive_id: entry.drive_id, drive_name: entry.library_name ?? '' }
+            : resolve_destination_library(entry.library_name, target_libraries);
+
+        if (!destination) {
+          errors.push(
+            describe_unresolved_destination(entry.file_name, entry.library_name, target_libraries),
+          );
+          files_skipped++;
+          continue;
+        }
+
         await this.restore_single_entry(
           tenant_id,
           target_site,
+          destination.drive_id,
           conflict,
           ctx,
           entry,
@@ -102,6 +123,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
   private async restore_single_entry(
     tenant_id: string,
     target_site: string,
+    destination_drive_id: string,
     conflict: string,
     ctx: TenantContext,
     entry: SharePointManifestEntry,
@@ -114,20 +136,20 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       const parent_id = await this.ensure_folder_path(
         tenant_id,
         target_site,
-        entry.drive_id,
+        destination_drive_id,
         entry.parent_path,
         folder_ids,
       );
 
       if (parent_id === undefined) {
         errors.push(
-          `Could not create folder path: ${entry.parent_path} in drive ${entry.drive_id}`,
+          `Could not create folder path: ${entry.parent_path} in drive ${destination_drive_id}`,
         );
         on_skipped();
         return;
       }
 
-      const content = await this.download_and_decrypt(ctx, entry);
+      const content = await download_and_decrypt(ctx, entry);
       if (!content) {
         on_skipped();
         return;
@@ -137,7 +159,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         await this._connector.upload_small_file(
           tenant_id,
           target_site,
-          entry.drive_id,
+          destination_drive_id,
           parent_id,
           entry.file_name,
           content,
@@ -147,7 +169,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         await this._connector.upload_large_file(
           tenant_id,
           target_site,
-          entry.drive_id,
+          destination_drive_id,
           parent_id,
           entry.file_name,
           content,
@@ -156,7 +178,9 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       }
 
       on_restored();
-      logger.info(`Restored: ${entry.parent_path}/${entry.file_name} (drive: ${entry.drive_id})`);
+      logger.info(
+        `Restored: ${entry.parent_path}/${entry.file_name} (drive: ${destination_drive_id})`,
+      );
     } catch (err) {
       if (err instanceof SharePointDecryptAuthError) {
         const msg = `${entry.file_name}: ${err.message}`;
@@ -234,90 +258,4 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
 
     return parent_id;
   }
-
-  private async download_and_decrypt(
-    ctx: TenantContext,
-    entry: SharePointManifestEntry,
-  ): Promise<Buffer | undefined> {
-    if (!entry.storage_key) return undefined;
-
-    if (should_stream_restore(entry)) {
-      return this.stream_download_and_decrypt(ctx, entry);
-    }
-
-    return this.buffered_download_and_decrypt(ctx, entry);
-  }
-
-  private async stream_download_and_decrypt(
-    ctx: TenantContext,
-    entry: SharePointManifestEntry,
-  ): Promise<Buffer | undefined> {
-    try {
-      const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key!);
-      if (!verify_streaming_checksum(entry, sha256_hex)) return undefined;
-      return content;
-    } catch (err) {
-      if (is_gcm_auth_failure(err)) {
-        throw new SharePointDecryptAuthError(
-          `AES-GCM authentication failed for ${entry.file_name}`,
-          { cause: err },
-        );
-      }
-      logger.warn(
-        `Streaming decrypt failed for ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
-  }
-
-  private async buffered_download_and_decrypt(
-    ctx: TenantContext,
-    entry: SharePointManifestEntry,
-  ): Promise<Buffer | undefined> {
-    let encrypted: Buffer;
-    try {
-      encrypted = await ctx.storage.get(entry.storage_key!);
-    } catch (err) {
-      logger.warn(
-        `Missing or unreadable blob for ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
-    try {
-      const content = ctx.decrypt(encrypted);
-      const expected = entry.checksum;
-      if (!expected || !plaintext_sha256_equals_expected(content, expected)) {
-        logger.warn(
-          expected
-            ? `Checksum mismatch after decrypt for ${entry.file_name}; skipping restore`
-            : `Missing checksum for ${entry.file_name}; skipping restore`,
-        );
-        return undefined;
-      }
-      return content;
-    } catch (err) {
-      if (is_gcm_auth_failure(err)) {
-        throw new SharePointDecryptAuthError(
-          `AES-GCM authentication failed for ${entry.file_name}`,
-          { cause: err },
-        );
-      }
-      logger.warn(
-        `Failed to decrypt ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
-  }
-}
-
-function is_gcm_auth_failure(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-  return msg.includes('Unsupported state') || lower.includes('auth');
-}
-
-function plaintext_sha256_equals_expected(content: Buffer, expected_hex: string): boolean {
-  const actual_hex = createHash('sha256').update(content).digest('hex');
-  if (actual_hex.length !== expected_hex.length) return false;
-  return timingSafeEqual(Buffer.from(actual_hex, 'utf8'), Buffer.from(expected_hex, 'utf8'));
 }
