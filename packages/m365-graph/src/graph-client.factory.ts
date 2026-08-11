@@ -44,14 +44,22 @@ export function create_graph_client(config: GraphConfig): Client {
   });
 }
 
-/** The SDK's default handlers, with cost accounting spliced in above the transport. */
+/**
+ * The SDK's default handlers with cost accounting spliced in.
+ *
+ * Position matters twice over. The cost middleware sits below RetryHandler and
+ * RedirectHandler, both of which re-execute everything beneath them, so it sees
+ * each attempt and each followed redirect rather than one logical call. It sits
+ * above TelemetryHandler because the SDK requires telemetry to be the handler
+ * immediately before the transport, so its usage flags cover the real request.
+ */
 function build_middleware_chain(auth_provider: TokenCredentialAuthenticationProvider): Middleware {
   const chain: Middleware[] = [
     new AuthenticationHandler(auth_provider),
     new RetryHandler(new RetryHandlerOptions()),
     new RedirectHandler(new RedirectHandlerOptions()),
-    new TelemetryHandler(),
     new GraphCostMiddleware(),
+    new TelemetryHandler(),
     new HTTPMessageHandler(),
   ];
 

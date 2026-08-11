@@ -263,9 +263,9 @@ Methods that report `graph_cost`: `atlas.outlook.backup`, `atlas.outlook.restore
 
 ### What counts as a request
 
-One HTTP request to Microsoft Graph is one recorded request. Counting happens in
-the transport, immediately before the request goes out, so the number matches
-what the tenant is actually charged:
+One request sent through the Graph client is one recorded request. Counting
+happens in the transport, immediately before the request goes out, so the number
+matches what the tenant is actually charged:
 
 - **Every page.** A delta sync that follows `@odata.nextLink` across 40 pages
   counts 40, not 1. Same for folder trees, drive listings and version history.
@@ -276,6 +276,10 @@ what the tenant is actually charged:
 - **Every redirect** followed to a new location.
 - **Upload bytes per attempt.** A resumable chunk re-sent after a failure is
   charged twice against the Outlook 150 MB / 5-minute window, because it was.
+
+Pre-authenticated transfers are deliberately excluded: file downloads from
+`@microsoft.graph.downloadUrl` and OneDrive/SharePoint resumable chunk uploads
+go straight to storage rather than through Graph, and consume no Graph quota.
 
 `requests_by_type` labels each request with the connector operation that issued
 it, so a paginated `delta_sync` shows the page count under one label.
