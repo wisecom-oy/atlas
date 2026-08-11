@@ -1,5 +1,5 @@
 import type { SyncOptions, SyncResult } from '@/ports/backup/use-case.port';
-import type { VerificationResult } from '@/ports/verification/use-case.port';
+import type { VerificationOptions, VerificationResult } from '@/ports/verification/use-case.port';
 import type { RestoreOptions, RestoreResult } from '@/ports/restore/use-case.port';
 import type { SaveOptions, SaveResult } from '@/ports/save/use-case.port';
 import type { MailboxSummary, ReadMessageResult } from '@/ports/catalog/use-case.port';
@@ -11,7 +11,7 @@ import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/mail/discov
 
 export interface OutlookApi {
   backup(mailboxId: string, options?: SyncOptions): Promise<SyncResult>;
-  verify(snapshotId: string): Promise<VerificationResult>;
+  verify(snapshotId: string, options?: VerificationOptions): Promise<VerificationResult>;
   restore(snapshotId: string, options?: RestoreOptions): Promise<RestoreResult>;
   restoreMailbox(mailboxId: string, options?: RestoreOptions): Promise<RestoreResult>;
   save(snapshotId: string, options?: SaveOptions): Promise<SaveResult>;

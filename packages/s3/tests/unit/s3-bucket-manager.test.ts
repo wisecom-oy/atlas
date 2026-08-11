@@ -17,7 +17,7 @@ describe('s3-bucket-manager', () => {
     reset_bucket_cache();
   });
 
-  it('creates bucket with housekeeping lifecycle rules when it does not exist', async () => {
+  it('creates lock-capable buckets with housekeeping lifecycle rules (issue #30)', async () => {
     mock_s3.send
       .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
       .mockResolvedValueOnce({})
@@ -28,13 +28,39 @@ describe('s3-bucket-manager', () => {
     expect(mock_s3.send).toHaveBeenCalledTimes(3);
     const create_cmd = mock_s3.send.mock.calls[1][0];
     expect(create_cmd.input.Bucket).toBe('new-bucket');
+    expect(create_cmd.input.ObjectLockEnabledForBucket).toBe(true);
     const lifecycle_cmd = mock_s3.send.mock.calls[2][0];
     expect(lifecycle_cmd.input.Bucket).toBe('new-bucket');
     const rules = lifecycle_cmd.input.LifecycleConfiguration.Rules;
     expect(rules).toHaveLength(2);
+    // Combined rule: MinIO rejects AbortIncompleteMultipartUpload as a sole action
     expect(rules[0].AbortIncompleteMultipartUpload).toEqual({ DaysAfterInitiation: 7 });
-    expect(rules[0].NoncurrentVersionExpiration).toBeUndefined();
-    expect(rules[1].Expiration?.ExpiredObjectDeleteMarker).toBe(true);
+    expect(rules[0].Expiration?.ExpiredObjectDeleteMarker).toBe(true);
+    expect(rules[1].NoncurrentVersionExpiration).toEqual({ NoncurrentDays: 30 });
+  });
+
+  it('falls back to a plain bucket when the backend rejects Object Lock at creation', async () => {
+    mock_s3.send
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotImplemented' }))
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+
+    await ensure_bucket_exists(mock_s3 as never, 'plain-bucket');
+
+    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    const retry_cmd = mock_s3.send.mock.calls[2][0];
+    expect(retry_cmd.input.Bucket).toBe('plain-bucket');
+    expect(retry_cmd.input.ObjectLockEnabledForBucket).toBeUndefined();
+  });
+
+  it('rethrows creation errors that are not a lock-capability rejection', async () => {
+    mock_s3.send
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockRejectedValueOnce(Object.assign(new Error('denied'), { name: 'AccessDenied' }));
+
+    await expect(ensure_bucket_exists(mock_s3 as never, 'forbidden')).rejects.toThrow('denied');
+    expect(mock_s3.send).toHaveBeenCalledTimes(2);
   });
 
   it('swallows lifecycle errors on unsupported backends', async () => {

@@ -56,7 +56,11 @@ export type {
 
 export type { TenantProgressReporter } from './backup/tenant-progress.port';
 
-export type { VerificationUseCase, VerificationResult } from './verification/use-case.port';
+export type {
+  VerificationUseCase,
+  VerificationResult,
+  VerificationOptions,
+} from './verification/use-case.port';
 
 export type { RestoreUseCase, RestoreResult, RestoreOptions } from './restore/use-case.port';
 

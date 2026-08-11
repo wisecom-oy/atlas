@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   CreateBucketCommand,
   GetBucketVersioningCommand,
@@ -21,9 +22,14 @@ const _immutability_probe_cache = new Map<string, StorageImmutabilityProbeResult
 
 /**
  * Ensures a bucket exists, creating it if necessary.
- * New buckets get best-effort housekeeping lifecycle rules (abort incomplete
- * multipart uploads, clean up expired delete markers). Existing buckets are
- * left untouched. Caches results in-process so subsequent calls are free.
+ * New buckets are created lock-capable (`ObjectLockEnabledForBucket: true`,
+ * which implies versioning): on AWS and MinIO this is only possible at
+ * creation time, and a lock-capable bucket without a retention config
+ * behaves exactly like a normal versioned bucket -- it merely keeps the
+ * immutability door open (issue #30). Backends that reject the flag get a
+ * plain bucket with a loud warning. New buckets also get best-effort
+ * housekeeping lifecycle rules. Existing buckets are left untouched.
+ * Caches results in-process so subsequent calls are free.
  */
 export async function ensure_bucket_exists(
   client: S3Client,
@@ -34,11 +40,41 @@ export async function ensure_bucket_exists(
 
   const exists = await bucket_exists(client, bucket);
   if (!exists) {
-    await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    await create_lock_capable_bucket(client, bucket);
     await apply_default_lifecycle(client, bucket);
   }
 
   _checked_buckets.add(bucket);
+}
+
+/**
+ * Creates a bucket with Object Lock enabled, falling back to a plain bucket
+ * only when the backend rejects the capability itself. The fallback warning
+ * matters: a plain bucket can never gain Object Lock later (AWS requires a
+ * support ticket, MinIO refuses outright) -- see the legacy-bucket migration
+ * runbook in docs/self-hosting/storage.md.
+ */
+async function create_lock_capable_bucket(client: S3Client, bucket: string): Promise<void> {
+  try {
+    await client.send(
+      new CreateBucketCommand({ Bucket: bucket, ObjectLockEnabledForBucket: true }),
+    );
+  } catch (err) {
+    if (!is_lock_flag_rejection(err)) throw err;
+    logger.warn(
+      `Backend rejected Object Lock at creation for bucket "${bucket}" -- created without it. ` +
+        `Immutability (--retention-days) will not work on this bucket.`,
+    );
+    await client.send(new CreateBucketCommand({ Bucket: bucket }));
+  }
+}
+
+/** True when the error signals the backend cannot honour ObjectLockEnabledForBucket. */
+function is_lock_flag_rejection(err: unknown): boolean {
+  const name = (err as { name?: string }).name ?? '';
+  // ponytail: name list covers AWS-compatible backends seen in the wild;
+  // extend if a new backend rejects the flag with a different code.
+  return ['NotImplemented', 'InvalidArgument', 'InvalidRequest', 'MalformedXML'].includes(name);
 }
 
 /** Probes whether a bucket already exists and is accessible. */
@@ -55,36 +91,61 @@ async function bucket_exists(client: S3Client, bucket: string): Promise<boolean>
 
 /**
  * Best-effort housekeeping lifecycle rules for Atlas-created buckets:
- *  1. Abort incomplete multipart uploads after 7 days.
- *  2. Remove delete markers that no longer reference any version.
- * These are safe on both AWS S3 and MinIO. Failures are logged but not fatal.
+ *  1. Abort incomplete multipart uploads after 7 days and remove delete
+ *     markers that no longer reference any version (one combined rule:
+ *     MinIO rejects a rule whose only action is
+ *     AbortIncompleteMultipartUpload -- verified against a live MinIO).
+ *  2. Expire noncurrent versions after 30 days -- versioning is now on by
+ *     default (Object Lock implies it), so overwritten cursors/indexes would
+ *     otherwise accumulate stale versions forever. Atlas never reads
+ *     noncurrent versions; its own version history is stored as first-class
+ *     objects. Locked versions are simply retained until their lock expires.
+ * The request carries an explicit Content-MD5: MinIO requires it on
+ * lifecycle puts and AWS SDK >= 3.729 no longer sends it by default.
+ * Failures are logged but not fatal.
  */
 async function apply_default_lifecycle(client: S3Client, bucket: string): Promise<void> {
-  try {
-    await client.send(
-      new PutBucketLifecycleConfigurationCommand({
-        Bucket: bucket,
-        LifecycleConfiguration: {
-          Rules: [
-            {
-              ID: 'atlas-abort-incomplete-uploads',
-              Status: 'Enabled',
-              Filter: {},
-              AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
-            },
-            {
-              ID: 'atlas-cleanup-delete-markers',
-              Status: 'Enabled',
-              Filter: {},
-              Expiration: { ExpiredObjectDeleteMarker: true },
-            },
-          ],
+  const command = new PutBucketLifecycleConfigurationCommand({
+    Bucket: bucket,
+    LifecycleConfiguration: {
+      Rules: [
+        {
+          ID: 'atlas-housekeeping',
+          Status: 'Enabled',
+          Filter: { Prefix: '' },
+          AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          Expiration: { ExpiredObjectDeleteMarker: true },
         },
-      }),
-    );
-  } catch {
-    logger.debug(`Could not configure lifecycle rules on bucket "${bucket}" (best-effort).`);
+        {
+          ID: 'atlas-expire-noncurrent-versions',
+          Status: 'Enabled',
+          Filter: { Prefix: '' },
+          NoncurrentVersionExpiration: { NoncurrentDays: 30 },
+        },
+      ],
+    },
+  });
+  add_content_md5(command);
+
+  try {
+    await client.send(command);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`Could not configure lifecycle rules on bucket "${bucket}" (best-effort): ${msg}`);
   }
+}
+
+/** Injects a Content-MD5 header computed over the serialized request body. */
+function add_content_md5(command: PutBucketLifecycleConfigurationCommand): void {
+  command.middlewareStack.add(
+    (next) => async (args) => {
+      const request = (args as { request: { body: string; headers: Record<string, string> } })
+        .request;
+      request.headers['content-md5'] = createHash('md5').update(request.body).digest('base64');
+      return next(args);
+    },
+    { step: 'build', name: 'atlasContentMd5' },
+  );
 }
 
 /** Clears the in-process bucket cache (useful for testing). */

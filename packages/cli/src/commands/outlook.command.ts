@@ -70,6 +70,10 @@ function register_outlook_verify(group: Command, get_container: ContainerFactory
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier to verify')
     .requiredOption('-m, --mailbox <email>', 'mailbox that owns the snapshot')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .option(
+      '--fast',
+      'existence-only checks (no download/decrypt); catches missing objects cheaply',
+    )
     .action((options: OutlookVerifyOptions) => execute_outlook_verify(get_container(), options));
 }
 
