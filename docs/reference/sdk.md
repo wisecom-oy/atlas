@@ -261,6 +261,33 @@ console.log(result.graph_cost);
 
 Methods that report `graph_cost`: `atlas.outlook.backup`, `atlas.outlook.restore`, `atlas.outlook.restoreMailbox`, `atlas.outlook.checkMailboxStatus`.
 
+### What counts as a request
+
+One HTTP request to Microsoft Graph is one recorded request. Counting happens in
+the transport, immediately before the request goes out, so the number matches
+what the tenant is actually charged:
+
+- **Every page.** A delta sync that follows `@odata.nextLink` across 40 pages
+  counts 40, not 1. Same for folder trees, drive listings and version history.
+- **Every attempt.** A call throttled twice and succeeding on the third attempt
+  counts 3. Retries made by Atlas and retries made internally by the Graph SDK
+  are both visible here -- and a throttled tenant is exactly when the count
+  matters most.
+- **Every redirect** followed to a new location.
+- **Upload bytes per attempt.** A resumable chunk re-sent after a failure is
+  charged twice against the Outlook 150 MB / 5-minute window, because it was.
+
+`requests_by_type` labels each request with the connector operation that issued
+it, so a paginated `delta_sync` shows the page count under one label.
+
+::: warning Recorded costs are higher than in 2.1.0-beta and earlier
+Earlier releases recorded one request per connector method call, so pagination
+and retries were invisible and reported cost was a floor. Cooldowns derived from
+it were correspondingly too short. Numbers from this release are larger for the
+same work -- that is the undercount being removed, not a change in what Atlas
+does. Expect a step change in any dashboard built on the old values.
+:::
+
 ### Cost when an operation fails
 
 Failures are the most expensive runs a tenant pays for: a delta sync that dies on

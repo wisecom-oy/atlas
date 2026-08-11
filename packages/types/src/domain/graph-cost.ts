@@ -55,3 +55,21 @@ export interface OperationCost {
   /** Wall-clock duration of the SDK operation in milliseconds. */
   readonly elapsed_ms: number;
 }
+
+/**
+ * What a connector is doing, declared around a call so every HTTP request the
+ * call issues -- first page, continuation pages, and retried attempts -- can be
+ * charged to the right pool under a stable label.
+ *
+ * Connector methods declare intent; the transport counts reality. Recording at
+ * the method boundary instead would count one request per method and miss both
+ * pagination and retries.
+ */
+export interface GraphOperation {
+  /** Throttling pool the requests are charged against. */
+  readonly pool: GraphServicePool;
+  /** Stable label reported in `requests_by_type`, e.g. `delta_sync`. */
+  readonly request_type: string;
+  /** Resource units per request. Defaults to 1, correct for the flat Outlook model. */
+  readonly resource_units?: number;
+}

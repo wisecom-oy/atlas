@@ -1,6 +1,17 @@
 import { ClientSecretCredential } from '@azure/identity';
-import { Client } from '@microsoft/microsoft-graph-client';
+import {
+  AuthenticationHandler,
+  Client,
+  HTTPMessageHandler,
+  RedirectHandler,
+  RetryHandler,
+  RetryHandlerOptions,
+  RedirectHandlerOptions,
+  TelemetryHandler,
+  type Middleware,
+} from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
+import { GraphCostMiddleware } from '@/graph-cost-middleware';
 import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
@@ -10,8 +21,14 @@ const GRAPH_BASE_URL = 'https://graph.microsoft.com';
 /**
  * Creates an authenticated Microsoft Graph client using the OAuth2
  * client credentials flow. The SDK handles token acquisition, caching,
- * and automatic refresh. Built-in middleware provides retry on 429/5xx
- * and redirect following.
+ * and automatic refresh.
+ *
+ * The middleware chain is spelled out rather than derived from `authProvider`
+ * so a cost middleware can sit immediately before the HTTP handler, where it
+ * observes every request actually sent -- including each retry the RetryHandler
+ * makes and each redirect the RedirectHandler follows, since both re-execute
+ * the chain below them. It is otherwise the SDK's own default chain, in the
+ * SDK's own order.
  *
  * Hardcodes the base URL to https://graph.microsoft.com to prevent
  * any downstream override to a non-TLS endpoint. Refuses to start
@@ -22,9 +39,26 @@ export function create_graph_client(config: GraphConfig): Client {
   const credential = build_credential(config);
   const auth_provider = build_auth_provider(credential);
   return Client.initWithMiddleware({
-    authProvider: auth_provider,
+    middleware: build_middleware_chain(auth_provider),
     baseUrl: GRAPH_BASE_URL,
   });
+}
+
+/** The SDK's default handlers, with cost accounting spliced in above the transport. */
+function build_middleware_chain(auth_provider: TokenCredentialAuthenticationProvider): Middleware {
+  const chain: Middleware[] = [
+    new AuthenticationHandler(auth_provider),
+    new RetryHandler(new RetryHandlerOptions()),
+    new RedirectHandler(new RedirectHandlerOptions()),
+    new TelemetryHandler(),
+    new GraphCostMiddleware(),
+    new HTTPMessageHandler(),
+  ];
+
+  for (let i = 0; i < chain.length - 1; i++) {
+    chain[i]!.setNext?.(chain[i + 1]!);
+  }
+  return chain[0]!;
 }
 
 /** Fails hard if TLS cert validation has been globally disabled. */

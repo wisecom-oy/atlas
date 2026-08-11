@@ -24,7 +24,7 @@ import type {
   MailboxRateLimiterFactory,
 } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import type { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
-import { get_active_counter } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { run_with_graph_operation } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -46,20 +46,28 @@ export class RateLimitedGraphConnector implements MailboxConnector {
 
   async list_mailboxes(tenant_id: string): Promise<string[]> {
     // GET /users -- Identity pool, not gated by per-mailbox semaphore
-    get_active_counter()?.record('identity', 'list_users', {
-      resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
-    });
-    return this._inner.list_mailboxes(tenant_id);
+    return run_with_graph_operation(
+      {
+        pool: 'identity',
+        request_type: 'list_users',
+        resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
+      },
+      () => this._inner.list_mailboxes(tenant_id),
+    );
   }
 
   async mailbox_exists(tenant_id: string, owner_id: string): Promise<boolean> {
     // GET /users/{id} -- Identity pool
-    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('identity', 'mailbox_exists', {
-        resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
-      });
-      return this._inner.mailbox_exists(tenant_id, owner_id);
-    });
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation(
+        {
+          pool: 'identity',
+          request_type: 'mailbox_exists',
+          resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
+        },
+        () => this._inner.mailbox_exists(tenant_id, owner_id),
+      ),
+    );
   }
 
   async get_mailbox_purpose(
@@ -68,19 +76,24 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   ): Promise<MailboxPurpose | undefined> {
     if (!this._inner.get_mailbox_purpose) return undefined;
     // GET /users/{id}/mailboxSettings -- Identity pool
-    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('identity', 'get_mailbox_purpose', {
-        resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
-      });
-      return this._inner.get_mailbox_purpose!(tenant_id, owner_id);
-    });
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation(
+        {
+          pool: 'identity',
+          request_type: 'get_mailbox_purpose',
+          resource_units: GRAPH_SERVICE_LIMITS.identity.user_get_cost,
+        },
+        () => this._inner.get_mailbox_purpose!(tenant_id, owner_id),
+      ),
+    );
   }
 
   async list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]> {
-    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('outlook', 'list_folders');
-      return this._inner.list_mail_folders(tenant_id, owner_id);
-    });
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'list_folders' }, () =>
+        this._inner.list_mail_folders(tenant_id, owner_id),
+      ),
+    );
   }
 
   async fetch_delta(
@@ -92,17 +105,18 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     page_size?: number,
   ): Promise<DeltaSyncResult> {
     const cost = prev_delta_link ? DELTA_WITH_TOKEN_COST : DELTA_WITHOUT_TOKEN_COST;
-    return this.rateLimited(owner_id, cost, () => {
-      get_active_counter()?.record('outlook', 'delta_sync');
-      return this._inner.fetch_delta(
-        tenant_id,
-        owner_id,
-        folder_id,
-        prev_delta_link,
-        on_page,
-        page_size,
-      );
-    });
+    return this.rateLimited(owner_id, cost, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'delta_sync' }, () =>
+        this._inner.fetch_delta(
+          tenant_id,
+          owner_id,
+          folder_id,
+          prev_delta_link,
+          on_page,
+          page_size,
+        ),
+      ),
+    );
   }
 
   async fetch_message(
@@ -110,10 +124,11 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     owner_id: string,
     message_id: string,
   ): Promise<MailMessage> {
-    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('outlook', 'fetch_message');
-      return this._inner.fetch_message(tenant_id, owner_id, message_id);
-    });
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_message' }, () =>
+        this._inner.fetch_message(tenant_id, owner_id, message_id),
+      ),
+    );
   }
 
   async fetch_attachments(
@@ -121,10 +136,11 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     owner_id: string,
     message_id: string,
   ): Promise<MessageAttachment[]> {
-    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () => {
-      get_active_counter()?.record('outlook', 'fetch_attachments');
-      return this._inner.fetch_attachments(tenant_id, owner_id, message_id);
-    });
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_attachments' }, () =>
+        this._inner.fetch_attachments(tenant_id, owner_id, message_id),
+      ),
+    );
   }
 
   /** Shuts down all per-mailbox limiters. */

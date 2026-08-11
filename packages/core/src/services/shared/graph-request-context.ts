@@ -2,18 +2,20 @@
  * AsyncLocalStorage-based context for Graph API request cost tracking.
  *
  * Each SDK method call creates a fresh GraphRequestCounter and runs the
- * underlying operation inside AsyncLocalStorage.run(). Connector decorators
- * call get_active_counter() to record each Graph request without any
- * plumbing through service or use-case layers.
+ * underlying operation inside AsyncLocalStorage.run(). A transport middleware
+ * records one entry per HTTP request actually sent, so pagination and retries
+ * are counted; connector methods declare what they are doing with
+ * run_with_graph_operation() so those requests carry a pool and a label.
  *
  * CLI calls (no counter active) silently produce no cost data.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GraphRequestCounter } from './graph-request-counter';
-import type { OperationCost } from '@wisecom/atlas-types';
+import type { GraphOperation, OperationCost } from '@wisecom/atlas-types';
 
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
+const _operation = new AsyncLocalStorage<GraphOperation>();
 
 /**
  * Runs `fn` inside a fresh cost-tracking context and returns both the result
@@ -81,4 +83,25 @@ function is_operation_cost(value: unknown): value is OperationCost {
  */
 export function get_active_counter(): GraphRequestCounter | undefined {
   return _storage.getStore();
+}
+
+/**
+ * Declares what the Graph requests issued inside `fn` are for, so the transport
+ * can charge each one to the right pool under a stable label.
+ *
+ * Scoped rather than recorded: one connector method can issue any number of
+ * requests (continuation pages, retried attempts), and all of them belong to
+ * this operation. Nested scopes shadow, so an inner declaration wins for the
+ * requests it makes.
+ */
+export function run_with_graph_operation<T>(
+  operation: GraphOperation,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return _operation.run(operation, fn);
+}
+
+/** The operation the current async context is inside, if any. */
+export function get_active_operation(): GraphOperation | undefined {
+  return _operation.getStore();
 }
