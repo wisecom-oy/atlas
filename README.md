@@ -1,6 +1,4 @@
-![GitHub Repo Banner](https://ghrb.waren.build/banner?header=M365+Atlas&subheader=%F0%9F%94%90+Secure%2C+deduplicated+Microsoft+365+mailbox+backups.&bg=EC4899-3B82F6&color=FFFFFF&headerfont=Google+Sans&subheaderfont=Kinewave&watermarkpos=bottom-right)
-
-<!-- Created with GitHub Repo Banner by Waren Gonzaga: https://ghrb.waren.build -->
+![Atlas -- Microsoft 365 backups. Built to endure.](./assets/banner.png)
 
 [![CI](https://github.com/miikaok/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/miikaok/atlas/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/miikaok/34b7e6013b428e289db442d3d28f4f14/raw/m365-atlas-coverage.json)](https://github.com/miikaok/atlas/actions/workflows/ci.yml)
