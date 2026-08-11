@@ -104,7 +104,7 @@ describe('DeletionService', () => {
 
   describe('delete_mailbox_data', () => {
     it('deletes data, attachment, and manifest keys for a mailbox', async () => {
-      const list_fn = vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>);
+      const list_fn = vi.mocked(mock_context.storage.list);
       list_fn
         .mockResolvedValueOnce(['manifests/user@test.com/snap-1.json'])
         .mockResolvedValueOnce(['data/user@test.com/aaa', 'data/user@test.com/bbb'])
@@ -160,7 +160,7 @@ describe('DeletionService', () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
         make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
       );
-      vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      vi.mocked(mock_context.storage.list).mockResolvedValueOnce([
         'manifests/u@t.com/snap-42.json',
       ]);
 
@@ -186,10 +186,10 @@ describe('DeletionService', () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
         make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
       );
-      vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      vi.mocked(mock_context.storage.list).mockResolvedValueOnce([
         'manifests/u@t.com/snap-42.json',
       ]);
-      vi.mocked(mock_context.storage.delete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      vi.mocked(mock_context.storage.delete).mockRejectedValueOnce(
         new Error('AccessDenied: Object Lock retention in effect'),
       );
 
@@ -213,30 +213,59 @@ describe('DeletionService', () => {
   // ---------------------------------------------------------------------------
 
   describe('purge_tenant', () => {
-    it('deletes data, attachments, manifests, and meta keys', async () => {
-      const list_fn = vi.mocked(mock_context.storage.list as ReturnType<typeof vi.fn>);
+    it('sweeps every workload in the bucket, not a list of known prefixes', async () => {
+      const list_fn = vi.mocked(mock_context.storage.list);
       list_fn
-        .mockResolvedValueOnce(['manifests/u/snap-1.json'])
-        .mockResolvedValueOnce(['data/u/aaa', 'data/u/bbb'])
-        .mockResolvedValueOnce(['attachments/u/ccc'])
+        .mockResolvedValueOnce([
+          'manifests/u/snap-1.json',
+          'data/u/aaa',
+          'attachments/u/ccc',
+          'onedrive/data/u/blob',
+          'sharepoint/data/site/blob',
+          'identity-registry.json',
+        ])
         .mockResolvedValueOnce(['_meta/dek.enc']);
 
       const result = await service.purge_tenant('t');
 
-      expect(result.deleted_objects).toBe(4);
+      // Five workload objects from the sweep, plus the DEK from the second pass.
+      expect(result.deleted_objects).toBe(6);
       expect(result.deleted_manifests).toBe(1);
-      expect(result.retained_objects).toBe(0);
-      expect(result.failed_manifests).toBe(0);
-      expect(mock_context.storage.delete).toHaveBeenCalledTimes(5);
+      expect(mock_context.storage.delete).toHaveBeenCalledWith('onedrive/data/u/blob');
+      expect(mock_context.storage.delete).toHaveBeenCalledWith('sharepoint/data/site/blob');
+      expect(mock_context.storage.delete).toHaveBeenCalledWith('identity-registry.json');
     });
 
-    it('lists the four expected prefixes with manifests first', async () => {
+    it('holds the DEK back until the data it protects is gone', async () => {
+      vi.mocked(mock_context.storage.list).mockResolvedValueOnce(['onedrive/data/u/locked']);
+      vi.mocked(mock_context.storage.delete).mockRejectedValueOnce(
+        new Error('InvalidRequest: Object is WORM protected and cannot be overwritten'),
+      );
+
+      const result = await service.purge_tenant('t');
+
+      expect(result.retained_objects).toBe(1);
+      expect(mock_context.storage.delete).not.toHaveBeenCalledWith('_meta/dek.enc');
+      expect(mock_context.storage.list).not.toHaveBeenCalledWith('_meta/');
+    });
+
+    it('deletes the DEK last, once the sweep came back clean', async () => {
       await service.purge_tenant('t');
 
-      expect(mock_context.storage.list).toHaveBeenCalledWith('manifests/');
-      expect(mock_context.storage.list).toHaveBeenCalledWith('data/');
-      expect(mock_context.storage.list).toHaveBeenCalledWith('attachments/');
-      expect(mock_context.storage.list).toHaveBeenCalledWith('_meta/');
+      const scopes = vi.mocked(mock_context.storage.list).mock.calls.map(([scope]) => scope);
+      expect(scopes).toEqual(['', '_meta/']);
+    });
+
+    it('leaves the DEK out of the bucket-wide sweep', async () => {
+      vi.mocked(mock_context.storage.list)
+        .mockResolvedValueOnce(['data/u/aaa', '_meta/dek.enc'])
+        .mockResolvedValueOnce(['_meta/dek.enc']);
+
+      const result = await service.purge_tenant('t');
+
+      // One from the sweep, one from the DEK pass -- never twice from the sweep.
+      expect(result.deleted_objects).toBe(2);
+      expect(mock_context.storage.delete).toHaveBeenCalledTimes(2);
     });
 
     it('handles empty tenant bucket', async () => {

@@ -8,12 +8,12 @@ Authentication errors appear before any backup activity starts. Atlas authentica
 
 ### AADSTS error codes
 
-| Error Code    | Meaning                        | Fix                                                                                                      |
-| ------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `AADSTS50020` | Wrong tenant ID                | Verify `ATLAS_TENANT_ID` matches the **Directory (tenant) ID** in Azure Portal → Microsoft Entra ID → Overview. |
-| `AADSTS700016` | Wrong client ID or app not found | Verify `ATLAS_CLIENT_ID` matches the **Application (client) ID** in App registrations. The app must exist in the tenant specified by `ATLAS_TENANT_ID`. |
+| Error Code      | Meaning                            | Fix                                                                                                                                                                                                                                  |
+| --------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AADSTS50020`   | Wrong tenant ID                    | Verify `ATLAS_TENANT_ID` matches the **Directory (tenant) ID** in Azure Portal → Microsoft Entra ID → Overview.                                                                                                                      |
+| `AADSTS700016`  | Wrong client ID or app not found   | Verify `ATLAS_CLIENT_ID` matches the **Application (client) ID** in App registrations. The app must exist in the tenant specified by `ATLAS_TENANT_ID`.                                                                              |
 | `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date of your secret in **Certificates & secrets**. If expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If not expired, verify you copied the secret **Value** (not the Secret ID). |
-| `AADSTS65001` | Admin consent not granted      | Go to **API permissions** for the app registration and click **Grant admin consent for [tenant]**.       |
+| `AADSTS65001`   | Admin consent not granted          | Go to **API permissions** for the app registration and click **Grant admin consent for [tenant]**.                                                                                                                                   |
 
 ### Diagnosing authentication errors
 

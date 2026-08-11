@@ -2,10 +2,10 @@
 
 Atlas ships as two npm packages:
 
-| Package | Install | Use when |
-| ------- | ------- | -------- |
-| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Day-to-day operations from a shell: cron jobs, one-off backups, operator workflows. Reads `.env` and config files. |
-| **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk` | Embedding Atlas in your own Node.js app: multi-tenant SaaS, custom schedulers, portals, or automation that needs typed programmatic control. |
+| Package                  | Install                             | Use when                                                                                                                                     |
+| ------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Day-to-day operations from a shell: cron jobs, one-off backups, operator workflows. Reads `.env` and config files.                           |
+| **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk`        | Embedding Atlas in your own Node.js app: multi-tenant SaaS, custom schedulers, portals, or automation that needs typed programmatic control. |
 
 This page documents **`@wisecom/atlas-sdk`**. For shell commands and flags, see [CLI Commands](/reference/cli).
 
@@ -51,7 +51,10 @@ const snapshots = await atlas.outlook.listSnapshots('user@company.com');
 const verification = await atlas.outlook.verify('snapshot-id');
 const restore = await atlas.outlook.restore('snapshot-id', { folder_name: 'Inbox' });
 const fullRestore = await atlas.outlook.restoreMailbox('user@company.com');
-const save = await atlas.outlook.save('snapshot-id', { folder_name: 'Inbox', output_path: 'backup.zip' });
+const save = await atlas.outlook.save('snapshot-id', {
+  folder_name: 'Inbox',
+  output_path: 'backup.zip',
+});
 const message = await atlas.outlook.readMessage('snapshot-id', '42');
 const status = await atlas.outlook.checkMailboxStatus('user@company.com');
 
@@ -77,25 +80,27 @@ Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.out
 
 ## Outlook API Reference
 
-| Method | CLI equivalent | Description |
-| ------ | -------------- | ----------- |
-| `backup(mailboxId, options?)` | `atlas outlook backup -m` | Backup a single mailbox |
-| `verify(snapshotId, options?)` | `atlas outlook verify` | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
-| `restore(snapshotId, options?)` | `atlas outlook restore -s` | Restore from a snapshot |
-| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox |
-| `save(snapshotId, options?)` | `atlas outlook save -s` | Export snapshot as EML zip |
-| `saveMailbox(mailboxId, options?)` | `atlas outlook save -m` | Export all snapshots as EML zip |
-| `listMailboxes()` | `atlas outlook list` | List backed-up mailboxes |
-| `listSnapshots(mailboxId)` | `atlas outlook list -m` | List snapshots for a mailbox |
-| `readMessage(snapshotId, messageRef)` | `atlas outlook read` | Read a single message |
-| `checkMailboxStatus(mailboxId)` | `atlas outlook status` | Fast delta peek (pending changes) |
-| `listAvailableMailboxes(options?)` | _(discovery)_ | List all tenant mailboxes via Graph |
-| `deleteMailboxData(mailboxId)` | `atlas outlook delete -m` | Delete all data for a mailbox |
-| `deleteSnapshot(snapshotId)` | `atlas outlook delete -s` | Delete a single snapshot manifest |
-| `purgeTenantData()` | `atlas outlook delete --purge` | Purge entire tenant bucket |
-| `getMailboxStats(mailboxId)` | `atlas stats -m` | Mailbox-level statistics |
+| Method                                | CLI equivalent                 | Description                                                                                        |
+| ------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`         | `atlas outlook backup -m`      | Backup a single mailbox                                                                            |
+| `verify(snapshotId, options?)`        | `atlas outlook verify`         | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
+| `restore(snapshotId, options?)`       | `atlas outlook restore -s`     | Restore from a snapshot                                                                            |
+| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m`     | Restore all snapshots for a mailbox                                                                |
+| `save(snapshotId, options?)`          | `atlas outlook save -s`        | Export snapshot as EML zip                                                                         |
+| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`        | Export all snapshots as EML zip                                                                    |
+| `listMailboxes()`                     | `atlas outlook list`           | List backed-up mailboxes                                                                           |
+| `listSnapshots(mailboxId)`            | `atlas outlook list -m`        | List snapshots for a mailbox                                                                       |
+| `readMessage(snapshotId, messageRef)` | `atlas outlook read`           | Read a single message                                                                              |
+| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`         | Fast delta peek (pending changes)                                                                  |
+| `listAvailableMailboxes(options?)`    | _(discovery)_                  | List all tenant mailboxes via Graph                                                                |
+| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`      | Delete all data for a mailbox                                                                      |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`      | Delete a single snapshot manifest                                                                  |
+| `purgeTenantData()`                   | `atlas outlook delete --purge` | Purge entire tenant bucket                                                                         |
+| `getMailboxStats(mailboxId)`          | `atlas stats -m`               | Mailbox-level statistics                                                                           |
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
+
+Deletion methods erase every version of the objects they match, and `purgeTenantData()` sweeps the whole bucket -- every workload, not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
 
 ### Shared mailbox identity
 
@@ -116,14 +121,14 @@ const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:
 
-| Option                 | Type      | Description                                               |
-| ---------------------- | --------- | --------------------------------------------------------- |
-| `folder_name`          | `string`  | Save only this folder and its subfolders (name or path)   |
-| `message_ref`          | `string`  | Save a single message by index or ID                      |
-| `start_date`           | `Date`    | Include snapshots on or after this date                   |
-| `end_date`             | `Date`    | Include snapshots on or before this date                  |
-| `output_path`          | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
-| `skip_integrity_check` | `boolean` | Skip SHA-256 verification (default: `false`)              |
+| Option                 | Type                                    | Description                                                                                                                                                                                                                                                |
+| ---------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `folder_name`          | `string`                                | Save only this folder and its subfolders (name or path)                                                                                                                                                                                                    |
+| `message_ref`          | `string`                                | Save a single message by index or ID                                                                                                                                                                                                                       |
+| `start_date`           | `Date`                                  | Include snapshots on or after this date                                                                                                                                                                                                                    |
+| `end_date`             | `Date`                                  | Include snapshots on or before this date                                                                                                                                                                                                                   |
+| `output_path`          | `string`                                | Output zip file path (default: `Restore-<timestamp>.zip`)                                                                                                                                                                                                  |
+| `skip_integrity_check` | `boolean`                               | Skip SHA-256 verification (default: `false`)                                                                                                                                                                                                               |
 | `create_progress`      | `(folders) => TransferProgressReporter` | Progress reporter factory invoked with the folder list before the transfer starts; each reporter callback receives per-folder counts. The CLI injects its dashboard here; SDK callers can plug their own observer. When omitted, progress is not reported. |
 
 Both methods return a `SaveResult`:
@@ -145,13 +150,13 @@ interface SaveResult {
 
 `atlas.outlook.restore` and `atlas.outlook.restoreMailbox` accept the following options:
 
-| Option           | Type     | Description                              |
-| ---------------- | -------- | ---------------------------------------- |
-| `folder_name`    | `string` | Restore only this folder and its subfolders (name or path) |
-| `message_ref`    | `string` | Restore a single message by index or ID  |
-| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore |
-| `start_date`     | `Date`   | Include snapshots on or after this date  |
-| `end_date`       | `Date`   | Include snapshots on or before this date |
+| Option            | Type                                    | Description                                                                                          |
+| ----------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `folder_name`     | `string`                                | Restore only this folder and its subfolders (name or path)                                           |
+| `message_ref`     | `string`                                | Restore a single message by index or ID                                                              |
+| `target_mailbox`  | `string`                                | Target mailbox for cross-mailbox restore                                                             |
+| `start_date`      | `Date`                                  | Include snapshots on or after this date                                                              |
+| `end_date`        | `Date`                                  | Include snapshots on or before this date                                                             |
 | `create_progress` | `(folders) => TransferProgressReporter` | Progress reporter factory; same contract as in Save Options. When omitted, progress is not reported. |
 
 Both methods return a `RestoreResult`:
@@ -199,9 +204,7 @@ The SDK supports snapshot-level replication and disaster recovery rehydration. A
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
 
-const atlas = createAtlasInstance({
-  /* primary config */
-});
+const atlas = createAtlasInstance({/* primary config */});
 
 const offsite = createStorageTarget({
   targetId: 'offsite-dr',
@@ -445,16 +448,16 @@ For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. Y
 
 **Graph cost types:**
 
-| Export                    | Kind  | Description                                                            |
-| ------------------------- | ----- | ---------------------------------------------------------------------- |
-| `OperationCost`           | type  | Per-operation cost breakdown                                           |
-| `ServicePoolCost`         | type  | Cost for a single service pool                                         |
-| `GraphServicePool`        | type  | Pool identifier union type                                             |
-| `GraphServiceLimits`      | type  | Type for the full limits constant                                      |
-| `OutlookServiceLimits`    | type  | Outlook pool limits type                                               |
-| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                   |
-| `IdentityServiceLimits`   | type  | Identity pool limits type                                              |
-| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                        |
-| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                  |
-| `SyncResult`              | type  | Result of `atlas.outlook.backup` (includes `graph_cost`)                      |
+| Export                    | Kind  | Description                                                                  |
+| ------------------------- | ----- | ---------------------------------------------------------------------------- |
+| `OperationCost`           | type  | Per-operation cost breakdown                                                 |
+| `ServicePoolCost`         | type  | Cost for a single service pool                                               |
+| `GraphServicePool`        | type  | Pool identifier union type                                                   |
+| `GraphServiceLimits`      | type  | Type for the full limits constant                                            |
+| `OutlookServiceLimits`    | type  | Outlook pool limits type                                                     |
+| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                         |
+| `IdentityServiceLimits`   | type  | Identity pool limits type                                                    |
+| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                              |
+| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                        |
+| `SyncResult`              | type  | Result of `atlas.outlook.backup` (includes `graph_cost`)                     |
 | `RestoreResult`           | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graph_cost`) |
