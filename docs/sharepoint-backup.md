@@ -199,6 +199,7 @@ console.log(site.id);
 | --- | --- | --- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
 | `--full` | Force full crawl, ignore saved delta state | `false` |
+| `--include-subsites` | Back up subsites too (one snapshot per subsite) | `false` |
 | `-t, --tenant <id>` | Tenant identifier | Config default |
 
 ### `atlas sharepoint list-snapshots`

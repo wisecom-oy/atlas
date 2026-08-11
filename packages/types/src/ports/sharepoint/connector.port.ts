@@ -4,6 +4,17 @@ export interface SharePointSite {
   readonly display_name: string;
 }
 
+/**
+ * Result of walking a site's subsite tree. Subsites the application cannot
+ * read are reported in `warnings` rather than silently dropped -- Graph
+ * returns only the subsites the caller has access to, so an empty list and
+ * an inaccessible subtree are otherwise indistinguishable.
+ */
+export interface SharePointSubsiteTree {
+  readonly sites: SharePointSite[];
+  readonly warnings: string[];
+}
+
 export interface SharePointDocumentLibrary {
   readonly drive_id: string;
   readonly drive_name: string;
@@ -44,6 +55,9 @@ export interface SharePointSiteConnector {
 
   /** Resolves a single site by URL path or site ID. */
   resolve_site(tenant_id: string, site_url_or_id: string): Promise<SharePointSite>;
+
+  /** Recursively lists every subsite beneath a site (`GET /sites/{id}/sites`). */
+  list_subsites(tenant_id: string, site_id: string): Promise<SharePointSubsiteTree>;
 
   /** Lists document libraries (drives) within a site. */
   list_document_libraries(tenant_id: string, site_id: string): Promise<SharePointDocumentLibrary[]>;

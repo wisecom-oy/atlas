@@ -12,7 +12,9 @@ import type {
   SharePointDeltaItem,
   SharePointDeltaResult,
   SharePointFileVersion,
+  SharePointSubsiteTree,
 } from '@wisecom/atlas-types';
+import { enumerate_subsite_tree } from '@/adapters/graph-subsite-enumerator';
 import {
   fetch_initial_delta_page,
   type GraphCollectionResponse,
@@ -108,6 +110,39 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       site_url: raw.webUrl ?? '',
       display_name: raw.displayName ?? '',
     };
+  }
+
+  /** Recursively lists every subsite beneath a site. */
+  async list_subsites(_tenant_id: string, site_id: string): Promise<SharePointSubsiteTree> {
+    return enumerate_subsite_tree(site_id, (parent_site_id) =>
+      this.fetch_direct_subsites(parent_site_id),
+    );
+  }
+
+  /** Pages through the direct subsites of one site. */
+  private async fetch_direct_subsites(site_id: string): Promise<SharePointSite[]> {
+    const sites: SharePointSite[] = [];
+    let next_url: string | undefined = `/sites/${site_id}/sites?$select=id,webUrl,displayName`;
+
+    while (next_url) {
+      const url = next_url;
+      const page: GraphCollectionResponse<GraphSiteRecord> = await with_graph_retry(
+        () => this._client.api(url).get() as Promise<GraphCollectionResponse<GraphSiteRecord>>,
+      );
+
+      for (const raw of page.value ?? []) {
+        if (!raw.id) continue;
+        sites.push({
+          site_id: raw.id,
+          site_url: raw.webUrl ?? '',
+          display_name: raw.displayName ?? '',
+        });
+      }
+
+      next_url = page['@odata.nextLink'];
+    }
+
+    return sites;
   }
 
   /** Lists document libraries (drives) within a site. */

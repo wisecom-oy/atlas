@@ -52,6 +52,10 @@ function register_sharepoint_backup(group: Command, get_container: ContainerFact
     .description('Back up changed files in a SharePoint site')
     .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID')
     .option('--full', 'force full crawl ignoring saved delta state')
+    .option(
+      '--include-subsites',
+      'also back up every subsite beneath the site (one snapshot per subsite)',
+    )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option(
       '--retention-days <n>',

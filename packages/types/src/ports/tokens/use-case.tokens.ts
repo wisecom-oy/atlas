@@ -15,6 +15,9 @@ export const ONEDRIVE_VERIFICATION_USE_CASE_TOKEN = Symbol.for('OneDriveVerifica
 export const ONEDRIVE_RESTORE_USE_CASE_TOKEN = Symbol.for('OneDriveRestoreUseCase');
 export const ONEDRIVE_SAVE_USE_CASE_TOKEN = Symbol.for('OneDriveSaveUseCase');
 export const SHAREPOINT_BACKUP_USE_CASE_TOKEN = Symbol.for('SharePointBackupUseCase');
+export const SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN = Symbol.for(
+  'SharePointSiteTreeBackupUseCase',
+);
 export const SHAREPOINT_VERIFICATION_USE_CASE_TOKEN = Symbol.for('SharePointVerificationUseCase');
 export const SHAREPOINT_REPLICATION_USE_CASE_TOKEN = Symbol.for('SharePointReplicationUseCase');
 export const SHAREPOINT_RESTORE_USE_CASE_TOKEN = Symbol.for('SharePointRestoreUseCase');

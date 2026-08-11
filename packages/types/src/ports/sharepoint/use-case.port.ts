@@ -35,6 +35,12 @@ export interface SharePointBackupOptions {
    * inherits the lock. Persists on the bucket for subsequent writes.
    */
   readonly object_lock_request?: ObjectLockRequest | undefined;
+  /**
+   * Back up the site's subsites as well. Each subsite is a Graph site in its
+   * own right and gets its own snapshot, so this is a fan-out over the normal
+   * per-site pipeline. When false, uncovered subsites are reported as warnings.
+   */
+  readonly include_subsites?: boolean | undefined;
 }
 
 export interface SharePointBackupUseCase {
@@ -44,6 +50,18 @@ export interface SharePointBackupUseCase {
     site_id: string,
     options?: SharePointBackupOptions,
   ): Promise<SharePointBackupResult>;
+}
+
+export interface SharePointSiteTreeBackupUseCase {
+  /**
+   * Backs up a site and, when `include_subsites` is set, every subsite beneath
+   * it. Returns one result per backed-up site, root first.
+   */
+  backup_site_tree(
+    tenant_id: string,
+    root_site_id: string,
+    options?: SharePointBackupOptions,
+  ): Promise<SharePointBackupResult[]>;
 }
 
 export interface SharePointVerificationResult {
