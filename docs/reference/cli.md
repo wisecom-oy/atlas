@@ -451,9 +451,18 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | --- | --- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
 | `--full` | Force full crawl ignoring saved delta links |
+| `--include-subsites` | Also back up every subsite beneath the site, one snapshot per subsite |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive) |
 | `--lock-mode <mode>` | Object Lock mode (`governance` or `compliance`, default `governance`) |
 | `-t, --tenant <id>` | Override tenant ID from config |
+
+:::: tip Subsites are separate sites
+`GET /sites/{site-id}/sites` returns only a site's *direct* subsites, so Atlas walks the tree explicitly. By default a backup covers the named site alone and emits one warning per uncovered subsite -- classic site collections with nested subsite trees would otherwise look fully protected while entire subsites sat outside the backup.
+
+`--include-subsites` backs up the whole tree. Each subsite is a Graph site with its own drives, so it gets **its own snapshot under its own `site_id` prefix** (`sharepoint/manifests/{site_id}/...`), identical in structure to a root-site backup. Restore addressing is therefore unchanged: restore a subsite by naming that subsite.
+
+Graph returns only the subsites the application can read. A subsite that cannot be enumerated is reported as a warning rather than treated as absent, so an access gap never silently narrows backup scope. Traversal is bounded at 20 levels.
+::::
 
 **`atlas sharepoint list-snapshots`**
 

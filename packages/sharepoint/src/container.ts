@@ -5,6 +5,7 @@ import {
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN,
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
@@ -17,6 +18,7 @@ import { S3SharePointManifestRepository } from '@/adapters/s3-sharepoint-manifes
 import { S3SharePointDeltaCursorRepository } from '@/adapters/s3-sharepoint-delta-cursor-repository.adapter';
 import { S3SharePointFileVersionIndexRepository } from '@/adapters/s3-sharepoint-file-version-index-repository.adapter';
 import { SharePointBackupService } from '@/services/sharepoint-backup.service';
+import { SharePointSiteTreeBackupService } from '@/services/sharepoint-site-tree-backup.service';
 import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
 import { SharePointSaveService } from '@/services/sharepoint-save.service';
@@ -45,6 +47,10 @@ export function bind_sharepoint(container: Container): void {
     .to(S3SharePointFileVersionIndexRepository)
     .inSingletonScope();
   container.bind(SHAREPOINT_BACKUP_USE_CASE_TOKEN).to(SharePointBackupService).inSingletonScope();
+  container
+    .bind(SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN)
+    .to(SharePointSiteTreeBackupService)
+    .inSingletonScope();
   container
     .bind(SHAREPOINT_VERIFICATION_USE_CASE_TOKEN)
     .to(SharePointVerificationService)
