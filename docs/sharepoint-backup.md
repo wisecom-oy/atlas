@@ -229,6 +229,40 @@ console.log(site.id);
 | `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` | `rename` |
 | `-t, --tenant <id>` | Tenant identifier | Config default |
 
+#### Where a cross-site restore lands
+
+A manifest entry records the `drive_id` of the library it came from, and that id
+is only meaningful inside the site that owns it -- Graph addresses an upload as
+`/sites/{site}/drives/{drive}/...`, and the drive wins. `--target-site`
+therefore has to pick a library belonging to the target site, which Atlas does
+per entry:
+
+1. **Same library name.** The target library whose name matches the one the file
+   was backed up from -- compared case-insensitively, in Unicode NFC, ignoring
+   surrounding whitespace. This keeps a multi-library site's structure intact when
+   the names line up on both ends. If *two* target libraries share that name the
+   choice is ambiguous, so Atlas refuses rather than pick one.
+2. **The only library**, and only when the restore comes from a single source
+   library. Library names are localised -- a Finnish tenant's default library is
+   `Tiedostot`, an English one's is `Documents` -- so a single-library target must
+   not be decided by name. This rule deliberately does *not* apply when the
+   snapshot spans several libraries: folding them into one destination merges
+   their trees, and two files sharing a path would overwrite each other under
+   `--conflict replace`. Restore those one library at a time with `--file-filter`.
+3. **Neither.** Atlas refuses the file, names the candidate libraries, and the run
+   exits non-zero. It never guesses which production library should receive the
+   data, and never falls back to the library the file came from.
+
+If the target site has no document libraries at all, the restore fails before
+uploading anything.
+
+::: warning Snapshots taken before 2.1.0-beta
+Library names were not recorded in older manifests, so rule 1 cannot apply to
+them. Such a snapshot restores cross-site only when it came from one library and
+the target has one library; anything else fails by rule 3 rather than choosing a
+destination. Take a fresh backup to restore by name.
+:::
+
 ### `atlas sharepoint save`
 
 | Flag | Description | Default |
@@ -366,7 +400,7 @@ SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.g
 
 ## Restore
 
-Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to the site's document libraries via Graph API. Each manifest entry carries its own `drive_id`, so files are restored to the correct document library automatically.
+Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site -- see [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 
 **CLI:**
 

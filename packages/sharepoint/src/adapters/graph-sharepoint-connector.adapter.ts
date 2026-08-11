@@ -120,25 +120,37 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     );
   }
 
-  /** Lists document libraries (drives) within a site. */
+  /**
+   * Lists document libraries (drives) within a site, following continuation
+   * links: restore routing treats this list as the complete set of destinations,
+   * so a truncated page would send files to the wrong library.
+   */
   async list_document_libraries(
     _tenant_id: string,
     site_id: string,
   ): Promise<SharePointDocumentLibrary[]> {
+    const libraries: SharePointDocumentLibrary[] = [];
+    let next_url: string | undefined = `/sites/${site_id}/drives?$select=id,name`;
+
     try {
-      const response = await with_graph_retry(
-        () =>
-          this._client.api(`/sites/${site_id}/drives?$select=id,name`).get() as Promise<
-            GraphCollectionResponse<GraphDriveRecord>
-          >,
-      );
-      return (response.value ?? [])
-        .filter((drive) => Boolean(drive.id))
-        .map((drive) => ({ drive_id: drive.id ?? '', drive_name: drive.name ?? '' }));
+      while (next_url) {
+        const url = next_url;
+        // Retry wraps a single page, never the whole walk.
+        const page: GraphCollectionResponse<GraphDriveRecord> = await with_graph_retry(
+          () => this._client.api(url).get() as Promise<GraphCollectionResponse<GraphDriveRecord>>,
+        );
+        for (const drive of page.value ?? []) {
+          if (!drive.id) continue;
+          libraries.push({ drive_id: drive.id, drive_name: drive.name ?? '' });
+        }
+        next_url = page['@odata.nextLink'];
+      }
     } catch (err) {
       rethrow_if_access_denied(err);
       throw err;
     }
+
+    return libraries;
   }
 
   /** Fetches delta changes since the last sync, with automatic reset handling. */

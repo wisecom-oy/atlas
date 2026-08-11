@@ -30,6 +30,8 @@ export interface FileTrackingState {
 
 export interface LibraryProcessingState {
   library_entries: SharePointManifestEntry[];
+  /** Name of the library being processed, recorded so a cross-site restore can place these entries. */
+  library_name: string;
   library_files_stored: number;
   library_files_deduplicated: number;
   library_deleted_items: number;
@@ -79,7 +81,9 @@ export async function process_delta_item(
 
   if (item.deleted) {
     library_state.library_deleted_items++;
-    library_state.library_entries.push(build_deleted_entry(item, change_type));
+    library_state.library_entries.push(
+      build_deleted_entry(item, change_type, library_state.library_name),
+    );
     library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
     return;
   }
@@ -116,7 +120,13 @@ export async function process_delta_item(
   }
 
   library_state.library_entries.push(
-    build_stored_entry(item, result.storage_key, result.checksum, change_type),
+    build_stored_entry(
+      item,
+      result.storage_key,
+      result.checksum,
+      change_type,
+      library_state.library_name,
+    ),
   );
   library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
   tracking.previous_path_by_file_id[item.item_id] = item.parent_path;

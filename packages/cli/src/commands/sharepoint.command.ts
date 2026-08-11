@@ -1,3 +1,4 @@
+import { Option } from 'commander';
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import {
@@ -75,9 +76,12 @@ function register_sharepoint_restore(group: Command, get_container: ContainerFac
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
     .option('--target-site <url-or-id>', 'target site to restore to (defaults to original site)')
     .option('--file-filter <paths...>', 'only restore specific files (by ID or path)')
-    .option(
-      '-c, --conflict <mode>',
-      'file conflict policy: replace, rename, or fail (default: rename)',
+    .addOption(
+      new Option('-c, --conflict <mode>', 'file conflict policy (default: rename)').choices([
+        'replace',
+        'rename',
+        'fail',
+      ]),
     )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: SharePointRestoreCommandOptions) =>

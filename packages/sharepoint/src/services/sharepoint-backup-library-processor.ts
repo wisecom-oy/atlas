@@ -84,6 +84,7 @@ export async function process_single_library(
 
   const library_state: LibraryProcessingState = {
     library_entries: [],
+    library_name: library.drive_name,
     library_files_stored: 0,
     library_files_deduplicated: 0,
     library_deleted_items: 0,
