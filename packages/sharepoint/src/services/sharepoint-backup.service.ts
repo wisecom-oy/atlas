@@ -20,7 +20,12 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { build_empty_result, build_snapshot_manifest } from '@/services/sharepoint-backup-builders';
+import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import {
+  build_empty_result,
+  build_package_warnings,
+  build_snapshot_manifest,
+} from '@/services/sharepoint-backup-builders';
 import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import {
   process_single_library,
@@ -85,7 +90,10 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       );
 
       const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking);
-      const warnings = this.build_version_warnings(scan.version_stats);
+      const warnings = [
+        ...this.build_version_warnings(scan.version_stats),
+        ...build_package_warnings(scan.package_reports),
+      ];
       const healthy = scan.errors.length === 0;
 
       if (scan.entries.length === 0) {
@@ -150,6 +158,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     deleted_items: number;
     errors: string[];
     version_stats: VersionStatsState;
+    package_reports: PackageReport[];
   }> {
     const entries: SharePointManifestEntry[] = [];
     let files_stored = 0;
@@ -161,6 +170,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       total_versions_failed: 0,
     };
     const errors: string[] = [];
+    const package_reports: PackageReport[] = [];
 
     for (const library of libraries) {
       try {
@@ -181,6 +191,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           errors,
         );
 
+        package_reports.push(library_result.package_report);
         if (library_result.had_errors) continue;
 
         entries.push(...library_result.entries);
@@ -194,7 +205,15 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       }
     }
 
-    return { entries, files_stored, files_deduplicated, deleted_items, errors, version_stats };
+    return {
+      entries,
+      files_stored,
+      files_deduplicated,
+      deleted_items,
+      errors,
+      version_stats,
+      package_reports,
+    };
   }
 
   private build_cursor(

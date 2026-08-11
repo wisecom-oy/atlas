@@ -281,6 +281,40 @@ Implementation thresholds from `@wisecom/atlas-onedrive`:
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter) so a transient failure replays a single chunk instead of the whole file.
 
+## OneNote Notebooks
+
+A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:
+
+| Item | Facets | Backed up |
+| --- | --- | --- |
+| Notebook root (e.g. `Test`) | `folder` + `package` | Treated as a folder. `GET /items/{id}/content` returns **404** -- the root has no content of its own, so there is nothing to store |
+| `<Section>.one` | `file`, MIME `application/msonenote` | Yes -- byte-for-byte, like any other file |
+| `Open Notebook.onetoc2` | `file` | Yes -- byte-for-byte |
+
+So notebook **content is covered by backups today**: each section file is content-addressed, encrypted, and stored under the notebook's folder path. What the run additionally reports is the notebook itself, because file counters alone cannot answer "did the notebook come through whole?":
+
+```
+OneNote notebooks detected: 1 (2 section file(s) backed up as ordinary files).
+```
+
+If any section file of a notebook fails while its siblings succeed, the run warns explicitly:
+
+```
+OneNote notebook "Test" (/Tietoturva/Test) is INCOMPLETE in this backup:
+1 of 2 section file(s) failed (Untitled Section.one).
+A partially captured notebook may not open after restore.
+```
+
+That warning exists because partial capture is the dangerous case: a `.onetoc2` table of contents stored **without** its sibling `.one` sections looks like a successful backup and restores into a notebook that will not open. Notebook completeness is therefore reported per notebook, never averaged into the run's file totals.
+
+### Coverage status and limits
+
+- **Captured:** every `.one` section file and the `.onetoc2` table of contents, at their current revision, in their original folder path.
+- **Reported:** notebook count, section files stored, and an explicit incompleteness warning per notebook.
+- **Restore is byte-faithful, notebook reassembly is not guaranteed.** A restored `.onetoc2` was verified byte-identical to the backed-up copy (SHA-256 match over a live tenant restore). What Atlas cannot promise is that dropping those files back produces a notebook a OneNote client will open: the package facet is created by the OneNote service, not by a file upload, so restored sections arrive as ordinary files. Treat notebook restore as "recover the section data", then let OneNote re-import it, and verify before relying on it.
+- **Version history for section files is often unavailable.** Graph frequently refuses version downloads for `.one` items; those appear in the run as `version download(s) failed`. The current revision is still stored.
+- The notebook root is not stored as a manifest entry (it has no content). Its path is preserved through its children, so restores land the sections back under the same folder structure.
+
 ## Unicode Path Handling
 
 OneDrive paths and file names from Graph are normalized to **Unicode NFC** in the connector and catalog (`String.prototype.normalize('NFC')`). That aligns macOS (often NFD) with Windows/Linux naming so the same logical path does not produce duplicate index entries after sync.

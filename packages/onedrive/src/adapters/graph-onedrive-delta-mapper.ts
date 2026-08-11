@@ -14,6 +14,7 @@ interface GraphDeltaDriveItem {
   parentReference?: GraphParentReference;
   file?: Record<string, unknown>;
   folder?: Record<string, unknown>;
+  package?: { type?: string };
   '@removed'?: { reason: string };
   '@microsoft.graph.downloadUrl'?: string;
 }
@@ -51,6 +52,7 @@ export function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): OneD
     parent_path,
     size_bytes: raw.size ?? 0,
     deleted: is_deleted,
+    ...(raw.package ? { package_type: raw.package.type ?? 'unknown' } : {}),
     ...(raw.webUrl ? { web_url: raw.webUrl } : {}),
     ...(raw.eTag ? { etag: raw.eTag } : {}),
     ...(raw.lastModifiedDateTime ? { last_modified_at: raw.lastModifiedDateTime } : {}),

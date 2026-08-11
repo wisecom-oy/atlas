@@ -5,7 +5,25 @@ import type {
   SharePointManifestEntry,
   SharePointSnapshotManifest,
 } from '@wisecom/atlas-types';
+import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
 import type { VersionSyncResult } from '@/services/sharepoint-version-sync';
+
+/**
+ * Flattens per-library package reports into backup summary warnings.
+ *
+ * Emits one informational line for the run plus every per-notebook
+ * incompleteness warning, so a notebook that lost section files is visible
+ * even though its files are stored as ordinary items.
+ */
+export function build_package_warnings(reports: readonly PackageReport[]): string[] {
+  const detected = reports.reduce((n, r) => n + r.notebooks_detected, 0);
+  if (detected === 0) return [];
+  const sections = reports.reduce((n, r) => n + r.section_files_backed_up, 0);
+  return [
+    `OneNote notebooks detected: ${detected} (${sections} section file(s) backed up as ordinary files).`,
+    ...reports.flatMap((r) => r.warnings),
+  ];
+}
 
 export function build_deleted_entry(
   item: SharePointDeltaItem,
