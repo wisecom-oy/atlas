@@ -14,6 +14,7 @@ import type {
   SharePointFileVersion,
 } from '@wisecom/atlas-types';
 import {
+  fetch_drive_item_by_id,
   fetch_initial_delta_page,
   type GraphCollectionResponse,
 } from '@/adapters/graph-sharepoint-delta-fetch';
@@ -145,6 +146,23 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       if (is_invalid_delta_error(err)) {
         return await this.execute_delta(drive_id, undefined, true);
       }
+      throw err;
+    }
+  }
+
+  /** Re-fetches one item by id for failed-item retry; undefined once it is gone. */
+  async fetch_item_by_id(
+    _tenant_id: string,
+    _site_id: string,
+    drive_id: string,
+    item_id: string,
+  ): Promise<SharePointDeltaItem | undefined> {
+    try {
+      const raw = await fetch_drive_item_by_id(this._client, drive_id, item_id);
+      if (!raw?.id) return undefined;
+      return map_delta_item(raw, drive_id);
+    } catch (err) {
+      rethrow_if_access_denied(err);
       throw err;
     }
   }

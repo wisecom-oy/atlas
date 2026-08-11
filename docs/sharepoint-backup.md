@@ -24,7 +24,7 @@ Snapshot IDs are generated as `sp-snap-<milliseconds>-<6-hex>` (for example `sp-
 
 1. **Site resolution** -- The `--site` flag accepts either a SharePoint site URL (`https://contoso.sharepoint.com/sites/Engineering`) or a Graph site ID (`contoso.sharepoint.com,site-guid,web-guid`). URLs are resolved via `GET /sites/{hostname}:/{path}` to obtain the canonical site ID used for all storage keys.
 2. **Library discovery** -- Atlas calls `GET /sites/{site_id}/drives?$filter=driveType eq 'documentLibrary'` to discover all document libraries within the site. Each library has its own delta cursor, allowing independent incremental tracking.
-3. **Delta sync** -- For each document library, Atlas follows `GET /drives/{drive_id}/root/delta` (or the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. If a single library fails, its delta link is not advanced and its entries are discarded from the snapshot manifest so the next run retries that library cleanly. The delta cursor is saved incrementally after each successfully completed library.
+3. **Delta sync** -- For each document library, Atlas follows `GET /drives/{drive_id}/root/delta` (or the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the library: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A library that fails outright -- before any delta could be read -- still leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed library.
 4. **Content-addressed storage** -- Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that site, the blob is deduplicated (no second upload).
 5. **Zero-disk streaming** -- Files at or above **512 MiB** use a streaming pipeline: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `sharepoint/staging/`, then copied to the canonical `sharepoint/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part (on the order of **12 MiB** per large file, not the full file size).
 6. **Version history** -- After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content.
@@ -32,14 +32,15 @@ Snapshot IDs are generated as `sp-snap-<milliseconds>-<6-hex>` (for example `sp-
 
 ## Deterministic Error Handling
 
-SharePoint backup enforces **all-or-nothing semantics per document library**. If any file within a library fails to process:
+SharePoint backup makes **progress with accounting**: a file that fails to process never blocks the files around it, but it is never forgotten either. If any file within a library fails:
 
-- All entries from that library are discarded from the snapshot manifest.
-- The delta cursor for that library is **not** advanced, so the next run will retry the full delta for that library.
-- The overall backup result is marked **UNHEALTHY**.
-- Healthy libraries in the same site are **not** affected -- their entries are included normally and their cursors are advanced.
+- Every file that did process is kept in the snapshot manifest.
+- The delta cursor for that library **is** advanced, so the next run picks up new changes instead of replaying the backlog behind one bad file.
+- The failure is recorded in the cursor's `failed_items` ledger and retried by later runs -- see [Failed Items and Delta Progress](#failed-items-and-delta-progress) for the retry contract.
+- The overall backup result is marked **UNHEALTHY** while any failure is outstanding.
+- Healthy libraries in the same site are unaffected.
 
-This prevents partial states where some files appear successfully backed up in the manifest but their processing was incomplete.
+Earlier releases discarded a library's entire batch on a single failure and held its cursor back. That traded one bad file for a drive that silently stopped receiving backups -- and left uploaded-but-unreferenced blobs behind. Keeping the successful entries and recording the failure protects everything that *can* be protected while still making the gap impossible to miss.
 
 ## Storage Layout
 
@@ -252,6 +253,41 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
 | `-s, --snapshot <id>` | Snapshot ID to verify (required) | -- |
 | `-t, --tenant <id>` | Tenant identifier | Config default |
+
+## Failed Items and Delta Progress
+
+A file that refuses to download -- a permissions quirk, a corrupted item, IRM-protected content, a chronically 4xx-ing CDN link -- must not be able to stop the rest of the drive from being backed up. Atlas therefore **advances past per-item failures and records them**, rather than discarding the batch:
+
+1. Items that succeeded are kept and land in the snapshot.
+2. The delta link advances, so the next run picks up new changes instead of replaying the whole backlog.
+3. Each failure is written into the drive's delta cursor as a `failed_items` record: item id, name, reason, attempt count, and when it first failed.
+4. The run is reported **UNHEALTHY** (non-zero exit) for as long as any failure is outstanding.
+
+The record is what makes advancing safe. Graph delta only re-presents items that *changed*, so a failure that was merely logged would be a file that is silently never backed up again. Every run therefore re-fetches its outstanding failures by item ID **before** processing new delta changes:
+
+- the item downloads → the record is cleared, and it appears in that run's snapshot;
+- the item no longer exists (Graph 404) → the record is dropped silently; there is nothing left to back up;
+- it fails again → the attempt count increments and the original `first_failed_at` is preserved.
+
+After **5 attempts** an item stops being re-fetched but keeps being reported on every run, so a permanently broken file costs one line of output instead of a download attempt on every backup forever.
+
+```
+[!] Not backed up: Osakasluettelo.xlsx (01STBDHIPIY7N3OWY...) -- file content could not be
+    downloaded; will retry (attempt 2 of 5), first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+Once the underlying problem clears, the next run picks the file up automatically:
+
+```
+[+] Snapshot sp-snap-1786435155739-462686 created
+1 changed | 0 stored | 1 dedup
+[+] Status: HEALTHY
+```
+
+::: tip Reading the signal
+`UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human -- check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the drive keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
+:::
 
 ## Snapshot Health Status
 

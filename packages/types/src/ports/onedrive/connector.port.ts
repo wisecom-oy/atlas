@@ -44,6 +44,17 @@ export interface OneDriveConnector {
     prev_delta_link?: string,
   ): Promise<OneDriveDeltaResult>;
 
+  /**
+   * Fetches one item by id, for retrying a previously failed item that delta
+   * will not re-present. Resolves undefined when the item no longer exists.
+   */
+  fetch_item_by_id(
+    tenant_id: string,
+    owner_id: string,
+    drive_id: string,
+    item_id: string,
+  ): Promise<OneDriveDeltaItem | undefined>;
+
   /** Downloads full file content for small files. */
   download_file_content(item: OneDriveDeltaItem): Promise<Buffer>;
 

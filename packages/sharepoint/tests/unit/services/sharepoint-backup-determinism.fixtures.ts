@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 import type {
   SharePointSiteConnector,
   SharePointDeltaItem,
+  SharePointDeltaCursor,
   SharePointDeltaCursorRepository,
   SharePointFileVersionIndexRepository,
   SharePointManifestRepository,
@@ -63,6 +64,7 @@ export function make_connector(
       reset_detected: false,
     }),
     download_file_content: vi.fn().mockResolvedValue(Buffer.from('data')),
+    fetch_item_by_id: vi.fn().mockResolvedValue(undefined),
     resolve_download_url: vi.fn(),
     list_file_versions: vi.fn().mockResolvedValue([]),
     download_file_version: vi.fn(),
@@ -87,9 +89,9 @@ export function make_file_indexes(): SharePointFileVersionIndexRepository {
   } as unknown as SharePointFileVersionIndexRepository;
 }
 
-export function make_cursors(): SharePointDeltaCursorRepository {
+export function make_cursors(previous?: SharePointDeltaCursor): SharePointDeltaCursorRepository {
   return {
-    load: vi.fn().mockResolvedValue(undefined),
+    load: vi.fn().mockResolvedValue(previous),
     save: vi.fn().mockResolvedValue(undefined),
   } as unknown as SharePointDeltaCursorRepository;
 }
@@ -109,11 +111,13 @@ export function make_service(
   const file_indexes = overrides.file_indexes ?? make_file_indexes();
   const cursors = overrides.cursors ?? make_cursors();
 
-  return new (SharePointBackupService as unknown as new (
-    factory: TenantContextFactory,
-    connector: SharePointSiteConnector,
-    manifests: SharePointManifestRepository,
-    file_indexes: SharePointFileVersionIndexRepository,
-    cursors: SharePointDeltaCursorRepository,
-  ) => SharePointBackupService)(factory, connector, manifests, file_indexes, cursors);
+  return new (
+    SharePointBackupService as unknown as new (
+      factory: TenantContextFactory,
+      connector: SharePointSiteConnector,
+      manifests: SharePointManifestRepository,
+      file_indexes: SharePointFileVersionIndexRepository,
+      cursors: SharePointDeltaCursorRepository,
+    ) => SharePointBackupService
+  )(factory, connector, manifests, file_indexes, cursors);
 }

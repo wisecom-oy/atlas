@@ -56,6 +56,17 @@ export interface SharePointSiteConnector {
     prev_delta_link?: string,
   ): Promise<SharePointDeltaResult>;
 
+  /**
+   * Fetches one item by id, for retrying a previously failed item that delta
+   * will not re-present. Resolves undefined when the item no longer exists.
+   */
+  fetch_item_by_id(
+    tenant_id: string,
+    site_id: string,
+    drive_id: string,
+    item_id: string,
+  ): Promise<SharePointDeltaItem | undefined>;
+
   /** Downloads full file content for small/medium files. */
   download_file_content(item: SharePointDeltaItem): Promise<Buffer>;
 

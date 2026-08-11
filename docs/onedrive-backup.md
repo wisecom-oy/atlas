@@ -25,7 +25,7 @@ New snapshot IDs are generated as `od-snap-<milliseconds>-<6-hex>` (for example 
 
 ## How It Works
 
-1. **Delta sync** -- For each drive, Atlas calls `GET /users/{owner_id}/drives/{drive_id}/root/delta` (or follows the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. If a single drive fails during a multi-drive backup, its delta link is not advanced and its entries are discarded from the snapshot manifest so the next run retries that drive cleanly. The delta cursor is saved incrementally after each successfully completed drive, reducing the replay window if the process crashes mid-backup. Only changed, moved, renamed, or deleted file items are considered for the manifest.
+1. **Delta sync** -- For each drive, Atlas calls `GET /users/{owner_id}/drives/{drive_id}/root/delta` (or follows the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the drive: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A drive that fails outright -- before any delta could be read -- still leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed drive, reducing the replay window if the process crashes mid-backup. Only changed, moved, renamed, or deleted file items are considered for the manifest.
 2. **Content-addressed storage** -- Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that owner, the blob is deduplicated (no second upload).
 3. **Zero-disk streaming** -- Files at or above **512 MiB** use `fetch_file_chunks`: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `onedrive/staging/`, then copied to the canonical `onedrive/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part (on the order of **12 MiB** per large file, not the full file size).
 4. **Version history** -- After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content.
@@ -247,6 +247,41 @@ await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
 ```
 
 See [Replication](./operations/replication.md) for the full replication architecture and disaster recovery procedures.
+
+## Failed Items and Delta Progress
+
+A file that refuses to download -- a permissions quirk, a corrupted item, IRM-protected content, a chronically 4xx-ing CDN link -- must not be able to stop the rest of the drive from being backed up. Atlas therefore **advances past per-item failures and records them**, rather than discarding the batch:
+
+1. Items that succeeded are kept and land in the snapshot.
+2. The delta link advances, so the next run picks up new changes instead of replaying the whole backlog.
+3. Each failure is written into the drive's delta cursor as a `failed_items` record: item id, name, reason, attempt count, and when it first failed.
+4. The run is reported **UNHEALTHY** (non-zero exit) for as long as any failure is outstanding.
+
+The record is what makes advancing safe. Graph delta only re-presents items that *changed*, so a failure that was merely logged would be a file that is silently never backed up again. Every run therefore re-fetches its outstanding failures by item ID **before** processing new delta changes:
+
+- the item downloads → the record is cleared, and it appears in that run's snapshot;
+- the item no longer exists (Graph 404) → the record is dropped silently; there is nothing left to back up;
+- it fails again → the attempt count increments and the original `first_failed_at` is preserved.
+
+After **5 attempts** an item stops being re-fetched but keeps being reported on every run, so a permanently broken file costs one line of output instead of a download attempt on every backup forever.
+
+```
+[!] Not backed up: Osakasluettelo.xlsx (01STBDHIPIY7N3OWY...) -- file content could not be
+    downloaded; will retry (attempt 2 of 5), first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+Once the underlying problem clears, the next run picks the file up automatically:
+
+```
+[+] Snapshot od-snap-1786435155739-462686 created
+1 changed | 0 stored | 1 dedup
+[+] Status: HEALTHY
+```
+
+::: tip Reading the signal
+`UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human -- check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the drive keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
+:::
 
 ## Snapshot Health Status
 

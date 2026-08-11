@@ -1,3 +1,5 @@
+import type { FailedItemLedger } from './failed-item';
+
 export type OneDriveChangeType =
   'created' | 'updated' | 'moved' | 'renamed' | 'moved_and_renamed' | 'deleted';
 
@@ -59,5 +61,10 @@ export interface OneDriveDeltaCursor {
   readonly previous_name_by_file_id: Record<string, string>;
   readonly previous_etag_by_file_id: Record<string, string>;
   readonly previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
+  /**
+   * Items that failed to back up, kept so a later run can retry them: delta
+   * will not re-present an unchanged item once the link has advanced past it.
+   */
+  readonly failed_items?: FailedItemLedger | undefined;
   readonly updated_at: string;
 }
