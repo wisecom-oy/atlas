@@ -179,7 +179,11 @@ describe('createAtlasInstance', () => {
       const result = await atlas.outlook.verify('snap-1');
 
       expect(result).toBe(verification_result);
-      expect(mock_verification.verify_snapshot_integrity).toHaveBeenCalledWith(TENANT_ID, 'snap-1');
+      expect(mock_verification.verify_snapshot_integrity).toHaveBeenCalledWith(
+        TENANT_ID,
+        'snap-1',
+        undefined,
+      );
     });
   });
 

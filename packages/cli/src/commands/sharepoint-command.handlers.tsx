@@ -24,6 +24,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
+import { report_run_outcome } from '@/command-run-outcome';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -127,15 +128,14 @@ export async function execute_sharepoint_backup(
     await report_site_backup(result);
   }
 
+  // Per-site reporting already listed the errors and set the partial-run exit
+  // code; all that is left is the verdict over the whole site tree.
   if (results.every((r) => r.summary.healthy)) {
     logger.success('Status: HEALTHY');
     return;
   }
 
   logger.error('Status: UNHEALTHY');
-  const errors = results.flatMap((r) => r.summary.errors);
-  await render_static_view(<ErrorList errors={errors} max={errors.length} />);
-  process.exitCode = 1;
 }
 
 /** Renders the per-site section of a backup run. */
@@ -173,9 +173,10 @@ async function report_site_backup(result: SharePointBackupResult): Promise<void>
     );
   }
 
-  for (const w of result.summary.warnings) {
-    logger.warn(w);
-  }
+  // Warnings, errors, and the partial-run exit code go through the shared
+  // reporter so every site's failures are attributed to that site. The overall
+  // HEALTHY/UNHEALTHY verdict is the caller's, once every site has reported.
+  report_run_outcome({ errors: result.summary.errors, warnings: result.summary.warnings }, 'file');
 }
 
 export async function execute_sharepoint_restore(

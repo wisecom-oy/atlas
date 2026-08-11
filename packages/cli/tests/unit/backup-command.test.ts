@@ -20,12 +20,25 @@ vi.mock('@/adapters/tenant-backup-operation.adapter', () => ({
 
 function make_tenant_result(failed: number): Record<string, unknown> {
   return {
-    outcomes: [],
+    outcomes: failed > 0 ? [{ owner_id: 'broken@t.com', error: 'Graph 503' }] : [],
     total_mailboxes: 2,
     succeeded: 2 - failed,
     failed,
     interrupted: false,
     elapsed_ms: 100,
+  };
+}
+
+function make_sync_result(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    snapshot: { id: 'snap-1' },
+    manifest: { total_objects: 1, total_size_bytes: 10 },
+    summary: {
+      folder_errors: [],
+      warnings: [],
+      interrupted: false,
+      ...overrides,
+    },
   };
 }
 
@@ -45,10 +58,7 @@ describe('outlook backup command immutability options', () => {
     program = new Command();
     register_outlook_command(program, () => container);
     mock_run_backup_with_cli_adapter.mockReset();
-    mock_run_backup_with_cli_adapter.mockResolvedValue({
-      snapshot: { id: 'snap-1' },
-      manifest: { total_objects: 1, total_size_bytes: 10 },
-    });
+    mock_run_backup_with_cli_adapter.mockResolvedValue(make_sync_result());
   });
 
   it('resolves retention-days into retain_until and maps governance mode', async () => {
@@ -115,12 +125,12 @@ describe('outlook backup command exit code for tenant runs', () => {
     process.exitCode = exit_code_before;
   });
 
-  it('sets a failing exit code when any mailbox backup failed', async () => {
+  it('exits 2 (partial) and names the mailbox when any mailbox backup failed (issue #32)', async () => {
     mock_run_tenant_backup_with_cli_adapter.mockResolvedValue(make_tenant_result(1));
 
     await program.parseAsync(['outlook', 'backup'], { from: 'user' });
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(2);
   });
 
   it('keeps a clean exit code when all mailbox backups succeed', async () => {
@@ -143,5 +153,53 @@ describe('outlook backup command exit code for tenant runs', () => {
     expect(tenant_options.object_lock_request).toEqual({ mode: 'COMPLIANCE', retention_days: 30 });
     expect(tenant_options.object_lock_policy.mode).toBe('COMPLIANCE');
     expect(tenant_options.object_lock_policy.retain_until).toBeDefined();
+  });
+});
+
+describe('outlook backup single-mailbox exit code (issue #32)', () => {
+  let container: Container;
+  let program: Command;
+  let exit_code_before: string | number | undefined;
+
+  beforeEach(() => {
+    container = new Container();
+    container.bind(BACKUP_USE_CASE_TOKEN).toConstantValue({ sync_mailbox: vi.fn() });
+    container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-from-config' });
+
+    program = new Command();
+    register_outlook_command(program, () => container);
+    mock_run_backup_with_cli_adapter.mockReset();
+    exit_code_before = process.exitCode;
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = exit_code_before;
+  });
+
+  it('exits 2 when any folder failed even though a snapshot was saved', async () => {
+    mock_run_backup_with_cli_adapter.mockResolvedValue(
+      make_sync_result({ folder_errors: ['Inbox: Graph timeout'] }),
+    );
+
+    await program.parseAsync(['outlook', 'backup', '-m', 'user@t.com'], { from: 'user' });
+
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('exits 2 when the run was interrupted', async () => {
+    mock_run_backup_with_cli_adapter.mockResolvedValue(make_sync_result({ interrupted: true }));
+
+    await program.parseAsync(['outlook', 'backup', '-m', 'user@t.com'], { from: 'user' });
+
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('keeps a clean exit code on a fully successful run', async () => {
+    mock_run_backup_with_cli_adapter.mockResolvedValue(make_sync_result());
+
+    await program.parseAsync(['outlook', 'backup', '-m', 'user@t.com'], { from: 'user' });
+
+    expect(process.exitCode).toBeUndefined();
   });
 });

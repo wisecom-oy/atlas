@@ -27,6 +27,7 @@ export interface OutlookVerifyOptions {
   snapshot: string;
   mailbox: string;
   tenant?: string;
+  fast?: boolean;
 }
 
 export interface OutlookStatusOptions {
@@ -54,7 +55,13 @@ export async function execute_outlook_verify(
   logger.info(`Verifying snapshot ${options.snapshot}...`);
 
   const verification_use_case = container.get<VerificationUseCase>(VERIFICATION_USE_CASE_TOKEN);
-  const result = await verification_use_case.verify_snapshot_integrity(tenant_id, options.snapshot);
+  const result = await verification_use_case.verify_snapshot_integrity(
+    tenant_id,
+    options.snapshot,
+    {
+      fast: options.fast ?? false,
+    },
+  );
   report_verification_result(result);
 }
 
@@ -125,14 +132,27 @@ function resolve_tenant_id(container: Container, options: { tenant?: string }): 
 }
 
 function report_verification_result(result: VerificationResult): void {
-  if (result.failed.length === 0) {
+  logger.info(`Verified merged state across ${result.manifests_in_chain} manifest(s) in the chain`);
+
+  for (const id of result.unverifiable) {
+    logger.warn(`  unverifiable (no stored blob): ${id}`);
+  }
+
+  if (result.failed.length === 0 && result.unverifiable.length === 0) {
     logger.success(`All ${result.total_checked} objects passed integrity check`);
     return;
   }
 
-  logger.error(`${result.failed.length} of ${result.total_checked} objects failed verification`);
-  for (const id of result.failed) {
-    logger.error(`  - ${id}`);
+  if (result.failed.length > 0) {
+    logger.error(`${result.failed.length} of ${result.total_checked} objects failed verification`);
+    for (const id of result.failed) {
+      logger.error(`  - ${id}`);
+    }
+  }
+  if (result.unverifiable.length > 0) {
+    logger.error(
+      `${result.unverifiable.length} object(s) have no stored blob and cannot be verified`,
+    );
   }
   process.exitCode = 1;
 }

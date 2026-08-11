@@ -9,6 +9,7 @@ import { run_backup_with_cli_adapter } from '@/adapters/backup-operation.adapter
 import { build_object_lock_policy, build_object_lock_request } from '@/command-object-lock';
 import { run_tenant_backup_with_cli_adapter } from '@/adapters/tenant-backup-operation.adapter';
 import { format_bytes } from '@/command-formatters';
+import { report_run_outcome } from '@/command-run-outcome';
 import { logger } from '@wisecom/atlas-core';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -90,6 +91,14 @@ async function backup_single_mailbox(
       `${result.manifest.total_objects} objects, ` +
       format_bytes(result.manifest.total_size_bytes),
   );
+  report_run_outcome(
+    {
+      errors: result.summary.folder_errors,
+      warnings: result.summary.warnings,
+      interrupted: result.summary.interrupted,
+    },
+    'folder',
+  );
 }
 
 /** Runs full-tenant backup via the orchestrator with CLI dashboard. */
@@ -112,8 +121,19 @@ async function backup_all_mailboxes(
     object_lock_policy: build_object_lock_policy(options),
   });
 
-  if (result.failed > 0) {
-    logger.error(`Tenant backup finished with ${result.failed} failed mailbox(es)`);
-    process.exitCode = 1;
-  }
+  const mailbox_errors = result.outcomes
+    .filter((o) => o.error !== undefined)
+    .map((o) => `${o.owner_id}: ${o.error}`);
+  report_run_outcome(
+    {
+      // Outcomes can be truncated on hard stops; the failed counter is authoritative.
+      errors:
+        result.failed > 0 && mailbox_errors.length === 0
+          ? [`${result.failed} mailbox(es) failed`]
+          : mailbox_errors,
+      warnings: [],
+      interrupted: result.interrupted,
+    },
+    'mailbox',
+  );
 }

@@ -17,6 +17,19 @@ const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 
+export interface GraphRetryOptions {
+  /**
+   * Per-attempt timeout. The default 60s bounds a single Graph request --
+   * NEVER wrap a multi-page enumeration in one with_graph_retry call: the
+   * timeout races the whole loop, restarts it from page 1 on expiry, and the
+   * losing arm keeps consuming Graph quota (issue #33). Retry per page so the
+   * paginator resumes from @odata.nextLink. Large single-object transfers
+   * (attachment $value, file content) should pass a bigger window -- corso
+   * converged on 1h default / 48h for large files against production tenants.
+   */
+  readonly timeout_ms?: number;
+}
+
 /**
  * Detects Graph errors that indicate an invalid/expired delta token.
  * Matches Corso's pattern: syncStateNotFound, resyncRequired, syncStateInvalid.
@@ -128,10 +141,14 @@ export function is_retryable_error(err: unknown): boolean {
  * This function is designed to be reusable across backup, restore, save, and
  * any other operation that communicates over the network.
  */
-export async function with_graph_retry<T>(fn: () => Promise<T>): Promise<T> {
+export async function with_graph_retry<T>(
+  fn: () => Promise<T>,
+  options: GraphRetryOptions = {},
+): Promise<T> {
+  const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await race_timeout(fn(), REQUEST_TIMEOUT_MS);
+      return await race_timeout(fn(), timeout_ms);
     } catch (err) {
       if (!is_retryable_error(err) || attempt === MAX_RETRIES) throw err;
 
@@ -159,8 +176,7 @@ function extract_retry_after(err: unknown): number | undefined {
     graph_err.headers as Record<string, string> | undefined,
     graph_err.responseHeaders as Record<string, string> | undefined,
     (graph_err.response as Record<string, unknown> | undefined)?.headers as
-      | Record<string, string>
-      | undefined,
+      Record<string, string> | undefined,
   ];
   for (const headers of headers_sources) {
     if (!headers) continue;

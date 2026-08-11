@@ -63,4 +63,35 @@ describe('save-zip-writer', () => {
 
     expect(bytes).toBeGreaterThan(0);
   });
+
+  it('mirrors nested mail folders as nested zip directories', async () => {
+    const path = temp_path('nested');
+    created_files.push(path);
+
+    const { archive, promise } = create_save_archive(path);
+    const entries: string[] = [];
+    archive.on('entry', (e) => entries.push(String(e.name)));
+
+    await add_eml_to_archive(archive, 'Inbox/Projects/2026', 'a.eml', Buffer.from('A'));
+    await add_eml_to_archive(archive, 'Archive/Projects/2026', 'b.eml', Buffer.from('B'));
+    await finalize_archive(archive);
+    await promise;
+
+    expect(entries).toEqual(['Inbox/Projects/2026/a.eml', 'Archive/Projects/2026/b.eml']);
+  });
+
+  it('sanitizes each path segment without eating the separator', async () => {
+    const path = temp_path('sanitize');
+    created_files.push(path);
+
+    const { archive, promise } = create_save_archive(path);
+    const entries: string[] = [];
+    archive.on('entry', (e) => entries.push(String(e.name)));
+
+    await add_eml_to_archive(archive, 'Inbox/Q1:Q2/..', 'a.eml', Buffer.from('A'));
+    await finalize_archive(archive);
+    await promise;
+
+    expect(entries).toEqual(['Inbox/Q1_Q2/Unknown/a.eml']);
+  });
 });

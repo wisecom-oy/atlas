@@ -45,7 +45,7 @@ atlas outlook backup --full                                    # force full sync
 | Option                   | Description                                                    |
 | ------------------------ | -------------------------------------------------------------- |
 | `-m, --mailbox <id>`     | Specific mailbox to back up (backs up all licensed and shared if omitted) |
-| `-f, --folder <name...>` | Filter to specific folder(s) by display name                   |
+| `-f, --folder <name...>` | Filter to specific folder(s) by name or path (see below)       |
 | `--full`                 | Ignore saved delta links, run full enumeration                 |
 | `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)     |
 | `-C, --concurrency <n>`  | Parallel mailbox count for tenant backup (default 4)           |
@@ -54,13 +54,24 @@ atlas outlook backup --full                                    # force full sync
 | `--require-immutability` | Fail if immutability cannot be enforced                        |
 | `-t, --tenant <id>`      | Override tenant ID from config                                 |
 
+::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
+`0` -- complete: every folder/file/mailbox processed without error. `1` -- hard failure: the run aborted (auth, storage, unhandled error). `2` -- **partial**: a snapshot was saved but the run is incomplete -- per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+:::
 ::: tip Tenant-wide mode
-When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox -- one failing mailbox never aborts the others -- but the command exits non-zero when any mailbox failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
+When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox -- one failing mailbox never aborts the others -- but the command exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
 :::
 
 ::: details Page size tuning
 The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_ -- the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
 :::
+
+:::: tip Nested folders and `--folder` matching
+Atlas walks the whole mail-folder hierarchy, not just the folders directly under the mailbox root: `GET /users/{id}/mailFolders` returns only top-level folders, so every folder reporting child folders is expanded through `/childFolders` until the tree is exhausted. Folders are identified by their root-relative path (`Inbox/Projects/2026`), which is what `status`, backup progress, and `save` archive directories display.
+
+A `--folder` selector matches either a full path (`Inbox/Projects`) or a bare folder name at any depth (`Projects`), case-insensitively, and always includes everything nested beneath the match -- `--folder Inbox` backs up `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when the same folder name exists under several parents. Excluded system folders (Drafts, Outbox, recoverable items) are pruned together with their subtrees.
+
+Recursion is bounded at 300 levels, matching Exchange's own folder-depth limit; anything deeper is skipped with a warning rather than recursed forever.
+::::
 
 ::: details Immutability behavior
 `--retention-days` makes the backup immutable-requested. Atlas resolves retention to an internal UTC `retain_until`, probes bucket capability (versioning + Object Lock), and fails fast when unsupported instead of silently downgrading to mutable writes.
@@ -68,11 +79,12 @@ The `--page-size` flag controls how many messages are requested per Graph API de
 
 ### `atlas outlook verify`
 
-Verify integrity of a backup snapshot. Downloads every encrypted object from S3, decrypts it (which validates the GCM authentication tag against tampering), recomputes the SHA-256 hash of the plaintext, and compares it against the checksum stored in the manifest using constant-time comparison (`timingSafeEqual`).
+Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object -- message bodies and attachments**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
 
 ```bash
 atlas outlook verify -m user@company.com -s <snapshot-id>
 atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
+atlas outlook verify -m user@company.com -s <snapshot-id> --fast
 ```
 
 | Option                  | Description                                |
@@ -80,11 +92,14 @@ atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
 | `-m, --mailbox <email>` | Mailbox that owns the snapshot (required)  |
 | `-s, --snapshot <id>`   | Snapshot identifier to verify (required)   |
 | `-t, --tenant <id>`     | Override tenant ID from config             |
+| `--fast`                | Existence-only checks (`HeadObject` per referenced key) -- no download, decrypt, or hashing |
 
 ::: details What exactly is verified?
-`atlas outlook verify` checks **message body entries** listed in the manifest. Each message is downloaded, decrypted (GCM auth tag validates ciphertext integrity), and its plaintext SHA-256 is compared against the manifest checksum.
+Verification covers the **merged entry set of the snapshot's manifest chain**: the target delta manifest plus every older manifest of the same mailbox, deduplicated newest-first -- the same routine restore uses, so the two views cannot drift. A corrupt or missing object from an *older* backup run fails verification of every later snapshot that still references it.
 
-Attachments are **not separately verified** by this command. However, attachments are protected by GCM authentication -- any tampering will cause a decryption failure during restore or save operations. The verification scope is message bodies because those are the primary data objects tracked in manifests.
+Both message blobs and `attachments` are checked (storage key + checksum). Entries with no stored blob at all (e.g. large attachments skipped by pre-v2.1.0 backups) are reported as **unverifiable** and fail the run with a non-zero exit code -- they represent content a restore cannot reproduce.
+
+`--fast` trades depth for cost: it only confirms every referenced object exists in the bucket, which catches the most common real-world damage (lifecycle deletion, failed replication, manual cleanup) at near-zero bandwidth. Scheduled deep verification should use full mode, which also validates ciphertext integrity via the GCM authentication tag.
 :::
 
 ### `atlas outlook restore`
@@ -116,13 +131,13 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `-s, --snapshot <id>`       | Restore from a specific snapshot                              |
 | `-m, --mailbox <email>`     | Restore from all snapshots for this mailbox                   |
 | `-T, --target <email>`      | Target mailbox for cross-mailbox restore (defaults to source) |
-| `-f, --folder <name>`       | Restore only messages from this folder                        |
+| `-f, --folder <name>`       | Restore only messages from this folder or its subfolders      |
 | `--message <ref>`           | Restore a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date               |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date              |
 | `-t, --tenant <id>`         | Override tenant ID                                            |
 
-Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox.
+Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
@@ -189,7 +204,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | --------------------------- | ----------------------------------------------------------- |
 | `-s, --snapshot <id>`       | Save from a specific snapshot                               |
 | `-m, --mailbox <email>`     | Save from all snapshots for this mailbox                    |
-| `-f, --folder <name>`       | Save only messages from this folder                         |
+| `-f, --folder <name>`       | Save only messages from this folder or its subfolders       |
 | `--message <ref>`           | Save a single message by `#` index from `atlas outlook list` |
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date             |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date            |
@@ -509,7 +524,7 @@ Application permissions `Sites.Read.All` and `Files.Read.All` are required for S
 
 ## `atlas storage-check`
 
-Validate immutable backup readiness without running a backup. Reports versioning and Object Lock status.
+Validate immutable backup readiness without running a backup. Reports versioning, Object Lock status, and the bucket class: `lock-capable` (can take retention policies), `versioned-only (legacy)`, or `unversioned (legacy)` -- legacy classes mean the bucket predates v2.1.0 auto-provisioning and needs the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket-to-object-lock) before immutability can be used. Exits non-zero when the bucket is not lock-ready, so it can gate scheduled jobs.
 
 ```bash
 atlas storage-check

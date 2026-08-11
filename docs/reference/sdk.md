@@ -80,7 +80,7 @@ Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.out
 | Method | CLI equivalent | Description |
 | ------ | -------------- | ----------- |
 | `backup(mailboxId, options?)` | `atlas outlook backup -m` | Backup a single mailbox |
-| `verify(snapshotId)` | `atlas outlook verify` | Verify snapshot integrity |
+| `verify(snapshotId, options?)` | `atlas outlook verify` | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
 | `restore(snapshotId, options?)` | `atlas outlook restore -s` | Restore from a snapshot |
 | `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox |
 | `save(snapshotId, options?)` | `atlas outlook save -s` | Export snapshot as EML zip |
@@ -118,7 +118,7 @@ const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 
 | Option                 | Type      | Description                                               |
 | ---------------------- | --------- | --------------------------------------------------------- |
-| `folder_name`          | `string`  | Save only messages from this folder                       |
+| `folder_name`          | `string`  | Save only this folder and its subfolders (name or path)   |
 | `message_ref`          | `string`  | Save a single message by index or ID                      |
 | `start_date`           | `Date`    | Include snapshots on or after this date                   |
 | `end_date`             | `Date`    | Include snapshots on or before this date                  |
@@ -147,7 +147,7 @@ interface SaveResult {
 
 | Option           | Type     | Description                              |
 | ---------------- | -------- | ---------------------------------------- |
-| `folder_name`    | `string` | Restore only messages from this folder   |
+| `folder_name`    | `string` | Restore only this folder and its subfolders (name or path) |
 | `message_ref`    | `string` | Restore a single message by index or ID  |
 | `target_mailbox` | `string` | Target mailbox for cross-mailbox restore |
 | `start_date`     | `Date`   | Include snapshots on or after this date  |
