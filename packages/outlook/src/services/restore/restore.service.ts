@@ -11,10 +11,7 @@ import {
   filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import {
-  filter_manifests_by_date,
-  merge_snapshot_entries,
-} from '@/services/restore/manifest-entry-merger';
+import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
 import {
   restore_single_message,
   backfill_missing_folder_ids,

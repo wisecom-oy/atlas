@@ -80,7 +80,7 @@ Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.out
 | Method | CLI equivalent | Description |
 | ------ | -------------- | ----------- |
 | `backup(mailboxId, options?)` | `atlas outlook backup -m` | Backup a single mailbox |
-| `verify(snapshotId)` | `atlas outlook verify` | Verify snapshot integrity |
+| `verify(snapshotId, options?)` | `atlas outlook verify` | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
 | `restore(snapshotId, options?)` | `atlas outlook restore -s` | Restore from a snapshot |
 | `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox |
 | `save(snapshotId, options?)` | `atlas outlook save -s` | Export snapshot as EML zip |
