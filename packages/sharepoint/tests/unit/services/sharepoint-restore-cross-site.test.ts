@@ -166,6 +166,33 @@ describe('SharePointRestoreService cross-site routing', () => {
     expect(result.errors[0]).toContain('Tiedostot');
   });
 
+  it('reports an unresolvable library once, not once per skipped file', async () => {
+    vi.mocked(connector.list_document_libraries).mockResolvedValue([
+      { drive_id: 'target-docs', drive_name: 'Documents' },
+      { drive_id: 'target-archive', drive_name: 'Archive' },
+    ]);
+    vi.mocked(manifests.find_by_snapshot).mockResolvedValue({
+      snapshot_id: 'sp-snap-1',
+      site_id: SOURCE_SITE,
+      created_at: new Date('2026-03-15T10:00:00Z'),
+      total_files: 3,
+      entries: [
+        make_entry({ file_id: 'a', file_name: 'a.docx' }),
+        make_entry({ file_id: 'b', file_name: 'b.docx' }),
+        make_entry({ file_id: 'c', file_name: 'c.docx' }),
+      ],
+    } as never);
+
+    const result = await service.restore_sharepoint('tenant', SOURCE_SITE, {
+      snapshot_id: 'sp-snap-1',
+      target_site_id: TARGET_SITE,
+    });
+
+    // Every file is still counted, but the operator reads one explanation.
+    expect(result.files_skipped).toBe(3);
+    expect(result.errors).toHaveLength(1);
+  });
+
   it('fails the run when the target site has no document libraries', async () => {
     vi.mocked(connector.list_document_libraries).mockResolvedValue([]);
 
@@ -177,6 +204,59 @@ describe('SharePointRestoreService cross-site routing', () => {
     ).rejects.toThrow(/no document libraries/i);
 
     expect(connector.upload_small_file).not.toHaveBeenCalled();
+  });
+
+  it("refuses to fold several source libraries into the target's only library", async () => {
+    vi.mocked(connector.list_document_libraries).mockResolvedValue([
+      { drive_id: 'target-docs', drive_name: 'Documents' },
+    ]);
+    vi.mocked(manifests.find_by_snapshot).mockResolvedValue({
+      snapshot_id: 'sp-snap-1',
+      site_id: SOURCE_SITE,
+      created_at: new Date('2026-03-15T10:00:00Z'),
+      total_files: 2,
+      // Same drive-relative path in two libraries: merging them would make the
+      // second file overwrite the first under --conflict replace.
+      entries: [
+        make_entry({ file_id: 'a', drive_id: 'source-docs', library_name: 'Documents' }),
+        make_entry({ file_id: 'b', drive_id: 'source-policies', library_name: 'Policies' }),
+      ],
+    } as never);
+
+    const result = await service.restore_sharepoint('tenant', SOURCE_SITE, {
+      snapshot_id: 'sp-snap-1',
+      target_site_id: TARGET_SITE,
+      conflict_behavior: 'replace',
+    });
+
+    // "Documents" still matches by name; "Policies" has nowhere to go and is refused.
+    expect(vi.mocked(connector.upload_small_file).mock.calls.map((c) => c[2])).toEqual([
+      'target-docs',
+    ]);
+    expect(result.files_skipped).toBe(1);
+    expect(result.errors.join(' ')).toContain('Policies');
+  });
+
+  it('reports an error when a file fails verification, so the run cannot exit 0', async () => {
+    vi.mocked(connector.list_document_libraries).mockResolvedValue([
+      { drive_id: 'target-drive', drive_name: 'Documents' },
+    ]);
+    vi.mocked(manifests.find_by_snapshot).mockResolvedValue({
+      snapshot_id: 'sp-snap-1',
+      site_id: SOURCE_SITE,
+      created_at: new Date('2026-03-15T10:00:00Z'),
+      total_files: 1,
+      entries: [make_entry({ checksum: 'a'.repeat(64) })],
+    } as never);
+
+    const result = await service.restore_sharepoint('tenant', SOURCE_SITE, {
+      snapshot_id: 'sp-snap-1',
+      target_site_id: TARGET_SITE,
+    });
+
+    expect(connector.upload_small_file).not.toHaveBeenCalled();
+    expect(result.files_restored).toBe(0);
+    expect(result.errors).toHaveLength(1);
   });
 
   it('restores in place using the recorded drive when no target site is given', async () => {

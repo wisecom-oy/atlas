@@ -238,25 +238,29 @@ therefore has to pick a library belonging to the target site, which Atlas does
 per entry:
 
 1. **Same library name.** The target library whose name matches the one the file
-   was backed up from (case-insensitive). This keeps a multi-library site's
-   structure intact when the names line up on both ends.
-2. **The only library.** If the target site has exactly one document library, it
-   receives everything. Library names are localised -- a Finnish tenant's default
-   library is `Tiedostot`, an English one's is `Documents` -- so a single-library
-   target must not be decided by name.
-3. **Neither.** If several libraries exist and none matches, Atlas refuses the
-   file, names the candidates, and the run exits non-zero. It never guesses which
-   production library should receive the data, and never falls back to the
-   library the file came from.
+   was backed up from -- compared case-insensitively, in Unicode NFC, ignoring
+   surrounding whitespace. This keeps a multi-library site's structure intact when
+   the names line up on both ends. If *two* target libraries share that name the
+   choice is ambiguous, so Atlas refuses rather than pick one.
+2. **The only library**, and only when the restore comes from a single source
+   library. Library names are localised -- a Finnish tenant's default library is
+   `Tiedostot`, an English one's is `Documents` -- so a single-library target must
+   not be decided by name. This rule deliberately does *not* apply when the
+   snapshot spans several libraries: folding them into one destination merges
+   their trees, and two files sharing a path would overwrite each other under
+   `--conflict replace`. Restore those one library at a time with `--file-filter`.
+3. **Neither.** Atlas refuses the file, names the candidate libraries, and the run
+   exits non-zero. It never guesses which production library should receive the
+   data, and never falls back to the library the file came from.
 
 If the target site has no document libraries at all, the restore fails before
 uploading anything.
 
 ::: warning Snapshots taken before 2.1.0-beta
 Library names were not recorded in older manifests, so rule 1 cannot apply to
-them. Restoring such a snapshot into a target site with several libraries fails
-by rule 3 rather than choosing one. Take a fresh backup, or restore into a
-single-library site.
+them. Such a snapshot restores cross-site only when it came from one library and
+the target has one library; anything else fails by rule 3 rather than choosing a
+destination. Take a fresh backup to restore by name.
 :::
 
 ### `atlas sharepoint save`

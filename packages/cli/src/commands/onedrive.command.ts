@@ -1,3 +1,4 @@
+import { Option } from 'commander';
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import {
@@ -55,9 +56,12 @@ function register_onedrive_restore(group: Command, get_container: ContainerFacto
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
     .option('--target-owner <id>', 'target user email or Entra object ID (defaults to owner)')
     .option('--file-filter <paths...>', 'only restore specific files (by ID or path)')
-    .option(
-      '-c, --conflict <mode>',
-      'file conflict policy: replace, rename, or fail (default: rename)',
+    .addOption(
+      new Option('-c, --conflict <mode>', 'file conflict policy (default: rename)').choices([
+        'replace',
+        'rename',
+        'fail',
+      ]),
     )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: OneDriveRestoreCommandOptions) =>

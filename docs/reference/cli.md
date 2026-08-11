@@ -491,9 +491,10 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 | `-t, --tenant <id>` | Override tenant ID from config |
 
 With `--target-site`, each file goes to the target library whose name matches the
-one it was backed up from, or to the target's only library when it has just one.
-If several libraries exist and none matches, the file is refused and the command
-exits non-zero -- Atlas never writes into the source library instead. See
+one it was backed up from, or -- when the restore comes from a single library --
+to the target's only library. Anything ambiguous is refused: the file is skipped,
+the candidate libraries are listed, and the command exits non-zero. Atlas never
+writes into the source library instead. See
 [Where a cross-site restore lands](../sharepoint-backup.md#where-a-cross-site-restore-lands).
 
 **`atlas sharepoint save`**

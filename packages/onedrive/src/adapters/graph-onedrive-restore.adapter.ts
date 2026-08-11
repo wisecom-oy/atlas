@@ -135,7 +135,8 @@ export async function graph_onedrive_upload_small_file(
 ): Promise<void> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
   const encoded_name = encodeURIComponent(file_name);
-  const conflict_qs = `@microsoft.graph.conflictBehavior=${conflict_behavior}`;
+  // Encoded: an unescaped value could append a second conflictBehavior to the query.
+  const conflict_qs = `@microsoft.graph.conflictBehavior=${encodeURIComponent(conflict_behavior)}`;
   await with_graph_retry(
     () =>
       client

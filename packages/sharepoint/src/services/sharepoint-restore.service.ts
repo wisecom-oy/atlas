@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type {
+  SharePointDocumentLibrary,
   SharePointSiteConnector,
   SharePointManifestEntry,
   SharePointManifestRepository,
@@ -25,6 +26,15 @@ import {
 } from '@/services/sharepoint-restore-target';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
+
+/** Per-run state deciding which library each entry is written to. */
+interface EntryRouting {
+  readonly cross_site: boolean;
+  readonly target_libraries: readonly SharePointDocumentLibrary[];
+  readonly single_source_library: boolean;
+  /** Memoised destination per source library id; undefined means unresolvable. */
+  readonly destination_by_source_drive: Map<string, string | undefined>;
+}
 
 @injectable()
 export class SharePointRestoreService implements SharePointRestoreUseCase {
@@ -54,11 +64,11 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
 
       // Entry drive ids belong to the source site, so a cross-site restore has to
       // re-point every upload at a library of the target site.
-      const target_libraries =
-        target_site === site_id
-          ? []
-          : await this._connector.list_document_libraries(tenant_id, target_site);
-      if (target_site !== site_id && target_libraries.length === 0) {
+      const cross_site = target_site !== site_id;
+      const target_libraries = cross_site
+        ? await this._connector.list_document_libraries(tenant_id, target_site)
+        : [];
+      if (cross_site && target_libraries.length === 0) {
         throw new Error(
           `Target site ${target_site} has no document libraries to restore into; ` +
             `refusing to fall back to the source site`,
@@ -72,41 +82,38 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       const errors: string[] = [];
 
       const restorable = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
+      const routing: EntryRouting = {
+        cross_site,
+        target_libraries,
+        // Resolved once per source library rather than per file: the answer is the
+        // same for every entry of a library, and an unresolvable one should be
+        // reported once instead of once per skipped file.
+        destination_by_source_drive: new Map<string, string | undefined>(),
+        single_source_library: new Set(restorable.map((e) => e.drive_id)).size === 1,
+      };
 
       for (const entry of restorable) {
-        const destination =
-          target_site === site_id
-            ? { drive_id: entry.drive_id, drive_name: entry.library_name ?? '' }
-            : resolve_destination_library(entry.library_name, target_libraries);
-
-        if (!destination) {
-          errors.push(
-            describe_unresolved_destination(entry.file_name, entry.library_name, target_libraries),
-          );
+        const destination_drive_id = this.resolve_entry_destination(entry, routing, errors);
+        if (!destination_drive_id) {
           files_skipped++;
           continue;
         }
 
-        await this.restore_single_entry(
+        const outcome = await this.restore_single_entry(
           tenant_id,
           target_site,
-          destination.drive_id,
+          destination_drive_id,
           conflict,
           ctx,
           entry,
           folder_ids,
-          () => {
-            files_restored++;
-          },
-          () => {
-            files_skipped++;
-          },
           errors,
         );
+        if (outcome === 'restored') files_restored++;
+        else files_skipped++;
       }
 
-      const unique_drive_folder_keys = new Set([...folder_ids.keys()].map((k) => k));
-      const folders_created = Math.max(0, unique_drive_folder_keys.size);
+      const folders_created = folder_ids.size;
 
       return {
         snapshot_id: options.snapshot_id,
@@ -120,6 +127,47 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     }
   }
 
+  /**
+   * Destination drive for one entry, or undefined when it cannot be placed.
+   * Resolution is memoised per source library, so an unresolvable library is
+   * reported once rather than once per file it holds.
+   */
+  private resolve_entry_destination(
+    entry: SharePointManifestEntry,
+    routing: EntryRouting,
+    errors: string[],
+  ): string | undefined {
+    if (!routing.cross_site) {
+      if (!entry.drive_id) {
+        errors.push(`${entry.file_name}: manifest entry records no library; skipped`);
+      }
+      return entry.drive_id;
+    }
+
+    const { destination_by_source_drive, target_libraries, single_source_library } = routing;
+    if (destination_by_source_drive.has(entry.drive_id)) {
+      return destination_by_source_drive.get(entry.drive_id);
+    }
+
+    const destination = resolve_destination_library(
+      entry.library_name,
+      target_libraries,
+      single_source_library,
+    )?.drive_id;
+    destination_by_source_drive.set(entry.drive_id, destination);
+    if (!destination) {
+      errors.push(
+        describe_unresolved_destination(
+          entry.library_name,
+          target_libraries,
+          single_source_library,
+        ),
+      );
+    }
+    return destination;
+  }
+
+  /** Restores one entry, reporting whether it landed or was skipped. */
   private async restore_single_entry(
     tenant_id: string,
     target_site: string,
@@ -128,10 +176,8 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     ctx: TenantContext,
     entry: SharePointManifestEntry,
     folder_ids: Map<string, string>,
-    on_restored: () => void,
-    on_skipped: () => void,
     errors: string[],
-  ): Promise<void> {
+  ): Promise<'restored' | 'skipped'> {
     try {
       const parent_id = await this.ensure_folder_path(
         tenant_id,
@@ -145,14 +191,15 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         errors.push(
           `Could not create folder path: ${entry.parent_path} in drive ${destination_drive_id}`,
         );
-        on_skipped();
-        return;
+        return 'skipped';
       }
 
       const content = await download_and_decrypt(ctx, entry);
       if (!content) {
-        on_skipped();
-        return;
+        // The specific cause is already logged; recording it here is what makes a
+        // restore that verified nothing exit non-zero instead of reporting success.
+        errors.push(`${entry.file_name}: content unavailable or failed verification; skipped`);
+        return 'skipped';
       }
 
       if (content.length <= SMALL_FILE_LIMIT) {
@@ -177,22 +224,18 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         );
       }
 
-      on_restored();
       logger.info(
         `Restored: ${entry.parent_path}/${entry.file_name} (drive: ${destination_drive_id})`,
       );
+      return 'restored';
     } catch (err) {
-      if (err instanceof SharePointDecryptAuthError) {
-        const msg = `${entry.file_name}: ${err.message}`;
-        errors.push(msg);
-        on_skipped();
-        logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-        return;
-      }
-      const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
+      const msg =
+        err instanceof SharePointDecryptAuthError
+          ? `${entry.file_name}: ${err.message}`
+          : `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
       errors.push(msg);
-      on_skipped();
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
+      return 'skipped';
     }
   }
 
@@ -204,7 +247,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
     return entries.filter(
       (e) =>
-        filter_set.has(e.file_id) ||
+        filter_set.has(e.file_id.toLowerCase()) ||
         filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
     );
   }
