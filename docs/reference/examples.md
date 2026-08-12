@@ -19,11 +19,7 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: process.env.ATLAS_ENCRYPTION_PASSPHRASE!,
 });
 
-const mailboxes = [
-  'ceo@company.com',
-  'finance@company.com',
-  'legal@company.com',
-];
+const mailboxes = ['ceo@company.com', 'finance@company.com', 'legal@company.com'];
 
 for (const mailbox of mailboxes) {
   const status = await atlas.outlook.checkMailboxStatus(mailbox);
@@ -41,8 +37,8 @@ for (const mailbox of mailboxes) {
 
   console.log(
     `[done] ${mailbox} — snapshot ${result.snapshot.id}, ` +
-    `${result.summary.stored} stored, ${result.summary.deduplicated} deduped, ` +
-    `${result.summary.attachments_stored} attachments (${result.summary.elapsed_ms}ms)`,
+      `${result.summary.stored} stored, ${result.summary.deduplicated} deduped, ` +
+      `${result.summary.attachments_stored} attachments (${result.summary.elapsed_ms}ms)`,
   );
 }
 ```
@@ -93,14 +89,14 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
       if (result.summary.interrupted) {
         console.warn(
           `[warn] ${mailbox} — backup was interrupted, ` +
-          `${result.summary.completed_folder_count}/${result.summary.total_folder_count} folders completed`,
+            `${result.summary.completed_folder_count}/${result.summary.total_folder_count} folders completed`,
         );
       }
 
       if (result.summary.folder_errors.length > 0) {
         console.warn(
           `[warn] ${mailbox} — ${result.summary.folder_errors.length} folder error(s): ` +
-          result.summary.folder_errors.join(', '),
+            result.summary.folder_errors.join(', '),
         );
       }
     } catch (err) {
@@ -127,11 +123,7 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: process.env.ATLAS_ENCRYPTION_PASSPHRASE!,
 });
 
-const mailboxes = [
-  'alice@company.com',
-  'bob@company.com',
-  'carol@company.com',
-];
+const mailboxes = ['alice@company.com', 'bob@company.com', 'carol@company.com'];
 
 const { failed } = await run_nightly_backup(atlas, mailboxes);
 process.exit(failed.length > 0 ? 1 : 0);
@@ -175,7 +167,12 @@ for (const mailbox of mailboxes) {
     // concurrently while the next mailbox backup runs.
     replications.push(atlas.replicateSnapshot(backup.snapshot.id, [offsite]));
 
-    results.push({ mailbox, snapshot_id: backup.snapshot.id, stored: backup.summary.stored, ok: true });
+    results.push({
+      mailbox,
+      snapshot_id: backup.snapshot.id,
+      stored: backup.summary.stored,
+      ok: true,
+    });
   } catch (err) {
     results.push({ mailbox, ok: false, error: (err as Error).message });
   }
@@ -208,13 +205,9 @@ async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) 
     const result = await atlas.outlook.verify(latest.snapshot_id);
 
     if (result.failed.length === 0) {
-      console.log(
-        `[pass] ${mailbox} — ${result.passed}/${result.total_checked} objects verified`,
-      );
+      console.log(`[pass] ${mailbox} — ${result.passed}/${result.total_checked} objects verified`);
     } else {
-      console.error(
-        `[FAIL] ${mailbox} — ${result.failed.length} integrity failure(s):`,
-      );
+      console.error(`[FAIL] ${mailbox} — ${result.failed.length} integrity failure(s):`);
       for (const failure of result.failed) {
         console.error(`  - ${failure}`);
       }
@@ -238,9 +231,9 @@ async function collect_storage_metrics(atlas: AtlasInstance) {
     total_mailboxes: stats.mailbox_count,
     total_snapshots: stats.snapshot_count,
     total_messages: stats.total_messages,
-    total_size_gb: (stats.total_size_bytes / (1024 ** 3)).toFixed(2),
+    total_size_gb: (stats.total_size_bytes / 1024 ** 3).toFixed(2),
     total_attachments: stats.attachment_count,
-    attachment_size_gb: (stats.attachment_size_bytes / (1024 ** 3)).toFixed(2),
+    attachment_size_gb: (stats.attachment_size_bytes / 1024 ** 3).toFixed(2),
   };
 
   console.log(JSON.stringify(metrics, null, 2));
@@ -258,12 +251,12 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
     mailbox: stats.mailbox_id,
     snapshots: stats.snapshot_count,
     messages: stats.total_messages,
-    size_mb: (stats.total_size_bytes / (1024 ** 2)).toFixed(1),
+    size_mb: (stats.total_size_bytes / 1024 ** 2).toFixed(1),
     attachments: stats.attachment_count,
     folders: stats.folders.map((f) => ({
       id: f.folder_id,
       messages: f.message_count,
-      size_mb: (f.total_size_bytes / (1024 ** 2)).toFixed(1),
+      size_mb: (f.total_size_bytes / 1024 ** 2).toFixed(1),
     })),
   };
 }
@@ -274,11 +267,7 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
 Export mailbox backups as `.eml` archives on a schedule -- useful for legal holds, compliance audits, or providing portable copies to departing employees.
 
 ```typescript
-async function export_mailbox_archive(
-  atlas: AtlasInstance,
-  mailbox: string,
-  output_dir: string,
-) {
+async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, output_dir: string) {
   const timestamp = new Date().toISOString().slice(0, 10);
   const output_path = `${output_dir}/${mailbox.replace('@', '_at_')}_${timestamp}.zip`;
 
@@ -289,14 +278,12 @@ async function export_mailbox_archive(
 
   console.log(
     `[export] ${mailbox} — ${result.saved_count} messages, ` +
-    `${result.attachment_count} attachments, ` +
-    `${(result.total_bytes / (1024 ** 2)).toFixed(1)} MB → ${result.output_path}`,
+      `${result.attachment_count} attachments, ` +
+      `${(result.total_bytes / 1024 ** 2).toFixed(1)} MB → ${result.output_path}`,
   );
 
   if (result.integrity_failures.length > 0) {
-    console.warn(
-      `[warn] ${result.integrity_failures.length} integrity failure(s) during export`,
-    );
+    console.warn(`[warn] ${result.integrity_failures.length} integrity failure(s) during export`);
   }
 
   return result;
@@ -322,7 +309,7 @@ async function validate_immutable_readiness(atlas: AtlasInstance) {
   if (!check.bucket_exists || !check.versioning_enabled || !check.object_lock_enabled) {
     throw new Error(
       'Storage is not ready for immutable backups. ' +
-      'Ensure the bucket exists with versioning and Object Lock enabled.',
+        'Ensure the bucket exists with versioning and Object Lock enabled.',
     );
   }
 
@@ -385,7 +372,7 @@ Discover available mailboxes in the tenant and resolve user identities before ru
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
-const atlas = createAtlasInstance({ /* config */ });
+const atlas = createAtlasInstance({/* config */});
 
 // Discover all tenant mailboxes (licensed users + shared mailboxes)
 const mailboxes = await atlas.outlook.listAvailableMailboxes();
@@ -395,7 +382,9 @@ for (const mb of mailboxes) {
   if (mb.mailbox_purpose === 'shared') {
     console.log(`  ${mb.mail} — ${mb.display_name} (shared mailbox)`);
   } else {
-    console.log(`  ${mb.mail} — ${mb.display_name} (${mb.has_exchange_license ? 'licensed' : 'unlicensed'})`);
+    console.log(
+      `  ${mb.mail} — ${mb.display_name} (${mb.has_exchange_license ? 'licensed' : 'unlicensed'})`,
+    );
   }
 }
 
@@ -425,7 +414,9 @@ const odStatus = await atlas.onedrive.checkStatus('owner-id');
 if (odStatus.is_up_to_date) {
   console.log('[skip] OneDrive is current');
 } else {
-  console.log(`[backup] ${odStatus.total_pending_changes} pending changes across ${odStatus.total_drives} drive(s)`);
+  console.log(
+    `[backup] ${odStatus.total_pending_changes} pending changes across ${odStatus.total_drives} drive(s)`,
+  );
   await atlas.onedrive.backup('owner-id');
 }
 
@@ -435,7 +426,9 @@ const spStatus = await atlas.sharepoint.checkStatus('site-id');
 if (spStatus.is_up_to_date) {
   console.log('[skip] SharePoint site is current');
 } else {
-  console.log(`[backup] ${spStatus.total_pending_changes} pending changes across ${spStatus.total_libraries} library/libraries`);
+  console.log(
+    `[backup] ${spStatus.total_pending_changes} pending changes across ${spStatus.total_libraries} library/libraries`,
+  );
   await atlas.sharepoint.backup('site-id');
 }
 ```
@@ -493,11 +486,7 @@ async function prune_and_replicate_onedrive(
 Clean up old snapshots while keeping recent ones. Useful for environments where storage costs matter and you only need the last N snapshots per mailbox.
 
 ```typescript
-async function prune_old_snapshots(
-  atlas: AtlasInstance,
-  mailbox: string,
-  keep_count: number,
-) {
+async function prune_old_snapshots(atlas: AtlasInstance, mailbox: string, keep_count: number) {
   const snapshots = await atlas.outlook.listSnapshots(mailbox);
 
   if (snapshots.length <= keep_count) {
@@ -511,13 +500,11 @@ async function prune_old_snapshots(
     const result = await atlas.outlook.deleteSnapshot(snapshot.snapshot_id);
     console.log(
       `[prune] ${mailbox} — deleted snapshot ${snapshot.snapshot_id} ` +
-      `(${result.deleted_count} objects removed)`,
+        `(${result.deleted_count} objects removed)`,
     );
   }
 
-  console.log(
-    `[done] ${mailbox} — pruned ${to_delete.length} snapshot(s), kept ${keep_count}`,
-  );
+  console.log(`[done] ${mailbox} — pruned ${to_delete.length} snapshot(s), kept ${keep_count}`);
 }
 ```
 

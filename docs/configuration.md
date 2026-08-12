@@ -22,7 +22,6 @@ This precedence means you can set defaults in a config file, keep credentials in
 | `ATLAS_S3_REGION`             | `s3_region`             | no       | S3 region (default: `us-east-1`)               |
 | `ATLAS_ENCRYPTION_PASSPHRASE` | `encryption_passphrase` | yes      | Master passphrase for envelope encryption      |
 
-
 ## The Encrypted Secure Store (`atlas config`)
 
 Storing credentials in plaintext files or environment variables leaves them readable by any process running as your user — environment-grabbing malware routinely sweeps `~/.env`, shell profiles, and process environments. The `atlas config` command instead persists values to `~/.atlas/config.enc`, encrypted with AES-256-GCM:
@@ -108,13 +107,13 @@ The `atlas replicate` command accepts `--target-config` and the `atlas rehydrate
 }
 ```
 
-| Field          | Required | Description                                          |
-| -------------- | -------- | ---------------------------------------------------- |
-| `target_id`    | no       | Stable human-readable ID (auto-derived if omitted)   |
-| `s3_endpoint`  | yes      | S3 endpoint URL for the target                       |
-| `s3_access_key`| yes      | S3 access key for the target                         |
-| `s3_secret_key`| yes      | S3 secret key for the target                         |
-| `s3_region`    | no       | S3 region (default: `us-east-1`)                     |
+| Field           | Required | Description                                        |
+| --------------- | -------- | -------------------------------------------------- |
+| `target_id`     | no       | Stable human-readable ID (auto-derived if omitted) |
+| `s3_endpoint`   | yes      | S3 endpoint URL for the target                     |
+| `s3_access_key` | yes      | S3 access key for the target                       |
+| `s3_secret_key` | yes      | S3 secret key for the target                       |
+| `s3_region`     | no       | S3 region (default: `us-east-1`)                   |
 
 The encryption passphrase is **not** included in this file. Atlas uses the shared encryption model -- the passphrase from the main configuration applies to all targets.
 

@@ -29,8 +29,8 @@ Atlas itself is lightweight, but the data it moves is not. A tenant-wide backup 
 
 ## What's Next
 
-| Topic | Description |
-| ----- | ----------- |
-| [Storage Setup](/self-hosting/storage) | Configure MinIO on Docker, bind mounts, RAID, and filesystem recommendations. |
-| [Scheduling & Bandwidth](/self-hosting/scheduling) | Understand bandwidth requirements and automate backups with cron or systemd. |
-| [Replication Setup](/self-hosting/replication) | Set up multi-location replication for a 3-2-1 backup strategy. |
+| Topic                                              | Description                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [Storage Setup](/self-hosting/storage)             | Configure MinIO on Docker, bind mounts, RAID, and filesystem recommendations. |
+| [Scheduling & Bandwidth](/self-hosting/scheduling) | Understand bandwidth requirements and automate backups with cron or systemd.  |
+| [Replication Setup](/self-hosting/replication)     | Set up multi-location replication for a 3-2-1 backup strategy.                |

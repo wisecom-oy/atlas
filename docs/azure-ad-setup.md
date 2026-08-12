@@ -6,11 +6,11 @@ Atlas authenticates with Microsoft Graph using the **OAuth2 Client Credentials f
 
 In the Azure Portal, register an application with the following **Application** permissions (not Delegated):
 
-| Permission             | Why                                                     | Required For                     |
-| ---------------------- | ------------------------------------------------------- | -------------------------------- |
-| `Mail.Read`            | Read mailbox contents via Graph API                     | Backup, list, read, save, verify |
-| `Mail.ReadWrite`       | Restore messages and create folders in target mailboxes | Restore only                     |
-| `User.Read.All`        | Enumerate users and resolve mailbox IDs                 | User discovery                   |
+| Permission             | Why                                                                                  | Required For                          |
+| ---------------------- | ------------------------------------------------------------------------------------ | ------------------------------------- |
+| `Mail.Read`            | Read mailbox contents via Graph API                                                  | Backup, list, read, save, verify      |
+| `Mail.ReadWrite`       | Restore messages and create folders in target mailboxes                              | Restore only                          |
+| `User.Read.All`        | Enumerate users and resolve mailbox IDs                                              | User discovery                        |
 | `MailboxSettings.Read` | Read mailbox metadata and folder structure; shared-mailbox detection (`userPurpose`) | Folder enumeration, mailbox discovery |
 
 ### Principle of Least Privilege

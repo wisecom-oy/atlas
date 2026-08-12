@@ -21,12 +21,12 @@ Without immutability, your backups are only as secure as your S3 credentials. Wi
 
 Atlas supports both S3 Object Lock modes. The difference is significant for operations:
 
-| Property | GOVERNANCE | COMPLIANCE |
-| --- | --- | --- |
-| Protection level | Protected against normal delete/overwrite | Protected against ALL delete/overwrite |
-| Override | Users with `s3:BypassGovernanceRetention` can override | **Nobody** can override, not even the root account |
-| Use case | Day-to-day protection with emergency escape hatch | Regulatory compliance where data must be preserved |
-| Risk | A compromised admin account can bypass it | Accidentally set a 10-year retention? You wait 10 years. |
+| Property         | GOVERNANCE                                             | COMPLIANCE                                               |
+| ---------------- | ------------------------------------------------------ | -------------------------------------------------------- |
+| Protection level | Protected against normal delete/overwrite              | Protected against ALL delete/overwrite                   |
+| Override         | Users with `s3:BypassGovernanceRetention` can override | **Nobody** can override, not even the root account       |
+| Use case         | Day-to-day protection with emergency escape hatch      | Regulatory compliance where data must be preserved       |
+| Risk             | A compromised admin account can bypass it              | Accidentally set a 10-year retention? You wait 10 years. |
 
 ::: danger COMPLIANCE Mode Is Irreversible
 Once an object is written with COMPLIANCE mode retention, it **cannot be deleted by anyone** until the retention period expires. There is no override, no support ticket, no workaround. Choose retention periods carefully. Start with GOVERNANCE mode until you understand the operational implications.
@@ -71,10 +71,10 @@ When Object Lock retention is active, delete commands will partially succeed -- 
 
 When Atlas creates a new bucket, it attempts to configure lifecycle rules compatible with both AWS S3 and MinIO:
 
-| Rule | Purpose |
-| --- | --- |
-| `AbortIncompleteMultipartUpload` (7 days) | Cleans up abandoned upload parts that waste storage |
-| `ExpiredObjectDeleteMarker` | Removes orphaned delete markers left after version-aware deletion |
+| Rule                                      | Purpose                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `AbortIncompleteMultipartUpload` (7 days) | Cleans up abandoned upload parts that waste storage               |
+| `ExpiredObjectDeleteMarker`               | Removes orphaned delete markers left after version-aware deletion |
 
 These rules are best-effort -- if the storage backend does not support lifecycle configuration, Atlas continues without them.
 

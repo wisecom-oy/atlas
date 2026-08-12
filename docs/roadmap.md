@@ -68,7 +68,7 @@ Comprehensive security audit and restore-flow hardening driven by external revie
 - **Restore-integrity verification** — post-restore folder verification integrated into the restore pipeline
 - **Dependency security patches** — Dependabot vulnerability fixes
 
-### v2.0.0 — Multi-Workload & Monorepo *(current branch)*
+### v2.0.0 — Multi-Workload & Monorepo _(current branch)_
 
 Extended Atlas beyond Outlook mailboxes to additional Microsoft 365 workloads and restructured the codebase for independent package releases.
 

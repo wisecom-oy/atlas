@@ -2,7 +2,6 @@
 
 Atlas stores backups in any S3-compatible object storage. For self-hosted deployments, MinIO running in Docker is the recommended option.
 
-
 ## Bucket Provisioning and Object Lock
 
 Atlas creates each tenant's bucket automatically on first backup (`atlas-{tenant_id}`), and since v2.1.0 creates it **lock-capable**: `CreateBucket` is issued with `ObjectLockEnabledForBucket: true`, which also enables versioning. This is deliberate front-loading -- on both AWS S3 and MinIO, Object Lock can only be enabled at bucket creation (AWS requires a support ticket to retrofit it; MinIO refuses outright). A lock-capable bucket without a retention policy behaves exactly like a normal versioned bucket, so this changes nothing until you opt into immutability with `--retention-days` on a backup command.
@@ -169,7 +168,7 @@ ATLAS_S3_ENDPOINT="https://minio.internal:9000"
 
 Each tenant bucket stores its wrapped data-encryption key at `_meta/dek.enc`. Atlas writes this object exactly once, with a create-only conditional write (`If-None-Match: *`, supported by AWS S3 and MinIO): if two processes bootstrap the same tenant concurrently, the second write fails with `412 Precondition Failed` and that process adopts the already-stored key. Overwriting a live DEK would make every object encrypted with it permanently undecryptable.
 
-As defense in depth, a bucket policy can *mandate* the create-only header on the key object, so even a buggy or outdated client cannot overwrite it (AWS S3; uses the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html)):
+As defense in depth, a bucket policy can _mandate_ the create-only header on the key object, so even a buggy or outdated client cannot overwrite it (AWS S3; uses the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html)):
 
 ```json
 {

@@ -44,29 +44,29 @@ Structured text report          (stdout)
 
 Shows the functions where CPU is actually consumed (excluding time in their callees). A function with high self-time is doing expensive work directly.
 
-| Column | Meaning |
-|--------|---------|
-| Self ms | Milliseconds spent in this function only |
-| Self % | Proportion of total profiled time |
-| Total ms | Time including all callees |
-| Function | Function name |
-| Location | File path and line number |
+| Column   | Meaning                                  |
+| -------- | ---------------------------------------- |
+| Self ms  | Milliseconds spent in this function only |
+| Self %   | Proportion of total profiled time        |
+| Total ms | Time including all callees               |
+| Function | Function name                            |
+| Location | File path and line number                |
 
 ### Domain Breakdown
 
 Aggregates all functions by their Atlas package, giving a high-level view of where compute time goes:
 
-| Domain | What it covers |
-|--------|---------------|
-| `@wisecom/atlas-core/crypto` | Key derivation (scrypt), AES-256-GCM encrypt/decrypt |
-| `@wisecom/atlas-s3` | S3 PutObject/GetObject, MD5 checksum, client operations |
-| `@wisecom/atlas-m365-graph` | Graph client factory, rate limiting, retry logic |
-| `@wisecom/atlas-outlook/backup` | Folder sync, delta processing, attachment storage |
-| `@wisecom/atlas-outlook/restore` | Message reconstruction, folder creation, uploads |
-| `node:crypto` | Native crypto primitives (called by core/crypto) |
-| `node:network` | TLS handshakes, HTTP framing, TCP |
-| `aws-sdk` | AWS SDK v3 internals |
-| `ms-graph-sdk` | Microsoft Graph client library |
+| Domain                           | What it covers                                          |
+| -------------------------------- | ------------------------------------------------------- |
+| `@wisecom/atlas-core/crypto`     | Key derivation (scrypt), AES-256-GCM encrypt/decrypt    |
+| `@wisecom/atlas-s3`              | S3 PutObject/GetObject, MD5 checksum, client operations |
+| `@wisecom/atlas-m365-graph`      | Graph client factory, rate limiting, retry logic        |
+| `@wisecom/atlas-outlook/backup`  | Folder sync, delta processing, attachment storage       |
+| `@wisecom/atlas-outlook/restore` | Message reconstruction, folder creation, uploads        |
+| `node:crypto`                    | Native crypto primitives (called by core/crypto)        |
+| `node:network`                   | TLS handshakes, HTTP framing, TCP                       |
+| `aws-sdk`                        | AWS SDK v3 internals                                    |
+| `ms-graph-sdk`                   | Microsoft Graph client library                          |
 
 ### Hot Paths
 
@@ -91,6 +91,7 @@ This generates both the `.cpuprofile` text report AND an interactive HTML flameg
 **CPU profiles only capture compute time.** Network I/O (waiting for Graph API responses, waiting for S3 uploads to acknowledge) appears as idle time and is NOT reflected in the profile. The profile answers "what is burning CPU?" not "what is the process waiting on?"
 
 For I/O-bound bottleneck analysis:
+
 - Use the `elapsed_ms` timers already present in backup/restore output
 - Compare total wall-clock time vs CPU time -- a large gap indicates I/O dominance
 - Add targeted `performance.now()` spans around suspected network operations

@@ -127,7 +127,7 @@ Only unreplicated snapshots are copied (the service diffs manifest lists).
 OneDrive per-owner replication is available through the SDK:
 
 ```typescript
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 
 // Replicate all unreplicated snapshots for a user
 await atlas.onedrive.replicateAll('owner-id', [offsite]);
@@ -175,7 +175,7 @@ The file contains S3 credentials for the target:
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
 
-const atlas = createAtlasInstance({ /* primary config */ });
+const atlas = createAtlasInstance({/* primary config */});
 
 const offsite = createStorageTarget({
   targetId: 'offsite-dr',
@@ -279,11 +279,13 @@ If primary storage fails and you need to restore from a replica:
 2. **Verify the passphrase** is the same one used when the replica was created.
 
 3. **Run full tenant rehydration:**
+
    ```bash
    atlas rehydrate --all --source-config ./offsite.json
    ```
 
 4. **Verify recovered data:**
+
    ```bash
    atlas outlook list                       # check recovered mailboxes
    atlas outlook verify -m <mailbox> -s <snapshot-id>  # verify Outlook integrity
@@ -292,11 +294,13 @@ If primary storage fails and you need to restore from a replica:
    ```
 
 5. **Run a fresh backup** to capture any changes since the last replication:
+
    ```bash
    atlas outlook backup
    atlas onedrive backup -o <owner>
    atlas sharepoint backup --site <site-url>
    ```
+
    Stale delta links are handled automatically -- Atlas falls back to full sync.
 
 6. **Re-replicate** to ensure the secondary target is current:

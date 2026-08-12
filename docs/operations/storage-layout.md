@@ -43,32 +43,32 @@ For managed service providers backing up multiple tenants, this isolation means 
 
 ### Outlook
 
-| Prefix | Contents | Security Notes |
-| --- | --- | --- |
-| `_meta/dek.enc` | Wrapped data encryption key (one per tenant) | **Most critical object** -- losing this means losing access to all tenant data |
-| `data/{mailbox}/` | Encrypted email messages, addressed by SHA-256 | Content is encrypted; S3 metadata is not |
-| `attachments/{mailbox}/` | Encrypted attachments, addressed by SHA-256 | Content is encrypted; S3 metadata is not |
-| `manifests/{mailbox}/` | Encrypted snapshot manifests (JSON) | Contains subjects, folder names, delta URLs -- all encrypted |
+| Prefix                   | Contents                                       | Security Notes                                                                 |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `_meta/dek.enc`          | Wrapped data encryption key (one per tenant)   | **Most critical object** -- losing this means losing access to all tenant data |
+| `data/{mailbox}/`        | Encrypted email messages, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                       |
+| `attachments/{mailbox}/` | Encrypted attachments, addressed by SHA-256    | Content is encrypted; S3 metadata is not                                       |
+| `manifests/{mailbox}/`   | Encrypted snapshot manifests (JSON)            | Contains subjects, folder names, delta URLs -- all encrypted                   |
 
 Each Outlook manifest records an optional `mailbox_purpose` field -- the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, ...) at backup time. This makes shared mailboxes auditable: they are typically unlicensed and therefore invisible to license-based inventories, but the manifest flag identifies them in the backup catalog. Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the `manifests/{mailbox}/` prefix stays stable across the conversion: manifests written before the conversion read `user`, later ones read `shared`, and content blobs under `data/{mailbox}/` (addressed by SHA-256) are shared across both -- message data is stored once. Manifests written before this field existed simply omit it.
 
 ### OneDrive
 
-| Prefix | Contents | Security Notes |
-| --- | --- | --- |
-| `onedrive/data/{owner_id}/` | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID |
-| `onedrive/manifests/{owner_id}/` | Encrypted snapshot manifests | Contains file paths, checksums, change types |
-| `onedrive/index/{owner_id}/files/` | Per-file version indexes | Maps file IDs to snapshot versions |
-| `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors | Required for incremental sync |
+| Prefix                                 | Contents                                   | Security Notes                                          |
+| -------------------------------------- | ------------------------------------------ | ------------------------------------------------------- |
+| `onedrive/data/{owner_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID |
+| `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types            |
+| `onedrive/index/{owner_id}/files/`     | Per-file version indexes                   | Maps file IDs to snapshot versions                      |
+| `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors                    | Required for incremental sync                           |
 
 ### SharePoint
 
-| Prefix | Contents | Security Notes |
-| --- | --- | --- |
-| `sharepoint/data/{site_id}/` | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID |
-| `sharepoint/manifests/{site_id}/` | Encrypted snapshot manifests | Contains file paths, checksums, change types |
-| `sharepoint/index/{site_id}/files/` | Per-file version indexes | Maps file IDs to snapshot versions |
-| `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors | Required for incremental sync |
+| Prefix                                  | Contents                                   | Security Notes                                |
+| --------------------------------------- | ------------------------------------------ | --------------------------------------------- |
+| `sharepoint/data/{site_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID |
+| `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types  |
+| `sharepoint/index/{site_id}/files/`     | Per-file version indexes                   | Maps file IDs to snapshot versions            |
+| `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors                    | Required for incremental sync                 |
 
 Subsites are stored exactly like any other site: a subsite is a Graph site with its own `site_id`, so `atlas sharepoint backup --include-subsites` writes one snapshot per subsite under that subsite's own `sharepoint/manifests/{site_id}/` prefix rather than folding its files into the parent site's manifest. Blobs, indexes, and delta cursors follow the same per-`site_id` split, which keeps a subsite's backup, restore, and retention independent of its parent.
 
@@ -98,11 +98,11 @@ Content-addressed storage also makes integrity verification straightforward -- d
 
 Each uploaded object includes S3 metadata headers:
 
-| Header | Value | Encrypted |
-| --- | --- | --- |
-| `x-amz-meta-x-message-id` | Microsoft Graph message ID | **No** -- visible to S3 access |
-| `x-amz-meta-x-plaintext-sha256` | SHA-256 of original plaintext | **No** -- visible to S3 access |
-| `Content-MD5` | MD5 of ciphertext (transport integrity) | N/A -- standard S3 header |
+| Header                          | Value                                   | Encrypted                      |
+| ------------------------------- | --------------------------------------- | ------------------------------ |
+| `x-amz-meta-x-message-id`       | Microsoft Graph message ID              | **No** -- visible to S3 access |
+| `x-amz-meta-x-plaintext-sha256` | SHA-256 of original plaintext           | **No** -- visible to S3 access |
+| `Content-MD5`                   | MD5 of ciphertext (transport integrity) | N/A -- standard S3 header      |
 
 ::: warning Metadata Visibility
 S3 object metadata is **not encrypted**. Anyone with S3 read access (e.g., `s3:GetObject` or `s3:ListBucket` with metadata) can see the Graph message IDs and plaintext hashes. The message **content** is encrypted, but the metadata reveals that specific messages exist and their content hashes. This is a trade-off: metadata enables deduplication checks and integrity verification without decryption, but it leaks existence information.

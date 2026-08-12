@@ -33,14 +33,14 @@ The KEK is derived using **scrypt**, a memory-hard key derivation function desig
 
 Parameters used by Atlas for **new** DEK wraps:
 
-| Parameter | Value | Purpose |
-| --- | --- | --- |
-| N (cost) | 65536 | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads) |
-| r (block size) | 8 | Memory usage multiplier |
-| p (parallelism) | 1 | Sequential derivation (no parallel lanes) |
-| Salt | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
-| Output | 32 bytes (256 bits) | AES-256 key length |
-| Minimum N on unwrap | 16384 | Blobs with weaker parameters are rejected |
+| Parameter           | Value                          | Purpose                                                                                   |
+| ------------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
+| N (cost)            | 65536                          | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads)               |
+| r (block size)      | 8                              | Memory usage multiplier                                                                   |
+| p (parallelism)     | 1                              | Sequential derivation (no parallel lanes)                                                 |
+| Salt                | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
+| Output              | 32 bytes (256 bits)            | AES-256 key length                                                                        |
+| Minimum N on unwrap | 16384                          | Blobs with weaker parameters are rejected                                                 |
 
 The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
 
@@ -76,15 +76,15 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 
 ### What Is Encrypted at Rest
 
-| Data | Encrypted | Notes |
-| --- | --- | --- |
-| Email message bodies | Yes | Stored as encrypted JSON under `data/{mailbox}/{sha256}` |
-| Attachments | Yes | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}` |
-| Manifests | Yes | Contains subjects, folder names, delta URLs, checksums |
-| OneDrive file blobs | Yes | Keys under `onedrive/data/{owner_id}/{sha256}` |
-| OneDrive manifests / indexes / delta state | Yes | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta` |
-| Wrapped DEK | Yes | `_meta/dek.enc` is encrypted with the KEK |
-| S3 object metadata | **No** | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
+| Data                                       | Encrypted | Notes                                                                      |
+| ------------------------------------------ | --------- | -------------------------------------------------------------------------- |
+| Email message bodies                       | Yes       | Stored as encrypted JSON under `data/{mailbox}/{sha256}`                   |
+| Attachments                                | Yes       | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}`           |
+| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                     |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                             |
+| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`             |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                  |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
@@ -108,11 +108,11 @@ There is **no built-in S3 object rename** between email-keyed and ID-keyed mailb
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
 
-| Layer | Mechanism | What It Catches | When |
-| --- | --- | --- | --- |
-| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs | Backup, verify, save |
-| **Transport** | `Content-MD5` header on S3 PUT | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
-| **At-rest** | AES-256-GCM authentication tag | Storage-level tampering or corruption | Every decrypt operation |
+| Layer         | Mechanism                           | What It Catches                                          | When                                 |
+| ------------- | ----------------------------------- | -------------------------------------------------------- | ------------------------------------ |
+| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs           | Backup, verify, save                 |
+| **Transport** | `Content-MD5` header on S3 PUT      | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
+| **At-rest**   | AES-256-GCM authentication tag      | Storage-level tampering or corruption                    | Every decrypt operation              |
 
 ### How Verification Works
 
@@ -128,6 +128,26 @@ Currently, `atlas outlook verify` checks **message body entries** listed in the 
 ### Content-MD5 on Uploads
 
 Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.
+
+## Erasure
+
+Deletion is a security control, not a housekeeping convenience: an erasure request answered incorrectly is a compliance failure that looks like a success.
+
+### Versions are the data
+
+Every Atlas delete removes the object **and each of its noncurrent versions**, addressing them by version id. On a bucket with versioning enabled -- mandatory for Object Lock, so present in every immutability deployment -- a `DeleteObject` call that omits the version id writes a delete marker instead of erasing anything. The object vanishes from listings, the reported count goes up, and the plaintext is still one `GetObject?versionId=` away. Delete markers themselves are swept too, but never counted as erased data, because removing one uncovers versions rather than destroying them.
+
+### A tenant purge sweeps the bucket
+
+`purge_tenant` enumerates the whole bucket rather than a list of known prefixes. Prefix lists go stale as workloads are added -- the tenant tree now holds Outlook, OneDrive, SharePoint, and the identity registry -- and a stale list erases less than the operator was told.
+
+The encrypted DEK is deleted last, and only when the sweep reports nothing left. Removing the key first would produce the worst available outcome: ciphertext that can no longer be restored and cannot be reported as erased either.
+
+### Retained versus failed
+
+A refused delete is classified as **retained** only when the backend names Object Lock as the reason -- AWS answers `AccessDenied: Access Denied because object protected by object lock`, MinIO answers `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when their retention window expires, so the operator can wait.
+
+Everything else is a **failure**: a missing `s3:DeleteObjectVersion` permission, an unreachable endpoint, a bucket policy. None of those resolve on their own. Reporting an IAM gap as "retained" would tell an operator that an erasure is on track when nothing is scheduled to happen, so the classifier errs toward failure -- a false alarm costs an investigation, a false all-clear costs the erasure.
 
 ## Replication Security
 
