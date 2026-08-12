@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -39,6 +40,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     owner_id: string,
     options: FileSaveOptions,
   ): Promise<FileSaveResult> {
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
@@ -110,7 +112,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
     return entries.filter(
       (e) =>
-        filter_set.has(e.file_id) ||
+        filter_set.has(e.file_id.toLowerCase()) ||
         filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
     );
   }

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { randomBytes } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -52,6 +53,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     owner_id: string,
     options: OneDriveBackupOptions = {},
   ): Promise<OneDriveBackupResult> {
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     if (options.object_lock_request?.retention_days) {
       // Bucket default retention: every new object version (files, versions,

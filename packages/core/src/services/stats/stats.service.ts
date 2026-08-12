@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type {
@@ -76,7 +77,7 @@ export class StatsService implements StatsUseCase {
 
   /** Loads manifests for a single mailbox and computes its statistics. */
   async get_mailbox_stats(tenant_id: string, owner_id: string): Promise<MailboxStats> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const all = await this._manifests.list_all_manifests(ctx);

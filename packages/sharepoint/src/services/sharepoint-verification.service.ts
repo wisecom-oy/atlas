@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -34,6 +35,7 @@ export class SharePointVerificationService implements SharePointVerificationUseC
     site_id: string,
     snapshot_id: string,
   ): Promise<SharePointVerificationResult> {
+    site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, snapshot_id);

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveDeletionUseCase,
@@ -21,6 +22,7 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
    * only clears it opportunistically.
    */
   async delete_owner_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
+    owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
     return delete_scopes(storage, [
       `onedrive/manifests/${owner_id}/`,
@@ -40,6 +42,7 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
     owner_id: string,
     snapshot_id: string,
   ): Promise<DeletionResult> {
+    owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
     return delete_scopes(storage, [`onedrive/manifests/${owner_id}/${snapshot_id}.json`]);
   }

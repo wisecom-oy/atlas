@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointCatalogUseCase,
@@ -30,6 +31,7 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
     tenant_id: string,
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]> {
+    site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       return await this._manifests.list_snapshots_by_site(ctx, site_id);
@@ -44,6 +46,7 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
     site_id: string,
     file_ref: string,
   ): Promise<SharePointFileVersionRecord[]> {
+    site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const file_id = await this.resolve_file_id(ctx, site_id, file_ref);

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { randomBytes } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -58,6 +59,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     site_id: string,
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult> {
+    site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     if (options.object_lock_request?.retention_days) {
       // Bucket default retention: every new object version (files, versions,

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
@@ -21,7 +22,7 @@ export class MailboxStatusService implements StatusUseCase {
 
   /** Peeks at Graph delta state to report whether a mailbox backup is current. */
   async check_mailbox_status(tenant_id: string, owner_id: string): Promise<MailboxStatusResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
 
     const ctx = await this._tenant_factory.create(tenant_id);

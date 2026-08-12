@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDeletionUseCase,
@@ -21,6 +22,7 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
    * only clears it opportunistically.
    */
   async delete_site_data(tenant_id: string, site_id: string): Promise<DeletionResult> {
+    site_id = normalize_owner_id(site_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
     return delete_scopes(storage, [
       `sharepoint/manifests/${site_id}/`,
@@ -40,6 +42,7 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
     site_id: string,
     snapshot_id: string,
   ): Promise<DeletionResult> {
+    site_id = normalize_owner_id(site_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
     return delete_scopes(storage, [`sharepoint/manifests/${site_id}/${snapshot_id}.json`]);
   }

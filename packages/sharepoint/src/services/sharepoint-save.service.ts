@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -39,6 +40,7 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     site_id: string,
     options: FileSaveOptions,
   ): Promise<FileSaveResult> {
+    site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
@@ -110,7 +112,7 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
     return entries.filter(
       (e) =>
-        filter_set.has(e.file_id) ||
+        filter_set.has(e.file_id.toLowerCase()) ||
         filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
     );
   }

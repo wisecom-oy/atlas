@@ -60,6 +60,14 @@ If `--owner` contains `@`, the CLI resolves it via `GraphUserIdentityResolver`: 
 
 Mailbox backup currently keys `data/` and `manifests/` by the mailbox identifier supplied to sync (often the primary SMTP address). OneDrive is intentionally keyed by object ID after resolution so operators should not assume the same string appears in both trees for a given person.
 
+### Identifier case
+
+Object IDs, mailbox addresses, and SharePoint site IDs are all case-insensitive to Microsoft Graph and case-sensitive to S3, so Atlas lowercases them before they become key segments. Two spellings of one identifier therefore address one tree.
+
+This matters most for deletion. Before 2.1.0-beta, `deleteOwnerData` given an uppercase object ID swept an empty prefix, reported the objects it deleted there, and left the real data untouched -- an erasure that reported success while every byte stayed retrievable. Graph returns these identifiers lowercase, so the gap only opened for callers supplying their own: an operator pasting an object ID from a portal, or an SDK embedder holding one in application state.
+
+Graph **item** IDs (`file_id`, `item_id`) are genuinely case-sensitive and are never folded. `--file-filter` accepts them exactly as a listing prints them, and compares case-insensitively so a retyped ID still matches.
+
 ## SDK Usage
 
 The SDK exposes OneDrive backup, restore, verification, deletion, status, and replication as programmatic methods on `atlas.onedrive`:

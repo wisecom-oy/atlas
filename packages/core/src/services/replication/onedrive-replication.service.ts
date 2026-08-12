@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { OneDriveManifestRepository, OneDriveSnapshotManifest } from '@wisecom/atlas-types';
@@ -45,6 +46,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     snapshot_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
@@ -78,6 +80,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     owner_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
@@ -121,6 +124,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     snapshot_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    owner_id = normalize_owner_id(owner_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
@@ -154,6 +158,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     owner_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    owner_id = normalize_owner_id(owner_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);

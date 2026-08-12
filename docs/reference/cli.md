@@ -368,6 +368,8 @@ Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDriv
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
 | `-t, --tenant <id>`        | Override tenant ID from config                                           |
 
+Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree -- earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
+
 **`atlas onedrive list-snapshots`**
 
 | Option              | Description                              |

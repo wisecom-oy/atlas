@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
@@ -55,7 +56,7 @@ export class MailboxSyncService implements BackupUseCase {
     owner_id: string,
     options: SyncOptions = {},
   ): Promise<SyncResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
