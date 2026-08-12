@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -29,7 +30,7 @@ export class CatalogService implements CatalogUseCase {
 
   /** Returns every manifest for a given mailbox owner, sorted newest-first. */
   async list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const all = await this._manifests.list_all_manifests(ctx);

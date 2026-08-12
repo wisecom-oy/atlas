@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type {
@@ -50,6 +51,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     snapshot_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    site_id = normalize_owner_id(site_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this.require_sp_manifest(source_ctx, site_id, snapshot_id);
@@ -83,6 +85,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     site_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    site_id = normalize_owner_id(site_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
@@ -126,6 +129,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     snapshot_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    site_id = normalize_owner_id(site_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
@@ -159,6 +163,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     site_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    site_id = normalize_owner_id(site_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);

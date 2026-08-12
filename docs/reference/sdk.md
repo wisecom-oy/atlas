@@ -117,6 +117,20 @@ const mailboxes = await atlas.outlook.listAvailableMailboxes();
 const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 ```
 
+### Identifier case
+
+Every method taking a mailbox address, an Entra object ID, or a SharePoint site ID lowercases it before it becomes a storage key segment, so two spellings of one identifier address one tree.
+
+The SDK is where this used to bite. Graph hands back these identifiers lowercase, so the CLI never saw the problem; an embedder holding an object ID in application state or reading one from a portal could. Two spellings meant two prefixes -- the same drive backed up twice, and worse:
+
+```typescript
+// Before 2.1.0-beta: swept an empty prefix, reported what it deleted there,
+// and left the real data behind -- a successful-looking erasure of nothing.
+await atlas.onedrive.deleteOwnerData('75A21B57-4D82-4F42-9CCC-7C231C30F78C');
+```
+
+Graph **item** IDs (`file_id`, `item_id`) are case-sensitive and never folded. `file_filter` compares them case-insensitively, so an ID copied from `listFileVersions()` matches whatever case you send it in.
+
 ## Save Options
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:

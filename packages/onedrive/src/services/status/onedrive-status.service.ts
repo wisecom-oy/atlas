@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   TenantContextFactory,
@@ -30,7 +31,7 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
 
   /** Peeks at Graph delta state to report whether a OneDrive backup is current. */
   async check_onedrive_status(tenant_id: string, owner_id: string): Promise<OneDriveStatusResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
 
     const ctx = await this._tenant_factory.create(tenant_id);
     try {

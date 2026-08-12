@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveCatalogUseCase,
@@ -30,6 +31,7 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     tenant_id: string,
     owner_id: string,
   ): Promise<OneDriveSnapshotManifest[]> {
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       return this._manifests.list_snapshots_by_owner(ctx, owner_id);
@@ -44,6 +46,7 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     owner_id: string,
     file_ref: string,
   ): Promise<OneDriveFileVersionRecord[]> {
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const file_id = await this.resolve_file_id(ctx, owner_id, file_ref);

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDeltaCursorRepository,
@@ -33,6 +34,7 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     tenant_id: string,
     site_id: string,
   ): Promise<SharePointStatusResult> {
+    site_id = normalize_owner_id(site_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const previous_cursor = await this._cursors.load(ctx, site_id);

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -33,7 +34,7 @@ export class DeletionService implements DeletionUseCase {
    * objects (harmless) rather than manifests referencing deleted objects.
    */
   async delete_mailbox_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
     return delete_scopes(storage, [
       `manifests/${owner_id}/`,

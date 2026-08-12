@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -66,6 +67,7 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
@@ -127,6 +129,7 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    owner_id = normalize_owner_id(owner_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
