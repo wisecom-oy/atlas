@@ -33,7 +33,13 @@ function expect_adapted_options(
   on_progress: unknown,
   controller: AbortController,
 ): void {
-  expect(options.on_progress).toBe(on_progress);
+  (options.on_progress as (event: object) => void)({
+    operation: 'backup',
+    workload: 'onedrive',
+    phase: 'processing',
+    processed: 1,
+  });
+  expect(on_progress).toHaveBeenCalledOnce();
   expect(options).not.toHaveProperty('onProgress');
   expect(options).not.toHaveProperty('signal');
   const should_interrupt = options.should_interrupt as () => boolean;
@@ -57,13 +63,7 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controller.signal,
     });
 
-    const options = sync_mailbox.mock.calls[0]![2];
-    expect(options.on_progress).toBe(on_progress);
-    expect(options).not.toHaveProperty('onProgress');
-    expect(options).not.toHaveProperty('signal');
-    expect(options.should_interrupt()).toBe(false);
-    controller.abort();
-    expect(options.should_interrupt()).toBe(true);
+    expect_adapted_options(sync_mailbox.mock.calls[0]![2], on_progress, controller);
   });
 
   it('adapts OneDrive backup onProgress and signal to internal hooks', async () => {
@@ -80,13 +80,7 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controller.signal,
     });
 
-    const options = backup_onedrive.mock.calls[0]![2];
-    expect(options.on_progress).toBe(on_progress);
-    expect(options).not.toHaveProperty('onProgress');
-    expect(options).not.toHaveProperty('signal');
-    expect(options.should_interrupt()).toBe(false);
-    controller.abort();
-    expect(options.should_interrupt()).toBe(true);
+    expect_adapted_options(backup_onedrive.mock.calls[0]![2], on_progress, controller);
   });
 
   it('adapts SharePoint backup onProgress and signal to internal hooks', async () => {
@@ -103,13 +97,7 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controller.signal,
     });
 
-    const options = backup_site.mock.calls[0]![2];
-    expect(options.on_progress).toBe(on_progress);
-    expect(options).not.toHaveProperty('onProgress');
-    expect(options).not.toHaveProperty('signal');
-    expect(options.should_interrupt()).toBe(false);
-    controller.abort();
-    expect(options.should_interrupt()).toBe(true);
+    expect_adapted_options(backup_site.mock.calls[0]![2], on_progress, controller);
   });
 
   it('adapts Outlook verify, restore, and save options', async () => {
@@ -225,5 +213,28 @@ describe('SDK progress and cancellation option adaptation', () => {
     );
     expect_adapted_options(restore_sharepoint.mock.calls[0]![2], callbacks[1], controllers[1]);
     expect_adapted_options(save_snapshot.mock.calls[0]![2], callbacks[2], controllers[2]);
+  });
+  it('isolates operation results from consumer progress callback errors', async () => {
+    const backup_onedrive = vi.fn(async (_tenant_id, _owner_id, options) => {
+      options.on_progress({
+        operation: 'backup',
+        workload: 'onedrive',
+        phase: 'processing',
+        processed: 1,
+      });
+      return { interrupted: false };
+    });
+    const api = create_onedrive_api(
+      TENANT_ID,
+      container_with([ONEDRIVE_BACKUP_USE_CASE_TOKEN, { backup_onedrive }]),
+    );
+
+    await expect(
+      api.backup(OWNER_ID, {
+        onProgress: () => {
+          throw new Error('consumer failed');
+        },
+      }),
+    ).resolves.toEqual({ interrupted: false });
   });
 });
