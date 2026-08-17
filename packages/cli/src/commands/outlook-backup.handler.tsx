@@ -109,6 +109,8 @@ async function backup_all_mailboxes(
 ): Promise<void> {
   const concurrency = Math.max(1, parseInt(options.concurrency ?? '4', 10) || 4);
   const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));
+  const object_lock_request = build_object_lock_request(options);
+  const object_lock_policy = build_object_lock_policy(options);
 
   logger.info(`Backing up all licensed and shared mailboxes (concurrency=${concurrency})`);
 
@@ -117,8 +119,8 @@ async function backup_all_mailboxes(
     concurrency,
     force_full: options.full ?? false,
     page_size,
-    object_lock_request: build_object_lock_request(options),
-    object_lock_policy: build_object_lock_policy(options),
+    ...(object_lock_request !== undefined && { object_lock_request }),
+    ...(object_lock_policy !== undefined && { object_lock_policy }),
   });
 
   const mailbox_errors = result.outcomes
