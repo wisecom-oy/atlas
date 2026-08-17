@@ -24,12 +24,15 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { save_entries_to_archive } from '@/services/save/save-entry-processor';
 
 @injectable()
 export class SaveService implements SaveUseCase {
-  private _interrupted = false;
-
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
@@ -41,6 +44,9 @@ export class SaveService implements SaveUseCase {
     snapshot_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    if (begin_operation_progress(options, 'save', 'outlook')) {
+      return this.finish_empty_result(snapshot_id, options);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this.load_manifest(ctx, snapshot_id);
@@ -49,7 +55,7 @@ export class SaveService implements SaveUseCase {
       const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
       if (entries.length === 0) {
         logger.warn('No entries to save');
-        return this.empty_result(snapshot_id, options.output_path ?? '');
+        return this.finish_empty_result(snapshot_id, options);
       }
 
       return this.save_batch(ctx, tenant_id, owner_id, snapshot_id, entries, options);
@@ -63,13 +69,16 @@ export class SaveService implements SaveUseCase {
     owner_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    if (begin_operation_progress(options, 'save', 'outlook')) {
+      return this.finish_empty_result('mailbox', options);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
 
       if (manifests.length === 0) {
         logger.warn('No snapshots found for this mailbox in the given date range');
-        return this.empty_result('mailbox', options.output_path ?? '');
+        return this.finish_empty_result('mailbox', options);
       }
 
       const entries = merge_snapshot_entries(manifests);
@@ -81,7 +90,7 @@ export class SaveService implements SaveUseCase {
       const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
       if (filtered.length === 0) {
         logger.warn('No entries to save after filtering');
-        return this.empty_result('mailbox', options.output_path ?? '');
+        return this.finish_empty_result('mailbox', options);
       }
 
       logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
@@ -189,6 +198,7 @@ export class SaveService implements SaveUseCase {
       groups,
       folder_map,
       dashboard,
+      options,
     );
   }
 
@@ -200,11 +210,14 @@ export class SaveService implements SaveUseCase {
     groups: Map<string, ManifestEntry[]>,
     folder_map: Map<string, string>,
     dashboard: TransferProgressReporter,
+    options: SaveOptions,
   ): Promise<SaveResult> {
-    this._interrupted = false;
+    let sigint_interrupted = false;
     const on_sigint = (): void => {
-      this._interrupted = true;
+      sigint_interrupted = true;
     };
+    const is_interrupted = (): boolean =>
+      sigint_interrupted || options.should_interrupt?.() === true;
     process.on('SIGINT', on_sigint);
 
     try {
@@ -215,19 +228,34 @@ export class SaveService implements SaveUseCase {
         groups,
         folder_map,
         dashboard,
-        () => this._interrupted,
+        is_interrupted,
+        options,
       );
 
-      if (this._interrupted) dashboard.mark_all_pending_interrupted();
+      const { processed, ...save_result } = result;
+      const interrupted = result.interrupted || is_interrupted();
+      if (interrupted) dashboard.mark_all_pending_interrupted();
       dashboard.finish();
+      emit_operation_progress(options, {
+        operation: 'save',
+        workload: 'outlook',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed,
+        total: [...groups.values()].reduce((sum, entries) => sum + entries.length, 0),
+      });
 
-      return { ...result, snapshot_id };
+      return { ...save_result, snapshot_id, interrupted };
     } finally {
       process.removeListener('SIGINT', on_sigint);
     }
   }
 
-  private empty_result(snapshot_id: string, output_path: string): SaveResult {
+  private finish_empty_result(snapshot_id: string, options: SaveOptions): SaveResult {
+    const interrupted = finish_operation_progress(options, 'save', 'outlook', 0, 0);
+    return this.empty_result(snapshot_id, options.output_path ?? '', interrupted);
+  }
+
+  private empty_result(snapshot_id: string, output_path: string, interrupted = false): SaveResult {
     return {
       snapshot_id,
       saved_count: 0,
@@ -237,6 +265,7 @@ export class SaveService implements SaveUseCase {
       output_path,
       total_bytes: 0,
       integrity_failures: [],
+      interrupted,
     };
   }
 }

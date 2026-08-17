@@ -23,6 +23,7 @@ import {
   MAILBOX_DISCOVERY_TOKEN,
 } from '@wisecom/atlas-types';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { adapt_operation_options } from '@/operation-options';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {
@@ -39,30 +40,34 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   return {
     async backup(mailbox_id, options) {
       const [result, cost_result] = await run_with_cost_tracking(() =>
-        backup.sync_mailbox(tenant_id, mailbox_id, options),
+        backup.sync_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
       );
       return { ...result, graph_cost: cost_result };
     },
     async verify(snapshot_id, options) {
-      return await verification.verify_snapshot_integrity(tenant_id, snapshot_id, options);
+      return await verification.verify_snapshot_integrity(
+        tenant_id,
+        snapshot_id,
+        adapt_operation_options(options),
+      );
     },
     async restore(snapshot_id, options) {
       const [result, cost_result] = await run_with_cost_tracking(() =>
-        restore.restore_snapshot(tenant_id, snapshot_id, options),
+        restore.restore_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
       );
       return { ...result, graph_cost: cost_result };
     },
     async restoreMailbox(mailbox_id, options) {
       const [result, cost_result] = await run_with_cost_tracking(() =>
-        restore.restore_mailbox(tenant_id, mailbox_id, options),
+        restore.restore_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
       );
       return { ...result, graph_cost: cost_result };
     },
     async save(snapshot_id, options) {
-      return await save.save_snapshot(tenant_id, snapshot_id, options);
+      return await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options));
     },
     async saveMailbox(mailbox_id, options) {
-      return await save.save_mailbox(tenant_id, mailbox_id, options);
+      return await save.save_mailbox(tenant_id, mailbox_id, adapt_operation_options(options));
     },
     async listMailboxes() {
       return await catalog.list_mailboxes(tenant_id);

@@ -76,7 +76,48 @@ await atlas.replicateSnapshot('snapshot-id', [offsite]);
 
 Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. See [SDK Examples](/reference/examples) for production-ready patterns.
 
-`OneDriveBackupOptions.create_progress` takes the same reporter-factory hook documented under [Save Options](#save-options): the CLI injects its per-drive dashboard there, and SDK callers can plug their own observer (drive totals arrive via `set_row_total` once each delta is fetched). When omitted, progress is not reported.
+## Progress and Cancellation
+
+Every Outlook, OneDrive, and SharePoint `backup`, `restore`, `save`, and `verify` method accepts two common options:
+
+```typescript
+const controller = new AbortController();
+
+const result = await atlas.outlook.backup('user@company.com', {
+  signal: controller.signal,
+  onProgress(event) {
+    console.log(event.phase, event.processed, event.total, event.current);
+    if (event.processed >= 1000) controller.abort();
+  },
+});
+
+if (result.interrupted) {
+  console.log('Stopped safely; rerun to continue from the last committed delta');
+}
+```
+
+| Option       | Type                                      | Description                                                                                     |
+| ------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.            |
+| `signal`     | `AbortSignal`                             | Requests graceful cancellation. Atlas finishes the current item, then stops at a safe boundary. |
+
+`OperationProgressEvent` is stable across workloads:
+
+```typescript
+interface OperationProgressEvent {
+  operation: 'backup' | 'restore' | 'save' | 'verify';
+  workload: 'outlook' | 'onedrive' | 'sharepoint';
+  phase: 'discovering' | 'processing' | 'finalizing' | 'completed' | 'interrupted';
+  processed: number;
+  total?: number;
+  current?: string;
+  rate?: number;
+}
+```
+
+Cancellation returns normally with `interrupted: true`; it does not throw an abort error. Restore and save results contain partial counts, and save finalizes a valid zip with the completed files. A partially processed backup does not advance that folder, drive, or library's delta cursor, so the next run safely replays it. Completed units remain committed.
+
+The callback is optional and runs inline with the operation. Keep it fast; move network writes or database updates to your own queue.
 
 ## Outlook API Reference
 
@@ -135,15 +176,14 @@ Graph **item** IDs (`file_id`, `item_id`) are case-sensitive and never folded. `
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:
 
-| Option                 | Type                                    | Description                                                                                                                                                                                                                                                |
-| ---------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `folder_name`          | `string`                                | Save only this folder and its subfolders (name or path)                                                                                                                                                                                                    |
-| `message_ref`          | `string`                                | Save a single message by index or ID                                                                                                                                                                                                                       |
-| `start_date`           | `Date`                                  | Include snapshots on or after this date                                                                                                                                                                                                                    |
-| `end_date`             | `Date`                                  | Include snapshots on or before this date                                                                                                                                                                                                                   |
-| `output_path`          | `string`                                | Output zip file path (default: `Restore-<timestamp>.zip`)                                                                                                                                                                                                  |
-| `skip_integrity_check` | `boolean`                               | Skip SHA-256 verification (default: `false`)                                                                                                                                                                                                               |
-| `create_progress`      | `(folders) => TransferProgressReporter` | Progress reporter factory invoked with the folder list before the transfer starts; each reporter callback receives per-folder counts. The CLI injects its dashboard here; SDK callers can plug their own observer. When omitted, progress is not reported. |
+| Option                 | Type      | Description                                               |
+| ---------------------- | --------- | --------------------------------------------------------- |
+| `folder_name`          | `string`  | Save only this folder and its subfolders (name or path)   |
+| `message_ref`          | `string`  | Save a single message by index or ID                      |
+| `start_date`           | `Date`    | Include snapshots on or after this date                   |
+| `end_date`             | `Date`    | Include snapshots on or before this date                  |
+| `output_path`          | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
+| `skip_integrity_check` | `boolean` | Skip SHA-256 verification (default: `false`)              |
 
 Both methods return a `SaveResult`:
 
@@ -157,6 +197,7 @@ interface SaveResult {
   output_path: string;
   total_bytes: number;
   integrity_failures: string[];
+  interrupted: boolean;
 }
 ```
 
@@ -164,14 +205,13 @@ interface SaveResult {
 
 `atlas.outlook.restore` and `atlas.outlook.restoreMailbox` accept the following options:
 
-| Option            | Type                                    | Description                                                                                          |
-| ----------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `folder_name`     | `string`                                | Restore only this folder and its subfolders (name or path)                                           |
-| `message_ref`     | `string`                                | Restore a single message by index or ID                                                              |
-| `target_mailbox`  | `string`                                | Target mailbox for cross-mailbox restore                                                             |
-| `start_date`      | `Date`                                  | Include snapshots on or after this date                                                              |
-| `end_date`        | `Date`                                  | Include snapshots on or before this date                                                             |
-| `create_progress` | `(folders) => TransferProgressReporter` | Progress reporter factory; same contract as in Save Options. When omitted, progress is not reported. |
+| Option           | Type     | Description                                                |
+| ---------------- | -------- | ---------------------------------------------------------- |
+| `folder_name`    | `string` | Restore only this folder and its subfolders (name or path) |
+| `message_ref`    | `string` | Restore a single message by index or ID                    |
+| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore                   |
+| `start_date`     | `Date`   | Include snapshots on or after this date                    |
+| `end_date`       | `Date`   | Include snapshots on or before this date                   |
 
 Both methods return a `RestoreResult`:
 
@@ -186,6 +226,7 @@ interface RestoreResult {
   verification_warnings: string[];
   restore_folder_name: string;
   graph_cost?: OperationCost; // SDK only
+  interrupted: boolean;
 }
 ```
 
@@ -458,6 +499,7 @@ For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. Y
 - Deletion types: `DeletionResult`
 - Replication types: `ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
+- Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`
 
 **Graph cost types:**

@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -25,6 +30,7 @@ import {
   stream_decrypt_from_storage,
   verify_streaming_checksum,
 } from '@/services/sharepoint-restore-streaming';
+import { filter_sharepoint_entries } from '@/services/sharepoint-entry-filter';
 
 @injectable()
 export class SharePointSaveService implements SharePointSaveUseCase {
@@ -41,6 +47,10 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     options: FileSaveOptions,
   ): Promise<FileSaveResult> {
     site_id = normalize_owner_id(site_id);
+    if (begin_operation_progress(options, 'save', 'sharepoint')) {
+      finish_operation_progress(options, 'save', 'sharepoint', 0, 0);
+      return this.empty_result(options.snapshot_id, options.output_path ?? '', true);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
@@ -48,11 +58,12 @@ export class SharePointSaveService implements SharePointSaveUseCase {
         throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
       }
 
-      const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const entries = filter_sharepoint_entries(manifest.entries, options.file_filter);
       const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
       if (restorable.length === 0) {
-        return this.empty_result(options.snapshot_id, options.output_path ?? '');
+        const interrupted = finish_operation_progress(options, 'save', 'sharepoint', 0, 0);
+        return this.empty_result(options.snapshot_id, options.output_path ?? '', interrupted);
       }
 
       const output_path =
@@ -60,35 +71,34 @@ export class SharePointSaveService implements SharePointSaveUseCase {
       const skip_integrity = options.skip_integrity_check ?? false;
       const { archive, promise } = create_file_archive(output_path);
 
-      let files_saved = 0;
-      let files_skipped = 0;
-      const errors: string[] = [];
       const integrity_failures: string[] = [];
+      const { files_saved, files_skipped, errors } = await this.save_restorable_entries_to_archive(
+        ctx,
+        archive,
+        restorable,
+        skip_integrity,
+        integrity_failures,
+        options,
+      );
 
-      for (const entry of restorable) {
-        try {
-          const content = await this.download_and_decrypt(
-            ctx,
-            entry,
-            skip_integrity,
-            integrity_failures,
-          );
-          if (!content) {
-            files_skipped++;
-            continue;
-          }
-          await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
-          files_saved++;
-          logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
-        } catch (err) {
-          const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
-          errors.push(msg);
-          files_skipped++;
-        }
-      }
-
+      emit_operation_progress(options, {
+        operation: 'save',
+        workload: 'sharepoint',
+        phase: 'finalizing',
+        processed: files_saved + files_skipped,
+        total: restorable.length,
+      });
       await finalize_file_archive(archive);
       const total_bytes = await promise;
+      const interrupted =
+        files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
+      emit_operation_progress(options, {
+        operation: 'save',
+        workload: 'sharepoint',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: files_saved + files_skipped,
+        total: restorable.length,
+      });
 
       return {
         snapshot_id: options.snapshot_id,
@@ -98,23 +108,64 @@ export class SharePointSaveService implements SharePointSaveUseCase {
         integrity_failures,
         output_path,
         total_bytes,
+        interrupted,
       };
     } finally {
       ctx.destroy();
     }
   }
 
-  private filter_entries(
-    entries: readonly SharePointManifestEntry[],
-    file_filter?: string[],
-  ): SharePointManifestEntry[] {
-    if (!file_filter || file_filter.length === 0) return [...entries];
-    const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
-    return entries.filter(
-      (e) =>
-        filter_set.has(e.file_id.toLowerCase()) ||
-        filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
-    );
+  /** Saves sequential entries until cancellation, reporting partial counts. */
+  private async save_restorable_entries_to_archive(
+    ctx: TenantContext,
+    archive: Parameters<typeof add_file_to_archive>[0],
+    entries: SharePointManifestEntry[],
+    skip_integrity: boolean,
+    integrity_failures: string[],
+    options: FileSaveOptions,
+  ): Promise<{ files_saved: number; files_skipped: number; errors: string[] }> {
+    let files_saved = 0;
+    let files_skipped = 0;
+    const errors: string[] = [];
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload: 'sharepoint',
+      phase: 'processing',
+      processed: 0,
+      total: entries.length,
+    });
+
+    for (const entry of entries) {
+      if (options.should_interrupt?.() === true) break;
+      try {
+        const content = await this.download_and_decrypt(
+          ctx,
+          entry,
+          skip_integrity,
+          integrity_failures,
+        );
+        if (!content) {
+          files_skipped++;
+        } else {
+          await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
+          files_saved++;
+          logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
+        }
+      } catch (err) {
+        errors.push(`${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`);
+        files_skipped++;
+      }
+      emit_operation_progress(options, {
+        operation: 'save',
+        workload: 'sharepoint',
+        phase: 'processing',
+        processed: files_saved + files_skipped,
+        total: entries.length,
+        current: entry.file_name,
+      });
+    }
+
+    return { files_saved, files_skipped, errors };
   }
 
   private async download_and_decrypt(
@@ -169,7 +220,11 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     }
   }
 
-  private empty_result(snapshot_id: string, output_path: string): FileSaveResult {
+  private empty_result(
+    snapshot_id: string,
+    output_path: string,
+    interrupted = false,
+  ): FileSaveResult {
     return {
       snapshot_id,
       files_saved: 0,
@@ -178,6 +233,7 @@ export class SharePointSaveService implements SharePointSaveUseCase {
       integrity_failures: [],
       output_path,
       total_bytes: 0,
+      interrupted,
     };
   }
 }

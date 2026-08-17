@@ -1,4 +1,6 @@
-export interface VerificationOptions {
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
+export interface VerificationOptions extends OperationControlOptions {
   /**
    * Existence-only verification: batched HeadObject on every referenced key
    * instead of download + decrypt + hash. Catches deleted/missing objects at
@@ -12,6 +14,7 @@ export interface VerificationResult {
   readonly total_checked: number;
   readonly passed: number;
   readonly failed: string[];
+  readonly interrupted: boolean;
   /**
    * Objects that can never be verified because no blob was stored for them
    * (e.g. attachments skipped by pre-fix backups with an empty storage_key).

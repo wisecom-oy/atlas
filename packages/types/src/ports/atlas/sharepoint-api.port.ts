@@ -17,12 +17,36 @@ import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.por
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { SharePointSite } from '@/ports/sharepoint/connector.port';
 import type { SharePointStatusResult } from '@/ports/sharepoint/status.port';
+import type { VerificationOptions } from '@/ports/verification/use-case.port';
+import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+
+export type SharePointSdkBackupOptions = Omit<
+  SharePointBackupOptions,
+  'create_progress' | 'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type SharePointSdkVerificationOptions = Omit<
+  VerificationOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type SharePointSdkRestoreOptions = Omit<
+  SharePointRestoreOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type SharePointSdkSaveOptions = Omit<FileSaveOptions, 'on_progress' | 'should_interrupt'> &
+  SdkOperationOptions;
 
 export interface SharePointApi {
-  backup(siteId: string, options?: SharePointBackupOptions): Promise<SharePointBackupResult>;
-  verify(siteId: string, snapshotId: string): Promise<SharePointVerificationResult>;
-  restore(siteId: string, options: SharePointRestoreOptions): Promise<SharePointRestoreResult>;
-  save(siteId: string, options: FileSaveOptions): Promise<FileSaveResult>;
+  backup(siteId: string, options?: SharePointSdkBackupOptions): Promise<SharePointBackupResult>;
+  verify(
+    siteId: string,
+    snapshotId: string,
+    options?: SharePointSdkVerificationOptions,
+  ): Promise<SharePointVerificationResult>;
+  restore(siteId: string, options: SharePointSdkRestoreOptions): Promise<SharePointRestoreResult>;
+  save(siteId: string, options: SharePointSdkSaveOptions): Promise<FileSaveResult>;
   listSnapshots(siteId: string): Promise<SharePointSnapshotManifest[]>;
   listFileVersions(siteId: string, fileRef: string): Promise<SharePointFileVersionRecord[]>;
   listSites(): Promise<SharePointSite[]>;

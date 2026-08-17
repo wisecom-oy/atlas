@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDocumentLibrary,
@@ -25,6 +30,7 @@ import {
   describe_unresolved_destination,
   resolve_destination_library,
 } from '@/services/sharepoint-restore-target';
+import { filter_sharepoint_entries } from '@/services/sharepoint-entry-filter';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
 
@@ -53,6 +59,10 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     options: SharePointRestoreOptions,
   ): Promise<SharePointRestoreResult> {
     site_id = normalize_owner_id(site_id);
+    if (begin_operation_progress(options, 'restore', 'sharepoint')) {
+      finish_operation_progress(options, 'restore', 'sharepoint', 0, 0);
+      return empty_restore_result(options.snapshot_id);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
@@ -62,7 +72,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
 
       const target_site = options.target_site_id ?? site_id;
       const conflict = options.conflict_behavior ?? 'rename';
-      const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const entries = filter_sharepoint_entries(manifest.entries, options.file_filter);
 
       // Entry drive ids belong to the source site, so a cross-site restore has to
       // re-point every upload at a library of the target site.
@@ -93,29 +103,52 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         destination_by_source_drive: new Map<string, string | undefined>(),
         single_source_library: new Set(restorable.map((e) => e.drive_id)).size === 1,
       };
+      emit_operation_progress(options, {
+        operation: 'restore',
+        workload: 'sharepoint',
+        phase: 'processing',
+        processed: 0,
+        total: restorable.length,
+      });
 
       for (const entry of restorable) {
+        if (options.should_interrupt?.() === true) break;
         const destination_drive_id = this.resolve_entry_destination(entry, routing, errors);
         if (!destination_drive_id) {
           files_skipped++;
-          continue;
+        } else {
+          const outcome = await this.restore_single_entry(
+            tenant_id,
+            target_site,
+            destination_drive_id,
+            conflict,
+            ctx,
+            entry,
+            folder_ids,
+            errors,
+          );
+          if (outcome === 'restored') files_restored++;
+          else files_skipped++;
         }
-
-        const outcome = await this.restore_single_entry(
-          tenant_id,
-          target_site,
-          destination_drive_id,
-          conflict,
-          ctx,
-          entry,
-          folder_ids,
-          errors,
-        );
-        if (outcome === 'restored') files_restored++;
-        else files_skipped++;
+        emit_operation_progress(options, {
+          operation: 'restore',
+          workload: 'sharepoint',
+          phase: 'processing',
+          processed: files_restored + files_skipped,
+          total: restorable.length,
+          current: entry.file_name,
+        });
       }
 
       const folders_created = folder_ids.size;
+      const interrupted = finish_operation_progress(
+        options,
+        'restore',
+        'sharepoint',
+        files_restored + files_skipped,
+        restorable.length,
+        files_restored + files_skipped < restorable.length,
+      );
 
       return {
         snapshot_id: options.snapshot_id,
@@ -123,6 +156,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         folders_created,
         files_skipped,
         errors,
+        interrupted,
       };
     } finally {
       ctx.destroy();
@@ -241,19 +275,6 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     }
   }
 
-  private filter_entries(
-    entries: readonly SharePointManifestEntry[],
-    file_filter?: string[],
-  ): SharePointManifestEntry[] {
-    if (!file_filter || file_filter.length === 0) return [...entries];
-    const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
-    return entries.filter(
-      (e) =>
-        filter_set.has(e.file_id.toLowerCase()) ||
-        filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
-    );
-  }
-
   private async ensure_folder_path(
     tenant_id: string,
     site_id: string,
@@ -303,4 +324,15 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
 
     return parent_id;
   }
+}
+
+function empty_restore_result(snapshot_id: string): SharePointRestoreResult {
+  return {
+    snapshot_id,
+    files_restored: 0,
+    folders_created: 0,
+    files_skipped: 0,
+    errors: [],
+    interrupted: true,
+  };
 }

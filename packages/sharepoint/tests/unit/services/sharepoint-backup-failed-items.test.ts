@@ -221,4 +221,47 @@ describe('SharePoint backup — persistently failing items', () => {
     expect(result.summary.errors).toEqual([]);
     expect(last_saved_cursor(cursors).delta_link_by_drive['drive-1']).toBe('https://next');
   });
+  it('keeps the prior delta link when interrupted between items', async () => {
+    let interrupted = false;
+    const cursors = make_cursors(make_previous_cursor({}));
+    const connector = make_connector({
+      fetch_delta: make_delta([make_file_item('f1'), make_file_item('f2')], 'https://next'),
+    });
+    const on_progress = vi.fn((event: { phase: string; processed: number }) => {
+      if (event.phase === 'processing' && event.processed === 1) interrupted = true;
+    });
+
+    const service = make_service({ connector, manifests, file_indexes, cursors });
+    const result = await service.backup_site('tenant-1', 'site-1', {
+      on_progress,
+      should_interrupt: () => interrupted,
+    });
+
+    expect(result.interrupted).toBe(true);
+    expect(result.snapshot!.entries.map((entry) => entry.file_id)).toEqual(['f1']);
+    expect(last_saved_cursor(cursors).delta_link_by_drive['drive-1']).toBe(
+      'https://old-delta-link',
+    );
+    expect(connector.download_file_content).toHaveBeenCalledTimes(1);
+  });
+  it('keeps the prior delta link when the last item callback cancels', async () => {
+    let interrupted = false;
+    const cursors = make_cursors(make_previous_cursor({}));
+    const connector = make_connector({
+      fetch_delta: make_delta([make_file_item('f1')], 'https://next'),
+    });
+    const service = make_service({ connector, manifests, file_indexes, cursors });
+
+    const result = await service.backup_site('tenant-1', 'site-1', {
+      on_progress: (event) => {
+        if (event.phase === 'processing' && event.processed === 1) interrupted = true;
+      },
+      should_interrupt: () => interrupted,
+    });
+
+    expect(result.interrupted).toBe(true);
+    expect(last_saved_cursor(cursors).delta_link_by_drive['drive-1']).toBe(
+      'https://old-delta-link',
+    );
+  });
 });

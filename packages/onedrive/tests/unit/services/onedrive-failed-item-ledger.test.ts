@@ -2,11 +2,13 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   OneDriveDeltaCursor,
   OneDriveDeltaItem,
+  OneDriveConnector,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { resolve_retry_items } from '@/services/onedrive-failed-item-retry';
 
 // Issue #34: one persistently failing file must not freeze a drive's delta
 // cursor. The run keeps its successful entries, advances the delta link, and
@@ -157,12 +159,34 @@ describe('OneDrive persistent item failure (issue #34)', () => {
       poison_ids: ['p1'],
     });
 
-    const result = await harness.service.backup_onedrive('t', OWNER_ID);
+    const processed: number[] = [];
+    const result = await harness.service.backup_onedrive('t', OWNER_ID, {
+      on_progress: (event) => processed.push(event.processed),
+    });
 
     expect(result.snapshot?.entries.map((entry) => entry.file_id)).toEqual(['ok1', 'ok2']);
     expect(result.summary.files_stored).toBe(2);
     expect(drive_cursor(harness).delta_link_by_drive[DRIVE_ID]).toBe('delta-2');
     expect(harness.fetch_item_by_id).not.toHaveBeenCalled();
+    expect(processed.every((count, index) => index === 0 || count >= processed[index - 1]!)).toBe(
+      true,
+    );
+  });
+
+  it('keeps stored files and cursor state when a progress observer throws', async () => {
+    const harness = make_harness({
+      delta_items: [make_item('ok1', 'a.txt')],
+      delta_link: 'delta-2',
+    });
+
+    const result = await harness.service.backup_onedrive('t', OWNER_ID, {
+      on_progress: () => {
+        throw new Error('observer failed');
+      },
+    });
+
+    expect(result.snapshot?.entries.map((entry) => entry.file_id)).toEqual(['ok1']);
+    expect(drive_cursor(harness).delta_link_by_drive[DRIVE_ID]).toBe('delta-2');
   });
 
   it('records the failed item in the saved cursor and reports the run unhealthy', async () => {
@@ -256,5 +280,22 @@ describe('OneDrive persistent item failure (issue #34)', () => {
       expect.stringContaining(`PERMANENTLY SKIPPED after ${MAX_FAILED_ITEM_ATTEMPTS} attempts`),
     ]);
     expect(result.summary.healthy).toBe(false);
+  });
+  it('does not fetch another failed item after cancellation', async () => {
+    const fetch_item_by_id = vi.fn();
+    const connector = { fetch_item_by_id } as unknown as OneDriveConnector;
+
+    const result = await resolve_retry_items(
+      connector,
+      't',
+      OWNER_ID,
+      DRIVE_ID,
+      { p1: make_failure('p1', 1) },
+      new Set<string>(),
+      () => true,
+    );
+
+    expect(result.interrupted).toBe(true);
+    expect(fetch_item_by_id).not.toHaveBeenCalled();
   });
 });

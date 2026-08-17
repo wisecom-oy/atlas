@@ -175,13 +175,19 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
       if (page === 1) interrupted = true;
     });
 
-    await service.sync_mailbox('t', 'user@test.com', {
+    const on_progress = vi.fn();
+    const result = await service.sync_mailbox('t', 'user@test.com', {
       should_interrupt: () => interrupted,
+      on_progress,
     });
 
     // page 1 was fully processed (2 unique bodies stored), pages 2-3 never were
     expect(vi.mocked(storage.put).mock.calls.length).toBe(2);
     expect(saved_delta_links()).toEqual({ 'folder-1': 'https://prev-delta' });
+    expect(result.interrupted).toBe(true);
+    expect(on_progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: 'backup', workload: 'outlook', phase: 'interrupted' }),
+    );
   });
 
   it('does not persist a delta link captured on an interrupted final page', async () => {
@@ -208,6 +214,20 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
 
     await service.sync_mailbox('t', 'user@test.com');
 
+    expect(saved_delta_links()).toEqual({ 'folder-1': 'https://new-delta' });
+  });
+  it('honors cancellation requested by the finalizing progress event', async () => {
+    let interrupted = false;
+    connector.fetch_delta = make_streaming_fetch_delta([[make_message('m1')]], 'https://new-delta');
+
+    const result = await service.sync_mailbox('t', 'user@test.com', {
+      on_progress: (event) => {
+        if (event.phase === 'finalizing') interrupted = true;
+      },
+      should_interrupt: () => interrupted,
+    });
+
+    expect(result.interrupted).toBe(true);
     expect(saved_delta_links()).toEqual({ 'folder-1': 'https://new-delta' });
   });
 });

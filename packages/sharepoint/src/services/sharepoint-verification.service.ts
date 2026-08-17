@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -9,6 +14,7 @@ import type {
   SharePointVerificationUseCase,
   TenantContext,
   TenantContextFactory,
+  VerificationOptions,
 } from '@wisecom/atlas-types';
 import {
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
@@ -34,8 +40,20 @@ export class SharePointVerificationService implements SharePointVerificationUseC
     tenant_id: string,
     site_id: string,
     snapshot_id: string,
+    options: VerificationOptions = {},
   ): Promise<SharePointVerificationResult> {
     site_id = normalize_owner_id(site_id);
+    if (begin_operation_progress(options, 'verify', 'sharepoint')) {
+      finish_operation_progress(options, 'verify', 'sharepoint', 0, 0);
+      return {
+        snapshot_id,
+        total_checked: 0,
+        passed: 0,
+        failed_file_ids: [],
+        index_issues: [],
+        interrupted: true,
+      };
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, snapshot_id);
@@ -46,8 +64,17 @@ export class SharePointVerificationService implements SharePointVerificationUseC
       const failed_file_ids: string[] = [];
       const index_issues: string[] = [];
       let total_checked = 0;
+      let processed = 0;
+      emit_operation_progress(options, {
+        operation: 'verify',
+        workload: 'sharepoint',
+        phase: 'processing',
+        processed: 0,
+        total: manifest.entries.length,
+      });
 
       for (const entry of manifest.entries) {
+        if (options.should_interrupt?.() === true) break;
         const idx = await this._indexes.find_by_file_id(ctx, manifest.site_id, entry.file_id);
         const has_version = idx?.versions.some((v) => v.snapshot_id === snapshot_id);
         if (!has_version) {
@@ -56,12 +83,30 @@ export class SharePointVerificationService implements SharePointVerificationUseC
           );
         }
 
-        if (!this.entry_has_blob(entry)) continue;
-
-        total_checked++;
-        const corrupt = await this.is_blob_corrupt(ctx, entry);
-        if (corrupt) failed_file_ids.push(entry.file_id);
+        if (this.entry_has_blob(entry)) {
+          total_checked++;
+          const corrupt = await this.is_blob_corrupt(ctx, entry);
+          if (corrupt) failed_file_ids.push(entry.file_id);
+        }
+        processed++;
+        emit_operation_progress(options, {
+          operation: 'verify',
+          workload: 'sharepoint',
+          phase: 'processing',
+          processed,
+          total: manifest.entries.length,
+          current: entry.file_name,
+        });
       }
+
+      const interrupted = finish_operation_progress(
+        options,
+        'verify',
+        'sharepoint',
+        processed,
+        manifest.entries.length,
+        processed < manifest.entries.length,
+      );
 
       return {
         snapshot_id,
@@ -69,6 +114,7 @@ export class SharePointVerificationService implements SharePointVerificationUseC
         passed: total_checked - failed_file_ids.length,
         failed_file_ids,
         index_issues,
+        interrupted,
       };
     } finally {
       ctx.destroy();

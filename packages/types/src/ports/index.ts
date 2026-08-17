@@ -103,9 +103,34 @@ export type {
 export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
-export type { OutlookApi } from './atlas/outlook-api.port';
-export type { OneDriveApi } from './atlas/onedrive-api.port';
-export type { SharePointApi } from './atlas/sharepoint-api.port';
+export type {
+  OutlookApi,
+  OutlookBackupOptions,
+  OutlookVerificationOptions,
+  OutlookRestoreOptions,
+  OutlookSaveOptions,
+} from './atlas/outlook-api.port';
+export type {
+  OneDriveApi,
+  OneDriveSdkBackupOptions,
+  OneDriveSdkVerificationOptions,
+  OneDriveSdkRestoreOptions,
+  OneDriveSdkSaveOptions,
+} from './atlas/onedrive-api.port';
+export type {
+  SharePointApi,
+  SharePointSdkBackupOptions,
+  SharePointSdkVerificationOptions,
+  SharePointSdkRestoreOptions,
+  SharePointSdkSaveOptions,
+} from './atlas/sharepoint-api.port';
+export type {
+  OperationProgressEvent,
+  OperationProgressPhase,
+  OperationProgressCallback,
+  SdkOperationOptions,
+  OperationControlOptions,
+} from './atlas/progress-event.port';
 
 export type {
   UserIdentityResolver,

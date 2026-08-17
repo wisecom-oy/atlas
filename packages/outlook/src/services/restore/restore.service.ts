@@ -26,6 +26,11 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 
 @injectable()
 export class RestoreService implements RestoreUseCase {
@@ -45,6 +50,9 @@ export class RestoreService implements RestoreUseCase {
     snapshot_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    if (begin_operation_progress(options, 'restore', 'outlook')) {
+      return this.finish_empty_result(snapshot_id, options);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this.load_manifest(ctx, snapshot_id);
@@ -56,11 +64,30 @@ export class RestoreService implements RestoreUseCase {
       const entries = await this.resolve_entries(ctx, manifest, source_mailbox, tenant_id, options);
       if (entries.length === 0) {
         logger.warn('No entries to restore');
-        return this.empty_result(snapshot_id);
+        return this.finish_empty_result(snapshot_id, options);
       }
 
       if (options.message_ref) {
-        return restore_single_message(
+        if (options.should_interrupt?.() === true) {
+          const result = this.empty_result(snapshot_id, true);
+          emit_operation_progress(options, {
+            operation: 'restore',
+            workload: 'outlook',
+            phase: 'interrupted',
+            processed: 0,
+            total: 1,
+          });
+          return result;
+        }
+        emit_operation_progress(options, {
+          operation: 'restore',
+          workload: 'outlook',
+          phase: 'processing',
+          processed: 0,
+          total: 1,
+          current: entries[0]!.subject ?? entries[0]!.object_id,
+        });
+        const result = await restore_single_message(
           ctx,
           this._connector,
           this._restore_connector,
@@ -70,6 +97,8 @@ export class RestoreService implements RestoreUseCase {
           snapshot_id,
           entries[0]!,
         );
+        const interrupted = finish_operation_progress(options, 'restore', 'outlook', 1, 1);
+        return { ...result, interrupted };
       }
 
       return this.restore_batch(
@@ -95,6 +124,9 @@ export class RestoreService implements RestoreUseCase {
     owner_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    if (begin_operation_progress(options, 'restore', 'outlook')) {
+      return this.finish_empty_result('mailbox', options);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const target = options.target_mailbox?.toLowerCase() ?? owner_id;
@@ -104,7 +136,7 @@ export class RestoreService implements RestoreUseCase {
       const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
       if (manifests.length === 0) {
         logger.warn('No snapshots found for this mailbox in the given date range');
-        return this.empty_result('mailbox');
+        return this.finish_empty_result('mailbox', options);
       }
 
       const entries = merge_snapshot_entries(manifests);
@@ -117,7 +149,7 @@ export class RestoreService implements RestoreUseCase {
 
       if (filtered.length === 0) {
         logger.warn('No entries to restore after filtering');
-        return this.empty_result('mailbox');
+        return this.finish_empty_result('mailbox', options);
       }
 
       logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
@@ -232,6 +264,7 @@ export class RestoreService implements RestoreUseCase {
       folder_map,
       created_folders,
       dashboard,
+      options,
     );
   }
 
@@ -246,7 +279,12 @@ export class RestoreService implements RestoreUseCase {
     }
   }
 
-  private empty_result(snapshot_id: string): RestoreResult {
+  private finish_empty_result(snapshot_id: string, options: RestoreOptions): RestoreResult {
+    const interrupted = finish_operation_progress(options, 'restore', 'outlook', 0, 0);
+    return this.empty_result(snapshot_id, interrupted);
+  }
+
+  private empty_result(snapshot_id: string, interrupted = false): RestoreResult {
     return {
       snapshot_id,
       restored_count: 0,
@@ -256,6 +294,7 @@ export class RestoreService implements RestoreUseCase {
       errors: [],
       verification_warnings: [],
       restore_folder_name: '',
+      interrupted,
     };
   }
 }

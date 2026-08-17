@@ -1,5 +1,6 @@
 import type { OperationCost } from '@/domain/graph-cost';
 import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 
 export interface RestoreResult {
   readonly snapshot_id: string;
@@ -12,9 +13,10 @@ export interface RestoreResult {
   readonly restore_folder_name: string;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
+  readonly interrupted: boolean;
 }
 
-export interface RestoreOptions {
+export interface RestoreOptions extends OperationControlOptions {
   readonly folder_name?: string;
   readonly message_ref?: string;
   readonly target_mailbox?: string;

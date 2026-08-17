@@ -268,4 +268,23 @@ describe('VerificationService', () => {
     expect(storage.get).not.toHaveBeenCalled();
     expect(context.decrypt).not.toHaveBeenCalled();
   });
+
+  it('does not start object reads after cancellation and returns partial counts', async () => {
+    const manifest = make_manifest([make_entry(), make_entry({ object_id: 'obj-2' })]);
+    vi.mocked(manifests.find_by_snapshot).mockResolvedValue(manifest);
+    const on_progress = vi.fn();
+
+    const result = await service.verify_snapshot_integrity('tenant-1', manifest.snapshot_id, {
+      should_interrupt: () => true,
+      on_progress,
+    });
+
+    expect(tenant_factory.create).not.toHaveBeenCalled();
+    expect(storage.get).not.toHaveBeenCalled();
+    expect(result.total_checked).toBe(0);
+    expect(result.interrupted).toBe(true);
+    expect(on_progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: 'verify', workload: 'outlook', phase: 'interrupted' }),
+    );
+  });
 });

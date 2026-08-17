@@ -1,6 +1,8 @@
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
 export type OneDriveRestoreConflictBehavior = 'replace' | 'rename' | 'fail';
 
-export interface OneDriveRestoreOptions {
+export interface OneDriveRestoreOptions extends OperationControlOptions {
   readonly snapshot_id: string;
   readonly target_owner_id?: string;
   readonly file_filter?: string[];
@@ -13,6 +15,7 @@ export interface OneDriveRestoreResult {
   readonly folders_created: number;
   readonly files_skipped: number;
   readonly errors: string[];
+  readonly interrupted: boolean;
 }
 
 export interface OneDriveRestoreUseCase {

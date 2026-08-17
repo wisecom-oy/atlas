@@ -11,6 +11,11 @@ import type {
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@/services/shared/operation-progress';
 
 // S3 handles this easily; Graph limits don't apply -- verify never touches Graph.
 // ponytail: fixed constant, make configurable only if a backend ever chokes.
@@ -45,18 +50,46 @@ export class VerificationService implements VerificationUseCase {
     snapshot_id: string,
     options: VerificationOptions = {},
   ): Promise<VerificationResult> {
+    if (begin_operation_progress(options, 'verify', 'outlook')) {
+      finish_operation_progress(options, 'verify', 'outlook', 0, 0);
+      return {
+        snapshot_id,
+        total_checked: 0,
+        passed: 0,
+        failed: [],
+        unverifiable: [],
+        interrupted: true,
+        manifests_in_chain: 0,
+      };
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       const chain = await this.load_manifest_chain(ctx, snapshot_id);
       const entries = merge_snapshot_entries(chain);
       const { items, unverifiable } = collect_check_items(entries);
-      const failed = await this.check_all_items(ctx, items, options.fast === true);
+      emit_operation_progress(options, {
+        operation: 'verify',
+        workload: 'outlook',
+        phase: 'processing',
+        processed: 0,
+        total: items.length,
+      });
+      const { failed, checked } = await this.check_all_items(ctx, items, options);
+      const interrupted = finish_operation_progress(
+        options,
+        'verify',
+        'outlook',
+        checked,
+        items.length,
+        checked < items.length,
+      );
       return {
         snapshot_id,
-        total_checked: items.length,
-        passed: items.length - failed.length,
+        total_checked: checked,
+        passed: checked - failed.length,
         failed,
         unverifiable,
+        interrupted,
         manifests_in_chain: chain.length,
       };
     } finally {
@@ -98,22 +131,38 @@ export class VerificationService implements VerificationUseCase {
   private async check_all_items(
     ctx: TenantContext,
     items: CheckItem[],
-    fast: boolean,
-  ): Promise<string[]> {
+    options: VerificationOptions,
+  ): Promise<{ failed: string[]; checked: number }> {
     const semaphore = new ConcurrencySemaphore(VERIFY_CONCURRENCY);
+    let checked = 0;
     const corrupt = await Promise.all(
       items.map(async (item) => {
         await semaphore.acquire();
         try {
-          return fast
-            ? !(await this.object_exists(ctx, item))
-            : await this.is_item_corrupt(ctx, item);
+          if (options.should_interrupt?.() === true) return undefined;
+          const failed =
+            options.fast === true
+              ? !(await this.object_exists(ctx, item))
+              : await this.is_item_corrupt(ctx, item);
+          checked++;
+          emit_operation_progress(options, {
+            operation: 'verify',
+            workload: 'outlook',
+            phase: 'processing',
+            processed: checked,
+            total: items.length,
+            current: item.id,
+          });
+          return failed;
         } finally {
           semaphore.release();
         }
       }),
     );
-    return items.filter((_, i) => corrupt[i]).map((item) => item.id);
+    return {
+      failed: items.filter((_, i) => corrupt[i] === true).map((item) => item.id),
+      checked,
+    };
   }
 
   /** Existence-only probe for fast mode; any error counts as missing. */

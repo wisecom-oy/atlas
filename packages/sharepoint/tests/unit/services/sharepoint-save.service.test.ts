@@ -238,5 +238,30 @@ describe('SharePointSaveService', () => {
 
       expect(result.files_saved).toBe(1);
     });
+    it('stops between files and returns partial counts when interrupted', async () => {
+      let interrupted = false;
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+        make_manifest([
+          make_entry({ file_id: 'f1', file_name: 'one.docx' }),
+          make_entry({ file_id: 'f2', file_name: 'two.docx' }),
+        ]),
+      );
+      const on_progress = vi.fn((event: { phase: string; processed: number }) => {
+        if (event.phase === 'processing' && event.processed === 1) interrupted = true;
+      });
+
+      const result = await service.save_snapshot('test-tenant', 'site-1', {
+        snapshot_id: 'sp-snap-1',
+        output_path: '/tmp/interrupted.zip',
+        on_progress,
+        should_interrupt: () => interrupted,
+      });
+
+      expect(result).toMatchObject({ files_saved: 1, files_skipped: 0, interrupted: true });
+      expect(mock_context.storage.get).toHaveBeenCalledTimes(1);
+      expect(on_progress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: 'interrupted' }),
+      );
+    });
   });
 });

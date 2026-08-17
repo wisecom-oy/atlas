@@ -12,10 +12,11 @@ function site(id: string): SharePointSite {
   return { site_id: id, site_url: `https://contoso.sharepoint.com/sites/${id}`, display_name: id };
 }
 
-function make_result(site_id: string): SharePointBackupResult {
+function make_result(site_id: string, interrupted = false): SharePointBackupResult {
   return {
     site_id,
     snapshot: undefined,
+    interrupted,
     summary: {
       libraries_scanned: 1,
       files_changed: 0,
@@ -111,5 +112,19 @@ describe('SharePointSiteTreeBackupService', () => {
     const results = await service.backup_site_tree('t', 'root', { include_subsites: true });
 
     expect(results[0]!.summary.warnings.join(' ')).toContain('locked');
+  });
+  it('does not start another subsite after an interrupted result', async () => {
+    vi.mocked(connector.list_subsites).mockResolvedValue({
+      sites: [site('projectx'), site('projecty')],
+      warnings: [],
+    });
+    vi.mocked(backup.backup_site).mockImplementation(async (_tenant, site_id) => {
+      return make_result(site_id, site_id === 'projectx');
+    });
+
+    const results = await service.backup_site_tree('t', 'root', { include_subsites: true });
+
+    expect(results.map((result) => result.site_id)).toEqual(['root', 'projectx']);
+    expect(backup.backup_site).toHaveBeenCalledTimes(2);
   });
 });
