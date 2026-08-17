@@ -139,7 +139,7 @@ See [Programmatic SDK](./reference/sdk.md) for full method signatures and option
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`          |
 | `-t, --tenant <id>`        | Tenant identifier                                    | Config default    |
 
-Restored files are uploaded to the target user's primary drive. Folders are created as needed (existing folders with the same name are reused, not overwritten). Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on 429/503).
+Restored files are uploaded to the target user's primary drive. Folders are created as needed (existing folders with the same name are reused, not overwritten). Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on any transient Graph status: 429, 500, 502, 503, 504). A range PUT is addressed by its `Content-Range`, so a replayed chunk rewrites the same bytes rather than appending them twice.
 
 Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is read from S3 as a stream, the first 28 bytes (12-byte IV + 16-byte auth tag) are consumed to initialize AES-256-GCM, and ciphertext is decrypted in chunks without buffering the full ciphertext in memory.
 

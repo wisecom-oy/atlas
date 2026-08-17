@@ -354,11 +354,11 @@ Implementation thresholds from `@wisecom/atlas-sharepoint`:
 
 | Size                          | Strategy                                                                                                                                                                                       |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **<= 4 MiB**                  | Single read via pre-authenticated URL (with 429 retry + Retry-After backoff) or Graph content fallback, encrypt, `put`                                                                         |
+| **<= 4 MiB**                  | Single read via pre-authenticated URL (with transient-status retry + Retry-After backoff) or Graph content fallback, encrypt, `put`                                                            |
 | **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                                      |
 | **>= 512 MiB**                | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
 
-Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff) so a transient failure replays a single chunk instead of the whole file.
+Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff) so a transient failure replays a single chunk instead of the whole file. A chunk is retried on the same statuses as any other Graph call -- 429, 500, 502, 503, and 504 -- because the CDN in front of Graph raises `500` and `502` under load; `4xx` responses fail the chunk immediately.
 
 ## OneNote Notebooks
 
@@ -396,9 +396,9 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ## Download Resilience
 
-SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting. Atlas handles this with:
+SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting, and the CDN also returns transient gateway faults of its own. Atlas handles this with:
 
-- **429 detection** on direct download URLs with `Retry-After` header parsing (supports both delta-seconds and HTTP-date formats).
+- **Transient-status detection** on direct download URLs -- `429`, `500`, `502`, `503`, and `504` are retried, with `Retry-After` header parsing (supports both delta-seconds and HTTP-date formats).
 - **Exponential backoff** when `Retry-After` is absent (base 1s, max 32s, with jitter).
 - **Graph content fallback** -- if the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content` which routes through the Graph gateway rather than the CDN.
 
@@ -433,10 +433,10 @@ console.log(`Restored: ${result.files_restored} files, ${result.folders_created}
 
 **File size handling during restore:**
 
-| Size         | Strategy                                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------------ |
-| **<= 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content`                |
-| **> 4 MiB**  | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429/503) |
+| Size         | Strategy                                                                                                               |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **<= 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content`                                |
+| **> 4 MiB**  | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429, 500, 502, 503, 504) |
 
 Files with `change_type: 'deleted'` or missing `storage_key` are skipped. Checksum verification runs before upload -- corrupted blobs are skipped with a warning.
 

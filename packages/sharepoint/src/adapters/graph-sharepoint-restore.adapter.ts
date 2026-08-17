@@ -1,5 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { is_transient_error, with_graph_retry } from '@wisecom/atlas-m365-graph';
 
 const LARGE_UPLOAD_CHUNK = 10 * 1024 * 1024;
 const CHUNK_PUT_ATTEMPTS = 3;
@@ -45,7 +45,9 @@ async function put_upload_chunk_with_retry(
     if (response.ok) return;
 
     last_detail = await response.text();
-    const retriable = response.status === 429 || response.status === 503;
+    // A range PUT is addressed by Content-Range, so replaying one after a
+    // transient 500/502/504 rewrites the same bytes (issue #36).
+    const retriable = is_transient_error({ statusCode: response.status });
     const is_last = attempt === CHUNK_PUT_ATTEMPTS - 1;
     if (retriable && !is_last) {
       const wait_ms = parse_fetch_retry_after_ms(response.headers.get('retry-after')) ?? 1000;
@@ -147,8 +149,9 @@ export async function graph_sharepoint_upload_small_file(
 }
 
 /**
- * Uploads via createUploadSession and chunked PUTs. Each chunk is retried up to three times on
- * 429/503 with Retry-After delays; on terminal failure the upload session is cancelled.
+ * Uploads via createUploadSession and chunked PUTs. Each chunk is retried up to three times on a
+ * transient Graph status (429, 500, 502, 503, 504) with Retry-After delays; on terminal failure the
+ * upload session is cancelled.
  */
 export async function graph_sharepoint_upload_large_file(
   client: Client,

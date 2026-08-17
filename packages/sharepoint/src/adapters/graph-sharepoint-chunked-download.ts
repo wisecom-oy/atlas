@@ -1,5 +1,5 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { is_retryable_error } from '@wisecom/atlas-m365-graph';
+import { is_retryable_error, is_transient_error } from '@wisecom/atlas-m365-graph';
 
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 export const CHUNK_DOWNLOAD_THRESHOLD = 4 * 1024 * 1024;
@@ -166,9 +166,9 @@ async function download_single_chunk(
 }
 
 function is_cdn_retryable(err: unknown): boolean {
-  if (err instanceof CdnHttpError) {
-    return err.status_code === 429 || err.status_code === 503 || err.status_code === 504;
-  }
+  // One classifier for Graph and the CDN in front of it: a 500 or 502 on a
+  // chunk is as transient here as on any other Graph call (issue #36).
+  if (err instanceof CdnHttpError) return is_transient_error({ statusCode: err.status_code });
   return is_retryable_error(err);
 }
 

@@ -1,6 +1,18 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
-const RETRYABLE_STATUS_CODES = new Set([429, 503, 504]);
+/**
+ * Statuses Graph recovers from on its own, per Microsoft's throttling and
+ * resilience guidance: the request never reached a working backend, or the
+ * gateway gave up on one. 501 and every 4xx stay out -- repeating those
+ * returns the same answer.
+ *
+ * ponytail: one set for reads and writes. A 500 on a create POST can retry a
+ * request the backend already committed, which restore surfaces as a duplicate
+ * item -- the same exposure 504 already carried. Thread an idempotency flag
+ * through GraphRetryOptions and opt the restore writers out if duplicates ever
+ * show up in practice.
+ */
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const NETWORK_ERROR_CODES = new Set([
   'ETIMEDOUT',
   'ECONNRESET',
@@ -95,7 +107,7 @@ export function rethrow_if_mailbox_not_licensed(err: unknown): void {
   }
 }
 
-/** Returns true when the error carries a transient HTTP status (429, 503, 504). */
+/** Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504). */
 export function is_transient_error(err: unknown): boolean {
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
@@ -131,7 +143,7 @@ export function is_retryable_error(err: unknown): boolean {
 
 /**
  * Wraps any async network call with exponential backoff + jitter for both
- * transient HTTP errors (429, 503, 504) and network-level errors (ETIMEDOUT,
+ * transient HTTP errors (429, 500, 502, 503, 504) and network-level errors (ETIMEDOUT,
  * ECONNRESET, socket hang up, etc.).
  *
  * Retries up to 12 times with delays capped at 5 minutes, giving a total
