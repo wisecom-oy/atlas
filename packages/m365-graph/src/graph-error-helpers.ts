@@ -169,7 +169,7 @@ export async function with_graph_retry<T>(
       const jitter = Math.random() * BASE_DELAY_MS;
       const delay = Math.min(base + jitter, MAX_DELAY_MS);
 
-      const reason = describe_error(err);
+      const reason = describe_graph_error(err);
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
       );
@@ -200,11 +200,41 @@ function extract_retry_after(err: unknown): number | undefined {
   return undefined;
 }
 
-function describe_error(err: unknown): string {
+/**
+ * Renders any Graph/network error as a non-empty, actionable one-liner.
+ * Graph SDK errors routinely carry an empty `message` with the useful part in
+ * `statusCode`/`code`/`body`, so every available facet is joined rather than
+ * picking the first one present (issue #92).
+ */
+export function describe_graph_error(err: unknown): string {
+  if (err === null || err === undefined) return 'unknown error';
+  if (typeof err !== 'object') return String(err);
+
   const graph_err = err as Record<string, unknown>;
-  if (graph_err.statusCode) return `HTTP ${graph_err.statusCode}`;
-  if (graph_err.code) return String(graph_err.code);
-  return err instanceof Error ? err.message.slice(0, 80) : 'unknown';
+  const status = graph_err.statusCode ?? graph_err.status;
+  const message = err instanceof Error ? err.message.trim() : '';
+  const parts = [
+    typeof status === 'number' || typeof status === 'string' ? `HTTP ${status}` : '',
+    typeof graph_err.code === 'string' ? graph_err.code.trim() : '',
+    message.slice(0, 200),
+    message === '' && typeof graph_err.body === 'string' ? graph_err.body.slice(0, 200) : '',
+  ].filter((part) => part !== '');
+
+  return parts.length > 0 ? parts.join(' -- ') : `unknown error (${err.constructor.name})`;
+}
+
+/**
+ * HTTP 404/410: the content is gone for good (version purged by retention,
+ * item hard-deleted). Distinct from a transient failure -- callers count these
+ * as expected, not as backup errors.
+ */
+export function is_content_gone_error(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const graph_err = err as Record<string, unknown>;
+  const status = graph_err.statusCode ?? graph_err.status;
+  if (status === 404 || status === 410) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('404') || message.includes('Not Found') || message.includes('410');
 }
 
 function sleep(ms: number): Promise<void> {

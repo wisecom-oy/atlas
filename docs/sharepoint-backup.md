@@ -333,9 +333,11 @@ Once the underlying problem clears, the next run picks the file up automatically
 Every backup prints a health status at the end:
 
 - **HEALTHY** -- all primary file content was backed up successfully across all document libraries. The snapshot and delta cursors are safe to rely on.
-- **UNHEALTHY** -- one or more critical errors occurred (file download failure, library-level crash, encryption error). The affected library's entries are excluded from the manifest and its delta cursor is not advanced. `process.exitCode` is set to `1` so CI/monitoring pipelines detect the failure.
+- **UNHEALTHY** -- one or more critical errors occurred (file download failure, library-level crash, encryption error, or an unexpected version download failure). The affected library's entries are excluded from the manifest and its delta cursor is not advanced. `process.exitCode` is set to `2` (partial run) so CI/monitoring pipelines detect the failure; a hard failure that aborts the run exits `1`.
 
-Non-critical issues such as historical version download failures or expired version URLs are reported as **warnings** in the output but do not affect the health status. Warnings appear as `[!]` lines above the status; errors appear indented under `UNHEALTHY`.
+A version download that fails for an unexpected reason -- throttling, `403 accessDenied`, a transient Graph fault -- means the file's history is missing from the snapshot, so it counts as an error and holds the run **UNHEALTHY** (issue #92). Each failure logs its own line with the Graph status and error code, e.g. `Version 2.0 of proposal.docx: HTTP 403 -- accessDenied`, and the run summary repeats the count.
+
+Versions the service reports as gone (`404`/`410`, content purged by the site's retention policy) are expected, counted as `unavailable`, and do not affect health. OneNote package accounting and other advisory notes remain **warnings**: they appear as `[!]` lines above the status and leave the exit code at `0`.
 
 ## Azure AD Permissions
 
