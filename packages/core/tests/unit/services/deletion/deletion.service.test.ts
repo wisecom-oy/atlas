@@ -103,26 +103,41 @@ describe('DeletionService', () => {
   // ---------------------------------------------------------------------------
 
   describe('delete_mailbox_data', () => {
-    it('deletes data, attachment, and manifest keys for a mailbox', async () => {
-      const list_fn = vi.mocked(mock_context.storage.list);
-      list_fn
-        .mockResolvedValueOnce(['manifests/user@test.com/snap-1.json'])
-        .mockResolvedValueOnce(['data/user@test.com/aaa', 'data/user@test.com/bbb'])
-        .mockResolvedValueOnce(['attachments/user@test.com/ccc']);
+    it('deletes data, attachments, manifests, and lookup pointers for a mailbox', async () => {
+      const objects_by_prefix: Record<string, string[]> = {
+        'manifests/user@test.com/': ['manifests/user@test.com/snap-1.json'],
+        '_meta/outlook-manifests/snapshots/snap-1.json': [
+          '_meta/outlook-manifests/snapshots/snap-1.json',
+        ],
+        '_meta/outlook-manifests/owners/user@test.com/': [
+          '_meta/outlook-manifests/owners/user@test.com/latest.json',
+        ],
+        'data/user@test.com/': ['data/user@test.com/aaa', 'data/user@test.com/bbb'],
+        'attachments/user@test.com/': ['attachments/user@test.com/ccc'],
+      };
+      vi.mocked(mock_context.storage.list).mockImplementation(
+        async (prefix) => objects_by_prefix[prefix] ?? [],
+      );
 
       const result = await service.delete_mailbox_data('t', 'user@test.com');
 
-      expect(result.deleted_objects).toBe(3);
+      expect(result.deleted_objects).toBe(5);
       expect(result.deleted_manifests).toBe(1);
       expect(result.retained_objects).toBe(0);
       expect(result.retained_manifests).toBe(0);
       expect(result.failed_objects).toBe(0);
       expect(result.failed_manifests).toBe(0);
-      expect(mock_context.storage.delete).toHaveBeenCalledTimes(4);
+      expect(mock_context.storage.delete).toHaveBeenCalledTimes(6);
       expect(mock_context.storage.delete).toHaveBeenCalledWith('data/user@test.com/aaa');
       expect(mock_context.storage.delete).toHaveBeenCalledWith('attachments/user@test.com/ccc');
       expect(mock_context.storage.delete).toHaveBeenCalledWith(
         'manifests/user@test.com/snap-1.json',
+      );
+      expect(mock_context.storage.delete).toHaveBeenCalledWith(
+        '_meta/outlook-manifests/snapshots/snap-1.json',
+      );
+      expect(mock_context.storage.delete).toHaveBeenCalledWith(
+        '_meta/outlook-manifests/owners/user@test.com/latest.json',
       );
     });
 
@@ -132,6 +147,9 @@ describe('DeletionService', () => {
       expect(mock_context.storage.list).toHaveBeenCalledWith('manifests/alice@corp.com/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('data/alice@corp.com/');
       expect(mock_context.storage.list).toHaveBeenCalledWith('attachments/alice@corp.com/');
+      expect(mock_context.storage.list).toHaveBeenCalledWith(
+        '_meta/outlook-manifests/owners/alice@corp.com/',
+      );
     });
 
     it('returns zeros when mailbox has no data', async () => {
@@ -156,21 +174,36 @@ describe('DeletionService', () => {
   // ---------------------------------------------------------------------------
 
   describe('delete_snapshot', () => {
-    it('deletes the manifest key and retains data objects', async () => {
+    it('deletes the manifest key and its lookup pointers while retaining data', async () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
         make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
       );
-      vi.mocked(mock_context.storage.list).mockResolvedValueOnce([
-        'manifests/u@t.com/snap-42.json',
-      ]);
+      const objects_by_prefix: Record<string, string[]> = {
+        'manifests/u@t.com/snap-42.json': ['manifests/u@t.com/snap-42.json'],
+        '_meta/outlook-manifests/snapshots/snap-42.json': [
+          '_meta/outlook-manifests/snapshots/snap-42.json',
+        ],
+        '_meta/outlook-manifests/owners/u@t.com/latest.json': [
+          '_meta/outlook-manifests/owners/u@t.com/latest.json',
+        ],
+      };
+      vi.mocked(mock_context.storage.list).mockImplementation(
+        async (prefix) => objects_by_prefix[prefix] ?? [],
+      );
 
       const result = await service.delete_snapshot('t', 'snap-42');
 
       expect(result.deleted_manifests).toBe(1);
-      expect(result.deleted_objects).toBe(0);
+      expect(result.deleted_objects).toBe(2);
       expect(result.retained_manifests).toBe(0);
       expect(mock_context.storage.delete).toHaveBeenCalledWith('manifests/u@t.com/snap-42.json');
-      expect(mock_context.storage.delete).toHaveBeenCalledTimes(1);
+      expect(mock_context.storage.delete).toHaveBeenCalledWith(
+        '_meta/outlook-manifests/snapshots/snap-42.json',
+      );
+      expect(mock_context.storage.delete).toHaveBeenCalledWith(
+        '_meta/outlook-manifests/owners/u@t.com/latest.json',
+      );
+      expect(mock_context.storage.delete).toHaveBeenCalledTimes(3);
     });
 
     it('returns zeros when snapshot is not found', async () => {

@@ -59,6 +59,10 @@ function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   };
 }
 
+function encrypted_json(value: unknown): Buffer {
+  return Buffer.concat([Buffer.from('ENC:'), Buffer.from(JSON.stringify(value))]);
+}
+
 describe('S3ManifestRepository', () => {
   let repo: S3ManifestRepository;
   let ctx: TenantContext;
@@ -69,14 +73,17 @@ describe('S3ManifestRepository', () => {
   });
 
   describe('save', () => {
-    it('encrypts and stores manifest at correct key', async () => {
+    it('stores the manifest and its encrypted lookup pointers', async () => {
       const manifest = make_manifest();
       await repo.save(ctx, manifest);
 
-      expect(ctx.encrypt).toHaveBeenCalledOnce();
-      expect(ctx.storage.put).toHaveBeenCalledOnce();
-      const [key] = (ctx.storage.put as ReturnType<typeof vi.fn>).mock.calls[0];
-      expect(key).toBe('manifests/user@test.com/snap-1.json');
+      expect(ctx.encrypt).toHaveBeenCalledTimes(2);
+      const put_calls = vi.mocked(ctx.storage.put).mock.calls;
+      expect(put_calls.map((call) => call[0])).toEqual([
+        'manifests/user@test.com/snap-1.json',
+        '_meta/outlook-manifests/snapshots/snap-1.json',
+        '_meta/outlook-manifests/owners/user@test.com/latest.json',
+      ]);
     });
 
     it('applies effective object lock policy to manifest uploads', async () => {
@@ -95,7 +102,7 @@ describe('S3ManifestRepository', () => {
 
       await repo.save(ctx, manifest);
 
-      const put_call = (ctx.storage.put as ReturnType<typeof vi.fn>).mock.calls[0];
+      const put_call = vi.mocked(ctx.storage.put).mock.calls[0]!;
       expect(put_call[3]).toEqual({
         mode: 'GOVERNANCE',
         retain_until: '2026-04-08T12:00:00.000Z',
@@ -104,15 +111,30 @@ describe('S3ManifestRepository', () => {
   });
 
   describe('find_by_snapshot', () => {
-    it('returns manifest when found by snapshot suffix', async () => {
+    it('loads an indexed snapshot without listing owner prefixes', async () => {
       const manifest = make_manifest();
-      const json = Buffer.from(JSON.stringify(manifest));
-      const encrypted = Buffer.concat([Buffer.from('ENC:'), json]);
+      const pointer = encrypted_json({
+        manifest_key: 'manifests/user@test.com/snap-1.json',
+      });
+      vi.mocked(ctx.storage.get)
+        .mockResolvedValueOnce(pointer)
+        .mockResolvedValueOnce(encrypted_json(manifest));
 
-      (ctx.storage.list as ReturnType<typeof vi.fn>).mockResolvedValue([
-        'manifests/user@test.com/snap-1.json',
-      ]);
-      (ctx.storage.get as ReturnType<typeof vi.fn>).mockResolvedValue(encrypted);
+      const result = await repo.find_by_snapshot(ctx, 'snap-1');
+
+      expect(result?.snapshot_id).toBe('snap-1');
+      expect(ctx.storage.list).not.toHaveBeenCalled();
+      expect(ctx.storage.get).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to the legacy manifest layout', async () => {
+      const manifest = make_manifest();
+      const encrypted = encrypted_json(manifest);
+
+      vi.mocked(ctx.storage.get)
+        .mockRejectedValueOnce(new Error('snapshot pointer not found'))
+        .mockResolvedValueOnce(encrypted);
+      vi.mocked(ctx.storage.list).mockResolvedValue(['manifests/user@test.com/snap-1.json']);
 
       const result = await repo.find_by_snapshot(ctx, 'snap-1');
       expect(result).toBeDefined();
@@ -120,7 +142,8 @@ describe('S3ManifestRepository', () => {
     });
 
     it('returns undefined when no match', async () => {
-      (ctx.storage.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('snapshot pointer not found'));
+      vi.mocked(ctx.storage.list).mockResolvedValue([]);
 
       const result = await repo.find_by_snapshot(ctx, 'nonexistent');
       expect(result).toBeUndefined();
@@ -128,6 +151,25 @@ describe('S3ManifestRepository', () => {
   });
 
   describe('find_latest_by_owner', () => {
+    it('loads the indexed latest manifest without scanning snapshot history', async () => {
+      const manifest = make_manifest({
+        snapshot_id: 'snap-new',
+        created_at: new Date('2026-06-01T00:00:00Z'),
+      });
+      const pointer = encrypted_json({
+        manifest_key: 'manifests/user@test.com/snap-new.json',
+      });
+      const encrypted = encrypted_json(manifest);
+
+      vi.mocked(ctx.storage.get).mockResolvedValueOnce(pointer).mockResolvedValueOnce(encrypted);
+
+      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
+
+      expect(result?.snapshot_id).toBe('snap-new');
+      expect(ctx.storage.list).not.toHaveBeenCalled();
+      expect(ctx.storage.get).toHaveBeenCalledTimes(2);
+    });
+
     it('returns the most recent manifest', async () => {
       const older = make_manifest({
         id: 'old',
@@ -140,16 +182,17 @@ describe('S3ManifestRepository', () => {
         created_at: new Date('2026-06-01T00:00:00Z'),
       });
 
-      const enc_old = Buffer.concat([Buffer.from('ENC:'), Buffer.from(JSON.stringify(older))]);
-      const enc_new = Buffer.concat([Buffer.from('ENC:'), Buffer.from(JSON.stringify(newer))]);
+      const enc_old = encrypted_json(older);
+      const enc_new = encrypted_json(newer);
 
-      (ctx.storage.list as ReturnType<typeof vi.fn>).mockResolvedValue([
+      vi.mocked(ctx.storage.get)
+        .mockRejectedValueOnce(new Error('latest pointer not found'))
+        .mockResolvedValueOnce(enc_old)
+        .mockResolvedValueOnce(enc_new);
+      vi.mocked(ctx.storage.list).mockResolvedValue([
         'manifests/user@test.com/snap-old.json',
         'manifests/user@test.com/snap-new.json',
       ]);
-      (ctx.storage.get as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce(enc_old)
-        .mockResolvedValueOnce(enc_new);
 
       const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
       expect(result).toBeDefined();
@@ -157,10 +200,62 @@ describe('S3ManifestRepository', () => {
     });
 
     it('returns undefined for empty mailbox', async () => {
-      (ctx.storage.list as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('latest pointer not found'));
+      vi.mocked(ctx.storage.list).mockResolvedValue([]);
 
       const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('list_all_manifests', () => {
+    it('bounds parallel manifest downloads', async () => {
+      const keys = Array.from(
+        { length: 12 },
+        (_, index) => `manifests/user@test.com/snap-${index}.json`,
+      );
+      let in_flight = 0;
+      let max_in_flight = 0;
+      let started = 0;
+      let signal_first_batch!: () => void;
+      let signal_all_started!: () => void;
+      const first_batch_started = new Promise<void>((resolve) => {
+        signal_first_batch = resolve;
+      });
+      const all_downloads_started = new Promise<void>((resolve) => {
+        signal_all_started = resolve;
+      });
+      const pending_releases: (() => void)[] = [];
+      vi.mocked(ctx.storage.list).mockResolvedValue(keys);
+      vi.mocked(ctx.storage.get).mockImplementation(
+        (key) =>
+          new Promise<Buffer>((resolve) => {
+            in_flight++;
+            started++;
+            max_in_flight = Math.max(max_in_flight, in_flight);
+            if (in_flight === 8) signal_first_batch();
+            if (started === keys.length) signal_all_started();
+            pending_releases.push(() => {
+              in_flight--;
+              const snapshot_id = key.split('/').at(-1)!.replace('.json', '');
+              resolve(encrypted_json(make_manifest({ snapshot_id })));
+            });
+          }),
+      );
+
+      const manifests_promise = repo.list_all_manifests(ctx);
+      await first_batch_started;
+
+      expect(ctx.storage.get).toHaveBeenCalledTimes(8);
+      expect(max_in_flight).toBe(8);
+      for (const release of pending_releases.splice(0)) release();
+
+      await all_downloads_started;
+      for (const release of pending_releases.splice(0)) release();
+      const manifests = await manifests_promise;
+
+      expect(manifests).toHaveLength(keys.length);
+      expect(max_in_flight).toBe(8);
     });
   });
 });
