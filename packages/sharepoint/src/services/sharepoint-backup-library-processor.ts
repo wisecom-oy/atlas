@@ -30,6 +30,7 @@ export interface LibraryProcessingResult {
   delta_link?: string;
   /** Site-wide ledger after this library's retries and new failures. */
   failed_items: FailedItemLedger;
+  interrupted: boolean;
   package_report: PackageReport;
 }
 
@@ -66,6 +67,7 @@ export async function process_single_library(
   ctx: TenantContext,
   version_stats: VersionStatsState,
   failed_items: FailedItemLedger,
+  on_item_processed?: (file_name: string) => void,
 ): Promise<LibraryProcessingResult> {
   const prev_delta =
     options.force_full === true
@@ -92,7 +94,7 @@ export async function process_single_library(
     failed_item_ids: new Set<string>(),
   };
 
-  await retry_failed_items(
+  let interrupted = await retry_failed_items(
     connector,
     tenant_id,
     site_id,
@@ -103,9 +105,16 @@ export async function process_single_library(
     library_state,
     file_indexes,
     version_stats,
+    options.should_interrupt,
+    on_item_processed,
   );
 
+  let processed_delta_items = 0;
   for (const item of delta.items) {
+    if (options.should_interrupt?.() === true) {
+      interrupted = true;
+      break;
+    }
     await process_item_guarded(
       connector,
       item,
@@ -117,11 +126,18 @@ export async function process_single_library(
       file_indexes,
       version_stats,
     );
+    processed_delta_items++;
+    on_item_processed?.(item.file_name);
   }
 
-  const package_report = summarize_package_items(delta.items, library_state.failed_item_ids);
+  const incomplete_item_ids = new Set(library_state.failed_item_ids);
+  if (interrupted) {
+    for (const item of delta.items.slice(processed_delta_items))
+      incomplete_item_ids.add(item.item_id);
+  }
+  const package_report = summarize_package_items(delta.items, incomplete_item_ids);
 
-  delta_link_by_drive[library.drive_id] = delta.delta_link;
+  if (!interrupted) delta_link_by_drive[library.drive_id] = delta.delta_link;
   await cursors.save(ctx, {
     site_id,
     delta_link_by_drive,
@@ -135,7 +151,8 @@ export async function process_single_library(
     files_stored: library_state.library_files_stored,
     files_deduplicated: library_state.library_files_deduplicated,
     deleted_items: library_state.library_deleted_items,
-    delta_link: delta.delta_link,
+    ...(interrupted ? {} : { delta_link: delta.delta_link }),
+    interrupted,
     failed_items: library_state.failed_items,
     package_report,
   };

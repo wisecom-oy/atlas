@@ -188,13 +188,17 @@ export async function retry_failed_items(
   library_state: LibraryProcessingState,
   file_indexes: SharePointFileVersionIndexRepository,
   version_stats: VersionStatsState,
-): Promise<void> {
+  should_interrupt?: () => boolean,
+  on_item_processed?: (file_name: string) => void,
+): Promise<boolean> {
   for (const record of retryable_items(library_state.failed_items, drive_id)) {
+    if (should_interrupt?.() === true) return true;
     const item = await connector.fetch_item_by_id(tenant_id, site_id, drive_id, record.item_id);
 
     if (!item) {
       logger.info(`Failed item ${record.item_id} (${record.name}) no longer exists -- clearing`);
       library_state.failed_items = clear_item_failure(library_state.failed_items, record.item_id);
+      on_item_processed?.(record.name);
       continue;
     }
 
@@ -213,7 +217,9 @@ export async function retry_failed_items(
       file_indexes,
       version_stats,
     );
+    on_item_processed?.(item.file_name);
   }
+  return false;
 }
 
 /** Drops tracking state for one item so it is reprocessed as new content. */

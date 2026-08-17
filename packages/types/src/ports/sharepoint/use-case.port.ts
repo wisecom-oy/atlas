@@ -24,6 +24,7 @@ export interface SharePointBackupSummary {
 export interface SharePointBackupResult {
   readonly site_id: string;
   readonly snapshot: SharePointSnapshotManifest | undefined;
+  readonly interrupted: boolean;
   readonly summary: SharePointBackupSummary;
 }
 
@@ -71,6 +72,7 @@ export interface SharePointVerificationResult {
   readonly total_checked: number;
   readonly passed: number;
   readonly failed_file_ids: string[];
+  readonly interrupted: boolean;
   readonly index_issues: string[];
 }
 

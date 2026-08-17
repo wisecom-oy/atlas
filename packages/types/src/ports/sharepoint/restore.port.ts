@@ -17,6 +17,7 @@ export interface SharePointRestoreResult {
   readonly folders_created: number;
   readonly files_skipped: number;
   readonly errors: string[];
+  readonly interrupted: boolean;
 }
 
 export interface SharePointRestoreUseCase {

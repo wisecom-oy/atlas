@@ -103,10 +103,12 @@ export function build_empty_result(
   errors: string[],
   warnings: string[],
   healthy: boolean,
+  interrupted: boolean,
 ): SharePointBackupResult {
   return {
     site_id,
     snapshot: undefined,
+    interrupted,
     summary: {
       libraries_scanned,
       files_changed: 0,

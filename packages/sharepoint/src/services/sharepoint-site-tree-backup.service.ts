@@ -47,17 +47,18 @@ export class SharePointSiteTreeBackupService implements SharePointSiteTreeBackup
     const root_result = await this._backup.backup_site(tenant_id, root_site_id, options);
     const results = [with_extra_warnings(root_result, root_warnings)];
 
-    if (!include_subsites) return results;
+    if (!include_subsites || root_result.interrupted) return results;
 
     for (const subsite of tree.sites) {
+      if (options.should_interrupt?.() === true) break;
       logger.info(`Backing up subsite: ${subsite.display_name || subsite.site_url}`);
-      results.push(
-        await this._backup.backup_site(tenant_id, subsite.site_id, {
-          ...options,
-          site_url: subsite.site_url,
-          site_display_name: subsite.display_name,
-        }),
-      );
+      const subsite_result = await this._backup.backup_site(tenant_id, subsite.site_id, {
+        ...options,
+        site_url: subsite.site_url,
+        site_display_name: subsite.display_name,
+      });
+      results.push(subsite_result);
+      if (subsite_result.interrupted) break;
     }
 
     return results;

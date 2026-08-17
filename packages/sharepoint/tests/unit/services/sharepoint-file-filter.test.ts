@@ -6,10 +6,8 @@
  * before and 1 after.
  */
 import { describe, it, expect } from 'vitest';
-import 'reflect-metadata';
-import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
-import { SharePointSaveService } from '@/services/sharepoint-save.service';
 import type { SharePointManifestEntry } from '@wisecom/atlas-types';
+import { filter_sharepoint_entries } from '@/services/sharepoint-entry-filter';
 
 const ITEM_ID = '01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3';
 
@@ -21,37 +19,24 @@ const ENTRY = {
   storage_key: 'sharepoint/data/o/abc',
 } as SharePointManifestEntry;
 
-interface Filterable {
-  filter_entries(
-    entries: readonly SharePointManifestEntry[],
-    file_filter?: string[],
-  ): SharePointManifestEntry[];
-}
-
-/** `filter_entries` is private; both services must answer the same way. */
-const services: [string, Filterable][] = [
-  ['restore', SharePointRestoreService.prototype as unknown as Filterable],
-  ['save', SharePointSaveService.prototype as unknown as Filterable],
-];
-
-describe.each(services)('%s file_filter', (_name, service) => {
+describe('SharePoint file_filter', () => {
   it('matches an item id pasted verbatim from a listing', () => {
-    expect(service.filter_entries([ENTRY], [ITEM_ID])).toHaveLength(1);
+    expect(filter_sharepoint_entries([ENTRY], [ITEM_ID])).toHaveLength(1);
   });
 
   it('matches an item id typed in any case', () => {
-    expect(service.filter_entries([ENTRY], [ITEM_ID.toLowerCase()])).toHaveLength(1);
+    expect(filter_sharepoint_entries([ENTRY], [ITEM_ID.toLowerCase()])).toHaveLength(1);
   });
 
   it('still matches by path', () => {
-    expect(service.filter_entries([ENTRY], ['/documents/report.docx'])).toHaveLength(1);
+    expect(filter_sharepoint_entries([ENTRY], ['/documents/report.docx'])).toHaveLength(1);
   });
 
   it('excludes what was not asked for', () => {
-    expect(service.filter_entries([ENTRY], ['/Documents/Other.docx'])).toHaveLength(0);
+    expect(filter_sharepoint_entries([ENTRY], ['/Documents/Other.docx'])).toHaveLength(0);
   });
 
   it('returns everything when no filter is given', () => {
-    expect(service.filter_entries([ENTRY], [])).toHaveLength(1);
+    expect(filter_sharepoint_entries([ENTRY], [])).toHaveLength(1);
   });
 });
