@@ -55,6 +55,12 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
   ): Promise<OneDriveBackupResult> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
+    options.on_progress?.({
+      operation: 'backup',
+      workload: 'onedrive',
+      phase: 'discovering',
+      processed: 0,
+    });
     if (options.object_lock_request?.retention_days) {
       // Bucket default retention: every new object version (files, versions,
       // manifests, cursors) inherits the lock - no write path can forget it.
@@ -130,7 +136,16 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         version_stats,
         update_version_stats,
         progress,
+        options,
       );
+      const processed =
+        scan_result.files_stored + scan_result.files_deduplicated + scan_result.deleted_items;
+      options.on_progress?.({
+        operation: 'backup',
+        workload: 'onedrive',
+        phase: 'finalizing',
+        processed,
+      });
 
       const cursor: OneDriveDeltaCursor = {
         owner_id,
@@ -150,11 +165,12 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       const healthy =
         scan_result.errors.length === 0 && Object.keys(scan_result.failed_items).length === 0;
 
+      let result: OneDriveBackupResult;
       if (scan_result.entries.length === 0) {
         await this._cursors.save(ctx, cursor);
-        return build_empty_result(
+        result = build_empty_result(
           owner_id,
-          drives.length,
+          scan_result.drives_scanned,
           scan_result.files_stored,
           scan_result.files_deduplicated,
           scan_result.deleted_items,
@@ -162,43 +178,52 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           total_versions_unavailable,
           scan_result.errors,
           warnings,
+          scan_result.interrupted,
+          healthy,
+        );
+      } else {
+        const snapshot = build_snapshot_manifest(
+          tenant_id,
+          owner_id,
+          scan_result.entries,
+          snapshot_id,
+          manifest_created_at,
+          options.owner_email,
+          options.owner_display_name,
+        );
+        await persist_snapshot_backup(
+          this._manifests,
+          this._file_indexes,
+          this._cursors,
+          ctx,
+          owner_id,
+          snapshot,
+          scan_result.entries,
+          cursor,
+        );
+        result = build_success_result(
+          owner_id,
+          snapshot,
+          scan_result.drives_scanned,
+          scan_result.files_stored,
+          scan_result.files_deduplicated,
+          scan_result.deleted_items,
+          total_versions_stored,
+          total_versions_unavailable,
+          scan_result.errors,
+          warnings,
+          scan_result.interrupted,
           healthy,
         );
       }
 
-      const snapshot = build_snapshot_manifest(
-        tenant_id,
-        owner_id,
-        scan_result.entries,
-        snapshot_id,
-        manifest_created_at,
-        options.owner_email,
-        options.owner_display_name,
-      );
-      await persist_snapshot_backup(
-        this._manifests,
-        this._file_indexes,
-        this._cursors,
-        ctx,
-        owner_id,
-        snapshot,
-        scan_result.entries,
-        cursor,
-      );
-
-      return build_success_result(
-        owner_id,
-        snapshot,
-        drives.length,
-        scan_result.files_stored,
-        scan_result.files_deduplicated,
-        scan_result.deleted_items,
-        total_versions_stored,
-        total_versions_unavailable,
-        scan_result.errors,
-        warnings,
-        healthy,
-      );
+      options.on_progress?.({
+        operation: 'backup',
+        workload: 'onedrive',
+        phase: scan_result.interrupted ? 'interrupted' : 'completed',
+        processed,
+      });
+      return result;
     } finally {
       progress?.finish();
       ctx.destroy();

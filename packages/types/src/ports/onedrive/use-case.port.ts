@@ -24,6 +24,7 @@ export interface OneDriveBackupSummary {
 export interface OneDriveBackupResult {
   readonly owner_id: string;
   readonly snapshot: OneDriveSnapshotManifest | undefined;
+  readonly interrupted: boolean;
   readonly summary: OneDriveBackupSummary;
 }
 
@@ -73,6 +74,7 @@ export interface OneDriveVerificationResult {
   readonly passed: number;
   readonly failed_file_ids: string[];
   readonly index_issues: string[];
+  readonly interrupted: boolean;
 }
 
 export interface OneDriveVerificationUseCase {

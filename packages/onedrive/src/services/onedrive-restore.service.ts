@@ -1,5 +1,4 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveConnector,
@@ -22,16 +21,14 @@ import {
   stream_decrypt_from_storage,
   verify_streaming_checksum,
 } from '@/services/onedrive-restore-streaming';
+import {
+  is_gcm_auth_failure,
+  OneDriveDecryptAuthError,
+  plaintext_sha256_equals_expected,
+} from '@/services/onedrive-restore-integrity';
+import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
-
-/** Thrown when ciphertext decrypts with AES-GCM but fails the authentication tag check. */
-export class OneDriveDecryptAuthError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = 'OneDriveDecryptAuthError';
-  }
-}
 
 @injectable()
 export class OneDriveRestoreService implements OneDriveRestoreUseCase {
@@ -50,6 +47,12 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
   ): Promise<OneDriveRestoreResult> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
+    options.on_progress?.({
+      operation: 'restore',
+      workload: 'onedrive',
+      phase: 'discovering',
+      processed: 0,
+    });
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
       if (!manifest) {
@@ -65,7 +68,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const drive_id = primary_drive.drive_id;
 
       const conflict = options.conflict_behavior ?? 'rename';
-      const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const entries = filter_onedrive_entries(manifest.entries, options.file_filter);
       const folder_ids = new Map<string, string>();
       folder_ids.set('/', 'root');
 
@@ -76,8 +79,16 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const sorted_entries = [...entries].filter(
         (e) => e.change_type !== 'deleted' && e.storage_key,
       );
+      options.on_progress?.({
+        operation: 'restore',
+        workload: 'onedrive',
+        phase: 'processing',
+        processed: 0,
+        total: sorted_entries.length,
+      });
 
       for (const entry of sorted_entries) {
+        if (options.should_interrupt?.() === true) break;
         const result = await this.restore_single_entry(
           tenant_id,
           target_owner,
@@ -93,9 +104,25 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           files_skipped++;
           if (result.error) errors.push(result.error);
         }
+        options.on_progress?.({
+          operation: 'restore',
+          workload: 'onedrive',
+          phase: 'processing',
+          processed: files_restored + files_skipped,
+          total: sorted_entries.length,
+          current: entry.file_name,
+        });
       }
 
       const folders_created = Math.max(0, folder_ids.size - 1);
+      const interrupted = options.should_interrupt?.() === true;
+      options.on_progress?.({
+        operation: 'restore',
+        workload: 'onedrive',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: files_restored + files_skipped,
+        total: sorted_entries.length,
+      });
 
       return {
         snapshot_id: options.snapshot_id,
@@ -103,6 +130,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         folders_created,
         files_skipped,
         errors,
+        interrupted,
       };
     } finally {
       ctx.destroy();
@@ -171,19 +199,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return { restored: false, error: msg };
     }
-  }
-
-  private filter_entries(
-    entries: readonly OneDriveManifestEntry[],
-    file_filter?: string[],
-  ): OneDriveManifestEntry[] {
-    if (!file_filter || file_filter.length === 0) return [...entries];
-    const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
-    return entries.filter(
-      (e) =>
-        filter_set.has(e.file_id.toLowerCase()) ||
-        filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
-    );
   }
 
   private async ensure_folder_path(
@@ -301,16 +316,4 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       return undefined;
     }
   }
-}
-
-function is_gcm_auth_failure(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-  return msg.includes('Unsupported state') || lower.includes('auth');
-}
-
-function plaintext_sha256_equals_expected(content: Buffer, expected_hex: string): boolean {
-  const actual_hex = createHash('sha256').update(content).digest('hex');
-  if (actual_hex.length !== expected_hex.length) return false;
-  return timingSafeEqual(Buffer.from(actual_hex, 'utf8'), Buffer.from(expected_hex, 'utf8'));
 }

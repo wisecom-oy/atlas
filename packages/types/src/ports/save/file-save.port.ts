@@ -18,6 +18,7 @@ export interface FileSaveResult {
   readonly integrity_failures: string[];
   readonly output_path: string;
   readonly total_bytes: number;
+  readonly interrupted: boolean;
 }
 
 export interface OneDriveSaveUseCase {

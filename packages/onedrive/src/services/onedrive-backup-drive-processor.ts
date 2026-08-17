@@ -8,6 +8,7 @@ import type {
   OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
   TenantContext,
+  OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
@@ -50,6 +51,7 @@ export interface SingleDriveResult {
   /** Reason per item that failed this run. */
   errors: string[];
   package_report: PackageReport;
+  interrupted: boolean;
 }
 
 export interface DriveScanAccumulators {
@@ -61,6 +63,8 @@ export interface DriveScanAccumulators {
   failed_items: FailedItemLedger;
   /** Drive-level failures. Per-item failures live in `failed_items` instead. */
   errors: string[];
+  drives_scanned: number;
+  interrupted: boolean;
   package_report: PackageReportTotals;
 }
 
@@ -83,6 +87,7 @@ export async function scan_all_drives(
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   progress?: BackupProgressReporter,
+  control: OperationControlOptions = {},
 ): Promise<DriveScanAccumulators> {
   const accumulators: DriveScanAccumulators = {
     entries: [],
@@ -91,12 +96,19 @@ export async function scan_all_drives(
     deleted_items: 0,
     failed_items: { ...(previous_cursor?.failed_items ?? {}) },
     errors: [],
+    drives_scanned: 0,
+    interrupted: false,
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
   };
 
   const totals: ScanProgressTotals = { processed: 0, total: 0, started_at: Date.now() };
 
   for (const [index, drive] of drives.entries()) {
+    if (control.should_interrupt?.() === true) {
+      accumulators.interrupted = true;
+      progress?.mark_all_pending_interrupted();
+      break;
+    }
     try {
       const prev_delta = force_full
         ? undefined
@@ -108,7 +120,18 @@ export async function scan_all_drives(
       progress?.mark_active(index);
 
       const versions_before = version_stats.total_versions_stored;
-      const on_item_processed = make_item_progress_callback(progress, index, totals);
+      const update_item_progress = make_item_progress_callback(progress, index, totals);
+      const on_item_processed = (item: OneDriveDeltaItem): void => {
+        update_item_progress();
+        control.on_progress?.({
+          operation: 'backup',
+          workload: 'onedrive',
+          phase: 'processing',
+          processed: totals.processed,
+          total: totals.total,
+          current: item.file_name,
+        });
+      };
 
       const drive_result = await process_single_drive(
         connector,
@@ -124,6 +147,7 @@ export async function scan_all_drives(
         version_stats,
         on_version_stats_update,
         on_item_processed,
+        control,
       );
 
       // Notebook accounting stands apart from the entry bookkeeping: a drive
@@ -131,6 +155,7 @@ export async function scan_all_drives(
       // incomplete, so it is folded in for every drive, failed or not.
       accumulate_package_report(accumulators.package_report, drive_result.package_report);
       accumulate_drive_result(accumulators, delta_link_by_drive, drive, drive_result);
+      accumulators.drives_scanned++;
 
       // Saved even when items failed: the successful entries are real, and the
       // ledger riding along is what keeps the failures from being forgotten.
@@ -141,13 +166,20 @@ export async function scan_all_drives(
         failed_items: accumulators.failed_items,
         updated_at: new Date().toISOString(),
       });
-      report_drive_success(
-        progress,
-        index,
-        delta.items.length === 0 && prev_delta !== undefined && drive_result.entries.length === 0,
-        drive_result,
-        version_stats.total_versions_stored - versions_before,
-      );
+      if (!drive_result.interrupted) {
+        report_drive_success(
+          progress,
+          index,
+          delta.items.length === 0 && prev_delta !== undefined && drive_result.entries.length === 0,
+          drive_result,
+          version_stats.total_versions_stored - versions_before,
+        );
+      }
+      if (drive_result.interrupted || control.should_interrupt?.() === true) {
+        accumulators.interrupted = true;
+        progress?.mark_all_pending_interrupted();
+        break;
+      }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`Drive ${drive.drive_id} failed: ${reason}`);
@@ -171,8 +203,9 @@ function accumulate_drive_result(
   accumulators.files_deduplicated += drive_result.files_deduplicated;
   accumulators.deleted_items += drive_result.deleted_items;
   accumulators.failed_items = drive_result.failed_items;
+  accumulators.interrupted ||= drive_result.interrupted;
 
-  if (drive_result.delta_link) {
+  if (!drive_result.interrupted && drive_result.delta_link) {
     delta_link_by_drive[drive.drive_id] = drive_result.delta_link;
   }
   if (drive_result.errors.length > 0) {
@@ -210,7 +243,8 @@ export async function process_single_drive(
   failed_items: FailedItemLedger,
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
-  on_item_processed?: () => void,
+  on_item_processed?: (item: OneDriveDeltaItem) => void,
+  control: OperationControlOptions = {},
 ): Promise<SingleDriveResult> {
   if (delta.reset_detected) {
     clear_file_tracking_on_reset(state);
@@ -241,12 +275,18 @@ export async function process_single_drive(
     deleted_items: 0,
     delta_link: delta.delta_link,
     failed_items: retry.ledger,
+    interrupted: false,
     errors: [],
     // Replaced once every item in this batch has been processed.
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
   };
 
   for (const { item, from_delta } of queue) {
+    if (control.should_interrupt?.() === true) {
+      result.interrupted = true;
+      delete result.delta_link;
+      break;
+    }
     const outcome = await process_delta_item(
       connector,
       file_indexes,
@@ -259,7 +299,7 @@ export async function process_single_drive(
       on_version_stats_update,
     );
     // Progress rows were sized from the delta batch; retried items are extra.
-    if (from_delta) on_item_processed?.();
+    if (from_delta) on_item_processed?.(item);
 
     if (outcome.error) {
       logger.warn(`Drive ${drive.drive_id}: ${outcome.error}`);

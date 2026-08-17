@@ -25,6 +25,7 @@ import {
   stream_decrypt_from_storage,
   verify_streaming_checksum,
 } from '@/services/onedrive-restore-streaming';
+import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
 
 @injectable()
 export class OneDriveSaveService implements OneDriveSaveUseCase {
@@ -42,17 +43,31 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
   ): Promise<FileSaveResult> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
+    options.on_progress?.({
+      operation: 'save',
+      workload: 'onedrive',
+      phase: 'discovering',
+      processed: 0,
+    });
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
       if (!manifest) {
         throw new Error(`Snapshot ${options.snapshot_id} not found for owner ${owner_id}`);
       }
 
-      const entries = this.filter_entries(manifest.entries, options.file_filter);
+      const entries = filter_onedrive_entries(manifest.entries, options.file_filter);
       const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
       if (restorable.length === 0) {
-        return this.empty_result(options.snapshot_id, options.output_path ?? '');
+        const interrupted = options.should_interrupt?.() === true;
+        options.on_progress?.({
+          operation: 'save',
+          workload: 'onedrive',
+          phase: interrupted ? 'interrupted' : 'completed',
+          processed: 0,
+          total: 0,
+        });
+        return this.empty_result(options.snapshot_id, options.output_path ?? '', interrupted);
       }
 
       const output_path =
@@ -60,35 +75,33 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
       const skip_integrity = options.skip_integrity_check ?? false;
       const { archive, promise } = create_file_archive(output_path);
 
-      let files_saved = 0;
-      let files_skipped = 0;
-      const errors: string[] = [];
       const integrity_failures: string[] = [];
+      const { files_saved, files_skipped, errors } = await this.save_restorable_entries_to_archive(
+        ctx,
+        archive,
+        restorable,
+        skip_integrity,
+        integrity_failures,
+        options,
+      );
 
-      for (const entry of restorable) {
-        try {
-          const content = await this.download_and_decrypt(
-            ctx,
-            entry,
-            skip_integrity,
-            integrity_failures,
-          );
-          if (!content) {
-            files_skipped++;
-            continue;
-          }
-          await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
-          files_saved++;
-          logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
-        } catch (err) {
-          const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
-          errors.push(msg);
-          files_skipped++;
-        }
-      }
-
+      options.on_progress?.({
+        operation: 'save',
+        workload: 'onedrive',
+        phase: 'finalizing',
+        processed: files_saved + files_skipped,
+        total: restorable.length,
+      });
       await finalize_file_archive(archive);
       const total_bytes = await promise;
+      const interrupted = options.should_interrupt?.() === true;
+      options.on_progress?.({
+        operation: 'save',
+        workload: 'onedrive',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: files_saved + files_skipped,
+        total: restorable.length,
+      });
 
       return {
         snapshot_id: options.snapshot_id,
@@ -98,23 +111,64 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
         integrity_failures,
         output_path,
         total_bytes,
+        interrupted,
       };
     } finally {
       ctx.destroy();
     }
   }
 
-  private filter_entries(
-    entries: readonly OneDriveManifestEntry[],
-    file_filter?: string[],
-  ): OneDriveManifestEntry[] {
-    if (!file_filter || file_filter.length === 0) return [...entries];
-    const filter_set = new Set(file_filter.map((f) => f.toLowerCase()));
-    return entries.filter(
-      (e) =>
-        filter_set.has(e.file_id.toLowerCase()) ||
-        filter_set.has(`${e.parent_path}/${e.file_name}`.toLowerCase()),
-    );
+  /** Saves sequential entries until cancellation, reporting partial counts. */
+  private async save_restorable_entries_to_archive(
+    ctx: TenantContext,
+    archive: Parameters<typeof add_file_to_archive>[0],
+    entries: OneDriveManifestEntry[],
+    skip_integrity: boolean,
+    integrity_failures: string[],
+    options: FileSaveOptions,
+  ): Promise<{ files_saved: number; files_skipped: number; errors: string[] }> {
+    let files_saved = 0;
+    let files_skipped = 0;
+    const errors: string[] = [];
+    options.on_progress?.({
+      operation: 'save',
+      workload: 'onedrive',
+      phase: 'processing',
+      processed: 0,
+      total: entries.length,
+    });
+
+    for (const entry of entries) {
+      if (options.should_interrupt?.() === true) break;
+      try {
+        const content = await this.download_and_decrypt(
+          ctx,
+          entry,
+          skip_integrity,
+          integrity_failures,
+        );
+        if (!content) {
+          files_skipped++;
+        } else {
+          await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
+          files_saved++;
+          logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
+        }
+      } catch (err) {
+        errors.push(`${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`);
+        files_skipped++;
+      }
+      options.on_progress?.({
+        operation: 'save',
+        workload: 'onedrive',
+        phase: 'processing',
+        processed: files_saved + files_skipped,
+        total: entries.length,
+        current: entry.file_name,
+      });
+    }
+
+    return { files_saved, files_skipped, errors };
   }
 
   private async download_and_decrypt(
@@ -169,7 +223,11 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     }
   }
 
-  private empty_result(snapshot_id: string, output_path: string): FileSaveResult {
+  private empty_result(
+    snapshot_id: string,
+    output_path: string,
+    interrupted = false,
+  ): FileSaveResult {
     return {
       snapshot_id,
       files_saved: 0,
@@ -178,6 +236,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
       integrity_failures: [],
       output_path,
       total_bytes: 0,
+      interrupted,
     };
   }
 }
