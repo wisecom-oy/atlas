@@ -16,10 +16,7 @@ import {
   record_item_failure,
   type FailedItemLedger,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import {
-  summarize_package_items,
-  type PackageReport,
-} from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
 import {
   clear_file_tracking_on_reset,
   process_delta_item,
@@ -32,13 +29,11 @@ import {
   report_drive_success,
   type ScanProgressTotals,
 } from '@/services/onedrive-scan-progress';
-
-/** Package accounting summed across every drive in one run. */
-export interface PackageReportTotals {
-  notebooks_detected: number;
-  section_files_backed_up: number;
-  warnings: string[];
-}
+import {
+  accumulate_package_report,
+  summarize_processed_package_items,
+  type PackageReportTotals,
+} from '@/services/onedrive-package-report';
 
 export interface SingleDriveResult {
   entries: OneDriveManifestEntry[];
@@ -216,13 +211,6 @@ function accumulate_drive_result(
   }
 }
 
-/** Folds one drive's package report into the run-wide totals. */
-function accumulate_package_report(totals: PackageReportTotals, report: PackageReport): void {
-  totals.notebooks_detected += report.notebooks_detected;
-  totals.section_files_backed_up += report.section_files_backed_up;
-  totals.warnings.push(...report.warnings);
-}
-
 /**
  * Processes delta changes for a single OneDrive drive.
  *
@@ -258,10 +246,12 @@ export async function process_single_drive(
     drive.drive_id,
     failed_items,
     delta_item_ids,
+    control.should_interrupt,
   );
   // Ids that failed in THIS run drive notebook completeness; the ledger also
   // carries older failures, which say nothing about this batch.
   const failed_item_ids = new Set<string>();
+  const processed_delta_item_ids = new Set<string>();
 
   const queue: Array<{ item: OneDriveDeltaItem; from_delta: boolean }> = [
     ...retry.items.map((item) => ({ item, from_delta: false })),
@@ -275,14 +265,14 @@ export async function process_single_drive(
     deleted_items: 0,
     delta_link: delta.delta_link,
     failed_items: retry.ledger,
-    interrupted: false,
+    interrupted: retry.interrupted,
     errors: [],
     // Replaced once every item in this batch has been processed.
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
   };
 
   for (const { item, from_delta } of queue) {
-    if (control.should_interrupt?.() === true) {
+    if (result.interrupted || control.should_interrupt?.() === true) {
       result.interrupted = true;
       delete result.delta_link;
       break;
@@ -300,6 +290,7 @@ export async function process_single_drive(
     );
     // Progress rows were sized from the delta batch; retried items are extra.
     if (from_delta) on_item_processed?.(item);
+    if (from_delta) processed_delta_item_ids.add(item.item_id);
 
     if (outcome.error) {
       logger.warn(`Drive ${drive.drive_id}: ${outcome.error}`);
@@ -321,6 +312,11 @@ export async function process_single_drive(
     if (outcome.entry) result.entries.push(outcome.entry);
   }
 
-  result.package_report = summarize_package_items(delta.items, failed_item_ids);
+  result.package_report = summarize_processed_package_items(
+    delta.items,
+    failed_item_ids,
+    processed_delta_item_ids,
+    result.interrupted,
+  );
   return result;
 }

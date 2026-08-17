@@ -2,11 +2,13 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   OneDriveDeltaCursor,
   OneDriveDeltaItem,
+  OneDriveConnector,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { resolve_retry_items } from '@/services/onedrive-failed-item-retry';
 
 // Issue #34: one persistently failing file must not freeze a drive's delta
 // cursor. The run keeps its successful entries, advances the delta link, and
@@ -256,5 +258,22 @@ describe('OneDrive persistent item failure (issue #34)', () => {
       expect.stringContaining(`PERMANENTLY SKIPPED after ${MAX_FAILED_ITEM_ATTEMPTS} attempts`),
     ]);
     expect(result.summary.healthy).toBe(false);
+  });
+  it('does not fetch another failed item after cancellation', async () => {
+    const fetch_item_by_id = vi.fn();
+    const connector = { fetch_item_by_id } as unknown as OneDriveConnector;
+
+    const result = await resolve_retry_items(
+      connector,
+      't',
+      OWNER_ID,
+      DRIVE_ID,
+      { p1: make_failure('p1', 1) },
+      new Set<string>(),
+      () => true,
+    );
+
+    expect(result.interrupted).toBe(true);
+    expect(fetch_item_by_id).not.toHaveBeenCalled();
   });
 });

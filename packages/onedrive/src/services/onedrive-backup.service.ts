@@ -27,10 +27,8 @@ import {
   persist_snapshot_backup,
 } from '@/services/onedrive-backup-builders';
 import { ensure_drives_discovered } from '@/services/onedrive-backup-file-processor';
-import {
-  scan_all_drives,
-  type PackageReportTotals,
-} from '@/services/onedrive-backup-drive-processor';
+import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
+import type { PackageReportTotals } from '@/services/onedrive-package-report';
 import { cleanup_stale_staging } from '@/services/onedrive-large-file-pipeline';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 

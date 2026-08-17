@@ -12,6 +12,7 @@ export interface RetryResolution {
   items: OneDriveDeltaItem[];
   /** Ledger with vanished items dropped and unreachable ones re-recorded. */
   ledger: FailedItemLedger;
+  interrupted: boolean;
 }
 
 /**
@@ -30,11 +31,13 @@ export async function resolve_retry_items(
   drive_id: string,
   ledger: FailedItemLedger,
   delta_item_ids: ReadonlySet<string>,
+  should_interrupt?: () => boolean,
 ): Promise<RetryResolution> {
   const items: OneDriveDeltaItem[] = [];
   let next_ledger = ledger;
 
   for (const record of retryable_items(ledger, drive_id)) {
+    if (should_interrupt?.() === true) return { items, ledger: next_ledger, interrupted: true };
     if (delta_item_ids.has(record.item_id)) continue;
 
     try {
@@ -56,5 +59,5 @@ export async function resolve_retry_items(
     }
   }
 
-  return { items, ledger: next_ledger };
+  return { items, ledger: next_ledger, interrupted: false };
 }
