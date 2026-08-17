@@ -39,6 +39,7 @@ interface OutlookReplicationMock {
   replicate_snapshot: Mock;
   get_replication_status: Mock;
   get_replication_status_by_owner: Mock;
+  replicate_tenant: Mock;
   rehydrate_tenant: Mock;
 }
 
@@ -84,6 +85,14 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
       get_replication_status: vi.fn().mockResolvedValue([]),
       get_replication_status_by_owner: vi.fn().mockResolvedValue([]),
       rehydrate_tenant: vi.fn().mockResolvedValue({
+        total: RESULT,
+        workloads: [
+          { workload: 'outlook', result: RESULT },
+          { workload: 'onedrive', result: RESULT },
+          { workload: 'sharepoint', result: RESULT },
+        ],
+      }),
+      replicate_tenant: vi.fn().mockResolvedValue({
         total: RESULT,
         workloads: [
           { workload: 'outlook', result: RESULT },
@@ -195,6 +204,15 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
     );
   });
 
+  it('dispatches replicate --all to tenant-wide replication', async () => {
+    await program.parseAsync(['replicate', '--all', ...TARGET_ARGS], { from: 'user' });
+
+    expect(outlook.replicate_tenant).toHaveBeenCalledWith('test-tenant', [
+      expect.objectContaining({ endpoint: 'http://replica:9000' }),
+    ]);
+    expect(outlook.replicate_snapshot).not.toHaveBeenCalled();
+  });
+
   it('warns naming each workload the replica held nothing for', async () => {
     const warn_spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const empty = { ...RESULT, objects_copied: 0, objects_skipped: 0, objects_total: 0 };
@@ -212,6 +230,25 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
     const warned = warn_spy.mock.calls.map((c) => c.join(' ')).join('\n');
     expect(warned).toContain('onedrive, sharepoint');
     expect(warned).not.toContain('outlook,');
+    warn_spy.mockRestore();
+  });
+
+  it('does not warn when replicate --all finds the target already current', async () => {
+    const warn_spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const nothing = { ...RESULT, objects_copied: 0, objects_skipped: 0, objects_total: 0 };
+    vi.mocked(outlook.replicate_tenant).mockResolvedValue({
+      total: nothing,
+      workloads: [
+        { workload: 'outlook', result: nothing },
+        { workload: 'onedrive', result: nothing },
+        { workload: 'sharepoint', result: nothing },
+      ],
+    });
+
+    await program.parseAsync(['replicate', '--all', ...TARGET_ARGS], { from: 'user' });
+
+    // Outbound zeroes mean "target already current" -- warning here would fire every run.
+    expect(warn_spy).not.toHaveBeenCalled();
     warn_spy.mockRestore();
   });
 });

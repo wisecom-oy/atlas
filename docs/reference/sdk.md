@@ -275,6 +275,10 @@ const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
 // Replicate all unreplicated snapshots for a mailbox
 const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
 
+// Replicate every workload (Outlook + OneDrive + SharePoint), reported per workload
+const tenant = await atlas.replicateTenant([offsite]);
+console.log(tenant.total.objects_copied);
+
 // Query replication status
 const status = await atlas.getReplicationStatus('snapshot-id');
 

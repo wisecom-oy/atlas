@@ -16,10 +16,14 @@ import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-sna
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
 import { rehydrate_od_manifests } from '@/services/replication/rehydration-od-manifests-runner';
+import { group_manifests_by_scope } from '@/services/replication/manifest-grouping';
+import {
+  replicate_every_scope,
+  rehydrate_every_scope,
+} from '@/services/replication/tenant-scope-fanout';
 import {
   build_replication_result,
   build_skip_result,
-  merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import {
   OD_MANIFEST_PREFIX,
@@ -189,33 +193,38 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     const source_ctx = await source.create_context(tenant_id);
     try {
       const all = await this._od_manifests.list_all_manifests(source_ctx);
-      const by_owner = new Map<string, OneDriveSnapshotManifest[]>();
-      for (const manifest of all) {
-        const bucket = by_owner.get(manifest.owner_id);
-        if (bucket) bucket.push(manifest);
-        else by_owner.set(manifest.owner_id, [manifest]);
-      }
-
-      const results: ReplicationResult[] = [];
-      for (const [owner_id, manifests] of by_owner) {
-        const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
-        results.push(
-          await this.rehydrate_owner_manifests(
+      return await rehydrate_every_scope(
+        group_manifests_by_scope(all, (m) => m.owner_id),
+        'owners',
+        source.target_id,
+        async (owner_id, manifests) =>
+          this.rehydrate_owner_manifests(
             source_ctx,
             primary_ctx,
             manifests,
-            ancillary,
+            await collect_od_ancillary_keys(source_ctx, owner_id),
             source,
             tenant_id,
           ),
-        );
-      }
-
-      return merge_replication_results(results, `${by_owner.size}-owners`, source.target_id);
+      );
     } finally {
       source_ctx.destroy();
       primary_ctx.destroy();
     }
+  }
+
+  /** Replicates every unreplicated OneDrive snapshot for every owner in the tenant. */
+  async replicate_all_owners(
+    tenant_id: string,
+    targets: StorageTarget[],
+  ): Promise<ReplicationResult[]> {
+    return replicate_every_scope(
+      this._tenant_factory,
+      tenant_id,
+      (ctx) => this._od_manifests.list_all_manifests(ctx),
+      (m) => m.owner_id,
+      (owner_id) => this.replicate_all_owner_snapshots(tenant_id, owner_id, targets),
+    );
   }
 
   private async copy_to_target(

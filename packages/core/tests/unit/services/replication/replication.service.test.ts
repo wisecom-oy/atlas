@@ -1,94 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ReplicationService } from '@/services/replication/replication.service';
-import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
+import { ReplicationStatus } from '@wisecom/atlas-types';
 import type {
   TenantContext,
   TenantContextFactory,
   ManifestRepository,
   ObjectStorage,
-  Manifest,
-  ManifestEntry,
   StorageTarget,
   StorageTargetFactory,
   DekValidationFn,
-  ReplicationResult,
   OneDriveReplicationUseCase,
   SharePointReplicationUseCase,
 } from '@wisecom/atlas-types';
-import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
-import type { AtlasConfig } from '@/utils/config';
+import {
+  TEST_CONFIG,
+  make_ctx,
+  make_dek_validator,
+  make_entry,
+  make_manifest,
+  make_manifest_repository,
+  make_onedrive_replication_mock,
+  make_sharepoint_replication_mock,
+  make_storage,
+  make_storage_target,
+} from './replication-fixtures';
 
 vi.mock('@/services/replication/rehydration-dek-helper', () => ({
   ensure_source_dek_on_primary: vi.fn().mockResolvedValue(undefined),
 }));
-
-function make_storage(): ObjectStorage {
-  return {
-    put: vi.fn(),
-    get: vi.fn().mockResolvedValue(Buffer.from('encrypted-blob')),
-    delete: vi.fn(),
-    delete_version: vi.fn(),
-    exists: vi.fn().mockResolvedValue(false),
-    list: vi.fn().mockResolvedValue([]),
-    list_versions: vi.fn(),
-    begin_multipart_upload: vi.fn().mockResolvedValue({
-      upload_part: vi.fn(),
-      complete: vi.fn(),
-      abort: vi.fn(),
-    }),
-    copy: vi.fn(),
-    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
-    probe_immutability: vi.fn(),
-  };
-}
-
-function make_entry(key: string): ManifestEntry {
-  return {
-    object_id: `obj-${key}`,
-    storage_key: `data/mbx/${key}`,
-    checksum: 'abc',
-    size_bytes: 100,
-  };
-}
-
-function make_manifest(
-  snapshot_id: string,
-  owner_id = 'mbx-1',
-  entries: ManifestEntry[] = [],
-): Manifest {
-  return {
-    id: `manifest-${snapshot_id}`,
-    tenant_id: 'tenant-1',
-    owner_id,
-    snapshot_id,
-    created_at: new Date('2026-01-01'),
-    total_objects: entries.length,
-    total_size_bytes: entries.reduce((s, e) => s + e.size_bytes, 0),
-    delta_links: {},
-    entries,
-  };
-}
-
-/** Builds a workload-level result as returned by the OneDrive/SharePoint tenant scopes. */
-function make_workload_result(
-  snapshot_id: string,
-  objects_copied: number,
-  bytes_copied = 100,
-): ReplicationResult {
-  return {
-    snapshot_id,
-    target_id: 'offsite',
-    status: ReplicationStatus.COMPLETED,
-    objects_total: objects_copied,
-    objects_copied,
-    objects_skipped: 0,
-    objects_failed: 0,
-    bytes_copied,
-    elapsed_ms: 5,
-    errors: [],
-    verification_status: ReplicationVerificationStatus.SKIPPED,
-  };
-}
 
 describe('ReplicationService', () => {
   let source_storage: ObjectStorage;
@@ -97,7 +36,6 @@ describe('ReplicationService', () => {
   let target_ctx: TenantContext;
   let tenant_factory: TenantContextFactory;
   let manifests: ManifestRepository;
-  let config: AtlasConfig;
   let target: StorageTarget;
   let validate_dek: DekValidationFn;
   let target_factory: StorageTargetFactory;
@@ -108,71 +46,19 @@ describe('ReplicationService', () => {
   beforeEach(() => {
     source_storage = make_storage();
     target_storage = make_storage();
-
-    source_ctx = {
-      tenant_id: 'tenant-1',
-      storage: source_storage,
-      encrypt: vi.fn((d: Buffer) => d),
-      decrypt: vi.fn((d: Buffer) => d),
-      create_cipher: stub_tenant_create_cipher,
-      destroy: vi.fn(),
-    };
-
-    target_ctx = {
-      tenant_id: 'tenant-1',
-      storage: target_storage,
-      encrypt: vi.fn((d: Buffer) => d),
-      decrypt: vi.fn((d: Buffer) => d),
-      create_cipher: stub_tenant_create_cipher,
-      destroy: vi.fn(),
-    };
-
+    source_ctx = make_ctx(source_storage);
+    target_ctx = make_ctx(target_storage);
     tenant_factory = { create: vi.fn().mockResolvedValue(source_ctx) };
-
-    manifests = {
-      save: vi.fn(),
-      find_by_snapshot: vi.fn(),
-      find_latest_by_owner: vi.fn(),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
-    };
-
-    config = {
-      tenant_id: 'tenant-1',
-      client_id: 'c',
-      client_secret: 's',
-      s3_endpoint: 'http://primary:9000',
-      s3_access_key: 'k',
-      s3_secret_key: 's',
-      s3_region: 'us-east-1',
-      encryption_passphrase: 'pass',
-    };
-
-    target = {
-      target_id: 'offsite',
-      endpoint: 'http://offsite:9000',
-      create_context: vi.fn().mockResolvedValue(target_ctx),
-    };
-
-    validate_dek = vi.fn().mockResolvedValue(undefined) as unknown as DekValidationFn;
+    manifests = make_manifest_repository();
+    target = make_storage_target('offsite', target_ctx);
+    validate_dek = make_dek_validator();
     target_factory = vi.fn().mockReturnValue(target) as unknown as StorageTargetFactory;
-    onedrive_replication = {
-      replicate_owner: vi.fn(),
-      replicate_all_owner_snapshots: vi.fn(),
-      rehydrate_owner_snapshot: vi.fn(),
-      rehydrate_owner: vi.fn(),
-      rehydrate_all_owners: vi.fn().mockResolvedValue(make_workload_result('0-owners', 0, 0)),
-    };
-    sharepoint_replication = {
-      replicate_site: vi.fn(),
-      replicate_all_site_snapshots: vi.fn(),
-      rehydrate_site_snapshot: vi.fn(),
-      rehydrate_site: vi.fn(),
-      rehydrate_all_sites: vi.fn().mockResolvedValue(make_workload_result('0-sites', 0, 0)),
-    };
+    onedrive_replication = make_onedrive_replication_mock();
+    sharepoint_replication = make_sharepoint_replication_mock();
     service = new ReplicationService(
       tenant_factory,
       manifests,
-      config,
+      TEST_CONFIG,
       validate_dek,
       target_factory,
       onedrive_replication,
@@ -240,73 +126,6 @@ describe('ReplicationService', () => {
 
     expect(result.status).toBe(ReplicationStatus.COMPLETED);
     expect(result.objects_copied).toBe(0);
-  });
-
-  it('rehydrate_tenant recovers Outlook, OneDrive, and SharePoint, not Outlook alone', async () => {
-    const m1 = make_manifest('snap-1', 'mbx-1', []);
-    const m2 = make_manifest('snap-2', 'mbx-2', []);
-
-    vi.mocked(manifests.list_all_manifests).mockImplementation(async (ctx) => {
-      if (ctx === target_ctx) return [m1, m2];
-      return [];
-    });
-    vi.mocked(source_storage.exists).mockResolvedValue(false);
-    vi.mocked(target_storage.exists).mockResolvedValue(false);
-    vi.mocked(source_storage.get).mockResolvedValue(Buffer.from('data'));
-    vi.mocked(target_storage.get).mockResolvedValue(Buffer.from('data'));
-    vi.mocked(onedrive_replication.rehydrate_all_owners).mockResolvedValue(
-      make_workload_result('2-owners', 7, 700),
-    );
-    vi.mocked(sharepoint_replication.rehydrate_all_sites).mockResolvedValue(
-      make_workload_result('1-sites', 59, 5900),
-    );
-
-    const source_target: StorageTarget = {
-      target_id: 'offsite',
-      endpoint: 'http://offsite:9000',
-      create_context: vi.fn().mockResolvedValue(target_ctx),
-    };
-
-    const result = await service.rehydrate_tenant('tenant-1', source_target);
-
-    expect(onedrive_replication.rehydrate_all_owners).toHaveBeenCalledWith(
-      'tenant-1',
-      source_target,
-    );
-    expect(sharepoint_replication.rehydrate_all_sites).toHaveBeenCalledWith(
-      'tenant-1',
-      source_target,
-    );
-    expect(result.workloads.map((w) => w.workload)).toEqual(['outlook', 'onedrive', 'sharepoint']);
-    expect(result.total.status).toBe(ReplicationStatus.COMPLETED);
-    const by_workload = new Map(result.workloads.map((w) => [w.workload, w.result]));
-    expect(by_workload.get('onedrive')?.objects_copied).toBe(7);
-    expect(by_workload.get('sharepoint')?.objects_copied).toBe(59);
-    expect(result.total.objects_copied).toBe(by_workload.get('outlook')!.objects_copied + 7 + 59);
-    expect(result.total.bytes_copied).toBe(by_workload.get('outlook')!.bytes_copied + 700 + 5900);
-  });
-
-  it('rehydrate_tenant reports a workload that failed without hiding it in the aggregate', async () => {
-    vi.mocked(manifests.list_all_manifests).mockResolvedValue([]);
-    vi.mocked(onedrive_replication.rehydrate_all_owners).mockResolvedValue({
-      ...make_workload_result('1-owners', 0, 0),
-      status: ReplicationStatus.FAILED,
-      objects_failed: 3,
-      objects_total: 3,
-      errors: ['onedrive/data/owner/abc: access denied'],
-    });
-
-    const source_target: StorageTarget = {
-      target_id: 'offsite',
-      endpoint: 'http://offsite:9000',
-      create_context: vi.fn().mockResolvedValue(target_ctx),
-    };
-
-    const result = await service.rehydrate_tenant('tenant-1', source_target);
-
-    expect(result.total.status).not.toBe(ReplicationStatus.COMPLETED);
-    expect(result.total.objects_failed).toBe(3);
-    expect(result.total.errors).toContain('onedrive/data/owner/abc: access denied');
   });
 
   it('get_replication_status returns empty when no sidecars exist', async () => {

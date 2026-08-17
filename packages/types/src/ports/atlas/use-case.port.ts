@@ -3,7 +3,7 @@ import type { BucketStats } from '@/domain/stats';
 import type {
   ReplicationResult,
   ReplicationStatusRecord,
-  TenantRehydrationResult,
+  TenantReplicationResult,
 } from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
@@ -34,10 +34,12 @@ export interface AtlasInstance {
   listUsers(): Promise<IdentityRegistry | undefined>;
   replicateSnapshot(snapshotId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
   replicateMailbox(mailboxId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
+  /** Replicates every unreplicated snapshot of every workload, reported per workload. */
+  replicateTenant(targets: StorageTarget[]): Promise<TenantReplicationResult>;
   rehydrateSnapshot(snapshotId: string, source: StorageTarget): Promise<ReplicationResult>;
   rehydrateMailbox(mailboxId: string, source: StorageTarget): Promise<ReplicationResult>;
   /** Full tenant recovery across Outlook, OneDrive, and SharePoint, reported per workload. */
-  rehydrateTenant(source: StorageTarget): Promise<TenantRehydrationResult>;
+  rehydrateTenant(source: StorageTarget): Promise<TenantReplicationResult>;
   getReplicationStatus(snapshotId?: string): Promise<ReplicationStatusRecord[]>;
   getReplicationStatusByMailbox(mailboxId: string): Promise<ReplicationStatusRecord[]>;
 }

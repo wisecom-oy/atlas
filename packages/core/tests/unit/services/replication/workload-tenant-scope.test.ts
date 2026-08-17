@@ -101,7 +101,7 @@ function sp_manifest(site_id: string, snapshot_id: string): SharePointSnapshotMa
   } as unknown as SharePointSnapshotManifest;
 }
 
-describe('tenant-wide workload rehydration', () => {
+describe('tenant-wide workload replication and recovery', () => {
   let source_storage: ObjectStorage;
   let primary_storage: ObjectStorage;
   let source_ctx: TenantContext;
@@ -256,5 +256,57 @@ describe('tenant-wide workload rehydration', () => {
     expect(result.snapshot_id).toBe('2-sites');
     expect(result.objects_copied).toBe(60);
     expect(result.bytes_copied).toBe(6000);
+  });
+
+  it('replicate_all_owners pushes every owner, not just the first', async () => {
+    const manifests: OneDriveManifestRepository = {
+      save: vi.fn(),
+      find_by_snapshot: vi.fn(),
+      find_latest_by_owner: vi.fn(),
+      list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+      list_all_manifests: vi
+        .fn()
+        .mockResolvedValue([
+          od_manifest('owner-a', 'od-1'),
+          od_manifest('owner-b', 'od-2'),
+          od_manifest('owner-a', 'od-3'),
+        ]),
+    };
+    const service = new OneDriveReplicationService(
+      tenant_factory,
+      manifests,
+      CONFIG,
+      validate_dek,
+      target_factory,
+    );
+    const spy = vi.spyOn(service, 'replicate_all_owner_snapshots').mockResolvedValue([]);
+
+    await service.replicate_all_owners('tenant-1', [source]);
+
+    expect(spy.mock.calls.map((c) => c[1])).toEqual(['owner-a', 'owner-b']);
+  });
+
+  it('replicate_all_sites pushes every site, not just the first', async () => {
+    const manifests: SharePointManifestRepository = {
+      save: vi.fn(),
+      find_by_snapshot: vi.fn(),
+      find_latest_by_site: vi.fn(),
+      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+      list_all_manifests: vi
+        .fn()
+        .mockResolvedValue([sp_manifest('site-a', 'sp-1'), sp_manifest('site-b', 'sp-2')]),
+    };
+    const service = new SharePointReplicationService(
+      tenant_factory,
+      manifests,
+      CONFIG,
+      validate_dek,
+      target_factory,
+    );
+    const spy = vi.spyOn(service, 'replicate_all_site_snapshots').mockResolvedValue([]);
+
+    await service.replicate_all_sites('tenant-1', [source]);
+
+    expect(spy.mock.calls.map((c) => c[1])).toEqual(['site-a', 'site-b']);
   });
 });

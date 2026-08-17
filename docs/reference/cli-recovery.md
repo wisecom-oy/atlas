@@ -160,24 +160,32 @@ atlas replicate -m user@company.com --target-config ./offsite.json
 atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target-config ./offsite.json
 atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --target-config ./offsite.json
 
+atlas replicate -o user@company.com --target-config ./offsite.json
+atlas replicate -o user@company.com -s od-snap-1735689600000-a1b2c3 --target-config ./offsite.json
+
+atlas replicate --all --target-config ./offsite.json
+
 atlas replicate --status
 atlas replicate --status -m user@company.com
 atlas replicate --status -s <snapshot-id>
 atlas replicate --status --site https://contoso.sharepoint.com/sites/Engineering
+atlas replicate --status -o user@company.com
 ```
 
-| Option                      | Description                                                |
-| --------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`       | Replicate a specific snapshot                              |
-| `-m, --mailbox <email>`     | Replicate all unreplicated snapshots for a mailbox         |
-| `--site <url-or-id>`        | Replicate all unreplicated snapshots for a SharePoint site |
-| `--target-endpoint <url>`   | Target S3 endpoint URL                                     |
-| `--target-access-key <key>` | Target S3 access key                                       |
-| `--target-secret-key <key>` | Target S3 secret key                                       |
-| `--target-region <region>`  | Target S3 region (default: `us-east-1`)                    |
-| `--target-config <path>`    | Path to JSON file with target S3 credentials               |
-| `--status`                  | Show replication status instead of replicating             |
-| `-t, --tenant <id>`         | Override tenant ID                                         |
+| Option                      | Description                                                 |
+| --------------------------- | ----------------------------------------------------------- |
+| `-s, --snapshot <id>`       | Replicate a specific snapshot                               |
+| `-m, --mailbox <email>`     | Replicate all unreplicated snapshots for a mailbox          |
+| `--site <url-or-id>`        | Replicate all unreplicated snapshots for a SharePoint site  |
+| `-o, --owner <email-or-id>` | Replicate all unreplicated snapshots for a OneDrive owner   |
+| `--all`                     | Replicate every workload: Outlook, OneDrive, and SharePoint |
+| `--target-endpoint <url>`   | Target S3 endpoint URL                                      |
+| `--target-access-key <key>` | Target S3 access key                                        |
+| `--target-secret-key <key>` | Target S3 secret key                                        |
+| `--target-region <region>`  | Target S3 region (default: `us-east-1`)                     |
+| `--target-config <path>`    | Path to JSON file with target S3 credentials                |
+| `--status`                  | Show replication status instead of replicating              |
+| `-t, --tenant <id>`         | Override tenant ID                                          |
 
 ::: tip Target Config File
 The target config file is a JSON object with `s3_endpoint`, `s3_access_key`, `s3_secret_key`, and optionally `s3_region` and `target_id`. The encryption passphrase is shared from the main Atlas configuration.

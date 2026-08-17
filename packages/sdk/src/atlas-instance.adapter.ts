@@ -65,6 +65,9 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     async replicateMailbox(mailbox_id, targets) {
       return await replication.replicate_mailbox(tenant_id, mailbox_id, targets);
     },
+    async replicateTenant(targets) {
+      return await replication.replicate_tenant(tenant_id, targets);
+    },
     async rehydrateSnapshot(snapshot_id, source) {
       return await replication.rehydrate_snapshot(tenant_id, snapshot_id, source);
     },

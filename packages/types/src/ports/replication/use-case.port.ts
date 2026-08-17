@@ -1,7 +1,7 @@
 import type {
   ReplicationResult,
   ReplicationStatusRecord,
-  TenantRehydrationResult,
+  TenantReplicationResult,
 } from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
@@ -19,6 +19,14 @@ export interface ReplicationUseCase {
     owner_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]>;
+
+  /**
+   * Replicates every unreplicated snapshot of every workload to one or more targets.
+   *
+   * Returns a per-workload breakdown, so "replicate everything" can be audited instead of
+   * reporting one aggregate that hides a workload nothing was copied for.
+   */
+  replicate_tenant(tenant_id: string, targets: StorageTarget[]): Promise<TenantReplicationResult>;
 
   /** DR: recover a specific snapshot from a designated replica to primary. */
   rehydrate_snapshot(
@@ -40,7 +48,7 @@ export interface ReplicationUseCase {
    * Returns a per-workload breakdown so an operator can audit what a "full tenant recovery"
    * actually restored instead of trusting a single aggregate status line.
    */
-  rehydrate_tenant(tenant_id: string, source: StorageTarget): Promise<TenantRehydrationResult>;
+  rehydrate_tenant(tenant_id: string, source: StorageTarget): Promise<TenantReplicationResult>;
 
   /** Queries durable replication status records, optionally filtered by snapshot. */
   get_replication_status(

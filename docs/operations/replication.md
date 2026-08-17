@@ -150,6 +150,14 @@ atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --target-
 
 SharePoint replication copies data blobs, file version index files, delta cursors, and manifests. Ancillary objects (indexes + cursors) are replicated alongside data so that incremental sync resumes correctly after rehydration.
 
+### Replicate the Whole Tenant
+
+```bash
+atlas replicate --all --target-config ./offsite.json
+```
+
+`--all` walks all three manifest roots -- `manifests/` (Outlook), `onedrive/manifests/`, and `sharepoint/manifests/` -- and pushes every snapshot the target is missing, reporting copied/skipped/failed counts per workload. This is the outbound mirror of `atlas rehydrate --all`, and the invocation to schedule for an "everything offsite" job; per-scope flags remain for targeted pushes. Runs are idempotent: a target that is already current reports all zeroes.
+
 ### Using a Target Config File
 
 ```bash
@@ -198,6 +206,10 @@ const odSingle = await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123
 // Replicate SharePoint site snapshots
 const spResults = await atlas.sharepoint.replicateAll('site-id', [offsite]);
 const spSingle = await atlas.sharepoint.replicateSnapshot('site-id', 'sp-snap-123', [offsite]);
+
+// Replicate every workload; `workloads` carries one entry per workload, `total` their aggregate
+const tenant = await atlas.replicateTenant([offsite]);
+tenant.workloads.forEach((w) => console.log(w.workload, w.result.objects_copied));
 
 // Query replication status
 const status = await atlas.getReplicationStatus('snapshot-id');

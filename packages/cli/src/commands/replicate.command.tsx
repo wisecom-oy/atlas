@@ -25,6 +25,7 @@ import { render_static_view } from '@/ui/render';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
+import { report_tenant_workloads } from '@/commands/tenant-workload-report';
 
 type ContainerFactory = () => Container;
 
@@ -40,6 +41,7 @@ interface ReplicateOptions {
   targetRegion?: string;
   targetConfig?: string;
   status?: boolean;
+  all?: boolean;
 }
 
 /** Registers the `atlas replicate` subcommand. */
@@ -64,6 +66,7 @@ export function register_replicate_command(
     .option('--target-region <region>', 'target S3 region')
     .option('--target-config <path>', 'path to JSON file with target S3 credentials')
     .option('--status', 'show replication status instead of replicating')
+    .option('--all', 'replicate every unreplicated snapshot of every workload')
     .action((options: ReplicateOptions) => execute_replicate(get_container(), options));
 }
 
@@ -145,9 +148,12 @@ async function execute_replicate(container: Container, options: ReplicateOptions
   } else if (options.mailbox) {
     const results = await use_case.replicate_mailbox(tenant_id, options.mailbox, [target]);
     await report_results(results);
+  } else if (options.all) {
+    await report_tenant_workloads(await use_case.replicate_tenant(tenant_id, [target]));
   } else {
     logger.error(
-      'Either --snapshot, --mailbox, --owner, or --site is required (or --status to view status)',
+      'Either --snapshot, --mailbox, --owner, --site, or --all is required ' +
+        '(or --status to view status)',
     );
     process.exitCode = 1;
   }

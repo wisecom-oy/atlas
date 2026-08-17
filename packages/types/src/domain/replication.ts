@@ -33,23 +33,23 @@ export interface ReplicationResult {
   readonly replicated_manifest_checksum?: string;
 }
 
-/** Workloads covered by full tenant recovery. */
-export type RehydrationWorkload = 'outlook' | 'onedrive' | 'sharepoint';
+/** Workloads covered by tenant-wide replication and recovery. */
+export type ReplicationWorkload = 'outlook' | 'onedrive' | 'sharepoint';
 
-export interface WorkloadRehydrationResult {
-  readonly workload: RehydrationWorkload;
+export interface WorkloadReplicationResult {
+  readonly workload: ReplicationWorkload;
   readonly result: ReplicationResult;
 }
 
 /**
- * Result of a full tenant recovery: one entry per workload plus their aggregate.
+ * Result of a tenant-wide replication or recovery: one entry per workload plus their aggregate.
  *
- * Every workload is always present, so a caller can tell "recovered nothing because the replica
- * held nothing" apart from "never looked".
+ * Every workload is always present, so a caller can tell "copied nothing because the source held
+ * nothing" apart from "never looked" -- the distinction that made a full-tenant run unauditable.
  */
-export interface TenantRehydrationResult {
+export interface TenantReplicationResult {
   readonly total: ReplicationResult;
-  readonly workloads: readonly WorkloadRehydrationResult[];
+  readonly workloads: readonly WorkloadReplicationResult[];
 }
 
 /** Durable sidecar record persisted at `_meta/replication/{owner_id}/{snapshot}/{target}.json`. */

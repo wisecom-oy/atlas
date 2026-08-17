@@ -15,15 +15,19 @@ import {
   DEK_VALIDATION_FN_TOKEN,
   STORAGE_TARGET_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
 import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
+import { group_manifests_by_scope } from '@/services/replication/manifest-grouping';
 import {
-  build_replication_result,
-  build_skip_result,
-  merge_replication_results,
-} from '@/services/replication/replication-result-builder';
+  replicate_every_scope,
+  rehydrate_every_scope,
+} from '@/services/replication/tenant-scope-fanout';
+import {
+  copy_sharepoint_snapshot_to_target,
+  copy_sharepoint_snapshot_between,
+} from '@/services/replication/sharepoint-snapshot-copier';
+import { build_skip_result } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 
@@ -143,13 +147,15 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
       }
 
       const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
-      return this.copy_sp_between(
+      return copy_sharepoint_snapshot_between(
         source_ctx,
         primary_ctx,
         manifest,
         ancillary,
         source.target_id,
         tenant_id,
+        this._validate_dek,
+        this._config.encryption_passphrase,
         true,
       );
     } finally {
@@ -195,98 +201,59 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     const source_ctx = await source.create_context(tenant_id);
     try {
       const all = await this._sp_manifests.list_all_manifests(source_ctx);
-      const by_site = new Map<string, SharePointSnapshotManifest[]>();
-      for (const manifest of all) {
-        const bucket = by_site.get(manifest.site_id);
-        if (bucket) bucket.push(manifest);
-        else by_site.set(manifest.site_id, [manifest]);
-      }
-
-      const results: ReplicationResult[] = [];
-      for (const [site_id, manifests] of by_site) {
-        const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
-        results.push(
-          await rehydrate_sp_manifests(
+      return await rehydrate_every_scope(
+        group_manifests_by_scope(all, (m) => m.site_id),
+        'sites',
+        source.target_id,
+        async (site_id, manifests) =>
+          rehydrate_sp_manifests(
             source_ctx,
             primary_ctx,
             manifests,
-            ancillary,
+            await collect_sp_ancillary_keys(source_ctx, site_id),
             source,
             tenant_id,
             this._validate_dek,
             this._config.encryption_passphrase,
           ),
-        );
-      }
-
-      return merge_replication_results(results, `${by_site.size}-sites`, source.target_id);
+      );
     } finally {
       source_ctx.destroy();
       primary_ctx.destroy();
     }
   }
 
-  private async copy_sp_to_target(
+  /** Replicates every unreplicated SharePoint snapshot for every site in the tenant. */
+  async replicate_all_sites(
+    tenant_id: string,
+    targets: StorageTarget[],
+  ): Promise<ReplicationResult[]> {
+    return replicate_every_scope(
+      this._tenant_factory,
+      tenant_id,
+      (ctx) => this._sp_manifests.list_all_manifests(ctx),
+      (m) => m.site_id,
+      (site_id) => this.replicate_all_site_snapshots(tenant_id, site_id, targets),
+    );
+  }
+
+  /** Copies one snapshot outbound, binding this service's DEK validator and passphrase. */
+  private copy_sp_to_target(
     source_ctx: TenantContext,
     target: StorageTarget,
     manifest: SharePointSnapshotManifest,
     ancillary_keys: string[],
     tenant_id: string,
   ): Promise<ReplicationResult> {
-    const start = Date.now();
-    const target_ctx = await target.create_context(tenant_id);
-    await this._validate_dek(
-      source_ctx.storage,
-      target_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
-    );
-    const manifest_key = `${SP_MANIFEST_PREFIX}/${manifest.site_id}/${manifest.snapshot_id}.json`;
-    const rep = await replicate_sharepoint_snapshot(
+    return copy_sharepoint_snapshot_to_target(
       source_ctx,
-      target_ctx,
+      target,
       manifest,
-      manifest_key,
-      {
-        ancillary_keys,
-      },
-    );
-    return build_replication_result(
-      rep,
-      manifest.snapshot_id,
-      target.target_id,
-      Date.now() - start,
-    );
-  }
-
-  private async copy_sp_between(
-    source_ctx: TenantContext,
-    target_ctx: TenantContext,
-    manifest: SharePointSnapshotManifest,
-    ancillary_keys: string[],
-    target_id: string,
-    tenant_id: string,
-    is_rehydration = false,
-  ): Promise<ReplicationResult> {
-    const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      target_ctx.storage,
-      this._config.encryption_passphrase,
+      ancillary_keys,
       tenant_id,
+      this._validate_dek,
+      this._config.encryption_passphrase,
     );
-    const manifest_key = `${SP_MANIFEST_PREFIX}/${manifest.site_id}/${manifest.snapshot_id}.json`;
-    const rep = await replicate_sharepoint_snapshot(
-      source_ctx,
-      target_ctx,
-      manifest,
-      manifest_key,
-      {
-        skip_marker: is_rehydration,
-        ancillary_keys,
-      },
-    );
-    return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
   }
 
   private async require_sp_manifest(

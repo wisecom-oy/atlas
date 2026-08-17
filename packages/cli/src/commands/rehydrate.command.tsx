@@ -15,16 +15,16 @@ import {
 } from '@wisecom/atlas-types';
 import { create_storage_target } from '@wisecom/atlas-s3';
 import type { StorageTarget } from '@wisecom/atlas-types';
-import type { ReplicationResult, TenantRehydrationResult } from '@wisecom/atlas-types';
+import type { ReplicationResult } from '@wisecom/atlas-types';
 import { Box } from 'ink';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import type { KeyValueItem } from '@/ui/components/key-value-list';
-import { ResultSummary } from '@/ui/components/result-summary';
-import { DataTable } from '@/ui/components/data-table';
-import type { TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
-import { format_bytes } from '@/command-formatters';
+import {
+  report_replication_result,
+  report_tenant_workloads,
+} from '@/commands/tenant-workload-report';
 import { logger, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-core';
 import type { UserIdentityResolver } from '@wisecom/atlas-types';
 
@@ -162,7 +162,7 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
   } else if (options.mailbox) {
     result = await use_case.rehydrate_mailbox(tenant_id, options.mailbox, source);
   } else if (options.all) {
-    await report_tenant_result(await use_case.rehydrate_tenant(tenant_id, source));
+    await report_tenant_workloads(await use_case.rehydrate_tenant(tenant_id, source), 'replica');
     return;
   } else {
     logger.error('One of --snapshot, --mailbox, --owner, --site, or --all is required');
@@ -170,7 +170,7 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
     return;
   }
 
-  await report_result(result);
+  await report_replication_result(result);
 }
 
 function build_source(container: Container, options: RehydrateOptions): StorageTarget {
@@ -217,77 +217,4 @@ function build_source(container: Container, options: RehydrateOptions): StorageT
     ...(options.sourceRegion !== undefined ? { s3_region: options.sourceRegion } : {}),
     encryption_passphrase: config.encryption_passphrase,
   });
-}
-
-async function report_result(result: ReplicationResult): Promise<void> {
-  await render_static_view(
-    <Box flexDirection="column">
-      <KeyValueList
-        items={[
-          {
-            label: 'Result',
-            value: result.status,
-            color: result.status === 'COMPLETED' ? 'green' : 'red',
-          },
-        ]}
-      />
-      <ResultSummary
-        entries={[
-          { label: 'copied', value: result.objects_copied, color: 'green' },
-          { label: 'skipped', value: result.objects_skipped, color: 'yellow' },
-          { label: 'failed', value: result.objects_failed, color: 'red' },
-        ]}
-        suffix={`${format_bytes(result.bytes_copied)}, ${result.elapsed_ms}ms`}
-      />
-    </Box>,
-  );
-
-  for (const err of result.errors) {
-    logger.error(`  ${err}`);
-  }
-
-  if (result.objects_failed > 0) process.exitCode = 1;
-}
-
-interface WorkloadRow {
-  workload: string;
-  scope: string;
-  copied: number;
-  skipped: number;
-  failed: number;
-  size: string;
-}
-
-const WORKLOAD_COLUMNS: TableColumn<WorkloadRow>[] = [
-  { key: 'workload', header: 'Workload', color: () => 'cyan' },
-  { key: 'scope', header: 'Scope' },
-  { key: 'copied', header: 'Copied' },
-  { key: 'skipped', header: 'Skipped' },
-  { key: 'failed', header: 'Failed', color: (row) => (row.failed > 0 ? 'red' : undefined) },
-  { key: 'size', header: 'Size' },
-];
-
-/** Reports a full tenant recovery: one row per workload, so a partial recovery is visible. */
-async function report_tenant_result(result: TenantRehydrationResult): Promise<void> {
-  const rows: WorkloadRow[] = result.workloads.map((w) => ({
-    workload: w.workload,
-    scope: w.result.snapshot_id,
-    copied: w.result.objects_copied,
-    skipped: w.result.objects_skipped,
-    failed: w.result.objects_failed,
-    size: format_bytes(w.result.bytes_copied),
-  }));
-
-  await render_static_view(<DataTable columns={WORKLOAD_COLUMNS} rows={rows} />);
-  await report_result(result.total);
-
-  const empty = result.workloads.filter(
-    (w) => w.result.objects_copied === 0 && w.result.objects_skipped === 0,
-  );
-  if (empty.length > 0) {
-    logger.warn(
-      `No snapshots found on the replica for: ${empty.map((w) => w.workload).join(', ')}. ` +
-        'Confirm this matches the source before treating the recovery as complete.',
-    );
-  }
 }
