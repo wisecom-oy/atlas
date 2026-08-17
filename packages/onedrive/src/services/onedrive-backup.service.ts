@@ -163,7 +163,9 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       // hold the run unhealthy until the ledger is empty.
       warnings.push(...describe_failed_items(scan_result.failed_items));
       const healthy =
-        scan_result.errors.length === 0 && Object.keys(scan_result.failed_items).length === 0;
+        !scan_result.interrupted &&
+        scan_result.errors.length === 0 &&
+        Object.keys(scan_result.failed_items).length === 0;
 
       let result: OneDriveBackupResult;
       if (scan_result.entries.length === 0) {

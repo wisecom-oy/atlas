@@ -42,12 +42,10 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       return await backup.backup_onedrive(tenant_id, owner_id, adapt_operation_options(options));
     },
     async verify(owner_id, snapshot_id, options) {
-      return await verification.verify_onedrive_snapshot(
-        tenant_id,
-        owner_id,
-        snapshot_id,
-        adapt_operation_options(options),
-      );
+      const adapted = adapt_operation_options(options);
+      return adapted === undefined
+        ? await verification.verify_onedrive_snapshot(tenant_id, owner_id, snapshot_id)
+        : await verification.verify_onedrive_snapshot(tenant_id, owner_id, snapshot_id, adapted);
     },
     async restore(owner_id, options) {
       return await restore.restore_onedrive(tenant_id, owner_id, adapt_operation_options(options)!);

@@ -187,7 +187,7 @@ describe('build_snapshot_manifest', () => {
 
 describe('build_empty_result', () => {
   it('produces a result with snapshot undefined and given counters', () => {
-    const result = build_empty_result('owner-1', 2, 5, 3, 1, 4, 2, [], [], true);
+    const result = build_empty_result('owner-1', 2, 5, 3, 1, 4, 2, [], [], false, true);
 
     expect(result.owner_id).toBe('owner-1');
     expect(result.snapshot).toBeUndefined();
@@ -215,6 +215,7 @@ describe('build_empty_result', () => {
       0,
       ['timeout on file X'],
       [],
+      false,
       false,
     );
 

@@ -45,12 +45,10 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
       return await backup.backup_site(tenant_id, site_id, adapt_operation_options(options));
     },
     async verify(site_id, snapshot_id, options) {
-      return await verification.verify_sharepoint_snapshot(
-        tenant_id,
-        site_id,
-        snapshot_id,
-        adapt_operation_options(options),
-      );
+      const adapted = adapt_operation_options(options);
+      return adapted === undefined
+        ? await verification.verify_sharepoint_snapshot(tenant_id, site_id, snapshot_id)
+        : await verification.verify_sharepoint_snapshot(tenant_id, site_id, snapshot_id, adapted);
     },
     async restore(site_id, options) {
       return await restore.restore_sharepoint(
