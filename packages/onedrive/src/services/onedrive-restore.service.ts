@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveConnector,
@@ -27,6 +32,7 @@ import {
   plaintext_sha256_equals_expected,
 } from '@/services/onedrive-restore-integrity';
 import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
+import { empty_restore_result } from '@/services/onedrive-restore-result';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
 
@@ -46,13 +52,11 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     options: OneDriveRestoreOptions,
   ): Promise<OneDriveRestoreResult> {
     owner_id = normalize_owner_id(owner_id);
+    if (begin_operation_progress(options, 'restore', 'onedrive')) {
+      finish_operation_progress(options, 'restore', 'onedrive', 0, 0);
+      return empty_restore_result(options.snapshot_id);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
-    options.on_progress?.({
-      operation: 'restore',
-      workload: 'onedrive',
-      phase: 'discovering',
-      processed: 0,
-    });
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
       if (!manifest) {
@@ -79,7 +83,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const sorted_entries = [...entries].filter(
         (e) => e.change_type !== 'deleted' && e.storage_key,
       );
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'restore',
         workload: 'onedrive',
         phase: 'processing',
@@ -104,7 +108,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           files_skipped++;
           if (result.error) errors.push(result.error);
         }
-        options.on_progress?.({
+        emit_operation_progress(options, {
           operation: 'restore',
           workload: 'onedrive',
           phase: 'processing',
@@ -115,14 +119,14 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       }
 
       const folders_created = Math.max(0, folder_ids.size - 1);
-      const interrupted = options.should_interrupt?.() === true;
-      options.on_progress?.({
-        operation: 'restore',
-        workload: 'onedrive',
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed: files_restored + files_skipped,
-        total: sorted_entries.length,
-      });
+      const interrupted = finish_operation_progress(
+        options,
+        'restore',
+        'onedrive',
+        files_restored + files_skipped,
+        sorted_entries.length,
+        files_restored + files_skipped < sorted_entries.length,
+      );
 
       return {
         snapshot_id: options.snapshot_id,

@@ -129,6 +129,7 @@ export async function process_single_library(
     processed_delta_items++;
     on_item_processed?.(item.file_name);
   }
+  interrupted ||= options.should_interrupt?.() === true;
 
   const incomplete_item_ids = new Set(library_state.failed_item_ids);
   if (interrupted) {

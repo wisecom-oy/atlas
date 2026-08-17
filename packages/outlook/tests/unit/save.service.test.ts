@@ -22,6 +22,8 @@ vi.mock('@/services/save/save-entry-processor', () => ({
     output_path: 'test.zip',
     total_bytes: 1024,
     integrity_failures: [],
+    processed: 2,
+    interrupted: false,
   }),
 }));
 
@@ -137,6 +139,8 @@ describe('SaveService', () => {
           output_path: 'test.zip',
           total_bytes: 512,
           integrity_failures: [],
+          processed: 1,
+          interrupted: true,
         };
       });
       const on_progress = vi.fn();
@@ -150,6 +154,30 @@ describe('SaveService', () => {
       expect(result.interrupted).toBe(true);
       expect(on_progress).toHaveBeenLastCalledWith(
         expect.objectContaining({ operation: 'save', workload: 'outlook', phase: 'interrupted' }),
+      );
+    });
+
+    it('keeps terminal progress monotonic when an entry fails', async () => {
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+        make_manifest([make_entry('msg-1', 'f1')]),
+      );
+      vi.mocked(save_entries_to_archive).mockResolvedValueOnce({
+        saved_count: 0,
+        attachment_count: 0,
+        error_count: 1,
+        errors: ['failed'],
+        output_path: 'test.zip',
+        total_bytes: 0,
+        integrity_failures: [],
+        processed: 1,
+        interrupted: false,
+      });
+      const on_progress = vi.fn();
+
+      await service.save_snapshot('test-tenant', 'snap-1', { on_progress });
+
+      expect(on_progress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: 'completed', processed: 1 }),
       );
     });
 

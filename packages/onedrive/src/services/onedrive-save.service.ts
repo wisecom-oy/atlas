@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -42,13 +47,11 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     options: FileSaveOptions,
   ): Promise<FileSaveResult> {
     owner_id = normalize_owner_id(owner_id);
+    if (begin_operation_progress(options, 'save', 'onedrive')) {
+      finish_operation_progress(options, 'save', 'onedrive', 0, 0);
+      return this.empty_result(options.snapshot_id, options.output_path ?? '', true);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
-    options.on_progress?.({
-      operation: 'save',
-      workload: 'onedrive',
-      phase: 'discovering',
-      processed: 0,
-    });
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
       if (!manifest) {
@@ -59,14 +62,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
       const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
 
       if (restorable.length === 0) {
-        const interrupted = options.should_interrupt?.() === true;
-        options.on_progress?.({
-          operation: 'save',
-          workload: 'onedrive',
-          phase: interrupted ? 'interrupted' : 'completed',
-          processed: 0,
-          total: 0,
-        });
+        const interrupted = finish_operation_progress(options, 'save', 'onedrive', 0, 0);
         return this.empty_result(options.snapshot_id, options.output_path ?? '', interrupted);
       }
 
@@ -85,7 +81,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
         options,
       );
 
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'save',
         workload: 'onedrive',
         phase: 'finalizing',
@@ -94,8 +90,9 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
       });
       await finalize_file_archive(archive);
       const total_bytes = await promise;
-      const interrupted = options.should_interrupt?.() === true;
-      options.on_progress?.({
+      const interrupted =
+        files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
+      emit_operation_progress(options, {
         operation: 'save',
         workload: 'onedrive',
         phase: interrupted ? 'interrupted' : 'completed',
@@ -130,7 +127,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     let files_saved = 0;
     let files_skipped = 0;
     const errors: string[] = [];
-    options.on_progress?.({
+    emit_operation_progress(options, {
       operation: 'save',
       workload: 'onedrive',
       phase: 'processing',
@@ -158,7 +155,7 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
         errors.push(`${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`);
         files_skipped++;
       }
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'save',
         workload: 'onedrive',
         phase: 'processing',

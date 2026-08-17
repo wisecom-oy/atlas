@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
@@ -38,13 +43,18 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
     options: VerificationOptions = {},
   ): Promise<OneDriveVerificationResult> {
     owner_id = normalize_owner_id(owner_id);
+    if (begin_operation_progress(options, 'verify', 'onedrive')) {
+      finish_operation_progress(options, 'verify', 'onedrive', 0, 0);
+      return {
+        snapshot_id,
+        total_checked: 0,
+        passed: 0,
+        failed_file_ids: [],
+        index_issues: [],
+        interrupted: true,
+      };
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
-    options.on_progress?.({
-      operation: 'verify',
-      workload: 'onedrive',
-      phase: 'discovering',
-      processed: 0,
-    });
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
       if (!manifest) {
@@ -55,7 +65,7 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
       const index_issues: string[] = [];
       let total_checked = 0;
       let processed = 0;
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'verify',
         workload: 'onedrive',
         phase: 'processing',
@@ -79,7 +89,7 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
           if (corrupt) failed_file_ids.push(entry.file_id);
         }
         processed++;
-        options.on_progress?.({
+        emit_operation_progress(options, {
           operation: 'verify',
           workload: 'onedrive',
           phase: 'processing',
@@ -88,14 +98,14 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
           current: entry.file_name,
         });
       }
-      const interrupted = options.should_interrupt?.() === true;
-      options.on_progress?.({
-        operation: 'verify',
-        workload: 'onedrive',
-        phase: interrupted ? 'interrupted' : 'completed',
+      const interrupted = finish_operation_progress(
+        options,
+        'verify',
+        'onedrive',
         processed,
-        total: manifest.entries.length,
-      });
+        manifest.entries.length,
+        processed < manifest.entries.length,
+      );
 
       return {
         snapshot_id,

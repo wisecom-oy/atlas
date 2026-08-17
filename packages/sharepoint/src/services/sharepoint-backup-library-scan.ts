@@ -1,6 +1,7 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { FailedItemLedger } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 import type {
   SharePointBackupOptions,
   SharePointDeltaCursor,
@@ -27,6 +28,7 @@ export interface SharePointLibraryScanResult {
   version_stats: VersionStatsState;
   package_reports: PackageReport[];
   libraries_scanned: number;
+  items_processed: number;
   interrupted: boolean;
 }
 
@@ -76,9 +78,9 @@ export async function scan_all_libraries({
     },
     package_reports: [],
     libraries_scanned: 0,
+    items_processed: 0,
     interrupted: false,
   };
-  let processed = 0;
 
   for (const library of libraries) {
     if (options.should_interrupt?.() === true) {
@@ -103,12 +105,12 @@ export async function scan_all_libraries({
         result.version_stats,
         result.failed_items,
         (file_name) => {
-          processed++;
-          options.on_progress?.({
+          result.items_processed++;
+          emit_operation_progress(options, {
             operation: 'backup',
             workload: 'sharepoint',
             phase: 'processing',
-            processed,
+            processed: result.items_processed,
             current: file_name,
           });
         },

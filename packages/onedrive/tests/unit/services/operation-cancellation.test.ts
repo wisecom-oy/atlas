@@ -9,7 +9,9 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { OneDriveBackupService } from '@/services/onedrive-backup.service';
 import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
+import { OneDriveSaveService } from '@/services/onedrive-save.service';
 import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
 
 const CONTENT = Buffer.from('file-content');
@@ -62,6 +64,53 @@ function make_manifest_repository(manifest: OneDriveSnapshotManifest): OneDriveM
 }
 
 describe('OneDrive operation cancellation', () => {
+  it('does no remote work when every operation starts interrupted', async () => {
+    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const callbacks = Array.from({ length: 4 }, () => vi.fn());
+    const should_interrupt = (): boolean => true;
+    const backup = new OneDriveBackupService(
+      factory,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const restore = new OneDriveRestoreService(factory, {} as never, {} as never);
+    const save = new OneDriveSaveService(factory, {} as never);
+    const verify = new OneDriveVerificationService(factory, {} as never, {} as never);
+
+    const results = await Promise.all([
+      backup.backup_onedrive('tenant-1', 'owner-1', {
+        should_interrupt,
+        on_progress: callbacks[0],
+      }),
+      restore.restore_onedrive('tenant-1', 'owner-1', {
+        snapshot_id: 'snap-1',
+        should_interrupt,
+        on_progress: callbacks[1],
+      }),
+      save.save_snapshot('tenant-1', 'owner-1', {
+        snapshot_id: 'snap-1',
+        should_interrupt,
+        on_progress: callbacks[2],
+      }),
+      verify.verify_onedrive_snapshot('tenant-1', 'owner-1', 'snap-1', {
+        should_interrupt,
+        on_progress: callbacks[3],
+      }),
+    ]);
+
+    expect(factory.create).not.toHaveBeenCalled();
+    expect(results.every((result) => result.interrupted)).toBe(true);
+    for (const callback of callbacks) {
+      expect(callback.mock.calls.map(([event]) => event.phase)).toEqual([
+        'discovering',
+        'finalizing',
+        'interrupted',
+      ]);
+    }
+  });
+
   it('restore finishes the current file then stops with partial counts', async () => {
     let interrupted = false;
     const storage = {
@@ -97,6 +146,13 @@ describe('OneDrive operation cancellation', () => {
     expect(on_progress).toHaveBeenLastCalledWith(
       expect.objectContaining({ operation: 'restore', workload: 'onedrive', phase: 'interrupted' }),
     );
+    expect(on_progress.mock.calls.map(([event]) => event.phase)).toEqual([
+      'discovering',
+      'processing',
+      'processing',
+      'finalizing',
+      'interrupted',
+    ]);
   });
 
   it('verify does not start index or blob reads after cancellation', async () => {
@@ -121,6 +177,7 @@ describe('OneDrive operation cancellation', () => {
       on_progress,
     });
 
+    expect(factory.create).not.toHaveBeenCalled();
     expect(indexes.find_by_file_id).not.toHaveBeenCalled();
     expect(storage.exists).not.toHaveBeenCalled();
     expect(result.total_checked).toBe(0);

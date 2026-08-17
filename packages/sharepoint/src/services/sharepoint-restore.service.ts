@@ -1,4 +1,9 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDocumentLibrary,
@@ -54,13 +59,11 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     options: SharePointRestoreOptions,
   ): Promise<SharePointRestoreResult> {
     site_id = normalize_owner_id(site_id);
+    if (begin_operation_progress(options, 'restore', 'sharepoint')) {
+      finish_operation_progress(options, 'restore', 'sharepoint', 0, 0);
+      return empty_restore_result(options.snapshot_id);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
-    options.on_progress?.({
-      operation: 'restore',
-      workload: 'sharepoint',
-      phase: 'discovering',
-      processed: 0,
-    });
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
       if (!manifest) {
@@ -100,7 +103,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         destination_by_source_drive: new Map<string, string | undefined>(),
         single_source_library: new Set(restorable.map((e) => e.drive_id)).size === 1,
       };
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'restore',
         workload: 'sharepoint',
         phase: 'processing',
@@ -127,7 +130,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           if (outcome === 'restored') files_restored++;
           else files_skipped++;
         }
-        options.on_progress?.({
+        emit_operation_progress(options, {
           operation: 'restore',
           workload: 'sharepoint',
           phase: 'processing',
@@ -138,14 +141,14 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       }
 
       const folders_created = folder_ids.size;
-      const interrupted = options.should_interrupt?.() === true;
-      options.on_progress?.({
-        operation: 'restore',
-        workload: 'sharepoint',
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed: files_restored + files_skipped,
-        total: restorable.length,
-      });
+      const interrupted = finish_operation_progress(
+        options,
+        'restore',
+        'sharepoint',
+        files_restored + files_skipped,
+        restorable.length,
+        files_restored + files_skipped < restorable.length,
+      );
 
       return {
         snapshot_id: options.snapshot_id,
@@ -321,4 +324,15 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
 
     return parent_id;
   }
+}
+
+function empty_restore_result(snapshot_id: string): SharePointRestoreResult {
+  return {
+    snapshot_id,
+    files_restored: 0,
+    folders_created: 0,
+    files_skipped: 0,
+    errors: [],
+    interrupted: true,
+  };
 }

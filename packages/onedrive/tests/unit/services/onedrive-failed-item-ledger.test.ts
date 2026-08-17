@@ -159,12 +159,34 @@ describe('OneDrive persistent item failure (issue #34)', () => {
       poison_ids: ['p1'],
     });
 
-    const result = await harness.service.backup_onedrive('t', OWNER_ID);
+    const processed: number[] = [];
+    const result = await harness.service.backup_onedrive('t', OWNER_ID, {
+      on_progress: (event) => processed.push(event.processed),
+    });
 
     expect(result.snapshot?.entries.map((entry) => entry.file_id)).toEqual(['ok1', 'ok2']);
     expect(result.summary.files_stored).toBe(2);
     expect(drive_cursor(harness).delta_link_by_drive[DRIVE_ID]).toBe('delta-2');
     expect(harness.fetch_item_by_id).not.toHaveBeenCalled();
+    expect(processed.every((count, index) => index === 0 || count >= processed[index - 1]!)).toBe(
+      true,
+    );
+  });
+
+  it('keeps stored files and cursor state when a progress observer throws', async () => {
+    const harness = make_harness({
+      delta_items: [make_item('ok1', 'a.txt')],
+      delta_link: 'delta-2',
+    });
+
+    const result = await harness.service.backup_onedrive('t', OWNER_ID, {
+      on_progress: () => {
+        throw new Error('observer failed');
+      },
+    });
+
+    expect(result.snapshot?.entries.map((entry) => entry.file_id)).toEqual(['ok1']);
+    expect(drive_cursor(harness).delta_link_by_drive[DRIVE_ID]).toBe('delta-2');
   });
 
   it('records the failed item in the saved cursor and reports the run unhealthy', async () => {

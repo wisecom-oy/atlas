@@ -7,7 +7,10 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { SharePointBackupService } from '@/services/sharepoint-backup.service';
 import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
+import { SharePointSaveService } from '@/services/sharepoint-save.service';
+import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 
 vi.mock('@/services/sharepoint-restore-streaming', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
@@ -32,6 +35,53 @@ function make_entry(file_id: string): SharePointManifestEntry {
 }
 
 describe('SharePoint restore cancellation', () => {
+  it('does no remote work when every operation starts interrupted', async () => {
+    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const callbacks = Array.from({ length: 4 }, () => vi.fn());
+    const should_interrupt = (): boolean => true;
+    const backup = new SharePointBackupService(
+      factory,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const restore = new SharePointRestoreService(factory, {} as never, {} as never);
+    const save = new SharePointSaveService(factory, {} as never);
+    const verify = new SharePointVerificationService(factory, {} as never, {} as never);
+
+    const results = await Promise.all([
+      backup.backup_site('tenant-1', 'site-1', {
+        should_interrupt,
+        on_progress: callbacks[0],
+      }),
+      restore.restore_sharepoint('tenant-1', 'site-1', {
+        snapshot_id: 'snap-1',
+        should_interrupt,
+        on_progress: callbacks[1],
+      }),
+      save.save_snapshot('tenant-1', 'site-1', {
+        snapshot_id: 'snap-1',
+        should_interrupt,
+        on_progress: callbacks[2],
+      }),
+      verify.verify_sharepoint_snapshot('tenant-1', 'site-1', 'snap-1', {
+        should_interrupt,
+        on_progress: callbacks[3],
+      }),
+    ]);
+
+    expect(factory.create).not.toHaveBeenCalled();
+    expect(results.every((result) => result.interrupted)).toBe(true);
+    for (const callback of callbacks) {
+      expect(callback.mock.calls.map(([event]) => event.phase)).toEqual([
+        'discovering',
+        'finalizing',
+        'interrupted',
+      ]);
+    }
+  });
+
   it('finishes the current file then stops with partial counts', async () => {
     let interrupted = false;
     const context = {
@@ -70,5 +120,12 @@ describe('SharePoint restore cancellation', () => {
     expect(result).toMatchObject({ files_restored: 1, files_skipped: 0, interrupted: true });
     expect(connector.upload_small_file).toHaveBeenCalledTimes(1);
     expect(on_progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'interrupted' }));
+    expect(on_progress.mock.calls.map(([event]) => event.phase)).toEqual([
+      'discovering',
+      'processing',
+      'processing',
+      'finalizing',
+      'interrupted',
+    ]);
   });
 });

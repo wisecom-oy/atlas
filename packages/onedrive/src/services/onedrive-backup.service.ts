@@ -1,5 +1,10 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { randomBytes } from 'node:crypto';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
   BackupProgressReporter,
@@ -52,13 +57,11 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     options: OneDriveBackupOptions = {},
   ): Promise<OneDriveBackupResult> {
     owner_id = normalize_owner_id(owner_id);
+    if (begin_operation_progress(options, 'backup', 'onedrive')) {
+      finish_operation_progress(options, 'backup', 'onedrive', 0, 0);
+      return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
-    options.on_progress?.({
-      operation: 'backup',
-      workload: 'onedrive',
-      phase: 'discovering',
-      processed: 0,
-    });
     if (options.object_lock_request?.retention_days) {
       // Bucket default retention: every new object version (files, versions,
       // manifests, cursors) inherits the lock - no write path can forget it.
@@ -136,14 +139,14 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         progress,
         options,
       );
-      const processed =
-        scan_result.files_stored + scan_result.files_deduplicated + scan_result.deleted_items;
-      options.on_progress?.({
+      const processed = scan_result.items_processed;
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'onedrive',
         phase: 'finalizing',
         processed,
       });
+      scan_result.interrupted ||= options.should_interrupt?.() === true;
 
       const cursor: OneDriveDeltaCursor = {
         owner_id,
@@ -217,7 +220,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         );
       }
 
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'onedrive',
         phase: scan_result.interrupted ? 'interrupted' : 'completed',

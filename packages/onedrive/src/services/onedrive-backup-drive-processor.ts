@@ -11,6 +11,7 @@ import type {
   OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 import {
   clear_item_failure,
   record_item_failure,
@@ -59,6 +60,7 @@ export interface DriveScanAccumulators {
   /** Drive-level failures. Per-item failures live in `failed_items` instead. */
   errors: string[];
   drives_scanned: number;
+  items_processed: number;
   interrupted: boolean;
   package_report: PackageReportTotals;
 }
@@ -92,6 +94,7 @@ export async function scan_all_drives(
     failed_items: { ...(previous_cursor?.failed_items ?? {}) },
     errors: [],
     drives_scanned: 0,
+    items_processed: 0,
     interrupted: false,
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
   };
@@ -118,7 +121,8 @@ export async function scan_all_drives(
       const update_item_progress = make_item_progress_callback(progress, index, totals);
       const on_item_processed = (item: OneDriveDeltaItem): void => {
         update_item_progress();
-        control.on_progress?.({
+        accumulators.items_processed = totals.processed;
+        emit_operation_progress(control, {
           operation: 'backup',
           workload: 'onedrive',
           phase: 'processing',

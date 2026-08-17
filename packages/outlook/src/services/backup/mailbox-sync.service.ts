@@ -6,6 +6,11 @@ import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
 import { apply_folder_filter } from '@/services/shared/folder-selector';
 import {
@@ -14,6 +19,10 @@ import {
   mark_snapshot_completed,
   resolve_sync_mode,
 } from '@/services/backup/snapshot-manifest-builder';
+import {
+  build_interrupted_result,
+  mark_progress_interrupted,
+} from '@/services/backup/outlook-interrupted-result';
 import type {
   BackupProgressReporter,
   BackupUseCase,
@@ -57,6 +66,10 @@ export class MailboxSyncService implements BackupUseCase {
     options: SyncOptions = {},
   ): Promise<SyncResult> {
     owner_id = normalize_owner_id(owner_id);
+    if (begin_operation_progress(options, 'backup', 'outlook')) {
+      finish_operation_progress(options, 'backup', 'outlook', 0, 0);
+      return build_interrupted_result(tenant_id, owner_id, options);
+    }
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
@@ -67,12 +80,6 @@ export class MailboxSyncService implements BackupUseCase {
         owner_display_name: options.owner_display_name,
       });
       const sync_start = Date.now();
-      options.on_progress?.({
-        operation: 'backup',
-        workload: 'outlook',
-        phase: 'discovering',
-        processed: 0,
-      });
       const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
@@ -94,7 +101,7 @@ export class MailboxSyncService implements BackupUseCase {
         ) ??
         NOOP_BACKUP_PROGRESS_REPORTER;
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'outlook',
         phase: 'processing',
@@ -157,10 +164,9 @@ export class MailboxSyncService implements BackupUseCase {
         progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
       }
 
-      let interrupted = should_interrupt();
-      if (interrupted) progress.mark_all_pending_interrupted();
+      let interrupted = mark_progress_interrupted(progress, should_interrupt());
       progress.finish(global_processed);
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'outlook',
         phase: 'finalizing',
@@ -180,7 +186,7 @@ export class MailboxSyncService implements BackupUseCase {
       );
       await this._manifests.save(ctx, manifest);
       interrupted ||= should_interrupt();
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'outlook',
         phase: interrupted ? 'interrupted' : 'completed',
@@ -254,7 +260,7 @@ export class MailboxSyncService implements BackupUseCase {
         progress,
         is_interrupted: should_interrupt,
         is_hard_stopped: should_force_stop,
-        ...(options.on_progress ? { on_progress: options.on_progress } : {}),
+        operation_control: options,
         ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
         previous_manifest_entries: previous_entry_count,
         ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),

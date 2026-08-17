@@ -136,9 +136,15 @@ describe('RestoreService', () => {
     const manifest = make_manifest([]);
     (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
 
-    const result = await service.restore_snapshot('test-tenant', 'snap-1');
+    const on_progress = vi.fn();
+    const result = await service.restore_snapshot('test-tenant', 'snap-1', { on_progress });
     expect(result.restored_count).toBe(0);
     expect(mock_restore.create_mail_folder).not.toHaveBeenCalled();
+    expect(on_progress.mock.calls.map(([event]) => event.phase)).toEqual([
+      'discovering',
+      'finalizing',
+      'completed',
+    ]);
   });
 
   it('restores a single message by index', async () => {

@@ -14,9 +14,10 @@ import {
   create_restore_root,
   ensure_subfolder,
 } from '@/services/restore/folder-restore-planner';
-import type { OperationProgressCallback, TransferProgressReporter } from '@wisecom/atlas-types';
+import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 
 /** Decrypts, sanitizes, creates one message via Graph, then uploads attachments. */
 export async function restore_one_entry(
@@ -66,7 +67,7 @@ export async function restore_folder_entries(
   start: number,
   dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
-  on_progress?: OperationProgressCallback,
+  control: OperationControlOptions,
 ): Promise<{ restored: number; attachments: number; errors: string[] }> {
   let restored = 0;
   let attachments = 0;
@@ -101,7 +102,7 @@ export async function restore_folder_entries(
       eta_seconds: eta,
     });
     dashboard.update_total(gp, global_total, rate, eta);
-    on_progress?.({
+    emit_operation_progress(control, {
       operation: 'restore',
       workload: 'outlook',
       phase: 'processing',

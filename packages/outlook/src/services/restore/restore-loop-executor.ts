@@ -3,6 +3,10 @@ import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { RestoreResult } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import {
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
 import {
   log_restore_summary,
@@ -39,7 +43,7 @@ export async function execute_restore_loop(
   process.on('SIGINT', on_sigint);
 
   try {
-    control.on_progress?.({
+    emit_operation_progress(control, {
       operation: 'restore',
       workload: 'outlook',
       phase: 'processing',
@@ -74,7 +78,7 @@ export async function execute_restore_loop(
         start,
         dashboard,
         is_interrupted,
-        control.on_progress,
+        control,
       );
 
       global_restored += result.restored;
@@ -91,17 +95,18 @@ export async function execute_restore_loop(
       folder_index++;
     }
 
-    const was_interrupted = is_interrupted();
-    if (was_interrupted) dashboard.mark_all_pending_interrupted();
+    const interrupted_before_finalization = is_interrupted();
+    if (interrupted_before_finalization) dashboard.mark_all_pending_interrupted();
     dashboard.finish(global_restored);
     log_restore_summary(global_restored, global_att, global_errors, start);
-    control.on_progress?.({
-      operation: 'restore',
-      workload: 'outlook',
-      phase: was_interrupted ? 'interrupted' : 'completed',
-      processed: global_restored,
-      total: global_total,
-    });
+    const was_interrupted = finish_operation_progress(
+      control,
+      'restore',
+      'outlook',
+      global_restored,
+      global_total,
+      interrupted_before_finalization,
+    );
 
     return {
       snapshot_id,

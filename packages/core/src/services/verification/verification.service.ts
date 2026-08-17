@@ -11,6 +11,11 @@ import type {
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@/services/shared/operation-progress';
 
 // S3 handles this easily; Graph limits don't apply -- verify never touches Graph.
 // ponytail: fixed constant, make configurable only if a backend ever chokes.
@@ -45,18 +50,24 @@ export class VerificationService implements VerificationUseCase {
     snapshot_id: string,
     options: VerificationOptions = {},
   ): Promise<VerificationResult> {
+    if (begin_operation_progress(options, 'verify', 'outlook')) {
+      finish_operation_progress(options, 'verify', 'outlook', 0, 0);
+      return {
+        snapshot_id,
+        total_checked: 0,
+        passed: 0,
+        failed: [],
+        unverifiable: [],
+        interrupted: true,
+        manifests_in_chain: 0,
+      };
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      options.on_progress?.({
-        operation: 'verify',
-        workload: 'outlook',
-        phase: 'discovering',
-        processed: 0,
-      });
       const chain = await this.load_manifest_chain(ctx, snapshot_id);
       const entries = merge_snapshot_entries(chain);
       const { items, unverifiable } = collect_check_items(entries);
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'verify',
         workload: 'outlook',
         phase: 'processing',
@@ -64,14 +75,14 @@ export class VerificationService implements VerificationUseCase {
         total: items.length,
       });
       const { failed, checked } = await this.check_all_items(ctx, items, options);
-      const interrupted = checked < items.length || options.should_interrupt?.() === true;
-      options.on_progress?.({
-        operation: 'verify',
-        workload: 'outlook',
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed: checked,
-        total: items.length,
-      });
+      const interrupted = finish_operation_progress(
+        options,
+        'verify',
+        'outlook',
+        checked,
+        items.length,
+        checked < items.length,
+      );
       return {
         snapshot_id,
         total_checked: checked,
@@ -134,7 +145,7 @@ export class VerificationService implements VerificationUseCase {
               ? !(await this.object_exists(ctx, item))
               : await this.is_item_corrupt(ctx, item);
           checked++;
-          options.on_progress?.({
+          emit_operation_progress(options, {
             operation: 'verify',
             workload: 'outlook',
             phase: 'processing',

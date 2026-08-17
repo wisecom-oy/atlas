@@ -279,6 +279,7 @@ describe('VerificationService', () => {
       on_progress,
     });
 
+    expect(tenant_factory.create).not.toHaveBeenCalled();
     expect(storage.get).not.toHaveBeenCalled();
     expect(result.total_checked).toBe(0);
     expect(result.interrupted).toBe(true);

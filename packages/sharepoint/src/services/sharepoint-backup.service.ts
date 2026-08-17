@@ -1,5 +1,10 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { randomBytes } from 'node:crypto';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointBackupOptions,
@@ -60,13 +65,11 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult> {
     site_id = normalize_owner_id(site_id);
+    if (begin_operation_progress(options, 'backup', 'sharepoint')) {
+      finish_operation_progress(options, 'backup', 'sharepoint', 0, 0);
+      return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
-    options.on_progress?.({
-      operation: 'backup',
-      workload: 'sharepoint',
-      phase: 'discovering',
-      processed: 0,
-    });
     if (options.object_lock_request?.retention_days) {
       // Bucket default retention: every new object version (files, versions,
       // manifests, cursors) inherits the lock - no write path can forget it.
@@ -80,7 +83,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         options.force_full === true ? undefined : await this._cursors.load(ctx, site_id);
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
       ensure_libraries_discovered(libraries.length);
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'sharepoint',
         phase: 'processing',
@@ -112,6 +115,13 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         ctx,
       });
 
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'sharepoint',
+        phase: 'finalizing',
+        processed: scan.items_processed,
+      });
+      scan.interrupted ||= options.should_interrupt?.() === true;
       const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking, scan.failed_items);
       const warnings = [
         ...this.build_version_warnings(scan.version_stats),
@@ -154,11 +164,11 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           healthy,
         );
       }
-      options.on_progress?.({
+      emit_operation_progress(options, {
         operation: 'backup',
         workload: 'sharepoint',
         phase: scan.interrupted ? 'interrupted' : 'completed',
-        processed: scan.files_stored + scan.files_deduplicated + scan.deleted_items,
+        processed: scan.items_processed,
       });
       return result;
     } finally {
