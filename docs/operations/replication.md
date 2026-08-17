@@ -237,11 +237,13 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid --source-config ./offsit
 atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --source-config ./offsite.json
 ```
 
-**Full tenant recovery:**
+**Full tenant recovery (all workloads):**
 
 ```bash
 atlas rehydrate --all --source-config ./offsite.json
 ```
+
+`--all` enumerates all three manifest roots -- `manifests/` (Outlook), `onedrive/manifests/` (OneDrive), and `sharepoint/manifests/` (SharePoint) -- and reports copied/skipped/failed counts per workload. Any workload that yielded no objects is named in a warning, so an incomplete DR drill cannot pass silently.
 
 Rehydration skips snapshots that already exist on primary. It does not merge, diff, or resolve conflicts.
 
@@ -262,8 +264,10 @@ await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
 await atlas.sharepoint.rehydrateSite('site-id', offsite);
 await atlas.sharepoint.rehydrateSnapshot('site-id', 'sp-snap-123', offsite);
 
-// Full tenant DR
-await atlas.rehydrateTenant(offsite);
+// Full tenant DR: Outlook + OneDrive + SharePoint in one call.
+// `workloads` carries one entry per workload; `total` is their aggregate.
+const recovery = await atlas.rehydrateTenant(offsite);
+recovery.workloads.forEach((w) => console.log(w.workload, w.result.objects_copied));
 ```
 
 ## Object Lock

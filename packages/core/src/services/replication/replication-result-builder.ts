@@ -64,6 +64,36 @@ export function build_skip_result(snapshot_id: string, target_id: string): Repli
   };
 }
 
+/** Aggregates several replication results into one, summing counts and concatenating errors. */
+export function merge_replication_results(
+  results: readonly ReplicationResult[],
+  snapshot_id: string,
+  target_id: string,
+): ReplicationResult {
+  let objects_copied = 0;
+  let objects_skipped = 0;
+  let objects_failed = 0;
+  let bytes_copied = 0;
+  let elapsed_ms = 0;
+  const errors: string[] = [];
+
+  for (const r of results) {
+    objects_copied += r.objects_copied;
+    objects_skipped += r.objects_skipped;
+    objects_failed += r.objects_failed;
+    bytes_copied += r.bytes_copied;
+    elapsed_ms += r.elapsed_ms;
+    errors.push(...r.errors);
+  }
+
+  return build_replication_result(
+    { objects_copied, objects_skipped, objects_failed, bytes_copied, errors },
+    snapshot_id,
+    target_id,
+    elapsed_ms,
+  );
+}
+
 export function to_status_record(
   result: ReplicationResult,
   target: StorageTarget,

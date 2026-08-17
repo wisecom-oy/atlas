@@ -671,7 +671,7 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 | `-m, --mailbox <email>`     | Recover all snapshots for a mailbox from the replica         |
 | `--site <url-or-id>`        | Recover all SharePoint snapshots for a site from the replica |
 | `-o, --owner <email-or-id>` | Recover all OneDrive snapshots for an owner from the replica |
-| `--all`                     | Recover all mailboxes and snapshots (full tenant DR)         |
+| `--all`                     | Recover every workload: Outlook, OneDrive, and SharePoint    |
 | `--source-endpoint <url>`   | Source replica S3 endpoint URL                               |
 | `--source-access-key <key>` | Source replica S3 access key                                 |
 | `--source-secret-key <key>` | Source replica S3 secret key                                 |
@@ -683,8 +683,17 @@ Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--m
 
 `-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only -- unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
 
-::: warning `--all` covers Outlook only
-Despite the `full tenant recovery` label it prints, `--all` enumerates Outlook manifests only -- OneDrive and SharePoint snapshots are not recovered by it. Recover those explicitly with `-o/--owner` per owner and `--site` per site. Tracked in [#88](https://github.com/wisecom-oy/atlas/issues/88).
+::: tip What `--all` covers
+`--all` recovers all three workloads -- every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) present on the replica. The summary breaks the run down per workload, so a recovery that restored only part of the tenant is visible instead of hidden behind one aggregate status line:
+
+```
+Workload    Scope       Copied  Skipped  Failed  Size
+outlook     2-snapshots  35      0        0       433.3 KB
+onedrive    1-owners     12      1        0       2.7 MB
+sharepoint  1-sites      59      0        0       7.1 MB
+```
+
+A workload with no objects at all prints a warning naming it -- the replica held nothing for it. Verify that against the source before treating the drill as a pass.
 :::
 
 ::: danger Rehydration Is Not Sync

@@ -198,6 +198,9 @@ atlas rehydrate --all --source-config ./offsite.json
 
 atlas rehydrate --site https://contoso.sharepoint.com/sites/Engineering --source-config ./offsite.json
 atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --source-config ./offsite.json
+
+atlas rehydrate -o user@company.com --source-config ./offsite.json
+atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-config ./offsite.json
 ```
 
 | Option                      | Description                                                  |
@@ -205,7 +208,8 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000
 | `-s, --snapshot <id>`       | Recover a specific snapshot from the replica                 |
 | `-m, --mailbox <email>`     | Recover all snapshots for a mailbox from the replica         |
 | `--site <url-or-id>`        | Recover all SharePoint snapshots for a site from the replica |
-| `--all`                     | Recover all mailboxes and snapshots (full tenant DR)         |
+| `-o, --owner <email-or-id>` | Recover all OneDrive snapshots for an owner from the replica |
+| `--all`                     | Recover every workload: Outlook, OneDrive, and SharePoint    |
 | `--source-endpoint <url>`   | Source replica S3 endpoint URL                               |
 | `--source-access-key <key>` | Source replica S3 access key                                 |
 | `--source-secret-key <key>` | Source replica S3 secret key                                 |

@@ -1,4 +1,8 @@
-import type { ReplicationResult, ReplicationStatusRecord } from '@/domain/replication';
+import type {
+  ReplicationResult,
+  ReplicationStatusRecord,
+  TenantRehydrationResult,
+} from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
 export interface ReplicationUseCase {
@@ -30,8 +34,13 @@ export interface ReplicationUseCase {
     source: StorageTarget,
   ): Promise<ReplicationResult>;
 
-  /** DR: recover all mailboxes and snapshots from a designated replica. */
-  rehydrate_tenant(tenant_id: string, source: StorageTarget): Promise<ReplicationResult>;
+  /**
+   * DR: recover every workload (Outlook, OneDrive, SharePoint) from a designated replica.
+   *
+   * Returns a per-workload breakdown so an operator can audit what a "full tenant recovery"
+   * actually restored instead of trusting a single aggregate status line.
+   */
+  rehydrate_tenant(tenant_id: string, source: StorageTarget): Promise<TenantRehydrationResult>;
 
   /** Queries durable replication status records, optionally filtered by snapshot. */
   get_replication_status(

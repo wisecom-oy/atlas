@@ -15,9 +15,11 @@ import {
 import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+import { rehydrate_od_manifests } from '@/services/replication/rehydration-od-manifests-runner';
 import {
   build_replication_result,
   build_skip_result,
+  merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import {
   OD_MANIFEST_PREFIX,
@@ -166,7 +168,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
       const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
       const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
 
-      return this.rehydrate_manifests(
+      return this.rehydrate_owner_manifests(
         source_ctx,
         primary_ctx,
         manifests,
@@ -174,6 +176,42 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
         source,
         tenant_id,
       );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
+    }
+  }
+
+  /** DR: recover every OneDrive owner's snapshots from a replica. */
+  async rehydrate_all_owners(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
+    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    const primary_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await source.create_context(tenant_id);
+    try {
+      const all = await this._od_manifests.list_all_manifests(source_ctx);
+      const by_owner = new Map<string, OneDriveSnapshotManifest[]>();
+      for (const manifest of all) {
+        const bucket = by_owner.get(manifest.owner_id);
+        if (bucket) bucket.push(manifest);
+        else by_owner.set(manifest.owner_id, [manifest]);
+      }
+
+      const results: ReplicationResult[] = [];
+      for (const [owner_id, manifests] of by_owner) {
+        const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+        results.push(
+          await this.rehydrate_owner_manifests(
+            source_ctx,
+            primary_ctx,
+            manifests,
+            ancillary,
+            source,
+            tenant_id,
+          ),
+        );
+      }
+
+      return merge_replication_results(results, `${by_owner.size}-owners`, source.target_id);
     } finally {
       source_ctx.destroy();
       primary_ctx.destroy();
@@ -231,7 +269,8 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
   }
 
-  private async rehydrate_manifests(
+  /** Rehydrates one owner's manifests, supplying this service's DEK validator and passphrase. */
+  private rehydrate_owner_manifests(
     source_ctx: TenantContext,
     primary_ctx: TenantContext,
     manifests: OneDriveSnapshotManifest[],
@@ -239,53 +278,15 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     source: StorageTarget,
     tenant_id: string,
   ): Promise<ReplicationResult> {
-    const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      primary_ctx.storage,
-      this._config.encryption_passphrase,
+    return rehydrate_od_manifests(
+      source_ctx,
+      primary_ctx,
+      manifests,
+      ancillary_keys,
+      source,
       tenant_id,
-    );
-
-    let total_copied = 0;
-    let total_skipped = 0;
-    let total_failed = 0;
-    let total_bytes = 0;
-    const all_errors: string[] = [];
-    let snapshot_count = 0;
-
-    for (const manifest of manifests) {
-      const key = `${OD_MANIFEST_PREFIX}/${manifest.owner_id}/${manifest.snapshot_id}.json`;
-      if (await primary_ctx.storage.exists(key)) {
-        total_skipped++;
-        continue;
-      }
-
-      const rep = await replicate_onedrive_snapshot(source_ctx, primary_ctx, manifest, key, {
-        skip_marker: true,
-        ancillary_keys,
-      });
-      total_copied += rep.objects_copied;
-      total_skipped += rep.objects_skipped;
-      total_failed += rep.objects_failed;
-      total_bytes += rep.bytes_copied;
-      all_errors.push(...rep.errors);
-      snapshot_count++;
-    }
-
-    const label =
-      manifests.length === 1 ? manifests[0]!.snapshot_id : `${snapshot_count}-snapshots`;
-    return build_replication_result(
-      {
-        objects_copied: total_copied,
-        objects_skipped: total_skipped,
-        objects_failed: total_failed,
-        bytes_copied: total_bytes,
-        errors: all_errors,
-      },
-      label,
-      source.target_id,
-      Date.now() - start,
+      this._validate_dek,
+      this._config.encryption_passphrase,
     );
   }
 
