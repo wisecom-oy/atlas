@@ -4,7 +4,11 @@ import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
-import type { BackupProgressReporter, ObjectLockPolicy } from '@wisecom/atlas-types';
+import type {
+  BackupProgressReporter,
+  ObjectLockPolicy,
+  OperationProgressCallback,
+} from '@wisecom/atlas-types';
 
 export interface FolderSyncResult {
   entries: ManifestEntry[];
@@ -31,6 +35,7 @@ export interface FolderSyncParams {
   progress: BackupProgressReporter;
   is_interrupted: () => boolean;
   is_hard_stopped: () => boolean;
+  on_progress?: OperationProgressCallback;
   prev_delta_link?: string;
   previous_manifest_entries?: number;
   page_size?: number;
@@ -117,6 +122,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     progress,
     is_interrupted,
     is_hard_stopped,
+    on_progress,
     prev_delta_link,
     folder_total,
     page_size,
@@ -178,6 +184,15 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       const msg_eta = rate > 0 ? (global_total - gp) / rate : 0;
       progress.update_total(gp, global_total, rate, msg_eta);
       progress.update_active(folder_index, folder_processed, rate, msg_eta);
+      on_progress?.({
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'processing',
+        processed: gp,
+        total: global_total,
+        current: message.subject ?? message.message_id,
+        rate,
+      });
     }
 
     await flush_pending_attachments(
@@ -243,6 +258,15 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       const eta = rate > 0 ? (global_total - gp) / rate : 0;
       progress.update_total(gp, global_total, rate, eta);
       progress.update_active(folder_index, folder_processed, rate, eta);
+      on_progress?.({
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'processing',
+        processed: gp,
+        total: global_total,
+        current: message.subject ?? message.message_id,
+        rate,
+      });
     }
 
     await flush_pending_attachments(

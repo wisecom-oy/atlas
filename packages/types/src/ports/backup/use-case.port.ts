@@ -70,6 +70,7 @@ export interface SyncResult {
   readonly manifest: Manifest;
   readonly mode: BackupSyncMode;
   readonly summary: BackupSyncSummary;
+  readonly interrupted: boolean;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
 }

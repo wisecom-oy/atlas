@@ -8,7 +8,7 @@ import {
   log_restore_summary,
   restore_folder_entries,
 } from '@/services/restore/restore-execution-orchestrator';
-import type { TransferProgressReporter } from '@wisecom/atlas-types';
+import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 
 /** Iterates folder groups and restores messages with dashboard progress and SIGINT handling. */
 export async function execute_restore_loop(
@@ -22,6 +22,7 @@ export async function execute_restore_loop(
   folder_map: Map<string, string>,
   created_folders: Map<string, string>,
   dashboard: TransferProgressReporter,
+  control: OperationControlOptions = {},
 ): Promise<RestoreResult> {
   let global_restored = 0;
   let global_att = 0;
@@ -34,12 +35,20 @@ export async function execute_restore_loop(
   const on_sigint = (): void => {
     interrupted = true;
   };
+  const is_interrupted = (): boolean => interrupted || control.should_interrupt?.() === true;
   process.on('SIGINT', on_sigint);
 
   try {
+    control.on_progress?.({
+      operation: 'restore',
+      workload: 'outlook',
+      phase: 'processing',
+      processed: 0,
+      total: global_total,
+    });
     let folder_index = 0;
     for (const [fid, folder_items] of groups) {
-      if (interrupted) break;
+      if (is_interrupted()) break;
       dashboard.mark_active(folder_index);
 
       const target_fid = await ensure_subfolder(
@@ -64,7 +73,8 @@ export async function execute_restore_loop(
         global_total,
         start,
         dashboard,
-        () => interrupted,
+        is_interrupted,
+        control.on_progress,
       );
 
       global_restored += result.restored;
@@ -76,14 +86,22 @@ export async function execute_restore_loop(
       const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
       dashboard.update_total(global_restored, global_total, rate, eta);
 
-      if (interrupted) break;
+      if (is_interrupted()) break;
       dashboard.mark_done(folder_index, result.restored, result.attachments);
       folder_index++;
     }
 
-    if (interrupted) dashboard.mark_all_pending_interrupted();
+    const was_interrupted = is_interrupted();
+    if (was_interrupted) dashboard.mark_all_pending_interrupted();
     dashboard.finish(global_restored);
     log_restore_summary(global_restored, global_att, global_errors, start);
+    control.on_progress?.({
+      operation: 'restore',
+      workload: 'outlook',
+      phase: was_interrupted ? 'interrupted' : 'completed',
+      processed: global_restored,
+      total: global_total,
+    });
 
     return {
       snapshot_id,
@@ -94,6 +112,7 @@ export async function execute_restore_loop(
       errors: all_errors,
       verification_warnings: [],
       restore_folder_name: root.display_name,
+      interrupted: was_interrupted,
     };
   } finally {
     process.removeListener('SIGINT', on_sigint);

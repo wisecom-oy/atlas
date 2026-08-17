@@ -47,16 +47,38 @@ export class VerificationService implements VerificationUseCase {
   ): Promise<VerificationResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
+      options.on_progress?.({
+        operation: 'verify',
+        workload: 'outlook',
+        phase: 'discovering',
+        processed: 0,
+      });
       const chain = await this.load_manifest_chain(ctx, snapshot_id);
       const entries = merge_snapshot_entries(chain);
       const { items, unverifiable } = collect_check_items(entries);
-      const failed = await this.check_all_items(ctx, items, options.fast === true);
+      options.on_progress?.({
+        operation: 'verify',
+        workload: 'outlook',
+        phase: 'processing',
+        processed: 0,
+        total: items.length,
+      });
+      const { failed, checked } = await this.check_all_items(ctx, items, options);
+      const interrupted = checked < items.length || options.should_interrupt?.() === true;
+      options.on_progress?.({
+        operation: 'verify',
+        workload: 'outlook',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: checked,
+        total: items.length,
+      });
       return {
         snapshot_id,
-        total_checked: items.length,
-        passed: items.length - failed.length,
+        total_checked: checked,
+        passed: checked - failed.length,
         failed,
         unverifiable,
+        interrupted,
         manifests_in_chain: chain.length,
       };
     } finally {
@@ -98,22 +120,38 @@ export class VerificationService implements VerificationUseCase {
   private async check_all_items(
     ctx: TenantContext,
     items: CheckItem[],
-    fast: boolean,
-  ): Promise<string[]> {
+    options: VerificationOptions,
+  ): Promise<{ failed: string[]; checked: number }> {
     const semaphore = new ConcurrencySemaphore(VERIFY_CONCURRENCY);
+    let checked = 0;
     const corrupt = await Promise.all(
       items.map(async (item) => {
         await semaphore.acquire();
         try {
-          return fast
-            ? !(await this.object_exists(ctx, item))
-            : await this.is_item_corrupt(ctx, item);
+          if (options.should_interrupt?.() === true) return undefined;
+          const failed =
+            options.fast === true
+              ? !(await this.object_exists(ctx, item))
+              : await this.is_item_corrupt(ctx, item);
+          checked++;
+          options.on_progress?.({
+            operation: 'verify',
+            workload: 'outlook',
+            phase: 'processing',
+            processed: checked,
+            total: items.length,
+            current: item.id,
+          });
+          return failed;
         } finally {
           semaphore.release();
         }
       }),
     );
-    return items.filter((_, i) => corrupt[i]).map((item) => item.id);
+    return {
+      failed: items.filter((_, i) => corrupt[i] === true).map((item) => item.id),
+      checked,
+    };
   }
 
   /** Existence-only probe for fast mode; any error counts as missing. */

@@ -22,6 +22,7 @@ export interface SaveResult {
   readonly errors: string[];
   readonly output_path: string;
   readonly total_bytes: number;
+  readonly interrupted: boolean;
   readonly integrity_failures: string[];
 }
 

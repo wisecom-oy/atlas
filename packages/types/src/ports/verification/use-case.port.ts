@@ -14,6 +14,7 @@ export interface VerificationResult {
   readonly total_checked: number;
   readonly passed: number;
   readonly failed: string[];
+  readonly interrupted: boolean;
   /**
    * Objects that can never be verified because no blob was stored for them
    * (e.g. attachments skipped by pre-fix backups with an empty storage_key).

@@ -4,6 +4,7 @@
  */
 
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
+import type { MailFolder } from '@wisecom/atlas-types';
 
 /**
  * True when `selector` selects `folder_path`.
@@ -30,4 +31,31 @@ export function folder_matches_selector(folder_path: string, selector: string): 
   }
 
   return false;
+}
+
+/**
+ * Filters mailbox folders by user selectors and reports selectors that matched nothing.
+ */
+export function apply_folder_filter(
+  folders: MailFolder[],
+  filter?: string[],
+): { folders: MailFolder[]; warnings: string[] } {
+  if (!filter || filter.length === 0) return { folders, warnings: [] };
+
+  const matched = folders.filter((folder) =>
+    filter.some((selector) => folder_matches_selector(folder.folder_path, selector)),
+  );
+  const warnings = filter
+    .filter(
+      (selector) =>
+        !matched.some((folder) => folder_matches_selector(folder.folder_path, selector)),
+    )
+    .map(
+      (selector) =>
+        `Folder "${selector}" not found. Available: ${folders
+          .map((folder) => folder.folder_path)
+          .join(', ')}`,
+    );
+
+  return { folders: matched, warnings };
 }

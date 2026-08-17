@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { SaveService } from '@/services/save/save.service';
+import { save_entries_to_archive } from '@/services/save/save-entry-processor';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
@@ -116,6 +117,40 @@ describe('SaveService', () => {
 
       expect(result.saved_count).toBe(2);
       expect(result.snapshot_id).toBe('snap-1');
+    });
+
+    it('returns partial counts when interrupted between entries', async () => {
+      const manifest = make_manifest([make_entry('msg-1', 'f1'), make_entry('msg-2', 'f1')]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(manifest);
+      let interrupted = false;
+      vi.mocked(save_entries_to_archive).mockImplementationOnce(async (...args) => {
+        const dashboard = args[5];
+        const is_interrupted = args[6];
+        dashboard.update_total(1, 2, 1, 1);
+        interrupted = true;
+        expect(is_interrupted()).toBe(true);
+        return {
+          saved_count: 1,
+          attachment_count: 0,
+          error_count: 0,
+          errors: [],
+          output_path: 'test.zip',
+          total_bytes: 512,
+          integrity_failures: [],
+        };
+      });
+      const on_progress = vi.fn();
+
+      const result = await service.save_snapshot('test-tenant', 'snap-1', {
+        should_interrupt: () => interrupted,
+        on_progress,
+      });
+
+      expect(result.saved_count).toBe(1);
+      expect(result.interrupted).toBe(true);
+      expect(on_progress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: 'save', workload: 'outlook', phase: 'interrupted' }),
+      );
     });
 
     it('returns empty result when no entries', async () => {

@@ -13,6 +13,7 @@ export interface RestoreResult {
   readonly restore_folder_name: string;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
+  readonly interrupted: boolean;
 }
 
 export interface RestoreOptions extends OperationControlOptions {

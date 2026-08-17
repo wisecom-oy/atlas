@@ -46,6 +46,12 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
+    options.on_progress?.({
+      operation: 'restore',
+      workload: 'outlook',
+      phase: 'discovering',
+      processed: 0,
+    });
     try {
       const manifest = await this.load_manifest(ctx, snapshot_id);
       const source_mailbox = manifest.owner_id;
@@ -60,7 +66,26 @@ export class RestoreService implements RestoreUseCase {
       }
 
       if (options.message_ref) {
-        return restore_single_message(
+        if (options.should_interrupt?.() === true) {
+          const result = this.empty_result(snapshot_id, true);
+          options.on_progress?.({
+            operation: 'restore',
+            workload: 'outlook',
+            phase: 'interrupted',
+            processed: 0,
+            total: 1,
+          });
+          return result;
+        }
+        options.on_progress?.({
+          operation: 'restore',
+          workload: 'outlook',
+          phase: 'processing',
+          processed: 0,
+          total: 1,
+          current: entries[0]!.subject ?? entries[0]!.object_id,
+        });
+        const result = await restore_single_message(
           ctx,
           this._connector,
           this._restore_connector,
@@ -70,6 +95,15 @@ export class RestoreService implements RestoreUseCase {
           snapshot_id,
           entries[0]!,
         );
+        const interrupted = options.should_interrupt?.() === true;
+        options.on_progress?.({
+          operation: 'restore',
+          workload: 'outlook',
+          phase: interrupted ? 'interrupted' : 'completed',
+          processed: 1,
+          total: 1,
+        });
+        return { ...result, interrupted };
       }
 
       return this.restore_batch(
@@ -96,6 +130,12 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
     const ctx = await this._tenant_factory.create(tenant_id);
+    options.on_progress?.({
+      operation: 'restore',
+      workload: 'outlook',
+      phase: 'discovering',
+      processed: 0,
+    });
     try {
       const target = options.target_mailbox?.toLowerCase() ?? owner_id;
 
@@ -232,6 +272,7 @@ export class RestoreService implements RestoreUseCase {
       folder_map,
       created_folders,
       dashboard,
+      options,
     );
   }
 
@@ -246,7 +287,7 @@ export class RestoreService implements RestoreUseCase {
     }
   }
 
-  private empty_result(snapshot_id: string): RestoreResult {
+  private empty_result(snapshot_id: string, interrupted = false): RestoreResult {
     return {
       snapshot_id,
       restored_count: 0,
@@ -256,6 +297,7 @@ export class RestoreService implements RestoreUseCase {
       errors: [],
       verification_warnings: [],
       restore_folder_name: '',
+      interrupted,
     };
   }
 }

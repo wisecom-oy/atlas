@@ -7,18 +7,18 @@ import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-typ
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
-import { folder_matches_selector } from '@/services/shared/folder-selector';
+import { apply_folder_filter } from '@/services/shared/folder-selector';
 import {
   build_manifest,
   create_pending_snapshot,
   mark_snapshot_completed,
+  resolve_sync_mode,
 } from '@/services/backup/snapshot-manifest-builder';
 import type {
   BackupProgressReporter,
   BackupUseCase,
   SyncOptions,
   SyncResult,
-  BackupSyncMode,
 } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -67,6 +67,12 @@ export class MailboxSyncService implements BackupUseCase {
         owner_display_name: options.owner_display_name,
       });
       const sync_start = Date.now();
+      options.on_progress?.({
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'discovering',
+        processed: 0,
+      });
       const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
@@ -75,10 +81,10 @@ export class MailboxSyncService implements BackupUseCase {
         : await this._manifests.find_latest_by_owner(ctx, owner_id);
       const saved_links = previous?.delta_links ?? {};
       const previous_entry_count = previous?.total_objects ?? 0;
-      const mode = this.resolve_sync_mode(options, saved_links);
+      const mode = resolve_sync_mode(options.force_full, saved_links);
 
       const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
-      const folder_selection = this.apply_folder_filter(all_folders, options.folder_filter);
+      const folder_selection = apply_folder_filter(all_folders, options.folder_filter);
       const folders = folder_selection.folders;
       const warnings = [...folder_selection.warnings];
       const progress =
@@ -88,6 +94,13 @@ export class MailboxSyncService implements BackupUseCase {
         ) ??
         NOOP_BACKUP_PROGRESS_REPORTER;
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
+      options.on_progress?.({
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'processing',
+        processed: 0,
+        total: global_total,
+      });
 
       const all_entries: ManifestEntry[] = [];
       const new_delta_links: Record<string, string> = {};
@@ -144,8 +157,16 @@ export class MailboxSyncService implements BackupUseCase {
         progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
       }
 
-      if (should_interrupt()) progress.mark_all_pending_interrupted();
+      const interrupted = should_interrupt();
+      if (interrupted) progress.mark_all_pending_interrupted();
       progress.finish(global_processed);
+      options.on_progress?.({
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'finalizing',
+        processed: global_processed,
+        total: global_total,
+      });
 
       const merged_links = { ...saved_links, ...new_delta_links };
       const manifest = build_manifest(
@@ -158,12 +179,20 @@ export class MailboxSyncService implements BackupUseCase {
         mailbox_purpose,
       );
       await this._manifests.save(ctx, manifest);
+      options.on_progress?.({
+        operation: 'backup',
+        workload: 'outlook',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: global_processed,
+        total: global_total,
+      });
 
       const completed = mark_snapshot_completed(snapshot, all_entries.length);
       return {
         snapshot: completed,
         manifest,
         mode,
+        interrupted,
         summary: {
           stored,
           deduplicated,
@@ -171,7 +200,7 @@ export class MailboxSyncService implements BackupUseCase {
           processed: global_processed,
           folder_errors,
           warnings,
-          interrupted: should_interrupt(),
+          interrupted,
           completed_folder_count: Object.keys(new_delta_links).length,
           total_folder_count: folders.length,
           elapsed_ms: Date.now() - sync_start,
@@ -224,6 +253,7 @@ export class MailboxSyncService implements BackupUseCase {
         progress,
         is_interrupted: should_interrupt,
         is_hard_stopped: should_force_stop,
+        ...(options.on_progress ? { on_progress: options.on_progress } : {}),
         ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
         previous_manifest_entries: previous_entry_count,
         ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
@@ -268,41 +298,6 @@ export class MailboxSyncService implements BackupUseCase {
         retain_until: options.object_lock_policy.retain_until,
       },
     };
-  }
-
-  private resolve_sync_mode(
-    options: SyncOptions,
-    saved_links: Record<string, string>,
-  ): BackupSyncMode {
-    if (options.force_full) return 'full';
-    if (Object.keys(saved_links).length > 0) return 'incremental';
-    return 'initial';
-  }
-
-  /**
-   * Filters the folder list by user-supplied selectors. A selector matches a
-   * full path (`Inbox/Projects`) or a bare folder name at any depth
-   * (`Projects`), and always includes the matched folder's subtree.
-   * Returns all folders if no filter is specified.
-   */
-  private apply_folder_filter(
-    folders: MailFolder[],
-    filter?: string[],
-  ): { folders: MailFolder[]; warnings: string[] } {
-    if (!filter || filter.length === 0) return { folders, warnings: [] };
-
-    const matched = folders.filter((f) =>
-      filter.some((selector) => folder_matches_selector(f.folder_path, selector)),
-    );
-    const warnings: string[] = [];
-
-    for (const selector of filter) {
-      if (matched.some((f) => folder_matches_selector(f.folder_path, selector))) continue;
-      const available = folders.map((f) => f.folder_path).join(', ');
-      warnings.push(`Folder "${selector}" not found. Available: ${available}`);
-    }
-
-    return { folders: matched, warnings };
   }
 
   private async warn_if_replica(ctx: {

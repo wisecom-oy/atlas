@@ -8,7 +8,7 @@ import {
   add_eml_to_archive,
   finalize_archive,
 } from '@/services/save/save-zip-writer';
-import type { TransferProgressReporter } from '@wisecom/atlas-types';
+import type { OperationProgressCallback, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -36,7 +36,8 @@ export async function save_entries_to_archive(
   folder_map: Map<string, string>,
   dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
-): Promise<Omit<SaveResult, 'snapshot_id'>> {
+  on_progress?: OperationProgressCallback,
+): Promise<Omit<SaveResult, 'snapshot_id' | 'interrupted'>> {
   const { archive, promise } = create_save_archive(output_path);
 
   let global_saved = 0;
@@ -69,6 +70,7 @@ export async function save_entries_to_archive(
       dashboard,
       is_interrupted,
       { all_errors, integrity_failures },
+      on_progress,
     );
 
     global_errors += folder_result.error_count;
@@ -83,6 +85,13 @@ export async function save_entries_to_archive(
   }
 
   dashboard.show_finalizing();
+  on_progress?.({
+    operation: 'save',
+    workload: 'outlook',
+    phase: 'finalizing',
+    processed: global_saved,
+    total: global_total,
+  });
   await finalize_archive(archive);
   const total_bytes = await promise;
 
@@ -126,6 +135,7 @@ async function process_folder_entries(
   dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
   counters: FolderEntryCounters,
+  on_progress?: OperationProgressCallback,
 ): Promise<{
   folder_saved: number;
   folder_att: number;
@@ -176,6 +186,15 @@ async function process_folder_entries(
       eta_seconds: eta,
     });
     dashboard.update_total(gp, global_total, rate, eta);
+    on_progress?.({
+      operation: 'save',
+      workload: 'outlook',
+      phase: 'processing',
+      processed: gp,
+      total: global_total,
+      current: entry.subject ?? entry.object_id,
+      rate,
+    });
   }
 
   return { folder_saved, folder_att, error_count };

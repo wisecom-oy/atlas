@@ -7,6 +7,7 @@ import type {
   ManifestEntry,
   ManifestObjectLockPolicy,
 } from '@wisecom/atlas-types';
+import type { BackupSyncMode } from '@wisecom/atlas-types';
 
 export interface OwnerIdentityHint {
   readonly owner_email?: string | undefined;
@@ -75,4 +76,13 @@ export function build_manifest(
     ...(mailbox_purpose ? { mailbox_purpose } : {}),
     entries,
   };
+}
+
+/** Resolves whether a mailbox run is full, incremental, or its initial backup. */
+export function resolve_sync_mode(
+  force_full: boolean | undefined,
+  saved_links: Record<string, string>,
+): BackupSyncMode {
+  if (force_full) return 'full';
+  return Object.keys(saved_links).length > 0 ? 'incremental' : 'initial';
 }
