@@ -6,6 +6,9 @@ Each tenant gets its own S3 bucket named `atlas-{tenant_id}`. The bucket contain
 atlas-{tenant_id}/
 ├── _meta/
 │   ├── dek.enc                              # wrapped DEK (encrypted with KEK)
+│   ├── outlook-manifests/                   # encrypted Outlook lookup pointers
+│   │   ├── owners/{mailbox_id}/latest.json  # latest manifest key for incremental backup
+│   │   └── snapshots/{snapshot_id}.json     # manifest key for direct snapshot lookup
 │   └── replication/                         # replication status sidecars
 │       ├── {mailbox_id}/                    # Outlook replication status
 │       ├── onedrive/{owner_id}/             # OneDrive replication status
@@ -43,14 +46,18 @@ For managed service providers backing up multiple tenants, this isolation means 
 
 ### Outlook
 
-| Prefix                   | Contents                                       | Security Notes                                                                 |
-| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| `_meta/dek.enc`          | Wrapped data encryption key (one per tenant)   | **Most critical object** -- losing this means losing access to all tenant data |
-| `data/{mailbox}/`        | Encrypted email messages, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                       |
-| `attachments/{mailbox}/` | Encrypted attachments, addressed by SHA-256    | Content is encrypted; S3 metadata is not                                       |
-| `manifests/{mailbox}/`   | Encrypted snapshot manifests (JSON)            | Contains subjects, folder names, delta URLs -- all encrypted                   |
+| Prefix                                         | Contents                                       | Security Notes                                                                 |
+| ---------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)   | **Most critical object** -- losing this means losing access to all tenant data |
+| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest         | Encrypted; updated after each successful manifest upload                       |
+| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key   | Encrypted; avoids a tenant-wide manifest listing                               |
+| `data/{mailbox}/`                              | Encrypted email messages, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                       |
+| `attachments/{mailbox}/`                       | Encrypted attachments, addressed by SHA-256    | Content is encrypted; S3 metadata is not                                       |
+| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)            | Contains subjects, folder names, delta URLs -- all encrypted                   |
 
 Each Outlook manifest records an optional `mailbox_purpose` field -- the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, ...) at backup time. This makes shared mailboxes auditable: they are typically unlicensed and therefore invisible to license-based inventories, but the manifest flag identifies them in the backup catalog. Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the `manifests/{mailbox}/` prefix stays stable across the conversion: manifests written before the conversion read `user`, later ones read `shared`, and content blobs under `data/{mailbox}/` (addressed by SHA-256) are shared across both -- message data is stored once. Manifests written before this field existed simply omit it.
+
+The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer and then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan; saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
 
 ### OneDrive
 

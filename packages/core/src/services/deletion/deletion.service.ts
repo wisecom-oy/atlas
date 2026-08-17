@@ -20,6 +20,7 @@ import { logger } from '@/utils/logger';
  * with the DEK, so they have to go before the key that reads them.
  */
 const DEK_KEY = '_meta/dek.enc';
+const OUTLOOK_MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
 
 @injectable()
 export class DeletionService implements DeletionUseCase {
@@ -36,8 +37,25 @@ export class DeletionService implements DeletionUseCase {
   async delete_mailbox_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
     owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
+    const manifest_prefix = `manifests/${owner_id}/`;
+    const [manifest_keys, manifest_versions] = await Promise.all([
+      storage.list(manifest_prefix),
+      storage.list_versions(manifest_prefix),
+    ]);
+    const snapshot_ids = new Set<string>();
+    for (const key of [...manifest_keys, ...manifest_versions.map((version) => version.key)]) {
+      if (!key.startsWith(manifest_prefix) || !key.endsWith('.json')) continue;
+      const snapshot_id = key.slice(manifest_prefix.length, -'.json'.length);
+      if (snapshot_id.length > 0) snapshot_ids.add(snapshot_id);
+    }
+    const snapshot_pointers = [...snapshot_ids].map(
+      (snapshot_id) => `${OUTLOOK_MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`,
+    );
+
     return delete_scopes(storage, [
-      `manifests/${owner_id}/`,
+      manifest_prefix,
+      ...snapshot_pointers,
+      `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${owner_id}/`,
       `data/${owner_id}/`,
       `attachments/${owner_id}/`,
     ]);
@@ -59,11 +77,19 @@ export class DeletionService implements DeletionUseCase {
       }
 
       const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
-      const summary = await delete_scopes(ctx.storage, [key]);
-      if (summary.retained_manifests > 0 || summary.failed_manifests > 0) {
-        logger.error('Snapshot manifest is protected by Object Lock and cannot be deleted yet.');
+      const manifest_summary = await delete_scopes(ctx.storage, [key]);
+      if (has_survivors(manifest_summary)) {
+        if (manifest_summary.retained_manifests > 0 || manifest_summary.failed_manifests > 0) {
+          logger.error('Snapshot manifest is protected by Object Lock and cannot be deleted yet.');
+        }
+        return manifest_summary;
       }
-      return summary;
+
+      const pointer_summary = await delete_scopes(ctx.storage, [
+        `${OUTLOOK_MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`,
+        `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${manifest.owner_id}/latest.json`,
+      ]);
+      return merge_deletion_results(manifest_summary, pointer_summary);
     } finally {
       ctx.destroy();
     }
