@@ -37,14 +37,18 @@ Delta links are stored in the **encrypted manifest**, not in plaintext. They con
 
 ## Retry and Error Handling
 
-Microsoft Graph applies rate limiting to protect the service. Atlas handles this transparently:
+Microsoft Graph applies rate limiting to protect the service, and its front end returns transient server errors under load. Atlas handles both transparently:
 
-| Error                              | Behavior                                                           |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| **HTTP 429** (Too Many Requests)   | Honors `Retry-After` header, exponential backoff, up to 12 retries |
-| **HTTP 503** (Service Unavailable) | Same retry logic as 429                                            |
-| **HTTP 504** (Gateway Timeout)     | Same retry logic as 429                                            |
-| **`syncStateNotFound`**            | Delta token expired or invalid -- automatic full resync            |
+| Error                                | Behavior                                                           |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| **HTTP 429** (Too Many Requests)     | Honors `Retry-After` header, exponential backoff, up to 12 retries |
+| **HTTP 500** (Internal Server Error) | Same retry logic as 429                                            |
+| **HTTP 502** (Bad Gateway)           | Same retry logic as 429                                            |
+| **HTTP 503** (Service Unavailable)   | Same retry logic as 429                                            |
+| **HTTP 504** (Gateway Timeout)       | Same retry logic as 429                                            |
+| **`syncStateNotFound`**              | Delta token expired or invalid -- automatic full resync            |
+
+`500` and `502` are retried because Graph raises them for load and gateway faults that clear on their own; a single one mid-folder would otherwise fail that folder (Outlook) or discard the drive batch (OneDrive/SharePoint). `501` and every `4xx` are not retried -- repeating them returns the same answer.
 
 When a delta token has expired (Microsoft purges them after ~30 days of inactivity), Graph returns a `syncStateNotFound` error. Atlas detects this and automatically falls back to a full enumeration for that folder, logging a warning so you know the incremental chain was broken.
 

@@ -66,12 +66,16 @@ describe('is_invalid_delta_error', () => {
 });
 
 describe('is_transient_error', () => {
-  it.each([429, 503, 504])('returns true for status %i', (status) => {
+  it.each([429, 500, 502, 503, 504])('returns true for status %i', (status) => {
     expect(is_transient_error({ statusCode: status })).toBe(true);
   });
 
   it('returns false for 400', () => {
     expect(is_transient_error({ statusCode: 400 })).toBe(false);
+  });
+
+  it('returns false for 501, which Graph does not recover from by itself', () => {
+    expect(is_transient_error({ statusCode: 501 })).toBe(false);
   });
 });
 
@@ -149,6 +153,22 @@ describe('with_graph_retry', () => {
     const fn = (): Promise<string> => {
       calls++;
       if (calls === 1) return Promise.reject({ statusCode: 503, message: 'Service Unavailable' });
+      return Promise.resolve('recovered');
+    };
+
+    const promise = with_graph_retry(fn);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
+
+    expect(result).toBe('recovered');
+    expect(calls).toBe(2);
+  });
+
+  it.each([500, 502])('retries a transient %i and succeeds', async (status) => {
+    let calls = 0;
+    const fn = (): Promise<string> => {
+      calls++;
+      if (calls === 1) return Promise.reject({ statusCode: status, message: 'Server error' });
       return Promise.resolve('recovered');
     };
 
