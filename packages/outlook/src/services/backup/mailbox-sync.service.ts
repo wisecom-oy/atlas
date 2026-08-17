@@ -157,7 +157,7 @@ export class MailboxSyncService implements BackupUseCase {
         progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
       }
 
-      const interrupted = should_interrupt();
+      let interrupted = should_interrupt();
       if (interrupted) progress.mark_all_pending_interrupted();
       progress.finish(global_processed);
       options.on_progress?.({
@@ -179,6 +179,7 @@ export class MailboxSyncService implements BackupUseCase {
         mailbox_purpose,
       );
       await this._manifests.save(ctx, manifest);
+      interrupted ||= should_interrupt();
       options.on_progress?.({
         operation: 'backup',
         workload: 'outlook',

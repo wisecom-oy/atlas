@@ -216,4 +216,18 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
 
     expect(saved_delta_links()).toEqual({ 'folder-1': 'https://new-delta' });
   });
+  it('honors cancellation requested by the finalizing progress event', async () => {
+    let interrupted = false;
+    connector.fetch_delta = make_streaming_fetch_delta([[make_message('m1')]], 'https://new-delta');
+
+    const result = await service.sync_mailbox('t', 'user@test.com', {
+      on_progress: (event) => {
+        if (event.phase === 'finalizing') interrupted = true;
+      },
+      should_interrupt: () => interrupted,
+    });
+
+    expect(result.interrupted).toBe(true);
+    expect(saved_delta_links()).toEqual({ 'folder-1': 'https://new-delta' });
+  });
 });
