@@ -6,6 +6,8 @@ export {
   is_transient_error,
   is_network_error,
   is_retryable_error,
+  describe_graph_error,
+  is_content_gone_error,
   with_graph_retry,
 } from './graph-error-helpers';
 export { RateLimitedGraphConnector } from './rate-limited-graph-connector.adapter';

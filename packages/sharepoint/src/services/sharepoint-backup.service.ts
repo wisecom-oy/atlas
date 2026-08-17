@@ -124,14 +124,15 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       scan.interrupted ||= options.should_interrupt?.() === true;
       const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking, scan.failed_items);
       const warnings = [
-        ...this.build_version_warnings(scan.version_stats),
         ...build_package_warnings(scan.package_reports),
         ...describe_failed_items(scan.failed_items),
       ];
+      // Version downloads that failed for an unexpected reason leave history out
+      // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
+      // like every other incomplete backup (issue #92).
+      const errors = [...scan.errors, ...this.build_version_errors(scan.version_stats)];
       const healthy =
-        !scan.interrupted &&
-        scan.errors.length === 0 &&
-        Object.keys(scan.failed_items).length === 0;
+        !scan.interrupted && errors.length === 0 && Object.keys(scan.failed_items).length === 0;
 
       let result: SharePointBackupResult;
       if (scan.entries.length === 0) {
@@ -144,7 +145,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           scan.deleted_items,
           scan.version_stats.total_versions_stored,
           scan.version_stats.total_versions_unavailable,
-          scan.errors,
+          errors,
           warnings,
           healthy,
           scan.interrupted,
@@ -160,6 +161,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           scan.libraries_scanned,
           options,
           cursor,
+          errors,
           warnings,
           healthy,
         );
@@ -202,9 +204,12 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     };
   }
 
-  private build_version_warnings(version_stats: VersionStatsState): string[] {
+  private build_version_errors(version_stats: VersionStatsState): string[] {
     if (version_stats.total_versions_failed === 0) return [];
-    return [`${version_stats.total_versions_failed} version download(s) failed unexpectedly`];
+    return [
+      `${version_stats.total_versions_failed} version download(s) failed unexpectedly ` +
+        `-- see the per-version reasons above; those versions are not in this snapshot`,
+    ];
   }
 
   private async finalize_snapshot(
@@ -217,6 +222,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     libraries_scanned: number,
     options: SharePointBackupOptions,
     cursor: SharePointDeltaCursor,
+    errors: string[],
     warnings: string[],
     healthy: boolean,
   ): Promise<SharePointBackupResult> {
@@ -254,7 +260,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         snapshot_created: true,
         versions_stored: scan.version_stats.total_versions_stored,
         versions_unavailable: scan.version_stats.total_versions_unavailable,
-        errors: scan.errors,
+        errors,
         warnings,
         healthy,
       },

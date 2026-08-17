@@ -8,6 +8,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365-graph';
 import { sharepoint_data_key } from '@/services/sharepoint-storage-keys';
 
 export interface VersionSyncResult {
@@ -119,23 +120,12 @@ async function download_version_classified(
     );
     return { status: 'ok', content };
   } catch (err) {
-    if (is_version_unavailable(err)) {
+    if (is_content_gone_error(err)) {
       logger.debug(
         `Version ${version.version_id} of ${item.file_name} no longer available (expired)`,
       );
       return { status: 'unavailable' };
     }
-    const reason = err instanceof Error ? err.message : String(err);
-    return { status: 'failed', reason };
+    return { status: 'failed', reason: describe_graph_error(err) };
   }
-}
-
-/** HTTP 404/410 indicate the version content has been purged by retention policy. */
-function is_version_unavailable(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const status =
-    (err as Record<string, unknown>).statusCode ?? (err as Record<string, unknown>).status;
-  if (status === 404 || status === 410) return true;
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('404') || message.includes('Not Found') || message.includes('410');
 }

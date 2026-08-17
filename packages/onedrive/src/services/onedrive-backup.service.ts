@@ -156,8 +156,15 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         updated_at: new Date().toISOString(),
       };
 
+      // Version downloads that failed for an unexpected reason leave history out
+      // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
+      // like every other incomplete backup (issue #92).
+      const errors = [...scan_result.errors];
       if (total_versions_failed > 0) {
-        warnings.push(`${total_versions_failed} version download(s) failed unexpectedly`);
+        errors.push(
+          `${total_versions_failed} version download(s) failed unexpectedly ` +
+            `-- see the per-version reasons above; those versions are not in this snapshot`,
+        );
       }
       warnings.push(...build_package_warnings(scan_result.package_report));
       // Files left un-backed-up are the run's headline problem: warn per item and
@@ -165,7 +172,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       warnings.push(...describe_failed_items(scan_result.failed_items));
       const healthy =
         !scan_result.interrupted &&
-        scan_result.errors.length === 0 &&
+        errors.length === 0 &&
         Object.keys(scan_result.failed_items).length === 0;
 
       let result: OneDriveBackupResult;
@@ -179,7 +186,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           scan_result.deleted_items,
           total_versions_stored,
           total_versions_unavailable,
-          scan_result.errors,
+          errors,
           warnings,
           scan_result.interrupted,
           healthy,
@@ -213,7 +220,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           scan_result.deleted_items,
           total_versions_stored,
           total_versions_unavailable,
-          scan_result.errors,
+          errors,
           warnings,
           scan_result.interrupted,
           healthy,
