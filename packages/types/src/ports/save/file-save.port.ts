@@ -1,4 +1,6 @@
-export interface FileSaveOptions {
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
+export interface FileSaveOptions extends OperationControlOptions {
   readonly snapshot_id: string;
   /** Only save specific files (by file ID or full path). */
   readonly file_filter?: string[];

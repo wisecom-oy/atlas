@@ -1,4 +1,6 @@
-export interface VerificationOptions {
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
+export interface VerificationOptions extends OperationControlOptions {
   /**
    * Existence-only verification: batched HeadObject on every referenced key
    * instead of download + decrypt + hash. Catches deleted/missing objects at

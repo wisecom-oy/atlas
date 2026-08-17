@@ -1,6 +1,8 @@
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
 export type SharePointRestoreConflictBehavior = 'replace' | 'rename' | 'fail';
 
-export interface SharePointRestoreOptions {
+export interface SharePointRestoreOptions extends OperationControlOptions {
   readonly snapshot_id: string;
   /** Optional target site ID to restore to (defaults to original site). */
   readonly target_site_id?: string;

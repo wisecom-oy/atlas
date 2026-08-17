@@ -1,6 +1,7 @@
 import type { Manifest } from '@/domain/manifest';
 import type { Snapshot } from '@/domain/snapshot';
 import type { OperationCost } from '@/domain/graph-cost';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
@@ -37,7 +38,7 @@ export interface BackupProgressReporter {
   finish(actual_total?: number): void;
 }
 
-export interface SyncOptions {
+export interface SyncOptions extends OperationControlOptions {
   readonly folder_filter?: string[] | undefined;
   readonly force_full?: boolean | undefined;
   readonly page_size?: number | undefined;
@@ -46,7 +47,6 @@ export interface SyncOptions {
   readonly progress?: BackupProgressReporter | undefined;
   readonly create_progress?:
     ((folders: { name: string; total_items: number }[]) => BackupProgressReporter) | undefined;
-  readonly should_interrupt?: (() => boolean) | undefined;
   readonly should_force_stop?: (() => boolean) | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;

@@ -1,6 +1,7 @@
 import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 
-export interface SaveOptions {
+export interface SaveOptions extends OperationControlOptions {
   readonly folder_name?: string;
   readonly message_ref?: string;
   readonly start_date?: Date;

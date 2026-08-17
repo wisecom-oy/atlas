@@ -3,6 +3,8 @@ import type {
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive-manifest';
 import type { BackupProgressReporter, ObjectLockRequest } from '../backup/use-case.port';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { VerificationOptions } from '@/ports/verification/use-case.port';
 
 export interface OneDriveBackupSummary {
   readonly drives_scanned: number;
@@ -25,7 +27,7 @@ export interface OneDriveBackupResult {
   readonly summary: OneDriveBackupSummary;
 }
 
-export interface OneDriveBackupOptions {
+export interface OneDriveBackupOptions extends OperationControlOptions {
   readonly force_full?: boolean | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
@@ -79,5 +81,6 @@ export interface OneDriveVerificationUseCase {
     tenant_id: string,
     owner_id: string,
     snapshot_id: string,
+    options?: VerificationOptions,
   ): Promise<OneDriveVerificationResult>;
 }

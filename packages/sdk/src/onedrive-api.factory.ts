@@ -20,6 +20,7 @@ import {
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
+import { adapt_operation_options } from '@/operation-options';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
@@ -38,16 +39,21 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
 
   return {
     async backup(owner_id, options) {
-      return await backup.backup_onedrive(tenant_id, owner_id, options);
+      return await backup.backup_onedrive(tenant_id, owner_id, adapt_operation_options(options));
     },
-    async verify(owner_id, snapshot_id) {
-      return await verification.verify_onedrive_snapshot(tenant_id, owner_id, snapshot_id);
+    async verify(owner_id, snapshot_id, options) {
+      return await verification.verify_onedrive_snapshot(
+        tenant_id,
+        owner_id,
+        snapshot_id,
+        adapt_operation_options(options),
+      );
     },
     async restore(owner_id, options) {
-      return await restore.restore_onedrive(tenant_id, owner_id, options);
+      return await restore.restore_onedrive(tenant_id, owner_id, adapt_operation_options(options)!);
     },
     async save(owner_id, options) {
-      return await save.save_snapshot(tenant_id, owner_id, options);
+      return await save.save_snapshot(tenant_id, owner_id, adapt_operation_options(options)!);
     },
     async listSnapshots(owner_id) {
       return await catalog.list_onedrive_snapshots(tenant_id, owner_id);

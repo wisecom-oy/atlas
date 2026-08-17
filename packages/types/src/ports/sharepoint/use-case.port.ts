@@ -3,6 +3,8 @@ import type {
   SharePointSnapshotManifest,
 } from '../../domain/sharepoint-manifest';
 import type { ObjectLockRequest } from '../backup/use-case.port';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { VerificationOptions } from '@/ports/verification/use-case.port';
 
 export interface SharePointBackupSummary {
   readonly libraries_scanned: number;
@@ -25,7 +27,7 @@ export interface SharePointBackupResult {
   readonly summary: SharePointBackupSummary;
 }
 
-export interface SharePointBackupOptions {
+export interface SharePointBackupOptions extends OperationControlOptions {
   readonly force_full?: boolean | undefined;
   readonly site_url?: string | undefined;
   readonly site_display_name?: string | undefined;
@@ -78,6 +80,7 @@ export interface SharePointVerificationUseCase {
     tenant_id: string,
     site_id: string,
     snapshot_id: string,
+    options?: VerificationOptions,
   ): Promise<SharePointVerificationResult>;
 }
 
