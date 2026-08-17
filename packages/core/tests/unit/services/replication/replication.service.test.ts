@@ -231,4 +231,12 @@ describe('ReplicationService', () => {
 
     expect(results).toEqual([]);
   });
+
+  it('get_replication_status_by_owner lowercases the owner id used as the sidecar prefix', async () => {
+    vi.mocked(source_storage.list).mockResolvedValue([]);
+
+    await service.get_replication_status_by_owner('tenant-1', 'User@Company.COM');
+
+    expect(source_storage.list).toHaveBeenCalledWith('_meta/replication/user@company.com/');
+  });
 });

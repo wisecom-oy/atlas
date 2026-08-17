@@ -617,10 +617,14 @@ atlas replicate -m user@company.com --target-config ./offsite.json
 atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target-config ./offsite.json
 atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --target-config ./offsite.json
 
+atlas replicate -o user@company.com --target-config ./offsite.json
+atlas replicate -o user@company.com -s od-snap-1735689600000-a1b2c3 --target-config ./offsite.json
+
 atlas replicate --status
 atlas replicate --status -m user@company.com
 atlas replicate --status -s <snapshot-id>
 atlas replicate --status --site https://contoso.sharepoint.com/sites/Engineering
+atlas replicate --status -o user@company.com
 ```
 
 | Option                      | Description                                                |
@@ -628,6 +632,7 @@ atlas replicate --status --site https://contoso.sharepoint.com/sites/Engineering
 | `-s, --snapshot <id>`       | Replicate a specific snapshot                              |
 | `-m, --mailbox <email>`     | Replicate all unreplicated snapshots for a mailbox         |
 | `--site <url-or-id>`        | Replicate all unreplicated snapshots for a SharePoint site |
+| `-o, --owner <email-or-id>` | Replicate all unreplicated snapshots for a OneDrive owner  |
 | `--target-endpoint <url>`   | Target S3 endpoint URL                                     |
 | `--target-access-key <key>` | Target S3 access key                                       |
 | `--target-secret-key <key>` | Target S3 secret key                                       |
@@ -655,6 +660,9 @@ atlas rehydrate --all --source-config ./offsite.json
 
 atlas rehydrate --site https://contoso.sharepoint.com/sites/Engineering --source-config ./offsite.json
 atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000-a1b2c3 --source-config ./offsite.json
+
+atlas rehydrate -o user@company.com --source-config ./offsite.json
+atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-config ./offsite.json
 ```
 
 | Option                      | Description                                                  |
@@ -662,6 +670,7 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000
 | `-s, --snapshot <id>`       | Recover a specific snapshot from the replica                 |
 | `-m, --mailbox <email>`     | Recover all snapshots for a mailbox from the replica         |
 | `--site <url-or-id>`        | Recover all SharePoint snapshots for a site from the replica |
+| `-o, --owner <email-or-id>` | Recover all OneDrive snapshots for an owner from the replica |
 | `--all`                     | Recover all mailboxes and snapshots (full tenant DR)         |
 | `--source-endpoint <url>`   | Source replica S3 endpoint URL                               |
 | `--source-access-key <key>` | Source replica S3 access key                                 |
@@ -669,6 +678,14 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000
 | `--source-region <region>`  | Source replica S3 region (default: `us-east-1`)              |
 | `--source-config <path>`    | Path to JSON file with source S3 credentials                 |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
+
+Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. Combining `--site` or `-o/--owner` with `-s/--snapshot` narrows the recovery to that single SharePoint or OneDrive snapshot; `-s` on its own resolves Outlook snapshots. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
+
+`-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only -- unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
+
+::: warning `--all` covers Outlook only
+Despite the `full tenant recovery` label it prints, `--all` enumerates Outlook manifests only -- OneDrive and SharePoint snapshots are not recovered by it. Recover those explicitly with `-o/--owner` per owner and `--site` per site. Tracked in [#88](https://github.com/wisecom-oy/atlas/issues/88).
+:::
 
 ::: danger Rehydration Is Not Sync
 Rehydration copies explicitly selected data from a designated replica to primary. It does not merge, diff, or resolve conflicts. After rehydration, primary resumes as the source of truth. Delta links in recovered manifests may be stale -- Atlas falls back to full sync on the next backup automatically.

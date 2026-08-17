@@ -188,6 +188,7 @@ export class ReplicationService implements ReplicationUseCase {
     tenant_id: string,
     owner_id: string,
   ): Promise<ReplicationStatusRecord[]> {
+    owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
       return await list_replication_status_by_owner(ctx, owner_id);

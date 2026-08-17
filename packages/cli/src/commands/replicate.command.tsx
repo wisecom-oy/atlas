@@ -3,10 +3,15 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { ReplicationUseCase, SharePointReplicationUseCase } from '@wisecom/atlas-types';
+import type {
+  ReplicationUseCase,
+  SharePointReplicationUseCase,
+  OneDriveReplicationUseCase,
+} from '@wisecom/atlas-types';
 import {
   REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { create_storage_target } from '@wisecom/atlas-s3';
 import type { StorageTarget } from '@wisecom/atlas-types';
@@ -19,6 +24,7 @@ import type { TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 type ContainerFactory = () => Container;
 
@@ -26,6 +32,7 @@ interface ReplicateOptions {
   snapshot?: string;
   mailbox?: string;
   site?: string;
+  owner?: string;
   tenant?: string;
   targetEndpoint?: string;
   targetAccessKey?: string;
@@ -46,6 +53,10 @@ export function register_replicate_command(
     .option('-s, --snapshot <id>', 'replicate a specific snapshot')
     .option('-m, --mailbox <id>', 'replicate all unreplicated snapshots for a mailbox')
     .option('--site <url-or-id>', 'replicate all unreplicated snapshots for a SharePoint site')
+    .option(
+      '-o, --owner <email-or-id>',
+      'replicate all unreplicated snapshots for a OneDrive owner',
+    )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--target-endpoint <url>', 'target S3 endpoint URL')
     .option('--target-access-key <key>', 'target S3 access key')
@@ -66,7 +77,11 @@ async function execute_replicate(container: Container, options: ReplicateOptions
   const use_case = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
 
   if (options.status) {
-    await show_status(use_case, tenant_id, options);
+    const owner_scope = options.owner
+      ? (await resolve_owner(container, tenant_id, options.owner)).object_id
+      : undefined;
+    const scope_id = options.mailbox ?? options.site ?? owner_scope;
+    await show_status(use_case, tenant_id, options.snapshot, scope_id);
     return;
   }
 
@@ -103,6 +118,27 @@ async function execute_replicate(container: Container, options: ReplicateOptions
       );
       await report_results(results);
     }
+  } else if (options.owner) {
+    const onedrive_replication = container.get<OneDriveReplicationUseCase>(
+      ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+    );
+    const owner = await resolve_owner(container, tenant_id, options.owner);
+    if (options.snapshot) {
+      const results = await onedrive_replication.replicate_owner(
+        tenant_id,
+        owner.object_id,
+        options.snapshot,
+        [target],
+      );
+      await report_results(results);
+    } else {
+      const results = await onedrive_replication.replicate_all_owner_snapshots(
+        tenant_id,
+        owner.object_id,
+        [target],
+      );
+      await report_results(results);
+    }
   } else if (options.snapshot) {
     const results = await use_case.replicate_snapshot(tenant_id, options.snapshot, [target]);
     await report_results(results);
@@ -111,7 +147,7 @@ async function execute_replicate(container: Container, options: ReplicateOptions
     await report_results(results);
   } else {
     logger.error(
-      'Either --snapshot, --mailbox, or --site is required (or --status to view status)',
+      'Either --snapshot, --mailbox, --owner, or --site is required (or --status to view status)',
     );
     process.exitCode = 1;
   }
@@ -237,17 +273,16 @@ const STATUS_COLUMNS: TableColumn<StatusRow>[] = [
 async function show_status(
   use_case: ReplicationUseCase,
   tenant_id: string,
-  options: ReplicateOptions,
+  snapshot_id: string | undefined,
+  scope_id: string | undefined,
 ): Promise<void> {
   await render_static_view(<Banner title="Replication Status" />);
 
   let records: ReplicationStatusRecord[];
-  if (options.snapshot) {
-    records = await use_case.get_replication_status(tenant_id, options.snapshot);
-  } else if (options.mailbox) {
-    records = await use_case.get_replication_status_by_owner(tenant_id, options.mailbox);
-  } else if (options.site) {
-    records = await use_case.get_replication_status_by_owner(tenant_id, options.site);
+  if (snapshot_id) {
+    records = await use_case.get_replication_status(tenant_id, snapshot_id);
+  } else if (scope_id) {
+    records = await use_case.get_replication_status_by_owner(tenant_id, scope_id);
   } else {
     records = await use_case.get_replication_status(tenant_id);
   }

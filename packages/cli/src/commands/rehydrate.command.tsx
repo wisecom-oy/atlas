@@ -3,10 +3,15 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { ReplicationUseCase, SharePointReplicationUseCase } from '@wisecom/atlas-types';
+import type {
+  ReplicationUseCase,
+  SharePointReplicationUseCase,
+  OneDriveReplicationUseCase,
+} from '@wisecom/atlas-types';
 import {
   REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { create_storage_target } from '@wisecom/atlas-s3';
 import type { StorageTarget } from '@wisecom/atlas-types';
@@ -18,7 +23,28 @@ import type { KeyValueItem } from '@/ui/components/key-value-list';
 import { ResultSummary } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { format_bytes } from '@/command-formatters';
-import { logger } from '@wisecom/atlas-core';
+import { logger, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-core';
+import type { UserIdentityResolver } from '@wisecom/atlas-types';
+
+/**
+ * Resolves an owner for recovery without touching primary storage.
+ *
+ * The shared `resolve_owner` helper persists the identity registry to primary, which would
+ * bootstrap a fresh DEK there and make the source key un-copyable (`DekOverwriteRefusedError`).
+ * Recovery therefore reads Graph directly, and passes a raw object ID through untouched so DR
+ * still works when Graph is unreachable.
+ */
+async function resolve_owner_for_recovery(
+  container: Container,
+  tenant_id: string,
+  owner_input: string,
+): Promise<string> {
+  if (!owner_input.includes('@')) return owner_input;
+  const graph = container.get<UserIdentityResolver>(GRAPH_IDENTITY_RESOLVER_TOKEN);
+  const identity = await graph.resolve_user(tenant_id, owner_input);
+  logger.info(`Resolved ${owner_input} -> ${identity.object_id} (${identity.display_name})`);
+  return identity.object_id;
+}
 
 type ContainerFactory = () => Container;
 
@@ -26,6 +52,7 @@ interface RehydrateOptions {
   snapshot?: string;
   mailbox?: string;
   site?: string;
+  owner?: string;
   all?: boolean;
   tenant?: string;
   sourceEndpoint?: string;
@@ -46,6 +73,7 @@ export function register_rehydrate_command(
     .option('-s, --snapshot <id>', 'recover a specific snapshot')
     .option('-m, --mailbox <id>', 'recover all snapshots for a mailbox')
     .option('--site <url-or-id>', 'recover all snapshots for a SharePoint site')
+    .option('-o, --owner <email-or-id>', 'recover all OneDrive snapshots for an owner')
     .option('--all', 'recover all mailboxes and snapshots (full tenant DR)')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--source-endpoint <url>', 'source replica S3 endpoint URL')
@@ -67,6 +95,10 @@ function resolve_mode_text(options: RehydrateOptions): string | undefined {
     return `recover SharePoint snapshot ${options.snapshot} for site ${options.site}`;
   }
   if (options.site) return `recover SharePoint site ${options.site}`;
+  if (options.owner && options.snapshot) {
+    return `recover OneDrive snapshot ${options.snapshot} for owner ${options.owner}`;
+  }
+  if (options.owner) return `recover OneDrive owner ${options.owner}`;
   if (options.snapshot) return `recover snapshot ${options.snapshot}`;
   if (options.mailbox) return `recover mailbox ${options.mailbox}`;
   if (options.all) return 'full tenant recovery';
@@ -108,6 +140,21 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
     } else {
       result = await sharepoint_replication.rehydrate_site(tenant_id, options.site, source);
     }
+  } else if (options.owner) {
+    const onedrive_replication = container.get<OneDriveReplicationUseCase>(
+      ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+    );
+    const owner_id = await resolve_owner_for_recovery(container, tenant_id, options.owner);
+    if (options.snapshot) {
+      result = await onedrive_replication.rehydrate_owner_snapshot(
+        tenant_id,
+        owner_id,
+        options.snapshot,
+        source,
+      );
+    } else {
+      result = await onedrive_replication.rehydrate_owner(tenant_id, owner_id, source);
+    }
   } else if (options.snapshot) {
     result = await use_case.rehydrate_snapshot(tenant_id, options.snapshot, source);
   } else if (options.mailbox) {
@@ -115,7 +162,7 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
   } else if (options.all) {
     result = await use_case.rehydrate_tenant(tenant_id, source);
   } else {
-    logger.error('One of --snapshot, --mailbox, or --all is required');
+    logger.error('One of --snapshot, --mailbox, --owner, --site, or --all is required');
     process.exitCode = 1;
     return;
   }
