@@ -62,7 +62,7 @@ export class VerificationService implements VerificationUseCase {
         manifests_in_chain: 0,
       };
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const chain = await this.load_manifest_chain(ctx, snapshot_id);
       const entries = merge_snapshot_entries(chain);

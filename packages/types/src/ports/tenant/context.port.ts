@@ -37,6 +37,16 @@ export interface TenantContextFactory {
   create(tenant_id: string): Promise<TenantContext>;
 
   /**
+   * Loads an existing tenant context without provisioning anything: no
+   * CreateBucket, no DEK generation. Read-only paths (catalog listings, stats,
+   * identity registry dumps) MUST use this so a mistyped tenant id cannot
+   * leave a bucket and key material behind, and so read-only credentials need
+   * neither `s3:CreateBucket` nor write access to `_meta/`.
+   * Rejects when the tenant has no stored DEK.
+   */
+  create_readonly(tenant_id: string): Promise<TenantContext>;
+
+  /**
    * Ensures the tenant bucket exists and returns raw storage only (no DEK load).
    * Use for operations that delete or list ciphertext by key without decrypting,
    * e.g. `atlas delete --purge` when `_meta/dek.enc` is missing or unreadable.

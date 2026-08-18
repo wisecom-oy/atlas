@@ -91,6 +91,7 @@ describe('SharePoint restore cancellation', () => {
     } as unknown as TenantContext;
     const factory = {
       create: vi.fn().mockResolvedValue(context),
+      create_readonly: vi.fn().mockResolvedValue(context),
     } as unknown as TenantContextFactory;
     const connector = {
       create_folder: vi.fn().mockResolvedValue('folder-id'),

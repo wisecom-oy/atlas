@@ -84,6 +84,7 @@ describe('DeletionService', () => {
 
     mock_factory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
       create_storage_only: vi.fn().mockResolvedValue({
         tenant_id: mock_context.tenant_id,
         storage: mock_context.storage,

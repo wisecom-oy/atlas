@@ -36,6 +36,7 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
   } as unknown as TenantContext;
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(context),
+    create_readonly: vi.fn().mockResolvedValue(context),
     create_storage_only: vi.fn(),
   };
   const connector = {

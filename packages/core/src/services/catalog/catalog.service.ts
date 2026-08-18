@@ -18,7 +18,7 @@ export class CatalogService implements CatalogUseCase {
    * for summary stats (object count, size, last backup time).
    */
   async list_mailboxes(tenant_id: string): Promise<MailboxSummary[]> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const all = await this._manifests.list_all_manifests(ctx);
       const by_mailbox = group_by_mailbox(all);
@@ -31,7 +31,7 @@ export class CatalogService implements CatalogUseCase {
   /** Returns every manifest for a given mailbox owner, sorted newest-first. */
   async list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]> {
     owner_id = normalize_owner_id(owner_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const all = await this._manifests.list_all_manifests(ctx);
       return all
@@ -44,7 +44,7 @@ export class CatalogService implements CatalogUseCase {
 
   /** Loads and returns one manifest by snapshot ID. */
   async get_snapshot_detail(tenant_id: string, snapshot_id: string): Promise<Manifest | undefined> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       return await this._manifests.find_by_snapshot(ctx, snapshot_id);
     } finally {
@@ -65,7 +65,7 @@ export class CatalogService implements CatalogUseCase {
     snapshot_id: string,
     message_ref: string,
   ): Promise<ReadMessageResult | undefined> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
       if (!manifest) return undefined;

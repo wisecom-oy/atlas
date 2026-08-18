@@ -66,7 +66,7 @@ export class StatsService implements StatsUseCase {
 
   /** Loads all manifests and computes bucket-wide statistics. */
   async get_bucket_stats(tenant_id: string): Promise<BucketStats> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const all = await this._manifests.list_all_manifests(ctx);
       return timed(() => aggregate_bucket_stats(tenant_id, all));
@@ -78,7 +78,7 @@ export class StatsService implements StatsUseCase {
   /** Loads manifests for a single mailbox and computes its statistics. */
   async get_mailbox_stats(tenant_id: string, owner_id: string): Promise<MailboxStats> {
     owner_id = normalize_owner_id(owner_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const all = await this._manifests.list_all_manifests(ctx);
       const filtered = all.filter((m) => m.owner_id === owner_id);
@@ -90,7 +90,7 @@ export class StatsService implements StatsUseCase {
 
   /** Loads OneDrive manifests (all owners or one) and computes drive statistics. */
   async get_onedrive_stats(tenant_id: string, owner_id?: string): Promise<DriveStats> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifests = owner_id
         ? await this._od_manifests.list_snapshots_by_owner(ctx, owner_id)
@@ -104,7 +104,7 @@ export class StatsService implements StatsUseCase {
 
   /** Loads SharePoint manifests (all sites or one) and computes drive statistics. */
   async get_sharepoint_stats(tenant_id: string, site_id?: string): Promise<DriveStats> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifests = site_id
         ? await this._sp_manifests.list_snapshots_by_site(ctx, site_id)

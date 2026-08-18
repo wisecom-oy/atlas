@@ -62,7 +62,7 @@ async function execute_list_users(container: Container, options: ListUsersOption
     IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   );
 
-  const ctx = await ctx_factory.create(tenant_id);
+  const ctx = await ctx_factory.create_readonly(tenant_id);
   const registry = await registry_repo.load(ctx);
 
   if (!registry || registry.entries.length === 0) {

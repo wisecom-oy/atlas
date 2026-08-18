@@ -39,6 +39,7 @@ describe('deletion prefixes ignore identifier case', () => {
     storage = make_storage();
     const factory = {
       create: vi.fn(),
+      create_readonly: vi.fn(),
       create_storage_only: vi.fn().mockResolvedValue({ storage }),
     } as unknown as TenantContextFactory;
 

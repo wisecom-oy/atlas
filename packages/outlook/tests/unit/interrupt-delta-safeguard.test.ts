@@ -133,6 +133,7 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
     };
     const factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(context),
+      create_readonly: vi.fn().mockResolvedValue(context),
       create_storage_only: vi.fn(),
     };
     manifests = {

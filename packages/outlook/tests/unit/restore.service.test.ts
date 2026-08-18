@@ -93,6 +93,7 @@ describe('RestoreService', () => {
     container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue({
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     } as unknown as TenantContextFactory);
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
     container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);

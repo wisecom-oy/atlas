@@ -29,6 +29,7 @@ function make_registry_repo(initial_registry?: IdentityRegistry): IdentityRegist
 function make_ctx_factory(): TenantContextFactory {
   return {
     create: vi.fn().mockResolvedValue({ destroy: vi.fn() } as TenantContext),
+    create_readonly: vi.fn().mockResolvedValue({ destroy: vi.fn() } as TenantContext),
   };
 }
 

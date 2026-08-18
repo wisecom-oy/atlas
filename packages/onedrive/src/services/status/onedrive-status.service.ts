@@ -33,7 +33,7 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
   async check_onedrive_status(tenant_id: string, owner_id: string): Promise<OneDriveStatusResult> {
     owner_id = normalize_owner_id(owner_id);
 
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const saved_cursor = await this._cursors.load(ctx, owner_id);
       const saved_links = saved_cursor?.delta_link_by_drive ?? {};
