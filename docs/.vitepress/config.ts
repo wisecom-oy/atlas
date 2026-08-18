@@ -4,7 +4,7 @@ export default defineConfig({
   title: 'M365 Atlas',
   description: 'Secure, deduplicated Microsoft 365 mailbox backups to S3-compatible storage.',
 
-  base: '/atlas/',
+  base: '/',
   cleanUrls: true,
   appearance: 'dark',
 
