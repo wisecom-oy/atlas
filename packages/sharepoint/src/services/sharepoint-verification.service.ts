@@ -54,7 +54,7 @@ export class SharePointVerificationService implements SharePointVerificationUseC
         interrupted: true,
       };
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, site_id, snapshot_id);
       if (!manifest) {

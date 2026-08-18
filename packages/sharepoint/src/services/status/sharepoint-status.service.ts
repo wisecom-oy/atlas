@@ -35,7 +35,7 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     site_id: string,
   ): Promise<SharePointStatusResult> {
     site_id = normalize_owner_id(site_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const previous_cursor = await this._cursors.load(ctx, site_id);
       const saved_links = previous_cursor?.delta_link_by_drive ?? {};

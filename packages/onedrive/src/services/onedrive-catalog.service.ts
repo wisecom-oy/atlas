@@ -32,7 +32,7 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     owner_id: string,
   ): Promise<OneDriveSnapshotManifest[]> {
     owner_id = normalize_owner_id(owner_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       return this._manifests.list_snapshots_by_owner(ctx, owner_id);
     } finally {
@@ -47,7 +47,7 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     file_ref: string,
   ): Promise<OneDriveFileVersionRecord[]> {
     owner_id = normalize_owner_id(owner_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const file_id = await this.resolve_file_id(ctx, owner_id, file_ref);
       if (!file_id) return [];
