@@ -64,14 +64,20 @@ def test_03_storage_check_still_reports_lock_capable(cli: Cli, settings: Setting
     assert "lock-capable" in result.out, result.describe()
 
 
-def test_04_deleting_the_locked_object_fails(settings: Settings, s3: Any) -> None:
-    """The backend refuses to delete the object while retention holds -- no bypass exists.
+def test_04_deleting_the_locked_version_fails(settings: Settings, s3: Any) -> None:
+    """The backend refuses to delete the locked version -- no bypass exists.
 
     Asked at the S3 API directly: if this call ever succeeds, the retention Atlas stamped is not
-    being enforced, and everything reported above was decoration.
+    being enforced, and everything reported above was decoration. Note the version id: a plain
+    delete on a versioned bucket only adds a delete marker, which Object Lock permits by design --
+    retention protects the *version*.
     """
+    key = STATE["locked_key"]
+    versions = s3.list_object_versions(Bucket=settings.bucket, Prefix=key).get("Versions", [])
+    version_id = next(v["VersionId"] for v in versions if v["Key"] == key)
+
     with pytest.raises(ClientError) as denied:
-        s3.delete_object(Bucket=settings.bucket, Key=STATE["locked_key"])
+        s3.delete_object(Bucket=settings.bucket, Key=key, VersionId=version_id)
     assert denied.value.response["Error"]["Code"] == "AccessDenied", denied.value.response
 
-    assert STATE["locked_key"] in storage.list_keys(s3, settings.bucket), "deleted despite retention"
+    assert key in storage.list_keys(s3, settings.bucket), "locked version deleted despite retention"
