@@ -51,8 +51,13 @@ class Cli:
             transcript.parent.mkdir(parents=True, exist_ok=True)
 
     def run(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
-        """Invokes `atlas <args>` and captures both streams. Never raises on a non-zero exit."""
+        """Invokes `atlas <args>` and captures both streams. Never raises on a non-zero exit.
+
+        The stored argv is scrubbed: it can carry the site URL or composite ids (SharePoint
+        `--site`), and both the log line below and failure descriptions end up in public CI logs.
+        """
         argv = tuple(str(a) for a in args)
+        display_argv = tuple(scrub(arg, self._settings) for arg in argv)
         env = {
             "PATH": os.environ.get("PATH", ""),
             "HOME": str(self._home),
@@ -61,7 +66,7 @@ class Cli:
             "NO_COLOR": "1",
             **self._settings.cli_env(),
         }
-        log.info("atlas %s", " ".join(argv))
+        log.info("atlas %s", " ".join(display_argv))
         proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
             ["node", str(self._settings.cli), *argv],
             capture_output=True,
@@ -70,7 +75,7 @@ class Cli:
             cwd=self._home,  # no repo-root atlas.config.json in scope
             env=env,
         )
-        result = Result(argv=argv, code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+        result = Result(argv=display_argv, code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
         self._record(result)
         return result
 

@@ -48,7 +48,7 @@ def main() -> int:
     graph.close()
 
     # Purge is independent of Graph: an unreachable tenant must not leave the bucket populated.
-    cleanup.purge_bucket(Cli(settings, config.REPO_ROOT / "e2e" / ".sweep-home"))
+    cleanup.purge_bucket(Cli(settings, config.REPO_ROOT / "e2e" / ".sweep-home"), settings)
     return 0
 
 

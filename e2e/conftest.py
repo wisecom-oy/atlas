@@ -99,7 +99,7 @@ def _teardown(
         except Exception as err:  # noqa: BLE001 - same rule as above
             log.warning("Teardown: %s sweep failed: %s", label, err)
 
-    cleanup.purge_bucket(cli)
+    cleanup.purge_bucket(cli, settings)
 
 
 def _fixture_drives(graph: Graph, settings: config.Settings) -> dict[str, str]:

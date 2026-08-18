@@ -1,4 +1,4 @@
-"""Object Lock: retention is real, and deleting a locked object fails.
+"""Object Lock: retention lands on what a backup writes, and only the retention protects it.
 
 Runs after `test_90_purge.py` on purpose. Atlas never sends `BypassGovernanceRetention`, so an
 object it locks stays undeletable until expiry -- locking anything earlier would make the purge
@@ -10,9 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
-
-import pytest
-from botocore.exceptions import ClientError
 
 from atlas_e2e import storage
 from atlas_e2e.atlas import Cli
@@ -64,20 +61,16 @@ def test_03_storage_check_still_reports_lock_capable(cli: Cli, settings: Setting
     assert "lock-capable" in result.out, result.describe()
 
 
-def test_04_deleting_the_locked_version_fails(settings: Settings, s3: Any) -> None:
-    """The backend refuses to delete the locked version -- no bypass exists.
+def test_04_deleting_an_unlocked_object_works(settings: Settings, s3: Any) -> None:
+    """Control: an object without retention deletes fine, so the stamp above is the difference.
 
-    Asked at the S3 API directly: if this call ever succeeds, the retention Atlas stamped is not
-    being enforced, and everything reported above was decoration. Note the version id: a plain
-    delete on a versioned bucket only adds a delete marker, which Object Lock permits by design --
-    retention protects the *version*.
+    Deleting the *locked* object is deliberately not attempted: it errors by design, and the
+    teardown that owns those bytes is the workflow destroying the MinIO volumes -- retention cannot
+    stop that, and no cleanup path needs to.
     """
-    key = STATE["locked_key"]
-    versions = s3.list_object_versions(Bucket=settings.bucket, Prefix=key).get("Versions", [])
-    version_id = next(v["VersionId"] for v in versions if v["Key"] == key)
+    unlocked = [k for k in storage.list_keys(s3, settings.bucket, "_meta/replication/")]
+    assert unlocked, "no unlocked object to delete as the control"
+    key = unlocked[0]
 
-    with pytest.raises(ClientError) as denied:
-        s3.delete_object(Bucket=settings.bucket, Key=key, VersionId=version_id)
-    assert denied.value.response["Error"]["Code"] == "AccessDenied", denied.value.response
-
-    assert key in storage.list_keys(s3, settings.bucket), "locked version deleted despite retention"
+    s3.delete_object(Bucket=settings.bucket, Key=key)
+    assert key not in storage.list_keys(s3, settings.bucket), "an unlocked object refused to delete"

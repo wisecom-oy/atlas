@@ -25,7 +25,8 @@ from atlas_e2e.config import Settings
 _GUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 _BEARER = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/-]{20,}=*")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-_SHAREPOINT_HOST = re.compile(r"(?i)\bhttps?://[A-Za-z0-9-]+\.sharepoint\.com\S*")
+# The CLI also accepts `hostname:/sites/name` and `hostname,guid,guid`, so no scheme is required.
+_SHAREPOINT_HOST = re.compile(r"(?i)\b(?:https?://)?[A-Za-z0-9-]+\.sharepoint\.com(?::\S*|/\S*)?")
 # Graph drive ids (`b!<base64>`) embed the site and web GUIDs, so they identify the tenant as surely
 # as the site URL does.
 _DRIVE_ID = re.compile(r"\bb![A-Za-z0-9_-]{20,}")
@@ -45,7 +46,8 @@ def scrub(text: str, settings: Settings) -> str:
         settings.client_id: "<client-id>",
     }
     for value, placeholder in sorted(literals.items(), key=lambda kv: -len(kv[0])):
-        if value:
+        # Short values would redact inside unrelated words; every real secret here is long.
+        if value and len(value) >= 8:
             text = text.replace(value, placeholder)
 
     text = _SHAREPOINT_HOST.sub("<sharepoint-url>", text)
