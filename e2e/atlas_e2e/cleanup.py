@@ -4,12 +4,34 @@ from __future__ import annotations
 
 import logging
 
-from atlas_e2e import probe
+from atlas_e2e import drive, probe
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph, GraphError
-from atlas_e2e.marker import is_marked, is_stale, parse_graph_time
+from atlas_e2e.marker import PREFIX, is_marked, is_stale, parse_graph_time
 
 log = logging.getLogger(__name__)
+
+
+def sweep_drive(graph: Graph, drive_id: str, marker: str) -> list[str]:
+    """Deletes marked fixture folders from a OneDrive or SharePoint drive.
+
+    File restores write back to the original `parent_path` with no `Restore-` root of their own, so
+    restored copies land inside the marked fixture folder and go with it. Foreign markers follow the
+    same staleness rule as the mailbox sweep.
+    """
+    removed: list[str] = []
+    for folder in drive.marked_root_folders(graph, drive_id, PREFIX):
+        name = str(folder.get("name", ""))
+        if marker not in name and not is_stale(parse_graph_time(folder.get("createdDateTime"))):
+            log.info("Leaving foreign, non-stale drive folder %s", name)
+            continue
+        try:
+            drive.delete_item(graph, drive_id, str(folder["id"]))
+            removed.append(name)
+            log.info("Cleaned up drive folder %s", name)
+        except GraphError as err:
+            log.warning("Could not delete drive folder %s: %s", name, err)
+    return removed
 
 
 def sweep_mailbox(graph: Graph, mailbox: str, marker: str) -> list[str]:

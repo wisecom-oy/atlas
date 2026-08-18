@@ -20,7 +20,22 @@ Design and rationale: [`PLAN.md`](./PLAN.md). Tracking: issue #103.
 5. **Deletes the message from M365**, restores it, then re-reads it through Graph and compares the
    attachment SHA-256 with the bytes it seeded. The tool's own "restored 1 item" output is never
    treated as evidence.
-6. Purges the tenant bucket and sweeps every marked artifact from the mailbox.
+
+Then the same shape for the file workloads, each seeding into `/atlas-e2e-<run_id>/`:
+
+- **OneDrive** (`test_20_onedrive.py`): uploads the fixture twice so the item has two versions,
+  backs up, asserts two content-addressed blobs and a per-file version index, verifies, exports,
+  deletes the item from the drive, restores with `--conflict rename`, and compares the restored
+  bytes' SHA-256 with the seed.
+- **SharePoint** (`test_30_sharepoint.py`): same lifecycle by site, plus the identifier guard from
+  issue #90 — a browser URL, `hostname:/sites/name`, and a composite `hostname,siteGuid,webGuid` id
+  must all address one stored tree, asserted by there being exactly one `sharepoint/manifests/<site>/`
+  prefix afterwards.
+
+Finally `test_90_purge.py` runs `outlook delete --purge -y` and asserts the bucket is empty. It is a
+module of its own so it executes after every workload: `--purge` sweeps the whole bucket, so the
+assertion should cover Outlook, OneDrive and SharePoint objects together. Teardown then sweeps every
+marked artifact from the mailbox and from both drives.
 
 ## Running locally
 

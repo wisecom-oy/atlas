@@ -1,0 +1,32 @@
+"""Tenant wipe, asserted last: `--purge` sweeps the whole bucket, not one workload's prefix.
+
+Runs after every workload suite so the assertion covers Outlook, OneDrive and SharePoint objects
+together -- `--purge` walks the bucket rather than a fixed prefix list, and the encrypted DEK goes
+last and only if nothing survived.
+
+This is the product's erasure path under test. The runner's MinIO volumes are destroyed separately
+and unconditionally by the workflow, so a failure here cannot leave ciphertext on the runner.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from atlas_e2e import storage
+from atlas_e2e.atlas import Cli
+from atlas_e2e.config import Settings
+
+
+def test_purge_empties_the_whole_bucket(cli: Cli, settings: Settings, s3: Any) -> None:
+    """Every object, every workload prefix, and the DEK are gone; nothing is reported retained.
+
+    Governance leg only: the monthly compliance leg owns its own purge assertion, where retained
+    objects are the expected outcome (plan section 4.1).
+    """
+    before = storage.list_keys(s3, settings.bucket)
+    assert before, "nothing to purge: the workload suites stored no objects"
+
+    cli.ok("outlook", "delete", "--purge", "-y")
+
+    remaining = storage.list_keys(s3, settings.bucket)
+    assert remaining == [], f"purge left {len(remaining)} object(s) behind: {remaining[:5]}"

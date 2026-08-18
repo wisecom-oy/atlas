@@ -10,6 +10,22 @@ from botocore.exceptions import ClientError
 
 from atlas_e2e.config import Settings
 
+# Key layouts, mirrored from `*-storage-keys.ts`. Outlook predates the per-workload prefixes.
+MANIFEST_PREFIXES = {
+    "outlook": "manifests/",
+    "onedrive": "onedrive/manifests/",
+    "sharepoint": "sharepoint/manifests/",
+}
+DATA_PREFIXES = {
+    "outlook": "data/",
+    "onedrive": "onedrive/data/",
+    "sharepoint": "sharepoint/data/",
+}
+INDEX_PREFIXES = {
+    "onedrive": "onedrive/index/",
+    "sharepoint": "sharepoint/index/",
+}
+
 
 def client(settings: Settings, endpoint: str | None = None) -> Any:
     """An S3 client for MinIO: path-style addressing, no retries beyond botocore's default."""
@@ -50,13 +66,14 @@ def list_keys(s3: Any, bucket: str, prefix: str = "") -> list[str]:
         token = page.get("NextContinuationToken")
 
 
-def snapshot_ids(s3: Any, bucket: str, owner_id: str) -> list[str]:
-    """Snapshot ids for an Outlook owner, read from `manifests/<owner>/<snapshot>.json` key names.
+def snapshot_ids(s3: Any, bucket: str, owner_id: str, workload: str = "outlook") -> list[str]:
+    """Snapshot ids for one owner or site, read from the manifest key names.
 
     The id lives in the key, so no decryption is needed -- and reading it here rather than parsing
-    CLI tables keeps the suite independent of rendering (see issue #94).
+    CLI tables keeps the suite independent of rendering (see issue #94). Prefixes differ per
+    workload: Outlook uses `manifests/`, the file workloads nest under `<workload>/manifests/`.
     """
-    prefix = f"manifests/{owner_id}/"
+    prefix = MANIFEST_PREFIXES[workload] + f"{owner_id}/"
     return [k[len(prefix) : -len(".json")] for k in list_keys(s3, bucket, prefix) if k.endswith(".json")]
 
 

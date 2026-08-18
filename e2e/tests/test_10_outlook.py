@@ -137,15 +137,6 @@ def test_09_status_reports_the_backed_up_folder(cli: Cli, settings: Settings, ru
     assert run_marker in result.out, result.describe()
 
 
-def test_10_purge_empties_the_bucket(cli: Cli, settings: Settings, s3: Any) -> None:
-    """`delete --purge` removes every object including the DEK, leaving nothing retained.
-
-    Governance leg only: the monthly compliance leg owns its own purge assertion (plan section 4.1).
-    """
-    cli.ok("outlook", "delete", "--purge", "-y")
-    assert storage.list_keys(s3, settings.bucket) == [], "purge left objects behind"
-
-
 def _owner_id(s3: Any, bucket: str) -> str:
     """Reads the owner segment Atlas used from the manifest keys rather than assuming a normalisation."""
     owners = {key.split("/")[1] for key in storage.list_keys(s3, bucket, "manifests/")}

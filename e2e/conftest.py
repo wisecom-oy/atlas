@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 import pytest
 
-from atlas_e2e import cleanup, config, marker, storage
+from atlas_e2e import cleanup, config, drive, marker, storage
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
 
@@ -87,4 +87,28 @@ def _teardown(
         log.info("Teardown: removed %d mailbox folder(s)", len(removed))
     except Exception as err:  # noqa: BLE001 - teardown must not mask a test failure
         log.warning("Teardown: mailbox sweep failed: %s", err)
+
+    for label, drive_id in _fixture_drives(graph, settings).items():
+        try:
+            removed = cleanup.sweep_drive(graph, drive_id, run_marker)
+            log.info("Teardown: removed %d %s folder(s)", len(removed), label)
+        except Exception as err:  # noqa: BLE001 - same rule as above
+            log.warning("Teardown: %s sweep failed: %s", label, err)
+
     cleanup.purge_bucket(cli)
+
+
+def _fixture_drives(graph: Graph, settings: config.Settings) -> dict[str, str]:
+    """Drive ids the suite may have seeded into. Absent configuration yields no entry."""
+    drives: dict[str, str] = {}
+    if settings.onedrive_owner:
+        try:
+            drives["onedrive"] = drive.user_drive_id(graph, settings.onedrive_owner)
+        except Exception as err:  # noqa: BLE001 - resolution failure must not break teardown
+            log.warning("Teardown: could not resolve the OneDrive drive: %s", err)
+    if settings.sharepoint_site:
+        try:
+            drives["sharepoint"] = drive.site_drive_id(graph, drive.site_id(graph, settings.sharepoint_site))
+        except Exception as err:  # noqa: BLE001 - same rule as above
+            log.warning("Teardown: could not resolve the SharePoint library: %s", err)
+    return drives
