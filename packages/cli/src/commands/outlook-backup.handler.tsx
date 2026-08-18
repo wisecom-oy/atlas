@@ -119,8 +119,8 @@ async function backup_all_mailboxes(
     concurrency,
     force_full: options.full ?? false,
     page_size,
-    ...(object_lock_request !== undefined && { object_lock_request }),
-    ...(object_lock_policy !== undefined && { object_lock_policy }),
+    object_lock_request,
+    object_lock_policy,
   });
 
   const mailbox_errors = result.outcomes
