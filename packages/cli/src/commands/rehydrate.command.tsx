@@ -27,6 +27,7 @@ import { render_static_view } from '@/ui/render';
 import { format_bytes } from '@/command-formatters';
 import { logger, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-core';
 import type { UserIdentityResolver } from '@wisecom/atlas-types';
+import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
 
 /**
  * Resolves an owner for recovery without touching primary storage.
@@ -132,15 +133,16 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
     const sharepoint_replication = container.get<SharePointReplicationUseCase>(
       SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
     );
+    const site_id = await resolve_site_id(container, tenant_id, options.site);
     if (options.snapshot) {
       result = await sharepoint_replication.rehydrate_site_snapshot(
         tenant_id,
-        options.site,
+        site_id,
         options.snapshot,
         source,
       );
     } else {
-      result = await sharepoint_replication.rehydrate_site(tenant_id, options.site, source);
+      result = await sharepoint_replication.rehydrate_site(tenant_id, site_id, source);
     }
   } else if (options.owner) {
     const onedrive_replication = container.get<OneDriveReplicationUseCase>(

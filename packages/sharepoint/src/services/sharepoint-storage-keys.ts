@@ -34,7 +34,12 @@ export function validate_key_segment(value: string): void {
   for (let i = 0; i < value.length; i++) {
     const ch = value.charCodeAt(i);
     if (ch === 47 || ch === 92 || ch === 0) {
-      throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}`);
+      // A URL here means a caller skipped site resolution (issue #90); say so
+      // instead of blaming the key, which sends the operator to the wrong layer.
+      const hint = /^https?:\/\//i.test(value)
+        ? ' -- expected a resolved SharePoint site id (hostname,siteGuid,webGuid), got a URL'
+        : '';
+      throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}${hint}`);
     }
   }
 }

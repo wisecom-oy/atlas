@@ -370,6 +370,8 @@ Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDriv
 
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree -- earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
+`--site` accepts the same three forms on **every** command that takes it, including `replicate` and `rehydrate`: a browser URL (`https://contoso.sharepoint.com/sites/Engineering`), the Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or a composite site ID (`contoso.sharepoint.com,<siteGuid>,<webGuid>`). URLs and short forms are resolved through Graph before any storage key is built; a composite ID is passed through untouched, so disaster recovery with `rehydrate` still works when Graph is unreachable.
+
 **`atlas onedrive list-snapshots`**
 
 | Option              | Description                              |
