@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from atlas_e2e.config import Settings
+from atlas_e2e.scrub import scrub
 
 log = logging.getLogger(__name__)
 
@@ -37,12 +38,17 @@ class Result:
 class Cli:
     """A CLI bound to one settings object and one isolated HOME."""
 
-    def __init__(self, settings: Settings, home: Path) -> None:
+    def __init__(self, settings: Settings, home: Path, transcript: Path | None = None) -> None:
         self._settings = settings
         # An isolated HOME keeps ~/.atlas/config.enc and the OS keyring out of the run: the suite
         # must depend on the env vars it sets, not on whatever a developer configured locally.
         self._home = home
         home.mkdir(parents=True, exist_ok=True)
+        # Uploaded as an artifact, so it is written scrubbed rather than scrubbed later: a file that
+        # was never allowed to hold a secret cannot leak one through a forgotten code path.
+        self._transcript = transcript
+        if transcript:
+            transcript.parent.mkdir(parents=True, exist_ok=True)
 
     def run(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
         """Invokes `atlas <args>` and captures both streams. Never raises on a non-zero exit."""
@@ -64,7 +70,17 @@ class Cli:
             cwd=self._home,  # no repo-root atlas.config.json in scope
             env=env,
         )
-        return Result(argv=argv, code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+        result = Result(argv=argv, code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+        self._record(result)
+        return result
+
+    def _record(self, result: Result) -> None:
+        """Appends one scrubbed invocation to the transcript, when one is configured."""
+        if not self._transcript:
+            return
+        entry = f"$ atlas {' '.join(result.argv)}\n{result.out.strip()}\n[exit {result.code}]\n\n"
+        with self._transcript.open("a", encoding="utf-8") as handle:
+            handle.write(scrub(entry, self._settings))
 
     def ok(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
         """Runs and asserts a clean exit. Exit 2 (partial) is a failure here: E2E fixtures are tiny."""

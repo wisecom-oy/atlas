@@ -37,8 +37,12 @@ def atlas_home(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="session")
 def cli(settings: config.Settings, atlas_home: Path) -> Cli:
-    """The shipped CLI bundle, driven as a subprocess."""
-    return Cli(settings, atlas_home)
+    """The shipped CLI bundle, driven as a subprocess, recording a scrubbed transcript.
+
+    The transcript is what an operator triaging a red weekly run actually wants: every command the
+    suite issued and what came back. It is uploaded as an artifact, so it is scrubbed on write.
+    """
+    return Cli(settings, atlas_home, transcript=config.REPO_ROOT / "e2e" / "logs" / "cli.log")
 
 
 @pytest.fixture(scope="session")

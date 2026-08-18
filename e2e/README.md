@@ -38,10 +38,48 @@ everything the test owner and test site hold, and per-version assertions are wri
 around a second backup rather than as absolute object counts. Keep the test site small; the mailbox
 folder filter is what keeps the Outlook side cheap.
 
-Finally `test_90_purge.py` runs `outlook delete --purge -y` and asserts the bucket is empty. It is a
-module of its own so it executes after every workload: `--purge` sweeps the whole bucket, so the
-assertion should cover Outlook, OneDrive and SharePoint objects together. Teardown then sweeps every
-marked artifact from the mailbox and from both drives.
+`test_35_regressions.py` then holds one case per shipped bug, but only for bugs that need real
+infrastructure to reproduce:
+
+- **#93**: `outlook list`, `stats` and `list-users` against an unknown tenant id must create no
+  bucket. `ListBuckets` before and after is the assertion; a bucket-per-tenant layout makes an
+  accidental provision billable storage plus an untracked key.
+- **#76**: a blob whose AES-GCM tag fails must be reported as an authentication failure. Node sets no
+  `error.code` for that failure, so the fix suggested in the issue (`ERR_OSSL_BAD_DECRYPT`) would
+  have silently classified nothing — only a real decrypt on the real runtime tells you which is true.
+  The mirror direction (a storage authorization error must _not_ read as tampering) stays a unit
+  test: producing a genuine per-prefix S3 denial needs a scoped MinIO user that exists only to be
+  denied, and a fabricated credential failure is what a mock is for.
+- **SDK smoke**: `packages/sdk/dist/index.mjs` — the file published to npm — is imported and asked
+  for the snapshots the CLI just wrote. The CLI and the SDK are separate artifacts over one core; a
+  bundle that cannot resolve its own dependencies would otherwise surface as an integrator's issue.
+
+It is numbered 35 so the workload blobs still exist to tamper with, and so it runs before the
+replication suite empties the bucket.
+
+Then the two suites that rehearse what backups exist for:
+
+- **Disaster recovery** (`test_40_replication.py`): replicates the mailbox to the **replica endpoint**
+  (a second MinIO, because Atlas derives the bucket name from the tenant id), checks `_meta/dek.enc`
+  and the ciphertext keys arrived, **purges primary**, rehydrates `--all` from the replica, and then
+  runs `outlook verify` — so the recovered data is proven to decrypt under the key that came back
+  with it. A drill that keeps its safety net proves nothing, which is why primary is really wiped.
+- **Immutability** (`test_95_immutability.py`): backs up with
+  `--retention-days 1 --lock-mode <mode> --require-immutability`, reads the retention back through
+  boto3, and asserts a blocked delete is reported as **retained**, not **failed** — the distinction
+  between "Object Lock is protecting this" and "something is broken".
+
+`test_90_purge.py` sits between them: `outlook delete --purge -y`, then the bucket must be empty. It
+is a module of its own so it runs after every workload, since `--purge` sweeps the whole bucket.
+
+**Ordering is load-bearing.** Atlas never sends `BypassGovernanceRetention`, so anything it locks is
+undeletable until expiry _even in governance mode_. The immutability suite therefore runs last
+(`test_95…`) — locking objects any earlier would make the purge assertion unsatisfiable. Its locked
+objects are deliberate survivors, and the workflow destroys the MinIO volumes afterwards.
+
+Lock mode comes from `E2E_LOCK_MODE` (`governance` default, `compliance` on the monthly cron).
+
+Teardown then sweeps every marked artifact from the mailbox and from both drives.
 
 ## Running locally
 
@@ -97,14 +135,14 @@ The suite writes into a **real** mailbox, so containment is enforced, not assume
 | `E2E_S3_ENDPOINT` must be runner-local                                   | The bucket name embeds the real tenant id, so a shared endpoint would mean writing test data into a production bucket. Asserted in preflight. |
 | Outlook restore cannot overwrite existing mail                           | The product always builds a fresh `Restore-{timestamp}` root (`folder-restore-planner.ts:28-37`).                                             |
 
-Residual risk: the stored client secret can read and write the whole of that one mailbox, because
-Graph application permissions cannot be scoped below a user. An Exchange `ApplicationAccessPolicy`
-bounds it to a single identity — see issue #105.
+Residual risk: the stored client secret is a tenant-level Graph credential, so the rules above bound
+what the suite touches, not what the credential could reach. Scoping that credential is tenant
+administration and out of scope for this repository — it is configured and reviewed in the tenant.
 
 Storage teardown happens twice over, at two layers:
 
-1. **Tenant wipe, asserted.** `test_10_purge_empties_the_bucket` runs `outlook delete --purge -y`
-   and then lists the bucket with boto3, so the product's own erasure path is under test.
+1. **Tenant wipe, asserted.** `test_90_purge.py` runs `outlook delete --purge -y` after every
+   workload and then lists the bucket with boto3, so the product's own erasure path is under test.
 2. **Volume destruction, unconditional.** The workflow brings MinIO up on freshly created volumes
    (`down -v` before `up`) and destroys them afterwards in an `if: always()` step that fails if any
    `e2e_*` volume survives. So no ciphertext and no wrapped DEK outlive the job even when the purge
@@ -121,8 +159,9 @@ Storage teardown happens twice over, at two layers:
 
 ## CI
 
-`.github/workflows/e2e.yml` runs on pushes to `main` and `dev`, and on manual dispatch. The weekly
-and monthly crons land with issue #108.
+`.github/workflows/e2e.yml` runs weekly (Monday 03:00 UTC, governance-mode Object Lock), monthly (1st
+at 04:00 UTC, compliance mode), on pushes to `main` and `dev`, and on manual dispatch with a `-k`
+expression and a lock-mode choice.
 
 It never runs on `pull_request` — the job holds tenant credentials, and a PR trigger would let
 fork-supplied code exfiltrate them. Secrets are repository secrets (`E2E_*`); no GitHub environment
@@ -130,5 +169,14 @@ is attached, because approval rules would leave unattended runs waiting for a hu
 
 **The workflow gates nothing.** A live-tenant run depends on Graph and network availability, so it
 is deliberately not a required status check: `ci.yml` remains the merge gate, while E2E reports
-status through its own badge and a per-test table on the run's summary page
+status through its own badge and a per-suite table on the run's summary page
 (`python -m atlas_e2e.summary`). A red E2E means "investigate", not "blocked".
+
+### Artifacts
+
+Two files are uploaded: `report.xml` (JUnit, test names only) and `logs/cli.log`, every CLI
+invocation the run issued with its output. Artifacts are public downloads, and GitHub's log masking
+does not apply inside a zip, so the transcript is scrubbed **as it is written** (`atlas_e2e.scrub`):
+known secret values are replaced, then identifying shapes are templated — GUIDs, bearer tokens, UPNs
+and Graph drive ids. A workflow step then greps the artifacts for each secret and fails the job
+before upload if one appears; it compares without echoing the values.

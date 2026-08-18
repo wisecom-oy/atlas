@@ -14,26 +14,51 @@ REPORT = Path("report.xml")
 
 
 def main() -> int:
-    """Prints a per-test Markdown table plus a one-line total."""
+    """Prints a per-suite Markdown table, the failing test names, and a one-line total."""
     if not REPORT.exists():
         print("E2E did not produce a report: the run failed before pytest started.")
         return 0
 
-    suites = ElementTree.parse(REPORT).getroot().iter("testsuite")
-    rows: list[str] = []
-    totals = {"passed": 0, "failed": 0, "skipped": 0}
+    root = ElementTree.parse(REPORT).getroot()
+    per_suite: dict[str, dict[str, int]] = {}
+    failures: list[str] = []
 
-    for suite in suites:
-        for case in suite.iter("testcase"):
-            outcome = _outcome(case)
-            totals[outcome] += 1
-            rows.append(f"| {_icon(outcome)} | `{case.get('classname', '')}` | {case.get('name', '')} |")
+    for case in root.iter("testcase"):
+        suite = _suite_name(case)
+        counts = per_suite.setdefault(suite, {"passed": 0, "failed": 0, "skipped": 0})
+        outcome = _outcome(case)
+        counts[outcome] += 1
+        if outcome == "failed":
+            failures.append(f"`{suite}` -- {case.get('name', '')}")
+
+    totals = {
+        key: sum(counts[key] for counts in per_suite.values())
+        for key in ("passed", "failed", "skipped")
+    }
 
     print("## E2E result\n")
     print(f"**{totals['passed']} passed, {totals['failed']} failed, {totals['skipped']} skipped**\n")
-    print("| | Suite | Test |")
-    print("| - | ----- | ---- |")
-    print("\n".join(rows))
+    print("| | Suite | Passed | Failed | Skipped |")
+    print("| - | ----- | ------ | ------ | ------- |")
+    for suite, counts in sorted(per_suite.items()):
+        # A suite that ran nothing must not read as green: absent coverage is not a pass.
+        verdict = "FAIL" if counts["failed"] else "PASS" if counts["passed"] else "SKIP"
+        print(
+            f"| {verdict} | {suite} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |"
+        )
+
+    # The table answers "is it broken"; these lines answer "where", without needing the log.
+    if failures:
+        print("\n### Failed\n")
+        for failure in failures:
+            print(f"- {failure}")
+    return 0
+
+
+def _suite_name(case: ElementTree.Element) -> str:
+    """The suite a testcase belongs to, e.g. `test_10_outlook`."""
+    classname = case.get("classname", "")
+    return classname.split(".")[-1] or "unknown"
     return 0
 
 
@@ -44,11 +69,6 @@ def _outcome(case: ElementTree.Element) -> str:
     if case.find("skipped") is not None:
         return "skipped"
     return "passed"
-
-
-def _icon(outcome: str) -> str:
-    """Marker shown in the summary table."""
-    return {"passed": "PASS", "failed": "FAIL", "skipped": "SKIP"}[outcome]
 
 
 if __name__ == "__main__":
