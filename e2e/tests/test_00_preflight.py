@@ -112,6 +112,42 @@ def test_sites_read_permission(graph: Graph, settings: Settings) -> None:
     _require(graph, "/sites", "Sites.Read.All", search="*")
 
 
+def test_app_cannot_read_other_mailboxes(graph: Graph, settings: Settings) -> None:
+    """The Exchange `ApplicationAccessPolicy` must bound this credential to the test mailbox (#105).
+
+    `Mail.ReadWrite` is tenant-wide: without a policy, the client secret stored in CI can read and
+    write **every** mailbox in the tenant. That is the single largest risk this suite carries, and it
+    is verifiable rather than attestable -- sample other users and require that none of their
+    mailboxes answer.
+
+    Only counts are reported. Addresses of real users must not reach a public workflow log.
+    """
+    others = [
+        str(user["id"])
+        for user in graph.paged("/users", **{"$select": "id,userPrincipalName,mail", "$top": 25})
+        if _address(user) and _address(user) != settings.mailbox.lower()
+    ][:10]
+    if not others:
+        pytest.skip("tenant has no second user to test the policy against")
+
+    readable = 0
+    for user_id in others:
+        response = graph.request("GET", f"/users/{user_id}/mailFolders", params={"$top": 1})
+        if response.status_code == 200:
+            readable += 1
+
+    assert readable == 0, (
+        f"the E2E app can read {readable} of {len(others)} other mailboxes. "
+        "Restrict it: New-ApplicationAccessPolicy -AppId <id> -PolicyScopeGroupId <mailbox> "
+        "-AccessRight RestrictAccess (issue #105)"
+    )
+
+
+def _address(user: dict[str, Any]) -> str:
+    """A user's mail address in lower case, or an empty string when it has none."""
+    return str(user.get("mail") or user.get("userPrincipalName") or "").lower()
+
+
 def test_tenant_bucket_is_local_only(settings: Settings, s3: Any) -> None:
     """The endpoint under test is the runner's MinIO, never a production endpoint.
 
