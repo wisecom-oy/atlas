@@ -1,0 +1,27 @@
+[project]
+name = "atlas-e2e"
+version = "0.1.0"
+description = "End-to-end tests driving the shipped Atlas CLI against a real M365 tenant"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28",
+    "msal>=1.31",
+    "boto3>=1.35",
+    "pytest>=8.3",
+]
+
+
+[tool.uv]
+# Helpers are imported from the working directory; there is nothing to build or install.
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# -p no:randomly: the lifecycle suites are ordered on purpose (seed before restore).
+addopts = "-ra --strict-markers --junitxml=report.xml"
+markers = [
+    "compliance: Object Lock compliance-mode cases; monthly leg only",
+]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s %(levelname)s %(message)s"
