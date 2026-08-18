@@ -1,0 +1,49 @@
+# MinIO for the E2E run. Thrown away with the runner, so the credentials are not secrets.
+#
+# Four drives per container, not one: Object Lock requires bucket versioning, and MinIO's support
+# for versioning on a single-drive backend depends on the release. `server /data{1...4}` is the
+# configuration that works on every version, so an image bump cannot silently disable the
+# immutability suite. `test_00_preflight` asserts `storage-check` still reports `lock-capable`.
+#
+# Two endpoints, not two buckets: Atlas derives the bucket name from the tenant id, so a
+# replication target has to be a different endpoint.
+services:
+  minio-primary:
+    image: minio/minio:latest
+    container_name: atlas-e2e-minio-primary
+    # `/data/{1...4}`: the four drives must exist, so they live under one mounted volume.
+    command: server /data/{1...4} --console-address ":9001"
+    ports:
+      - '${E2E_S3_PORT:-9000}:9000'
+      - '${E2E_S3_CONSOLE_PORT:-9001}:9001'
+    environment:
+      MINIO_ROOT_USER: ${E2E_S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${E2E_S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - e2e_primary:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  minio-replica:
+    image: minio/minio:latest
+    container_name: atlas-e2e-minio-replica
+    command: server /data/{1...4} --console-address ":9001"
+    ports:
+      - '${E2E_S3_REPLICA_PORT:-9002}:9000'
+    environment:
+      MINIO_ROOT_USER: ${E2E_S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${E2E_S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - e2e_replica:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  e2e_primary:
+  e2e_replica:

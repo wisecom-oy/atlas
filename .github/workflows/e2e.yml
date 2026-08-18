@@ -1,0 +1,93 @@
+name: E2E
+
+# Manual dispatch only for now. The weekly and monthly crons arrive with the remaining suites
+# (issue #108). Never add `pull_request`: this job holds tenant credentials, and a PR-triggered
+# run of fork-supplied code would be a secret-exfiltration path.
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'pytest -k expression (empty runs everything)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Two runs seeding the same mailbox would fight over Graph delta cursors.
+concurrency:
+  group: atlas-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: End-to-end against a live tenant
+    runs-on: ubuntu-latest
+    environment: e2e
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI
+        run: pnpm run build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Start MinIO
+        run: docker compose -f e2e/docker-compose.e2e.yml up -d --wait
+
+      - name: Mask derived values
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+        run: echo "::add-mask::atlas-$E2E_TENANT_ID"
+
+      - name: Run E2E suite
+        working-directory: e2e
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+          E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
+          E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
+          E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
+          E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
+          E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
+          E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+        run: uv run pytest ${{ inputs.suite && format('-k "{0}"', inputs.suite) || '' }}
+
+      # Belt and braces: pytest teardown already sweeps, but a crashed interpreter never gets there.
+      - name: Sweep leftovers
+        if: always()
+        working-directory: e2e
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+          E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
+          E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
+          E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
+          E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
+        run: uv run python -m atlas_e2e.sweep
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: e2e/report.xml
+          retention-days: 30
+
+      - name: Stop MinIO
+        if: always()
+        run: docker compose -f e2e/docker-compose.e2e.yml down -v

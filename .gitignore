@@ -17,3 +17,11 @@ docs/.vitepress/cache/
 .perf-output/
 .graph-tap/
 tools/perf/dist/
+
+# e2e (Python) artifacts
+e2e/.venv/
+e2e/.pytest_cache/
+e2e/report.xml
+# uv.lock is committed on purpose: CI must resolve the same dependency versions as a local run.
+e2e/.sweep-home/
+__pycache__/
