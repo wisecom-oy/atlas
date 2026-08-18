@@ -78,6 +78,15 @@ Residual risk: the stored client secret can read and write the whole of that one
 Graph application permissions cannot be scoped below a user. An Exchange `ApplicationAccessPolicy`
 bounds it to a single identity — see issue #105.
 
+Storage teardown happens twice over, at two layers:
+
+1. **Tenant wipe, asserted.** `test_10_purge_empties_the_bucket` runs `outlook delete --purge -y`
+   and then lists the bucket with boto3, so the product's own erasure path is under test.
+2. **Volume destruction, unconditional.** The workflow brings MinIO up on freshly created volumes
+   (`down -v` before `up`) and destroys them afterwards in an `if: always()` step that fails if any
+   `e2e_*` volume survives. So no ciphertext and no wrapped DEK outlive the job even when the purge
+   assertion is the thing that failed.
+
 ## Adding a case
 
 - **New assertion on an existing workload**: one function in the matching `tests/test_*.py`, using

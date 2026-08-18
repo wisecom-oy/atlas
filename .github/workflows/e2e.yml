@@ -57,8 +57,12 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Start MinIO
-        run: docker compose -f e2e/docker-compose.e2e.yml up -d --wait
+      # `down -v` first: on a self-hosted or reused runner a stale volume would carry a previous
+      # run's ciphertext into this one, and the purge assertions would be judging old objects.
+      - name: Start MinIO on empty volumes
+        run: |
+          docker compose -f e2e/docker-compose.e2e.yml down -v --remove-orphans
+          docker compose -f e2e/docker-compose.e2e.yml up -d --wait
 
       - name: Mask derived values
         env:
@@ -105,6 +109,17 @@ jobs:
           path: e2e/report.xml
           retention-days: 30
 
-      - name: Stop MinIO
+      # The tenant wipe is asserted by the suite (`delete --purge`); this destroys the storage
+      # underneath it. Both matter: a passing purge proves the product erases, and a removed volume
+      # proves no ciphertext or DEK survives the job even when the purge assertion failed.
+      - name: Destroy MinIO and its volumes
         if: always()
-        run: docker compose -f e2e/docker-compose.e2e.yml down -v
+        run: |
+          docker compose -f e2e/docker-compose.e2e.yml down -v --remove-orphans
+          leftovers="$(docker volume ls -q --filter name=e2e_)"
+          if [ -n "$leftovers" ]; then
+            echo "MinIO volumes survived teardown: $leftovers" >&2
+            docker volume rm -f $leftovers
+            exit 1
+          fi
+          echo "MinIO volumes destroyed; no E2E storage remains on the runner."
