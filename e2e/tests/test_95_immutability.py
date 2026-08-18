@@ -68,9 +68,10 @@ def test_04_deleting_an_unlocked_object_works(settings: Settings, s3: Any) -> No
     teardown that owns those bytes is the workflow destroying the MinIO volumes -- retention cannot
     stop that, and no cleanup path needs to.
     """
-    unlocked = [k for k in storage.list_keys(s3, settings.bucket, "_meta/replication/")]
-    assert unlocked, "no unlocked object to delete as the control"
-    key = unlocked[0]
+    # Written here rather than borrowed from an earlier suite: by this point every object in the
+    # bucket was either purged or written by the locked backup above.
+    key = "_meta/e2e-delete-control"
+    s3.put_object(Bucket=settings.bucket, Key=key, Body=b"control")
 
     s3.delete_object(Bucket=settings.bucket, Key=key)
     assert key not in storage.list_keys(s3, settings.bucket), "an unlocked object refused to delete"

@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 import pytest
 
-from atlas_e2e import cleanup, config, drive, marker, storage
+from atlas_e2e import cleanup, config, drive, marker, scrub as scrub_module, storage
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
 
@@ -19,6 +19,30 @@ log = logging.getLogger(__name__)
 def settings() -> config.Settings:
     """Typed environment. Fails the session immediately when a secret is missing."""
     return config.load()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _scrub_every_log_record(settings: config.Settings) -> Iterator[None]:
+    """Routes every log record through the scrubber, whoever emitted it.
+
+    Our own log lines are easy to keep clean; third-party ones are not. `httpx` logs each request
+    URL at INFO, and a SharePoint download URL contains a signed `tempauth` token, the tenant host
+    and the owner's personal-site path. Those reached a public Actions log before this existed.
+
+    Patching `LogRecord.getMessage` catches them all at the one point every handler and formatter
+    goes through -- a filter would have to be attached to each handler, including the ones pytest
+    creates for `log_cli` after this fixture runs.
+    """
+    original = logging.LogRecord.getMessage
+
+    def scrubbed(record: logging.LogRecord) -> str:
+        return scrub_module.scrub(original(record), settings)
+
+    logging.LogRecord.getMessage = scrubbed  # type: ignore[method-assign]
+    try:
+        yield
+    finally:
+        logging.LogRecord.getMessage = original  # type: ignore[method-assign]
 
 
 @pytest.fixture(scope="session")
