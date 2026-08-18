@@ -2,15 +2,15 @@ import type { ObjectLockPolicy, ObjectLockRequest, SyncResult } from '@/ports/ba
 import type { TenantProgressReporter } from '@/ports/backup/tenant-progress.port';
 
 export interface TenantBackupOptions {
-  concurrency?: number;
-  force_full?: boolean;
-  page_size?: number;
+  concurrency?: number | undefined;
+  force_full?: boolean | undefined;
+  page_size?: number | undefined;
   /** Object Lock retention request applied to every mailbox in the run. */
-  object_lock_request?: ObjectLockRequest;
-  object_lock_policy?: ObjectLockPolicy;
-  progress?: TenantProgressReporter;
-  should_interrupt?: () => boolean;
-  should_force_stop?: () => boolean;
+  object_lock_request?: ObjectLockRequest | undefined;
+  object_lock_policy?: ObjectLockPolicy | undefined;
+  progress?: TenantProgressReporter | undefined;
+  should_interrupt?: (() => boolean) | undefined;
+  should_force_stop?: (() => boolean) | undefined;
 }
 
 export interface MailboxBackupOutcome {
