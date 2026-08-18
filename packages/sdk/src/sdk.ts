@@ -6,7 +6,13 @@ export type {
   MonthlyBreakdown,
 } from '@wisecom/atlas-types';
 export type { MailboxStatusResult, FolderStatus } from '@wisecom/atlas-types';
-export type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
+export type {
+  ReplicationResult,
+  ReplicationStatusRecord,
+  TenantRehydrationResult,
+  WorkloadRehydrationResult,
+  RehydrationWorkload,
+} from '@wisecom/atlas-types';
 export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
 export type { StorageTargetSdkConfig } from '@wisecom/atlas-s3';
 export type { SyncResult } from '@wisecom/atlas-types';

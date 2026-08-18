@@ -31,4 +31,7 @@ export interface SharePointReplicationUseCase {
     site_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult>;
+
+  /** DR: recover every SharePoint site's snapshots from a replica. */
+  rehydrate_all_sites(tenant_id: string, source: StorageTarget): Promise<ReplicationResult>;
 }

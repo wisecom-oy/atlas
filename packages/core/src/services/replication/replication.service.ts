@@ -3,15 +3,26 @@ import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { ReplicationUseCase } from '@wisecom/atlas-types';
+import type {
+  OneDriveReplicationUseCase,
+  SharePointReplicationUseCase,
+} from '@wisecom/atlas-types';
 import type { StorageTarget, StorageTargetFactory } from '@wisecom/atlas-types';
 import type { DekValidationFn } from '@wisecom/atlas-types';
-import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
+import type {
+  ReplicationResult,
+  ReplicationStatusRecord,
+  TenantRehydrationResult,
+  WorkloadRehydrationResult,
+} from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   DEK_VALIDATION_FN_TOKEN,
   STORAGE_TARGET_FACTORY_TOKEN,
+  ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+  SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
 import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
@@ -21,11 +32,17 @@ import {
   list_replication_status_by_owner,
   list_replication_status_by_snapshot,
 } from '@/services/replication/replication-status-repository';
+import {
+  require_outlook_manifest,
+  list_mailbox_manifests,
+  diff_outlook_manifests,
+} from '@/services/replication/outlook-replication-helpers';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
 import {
   build_replication_result,
   build_skip_result,
   to_status_record,
+  merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
@@ -38,6 +55,10 @@ export class ReplicationService implements ReplicationUseCase {
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
     @inject(DEK_VALIDATION_FN_TOKEN) private readonly _validate_dek: DekValidationFn,
     @inject(STORAGE_TARGET_FACTORY_TOKEN) private readonly _target_factory: StorageTargetFactory,
+    @inject(ONEDRIVE_REPLICATION_USE_CASE_TOKEN)
+    private readonly _onedrive: OneDriveReplicationUseCase,
+    @inject(SHAREPOINT_REPLICATION_USE_CASE_TOKEN)
+    private readonly _sharepoint: SharePointReplicationUseCase,
   ) {}
 
   async replicate_snapshot(
@@ -47,7 +68,7 @@ export class ReplicationService implements ReplicationUseCase {
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this.require_manifest(source_ctx, snapshot_id);
+      const manifest = await require_outlook_manifest(this._manifests, source_ctx, snapshot_id);
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
@@ -70,13 +91,13 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
+      const manifests = await list_mailbox_manifests(this._manifests, source_ctx, owner_id);
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
         const target_ctx = await target.create_context(tenant_id);
         try {
-          const missing = await this.diff_manifests(manifests, target_ctx, owner_id);
+          const missing = await diff_outlook_manifests(manifests, target_ctx, owner_id);
 
           for (const manifest of missing) {
             const result = await this.copy_to_target(source_ctx, target, manifest, tenant_id);
@@ -103,7 +124,12 @@ export class ReplicationService implements ReplicationUseCase {
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const manifest = await this.require_manifest_from_ctx(source_ctx, snapshot_id);
+      const manifest = await require_outlook_manifest(
+        this._manifests,
+        source_ctx,
+        snapshot_id,
+        'source',
+      );
 
       const manifest_key = `manifests/${manifest.owner_id}/${snapshot_id}.json`;
       if (await primary_ctx.storage.exists(manifest_key)) {
@@ -134,7 +160,7 @@ export class ReplicationService implements ReplicationUseCase {
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const manifests = await this.list_mailbox_manifests(source_ctx, owner_id);
+      const manifests = await list_mailbox_manifests(this._manifests, source_ctx, owner_id);
       return await rehydrate_manifests(
         source_ctx,
         primary_ctx,
@@ -150,7 +176,41 @@ export class ReplicationService implements ReplicationUseCase {
     }
   }
 
-  async rehydrate_tenant(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
+  /**
+   * DR: recover every workload from a replica.
+   *
+   * Outlook manifests live under `manifests/`, OneDrive under `onedrive/manifests/` and SharePoint
+   * under `sharepoint/manifests/`, so enumerating one prefix recovers one third of the tenant.
+   * Each workload's own tenant-wide recovery is invoked and reported separately.
+   */
+  async rehydrate_tenant(
+    tenant_id: string,
+    source: StorageTarget,
+  ): Promise<TenantRehydrationResult> {
+    const outlook = await this.rehydrate_outlook_tenant(tenant_id, source);
+    const onedrive = await this._onedrive.rehydrate_all_owners(tenant_id, source);
+    const sharepoint = await this._sharepoint.rehydrate_all_sites(tenant_id, source);
+
+    const workloads: WorkloadRehydrationResult[] = [
+      { workload: 'outlook', result: outlook },
+      { workload: 'onedrive', result: onedrive },
+      { workload: 'sharepoint', result: sharepoint },
+    ];
+
+    return {
+      total: merge_replication_results(
+        workloads.map((w) => w.result),
+        'full-tenant',
+        source.target_id,
+      ),
+      workloads,
+    };
+  }
+
+  private async rehydrate_outlook_tenant(
+    tenant_id: string,
+    source: StorageTarget,
+  ): Promise<ReplicationResult> {
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
@@ -243,40 +303,6 @@ export class ReplicationService implements ReplicationUseCase {
       skip_marker: is_rehydration,
     });
     return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
-  }
-
-  private async require_manifest(ctx: TenantContext, snapshot_id: string): Promise<Manifest> {
-    const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-    if (!manifest) throw new Error(`No manifest found for snapshot ${snapshot_id}`);
-    return manifest;
-  }
-
-  private async require_manifest_from_ctx(
-    ctx: TenantContext,
-    snapshot_id: string,
-  ): Promise<Manifest> {
-    const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-    if (!manifest) throw new Error(`No manifest found for snapshot ${snapshot_id} on source`);
-    return manifest;
-  }
-
-  private async list_mailbox_manifests(ctx: TenantContext, owner_id: string): Promise<Manifest[]> {
-    const all = await this._manifests.list_all_manifests(ctx);
-    return all
-      .filter((m) => m.owner_id === owner_id)
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  }
-
-  private async diff_manifests(
-    source_manifests: Manifest[],
-    target_ctx: TenantContext,
-    owner_id: string,
-  ): Promise<Manifest[]> {
-    const target_keys = await target_ctx.storage.list(`manifests/${owner_id}/`);
-    const target_snapshot_ids = new Set(
-      target_keys.map((k) => k.split('/').pop()?.replace('.json', '')).filter(Boolean) as string[],
-    );
-    return source_manifests.filter((m) => !target_snapshot_ids.has(m.snapshot_id));
   }
 
   private create_primary_target(): StorageTarget {

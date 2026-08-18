@@ -39,6 +39,7 @@ interface OutlookReplicationMock {
   replicate_snapshot: Mock;
   get_replication_status: Mock;
   get_replication_status_by_owner: Mock;
+  rehydrate_tenant: Mock;
 }
 
 function make_onedrive_mock(): OneDriveReplicationMock {
@@ -82,6 +83,14 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
       replicate_snapshot: vi.fn().mockResolvedValue([RESULT]),
       get_replication_status: vi.fn().mockResolvedValue([]),
       get_replication_status_by_owner: vi.fn().mockResolvedValue([]),
+      rehydrate_tenant: vi.fn().mockResolvedValue({
+        total: RESULT,
+        workloads: [
+          { workload: 'outlook', result: RESULT },
+          { workload: 'onedrive', result: RESULT },
+          { workload: 'sharepoint', result: RESULT },
+        ],
+      }),
     };
 
     container.bind(ONEDRIVE_REPLICATION_USE_CASE_TOKEN).toConstantValue(onedrive);
@@ -175,5 +184,34 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
       expect.anything(),
     );
     expect(onedrive.rehydrate_owner).not.toHaveBeenCalled();
+  });
+
+  it('dispatches --all to full tenant recovery across every workload', async () => {
+    await program.parseAsync(['rehydrate', '--all', ...SOURCE_ARGS], { from: 'user' });
+
+    expect(outlook.rehydrate_tenant).toHaveBeenCalledWith(
+      'test-tenant',
+      expect.objectContaining({ endpoint: 'http://replica:9000' }),
+    );
+  });
+
+  it('warns naming each workload the replica held nothing for', async () => {
+    const warn_spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const empty = { ...RESULT, objects_copied: 0, objects_skipped: 0, objects_total: 0 };
+    vi.mocked(outlook.rehydrate_tenant).mockResolvedValue({
+      total: RESULT,
+      workloads: [
+        { workload: 'outlook', result: RESULT },
+        { workload: 'onedrive', result: empty },
+        { workload: 'sharepoint', result: empty },
+      ],
+    });
+
+    await program.parseAsync(['rehydrate', '--all', ...SOURCE_ARGS], { from: 'user' });
+
+    const warned = warn_spy.mock.calls.map((c) => c.join(' ')).join('\n');
+    expect(warned).toContain('onedrive, sharepoint');
+    expect(warned).not.toContain('outlook,');
+    warn_spy.mockRestore();
   });
 });

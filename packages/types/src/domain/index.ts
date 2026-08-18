@@ -28,6 +28,9 @@ export type {
   ReplicationResult,
   ReplicationObjectResult,
   ReplicationStatusRecord,
+  RehydrationWorkload,
+  WorkloadRehydrationResult,
+  TenantRehydrationResult,
 } from './replication';
 export { ReplicationStatus, ReplicationVerificationStatus } from './replication';
 export type {

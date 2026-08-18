@@ -281,7 +281,13 @@ const status = await atlas.getReplicationStatus('snapshot-id');
 // Disaster recovery: recover from a replica
 await atlas.rehydrateSnapshot('snapshot-id', offsite);
 await atlas.rehydrateMailbox('user@company.com', offsite);
-await atlas.rehydrateTenant(offsite);
+
+// Full tenant DR: every workload, reported per workload
+const recovery = await atlas.rehydrateTenant(offsite);
+for (const { workload, result } of recovery.workloads) {
+  console.log(workload, result.objects_copied, result.objects_failed);
+}
+console.log(recovery.total.status);
 ```
 
 `createStorageTarget` accepts a `StorageTargetConfig`:
