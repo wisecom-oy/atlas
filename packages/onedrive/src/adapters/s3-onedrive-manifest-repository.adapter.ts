@@ -4,7 +4,11 @@ import type {
   OneDriveManifestRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { onedrive_manifest_key, onedrive_manifest_prefix } from '@/services/onedrive-storage-keys';
+import {
+  onedrive_manifest_key,
+  onedrive_manifest_prefix,
+  onedrive_manifest_root_prefix,
+} from '@/services/onedrive-storage-keys';
 
 class InvalidOneDriveManifestDateError extends Error {
   constructor(readonly storage_key: string) {
@@ -51,6 +55,17 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
     owner_id: string,
   ): Promise<OneDriveSnapshotManifest[]> {
     const keys = await ctx.storage.list(onedrive_manifest_prefix(owner_id));
+    const manifests: OneDriveSnapshotManifest[] = [];
+    for (const key of keys) {
+      const parsed = await this.download_manifest(ctx, key);
+      if (parsed) manifests.push(parsed);
+    }
+    return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+  }
+
+  /** Lists every manifest across all owners, sorted newest first. */
+  async list_all_manifests(ctx: TenantContext): Promise<OneDriveSnapshotManifest[]> {
+    const keys = await ctx.storage.list(onedrive_manifest_root_prefix());
     const manifests: OneDriveSnapshotManifest[] = [];
     for (const key of keys) {
       const parsed = await this.download_manifest(ctx, key);

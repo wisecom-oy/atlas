@@ -10,6 +10,7 @@
     "test:watch": "vitest",
     "test:coverage": "turbo run test -- --coverage",
     "lint": "turbo run lint",
+    "link-cli": "pnpm --filter @wisecom/atlas-cli run build && pnpm --filter @wisecom/atlas-cli run link-cli",
     "lint:fix": "eslint packages/*/src/ packages/*/tests/ --fix",
     "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\"",
     "format:check": "turbo run format:check",
@@ -23,12 +24,12 @@
     "prepare": "husky"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.3.5",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-check-file": "^3.3.1",
@@ -38,12 +39,12 @@
     "prettier": "^3.8.1",
     "tsc-alias": "^1.8.17",
     "tsdown": "^0.21.0",
-    "turbo": "^2.9.18",
+    "turbo": "^2.10.10",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
     "typescript-language-server": "^5.3.0",
     "vitepress": "^1.6.4",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx}": "prettier --write"

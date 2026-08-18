@@ -25,7 +25,8 @@ import {
   rethrow_if_access_denied,
   throw_missing_permissions,
 } from '@/adapters/graph-onedrive-download-helpers';
-import { map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 interface GraphCollectionResponse<T> {
@@ -55,19 +56,6 @@ interface GraphVersionRecord {
   lastModifiedDateTime?: string;
   size?: number;
 }
-
-const DRIVE_DELTA_SELECT_FIELDS = [
-  'id',
-  'name',
-  'size',
-  'webUrl',
-  'eTag',
-  'lastModifiedDateTime',
-  'parentReference',
-  'file',
-  'folder',
-  '@microsoft.graph.downloadUrl',
-].join(',');
 
 /** Microsoft Graph adapter for OneDrive delta sync and file download. */
 @injectable()
@@ -110,6 +98,16 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       }
       throw err;
     }
+  }
+
+  /** Reads one item by id to retry a past failure; undefined once Graph reports it gone. */
+  async fetch_item_by_id(
+    _tenant_id: string,
+    _owner_id: string,
+    drive_id: string,
+    item_id: string,
+  ): Promise<OneDriveDeltaItem | undefined> {
+    return graph_onedrive_fetch_item_by_id(this._client, drive_id, item_id);
   }
 
   /** Downloads full file content with URL refresh and Graph content fallback. */
@@ -247,10 +245,10 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     drive_id: string,
     prev_delta_link: string | undefined,
   ): Promise<{ page: GraphCollectionResponse<GraphDeltaDriveItem>; stale_cursor: boolean }> {
-    const stale_cursor = Boolean(prev_delta_link && !prev_delta_link.includes('$select='));
+    const stale_cursor = Boolean(prev_delta_link && !prev_delta_link.includes('package'));
     if (stale_cursor) {
       logger.warn(
-        `Delta cursor for drive ${drive_id} predates field selection — performing fresh delta`,
+        `Delta cursor for drive ${drive_id} predates package-facet selection — performing fresh delta`,
       );
     }
 

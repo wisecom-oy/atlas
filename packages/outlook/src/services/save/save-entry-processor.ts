@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry, AttachmentEntry } from '@wisecom/atlas-types';
 import type { SaveResult } from '@wisecom/atlas-types';
@@ -9,9 +8,10 @@ import {
   add_eml_to_archive,
   finalize_archive,
 } from '@/services/save/save-zip-writer';
-import type { SaveProgressDashboard } from '@/services/save/save-progress-dashboard';
+import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 
 interface DecryptedAttachment {
   readonly name: string;
@@ -35,22 +35,29 @@ export async function save_entries_to_archive(
   skip_integrity: boolean,
   groups: Map<string, ManifestEntry[]>,
   folder_map: Map<string, string>,
-  dashboard: SaveProgressDashboard,
+  dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
-): Promise<Omit<SaveResult, 'snapshot_id'>> {
+  control: OperationControlOptions,
+): Promise<Omit<SaveResult, 'snapshot_id'> & { processed: number }> {
   const { archive, promise } = create_save_archive(output_path);
 
   let global_saved = 0;
   let global_att = 0;
   let global_errors = 0;
+  let global_processed = 0;
   const all_errors: string[] = [];
   const integrity_failures: string[] = [];
+  let interrupted = false;
+  const should_interrupt = (): boolean => {
+    interrupted ||= is_interrupted();
+    return interrupted;
+  };
   const start = Date.now();
   const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
 
   let folder_index = 0;
   for (const [fid, folder_items] of groups) {
-    if (is_interrupted()) break;
+    if (should_interrupt()) break;
     dashboard.mark_active(folder_index);
 
     const folder_name = folder_map.get(fid) ?? 'Unknown';
@@ -68,22 +75,30 @@ export async function save_entries_to_archive(
       global_total,
       start,
       dashboard,
-      is_interrupted,
+      should_interrupt,
       { all_errors, integrity_failures },
+      control,
     );
 
     global_errors += folder_result.error_count;
-
-    if (!is_interrupted()) {
+    if (!should_interrupt()) {
       dashboard.mark_done(folder_index, folder_result.folder_saved, folder_result.folder_att);
     }
 
     global_saved += folder_result.folder_saved;
     global_att += folder_result.folder_att;
+    global_processed += folder_result.folder_processed;
     folder_index++;
   }
 
   dashboard.show_finalizing();
+  emit_operation_progress(control, {
+    operation: 'save',
+    workload: 'outlook',
+    phase: 'finalizing',
+    processed: global_processed,
+    total: global_total,
+  });
   await finalize_archive(archive);
   const total_bytes = await promise;
 
@@ -97,6 +112,8 @@ export async function save_entries_to_archive(
     output_path,
     total_bytes,
     integrity_failures,
+    processed: global_processed,
+    interrupted: should_interrupt(),
   };
 }
 
@@ -124,13 +141,15 @@ async function process_folder_entries(
   groups: Map<string, ManifestEntry[]>,
   global_total: number,
   start: number,
-  dashboard: SaveProgressDashboard,
+  dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
   counters: FolderEntryCounters,
+  control: OperationControlOptions,
 ): Promise<{
   folder_saved: number;
   folder_att: number;
   error_count: number;
+  folder_processed: number;
 }> {
   let folder_saved = 0;
   let folder_processed = 0;
@@ -168,19 +187,27 @@ async function process_folder_entries(
     const rate = calc_rate(gp, Date.now() - start);
     const eta = rate > 0 ? (global_total - gp) / rate : 0;
 
-    dashboard.update_active(
-      folder_index,
-      folder_saved,
-      folder_att,
+    dashboard.update_active(folder_index, {
+      transferred: folder_saved,
+      attachments: folder_att,
       integrity_ok,
       integrity_fail,
       rate,
-      eta,
-    );
+      eta_seconds: eta,
+    });
     dashboard.update_total(gp, global_total, rate, eta);
+    emit_operation_progress(control, {
+      operation: 'save',
+      workload: 'outlook',
+      phase: 'processing',
+      processed: gp,
+      total: global_total,
+      current: entry.subject ?? entry.object_id,
+      rate,
+    });
   }
 
-  return { folder_saved, folder_att, error_count };
+  return { folder_saved, folder_processed, folder_att, error_count };
 }
 
 async function process_single_entry(
@@ -304,9 +331,6 @@ function log_save_summary(
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   const size_mb = (total_bytes / (1024 * 1024)).toFixed(1);
   logger.info(
-    `${chalk.green(String(saved))} saved, ` +
-      `${chalk.cyan(String(attachments))} attachments, ` +
-      `${chalk.red(String(errors))} errors, ` +
-      `${chalk.cyan(size_mb + ' MB')} -- ${elapsed}s`,
+    `${saved} saved, ${attachments} attachments, ${errors} errors, ${size_mb} MB -- ${elapsed}s`,
   );
 }

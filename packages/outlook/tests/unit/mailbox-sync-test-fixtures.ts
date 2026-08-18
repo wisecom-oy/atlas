@@ -82,9 +82,14 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
   const mock_connector: MailboxConnector = {
     list_mailboxes: vi.fn().mockResolvedValue([]),
     mailbox_exists: vi.fn().mockResolvedValue(true),
-    list_mail_folders: vi
-      .fn()
-      .mockResolvedValue([{ folder_id: 'folder-1', display_name: 'Inbox', total_item_count: 10 }]),
+    list_mail_folders: vi.fn().mockResolvedValue([
+      {
+        folder_id: 'folder-1',
+        display_name: 'Inbox',
+        folder_path: 'Inbox',
+        total_item_count: 10,
+      },
+    ]),
     fetch_delta: vi.fn().mockResolvedValue(make_delta([])),
     fetch_message: vi.fn(),
     fetch_attachments: vi.fn().mockResolvedValue([]),
@@ -99,6 +104,7 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
 
   const mock_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(mock_context),
+    create_readonly: vi.fn().mockResolvedValue(mock_context),
   };
 
   const container = new Container();

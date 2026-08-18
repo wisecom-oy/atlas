@@ -1,19 +1,22 @@
+import { Option } from 'commander';
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import {
   execute_onedrive_backup,
-  execute_onedrive_list_snapshots,
-  execute_onedrive_list_versions,
   execute_onedrive_restore,
   execute_onedrive_save,
   execute_onedrive_verify,
   type OneDriveBackupOptions,
-  type OneDriveListSnapshotsOptions,
-  type OneDriveListVersionsOptions,
   type OneDriveRestoreCommandOptions,
   type OneDriveSaveCommandOptions,
   type OneDriveVerifyOptions,
 } from '@/commands/onedrive-command.handlers';
+import {
+  execute_onedrive_list_snapshots,
+  execute_onedrive_list_versions,
+  type OneDriveListSnapshotsOptions,
+  type OneDriveListVersionsOptions,
+} from '@/commands/onedrive-catalog-command.handlers';
 
 type ContainerFactory = () => Container;
 
@@ -37,6 +40,11 @@ function register_onedrive_backup(group: Command, get_container: ContainerFactor
     .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
     .option('--full', 'force full crawl ignoring saved delta state')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .option(
+      '--retention-days <n>',
+      'apply Object Lock default retention for N days (persists on the bucket)',
+    )
+    .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
     .action((options: OneDriveBackupOptions) => execute_onedrive_backup(get_container(), options));
 }
 
@@ -48,9 +56,12 @@ function register_onedrive_restore(group: Command, get_container: ContainerFacto
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
     .option('--target-owner <id>', 'target user email or Entra object ID (defaults to owner)')
     .option('--file-filter <paths...>', 'only restore specific files (by ID or path)')
-    .option(
-      '-c, --conflict <mode>',
-      'file conflict policy: replace, rename, or fail (default: rename)',
+    .addOption(
+      new Option('-c, --conflict <mode>', 'file conflict policy (default: rename)').choices([
+        'replace',
+        'rename',
+        'fail',
+      ]),
     )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: OneDriveRestoreCommandOptions) =>

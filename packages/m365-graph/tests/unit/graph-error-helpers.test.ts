@@ -66,12 +66,16 @@ describe('is_invalid_delta_error', () => {
 });
 
 describe('is_transient_error', () => {
-  it.each([429, 503, 504])('returns true for status %i', (status) => {
+  it.each([429, 500, 502, 503, 504])('returns true for status %i', (status) => {
     expect(is_transient_error({ statusCode: status })).toBe(true);
   });
 
   it('returns false for 400', () => {
     expect(is_transient_error({ statusCode: 400 })).toBe(false);
+  });
+
+  it('returns false for 501, which Graph does not recover from by itself', () => {
+    expect(is_transient_error({ statusCode: 501 })).toBe(false);
   });
 });
 
@@ -149,6 +153,22 @@ describe('with_graph_retry', () => {
     const fn = (): Promise<string> => {
       calls++;
       if (calls === 1) return Promise.reject({ statusCode: 503, message: 'Service Unavailable' });
+      return Promise.resolve('recovered');
+    };
+
+    const promise = with_graph_retry(fn);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
+
+    expect(result).toBe('recovered');
+    expect(calls).toBe(2);
+  });
+
+  it.each([500, 502])('retries a transient %i and succeeds', async (status) => {
+    let calls = 0;
+    const fn = (): Promise<string> => {
+      calls++;
+      if (calls === 1) return Promise.reject({ statusCode: status, message: 'Server error' });
       return Promise.resolve('recovered');
     };
 
@@ -279,5 +299,36 @@ describe('with_graph_retry', () => {
 
     expect(result).toBe('ok');
     expect(calls).toBe(2);
+  });
+
+  it('times out a single hung attempt after options.timeout_ms and retries (issue #33)', async () => {
+    let calls = 0;
+    const fn = (): Promise<string> => {
+      calls++;
+      if (calls === 1) {
+        // First attempt hangs past the per-attempt timeout.
+        const { promise } = Promise.withResolvers<string>();
+        return promise;
+      }
+      return Promise.resolve('recovered');
+    };
+
+    const promise = with_graph_retry(fn, { timeout_ms: 5_000 });
+    await vi.advanceTimersByTimeAsync(5_000); // per-attempt timeout fires -> ETIMEDOUT
+    await vi.advanceTimersByTimeAsync(5_000); // backoff before attempt 2
+    const result = await promise;
+
+    expect(result).toBe('recovered');
+    expect(calls).toBe(2);
+  });
+
+  it('does not time out an attempt finishing within a widened timeout_ms', async () => {
+    const { promise: slow, resolve } = Promise.withResolvers<string>();
+    setTimeout(() => resolve('large-download'), 120_000); // fake clock
+
+    const promise = with_graph_retry(() => slow, { timeout_ms: 1_800_000 });
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    await expect(promise).resolves.toBe('large-download');
   });
 });

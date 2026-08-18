@@ -60,11 +60,11 @@ export default defineConfig({
   test: {
     globals: true,
     root: '.',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html', 'json-summary'],
-      include: ['src/**/*.ts'],
+      include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/index.ts', 'src/cli.ts'],
     },
   },

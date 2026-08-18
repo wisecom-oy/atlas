@@ -13,12 +13,36 @@ import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { ReplicationResult } from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OneDriveStatusResult } from '@/ports/onedrive/status.port';
+import type { VerificationOptions } from '@/ports/verification/use-case.port';
+import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+
+export type OneDriveSdkBackupOptions = Omit<
+  OneDriveBackupOptions,
+  'create_progress' | 'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type OneDriveSdkVerificationOptions = Omit<
+  VerificationOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type OneDriveSdkRestoreOptions = Omit<
+  OneDriveRestoreOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type OneDriveSdkSaveOptions = Omit<FileSaveOptions, 'on_progress' | 'should_interrupt'> &
+  SdkOperationOptions;
 
 export interface OneDriveApi {
-  backup(ownerId: string, options?: OneDriveBackupOptions): Promise<OneDriveBackupResult>;
-  verify(ownerId: string, snapshotId: string): Promise<OneDriveVerificationResult>;
-  restore(ownerId: string, options: OneDriveRestoreOptions): Promise<OneDriveRestoreResult>;
-  save(ownerId: string, options: FileSaveOptions): Promise<FileSaveResult>;
+  backup(ownerId: string, options?: OneDriveSdkBackupOptions): Promise<OneDriveBackupResult>;
+  verify(
+    ownerId: string,
+    snapshotId: string,
+    options?: OneDriveSdkVerificationOptions,
+  ): Promise<OneDriveVerificationResult>;
+  restore(ownerId: string, options: OneDriveSdkRestoreOptions): Promise<OneDriveRestoreResult>;
+  save(ownerId: string, options: OneDriveSdkSaveOptions): Promise<FileSaveResult>;
   listSnapshots(ownerId: string): Promise<OneDriveSnapshotManifest[]>;
   listFileVersions(ownerId: string, fileRef: string): Promise<OneDriveFileVersionRecord[]>;
   deleteOwnerData(ownerId: string): Promise<DeletionResult>;

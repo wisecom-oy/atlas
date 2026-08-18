@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type {
@@ -21,6 +22,7 @@ import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-ma
 import {
   build_replication_result,
   build_skip_result,
+  merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
@@ -50,6 +52,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     snapshot_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    site_id = normalize_owner_id(site_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this.require_sp_manifest(source_ctx, site_id, snapshot_id);
@@ -83,6 +86,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     site_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    site_id = normalize_owner_id(site_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
@@ -126,6 +130,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     snapshot_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    site_id = normalize_owner_id(site_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
@@ -159,6 +164,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     site_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    site_id = normalize_owner_id(site_id);
     await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
@@ -176,6 +182,44 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
         this._validate_dek,
         this._config.encryption_passphrase,
       );
+    } finally {
+      source_ctx.destroy();
+      primary_ctx.destroy();
+    }
+  }
+
+  /** DR: recover every SharePoint site's snapshots from a replica. */
+  async rehydrate_all_sites(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
+    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    const primary_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await source.create_context(tenant_id);
+    try {
+      const all = await this._sp_manifests.list_all_manifests(source_ctx);
+      const by_site = new Map<string, SharePointSnapshotManifest[]>();
+      for (const manifest of all) {
+        const bucket = by_site.get(manifest.site_id);
+        if (bucket) bucket.push(manifest);
+        else by_site.set(manifest.site_id, [manifest]);
+      }
+
+      const results: ReplicationResult[] = [];
+      for (const [site_id, manifests] of by_site) {
+        const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+        results.push(
+          await rehydrate_sp_manifests(
+            source_ctx,
+            primary_ctx,
+            manifests,
+            ancillary,
+            source,
+            tenant_id,
+            this._validate_dek,
+            this._config.encryption_passphrase,
+          ),
+        );
+      }
+
+      return merge_replication_results(results, `${by_site.size}-sites`, source.target_id);
     } finally {
       source_ctx.destroy();
       primary_ctx.destroy();

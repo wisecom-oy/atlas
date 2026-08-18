@@ -4,7 +4,7 @@ export default defineConfig({
   title: 'M365 Atlas',
   description: 'Secure, deduplicated Microsoft 365 mailbox backups to S3-compatible storage.',
 
-  base: '/atlas/',
+  base: '/',
   cleanUrls: true,
   appearance: 'dark',
 
@@ -80,6 +80,13 @@ export default defineConfig({
               { text: 'Export & Compliance', link: '/reference/examples/export' },
             ],
           },
+        ],
+      },
+      {
+        text: 'Development',
+        items: [
+          { text: 'Graph Request Tracing', link: '/development/graph-tap' },
+          { text: 'Performance Profiling', link: '/development/performance-profiling' },
         ],
       },
       {

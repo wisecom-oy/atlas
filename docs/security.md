@@ -33,14 +33,14 @@ The KEK is derived using **scrypt**, a memory-hard key derivation function desig
 
 Parameters used by Atlas for **new** DEK wraps:
 
-| Parameter | Value | Purpose |
-| --- | --- | --- |
-| N (cost) | 65536 | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads) |
-| r (block size) | 8 | Memory usage multiplier |
-| p (parallelism) | 1 | Sequential derivation (no parallel lanes) |
-| Salt | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
-| Output | 32 bytes (256 bits) | AES-256 key length |
-| Minimum N on unwrap | 16384 | Blobs with weaker parameters are rejected |
+| Parameter           | Value                          | Purpose                                                                                   |
+| ------------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
+| N (cost)            | 65536                          | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads)               |
+| r (block size)      | 8                              | Memory usage multiplier                                                                   |
+| p (parallelism)     | 1                              | Sequential derivation (no parallel lanes)                                                 |
+| Salt                | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
+| Output              | 32 bytes (256 bits)            | AES-256 key length                                                                        |
+| Minimum N on unwrap | 16384                          | Blobs with weaker parameters are rejected                                                 |
 
 The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
 
@@ -76,15 +76,15 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 
 ### What Is Encrypted at Rest
 
-| Data | Encrypted | Notes |
-| --- | --- | --- |
-| Email message bodies | Yes | Stored as encrypted JSON under `data/{mailbox}/{sha256}` |
-| Attachments | Yes | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}` |
-| Manifests | Yes | Contains subjects, folder names, delta URLs, checksums |
-| OneDrive file blobs | Yes | Keys under `onedrive/data/{owner_id}/{sha256}` |
-| OneDrive manifests / indexes / delta state | Yes | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta` |
-| Wrapped DEK | Yes | `_meta/dek.enc` is encrypted with the KEK |
-| S3 object metadata | **No** | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
+| Data                                       | Encrypted | Notes                                                                      |
+| ------------------------------------------ | --------- | -------------------------------------------------------------------------- |
+| Email message bodies                       | Yes       | Stored as encrypted JSON under `data/{mailbox}/{sha256}`                   |
+| Attachments                                | Yes       | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}`           |
+| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                     |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                             |
+| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`             |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                  |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
@@ -108,11 +108,11 @@ There is **no built-in S3 object rename** between email-keyed and ID-keyed mailb
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
 
-| Layer | Mechanism | What It Catches | When |
-| --- | --- | --- | --- |
-| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs | Backup, verify, save |
-| **Transport** | `Content-MD5` header on S3 PUT | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
-| **At-rest** | AES-256-GCM authentication tag | Storage-level tampering or corruption | Every decrypt operation |
+| Layer         | Mechanism                           | What It Catches                                          | When                                 |
+| ------------- | ----------------------------------- | -------------------------------------------------------- | ------------------------------------ |
+| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs           | Backup, verify, save                 |
+| **Transport** | `Content-MD5` header on S3 PUT      | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
+| **At-rest**   | AES-256-GCM authentication tag      | Storage-level tampering or corruption                    | Every decrypt operation              |
 
 ### How Verification Works
 
@@ -128,6 +128,26 @@ Currently, `atlas outlook verify` checks **message body entries** listed in the 
 ### Content-MD5 on Uploads
 
 Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.
+
+## Erasure
+
+Deletion is a security control, not a housekeeping convenience: an erasure request answered incorrectly is a compliance failure that looks like a success.
+
+### Versions are the data
+
+Every Atlas delete removes the object **and each of its noncurrent versions**, addressing them by version id. On a bucket with versioning enabled -- mandatory for Object Lock, so present in every immutability deployment -- a `DeleteObject` call that omits the version id writes a delete marker instead of erasing anything. The object vanishes from listings, the reported count goes up, and the plaintext is still one `GetObject?versionId=` away. Delete markers themselves are swept too, but never counted as erased data, because removing one uncovers versions rather than destroying them.
+
+### A tenant purge sweeps the bucket
+
+`purge_tenant` enumerates the whole bucket rather than a list of known prefixes. Prefix lists go stale as workloads are added -- the tenant tree now holds Outlook, OneDrive, SharePoint, and the identity registry -- and a stale list erases less than the operator was told.
+
+The encrypted DEK is deleted last, and only when the sweep reports nothing left. Removing the key first would produce the worst available outcome: ciphertext that can no longer be restored and cannot be reported as erased either.
+
+### Retained versus failed
+
+A refused delete is classified as **retained** only when the backend names Object Lock as the reason -- AWS answers `AccessDenied: Access Denied because object protected by object lock`, MinIO answers `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when their retention window expires, so the operator can wait.
+
+Everything else is a **failure**: a missing `s3:DeleteObjectVersion` permission, an unreachable endpoint, a bucket policy. None of those resolve on their own. Reporting an IAM gap as "retained" would tell an operator that an erasure is on track when nothing is scheduled to happen, so the classifier errs toward failure -- a false alarm costs an investigation, a false all-clear costs the erasure.
 
 ## Replication Security
 
@@ -162,6 +182,19 @@ Atlas writes a marker file (`_meta/replica.marker`) on each target during first 
 
 Replication status sidecar files stored under `_meta/replication/` in the primary bucket are encrypted with the tenant DEK. Target endpoints, checksums, and error messages are not exposed at rest in S3.
 
+## S3 Permissions by Command Class
+
+Atlas splits its storage access in two, so a browsing operator never needs write credentials:
+
+| Command class                                                                                                 | S3 actions required                                                                                        | Provisioning |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                             | None         |
+| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                          | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
+
+Read-only commands load the tenant context without provisioning: the bucket is never created and a missing `_meta/dek.enc` is never generated. Browsing a tenant that has never been backed up — a mistyped `-t`, or a tenant id from another environment — fails with `No backups found for tenant <id>` instead of leaving behind a lifecycle-configured bucket containing nothing but key material. That matters for two reasons: a wrapped DEK written on a read path is an audit-log surprise in a compliance-facing product, and buckets born from typos are indistinguishable from real tenants when reviewing storage.
+
+Grant a monitoring or audit principal the read-only row only. If it holds `s3:CreateBucket`, that is a leftover from Atlas versions before 2.1.0-beta and can be revoked.
+
 ## Configuration File Security
 
 ### Filesystem Permission Check
@@ -174,4 +207,10 @@ WARN Config file /home/user/atlas.config.json has overly permissive permissions 
 
 This check is skipped on Windows where Unix permission bits do not apply. The check is advisory (warning, not error) to avoid breaking existing deployments, but operators are strongly encouraged to restrict config files to owner-only access (`chmod 600`).
 
-Environment variables (`ATLAS_*`) and `.env` files are an alternative that avoids storing secrets in a JSON file entirely.
+Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file but remain readable from the process environment and from plaintext dotfiles — the exact locations credential-stealing malware sweeps first.
+
+### Encrypted Secure Store
+
+`atlas config` stores configuration in `~/.atlas/config.enc`, encrypted with AES-256-GCM (12-byte IV, 16-byte auth tag, layout `[iv][tag][ciphertext]`). The 256-bit store key is held in the OS keyring — macOS Keychain (`security`) or libsecret (`secret-tool`) on Linux — so a disk or dotfile sweep yields only ciphertext, and tampering with the store file fails authentication at load time rather than silently feeding Atlas modified settings.
+
+Threat model: the store defends against offline file exfiltration and environment-variable grabbing by unprivileged malware. It does **not** defend against malware running interactively as the logged-in user (which can invoke the keyring the same way Atlas does), nor against an attacker with root. On systems without a keyring the store key falls back to `~/.atlas/config.key` (mode `0600`, with a warning) — equivalent to file-permission security, still one step above plaintext env files because the config values themselves are never on disk in the clear.

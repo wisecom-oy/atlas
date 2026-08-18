@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
-    branches: [main]
+    # Release branches are integration targets for a whole beta line, so they
+    # need the same gate as main -- without this, PRs into release/** merge
+    # with no build, lint, format, or test run at all.
+    branches: [main, 'release/**']
 
 permissions:
   contents: read
@@ -24,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -32,6 +35,9 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Typecheck
+        run: pnpm run typecheck
 
       - name: Lint
         run: pnpm run lint

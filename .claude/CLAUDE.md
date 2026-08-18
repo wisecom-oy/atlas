@@ -1,0 +1,147 @@
+# Atlas Development Rules
+
+## Package Manager
+
+Use **pnpm** exclusively. Never use npm or yarn.
+
+```bash
+pnpm install        # install deps
+pnpm run build      # compile
+pnpm run test       # run tests
+pnpm run lint       # lint check
+```
+
+## Linting & Formatting
+
+ESLint and Prettier rules are the source of truth. Always consult these files for current config:
+
+- ESLint: `eslint.config.js`
+- Prettier: `.prettierrc`
+- TypeScript: `tsconfig.json`
+
+Key enforced rules:
+
+- **File names**: `kebab-case` (e.g. `mailbox-sync.service.ts`)
+- **Variables / parameters**: `snake_case`
+- **Types / classes**: `PascalCase`
+- **Enum members**: `UPPER_CASE`
+- **Functions**: `snake_case` (standalone) or `camelCase` (class methods via DI)
+- **Max 300 effective lines per file** (blank lines and comments excluded)
+
+## The 300-Line Rule
+
+When a file approaches or exceeds 300 lines, **split the logic** into separate files. Do not compact, minify, or remove whitespace to fit. The limit exists to enforce proper separation of concerns. Extract cohesive blocks into purpose-named modules (e.g. `attachment-storage-sync.ts`, `manifest-entry-merger.ts`) rather than generic `helper` files.
+
+## Function Design (SRP)
+
+Every function name must describe exactly what it does -- no hidden side-effects.
+
+- If a function does multiple things, **split it** into smaller functions and create a parent that calls them. The parent reads like an outline of the procedure.
+- If the name can't fully describe the behavior, the function is too broad.
+
+```typescript
+// BAD: name hides the encryption and upload steps
+async function process_message(msg: MailMessage): Promise<void> { ... }
+
+// GOOD: parent orchestrates clearly named children
+async function store_single_message(ctx: TenantContext, msg: MailMessage): Promise<ManifestEntry> {
+  const checksum = compute_sha256(msg.raw_body);
+  const storage_key = build_content_key(mailbox_id, checksum);
+  await encrypt_and_upload(ctx, storage_key, msg);
+  return build_manifest_entry(msg, storage_key, checksum);
+}
+```
+
+## Imports
+
+Never use relative imports. Always use the `@/` path alias defined in `tsconfig.json`:
+
+```typescript
+// BAD
+import { logger } from '../../utils/logger';
+
+// GOOD
+import { logger } from '@/utils/logger';
+```
+
+## Architecture: Hexagonal + DI
+
+The project follows hexagonal architecture with Inversify for dependency injection.
+
+```
+src/
+  domain/       Pure data models, no dependencies
+  ports/        Interfaces and tokens (input + output ports)
+  services/     Application logic, depends only on ports
+    backup/
+    restore/
+    verification/
+    catalog/
+    deletion/
+    shared/
+  adapters/     Concrete implementations of ports
+  cli/          Incoming adapters (commands, presenters, signal handling)
+  utils/        Small helpers (logging, config)
+```
+
+- **Services** depend on **port interfaces**, never on adapter implementations or CLI concerns.
+- **Adapters** implement port interfaces and are bound in `container.ts`.
+- **CLI commands** resolve **incoming use-case ports** from the DI container and delegate.
+- Presentation/runtime concerns (`chalk`, dashboards, signal handling, process control) belong in CLI adapters/presenters, not application services.
+- Keep `src/services/` organized by deterministic capability subfolders; avoid root-level sprawl.
+- Do not use ambiguous `*.helper.ts` names in services. Use behavior-revealing names (e.g. `folder-sync-executor.ts`, `restore-message-transformer.ts`).
+- Keep root public exports core-only; do not re-export infrastructure adapters from `src/index.ts`.
+- All injectable classes use `@injectable()` and `@inject()` decorators.
+
+## Testing
+
+Maintain high test coverage on all business-critical logic.
+
+- Test framework: **Vitest** with `@vitest/coverage-v8`
+- Config: `vitest.config.ts`
+- Test location: `tests/unit/` mirroring `src/` structure
+- Each service and adapter should have dedicated test files
+- When test files approach 300 lines, extract into focused test files (e.g. `delta-safeguard.test.ts`, `attachment-sync.test.ts`)
+- Mock port interfaces in tests, never real adapters
+- Run tests: `pnpm run test`
+
+## JSDoc
+
+Add JSDoc to all exported functions and public class methods. Keep it to one line when the name is already descriptive. Only add multi-line JSDoc when the behavior is non-obvious.
+
+## Build Cache
+
+`turbo.json` declares `tsconfig.tsbuildinfo` as a `build` output alongside `dist/**`. Composite `tsc` writes it to the package root, and if it desyncs from the cached `dist/`, `tsc` reports "up to date" and silently skips emitting stale `.d.ts` files. Never remove it from `outputs`.
+
+## Documentation Governance
+
+Every change that affects user-visible behavior must include corresponding documentation updates in the same PR:
+
+- New or changed CLI flags/options → update `docs/reference/cli.md`
+- New or changed SDK methods/options → update `docs/reference/sdk.md`
+- Configuration changes → update `docs/configuration.md`
+- Security or encryption changes → update `docs/security.md`
+- Self-hosting, storage, or infrastructure changes → update `docs/self-hosting.md`
+- New commands or features → add to the relevant docs page and update the sidebar in `docs/.vitepress/config.ts`
+- Developer tooling under `tools/` → document under `docs/development/`, not `docs/operations/`
+- README quick-start or highlights affected → update `README.md`
+
+### Writing Style
+
+- **Explanatory IT tone**: write for IT administrators and security-conscious operators who need to understand WHY things work the way they do, not just WHAT to type. Assume the reader is technical but unfamiliar with Atlas internals.
+- **Cybersecurity awareness**: explain security implications where relevant -- why encryption parameters were chosen, what threat models are addressed, what the attack surface looks like, and what happens if credentials are compromised.
+- **Implementation-grounded**: when describing a behavior, ground it in the actual implementation -- cite specific parameters (e.g. scrypt N=16384), algorithms (AES-256-GCM), retry counts (12 attempts), and defaults rather than hand-waving.
+- **Self-hosting and operations**: include storage, scheduling, credentials management, platform recommendations, and network/bandwidth considerations where relevant.
+- **Examples first**: lead sections with a working code or CLI example, then explain options and behavior.
+- **Concise**: one idea per paragraph. Prefer tables for option/flag references. Avoid walls of prose.
+- **Consistent structure**: every CLI command page follows the pattern: description → examples → options table → tips/details.
+- **No jargon without context**: if a term (KEK, DEK, delta link, Object Lock) is needed, define it on first use or link to the relevant docs page.
+
+### Pre-Merge Checklist
+
+1. All changed commands/options are reflected in `docs/reference/cli.md`
+2. All changed SDK methods are reflected in `docs/reference/sdk.md`
+3. All changed config variables are reflected in `docs/configuration.md`
+4. The VitePress sidebar in `docs/.vitepress/config.ts` includes any new pages
+5. `pnpm run docs:build` succeeds without warnings
+6. Security-sensitive changes include updated threat model or risk notes in `docs/security.md`

@@ -2,6 +2,9 @@ import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive-manifest';
+import type { BackupProgressReporter, ObjectLockRequest } from '../backup/use-case.port';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { VerificationOptions } from '@/ports/verification/use-case.port';
 
 export interface OneDriveBackupSummary {
   readonly drives_scanned: number;
@@ -21,13 +24,27 @@ export interface OneDriveBackupSummary {
 export interface OneDriveBackupResult {
   readonly owner_id: string;
   readonly snapshot: OneDriveSnapshotManifest | undefined;
+  readonly interrupted: boolean;
   readonly summary: OneDriveBackupSummary;
 }
 
-export interface OneDriveBackupOptions {
+export interface OneDriveBackupOptions extends OperationControlOptions {
   readonly force_full?: boolean | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
+  /**
+   * Object Lock retention applied as the bucket's default retention before
+   * the run: every new object version (files, versions, manifests, cursors)
+   * inherits the lock. Persists on the bucket for subsequent writes.
+   */
+  readonly object_lock_request?: ObjectLockRequest | undefined;
+  /**
+   * CLI presenter hook: builds a per-drive progress reporter before the scan
+   * starts. Drive totals arrive via `set_row_total` once each delta is fetched.
+   * When absent the service reports progress nowhere.
+   */
+  readonly create_progress?:
+    ((drives: { name: string; total_items: number }[]) => BackupProgressReporter) | undefined;
 }
 
 export interface OneDriveCatalogUseCase {
@@ -57,6 +74,7 @@ export interface OneDriveVerificationResult {
   readonly passed: number;
   readonly failed_file_ids: string[];
   readonly index_issues: string[];
+  readonly interrupted: boolean;
 }
 
 export interface OneDriveVerificationUseCase {
@@ -65,5 +83,6 @@ export interface OneDriveVerificationUseCase {
     tenant_id: string,
     owner_id: string,
     snapshot_id: string,
+    options?: VerificationOptions,
   ): Promise<OneDriveVerificationResult>;
 }

@@ -2,6 +2,7 @@ export type { Tenant } from './tenant';
 export type { Snapshot } from './snapshot';
 export { SnapshotStatus } from './snapshot';
 export type { BackupObject } from './backup-object';
+export type { FailedItemRecord, FailedItemLedger } from './failed-item';
 export type {
   Manifest,
   MailboxPurpose,
@@ -14,11 +15,22 @@ export type {
 } from './manifest';
 export type { RestoreRequest } from './restore-request';
 export { RestoreStatus } from './restore-request';
-export type { BucketStats, MailboxStats, FolderStats, MonthlyBreakdown } from './stats';
+export type {
+  BucketStats,
+  MailboxStats,
+  FolderStats,
+  MonthlyBreakdown,
+  DriveStats,
+  DriveOwnerSummary,
+  DriveMonthlyBreakdown,
+} from './stats';
 export type {
   ReplicationResult,
   ReplicationObjectResult,
   ReplicationStatusRecord,
+  RehydrationWorkload,
+  WorkloadRehydrationResult,
+  TenantRehydrationResult,
 } from './replication';
 export { ReplicationStatus, ReplicationVerificationStatus } from './replication';
 export type {
@@ -42,7 +54,12 @@ export type {
   SharePointFileVersionIndex,
   SharePointDeltaCursor,
 } from './sharepoint-manifest';
-export type { OperationCost, ServicePoolCost, GraphServicePool } from './graph-cost';
+export type {
+  GraphOperation,
+  OperationCost,
+  ServicePoolCost,
+  GraphServicePool,
+} from './graph-cost';
 export type {
   GraphServiceLimits,
   OutlookServiceLimits,

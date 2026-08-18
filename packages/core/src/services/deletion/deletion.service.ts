@@ -1,9 +1,26 @@
+import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { DeletionResult, DeletionUseCase } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  delete_scopes,
+  empty_deletion_result,
+  has_survivors,
+  merge_deletion_results,
+} from '@/services/deletion/shared/prefix-deleter';
 import { logger } from '@/utils/logger';
+
+/**
+ * The wrapped DEK, deleted last so a blocked purge stays recoverable.
+ *
+ * Held back as this exact key, not as the whole `_meta/` prefix: replica markers
+ * and replication status records share that tree and are themselves encrypted
+ * with the DEK, so they have to go before the key that reads them.
+ */
+const DEK_KEY = '_meta/dek.enc';
+const OUTLOOK_MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
 
 @injectable()
 export class DeletionService implements DeletionUseCase {
@@ -18,10 +35,27 @@ export class DeletionService implements DeletionUseCase {
    * objects (harmless) rather than manifests referencing deleted objects.
    */
   async delete_mailbox_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_prefixes(storage, [
-      `manifests/${owner_id}/`,
+    const manifest_prefix = `manifests/${owner_id}/`;
+    const [manifest_keys, manifest_versions] = await Promise.all([
+      storage.list(manifest_prefix),
+      storage.list_versions(manifest_prefix),
+    ]);
+    const snapshot_ids = new Set<string>();
+    for (const key of [...manifest_keys, ...manifest_versions.map((version) => version.key)]) {
+      if (!key.startsWith(manifest_prefix) || !key.endsWith('.json')) continue;
+      const snapshot_id = key.slice(manifest_prefix.length, -'.json'.length);
+      if (snapshot_id.length > 0) snapshot_ids.add(snapshot_id);
+    }
+    const snapshot_pointers = [...snapshot_ids].map(
+      (snapshot_id) => `${OUTLOOK_MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`,
+    );
+
+    return delete_scopes(storage, [
+      manifest_prefix,
+      ...snapshot_pointers,
+      `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${owner_id}/`,
       `data/${owner_id}/`,
       `attachments/${owner_id}/`,
     ]);
@@ -43,145 +77,47 @@ export class DeletionService implements DeletionUseCase {
       }
 
       const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
-      const summary = await delete_prefixes(ctx.storage, [key]);
-      if (summary.retained_manifests > 0 || summary.failed_manifests > 0) {
-        logger.error('Snapshot manifest is protected by Object Lock and cannot be deleted yet.');
+      const manifest_summary = await delete_scopes(ctx.storage, [key]);
+      if (has_survivors(manifest_summary)) {
+        if (manifest_summary.retained_manifests > 0 || manifest_summary.failed_manifests > 0) {
+          logger.error('Snapshot manifest is protected by Object Lock and cannot be deleted yet.');
+        }
+        return manifest_summary;
       }
-      return summary;
+
+      const pointer_summary = await delete_scopes(ctx.storage, [
+        `${OUTLOOK_MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`,
+        `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${manifest.owner_id}/latest.json`,
+      ]);
+      return merge_deletion_results(manifest_summary, pointer_summary);
     } finally {
       ctx.destroy();
     }
   }
 
   /**
-   * Removes everything in the tenant bucket: data, attachments, manifests, and _meta
-   * (including the encrypted DEK). This is irreversible.
+   * Removes every object in the tenant bucket, including the encrypted DEK.
+   * This is irreversible.
+   *
+   * The sweep covers the whole bucket rather than a list of known prefixes.
+   * Each workload owns its own tree -- Outlook at the root, OneDrive and
+   * SharePoint under theirs, plus loose keys like the identity registry -- and
+   * an enumerated list silently stops erasing whatever ships next (issue #27).
+   *
+   * The DEK goes last and only if nothing survived: dropping the key while its
+   * ciphertext is still retained would leave data that can neither be restored
+   * nor claimed erased.
    */
   async purge_tenant(tenant_id: string): Promise<DeletionResult> {
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    const core = await delete_prefixes(storage, ['manifests/', 'data/', 'attachments/']);
-    if (
-      core.retained_objects > 0 ||
-      core.retained_manifests > 0 ||
-      core.failed_objects > 0 ||
-      core.failed_manifests > 0
-    ) {
-      return core;
+
+    const data = await delete_scopes(storage, [''], [DEK_KEY]);
+    if (has_survivors(data)) {
+      logger.error('Tenant purge left objects behind; keeping the DEK so they stay recoverable.');
+      return data;
     }
 
-    const meta = await delete_prefixes(storage, ['_meta/']);
-    return {
-      deleted_objects: core.deleted_objects + meta.deleted_objects,
-      deleted_manifests: core.deleted_manifests + meta.deleted_manifests,
-      retained_objects: core.retained_objects + meta.retained_objects,
-      retained_manifests: core.retained_manifests + meta.retained_manifests,
-      failed_objects: core.failed_objects + meta.failed_objects,
-      failed_manifests: core.failed_manifests + meta.failed_manifests,
-    };
+    const dek = await delete_scopes(storage, [DEK_KEY]);
+    return merge_deletion_results(data, dek);
   }
-}
-
-interface DeletionStorage {
-  delete(key: string): Promise<void>;
-  list(prefix: string): Promise<string[]>;
-  list_versions(prefix: string): Promise<{ key: string; version_id: string }[]>;
-  delete_version(key: string, version_id: string): Promise<void>;
-}
-
-type DeletionSummaryMutable = {
-  deleted_objects: number;
-  deleted_manifests: number;
-  retained_objects: number;
-  retained_manifests: number;
-  failed_objects: number;
-  failed_manifests: number;
-};
-
-/** Deletes all versions (or current keys) under the provided prefixes/keys. */
-async function delete_prefixes(
-  storage: DeletionStorage,
-  scopes: string[],
-): Promise<DeletionResult> {
-  const summary = empty_deletion_summary();
-
-  for (const scope of scopes) {
-    const version_entries = await storage.list_versions(scope);
-    if (version_entries.length > 0) {
-      for (const version of version_entries) {
-        await delete_versioned_key(storage, version, summary);
-      }
-      continue;
-    }
-
-    const visible_keys = await storage.list(scope);
-    for (const key of visible_keys) {
-      await delete_single_key(storage, key, summary);
-    }
-  }
-
-  return { ...summary };
-}
-
-async function delete_versioned_key(
-  storage: DeletionStorage,
-  version: { key: string; version_id: string },
-  summary: DeletionSummaryMutable,
-): Promise<void> {
-  try {
-    await storage.delete_version(version.key, version.version_id);
-    increment_summary(summary, version.key, 'deleted');
-  } catch (err) {
-    const bucket = is_object_lock_delete_error(err) ? 'retained' : 'failed';
-    increment_summary(summary, version.key, bucket);
-  }
-}
-
-async function delete_single_key(
-  storage: DeletionStorage,
-  key: string,
-  summary: DeletionSummaryMutable,
-): Promise<void> {
-  try {
-    await storage.delete(key);
-    increment_summary(summary, key, 'deleted');
-  } catch (err) {
-    const bucket = is_object_lock_delete_error(err) ? 'retained' : 'failed';
-    increment_summary(summary, key, bucket);
-  }
-}
-
-function increment_summary(
-  summary: DeletionSummaryMutable,
-  key: string,
-  outcome: 'deleted' | 'retained' | 'failed',
-): void {
-  const suffix = key.startsWith('manifests/') ? 'manifests' : 'objects';
-  const field = `${outcome}_${suffix}` as keyof DeletionSummaryMutable;
-  summary[field]++;
-}
-
-function is_object_lock_delete_error(err: unknown): boolean {
-  const message = err instanceof Error ? `${err.name} ${err.message}`.toLowerCase() : '';
-  return (
-    message.includes('object lock') ||
-    message.includes('retention') ||
-    message.includes('worm protected') ||
-    message.includes('accessdenied') ||
-    message.includes('operationaborted')
-  );
-}
-
-function empty_deletion_summary(): DeletionSummaryMutable {
-  return {
-    deleted_objects: 0,
-    deleted_manifests: 0,
-    retained_objects: 0,
-    retained_manifests: 0,
-    failed_objects: 0,
-    failed_manifests: 0,
-  };
-}
-
-function empty_deletion_result(): DeletionResult {
-  return empty_deletion_summary();
 }

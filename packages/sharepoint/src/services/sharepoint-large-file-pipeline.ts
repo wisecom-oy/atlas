@@ -76,14 +76,14 @@ export async function process_large_file(
 
   await handle.complete(completed_parts);
 
+  // ponytail: the exists() check above races a concurrent writer, and the loser
+  // overwrites with identical bytes -- canonical_key IS the SHA-256 of the
+  // content, so the duplicate is benign. Conditional copy would make it atomic,
+  // but MinIO ignores IfNoneMatch on CopyObject, so guarding it here would only
+  // look safe. Revisit if a backend honours it.
   try {
     await ctx.storage.copy(staging_key, canonical_key, undefined, object_lock_policy);
   } catch (err) {
-    if (is_precondition_failed(err)) {
-      logger.info(`Concurrent writer stored ${item.file_name} first — dedup`);
-      await ctx.storage.delete(staging_key).catch(() => {});
-      return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
-    }
     logger.warn(`Copy staging->canonical failed, cleaning up: ${err}`);
     await ctx.storage.delete(staging_key).catch(() => {});
     throw err;
@@ -187,14 +187,6 @@ async function stream_encrypt_upload(
     );
     throw err;
   }
-}
-
-function is_precondition_failed(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const code = (err as Record<string, unknown>).Code ?? (err as Record<string, unknown>).code;
-  if (code === 'PreconditionFailed') return true;
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('PreconditionFailed') || message.includes('412');
 }
 
 function format_bytes(bytes: number): string {

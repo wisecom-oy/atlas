@@ -1,6 +1,10 @@
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
 import type { BucketStats } from '@/domain/stats';
-import type { ReplicationResult, ReplicationStatusRecord } from '@/domain/replication';
+import type {
+  ReplicationResult,
+  ReplicationStatusRecord,
+  TenantRehydrationResult,
+} from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
 import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
@@ -32,7 +36,8 @@ export interface AtlasInstance {
   replicateMailbox(mailboxId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
   rehydrateSnapshot(snapshotId: string, source: StorageTarget): Promise<ReplicationResult>;
   rehydrateMailbox(mailboxId: string, source: StorageTarget): Promise<ReplicationResult>;
-  rehydrateTenant(source: StorageTarget): Promise<ReplicationResult>;
+  /** Full tenant recovery across Outlook, OneDrive, and SharePoint, reported per workload. */
+  rehydrateTenant(source: StorageTarget): Promise<TenantRehydrationResult>;
   getReplicationStatus(snapshotId?: string): Promise<ReplicationStatusRecord[]>;
   getReplicationStatusByMailbox(mailboxId: string): Promise<ReplicationStatusRecord[]>;
 }

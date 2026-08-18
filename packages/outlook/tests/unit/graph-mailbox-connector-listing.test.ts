@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import type { MockClient } from './graph-mailbox-connector.harness';
 import { create_mock_client, create_connector } from './graph-mailbox-connector.harness';
@@ -50,6 +50,71 @@ describe('GraphMailboxConnector - listing APIs', () => {
       const result = await connector.list_mailboxes('tenant-1');
       expect(result).toEqual(['user-1']);
     });
+
+    it('resumes a failed page from its nextLink instead of restarting from page 1 (issue #33)', async () => {
+      vi.useFakeTimers();
+      try {
+        mock_client._chain.get
+          .mockResolvedValueOnce({
+            value: [{ id: 'user-1', mail: 'a@test.com' }],
+            '@odata.nextLink': '/users?$skiptoken=page2',
+          })
+          .mockRejectedValueOnce(
+            Object.assign(new Error('service unavailable'), { statusCode: 503 }),
+          )
+          .mockResolvedValueOnce({
+            value: [{ id: 'user-2', mail: 'b@test.com' }],
+          });
+
+        const promise = connector.list_mailboxes('tenant-1');
+        await vi.advanceTimersByTimeAsync(5_000); // skip the retry backoff
+        const result = await promise;
+
+        expect(result).toEqual(['user-1', 'user-2']);
+        const urls = mock_client.api.mock.calls.map((c) => c[0] as string);
+        // Page 1 fetched exactly once: the 503 retried only page 2.
+        expect(urls.filter((u) => !u.includes('skiptoken')).length).toBe(1);
+        expect(urls.filter((u) => u.includes('skiptoken')).length).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('completes an enumeration whose total time exceeds the per-request timeout (issue #33 acceptance)', async () => {
+      vi.useFakeTimers();
+      try {
+        const slow_page =
+          (body: Record<string, unknown>) => (): Promise<Record<string, unknown>> => {
+            const { promise, resolve } = Promise.withResolvers<Record<string, unknown>>();
+            setTimeout(() => resolve(body), 40_000); // each page slower than nothing, total 120s > 60s window
+            return promise;
+          };
+        mock_client._chain.get
+          .mockImplementationOnce(
+            slow_page({
+              value: [{ id: 'u1', mail: 'a@t.com' }],
+              '@odata.nextLink': '/users?$skiptoken=p2',
+            }),
+          )
+          .mockImplementationOnce(
+            slow_page({
+              value: [{ id: 'u2', mail: 'b@t.com' }],
+              '@odata.nextLink': '/users?$skiptoken=p3',
+            }),
+          )
+          .mockImplementationOnce(slow_page({ value: [{ id: 'u3', mail: 'c@t.com' }] }));
+
+        const promise = connector.list_mailboxes('tenant-1');
+        await vi.advanceTimersByTimeAsync(120_000);
+        const result = await promise;
+
+        expect(result).toEqual(['u1', 'u2', 'u3']);
+        // Exactly one fetch per page: no whole-enumeration timeout restarted paging.
+        expect(mock_client.api).toHaveBeenCalledTimes(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('list_mail_folders', () => {
@@ -72,6 +137,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
       expect(result[0]).toEqual({
         folder_id: 'f-inbox',
         display_name: 'Inbox',
+        folder_path: 'Inbox',
         parent_folder_id: 'root',
         total_item_count: 42,
       });
@@ -89,6 +155,66 @@ describe('GraphMailboxConnector - listing APIs', () => {
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1');
       expect(result).toHaveLength(2);
+    });
+
+    it('descends into child folders and reports their full path', async () => {
+      mock_client._chain.get
+        .mockResolvedValueOnce({
+          value: [{ id: 'f-inbox', displayName: 'Inbox', totalItemCount: 1, childFolderCount: 1 }],
+        })
+        .mockResolvedValueOnce({
+          value: [
+            {
+              id: 'f-projects',
+              displayName: 'Projects',
+              parentFolderId: 'f-inbox',
+              totalItemCount: 2,
+              childFolderCount: 1,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          value: [
+            {
+              id: 'f-2026',
+              displayName: '2026',
+              parentFolderId: 'f-projects',
+              totalItemCount: 3,
+            },
+          ],
+        });
+
+      const result = await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(result.map((f) => f.folder_path)).toEqual([
+        'Inbox',
+        'Inbox/Projects',
+        'Inbox/Projects/2026',
+      ]);
+      expect(mock_client.api).toHaveBeenCalledWith(
+        expect.stringContaining('/mailFolders/f-inbox/childFolders'),
+      );
+    });
+
+    it('does not request children for leaf folders', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({
+        value: [{ id: 'f-inbox', displayName: 'Inbox', childFolderCount: 0 }],
+      });
+
+      await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(mock_client.api).toHaveBeenCalledTimes(1);
+    });
+
+    it('prunes the subtree of an excluded folder', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({
+        value: [{ id: 'f-junk', displayName: 'JunkEmail', childFolderCount: 2 }],
+      });
+
+      const result = await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(result).toEqual([]);
+      expect(mock_client.api).toHaveBeenCalledTimes(1);
     });
   });
 });

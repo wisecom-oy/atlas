@@ -12,44 +12,13 @@ import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
-
-function make_entry(id: string, folder_id: string): ManifestEntry {
-  return {
-    object_id: id,
-    storage_key: `data/user/${id}`,
-    checksum: id,
-    size_bytes: 100,
-    subject: `Subject ${id}`,
-    folder_id,
-  };
-}
-
-function make_manifest(entries: ManifestEntry[]): Manifest {
-  return {
-    id: 'manifest-1',
-    tenant_id: 'test-tenant',
-    owner_id: 'user@test.com',
-    snapshot_id: 'snap-1',
-    created_at: new Date(),
-    total_objects: entries.length,
-    total_size_bytes: entries.reduce((s, e) => s + e.size_bytes, 0),
-    delta_links: {},
-    entries,
-  };
-}
-
-function make_stored_message(folder_id: string): Buffer {
-  const json = JSON.stringify({
-    subject: 'Hello',
-    body: { contentType: 'Text', content: 'Hello world' },
-    parentFolderId: folder_id,
-    receivedDateTime: '2026-01-01T00:00:00Z',
-    isRead: true,
-  });
-  return Buffer.concat([Buffer.from('E'), Buffer.from(json)]);
-}
+import {
+  make_restore_entry as make_entry,
+  make_restore_manifest as make_manifest,
+  make_stored_message,
+} from '@/../tests/unit/restore-service-test-fixtures';
 
 describe('RestoreService', () => {
   let container: Container;
@@ -93,8 +62,8 @@ describe('RestoreService', () => {
     };
 
     const folders: MailFolder[] = [
-      { folder_id: 'f1', display_name: 'Inbox', total_item_count: 10 },
-      { folder_id: 'f2', display_name: 'Sent', total_item_count: 5 },
+      { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox', total_item_count: 10 },
+      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent', total_item_count: 5 },
     ];
 
     mock_connector = {
@@ -110,6 +79,7 @@ describe('RestoreService', () => {
       create_mail_folder: vi.fn().mockResolvedValue({
         folder_id: 'restore-root',
         display_name: 'Restore-2026-03-08',
+        folder_path: 'Restore-2026-03-08',
         total_item_count: 0,
       }),
       create_message: vi.fn().mockResolvedValue('new-msg-id'),
@@ -123,6 +93,7 @@ describe('RestoreService', () => {
     container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue({
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     } as unknown as TenantContextFactory);
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
     container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
@@ -166,9 +137,15 @@ describe('RestoreService', () => {
     const manifest = make_manifest([]);
     (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
 
-    const result = await service.restore_snapshot('test-tenant', 'snap-1');
+    const on_progress = vi.fn();
+    const result = await service.restore_snapshot('test-tenant', 'snap-1', { on_progress });
     expect(result.restored_count).toBe(0);
     expect(mock_restore.create_mail_folder).not.toHaveBeenCalled();
+    expect(on_progress.mock.calls.map(([event]) => event.phase)).toEqual([
+      'discovering',
+      'finalizing',
+      'completed',
+    ]);
   });
 
   it('restores a single message by index', async () => {
@@ -198,6 +175,33 @@ describe('RestoreService', () => {
     expect(result.restored_count).toBe(3);
     expect(mock_restore.create_message).toHaveBeenCalledTimes(3);
     expect(mock_restore.create_mail_folder).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns partial counts and stops before the next message when interrupted', async () => {
+    const manifest = make_manifest([
+      make_entry('msg-1', 'f1'),
+      make_entry('msg-2', 'f1'),
+      make_entry('msg-3', 'f1'),
+    ]);
+    (mock_manifests.find_by_snapshot as ReturnType<typeof vi.fn>).mockResolvedValue(manifest);
+    let interrupted = false;
+    vi.mocked(mock_restore.create_message).mockImplementation(async () => {
+      interrupted = true;
+      return 'new-msg-id';
+    });
+    const on_progress = vi.fn();
+
+    const result = await service.restore_snapshot('test-tenant', 'snap-1', {
+      should_interrupt: () => interrupted,
+      on_progress,
+    });
+
+    expect(mock_restore.create_message).toHaveBeenCalledOnce();
+    expect(result.restored_count).toBe(1);
+    expect(result.interrupted).toBe(true);
+    expect(on_progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operation: 'restore', workload: 'outlook', phase: 'interrupted' }),
+    );
   });
 
   it('restores attachments alongside messages', async () => {

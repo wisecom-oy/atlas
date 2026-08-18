@@ -12,8 +12,11 @@ import type {
   SharePointDeltaItem,
   SharePointDeltaResult,
   SharePointFileVersion,
+  SharePointSubsiteTree,
 } from '@wisecom/atlas-types';
+import { enumerate_subsite_tree, fetch_direct_subsites } from '@/adapters/graph-subsite-enumerator';
 import {
+  fetch_drive_item_by_id,
   fetch_initial_delta_page,
   type GraphCollectionResponse,
 } from '@/adapters/graph-sharepoint-delta-fetch';
@@ -110,25 +113,44 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     };
   }
 
-  /** Lists document libraries (drives) within a site. */
+  /** Recursively lists every subsite beneath a site. */
+  async list_subsites(_tenant_id: string, site_id: string): Promise<SharePointSubsiteTree> {
+    return enumerate_subsite_tree(site_id, (parent_site_id) =>
+      fetch_direct_subsites(this._client, parent_site_id),
+    );
+  }
+
+  /**
+   * Lists document libraries (drives) within a site, following continuation
+   * links: restore routing treats this list as the complete set of destinations,
+   * so a truncated page would send files to the wrong library.
+   */
   async list_document_libraries(
     _tenant_id: string,
     site_id: string,
   ): Promise<SharePointDocumentLibrary[]> {
+    const libraries: SharePointDocumentLibrary[] = [];
+    let next_url: string | undefined = `/sites/${site_id}/drives?$select=id,name`;
+
     try {
-      const response = await with_graph_retry(
-        () =>
-          this._client.api(`/sites/${site_id}/drives?$select=id,name`).get() as Promise<
-            GraphCollectionResponse<GraphDriveRecord>
-          >,
-      );
-      return (response.value ?? [])
-        .filter((drive) => Boolean(drive.id))
-        .map((drive) => ({ drive_id: drive.id ?? '', drive_name: drive.name ?? '' }));
+      while (next_url) {
+        const url = next_url;
+        // Retry wraps a single page, never the whole walk.
+        const page: GraphCollectionResponse<GraphDriveRecord> = await with_graph_retry(
+          () => this._client.api(url).get() as Promise<GraphCollectionResponse<GraphDriveRecord>>,
+        );
+        for (const drive of page.value ?? []) {
+          if (!drive.id) continue;
+          libraries.push({ drive_id: drive.id, drive_name: drive.name ?? '' });
+        }
+        next_url = page['@odata.nextLink'];
+      }
     } catch (err) {
       rethrow_if_access_denied(err);
       throw err;
     }
+
+    return libraries;
   }
 
   /** Fetches delta changes since the last sync, with automatic reset handling. */
@@ -149,6 +171,23 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     }
   }
 
+  /** Re-fetches one item by id for failed-item retry; undefined once it is gone. */
+  async fetch_item_by_id(
+    _tenant_id: string,
+    _site_id: string,
+    drive_id: string,
+    item_id: string,
+  ): Promise<SharePointDeltaItem | undefined> {
+    try {
+      const raw = await fetch_drive_item_by_id(this._client, drive_id, item_id);
+      if (!raw?.id) return undefined;
+      return map_delta_item(raw, drive_id);
+    } catch (err) {
+      rethrow_if_access_denied(err);
+      throw err;
+    }
+  }
+
   /** Downloads file content with chunked download, expired-URL refresh, and Graph fallback. */
   async download_file_content(item: SharePointDeltaItem): Promise<Buffer> {
     return await download_with_fallback(this._client, item);
@@ -159,7 +198,18 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     return await resolve_download_url_helper(this._client, item);
   }
 
-  /** Lists historical versions of a file, following pagination. */
+  /**
+   * Lists a file's *historical* versions, following pagination.
+   *
+   * The newest entry is dropped: Graph returns versions newest-first, and its version-content
+   * endpoint refuses the current version ("Getting the content of the current version is not
+   * supported"), which surfaced as an HTTP 400 per new file and a `UNHEALTHY` run (issue #110).
+   * Current content already reaches storage through the item-content path.
+   *
+   * Dropping by position rather than by id is deliberate: SharePoint numbers versions `1.0`, `2.0`,
+   * ..., so comparing against a literal id silently matched nothing. This mirrors
+   * `GraphOneDriveConnector.list_file_versions`.
+   */
   async list_file_versions(drive_id: string, item_id: string): Promise<SharePointFileVersion[]> {
     const all_versions: SharePointFileVersion[] = [];
     let next_url: string | undefined;
@@ -190,8 +240,8 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       );
     }
 
-    if (all_versions.length === 0) return [];
-    return all_versions.filter((v) => v.version_id !== '1');
+    if (all_versions.length <= 1) return [];
+    return all_versions.slice(1);
   }
 
   /** Downloads a specific version's content with size-based timeout. */

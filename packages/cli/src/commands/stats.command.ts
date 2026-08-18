@@ -2,56 +2,124 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { StatsUseCase } from '@wisecom/atlas-types';
-import { STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import type {
-  BucketStats,
-  MailboxStats,
-  FolderStats,
-  MonthlyBreakdown,
-} from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core';
-import { format_bytes, format_microseconds, pad_cell, truncate_cell } from '@/command-formatters';
+import type { StatsUseCase, SharePointSiteConnector } from '@wisecom/atlas-types';
+import { STATS_USE_CASE_TOKEN, SHAREPOINT_CONNECTOR_TOKEN } from '@wisecom/atlas-types';
+import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
+import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats-outlook.view';
+import { print_drive_stats } from '@/commands/stats-drive.view';
 
 type ContainerFactory = () => Container;
+type StatsServiceName = 'outlook' | 'onedrive' | 'sharepoint';
+type ServiceStats = BucketStats | MailboxStats | DriveStats;
 
 interface StatsOptions {
   tenant?: string;
   mailbox?: string;
+  owner?: string;
+  site?: string;
+  service?: string;
+  top?: string;
   json?: boolean;
 }
+
+const SERVICE_NAMES: StatsServiceName[] = ['outlook', 'onedrive', 'sharepoint'];
+const DEFAULT_TOP = 20;
 
 /** Registers the `atlas stats` subcommand for storage statistics. */
 export function register_stats_command(program: Command, get_container: ContainerFactory): void {
   program
     .command('stats')
-    .description('Show storage statistics for the bucket or a specific mailbox')
+    .description('Show storage statistics for Outlook, OneDrive, and SharePoint backups')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('-m, --mailbox <email>', 'show statistics for a specific mailbox')
-    .option('--json', 'output raw JSON instead of formatted table')
+    .option('-m, --mailbox <email>', 'Outlook statistics for a specific mailbox')
+    .option('-o, --owner <email|id>', 'OneDrive statistics for a specific owner')
+    .option('-s, --site <url|id>', 'SharePoint statistics for a specific site')
+    .option('--service <name>', 'limit output to one service: outlook, onedrive, sharepoint, all')
+    .option('--top <n>', `maximum owner/site rows in drive tables (default ${DEFAULT_TOP})`)
+    .option('--json', 'output raw JSON instead of formatted tables')
     .action((options: StatsOptions) => execute_stats(get_container(), options));
 }
 
-/** Routes to bucket-level or mailbox-level stats based on flags. */
+/** Collects stats for every selected service, then prints tables or a single JSON payload. */
 async function execute_stats(container: Container, options: StatsOptions): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
+  const services = resolve_services(options);
+  const top = parse_top(options.top);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
-  if (options.mailbox) {
-    const result = await stats.get_mailbox_stats(tenant_id, options.mailbox);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      print_mailbox_stats(result);
-    }
-  } else {
-    const result = await stats.get_bucket_stats(tenant_id);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      print_bucket_stats(result);
-    }
+  const collected: [StatsServiceName, ServiceStats][] = [];
+  for (const service of services) {
+    const result = await collect_service_stats(container, stats, tenant_id, service, options);
+    collected.push([service, result]);
   }
+
+  if (options.json) {
+    const [first] = collected;
+    const payload =
+      collected.length === 1 && first !== undefined ? first[1] : Object.fromEntries(collected);
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+  for (const [, result] of collected) {
+    await print_service_stats(result, top);
+  }
+}
+
+/** Determines which services to query from scope flags and --service. */
+function resolve_services(options: StatsOptions): StatsServiceName[] {
+  const scoped: StatsServiceName[] = [];
+  if (options.mailbox) scoped.push('outlook');
+  if (options.owner) scoped.push('onedrive');
+  if (options.site) scoped.push('sharepoint');
+  if (scoped.length > 1) {
+    throw new Error('Use only one of --mailbox, --owner, or --site at a time');
+  }
+
+  const requested = options.service ?? 'all';
+  if (requested !== 'all' && !SERVICE_NAMES.includes(requested as StatsServiceName)) {
+    throw new Error(
+      `Unknown --service "${requested}"; expected outlook, onedrive, sharepoint, or all`,
+    );
+  }
+  if (scoped.length === 1) {
+    if (requested !== 'all' && requested !== scoped[0]) {
+      throw new Error(`--service ${requested} conflicts with the ${scoped[0]} scope flag`);
+    }
+    return scoped;
+  }
+  return requested === 'all' ? [...SERVICE_NAMES] : [requested as StatsServiceName];
+}
+
+/** Fetches stats for one service, resolving mailbox/owner/site scope flags. */
+async function collect_service_stats(
+  container: Container,
+  stats: StatsUseCase,
+  tenant_id: string,
+  service: StatsServiceName,
+  options: StatsOptions,
+): Promise<ServiceStats> {
+  if (service === 'outlook') {
+    return options.mailbox
+      ? stats.get_mailbox_stats(tenant_id, options.mailbox)
+      : stats.get_bucket_stats(tenant_id);
+  }
+  if (service === 'onedrive') {
+    if (!options.owner) return stats.get_onedrive_stats(tenant_id);
+    const owner = await resolve_owner(container, tenant_id, options.owner);
+    return stats.get_onedrive_stats(tenant_id, owner.object_id);
+  }
+  if (!options.site) return stats.get_sharepoint_stats(tenant_id);
+  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
+  const site = await connector.resolve_site(tenant_id, options.site);
+  return stats.get_sharepoint_stats(tenant_id, site.site_id);
+}
+
+/** Dispatches to the matching view based on the result shape. */
+async function print_service_stats(result: ServiceStats, top: number): Promise<void> {
+  if ('service' in result) return print_drive_stats(result, top);
+  if ('mailbox_count' in result) return print_bucket_stats(result);
+  return print_mailbox_stats(result);
 }
 
 /** Resolves the tenant ID from CLI flag or config. */
@@ -60,93 +128,12 @@ function resolve_tenant_id(container: Container, options: StatsOptions): string 
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
 }
 
-function print_bucket_stats(stats: BucketStats): void {
-  logger.banner('Atlas Bucket Statistics');
-  logger.info(`Tenant: ${stats.tenant_id}\n`);
-
-  console.log('  Overview');
-  console.log('  ' + '-'.repeat(44));
-  console.log(`  Mailboxes:          ${stats.mailbox_count}`);
-  console.log(`  Snapshots:          ${stats.snapshot_count}`);
-  console.log(`  Messages:           ${stats.total_messages}`);
-  console.log(`  Total size:         ${format_bytes(stats.total_size_bytes)}`);
-  console.log(`  Attachments:        ${stats.attachment_count}`);
-  console.log(`  Attachment size:    ${format_bytes(stats.attachment_size_bytes)}`);
-  console.log(`  Aggregation time:   ${format_microseconds(stats.aggregation_us)}`);
-
-  if (stats.monthly_breakdown.length > 0) {
-    print_monthly_breakdown(stats.monthly_breakdown);
+/** Parses and validates the --top row limit. */
+function parse_top(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_TOP;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('--top must be a positive integer');
   }
-}
-
-function print_mailbox_stats(stats: MailboxStats): void {
-  logger.banner('Atlas Mailbox Statistics');
-  logger.info(`Mailbox: ${stats.owner_id}\n`);
-
-  console.log('  Overview');
-  console.log('  ' + '-'.repeat(44));
-  console.log(`  Snapshots:          ${stats.snapshot_count}`);
-  console.log(`  Messages:           ${stats.total_messages}`);
-  console.log(`  Total size:         ${format_bytes(stats.total_size_bytes)}`);
-  console.log(`  Attachments:        ${stats.attachment_count}`);
-  console.log(`  Attachment size:    ${format_bytes(stats.attachment_size_bytes)}`);
-  console.log(`  Aggregation time:   ${format_microseconds(stats.aggregation_us)}`);
-
-  if (stats.folders.length > 0) {
-    print_folder_table(stats.folders);
-  }
-
-  if (stats.monthly_breakdown.length > 0) {
-    print_monthly_breakdown(stats.monthly_breakdown);
-  }
-}
-
-function print_folder_table(folders: FolderStats[]): void {
-  console.log('\n  Folders');
-  const header =
-    '  ' +
-    pad_cell('Folder', 36) +
-    pad_cell('Messages', 12) +
-    pad_cell('Size', 12) +
-    pad_cell('Att', 8) +
-    'Att size';
-  console.log(header);
-  console.log('  ' + '-'.repeat(header.length - 2));
-
-  for (const f of folders) {
-    console.log(
-      '  ' +
-        pad_cell(truncate_cell(f.folder_id, 34), 36) +
-        pad_cell(String(f.message_count), 12) +
-        pad_cell(format_bytes(f.total_size_bytes), 12) +
-        pad_cell(String(f.attachment_count), 8) +
-        format_bytes(f.attachment_size_bytes),
-    );
-  }
-}
-
-function print_monthly_breakdown(months: MonthlyBreakdown[]): void {
-  console.log('\n  Monthly Breakdown');
-  const header =
-    '  ' +
-    pad_cell('Month', 12) +
-    pad_cell('Snapshots', 12) +
-    pad_cell('Messages', 12) +
-    pad_cell('Size', 12) +
-    pad_cell('Att', 8) +
-    'Att size';
-  console.log(header);
-  console.log('  ' + '-'.repeat(header.length - 2));
-
-  for (const m of months) {
-    console.log(
-      '  ' +
-        pad_cell(m.month, 12) +
-        pad_cell(String(m.snapshot_count), 12) +
-        pad_cell(String(m.message_count), 12) +
-        pad_cell(format_bytes(m.size_bytes), 12) +
-        pad_cell(String(m.attachment_count), 8) +
-        format_bytes(m.attachment_size_bytes),
-    );
-  }
+  return value;
 }

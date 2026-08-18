@@ -17,6 +17,7 @@ function make_folder(name: string, id?: string, count = 10): MailFolder {
   return {
     folder_id: id ?? `id-${name.toLowerCase()}`,
     display_name: name,
+    folder_path: name,
     total_item_count: count,
   };
 }
@@ -93,6 +94,7 @@ describe('MailboxStatusService', () => {
 
     const mock_factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     };
 
     const container = new Container();

@@ -31,4 +31,7 @@ export interface OneDriveReplicationUseCase {
     owner_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult>;
+
+  /** DR: recover every OneDrive owner's snapshots from a replica. */
+  rehydrate_all_owners(tenant_id: string, source: StorageTarget): Promise<ReplicationResult>;
 }

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 
 /** Prefix for content-addressed SharePoint file blobs. */
 export const SHAREPOINT_DATA_PREFIX = 'sharepoint/data';
@@ -15,6 +16,16 @@ export const SHAREPOINT_INDEX_PREFIX = 'sharepoint/index';
 /** Prefix for SharePoint sync metadata (e.g. delta cursors). */
 export const SHAREPOINT_META_PREFIX = 'sharepoint/_meta';
 
+/**
+ * Validates a site segment and returns it in the one case every path agrees on.
+ * Services normalize on entry; this is the backstop that keeps a path which
+ * forgets from writing a second prefix for the same site (issue #38).
+ */
+function site_segment(site_id: string): string {
+  validate_key_segment(site_id);
+  return normalize_owner_id(site_id);
+}
+
 /** Ensures a single path segment is safe for S3-style keys (no traversal or extra slashes). */
 export function validate_key_segment(value: string): void {
   if (value === '' || value === '.' || value === '..') {
@@ -23,29 +34,34 @@ export function validate_key_segment(value: string): void {
   for (let i = 0; i < value.length; i++) {
     const ch = value.charCodeAt(i);
     if (ch === 47 || ch === 92 || ch === 0) {
-      throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}`);
+      // A URL here means a caller skipped site resolution (issue #90); say so
+      // instead of blaming the key, which sends the operator to the wrong layer.
+      const hint = /^https?:\/\//i.test(value)
+        ? ' -- expected a resolved SharePoint site id (hostname,siteGuid,webGuid), got a URL'
+        : '';
+      throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}${hint}`);
     }
   }
 }
 
 /** Builds the content-addressed key for a stored file blob. */
 export function sharepoint_data_key(site_id: string, checksum: string): string {
-  validate_key_segment(site_id);
+  const site = site_segment(site_id);
   validate_key_segment(checksum);
-  return `${SHAREPOINT_DATA_PREFIX}/${site_id}/${checksum}`;
+  return `${SHAREPOINT_DATA_PREFIX}/${site}/${checksum}`;
 }
 
 /** Builds the key for a snapshot manifest. */
 export function sharepoint_manifest_key(site_id: string, snapshot_id: string): string {
-  validate_key_segment(site_id);
+  const site = site_segment(site_id);
   validate_key_segment(snapshot_id);
-  return `${SHAREPOINT_MANIFEST_PREFIX}/${site_id}/${snapshot_id}.json`;
+  return `${SHAREPOINT_MANIFEST_PREFIX}/${site}/${snapshot_id}.json`;
 }
 
 /** Builds the prefix for listing all manifests of a site. */
 export function sharepoint_manifest_prefix(site_id: string): string {
-  validate_key_segment(site_id);
-  return `${SHAREPOINT_MANIFEST_PREFIX}/${site_id}/`;
+  const site = site_segment(site_id);
+  return `${SHAREPOINT_MANIFEST_PREFIX}/${site}/`;
 }
 
 /** Returns the root prefix for all SharePoint manifests. */
@@ -55,15 +71,15 @@ export function sharepoint_manifest_root_prefix(): string {
 
 /** Builds the key for a file's version index. */
 export function sharepoint_index_key(site_id: string, file_id: string): string {
-  validate_key_segment(site_id);
+  const site = site_segment(site_id);
   validate_key_segment(file_id);
-  return `${SHAREPOINT_INDEX_PREFIX}/${site_id}/files/${file_id}.json`;
+  return `${SHAREPOINT_INDEX_PREFIX}/${site}/files/${file_id}.json`;
 }
 
 /** Builds the prefix for listing all file indexes of a site. */
 export function sharepoint_index_prefix(site_id: string): string {
-  validate_key_segment(site_id);
-  return `${SHAREPOINT_INDEX_PREFIX}/${site_id}/files/`;
+  const site = site_segment(site_id);
+  return `${SHAREPOINT_INDEX_PREFIX}/${site}/files/`;
 }
 
 /** Returns the root prefix for all SharePoint file indexes. */
@@ -73,20 +89,20 @@ export function sharepoint_index_root_prefix(): string {
 
 /** Builds a unique staging key for multipart upload of a file. */
 export function sharepoint_staging_key(site_id: string, item_id: string): string {
-  validate_key_segment(site_id);
+  const site = site_segment(site_id);
   validate_key_segment(item_id);
   const suffix = randomBytes(4).toString('hex');
-  return `${SHAREPOINT_STAGING_PREFIX}/${site_id}/${item_id}-${suffix}`;
+  return `${SHAREPOINT_STAGING_PREFIX}/${site}/${item_id}-${suffix}`;
 }
 
 /** Builds the prefix for listing staging objects. */
 export function sharepoint_staging_prefix(site_id: string): string {
-  validate_key_segment(site_id);
-  return `${SHAREPOINT_STAGING_PREFIX}/${site_id}/`;
+  const site = site_segment(site_id);
+  return `${SHAREPOINT_STAGING_PREFIX}/${site}/`;
 }
 
 /** Builds the key for the delta cursor state. */
 export function sharepoint_delta_cursor_key(site_id: string): string {
-  validate_key_segment(site_id);
-  return `${SHAREPOINT_META_PREFIX}/${site_id}/delta.json`;
+  const site = site_segment(site_id);
+  return `${SHAREPOINT_META_PREFIX}/${site}/delta.json`;
 }

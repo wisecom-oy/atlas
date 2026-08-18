@@ -47,16 +47,16 @@ pnpm run test
 
 Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint.config.js` is the source of truth.
 
-| Rule | Enforced by |
+| Rule                                                 | Enforced by                            |
 | ---------------------------------------------------- | -------------------------------------- |
-| `kebab-case` file names | `eslint-plugin-check-file` |
-| `snake_case` variables, parameters, properties | `@typescript-eslint/naming-convention` |
-| `PascalCase` types, classes, interfaces | `@typescript-eslint/naming-convention` |
-| `UPPER_CASE` enum members | `@typescript-eslint/naming-convention` |
-| Max 300 effective lines per file | `max-lines` ESLint rule |
-| Single quotes, trailing commas, 100-char print width | Prettier |
-| `@/` path aliases (no relative imports) | `tsconfig.json` paths |
-| JSDoc on all exported functions | Convention |
+| `kebab-case` file names                              | `eslint-plugin-check-file`             |
+| `snake_case` variables, parameters, properties       | `@typescript-eslint/naming-convention` |
+| `PascalCase` types, classes, interfaces              | `@typescript-eslint/naming-convention` |
+| `UPPER_CASE` enum members                            | `@typescript-eslint/naming-convention` |
+| Max 300 effective lines per file                     | `max-lines` ESLint rule                |
+| Single quotes, trailing commas, 100-char print width | Prettier                               |
+| `@/` path aliases (no relative imports)              | `tsconfig.json` paths                  |
+| JSDoc on all exported functions                      | Convention                             |
 
 **SDK exception:** Files under `src/sdk.ts`, `src/ports/atlas/`, and `src/adapters/sdk/` use standard ES6 `camelCase` naming to provide a familiar interface for external consumers. This is configured as an ESLint override.
 
@@ -130,7 +130,15 @@ Use the GitHub issue templates:
 - **Bug report** -- for unexpected behavior, crashes, or incorrect results.
 - **Feature request** -- for new capabilities or improvements.
 
-Include the Atlas version, Node.js version, OS, and S3 backend in bug reports.
+For bug reports, paste the output of `./tools/diagnostics.sh` into the Environment
+section. It collects the OS, kernel, Node and pnpm versions, Atlas version, git
+branch and commit, Docker version, and which configuration sources are present. It
+never prints secret values.
+
+Scrub real tenant data first. Mailbox addresses, display names, file names, message
+subjects, and site URLs must be replaced with generic equivalents
+(`john.doe@example.com`, `John Doe`, `contoso.sharepoint.com`) before posting.
+Keep error codes and stack traces intact -- they are the diagnosis.
 
 ## License
 

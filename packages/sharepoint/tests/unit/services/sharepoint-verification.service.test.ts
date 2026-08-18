@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/naming-convention */
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
@@ -90,6 +89,7 @@ function create_mocks() {
 
   const tenant_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
+    create_readonly: vi.fn().mockResolvedValue(ctx),
   };
 
   const manifests: SharePointManifestRepository = {
@@ -250,7 +250,7 @@ describe('SharePointVerificationService', () => {
       return undefined;
     });
 
-    vi.mocked(mocks.ctx.decrypt).mockImplementation((ciphertext: Buffer) => {
+    vi.mocked(mocks.ctx.decrypt).mockImplementation((_ciphertext: Buffer) => {
       return good_content;
     });
 
@@ -258,5 +258,26 @@ describe('SharePointVerificationService', () => {
 
     expect(result.total_checked).toBe(2);
     expect(result.index_issues.length).toBeGreaterThanOrEqual(1);
+  });
+  it('does not start another object read after interruption', async () => {
+    let interrupted = false;
+    vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(
+      make_manifest([make_entry({ file_id: 'f1' }), make_entry({ file_id: 'f2' })]),
+    );
+    vi.mocked(mocks.indexes.find_by_file_id).mockImplementation(async (_ctx, _site, file_id) => {
+      return make_index(file_id, true);
+    });
+    const on_progress = vi.fn((event: { phase: string; processed: number }) => {
+      if (event.phase === 'processing' && event.processed === 1) interrupted = true;
+    });
+
+    const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID, {
+      on_progress,
+      should_interrupt: () => interrupted,
+    });
+
+    expect(result).toMatchObject({ total_checked: 1, passed: 1, interrupted: true });
+    expect(mocks.ctx.storage.get).toHaveBeenCalledTimes(1);
+    expect(on_progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'interrupted' }));
   });
 });

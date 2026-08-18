@@ -1,8 +1,6 @@
-import type { MailboxPurpose, MailFolder, MessageAttachment } from '@wisecom/atlas-types';
+import type { MailboxPurpose, MessageAttachment } from '@wisecom/atlas-types';
 import type { TenantMailbox } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-
-const EXCLUDED_FOLDERS = new Set(['drafts', 'outbox', 'recoverableitemsdeletions', 'junkemail']);
 
 export interface GraphAssignedPlan {
   service?: string;
@@ -24,6 +22,7 @@ export interface GraphFolderRecord {
   displayName?: string;
   parentFolderId?: string;
   totalItemCount?: number;
+  childFolderCount?: number;
 }
 
 export interface GraphAttachmentRecord {
@@ -59,17 +58,8 @@ export function parse_mailbox_purpose(value: unknown): MailboxPurpose | undefine
     : 'others';
 }
 
-/** Filters out excluded system folders and maps to our MailFolder type. */
-export function filter_and_map_folders(folders: GraphFolderRecord[]): MailFolder[] {
-  return folders
-    .filter((f) => f.id && !EXCLUDED_FOLDERS.has((f.displayName ?? '').toLowerCase()))
-    .map((f) => ({
-      folder_id: f.id!,
-      display_name: f.displayName ?? '',
-      parent_folder_id: f.parentFolderId ?? undefined,
-      total_item_count: f.totalItemCount ?? 0,
-    }));
-}
+/* Folder filtering and mapping lives in graph-folder-tree-enumerator.ts, which
+   needs the whole hierarchy in hand to resolve each folder's path. */
 
 /** Extracts Exchange Online license status from a user's assignedPlans. */
 export function extract_exchange_license_status(plans?: GraphAssignedPlan[]): {
@@ -106,7 +96,11 @@ export function map_users_to_tenant_mailboxes(users: GraphUserRecord[]): TenantM
     });
 }
 
-/** Filters to fileAttachment, decodes base64 content, warns on missing bytes. */
+/**
+ * Filters to fileAttachment and decodes base64 content. Records without
+ * contentBytes (above the Graph inline limit) are returned with an empty
+ * buffer; the connector downloads their binary separately via /$value.
+ */
 export function map_file_attachments(records: GraphAttachmentRecord[]): MessageAttachment[] {
   const results: MessageAttachment[] = [];
 
@@ -114,9 +108,9 @@ export function map_file_attachments(records: GraphAttachmentRecord[]): MessageA
     if (r['@odata.type'] !== '#microsoft.graph.fileAttachment') continue;
 
     if (!r.contentBytes) {
-      logger.warn(
-        `Attachment "${r.name ?? '?'}" (${r.size ?? 0} bytes) has no contentBytes -- ` +
-          `likely exceeds Graph API inline limit (>4MB). Metadata recorded, binary skipped.`,
+      logger.debug(
+        `Attachment "${r.name ?? '?'}" (${r.size ?? 0} bytes) has no inline contentBytes -- ` +
+          `will download via /$value`,
       );
       results.push({
         attachment_id: r.id ?? '',

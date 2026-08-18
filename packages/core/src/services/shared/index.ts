@@ -5,3 +5,7 @@ export {
   finalize_file_archive,
 } from '@/services/shared/file-save-zip-writer';
 export type { FileArchive } from '@/services/shared/file-save-zip-writer';
+export {
+  filter_manifests_by_date,
+  merge_snapshot_entries,
+} from '@/services/shared/manifest-entry-merger';

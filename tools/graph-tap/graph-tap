@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+#
+# graph-tap -- record what Atlas sends to Microsoft Graph.
+#
+# macOS and Linux only: this wrapper is a POSIX shell script and the proxy mode
+# depends on mitmproxy. Windows is unsupported; docs/operations/graph-tap.md
+# documents the manual equivalent.
+#
+# Written for bash 3.2 (the version macOS ships), so no associative arrays and
+# no ${var,,} case conversion.
+set -euo pipefail
+
+TAP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TAP_MJS="$TAP_DIR/tap.mjs"
+OUT_DIR="${GRAPH_TAP_DIR:-.graph-tap}"
+
+usage() {
+  cat <<'EOF'
+graph-tap -- record what Atlas sends to Microsoft Graph
+
+USAGE
+  graph-tap doctor                     check prerequisites, print what is available
+  graph-tap run [opts] -- <command>    run a command and capture its Graph traffic
+  graph-tap summary [file]             aggregate a capture (defaults to newest)
+  graph-tap proxy [port]               start mitmproxy and print the env to export
+  graph-tap selfcheck                  verify capture and redaction still work
+
+RUN OPTIONS
+  --headers         also keep an allowlist of request headers (content-type,
+                    content-range, range, prefer, if-match)
+  --bodies          record request bodies, capped (OFF by default: message and
+                    file payloads are personal data)
+  --limit <bytes>   per-body cap when --bodies is on (default 2048)
+  --all             record every host, not just Microsoft 365 endpoints
+  --out <file>      capture file (default .graph-tap/<timestamp>.jsonl)
+
+EXAMPLES
+  graph-tap run -- node packages/cli/dist/cli.mjs outlook backup -m user@example.com
+  graph-tap run -- pnpm --filter @wisecom/atlas-cli exec atlas stats
+  graph-tap summary
+
+Output is trimmed for analysis: bearer tokens and cookies are never recorded,
+delta/skip tokens and download-URL credentials are reduced to a byte count, and
+identifiers in paths are templated so repeated calls collapse into one shape.
+Graph error codes are always extracted, with or without --bodies.
+EOF
+}
+
+die() {
+  echo "graph-tap: $*" >&2
+  exit 1
+}
+
+# Resolves the newest capture file, so `summary` needs no argument.
+newest_capture() {
+  ls -t "$OUT_DIR"/*.jsonl 2>/dev/null | head -1
+}
+
+cmd_doctor() {
+  local ok=0
+
+  if command -v node >/dev/null 2>&1; then
+    echo "node          $(node --version)  (required, present)"
+  else
+    echo "node          MISSING -- required; install Node >= 22"
+    return 1
+  fi
+
+  # Body/byte accounting rides on undici's bodyChunk* channels (undici >= 7.11).
+  node - <<'EOF' || ok=1
+const undici = process.versions.undici || '0';
+const [major, minor] = undici.split('.').map(Number);
+const chunks = major > 7 || (major === 7 && minor >= 11);
+const node_major = Number(process.versions.node.split('.')[0]);
+console.log(`undici        ${undici}  (bundled with node)`);
+console.log(`capture       url, status, timing, throttling, graph error codes: yes`);
+console.log(`byte counts   ${chunks ? 'yes' : `no -- needs undici >= 7.11 (Node >= 24); yours reports 0 bytes`}`);
+console.log(`--bodies      ${chunks ? 'yes' : 'no -- same requirement as byte counts'}`);
+console.log(`proxy mode    ${node_major >= 24 ? 'yes' : `no -- NODE_USE_ENV_PROXY needs Node >= 24, you have v${process.versions.node}`}`);
+EOF
+
+  if command -v mitmproxy >/dev/null 2>&1; then
+    echo "mitmproxy     $(mitmproxy --version 2>/dev/null | head -1)  (optional, present)"
+  else
+    echo "mitmproxy     not installed (optional -- only 'graph-tap proxy' needs it)"
+    echo "              macOS:  brew install mitmproxy"
+    echo "              Linux:  pipx install mitmproxy   (or the distro package)"
+  fi
+
+  if [ -r "$TAP_MJS" ]; then
+    echo "tap.mjs       $TAP_MJS"
+  else
+    echo "tap.mjs       MISSING at $TAP_MJS"
+    ok=1
+  fi
+  return $ok
+}
+
+cmd_run() {
+  local out="" bodies=0 headers=0 limit="" all=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --bodies) bodies=1 ;;
+      --headers) headers=1 ;;
+      --all) all=1 ;;
+      --limit)
+        shift
+        limit="${1:-}"
+        ;;
+      --out)
+        shift
+        out="${1:-}"
+        ;;
+      --)
+        shift
+        break
+        ;;
+      *) die "unknown option '$1' (put -- before the command)" ;;
+    esac
+    shift
+  done
+
+  [ $# -gt 0 ] || die "no command given; use: graph-tap run -- <command>"
+  command -v node >/dev/null 2>&1 || die "node is required but not installed"
+  [ -r "$TAP_MJS" ] || die "cannot read $TAP_MJS"
+
+  if [ -z "$out" ]; then
+    mkdir -p "$OUT_DIR"
+    out="$OUT_DIR/$(date -u +%Y-%m-%dT%H-%M-%SZ).jsonl"
+  fi
+
+  # NODE_OPTIONS is split on whitespace, so the path is quoted for safety.
+  export NODE_OPTIONS="${NODE_OPTIONS:-} --import=\"$TAP_MJS\""
+  export GRAPH_TAP_OUT="$out"
+  [ "$bodies" = 1 ] && export GRAPH_TAP_BODIES=1
+  [ "$headers" = 1 ] && export GRAPH_TAP_HEADERS=1
+  [ "$all" = 1 ] && export GRAPH_TAP_ALL=1
+  [ -n "$limit" ] && export GRAPH_TAP_BODY_LIMIT="$limit"
+
+  echo "graph-tap: capturing to $out" >&2
+  [ "$bodies" = 1 ] && echo "graph-tap: bodies ON -- capture may contain personal data" >&2
+
+  # Preserve the child's exit code: a failing run is often the thing being
+  # captured, and the capture is still valid.
+  set +e
+  "$@"
+  local status=$?
+  set -e
+  echo "graph-tap: command exited $status; summarise with: graph-tap summary $out" >&2
+  return $status
+}
+
+cmd_summary() {
+  local file="${1:-$(newest_capture)}"
+  [ -n "$file" ] || die "no capture found in $OUT_DIR; run 'graph-tap run' first"
+  [ -r "$file" ] || die "cannot read $file"
+  GRAPH_TAP_FILE="$file" node "$TAP_DIR/summary.mjs"
+}
+
+cmd_proxy() {
+  local port="${1:-8080}"
+  command -v mitmproxy >/dev/null 2>&1 || die "mitmproxy is not installed.
+  macOS:  brew install mitmproxy
+  Linux:  pipx install mitmproxy
+Then re-run 'graph-tap doctor'. Capturing without a proxy needs no install:
+  graph-tap run -- <command>"
+
+  local ca="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
+  cat <<EOF
+Starting mitmweb on 127.0.0.1:$port. In a second shell, export:
+
+  export HTTPS_PROXY=http://127.0.0.1:$port
+  export NODE_USE_ENV_PROXY=1          # Node >= 24; makes fetch honour HTTPS_PROXY
+  export NODE_EXTRA_CA_CERTS="$ca"     # trust mitmproxy's CA
+
+then run Atlas normally. Stop mitmweb with Ctrl-C.
+EOF
+  if [ ! -r "$ca" ]; then
+    echo "
+NOTE: $ca does not exist yet. mitmproxy writes it on first start; re-run this
+command once it exists, or Node will reject the intercepted TLS handshake." >&2
+  fi
+
+  exec mitmweb --listen-host 127.0.0.1 --listen-port "$port" \
+    --set web_open_browser=false \
+    --allow-hosts '(graph\.microsoft\.com|login\.microsoftonline\.com|\.sharepoint\.com|1drv\.(com|ms))'
+}
+
+case "${1:-}" in
+  doctor)
+    shift
+    cmd_doctor "$@"
+    ;;
+  run)
+    shift
+    cmd_run "$@"
+    ;;
+  summary)
+    shift
+    cmd_summary "$@"
+    ;;
+  proxy)
+    shift
+    cmd_proxy "$@"
+    ;;
+  selfcheck)
+    node "$TAP_DIR/selfcheck.mjs"
+    ;;
+  -h | --help | help | '') usage ;;
+  *) die "unknown command '$1'; run 'graph-tap --help'" ;;
+esac

@@ -85,11 +85,13 @@ export function build_empty_result(
   versions_unavailable: number,
   errors: string[],
   warnings: string[],
+  interrupted: boolean,
   healthy: boolean,
 ): OneDriveBackupResult {
   return {
     owner_id,
     snapshot: undefined,
+    interrupted,
     summary: {
       drives_scanned,
       files_changed: 0,
@@ -161,10 +163,13 @@ export function build_success_result(
   versions_unavailable: number,
   errors: string[],
   warnings: string[],
+  interrupted: boolean,
+  healthy: boolean,
 ): OneDriveBackupResult {
   return {
     owner_id,
     snapshot,
+    interrupted,
     summary: {
       drives_scanned,
       files_changed: snapshot.entries.length,
@@ -177,7 +182,7 @@ export function build_success_result(
       versions_unavailable,
       errors,
       warnings,
-      healthy: errors.length === 0,
+      healthy,
     },
   };
 }

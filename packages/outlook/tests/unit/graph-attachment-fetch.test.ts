@@ -1,27 +1,36 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { Container } from 'inversify';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 
 interface MockChain {
-  select: ReturnType<typeof vi.fn>;
-  top: ReturnType<typeof vi.fn>;
-  header: ReturnType<typeof vi.fn>;
-  get: ReturnType<typeof vi.fn>;
+  select: Mock;
+  top: Mock;
+  header: Mock;
+  responseType: Mock;
+  get: Mock;
 }
 
 interface MockClient {
-  api: ReturnType<typeof vi.fn>;
+  api: Mock;
   _chain: MockChain;
 }
 
 function create_mock_client(): MockClient {
   const get_fn = vi.fn();
-  const chain: MockChain = { select: vi.fn(), top: vi.fn(), header: vi.fn(), get: get_fn };
+  const chain: MockChain = {
+    select: vi.fn(),
+    top: vi.fn(),
+    header: vi.fn(),
+    responseType: vi.fn(),
+    get: get_fn,
+  };
   chain.select.mockReturnValue(chain);
   chain.top.mockReturnValue(chain);
   chain.header.mockReturnValue(chain);
+  chain.responseType.mockReturnValue(chain);
   const api_fn = vi.fn().mockReturnValue(chain);
   return { api: api_fn, _chain: chain };
 }
@@ -71,15 +80,44 @@ describe('GraphMailboxConnector – fetch_attachments', () => {
     expect(result[0]!.is_inline).toBe(false);
   });
 
-  it('returns empty buffer for attachments without contentBytes (>4MB)', async () => {
+  it('downloads content via /$value for attachments without contentBytes', async () => {
+    const raw_bytes = Buffer.from('binary-payload-of-a-large-zip');
+    mock_client._chain.get
+      .mockResolvedValueOnce({
+        value: [
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            id: 'att-big',
+            name: 'huge.zip',
+            contentType: 'application/zip',
+            size: 50_000_000,
+            isInline: false,
+          },
+        ],
+      })
+      .mockResolvedValueOnce(
+        raw_bytes.buffer.slice(raw_bytes.byteOffset, raw_bytes.byteOffset + raw_bytes.byteLength),
+      );
+
+    const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.name).toBe('huge.zip');
+    expect(result[0]!.content).toEqual(raw_bytes);
+    expect(mock_client.api).toHaveBeenCalledWith(
+      '/users/user-1/messages/msg-1/attachments/att-big/$value',
+    );
+  });
+
+  it('does not call /$value for zero-size attachments without contentBytes', async () => {
     mock_client._chain.get.mockResolvedValueOnce({
       value: [
         {
           '@odata.type': '#microsoft.graph.fileAttachment',
-          id: 'att-big',
-          name: 'huge.zip',
-          contentType: 'application/zip',
-          size: 50_000_000,
+          id: 'att-empty',
+          name: 'empty.txt',
+          contentType: 'text/plain',
+          size: 0,
           isInline: false,
         },
       ],
@@ -88,8 +126,8 @@ describe('GraphMailboxConnector – fetch_attachments', () => {
     const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
 
     expect(result).toHaveLength(1);
-    expect(result[0]!.name).toBe('huge.zip');
     expect(result[0]!.content.length).toBe(0);
+    expect(mock_client.api).toHaveBeenCalledTimes(1);
   });
 
   it('handles inline attachments with isInline flag', async () => {

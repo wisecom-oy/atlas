@@ -1,10 +1,17 @@
-export interface SaveOptions {
+import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
+export interface SaveOptions extends OperationControlOptions {
   readonly folder_name?: string;
   readonly message_ref?: string;
   readonly start_date?: Date;
   readonly end_date?: Date;
   readonly output_path?: string;
   readonly skip_integrity_check?: boolean;
+  /** CLI presenter hook; when absent the service reports progress nowhere. */
+  readonly create_progress?: (
+    folders: { name: string; total_items: number }[],
+  ) => TransferProgressReporter;
 }
 
 export interface SaveResult {
@@ -15,6 +22,7 @@ export interface SaveResult {
   readonly errors: string[];
   readonly output_path: string;
   readonly total_bytes: number;
+  readonly interrupted: boolean;
   readonly integrity_failures: string[];
 }
 

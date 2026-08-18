@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
@@ -15,9 +14,10 @@ import {
   create_restore_root,
   ensure_subfolder,
 } from '@/services/restore/folder-restore-planner';
-import type { RestoreProgressDashboard } from '@/services/restore/restore-progress-dashboard';
+import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 
 /** Decrypts, sanitizes, creates one message via Graph, then uploads attachments. */
 export async function restore_one_entry(
@@ -65,8 +65,9 @@ export async function restore_folder_entries(
   global_before: number,
   global_total: number,
   start: number,
-  dashboard: RestoreProgressDashboard,
+  dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
+  control: OperationControlOptions,
 ): Promise<{ restored: number; attachments: number; errors: string[] }> {
   let restored = 0;
   let attachments = 0;
@@ -94,8 +95,22 @@ export async function restore_folder_entries(
     const gp = global_before + restored;
     const rate = calc_rate(gp, Date.now() - start);
     const eta = rate > 0 ? (global_total - gp) / rate : 0;
-    dashboard.update_active(folder_index, restored, restored, attachments, rate, eta);
+    dashboard.update_active(folder_index, {
+      transferred: restored,
+      attachments,
+      rate,
+      eta_seconds: eta,
+    });
     dashboard.update_total(gp, global_total, rate, eta);
+    emit_operation_progress(control, {
+      operation: 'restore',
+      workload: 'outlook',
+      phase: 'processing',
+      processed: gp,
+      total: global_total,
+      current: entry.subject ?? entry.object_id,
+      rate,
+    });
   }
 
   return { restored, attachments, errors };
@@ -159,6 +174,7 @@ export async function restore_single_message(
     errors: [],
     verification_warnings: [],
     restore_folder_name: root.display_name,
+    interrupted: false,
   };
 }
 
@@ -186,9 +202,5 @@ export function log_restore_summary(
   start: number,
 ): void {
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  logger.info(
-    `${chalk.green(String(restored))} restored, ` +
-      `${chalk.cyan(String(attachments))} attachments, ` +
-      `${chalk.red(String(errors))} errors -- ${elapsed}s`,
-  );
+  logger.info(`${restored} restored, ${attachments} attachments, ${errors} errors -- ${elapsed}s`);
 }

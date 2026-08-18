@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
@@ -21,10 +22,10 @@ export class MailboxStatusService implements StatusUseCase {
 
   /** Peeks at Graph delta state to report whether a mailbox backup is current. */
   async check_mailbox_status(tenant_id: string, owner_id: string): Promise<MailboxStatusResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
 
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
       const saved_links = previous?.delta_links ?? {};
@@ -69,7 +70,7 @@ export class MailboxStatusService implements StatusUseCase {
       if (!delta_link) {
         results.push({
           folder_id: folder.folder_id,
-          folder_name: folder.display_name,
+          folder_name: folder.folder_path,
           has_backup: false,
           pending_new: 0,
           pending_removed: 0,
@@ -83,11 +84,11 @@ export class MailboxStatusService implements StatusUseCase {
         results.push(peek);
       } catch (err) {
         logger.debug(
-          `Status peek failed for folder ${folder.display_name}: ${err instanceof Error ? err.message : err}`,
+          `Status peek failed for folder ${folder.folder_path}: ${err instanceof Error ? err.message : err}`,
         );
         results.push({
           folder_id: folder.folder_id,
-          folder_name: folder.display_name,
+          folder_name: folder.folder_path,
           has_backup: true,
           pending_new: 0,
           pending_removed: 0,
@@ -125,7 +126,7 @@ export class MailboxStatusService implements StatusUseCase {
 
     return {
       folder_id: folder.folder_id,
-      folder_name: folder.display_name,
+      folder_name: folder.folder_path,
       has_backup: true,
       pending_new,
       pending_removed,

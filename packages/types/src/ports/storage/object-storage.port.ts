@@ -41,13 +41,19 @@ export interface ObjectStorageEtagResult {
 }
 
 export interface ObjectStorage {
-  /** Writes an object to storage under the given key. */
+  /**
+   * Writes an object to storage under the given key.
+   * `if_match` performs a compare-and-swap on the ETag; `if_none_match` makes
+   * the write create-only (fails if the key exists). Both reject with a
+   * precondition error (HTTP 412) when the condition does not hold.
+   */
   put(
     key: string,
     data: Buffer,
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
     if_match?: string,
+    if_none_match?: boolean,
   ): Promise<void>;
 
   /** Reads the full content of an object from storage. */
@@ -65,8 +71,12 @@ export interface ObjectStorage {
   /** Returns true if the key exists in storage. */
   exists(key: string): Promise<boolean>;
 
-  /** Lists all keys that share the given prefix. */
-  list(prefix: string): Promise<string[]>;
+  /**
+   * Lists keys that share the given prefix. `limit` caps the number of keys
+   * returned and stops enumeration early - use it for cheap existence checks
+   * on potentially large buckets.
+   */
+  list(prefix: string, limit?: number): Promise<string[]>;
 
   /** Lists object versions and delete markers for a prefix. */
   list_versions(prefix: string): Promise<StorageObjectVersion[]>;
@@ -78,6 +88,14 @@ export interface ObjectStorage {
   probe_immutability(
     request?: StorageImmutabilityProbeRequest,
   ): Promise<StorageImmutabilityProbeResult>;
+
+  /**
+   * Sets the bucket's Object Lock default retention: every new object version
+   * inherits the lock automatically, so no write path can forget it. Persists
+   * on the bucket until replaced. Requires a lock-capable bucket (rejects
+   * otherwise).
+   */
+  apply_default_retention(mode: StorageObjectLockMode, retention_days: number): Promise<void>;
 
   /** Starts a multipart upload, returning a handle for part-level control. */
   begin_multipart_upload(

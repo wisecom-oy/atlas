@@ -23,4 +23,7 @@ export interface OneDriveManifestRepository {
     ctx: TenantContext,
     owner_id: string,
   ): Promise<OneDriveSnapshotManifest[]>;
+
+  /** Lists snapshot manifests for every owner in the tenant. */
+  list_all_manifests(ctx: TenantContext): Promise<OneDriveSnapshotManifest[]>;
 }

@@ -59,6 +59,7 @@ function make_index(
 function create_mocks() {
   const tenant_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
+    create_readonly: vi.fn().mockResolvedValue(ctx),
   };
 
   const manifests: SharePointManifestRepository = {
@@ -95,7 +96,7 @@ describe('SharePointCatalogService', () => {
       const result = await service.list_sharepoint_snapshots(TENANT_ID, SITE_ID);
 
       expect(result).toEqual([]);
-      expect(mocks.tenant_factory.create).toHaveBeenCalledWith(TENANT_ID);
+      expect(mocks.tenant_factory.create_readonly).toHaveBeenCalledWith(TENANT_ID);
       expect(mocks.manifests.list_snapshots_by_site).toHaveBeenCalledWith(ctx, SITE_ID);
     });
 

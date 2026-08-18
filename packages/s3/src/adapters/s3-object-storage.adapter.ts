@@ -18,9 +18,13 @@ import type {
   MultipartUploadHandle,
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
+  StorageObjectLockMode,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
+import {
+  apply_bucket_default_retention,
+  probe_bucket_immutability,
+} from '@/adapters/s3-bucket-manager';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
 import {
   ObjectLockModeRejectedError,
@@ -51,6 +55,7 @@ export class S3ObjectStorage implements ObjectStorage {
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
     if_match?: string,
+    if_none_match?: boolean,
   ): Promise<void> {
     await this.validate_immutability_policy(object_lock_policy);
     const content_md5 = createHash('md5').update(data).digest('base64');
@@ -68,6 +73,7 @@ export class S3ObjectStorage implements ObjectStorage {
             ? new Date(object_lock_policy.retain_until)
             : undefined,
           ...(if_match ? { IfMatch: if_match } : {}),
+          ...(if_none_match ? { IfNoneMatch: '*' } : {}),
         }),
       );
     } catch (err) {
@@ -150,8 +156,8 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  /** Lists all keys sharing the given prefix. */
-  async list(prefix: string): Promise<string[]> {
+  /** Lists keys sharing the given prefix; `limit` stops enumeration early. */
+  async list(prefix: string, limit?: number): Promise<string[]> {
     const keys: string[] = [];
     let continuation_token: string | undefined;
 
@@ -161,12 +167,14 @@ export class S3ObjectStorage implements ObjectStorage {
           Bucket: this._bucket,
           Prefix: prefix,
           ContinuationToken: continuation_token,
+          ...(limit !== undefined ? { MaxKeys: Math.min(limit, 1000) } : {}),
         }),
       );
 
       for (const obj of response.Contents ?? []) {
         if (obj.Key) keys.push(obj.Key);
       }
+      if (limit !== undefined && keys.length >= limit) return keys.slice(0, limit);
       continuation_token = response.NextContinuationToken;
     } while (continuation_token);
 
@@ -217,6 +225,14 @@ export class S3ObjectStorage implements ObjectStorage {
     } while (true);
 
     return versions;
+  }
+
+  /** Sets the bucket's Object Lock default retention (see s3-bucket-manager). */
+  async apply_default_retention(
+    mode: StorageObjectLockMode,
+    retention_days: number,
+  ): Promise<void> {
+    await apply_bucket_default_retention(this._client, this._bucket, mode, retention_days);
   }
 
   /** Starts a multipart upload with optional metadata and object lock. */

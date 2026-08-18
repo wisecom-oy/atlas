@@ -56,7 +56,11 @@ export type {
 
 export type { TenantProgressReporter } from './backup/tenant-progress.port';
 
-export type { VerificationUseCase, VerificationResult } from './verification/use-case.port';
+export type {
+  VerificationUseCase,
+  VerificationResult,
+  VerificationOptions,
+} from './verification/use-case.port';
 
 export type { RestoreUseCase, RestoreResult, RestoreOptions } from './restore/use-case.port';
 
@@ -73,6 +77,11 @@ export type {
 export type { StatsUseCase } from './stats/use-case.port';
 
 export type { SaveOptions, SaveResult, SaveUseCase } from './save/use-case.port';
+
+export type {
+  TransferProgressReporter,
+  TransferProgressUpdate,
+} from './shared/transfer-progress.port';
 
 export type {
   FileSaveOptions,
@@ -94,9 +103,34 @@ export type {
 export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
-export type { OutlookApi } from './atlas/outlook-api.port';
-export type { OneDriveApi } from './atlas/onedrive-api.port';
-export type { SharePointApi } from './atlas/sharepoint-api.port';
+export type {
+  OutlookApi,
+  OutlookBackupOptions,
+  OutlookVerificationOptions,
+  OutlookRestoreOptions,
+  OutlookSaveOptions,
+} from './atlas/outlook-api.port';
+export type {
+  OneDriveApi,
+  OneDriveSdkBackupOptions,
+  OneDriveSdkVerificationOptions,
+  OneDriveSdkRestoreOptions,
+  OneDriveSdkSaveOptions,
+} from './atlas/onedrive-api.port';
+export type {
+  SharePointApi,
+  SharePointSdkBackupOptions,
+  SharePointSdkVerificationOptions,
+  SharePointSdkRestoreOptions,
+  SharePointSdkSaveOptions,
+} from './atlas/sharepoint-api.port';
+export type {
+  OperationProgressEvent,
+  OperationProgressPhase,
+  OperationProgressCallback,
+  SdkOperationOptions,
+  OperationControlOptions,
+} from './atlas/progress-event.port';
 
 export type {
   UserIdentityResolver,
@@ -146,6 +180,7 @@ export type {
 export type {
   SharePointSiteConnector,
   SharePointSite,
+  SharePointSubsiteTree,
   SharePointDocumentLibrary,
   SharePointDeltaItem,
   SharePointDeltaItemKind,
@@ -159,6 +194,7 @@ export type { SharePointFileVersionIndexRepository } from './sharepoint/file-ver
 
 export type {
   SharePointBackupUseCase,
+  SharePointSiteTreeBackupUseCase,
   SharePointBackupResult,
   SharePointBackupSummary,
   SharePointBackupOptions,
@@ -222,6 +258,7 @@ export {
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,

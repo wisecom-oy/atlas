@@ -127,7 +127,7 @@ Only unreplicated snapshots are copied (the service diffs manifest lists).
 OneDrive per-owner replication is available through the SDK:
 
 ```typescript
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 
 // Replicate all unreplicated snapshots for a user
 await atlas.onedrive.replicateAll('owner-id', [offsite]);
@@ -175,7 +175,7 @@ The file contains S3 credentials for the target:
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
 
-const atlas = createAtlasInstance({ /* primary config */ });
+const atlas = createAtlasInstance({/* primary config */});
 
 const offsite = createStorageTarget({
   targetId: 'offsite-dr',
@@ -237,11 +237,13 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid --source-config ./offsit
 atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --source-config ./offsite.json
 ```
 
-**Full tenant recovery:**
+**Full tenant recovery (all workloads):**
 
 ```bash
 atlas rehydrate --all --source-config ./offsite.json
 ```
+
+`--all` enumerates all three manifest roots -- `manifests/` (Outlook), `onedrive/manifests/` (OneDrive), and `sharepoint/manifests/` (SharePoint) -- and reports copied/skipped/failed counts per workload. Any workload that yielded no objects is named in a warning, so an incomplete DR drill cannot pass silently.
 
 Rehydration skips snapshots that already exist on primary. It does not merge, diff, or resolve conflicts.
 
@@ -262,8 +264,10 @@ await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
 await atlas.sharepoint.rehydrateSite('site-id', offsite);
 await atlas.sharepoint.rehydrateSnapshot('site-id', 'sp-snap-123', offsite);
 
-// Full tenant DR
-await atlas.rehydrateTenant(offsite);
+// Full tenant DR: Outlook + OneDrive + SharePoint in one call.
+// `workloads` carries one entry per workload; `total` is their aggregate.
+const recovery = await atlas.rehydrateTenant(offsite);
+recovery.workloads.forEach((w) => console.log(w.workload, w.result.objects_copied));
 ```
 
 ## Object Lock
@@ -279,11 +283,13 @@ If primary storage fails and you need to restore from a replica:
 2. **Verify the passphrase** is the same one used when the replica was created.
 
 3. **Run full tenant rehydration:**
+
    ```bash
    atlas rehydrate --all --source-config ./offsite.json
    ```
 
 4. **Verify recovered data:**
+
    ```bash
    atlas outlook list                       # check recovered mailboxes
    atlas outlook verify -m <mailbox> -s <snapshot-id>  # verify Outlook integrity
@@ -292,11 +298,13 @@ If primary storage fails and you need to restore from a replica:
    ```
 
 5. **Run a fresh backup** to capture any changes since the last replication:
+
    ```bash
    atlas outlook backup
    atlas onedrive backup -o <owner>
    atlas sharepoint backup --site <site-url>
    ```
+
    Stale delta links are handled automatically -- Atlas falls back to full sync.
 
 6. **Re-replicate** to ensure the secondary target is current:

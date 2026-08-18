@@ -32,10 +32,11 @@ function make_message(id: string, body: string, has_attachments = false): MailMe
   };
 }
 
-function make_folder(name: string, id?: string, count = 10): MailFolder {
+function make_folder(name: string, id?: string, count = 10, path?: string): MailFolder {
   return {
     folder_id: id ?? `id-${name.toLowerCase()}`,
     display_name: name,
+    folder_path: path ?? name,
     total_item_count: count,
   };
 }
@@ -111,6 +112,7 @@ describe('MailboxSyncService', () => {
 
     mock_factory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     };
 
     container = new Container();

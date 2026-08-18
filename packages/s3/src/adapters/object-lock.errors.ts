@@ -25,10 +25,12 @@ export class ObjectLockModeRejectedError extends Error {
   }
 }
 
-/** Thrown when a conditional put fails because the ETag no longer matches. */
+/** Thrown when a conditional put fails (ETag mismatch or create-only key already exists). */
 export class PreconditionFailedError extends Error {
   constructor(key: string) {
-    super(`Conditional write failed for key ${key} — ETag mismatch (412 Precondition Failed)`);
+    super(
+      `Conditional write failed for key ${key} — precondition not met (412 Precondition Failed)`,
+    );
     this.name = 'PreconditionFailedError';
   }
 }

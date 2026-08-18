@@ -1,4 +1,6 @@
-export interface FileSaveOptions {
+import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+
+export interface FileSaveOptions extends OperationControlOptions {
   readonly snapshot_id: string;
   /** Only save specific files (by file ID or full path). */
   readonly file_filter?: string[];
@@ -16,6 +18,7 @@ export interface FileSaveResult {
   readonly integrity_failures: string[];
   readonly output_path: string;
   readonly total_bytes: number;
+  readonly interrupted: boolean;
 }
 
 export interface OneDriveSaveUseCase {

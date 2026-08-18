@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { SaveService } from '@/services/save/save.service';
+import { save_entries_to_archive } from '@/services/save/save-entry-processor';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
@@ -21,22 +22,10 @@ vi.mock('@/services/save/save-entry-processor', () => ({
     output_path: 'test.zip',
     total_bytes: 1024,
     integrity_failures: [],
+    processed: 2,
+    interrupted: false,
   }),
 }));
-
-vi.mock('@/services/save/save-progress-dashboard', () => {
-  return {
-    SaveProgressDashboard: class {
-      mark_active = vi.fn();
-      update_active = vi.fn();
-      mark_done = vi.fn();
-      mark_error = vi.fn();
-      update_total = vi.fn();
-      finish = vi.fn();
-      mark_all_pending_interrupted = vi.fn();
-    },
-  };
-});
 
 function make_entry(id: string, folder_id: string): ManifestEntry {
   return {
@@ -90,6 +79,7 @@ describe('SaveService', () => {
 
     const mock_factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     };
 
     mock_manifests = {
@@ -104,8 +94,8 @@ describe('SaveService', () => {
       list_mailboxes: vi.fn().mockResolvedValue([]),
       mailbox_exists: vi.fn().mockResolvedValue(true),
       list_mail_folders: vi.fn().mockResolvedValue([
-        { folder_id: 'f1', display_name: 'Inbox' },
-        { folder_id: 'f2', display_name: 'Sent Items' },
+        { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox' },
+        { folder_id: 'f2', display_name: 'Sent Items', folder_path: 'Sent Items' },
       ]),
       fetch_delta: vi.fn(),
       fetch_message: vi.fn(),
@@ -130,6 +120,66 @@ describe('SaveService', () => {
 
       expect(result.saved_count).toBe(2);
       expect(result.snapshot_id).toBe('snap-1');
+    });
+
+    it('returns partial counts when interrupted between entries', async () => {
+      const manifest = make_manifest([make_entry('msg-1', 'f1'), make_entry('msg-2', 'f1')]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(manifest);
+      let interrupted = false;
+      vi.mocked(save_entries_to_archive).mockImplementationOnce(async (...args) => {
+        const dashboard = args[5];
+        const is_interrupted = args[6];
+        dashboard.update_total(1, 2, 1, 1);
+        interrupted = true;
+        expect(is_interrupted()).toBe(true);
+        return {
+          saved_count: 1,
+          attachment_count: 0,
+          error_count: 0,
+          errors: [],
+          output_path: 'test.zip',
+          total_bytes: 512,
+          integrity_failures: [],
+          processed: 1,
+          interrupted: true,
+        };
+      });
+      const on_progress = vi.fn();
+
+      const result = await service.save_snapshot('test-tenant', 'snap-1', {
+        should_interrupt: () => interrupted,
+        on_progress,
+      });
+
+      expect(result.saved_count).toBe(1);
+      expect(result.interrupted).toBe(true);
+      expect(on_progress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: 'save', workload: 'outlook', phase: 'interrupted' }),
+      );
+    });
+
+    it('keeps terminal progress monotonic when an entry fails', async () => {
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+        make_manifest([make_entry('msg-1', 'f1')]),
+      );
+      vi.mocked(save_entries_to_archive).mockResolvedValueOnce({
+        saved_count: 0,
+        attachment_count: 0,
+        error_count: 1,
+        errors: ['failed'],
+        output_path: 'test.zip',
+        total_bytes: 0,
+        integrity_failures: [],
+        processed: 1,
+        interrupted: false,
+      });
+      const on_progress = vi.fn();
+
+      await service.save_snapshot('test-tenant', 'snap-1', { on_progress });
+
+      expect(on_progress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: 'completed', processed: 1 }),
+      );
     });
 
     it('returns empty result when no entries', async () => {

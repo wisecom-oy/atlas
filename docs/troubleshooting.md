@@ -2,18 +2,20 @@
 
 Common errors encountered when running Atlas, with specific error messages, likely causes, and steps to resolve.
 
+If none of the below resolves it and you are opening an issue, run `./tools/diagnostics.sh` from the repository root and include its output. It reports your OS, Node and Atlas versions, and which configuration sources Atlas can see, without printing any secret values. Replace real mailbox addresses, file names, and site URLs with generic placeholders before posting.
+
 ## Authentication Failures
 
 Authentication errors appear before any backup activity starts. Atlas authenticates with Microsoft Graph using the OAuth2 Client Credentials flow, so failures here are always credential or tenant configuration problems -- not network or storage issues.
 
 ### AADSTS error codes
 
-| Error Code    | Meaning                        | Fix                                                                                                      |
-| ------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `AADSTS50020` | Wrong tenant ID                | Verify `ATLAS_TENANT_ID` matches the **Directory (tenant) ID** in Azure Portal → Microsoft Entra ID → Overview. |
-| `AADSTS700016` | Wrong client ID or app not found | Verify `ATLAS_CLIENT_ID` matches the **Application (client) ID** in App registrations. The app must exist in the tenant specified by `ATLAS_TENANT_ID`. |
+| Error Code      | Meaning                            | Fix                                                                                                                                                                                                                                  |
+| --------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AADSTS50020`   | Wrong tenant ID                    | Verify `ATLAS_TENANT_ID` matches the **Directory (tenant) ID** in Azure Portal → Microsoft Entra ID → Overview.                                                                                                                      |
+| `AADSTS700016`  | Wrong client ID or app not found   | Verify `ATLAS_CLIENT_ID` matches the **Application (client) ID** in App registrations. The app must exist in the tenant specified by `ATLAS_TENANT_ID`.                                                                              |
 | `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date of your secret in **Certificates & secrets**. If expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If not expired, verify you copied the secret **Value** (not the Secret ID). |
-| `AADSTS65001` | Admin consent not granted      | Go to **API permissions** for the app registration and click **Grant admin consent for [tenant]**.       |
+| `AADSTS65001`   | Admin consent not granted          | Go to **API permissions** for the app registration and click **Grant admin consent for [tenant]**.                                                                                                                                   |
 
 ### Diagnosing authentication errors
 
@@ -26,9 +28,9 @@ Error: ClientSecretCredential authentication failed
 
 If the error message is ambiguous, cross-check in the Azure Portal under **Microsoft Entra ID → Sign-in logs → Application sign-ins**, filtering by your application's client ID.
 
-## Graph API 429 Throttling
+## Graph API 429 Throttling and Transient 5xx
 
-HTTP 429 responses from Microsoft Graph are normal and expected during large backups. They are not errors requiring intervention.
+HTTP 429 responses from Microsoft Graph are normal and expected during large backups. They are not errors requiring intervention. The same is true of occasional `500 InternalServerError` and `502 Bad Gateway` responses: Graph raises them under load, and Atlas retries them on the same schedule as a 429 rather than failing the folder or drive batch.
 
 ### What it looks like in logs
 
@@ -43,6 +45,8 @@ Atlas honors Microsoft's `Retry-After` header and retries up to **12 times** wit
 - **Occasional 429s during large initial backups**: normal. Microsoft throttles per-application and per-mailbox. Atlas handles these automatically.
 - **Persistent 429s causing repeated folder failures**: this usually means you have too many concurrent workers (`-C` flag) for your tenant's allocated Graph API capacity. Try reducing to `-C 2` or `-C 1`.
 - **429s on every request from the start**: check whether another application in your tenant is also consuming heavy Graph API quota. Contact Microsoft support if the throttle limits seem unusually low.
+- **Occasional 500/502 responses**: normal under load, retried automatically. A run that logs a handful and completes needs no action.
+- **Persistent 500/502 on the same item**: not throttling. Retries are exhausted against a server-side fault; re-run the backup later and, if it repeats, open a Microsoft support case with the request IDs from `--log-level debug`.
 
 ### Throughput ceiling
 

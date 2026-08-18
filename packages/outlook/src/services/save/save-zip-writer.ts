@@ -36,11 +36,14 @@ export function create_save_archive(output_path: string): SaveArchive {
  */
 export function add_eml_to_archive(
   archive: archiver.Archiver,
-  folder_name: string,
+  folder_path: string,
   filename: string,
   content: Buffer,
 ): Promise<void> {
-  const entry_path = `${sanitize_path_segment(folder_name)}/${filename}`;
+  // Nested mail folders become nested zip directories; each level is sanitized
+  // on its own so the separator survives while illegal characters do not.
+  const dir_path = folder_path.split('/').map(sanitize_path_segment).join('/');
+  const entry_path = `${dir_path}/${filename}`;
   return new Promise<void>((resolve, reject) => {
     const on_entry = (): void => {
       archive.removeListener('error', on_error);

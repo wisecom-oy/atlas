@@ -1,5 +1,5 @@
 import type { SyncOptions, SyncResult } from '@/ports/backup/use-case.port';
-import type { VerificationResult } from '@/ports/verification/use-case.port';
+import type { VerificationOptions, VerificationResult } from '@/ports/verification/use-case.port';
 import type { RestoreOptions, RestoreResult } from '@/ports/restore/use-case.port';
 import type { SaveOptions, SaveResult } from '@/ports/save/use-case.port';
 import type { MailboxSummary, ReadMessageResult } from '@/ports/catalog/use-case.port';
@@ -8,14 +8,36 @@ import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { MailboxStats } from '@/domain/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
 import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/mail/discovery.port';
+import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+
+export type OutlookBackupOptions = Omit<
+  SyncOptions,
+  'progress' | 'create_progress' | 'on_progress' | 'should_interrupt' | 'should_force_stop'
+> &
+  SdkOperationOptions;
+export type OutlookVerificationOptions = Omit<
+  VerificationOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type OutlookRestoreOptions = Omit<
+  RestoreOptions,
+  'create_progress' | 'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
+export type OutlookSaveOptions = Omit<
+  SaveOptions,
+  'create_progress' | 'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
 
 export interface OutlookApi {
-  backup(mailboxId: string, options?: SyncOptions): Promise<SyncResult>;
-  verify(snapshotId: string): Promise<VerificationResult>;
-  restore(snapshotId: string, options?: RestoreOptions): Promise<RestoreResult>;
-  restoreMailbox(mailboxId: string, options?: RestoreOptions): Promise<RestoreResult>;
-  save(snapshotId: string, options?: SaveOptions): Promise<SaveResult>;
-  saveMailbox(mailboxId: string, options?: SaveOptions): Promise<SaveResult>;
+  backup(mailboxId: string, options?: OutlookBackupOptions): Promise<SyncResult>;
+  verify(snapshotId: string, options?: OutlookVerificationOptions): Promise<VerificationResult>;
+  restore(snapshotId: string, options?: OutlookRestoreOptions): Promise<RestoreResult>;
+  restoreMailbox(mailboxId: string, options?: OutlookRestoreOptions): Promise<RestoreResult>;
+  save(snapshotId: string, options?: OutlookSaveOptions): Promise<SaveResult>;
+  saveMailbox(mailboxId: string, options?: OutlookSaveOptions): Promise<SaveResult>;
   listMailboxes(): Promise<MailboxSummary[]>;
   listSnapshots(mailboxId: string): Promise<Manifest[]>;
   getSnapshotDetail(snapshotId: string): Promise<Manifest | undefined>;

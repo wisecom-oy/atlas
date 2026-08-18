@@ -4,6 +4,7 @@ import { reset_bucket_cache } from '@/adapters/s3-bucket-manager';
 import {
   ObjectLockUnsupportedError,
   ObjectLockVersioningDisabledError,
+  PreconditionFailedError,
 } from '@/adapters/object-lock.errors';
 
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
@@ -47,6 +48,28 @@ describe('S3ObjectStorage', () => {
 
       const cmd = mock_s3.send.mock.calls[0][0];
       expect(cmd.input.ContentMD5).toBe(expected_md5);
+    });
+
+    it('maps if_none_match to a create-only IfNoneMatch header', async () => {
+      mock_s3.send.mockResolvedValueOnce({});
+
+      await storage.put('k', Buffer.from('v'), undefined, undefined, undefined, true);
+
+      const cmd = mock_s3.send.mock.calls[0][0];
+      expect(cmd.input.IfNoneMatch).toBe('*');
+      expect(cmd.input.IfMatch).toBeUndefined();
+    });
+
+    it('throws PreconditionFailedError when a create-only write hits an existing key', async () => {
+      const err = Object.assign(new Error('PreconditionFailed'), {
+        name: 'PreconditionFailed',
+        $metadata: { httpStatusCode: 412 },
+      });
+      mock_s3.send.mockRejectedValueOnce(err);
+
+      await expect(
+        storage.put('k', Buffer.from('v'), undefined, undefined, undefined, true),
+      ).rejects.toBeInstanceOf(PreconditionFailedError);
     });
 
     it('applies object lock options for immutable upload', async () => {
@@ -187,6 +210,30 @@ describe('S3ObjectStorage', () => {
       expect(first.object_lock_enabled).toBe(true);
       expect(second.object_lock_enabled).toBe(true);
       expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('apply_default_retention', () => {
+    it('sets bucket default retention with mode and days', async () => {
+      mock_s3.send.mockResolvedValueOnce({});
+
+      await storage.apply_default_retention('COMPLIANCE', 30);
+
+      const cmd = mock_s3.send.mock.calls[0][0];
+      expect(cmd.constructor.name).toBe('PutObjectLockConfigurationCommand');
+      expect(cmd.input.ObjectLockConfiguration.Rule.DefaultRetention).toEqual({
+        Mode: 'COMPLIANCE',
+        Days: 30,
+      });
+    });
+
+    it('maps InvalidBucketState to ObjectLockUnsupportedError', async () => {
+      const err = Object.assign(new Error('no lock'), { name: 'InvalidBucketState' });
+      mock_s3.send.mockRejectedValueOnce(err);
+
+      await expect(storage.apply_default_retention('GOVERNANCE', 7)).rejects.toBeInstanceOf(
+        ObjectLockUnsupportedError,
+      );
     });
   });
 });

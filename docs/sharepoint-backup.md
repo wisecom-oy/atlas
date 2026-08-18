@@ -24,7 +24,7 @@ Snapshot IDs are generated as `sp-snap-<milliseconds>-<6-hex>` (for example `sp-
 
 1. **Site resolution** -- The `--site` flag accepts either a SharePoint site URL (`https://contoso.sharepoint.com/sites/Engineering`) or a Graph site ID (`contoso.sharepoint.com,site-guid,web-guid`). URLs are resolved via `GET /sites/{hostname}:/{path}` to obtain the canonical site ID used for all storage keys.
 2. **Library discovery** -- Atlas calls `GET /sites/{site_id}/drives?$filter=driveType eq 'documentLibrary'` to discover all document libraries within the site. Each library has its own delta cursor, allowing independent incremental tracking.
-3. **Delta sync** -- For each document library, Atlas follows `GET /drives/{drive_id}/root/delta` (or the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. If a single library fails, its delta link is not advanced and its entries are discarded from the snapshot manifest so the next run retries that library cleanly. The delta cursor is saved incrementally after each successfully completed library.
+3. **Delta sync** -- For each document library, Atlas follows `GET /drives/{drive_id}/root/delta` (or the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the library: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A library that fails outright -- before any delta could be read -- still leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed library.
 4. **Content-addressed storage** -- Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that site, the blob is deduplicated (no second upload).
 5. **Zero-disk streaming** -- Files at or above **512 MiB** use a streaming pipeline: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `sharepoint/staging/`, then copied to the canonical `sharepoint/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part (on the order of **12 MiB** per large file, not the full file size).
 6. **Version history** -- After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content.
@@ -32,14 +32,15 @@ Snapshot IDs are generated as `sp-snap-<milliseconds>-<6-hex>` (for example `sp-
 
 ## Deterministic Error Handling
 
-SharePoint backup enforces **all-or-nothing semantics per document library**. If any file within a library fails to process:
+SharePoint backup makes **progress with accounting**: a file that fails to process never blocks the files around it, but it is never forgotten either. If any file within a library fails:
 
-- All entries from that library are discarded from the snapshot manifest.
-- The delta cursor for that library is **not** advanced, so the next run will retry the full delta for that library.
-- The overall backup result is marked **UNHEALTHY**.
-- Healthy libraries in the same site are **not** affected -- their entries are included normally and their cursors are advanced.
+- Every file that did process is kept in the snapshot manifest.
+- The delta cursor for that library **is** advanced, so the next run picks up new changes instead of replaying the backlog behind one bad file.
+- The failure is recorded in the cursor's `failed_items` ledger and retried by later runs -- see [Failed Items and Delta Progress](#failed-items-and-delta-progress) for the retry contract.
+- The overall backup result is marked **UNHEALTHY** while any failure is outstanding.
+- Healthy libraries in the same site are unaffected.
 
-This prevents partial states where some files appear successfully backed up in the manifest but their processing was incomplete.
+Earlier releases discarded a library's entire batch on a single failure and held its cursor back. That traded one bad file for a drive that silently stopped receiving backups -- and left uploaded-but-unreferenced blobs behind. Keeping the successful entries and recording the failure protects everything that _can_ be protected while still making the gap impossible to miss.
 
 ## Storage Layout
 
@@ -131,21 +132,23 @@ console.log(`Up to date: ${status.is_up_to_date}`);
 console.log(`Pending changes: ${status.total_pending_changes}`);
 
 for (const lib of status.libraries) {
-  console.log(`  ${lib.library_name}: ${lib.pending_changes} pending, backed up: ${lib.has_backup}`);
+  console.log(
+    `  ${lib.library_name}: ${lib.pending_changes} pending, backed up: ${lib.has_backup}`,
+  );
 }
 ```
 
 `checkStatus` returns a `SharePointStatusResult`:
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `site_id` | `string` | The Graph site ID |
-| `last_backup_at` | `Date \| undefined` | Timestamp of the most recent snapshot |
-| `last_snapshot_id` | `string \| undefined` | ID of the most recent snapshot |
-| `total_libraries` | `number` | Number of document libraries discovered |
-| `libraries` | `SharePointLibraryStatus[]` | Per-library backup status |
-| `is_up_to_date` | `boolean` | `true` if all libraries have been backed up with zero pending changes |
-| `total_pending_changes` | `number` | Sum of pending changes across all libraries |
+| Field                   | Type                        | Description                                                           |
+| ----------------------- | --------------------------- | --------------------------------------------------------------------- |
+| `site_id`               | `string`                    | The Graph site ID                                                     |
+| `last_backup_at`        | `Date \| undefined`         | Timestamp of the most recent snapshot                                 |
+| `last_snapshot_id`      | `string \| undefined`       | ID of the most recent snapshot                                        |
+| `total_libraries`       | `number`                    | Number of document libraries discovered                               |
+| `libraries`             | `SharePointLibraryStatus[]` | Per-library backup status                                             |
+| `is_up_to_date`         | `boolean`                   | `true` if all libraries have been backed up with zero pending changes |
+| `total_pending_changes` | `number`                    | Sum of pending changes across all libraries                           |
 
 ## Deletion
 
@@ -154,7 +157,7 @@ Delete backed-up SharePoint data via the SDK. Per-site and per-snapshot deletion
 **SDK:**
 
 ```typescript
-// Delete all backed-up data for a site (manifests, blobs, indexes, cursors)
+// Erases manifests, blobs, indexes, cursors and staging -- every version of each
 const result = await atlas.sharepoint.deleteSiteData('site-id');
 console.log(`Deleted: ${result.deleted_objects} objects, ${result.deleted_manifests} manifests`);
 
@@ -162,7 +165,9 @@ console.log(`Deleted: ${result.deleted_objects} objects, ${result.deleted_manife
 await atlas.sharepoint.deleteSnapshot('site-id', 'sp-snap-123');
 ```
 
-When Object Lock retention protects objects, deletion reports retained items separately from generic failures.
+`deleteSiteData` erases every version of every matching object, so the data is gone rather than hidden behind a delete marker in a versioned bucket, and it includes the staging prefix where an interrupted large-file upload parks content.
+
+When Object Lock retention protects objects, deletion reports retained items separately from generic failures. See [Erasure](/security#erasure) for how the two are told apart.
 
 ## Site Discovery
 
@@ -184,59 +189,94 @@ console.log(site.id);
 
 ## CLI Reference
 
-| Command | Description |
-| --- | --- |
-| `atlas sharepoint backup` | Back up changed files for a SharePoint site |
-| `atlas sharepoint list-snapshots` | List all snapshots for a site |
-| `atlas sharepoint list-versions` | List all backed-up versions for a specific file |
-| `atlas sharepoint restore` | Restore files from a snapshot to the site |
-| `atlas sharepoint save` | Decrypt and save files from a snapshot to a local zip archive |
-| `atlas sharepoint verify` | Verify snapshot blob integrity |
+| Command                           | Description                                                   |
+| --------------------------------- | ------------------------------------------------------------- |
+| `atlas sharepoint backup`         | Back up changed files for a SharePoint site                   |
+| `atlas sharepoint list-snapshots` | List all snapshots for a site                                 |
+| `atlas sharepoint list-versions`  | List all backed-up versions for a specific file               |
+| `atlas sharepoint restore`        | Restore files from a snapshot to the site                     |
+| `atlas sharepoint save`           | Decrypt and save files from a snapshot to a local zip archive |
+| `atlas sharepoint verify`         | Verify snapshot blob integrity                                |
 
 ### `atlas sharepoint backup`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
-| `--full` | Force full crawl, ignore saved delta state | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                 | Description                                     | Default        |
+| -------------------- | ----------------------------------------------- | -------------- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | --             |
+| `--full`             | Force full crawl, ignore saved delta state      | `false`        |
+| `--include-subsites` | Back up subsites too (one snapshot per subsite) | `false`        |
+| `-t, --tenant <id>`  | Tenant identifier                               | Config default |
 
 ### `atlas sharepoint list-snapshots`
 
-| Flag | Description |
-| --- | --- |
+| Flag                 | Description                                     |
+| -------------------- | ----------------------------------------------- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
-| `-t, --tenant <id>` | Tenant identifier |
+| `-t, --tenant <id>`  | Tenant identifier                               |
 
 ### `atlas sharepoint list-versions`
 
-| Flag | Description |
-| --- | --- |
+| Flag                 | Description                                     |
+| -------------------- | ----------------------------------------------- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
-| `-f, --file <ref>` | File ID or path to look up (required) |
-| `-t, --tenant <id>` | Tenant identifier |
+| `-f, --file <ref>`   | File ID or path to look up (required)           |
+| `-t, --tenant <id>`  | Tenant identifier                               |
 
 ### `atlas sharepoint restore`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
-| `-s, --snapshot <id>` | SharePoint snapshot ID (required) | -- |
-| `--target-site <url-or-id>` | Restore to a different site | Original site |
-| `--file-filter <paths...>` | Only restore specific files (by ID or path) | All files |
-| `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` | `rename` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                        | Description                                          | Default        |
+| --------------------------- | ---------------------------------------------------- | -------------- |
+| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)      | --             |
+| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                    | --             |
+| `--target-site <url-or-id>` | Restore to a different site                          | Original site  |
+| `--file-filter <paths...>`  | Only restore specific files (by ID or path)          | All files      |
+| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` | `rename`       |
+| `-t, --tenant <id>`         | Tenant identifier                                    | Config default |
+
+#### Where a cross-site restore lands
+
+A manifest entry records the `drive_id` of the library it came from, and that id
+is only meaningful inside the site that owns it -- Graph addresses an upload as
+`/sites/{site}/drives/{drive}/...`, and the drive wins. `--target-site`
+therefore has to pick a library belonging to the target site, which Atlas does
+per entry:
+
+1. **Same library name.** The target library whose name matches the one the file
+   was backed up from -- compared case-insensitively, in Unicode NFC, ignoring
+   surrounding whitespace. This keeps a multi-library site's structure intact when
+   the names line up on both ends. If _two_ target libraries share that name the
+   choice is ambiguous, so Atlas refuses rather than pick one.
+2. **The only library**, and only when the restore comes from a single source
+   library. Library names are localised -- a Finnish tenant's default library is
+   `Tiedostot`, an English one's is `Documents` -- so a single-library target must
+   not be decided by name. This rule deliberately does _not_ apply when the
+   snapshot spans several libraries: folding them into one destination merges
+   their trees, and two files sharing a path would overwrite each other under
+   `--conflict replace`. Restore those one library at a time with `--file-filter`.
+3. **Neither.** Atlas refuses the file, names the candidate libraries, and the run
+   exits non-zero. It never guesses which production library should receive the
+   data, and never falls back to the library the file came from.
+
+If the target site has no document libraries at all, the restore fails before
+uploading anything.
+
+::: warning Snapshots taken before 2.1.0-beta
+Library names were not recorded in older manifests, so rule 1 cannot apply to
+them. Such a snapshot restores cross-site only when it came from one library and
+the target has one library; anything else fails by rule 3 rather than choosing a
+destination. Take a fresh backup to restore by name.
+:::
 
 ### `atlas sharepoint save`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
-| `-s, --snapshot <id>` | Snapshot ID to save from (required) | -- |
-| `--file-filter <paths...>` | Only save specific files (by ID or path) | All files |
-| `-O, --output <path>` | Output zip file path | Auto-generated |
-| `--skip-verify` | Skip SHA-256 integrity checks | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                       | Description                                     | Default        |
+| -------------------------- | ----------------------------------------------- | -------------- |
+| `--site <url-or-id>`       | SharePoint site URL or Graph site ID (required) | --             |
+| `-s, --snapshot <id>`      | Snapshot ID to save from (required)             | --             |
+| `--file-filter <paths...>` | Only save specific files (by ID or path)        | All files      |
+| `-O, --output <path>`      | Output zip file path                            | Auto-generated |
+| `--skip-verify`            | Skip SHA-256 integrity checks                   | `false`        |
+| `-t, --tenant <id>`        | Tenant identifier                               | Config default |
 
 The zip archive preserves the SharePoint folder hierarchy from document libraries. Files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
 
@@ -247,28 +287,65 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 
 ### `atlas sharepoint verify`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) | -- |
-| `-s, --snapshot <id>` | Snapshot ID to verify (required) | -- |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                  | Description                                     | Default        |
+| --------------------- | ----------------------------------------------- | -------------- |
+| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required) | --             |
+| `-s, --snapshot <id>` | Snapshot ID to verify (required)                | --             |
+| `-t, --tenant <id>`   | Tenant identifier                               | Config default |
+
+## Failed Items and Delta Progress
+
+A file that refuses to download -- a permissions quirk, a corrupted item, IRM-protected content, a chronically 4xx-ing CDN link -- must not be able to stop the rest of the drive from being backed up. Atlas therefore **advances past per-item failures and records them**, rather than discarding the batch:
+
+1. Items that succeeded are kept and land in the snapshot.
+2. The delta link advances, so the next run picks up new changes instead of replaying the whole backlog.
+3. Each failure is written into the drive's delta cursor as a `failed_items` record: item id, name, reason, attempt count, and when it first failed.
+4. The run is reported **UNHEALTHY** (non-zero exit) for as long as any failure is outstanding.
+
+The record is what makes advancing safe. Graph delta only re-presents items that _changed_, so a failure that was merely logged would be a file that is silently never backed up again. Every run therefore re-fetches its outstanding failures by item ID **before** processing new delta changes:
+
+- the item downloads → the record is cleared, and it appears in that run's snapshot;
+- the item no longer exists (Graph 404) → the record is dropped silently; there is nothing left to back up;
+- it fails again → the attempt count increments and the original `first_failed_at` is preserved.
+
+After **5 attempts** an item stops being re-fetched but keeps being reported on every run, so a permanently broken file costs one line of output instead of a download attempt on every backup forever.
+
+```
+[!] Not backed up: Osakasluettelo.xlsx (01STBDHIPIY7N3OWY...) -- file content could not be
+    downloaded; will retry (attempt 2 of 5), first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+Once the underlying problem clears, the next run picks the file up automatically:
+
+```
+[+] Snapshot sp-snap-1786435155739-462686 created
+1 changed | 0 stored | 1 dedup
+[+] Status: HEALTHY
+```
+
+::: tip Reading the signal
+`UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human -- check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the drive keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
+:::
 
 ## Snapshot Health Status
 
 Every backup prints a health status at the end:
 
 - **HEALTHY** -- all primary file content was backed up successfully across all document libraries. The snapshot and delta cursors are safe to rely on.
-- **UNHEALTHY** -- one or more critical errors occurred (file download failure, library-level crash, encryption error). The affected library's entries are excluded from the manifest and its delta cursor is not advanced. `process.exitCode` is set to `1` so CI/monitoring pipelines detect the failure.
+- **UNHEALTHY** -- one or more critical errors occurred (file download failure, library-level crash, encryption error, or an unexpected version download failure). The affected library's entries are excluded from the manifest and its delta cursor is not advanced. `process.exitCode` is set to `2` (partial run) so CI/monitoring pipelines detect the failure; a hard failure that aborts the run exits `1`.
 
-Non-critical issues such as historical version download failures or expired version URLs are reported as **warnings** in the output but do not affect the health status. Warnings appear as `[!]` lines above the status; errors appear indented under `UNHEALTHY`.
+A version download that fails for an unexpected reason -- throttling, `403 accessDenied`, a transient Graph fault -- means the file's history is missing from the snapshot, so it counts as an error and holds the run **UNHEALTHY** (issue #92). Each failure logs its own line with the Graph status and error code, e.g. `Version 2.0 of proposal.docx: HTTP 403 -- accessDenied`, and the run summary repeats the count.
+
+Versions the service reports as gone (`404`/`410`, content purged by the site's retention policy) are expected, counted as `unavailable`, and do not affect health. OneNote package accounting and other advisory notes remain **warnings**: they appear as `[!]` lines above the status and leave the exit code at `0`.
 
 ## Azure AD Permissions
 
 Add these to your app registration (in addition to any existing Outlook or OneDrive backup permissions):
 
-| Permission | Type | Purpose |
-| --- | --- | --- |
-| `Sites.Read.All` | Application | List sites and read document library metadata |
+| Permission       | Type        | Purpose                                                    |
+| ---------------- | ----------- | ---------------------------------------------------------- |
+| `Sites.Read.All` | Application | List sites and read document library metadata              |
 | `Files.Read.All` | Application | Read file content from document libraries (backup, verify) |
 
 SharePoint backup requires only read permissions (`Sites.Read.All`, `Files.Read.All`). Restore additionally requires `Sites.ReadWrite.All` to upload files back to the site.
@@ -277,25 +354,59 @@ SharePoint backup requires only read permissions (`Sites.Read.All`, `Files.Read.
 
 Implementation thresholds from `@wisecom/atlas-sharepoint`:
 
-| Size | Strategy |
-| --- | --- |
-| **<= 4 MiB** | Single read via pre-authenticated URL (with 429 retry + Retry-After backoff) or Graph content fallback, encrypt, `put` |
-| **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put` |
-| **>= 512 MiB** | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
+| Size                          | Strategy                                                                                                                                                                                       |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **<= 4 MiB**                  | Single read via pre-authenticated URL (with transient-status retry + Retry-After backoff) or Graph content fallback, encrypt, `put`                                                            |
+| **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                                      |
+| **>= 512 MiB**                | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
 
-Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff) so a transient failure replays a single chunk instead of the whole file.
+Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff) so a transient failure replays a single chunk instead of the whole file. A chunk is retried on the same statuses as any other Graph call -- 429, 500, 502, 503, and 504 -- because the CDN in front of Graph raises `500` and `502` under load; `4xx` responses fail the chunk immediately.
+
+## OneNote Notebooks
+
+A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:
+
+| Item                        | Facets                               | Backed up                                                                                                                          |
+| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Notebook root (e.g. `Test`) | `folder` + `package`                 | Treated as a folder. `GET /items/{id}/content` returns **404** -- the root has no content of its own, so there is nothing to store |
+| `<Section>.one`             | `file`, MIME `application/msonenote` | Yes -- byte-for-byte, like any other file                                                                                          |
+| `Open Notebook.onetoc2`     | `file`                               | Yes -- byte-for-byte                                                                                                               |
+
+So notebook **content is covered by backups today**: each section file is content-addressed, encrypted, and stored under the notebook's folder path. What the run additionally reports is the notebook itself, because file counters alone cannot answer "did the notebook come through whole?":
+
+```
+OneNote notebooks detected: 1 (2 section file(s) backed up as ordinary files).
+```
+
+If any section file of a notebook fails while its siblings succeed, the run warns explicitly:
+
+```
+OneNote notebook "Test" (/Tietoturva/Test) is INCOMPLETE in this backup:
+1 of 2 section file(s) failed (Untitled Section.one).
+A partially captured notebook may not open after restore.
+```
+
+That warning exists because partial capture is the dangerous case: a `.onetoc2` table of contents stored **without** its sibling `.one` sections looks like a successful backup and restores into a notebook that will not open. Notebook completeness is therefore reported per notebook, never averaged into the run's file totals.
+
+### Coverage status and limits
+
+- **Captured:** every `.one` section file and the `.onetoc2` table of contents, at their current revision, in their original folder path.
+- **Reported:** notebook count, section files stored, and an explicit incompleteness warning per notebook.
+- **Restore is byte-faithful, notebook reassembly is not guaranteed.** A restored `.onetoc2` was verified byte-identical to the backed-up copy (SHA-256 match over a live tenant restore). What Atlas cannot promise is that dropping those files back produces a notebook a OneNote client will open: the package facet is created by the OneNote service, not by a file upload, so restored sections arrive as ordinary files. Treat notebook restore as "recover the section data", then let OneNote re-import it, and verify before relying on it.
+- **Version history for section files is often unavailable.** Graph frequently refuses version downloads for `.one` items; those appear in the run as `version download(s) failed`. The current revision is still stored.
+- The notebook root is not stored as a manifest entry (it has no content). Its path is preserved through its children, so restores land the sections back under the same folder structure.
 
 ## Download Resilience
 
-SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting. Atlas handles this with:
+SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting, and the CDN also returns transient gateway faults of its own. Atlas handles this with:
 
-- **429 detection** on direct download URLs with `Retry-After` header parsing (supports both delta-seconds and HTTP-date formats).
+- **Transient-status detection** on direct download URLs -- `429`, `500`, `502`, `503`, and `504` are retried, with `Retry-After` header parsing (supports both delta-seconds and HTTP-date formats).
 - **Exponential backoff** when `Retry-After` is absent (base 1s, max 32s, with jitter).
 - **Graph content fallback** -- if the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content` which routes through the Graph gateway rather than the CDN.
 
 ## Restore
 
-Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to the site's document libraries via Graph API. Each manifest entry carries its own `drive_id`, so files are restored to the correct document library automatically.
+Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site -- see [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 
 **CLI:**
 
@@ -324,10 +435,10 @@ console.log(`Restored: ${result.files_restored} files, ${result.folders_created}
 
 **File size handling during restore:**
 
-| Size | Strategy |
-| --- | --- |
-| **<= 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content` |
-| **> 4 MiB** | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429/503) |
+| Size         | Strategy                                                                                                               |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **<= 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content`                                |
+| **> 4 MiB**  | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429, 500, 502, 503, 504) |
 
 Files with `change_type: 'deleted'` or missing `storage_key` are skipped. Checksum verification runs before upload -- corrupted blobs are skipped with a warning.
 
@@ -353,7 +464,7 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --source-
 **SDK:**
 
 ```typescript
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 
 // Replicate a snapshot
 await atlas.sharepoint.replicateSnapshot('site-id', 'sp-snap-123', [offsite]);
@@ -370,15 +481,15 @@ See [Replication](./operations/replication.md) for the full replication architec
 
 ## Differences from OneDrive Backup
 
-| Aspect | OneDrive | SharePoint |
-| --- | --- | --- |
-| **Scope** | Per-user (owner ID) | Per-site (site ID) |
-| **Target** | User's personal drive | All document libraries in a site |
-| **Storage prefix** | `onedrive/` | `sharepoint/` |
-| **Identity resolution** | Email -> Entra object ID via `GET /users/{email}` | Site URL -> Graph site ID via `GET /sites/{hostname}:/{path}` |
-| **Delta cursor granularity** | One per drive per user | One per document library per site |
-| **Snapshot ID format** | `od-snap-<ms>-<hex>` | `sp-snap-<ms>-<hex>` |
-| **Permissions** | `Files.Read.All` + `User.Read.All` | `Sites.Read.All` + `Files.Read.All` |
+| Aspect                       | OneDrive                                          | SharePoint                                                    |
+| ---------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| **Scope**                    | Per-user (owner ID)                               | Per-site (site ID)                                            |
+| **Target**                   | User's personal drive                             | All document libraries in a site                              |
+| **Storage prefix**           | `onedrive/`                                       | `sharepoint/`                                                 |
+| **Identity resolution**      | Email -> Entra object ID via `GET /users/{email}` | Site URL -> Graph site ID via `GET /sites/{hostname}:/{path}` |
+| **Delta cursor granularity** | One per drive per user                            | One per document library per site                             |
+| **Snapshot ID format**       | `od-snap-<ms>-<hex>`                              | `sp-snap-<ms>-<hex>`                                          |
+| **Permissions**              | `Files.Read.All` + `User.Read.All`                | `Sites.Read.All` + `Files.Read.All`                           |
 
 The encryption, content-addressing, streaming, and version-tracking algorithms are identical between OneDrive and SharePoint backup -- only the scope (user vs. site) and Graph API endpoints differ.
 

@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
@@ -5,18 +6,28 @@ import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
+import { apply_folder_filter } from '@/services/shared/folder-selector';
 import {
   build_manifest,
   create_pending_snapshot,
   mark_snapshot_completed,
+  resolve_sync_mode,
 } from '@/services/backup/snapshot-manifest-builder';
+import {
+  build_interrupted_result,
+  mark_progress_interrupted,
+} from '@/services/backup/outlook-interrupted-result';
 import type {
   BackupProgressReporter,
   BackupUseCase,
   SyncOptions,
   SyncResult,
-  BackupSyncMode,
 } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -54,7 +65,11 @@ export class MailboxSyncService implements BackupUseCase {
     owner_id: string,
     options: SyncOptions = {},
   ): Promise<SyncResult> {
-    owner_id = owner_id.toLowerCase();
+    owner_id = normalize_owner_id(owner_id);
+    if (begin_operation_progress(options, 'backup', 'outlook')) {
+      finish_operation_progress(options, 'backup', 'outlook', 0, 0);
+      return build_interrupted_result(tenant_id, owner_id, options);
+    }
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
@@ -73,19 +88,26 @@ export class MailboxSyncService implements BackupUseCase {
         : await this._manifests.find_latest_by_owner(ctx, owner_id);
       const saved_links = previous?.delta_links ?? {};
       const previous_entry_count = previous?.total_objects ?? 0;
-      const mode = this.resolve_sync_mode(options, saved_links);
+      const mode = resolve_sync_mode(options.force_full, saved_links);
 
       const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
-      const folder_selection = this.apply_folder_filter(all_folders, options.folder_filter);
+      const folder_selection = apply_folder_filter(all_folders, options.folder_filter);
       const folders = folder_selection.folders;
       const warnings = [...folder_selection.warnings];
       const progress =
         options.progress ??
         options.create_progress?.(
-          folders.map((f) => ({ name: f.display_name, total_items: f.total_item_count })),
+          folders.map((f) => ({ name: f.folder_path, total_items: f.total_item_count })),
         ) ??
         NOOP_BACKUP_PROGRESS_REPORTER;
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'processing',
+        processed: 0,
+        total: global_total,
+      });
 
       const all_entries: ManifestEntry[] = [];
       const new_delta_links: Record<string, string> = {};
@@ -118,13 +140,15 @@ export class MailboxSyncService implements BackupUseCase {
         );
 
         if (outcome.error) {
-          folder_errors.push(`${folder.display_name}: ${outcome.error}`);
+          folder_errors.push(`${folder.folder_path}: ${outcome.error}`);
           progress.mark_error(i, outcome.error);
           continue;
         }
 
         all_entries.push(...outcome.entries);
-        if (outcome.delta_link) {
+        // Persist a folder's delta link only when every page was fully processed;
+        // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
+        if (outcome.delta_link && outcome.complete) {
           new_delta_links[folder.folder_id] = outcome.delta_link;
         }
         stored += outcome.stored;
@@ -140,8 +164,15 @@ export class MailboxSyncService implements BackupUseCase {
         progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
       }
 
-      if (should_interrupt()) progress.mark_all_pending_interrupted();
+      let interrupted = mark_progress_interrupted(progress, should_interrupt());
       progress.finish(global_processed);
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'outlook',
+        phase: 'finalizing',
+        processed: global_processed,
+        total: global_total,
+      });
 
       const merged_links = { ...saved_links, ...new_delta_links };
       const manifest = build_manifest(
@@ -154,12 +185,21 @@ export class MailboxSyncService implements BackupUseCase {
         mailbox_purpose,
       );
       await this._manifests.save(ctx, manifest);
+      interrupted ||= should_interrupt();
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'outlook',
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: global_processed,
+        total: global_total,
+      });
 
       const completed = mark_snapshot_completed(snapshot, all_entries.length);
       return {
         snapshot: completed,
         manifest,
         mode,
+        interrupted,
         summary: {
           stored,
           deduplicated,
@@ -167,7 +207,7 @@ export class MailboxSyncService implements BackupUseCase {
           processed: global_processed,
           folder_errors,
           warnings,
-          interrupted: should_interrupt(),
+          interrupted,
           completed_folder_count: Object.keys(new_delta_links).length,
           total_folder_count: folders.length,
           elapsed_ms: Date.now() - sync_start,
@@ -197,6 +237,7 @@ export class MailboxSyncService implements BackupUseCase {
   ): Promise<{
     entries: ManifestEntry[];
     delta_link?: string;
+    complete: boolean;
     stored: number;
     deduplicated: number;
     attachments_stored: number;
@@ -219,6 +260,7 @@ export class MailboxSyncService implements BackupUseCase {
         progress,
         is_interrupted: should_interrupt,
         is_hard_stopped: should_force_stop,
+        operation_control: options,
         ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
         previous_manifest_entries: previous_entry_count,
         ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
@@ -229,6 +271,7 @@ export class MailboxSyncService implements BackupUseCase {
       return {
         entries: result.entries,
         ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
+        complete: result.complete,
         stored: result.stored,
         deduplicated: result.deduplicated,
         attachments_stored: result.attachments_stored,
@@ -238,6 +281,7 @@ export class MailboxSyncService implements BackupUseCase {
       const msg = err instanceof Error ? err.message : String(err);
       return {
         entries: [],
+        complete: false,
         stored: 0,
         deduplicated: 0,
         attachments_stored: 0,
@@ -261,40 +305,6 @@ export class MailboxSyncService implements BackupUseCase {
         retain_until: options.object_lock_policy.retain_until,
       },
     };
-  }
-
-  private resolve_sync_mode(
-    options: SyncOptions,
-    saved_links: Record<string, string>,
-  ): BackupSyncMode {
-    if (options.force_full) return 'full';
-    if (Object.keys(saved_links).length > 0) return 'incremental';
-    return 'initial';
-  }
-
-  /**
-   * Filters the full folder list by display name (case-insensitive).
-   * Returns all folders if no filter is specified.
-   */
-  private apply_folder_filter(
-    folders: MailFolder[],
-    filter?: string[],
-  ): { folders: MailFolder[]; warnings: string[] } {
-    if (!filter || filter.length === 0) return { folders, warnings: [] };
-
-    const lower_filter = new Set(filter.map((f) => f.toLowerCase()));
-    const matched = folders.filter((f) => lower_filter.has(f.display_name.toLowerCase()));
-    const matched_names = new Set(matched.map((f) => f.display_name.toLowerCase()));
-    const warnings: string[] = [];
-
-    for (const name of lower_filter) {
-      if (!matched_names.has(name)) {
-        const available = folders.map((f) => f.display_name).join(', ');
-        warnings.push(`Folder "${name}" not found. Available: ${available}`);
-      }
-    }
-
-    return { folders: matched, warnings };
   }
 
   private async warn_if_replica(ctx: {

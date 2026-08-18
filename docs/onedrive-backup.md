@@ -25,7 +25,7 @@ New snapshot IDs are generated as `od-snap-<milliseconds>-<6-hex>` (for example 
 
 ## How It Works
 
-1. **Delta sync** -- For each drive, Atlas calls `GET /users/{owner_id}/drives/{drive_id}/root/delta` (or follows the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. If a single drive fails during a multi-drive backup, its delta link is not advanced and its entries are discarded from the snapshot manifest so the next run retries that drive cleanly. The delta cursor is saved incrementally after each successfully completed drive, reducing the replay window if the process crashes mid-backup. Only changed, moved, renamed, or deleted file items are considered for the manifest.
+1. **Delta sync** -- For each drive, Atlas calls `GET /users/{owner_id}/drives/{drive_id}/root/delta` (or follows the stored OData `deltaLink`) to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the drive: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A drive that fails outright -- before any delta could be read -- still leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed drive, reducing the replay window if the process crashes mid-backup. Only changed, moved, renamed, or deleted file items are considered for the manifest.
 2. **Content-addressed storage** -- Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that owner, the blob is deduplicated (no second upload).
 3. **Zero-disk streaming** -- Files at or above **512 MiB** use `fetch_file_chunks`: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `onedrive/staging/`, then copied to the canonical `onedrive/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part (on the order of **12 MiB** per large file, not the full file size).
 4. **Version history** -- After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content.
@@ -59,6 +59,14 @@ Atlas stores OneDrive data under **Entra object IDs** (opaque UUIDs). Typical be
 If `--owner` contains `@`, the CLI resolves it via `GraphUserIdentityResolver`: `GET /users/{email}` with `select=id,displayName,mail,userPrincipalName`, then uses `id` as `owner_id`. Values **without** `@` are treated as object IDs and passed through unchanged.
 
 Mailbox backup currently keys `data/` and `manifests/` by the mailbox identifier supplied to sync (often the primary SMTP address). OneDrive is intentionally keyed by object ID after resolution so operators should not assume the same string appears in both trees for a given person.
+
+### Identifier case
+
+Object IDs, mailbox addresses, and SharePoint site IDs are all case-insensitive to Microsoft Graph and case-sensitive to S3, so Atlas lowercases them before they become key segments. Two spellings of one identifier therefore address one tree.
+
+This matters most for deletion. Before 2.1.0-beta, `deleteOwnerData` given an uppercase object ID swept an empty prefix, reported the objects it deleted there, and left the real data untouched -- an erasure that reported success while every byte stayed retrievable. Graph returns these identifiers lowercase, so the gap only opened for callers supplying their own: an operator pasting an object ID from a portal, or an SDK embedder holding one in application state.
+
+Graph **item** IDs (`file_id`, `item_id`) are genuinely case-sensitive and are never folded. `--file-filter` accepts them exactly as a listing prints them, and compares case-insensitively so a retyped ID still matches.
 
 ## SDK Usage
 
@@ -94,7 +102,7 @@ const status = await atlas.onedrive.checkStatus('owner-id');
 const deletion = await atlas.onedrive.deleteOwnerData('owner-id');
 
 // Replicate and rehydrate
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 await atlas.onedrive.replicateAll('owner-id', [offsite]);
 await atlas.onedrive.rehydrateOwner('owner-id', offsite);
 ```
@@ -103,35 +111,35 @@ See [Programmatic SDK](./reference/sdk.md) for full method signatures and option
 
 ## CLI Reference
 
-| Command | Description |
-| --- | --- |
-| `atlas onedrive backup` | Back up changed files for one user |
-| `atlas onedrive restore` | Restore files from a snapshot |
-| `atlas onedrive save` | Decrypt and save files from a snapshot to a local zip archive |
-| `atlas onedrive list-snapshots` | List all snapshots for a user |
-| `atlas onedrive list-versions` | Show version history for a file |
-| `atlas onedrive verify` | Verify snapshot blob integrity |
+| Command                         | Description                                                   |
+| ------------------------------- | ------------------------------------------------------------- |
+| `atlas onedrive backup`         | Back up changed files for one user                            |
+| `atlas onedrive restore`        | Restore files from a snapshot                                 |
+| `atlas onedrive save`           | Decrypt and save files from a snapshot to a local zip archive |
+| `atlas onedrive list-snapshots` | List all snapshots for a user                                 |
+| `atlas onedrive list-versions`  | Show version history for a file                               |
+| `atlas onedrive verify`         | Verify snapshot blob integrity                                |
 
 ### `atlas onedrive backup`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID (required) | — |
-| `--full` | Force full crawl, ignore saved delta state | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                | Description                                | Default        |
+| ------------------- | ------------------------------------------ | -------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required)   | —              |
+| `--full`            | Force full crawl, ignore saved delta state | `false`        |
+| `-t, --tenant <id>` | Tenant identifier                          | Config default |
 
 ### `atlas onedrive restore`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID (required) | — |
-| `-s, --snapshot <id>` | Snapshot to restore from (required) | — |
-| `--target-owner <id>` | Restore to a different user's OneDrive | Same as `--owner` |
-| `--file-filter <paths...>` | Only restore specific files (by ID or path) | All files |
-| `-c, --conflict <mode>` | File conflict policy: `replace`, `rename`, or `fail` | `rename` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                       | Description                                          | Default           |
+| -------------------------- | ---------------------------------------------------- | ----------------- |
+| `-o, --owner <id>`         | User email or Entra object ID (required)             | —                 |
+| `-s, --snapshot <id>`      | Snapshot to restore from (required)                  | —                 |
+| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner` |
+| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files         |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`          |
+| `-t, --tenant <id>`        | Tenant identifier                                    | Config default    |
 
-Restored files are uploaded to the target user's primary drive. Folders are created as needed (existing folders with the same name are reused, not overwritten). Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on 429/503).
+Restored files are uploaded to the target user's primary drive. Folders are created as needed (existing folders with the same name are reused, not overwritten). Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on any transient Graph status: 429, 500, 502, 503, 504). A range PUT is addressed by its `Content-Range`, so a replayed chunk rewrites the same bytes rather than appending them twice.
 
 Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is read from S3 as a stream, the first 28 bytes (12-byte IV + 16-byte auth tag) are consumed to initialize AES-256-GCM, and ciphertext is decrypted in chunks without buffering the full ciphertext in memory.
 
@@ -139,29 +147,29 @@ Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is 
 
 ### `atlas onedrive list-snapshots`
 
-| Flag | Description |
-| --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID (required) |
-| `-t, --tenant <id>` | Tenant identifier |
+| Flag                | Description                              |
+| ------------------- | ---------------------------------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required) |
+| `-t, --tenant <id>` | Tenant identifier                        |
 
 ### `atlas onedrive list-versions`
 
-| Flag | Description |
-| --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID (required) |
-| `-f, --file <ref>` | File ID or path (required) |
-| `-t, --tenant <id>` | Tenant identifier |
+| Flag                | Description                              |
+| ------------------- | ---------------------------------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required) |
+| `-f, --file <ref>`  | File ID or path (required)               |
+| `-t, --tenant <id>` | Tenant identifier                        |
 
 ### `atlas onedrive save`
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID (required) | -- |
-| `-s, --snapshot <id>` | Snapshot ID to save from (required) | -- |
-| `--file-filter <paths...>` | Only save specific files (by ID or path) | All files |
-| `-O, --output <path>` | Output zip file path | Auto-generated |
-| `--skip-verify` | Skip SHA-256 integrity checks | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                       | Description                              | Default        |
+| -------------------------- | ---------------------------------------- | -------------- |
+| `-o, --owner <id>`         | User email or Entra object ID (required) | --             |
+| `-s, --snapshot <id>`      | Snapshot ID to save from (required)      | --             |
+| `--file-filter <paths...>` | Only save specific files (by ID or path) | All files      |
+| `-O, --output <path>`      | Output zip file path                     | Auto-generated |
+| `--skip-verify`            | Skip SHA-256 integrity checks            | `false`        |
+| `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
 The zip archive preserves the OneDrive folder hierarchy. Files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
 
@@ -173,11 +181,11 @@ atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents
 
 ### `atlas onedrive verify`
 
-| Flag | Description |
-| --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID (required) |
-| `-s, --snapshot <id>` | Snapshot ID to verify (required) |
-| `-t, --tenant <id>` | Tenant identifier |
+| Flag                  | Description                              |
+| --------------------- | ---------------------------------------- |
+| `-o, --owner <id>`    | User email or Entra object ID (required) |
+| `-s, --snapshot <id>` | Snapshot ID to verify (required)         |
+| `-t, --tenant <id>`   | Tenant identifier                        |
 
 `atlas onedrive verify` loads the manifest under `onedrive/manifests/{owner_id}/` for the resolved owner and snapshot ID (never listing other owners' prefixes), decrypts each referenced blob, recomputes SHA-256 with `timingSafeEqual`, and checks that the per-file index contains a row for that snapshot.
 
@@ -193,21 +201,23 @@ console.log(`Up to date: ${status.is_up_to_date}`);
 console.log(`Pending changes: ${status.total_pending_changes}`);
 
 for (const drive of status.drives) {
-  console.log(`  ${drive.drive_name}: ${drive.pending_changes} pending, backed up: ${drive.has_backup}`);
+  console.log(
+    `  ${drive.drive_name}: ${drive.pending_changes} pending, backed up: ${drive.has_backup}`,
+  );
 }
 ```
 
 `checkStatus` returns an `OneDriveStatusResult`:
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `owner_id` | `string` | The user's Entra object ID |
-| `last_backup_at` | `Date \| undefined` | Timestamp of the most recent snapshot |
-| `last_snapshot_id` | `string \| undefined` | ID of the most recent snapshot |
-| `total_drives` | `number` | Number of drives discovered |
-| `drives` | `OneDriveDriveStatus[]` | Per-drive backup status |
-| `is_up_to_date` | `boolean` | `true` if all drives have been backed up with zero pending changes |
-| `total_pending_changes` | `number` | Sum of pending changes across all drives |
+| Field                   | Type                    | Description                                                        |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `owner_id`              | `string`                | The user's Entra object ID                                         |
+| `last_backup_at`        | `Date \| undefined`     | Timestamp of the most recent snapshot                              |
+| `last_snapshot_id`      | `string \| undefined`   | ID of the most recent snapshot                                     |
+| `total_drives`          | `number`                | Number of drives discovered                                        |
+| `drives`                | `OneDriveDriveStatus[]` | Per-drive backup status                                            |
+| `is_up_to_date`         | `boolean`               | `true` if all drives have been backed up with zero pending changes |
+| `total_pending_changes` | `number`                | Sum of pending changes across all drives                           |
 
 ## Deletion
 
@@ -216,7 +226,7 @@ Delete backed-up OneDrive data via the SDK. The CLI uses the tenant-level `atlas
 **SDK:**
 
 ```typescript
-// Delete all backed-up data for a user (manifests, blobs, indexes, cursors)
+// Erases manifests, blobs, indexes, cursors and staging -- every version of each
 const result = await atlas.onedrive.deleteOwnerData('owner-id');
 console.log(`Deleted: ${result.deleted_objects} objects, ${result.deleted_manifests} manifests`);
 
@@ -224,7 +234,9 @@ console.log(`Deleted: ${result.deleted_objects} objects, ${result.deleted_manife
 await atlas.onedrive.deleteSnapshot('owner-id', 'od-snap-123');
 ```
 
-When Object Lock retention protects objects, deletion reports retained items separately from generic failures.
+`deleteOwnerData` takes the owner's Entra object ID -- the same identifier the storage keys use, which `atlas.resolveUser(email)` returns for an address. It erases every version of every matching object, so the data is gone rather than hidden behind a delete marker in a versioned bucket, and it includes the staging prefix where an interrupted large-file upload parks content.
+
+When Object Lock retention protects objects, deletion reports retained items separately from generic failures. See [Erasure](/security#erasure) for how the two are told apart.
 
 ## Replication
 
@@ -233,7 +245,7 @@ OneDrive snapshots support the same replication workflow as Outlook and SharePoi
 **SDK:**
 
 ```typescript
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 
 // Replicate a snapshot
 await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123', [offsite]);
@@ -248,24 +260,61 @@ await atlas.onedrive.rehydrateSnapshot('owner-id', 'od-snap-123', offsite);
 
 See [Replication](./operations/replication.md) for the full replication architecture and disaster recovery procedures.
 
+## Failed Items and Delta Progress
+
+A file that refuses to download -- a permissions quirk, a corrupted item, IRM-protected content, a chronically 4xx-ing CDN link -- must not be able to stop the rest of the drive from being backed up. Atlas therefore **advances past per-item failures and records them**, rather than discarding the batch:
+
+1. Items that succeeded are kept and land in the snapshot.
+2. The delta link advances, so the next run picks up new changes instead of replaying the whole backlog.
+3. Each failure is written into the drive's delta cursor as a `failed_items` record: item id, name, reason, attempt count, and when it first failed.
+4. The run is reported **UNHEALTHY** (non-zero exit) for as long as any failure is outstanding.
+
+The record is what makes advancing safe. Graph delta only re-presents items that _changed_, so a failure that was merely logged would be a file that is silently never backed up again. Every run therefore re-fetches its outstanding failures by item ID **before** processing new delta changes:
+
+- the item downloads → the record is cleared, and it appears in that run's snapshot;
+- the item no longer exists (Graph 404) → the record is dropped silently; there is nothing left to back up;
+- it fails again → the attempt count increments and the original `first_failed_at` is preserved.
+
+After **5 attempts** an item stops being re-fetched but keeps being reported on every run, so a permanently broken file costs one line of output instead of a download attempt on every backup forever.
+
+```
+[!] Not backed up: Osakasluettelo.xlsx (01STBDHIPIY7N3OWY...) -- file content could not be
+    downloaded; will retry (attempt 2 of 5), first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+Once the underlying problem clears, the next run picks the file up automatically:
+
+```
+[+] Snapshot od-snap-1786435155739-462686 created
+1 changed | 0 stored | 1 dedup
+[+] Status: HEALTHY
+```
+
+::: tip Reading the signal
+`UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human -- check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the drive keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
+:::
+
 ## Snapshot Health Status
 
 Every backup prints a health status at the end:
 
 - **HEALTHY** -- all primary file content was backed up successfully. The snapshot and delta cursor are safe to rely on.
-- **UNHEALTHY** -- one or more critical errors occurred (file download failure, drive-level crash, encryption error). The affected drive's entries are excluded from the manifest and its delta cursor is not advanced. `process.exitCode` is set to `1` so CI/monitoring pipelines detect the failure.
+- **UNHEALTHY** -- one or more critical errors occurred (file download failure, drive-level crash, encryption error, or an unexpected version download failure). The affected drive's entries are excluded from the manifest and its delta cursor is not advanced. `process.exitCode` is set to `2` (partial run) so CI/monitoring pipelines detect the failure; a hard failure that aborts the run exits `1`.
 
-Non-critical issues such as historical version download failures or expired version URLs are reported as **warnings** in the output but do not affect the health status. Warnings appear as `[!]` lines above the status; errors appear indented under `UNHEALTHY`.
+A version download that fails for an unexpected reason -- throttling, `403 accessDenied`, a transient Graph fault -- means the file's history is missing from the snapshot, so it counts as an error and holds the run **UNHEALTHY** (issue #92). Each failure logs its own line with the Graph status and error code, e.g. `Version 2.0 of report.docx: HTTP 403 -- accessDenied`, and the run summary repeats the count.
+
+Versions the service reports as gone (`404`/`410`, content purged by the site's retention policy) are expected, counted as `unavailable`, and do not affect health. OneNote package accounting and other advisory notes remain **warnings**: they appear as `[!]` lines above the status and leave the exit code at `0`.
 
 ## Azure AD Permissions
 
 Add these to your app registration (in addition to the Outlook backup set):
 
-| Permission | Type | Purpose |
-| --- | --- | --- |
-| `Files.Read.All` | Application | Read all users' OneDrive files (backup, verify) |
-| `Files.ReadWrite.All` | Application | Write to OneDrive (restore only) |
-| `User.Read.All` | Application | Resolve `users/{email}` to object ID for `-o` |
+| Permission            | Type        | Purpose                                         |
+| --------------------- | ----------- | ----------------------------------------------- |
+| `Files.Read.All`      | Application | Read all users' OneDrive files (backup, verify) |
+| `Files.ReadWrite.All` | Application | Write to OneDrive (restore only)                |
+| `User.Read.All`       | Application | Resolve `users/{email}` to object ID for `-o`   |
 
 Outlook backup already expects application permissions such as `Mail.Read` / `Mail.ReadBasic.All`; keep those for mailbox workflows.
 
@@ -273,13 +322,47 @@ Outlook backup already expects application permissions such as `Mail.Read` / `Ma
 
 Implementation thresholds from `@wisecom/atlas-onedrive`:
 
-| Size | Strategy |
-| --- | --- |
-| **≤ 4 MiB** | Single read of the file into memory (pre-authenticated URL or Graph content fallback when needed), encrypt, `put` |
-| **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put` |
-| **≥ 512 MiB** | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
+| Size                          | Strategy                                                                                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **≤ 4 MiB**                   | Single read of the file into memory (pre-authenticated URL or Graph content fallback when needed), encrypt, `put`                                                        |
+| **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                |
+| **≥ 512 MiB**                 | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter) so a transient failure replays a single chunk instead of the whole file.
+
+## OneNote Notebooks
+
+A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:
+
+| Item                        | Facets                               | Backed up                                                                                                                          |
+| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Notebook root (e.g. `Test`) | `folder` + `package`                 | Treated as a folder. `GET /items/{id}/content` returns **404** -- the root has no content of its own, so there is nothing to store |
+| `<Section>.one`             | `file`, MIME `application/msonenote` | Yes -- byte-for-byte, like any other file                                                                                          |
+| `Open Notebook.onetoc2`     | `file`                               | Yes -- byte-for-byte                                                                                                               |
+
+So notebook **content is covered by backups today**: each section file is content-addressed, encrypted, and stored under the notebook's folder path. What the run additionally reports is the notebook itself, because file counters alone cannot answer "did the notebook come through whole?":
+
+```
+OneNote notebooks detected: 1 (2 section file(s) backed up as ordinary files).
+```
+
+If any section file of a notebook fails while its siblings succeed, the run warns explicitly:
+
+```
+OneNote notebook "Test" (/Tietoturva/Test) is INCOMPLETE in this backup:
+1 of 2 section file(s) failed (Untitled Section.one).
+A partially captured notebook may not open after restore.
+```
+
+That warning exists because partial capture is the dangerous case: a `.onetoc2` table of contents stored **without** its sibling `.one` sections looks like a successful backup and restores into a notebook that will not open. Notebook completeness is therefore reported per notebook, never averaged into the run's file totals.
+
+### Coverage status and limits
+
+- **Captured:** every `.one` section file and the `.onetoc2` table of contents, at their current revision, in their original folder path.
+- **Reported:** notebook count, section files stored, and an explicit incompleteness warning per notebook.
+- **Restore is byte-faithful, notebook reassembly is not guaranteed.** A restored `.onetoc2` was verified byte-identical to the backed-up copy (SHA-256 match over a live tenant restore). What Atlas cannot promise is that dropping those files back produces a notebook a OneNote client will open: the package facet is created by the OneNote service, not by a file upload, so restored sections arrive as ordinary files. Treat notebook restore as "recover the section data", then let OneNote re-import it, and verify before relying on it.
+- **Version history for section files is often unavailable.** Graph frequently refuses version downloads for `.one` items; those appear in the run as `version download(s) failed`. The current revision is still stored.
+- The notebook root is not stored as a manifest entry (it has no content). Its path is preserved through its children, so restores land the sections back under the same folder structure.
 
 ## Unicode Path Handling
 

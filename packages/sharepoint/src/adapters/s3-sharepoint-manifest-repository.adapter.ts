@@ -7,6 +7,7 @@ import type {
 import {
   sharepoint_manifest_key,
   sharepoint_manifest_prefix,
+  sharepoint_manifest_root_prefix,
 } from '@/services/sharepoint-storage-keys';
 
 class InvalidSharePointManifestDateError extends Error {
@@ -54,6 +55,17 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]> {
     const keys = await ctx.storage.list(sharepoint_manifest_prefix(site_id));
+    const manifests: SharePointSnapshotManifest[] = [];
+    for (const key of keys) {
+      const parsed = await this.download_manifest(ctx, key);
+      if (parsed) manifests.push(parsed);
+    }
+    return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+  }
+
+  /** Lists every manifest across all sites, sorted newest first. */
+  async list_all_manifests(ctx: TenantContext): Promise<SharePointSnapshotManifest[]> {
+    const keys = await ctx.storage.list(sharepoint_manifest_root_prefix());
     const manifests: SharePointSnapshotManifest[] = [];
     for (const key of keys) {
       const parsed = await this.download_manifest(ctx, key);

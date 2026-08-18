@@ -68,7 +68,7 @@ Comprehensive security audit and restore-flow hardening driven by external revie
 - **Restore-integrity verification** — post-restore folder verification integrated into the restore pipeline
 - **Dependency security patches** — Dependabot vulnerability fixes
 
-### v2.0.0 — Multi-Workload & Monorepo *(current branch)*
+### v2.0.0 — Multi-Workload & Monorepo
 
 Extended Atlas beyond Outlook mailboxes to additional Microsoft 365 workloads and restructured the codebase for independent package releases.
 
@@ -78,6 +78,30 @@ Extended Atlas beyond Outlook mailboxes to additional Microsoft 365 workloads an
 - **Monorepo restructure** — split into dedicated packages (`@wisecom/atlas-cli`, `@wisecom/atlas-sdk`, shared domain/ports) with independent versioning and smaller install footprints
 - **Multi-workload replication** — `atlas replicate` and `atlas rehydrate` extended with `--site` for SharePoint; OneDrive and Outlook snapshots replicate through the same tenant bucket and DEK
 - **Unified encryption model** — all workloads share the per-tenant DEK and scrypt-derived KEK; storage layout documented per workload in [Storage Layout](/operations/storage-layout)
+
+### v2.1.0-beta — Live-Tenant Validation & Reliability _(current release)_
+
+Replaced manual end-to-end testing with a nightly pipeline that drives the shipped CLI against a real Microsoft 365 tenant — and fixed everything it found.
+
+**End-to-end pipeline**
+
+- **Full lifecycle per workload** — Outlook, OneDrive, and SharePoint each run seed → backup → verify → export → delete from M365 → restore → compare through Graph
+- **Disaster recovery drill** — replicate to a second endpoint, destroy the primary bucket, rehydrate, and verify that recovered data decrypts under the recovered key
+- **Immutability coverage** — Object Lock retention read back through the S3 API
+- **Regression guards** — one case per shipped bug that only reproduces against real infrastructure
+- **Nightly schedule, public-safe reporting** — per-suite results in the run summary; logs and artifacts scrubbed of tenant-identifying data
+
+**Fixes it surfaced, and hardening alongside**
+
+- **SharePoint version backup** — a freshly uploaded file no longer fails its first backup; the current version is not fetched through the version-content endpoint, which Graph rejects
+- **Site identifiers** — `--site` accepts a browser URL, `hostname:/sites/name`, or a composite id everywhere, including `replicate` and `rehydrate`
+- **Read-only commands provision nothing** — `list`, `stats`, and `list-users` against an unknown tenant no longer create a bucket or bootstrap key material
+- **Honest error classification** — a storage authorization failure during restore is reported as a storage error, not as AES-GCM tampering
+- **Tenant-wide recovery** — `rehydrate --all` recovers every workload rather than Outlook alone, and OneDrive scope (`-o`) reaches `replicate`/`rehydrate`
+- **Graceful cancellation** — Outlook, OneDrive, and SharePoint honour interruption during finalization, and version download failures fail the run with a reason instead of passing silently
+- **Typecheck in CI** — the compiler is a merge gate, so a type error can no longer hide behind a warm build cache
+
+See [`e2e/README.md`](https://github.com/wisecom-oy/atlas/blob/main/e2e/README.md) for what a run does and how to add a case.
 
 ---
 
@@ -94,10 +118,6 @@ Evaluate replacing scrypt with Argon2id for KEK derivation. The versioned DEK bl
 ### Performance Profiling & Optimization
 
 Instrument the backup and restore pipelines with flamechart analysis to identify bottlenecks. Candidates include S3 upload concurrency, Graph API page fetch parallelism, and encryption throughput. Targeted optimizations based on measured data rather than assumptions.
-
-### CI/CD Restore & Backup Validation
-
-Add automated end-to-end pipeline stages that run a full backup → verify → restore → compare cycle against a dedicated testing tenant on every merge request. This replaces manual E2E testing and catches regressions before they reach a release branch.
 
 ### SDK Documentation & Hosted Docs
 

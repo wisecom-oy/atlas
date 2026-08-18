@@ -1,6 +1,18 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
-const RETRYABLE_STATUS_CODES = new Set([429, 503, 504]);
+/**
+ * Statuses Graph recovers from on its own, per Microsoft's throttling and
+ * resilience guidance: the request never reached a working backend, or the
+ * gateway gave up on one. 501 and every 4xx stay out -- repeating those
+ * returns the same answer.
+ *
+ * ponytail: one set for reads and writes. A 500 on a create POST can retry a
+ * request the backend already committed, which restore surfaces as a duplicate
+ * item -- the same exposure 504 already carried. Thread an idempotency flag
+ * through GraphRetryOptions and opt the restore writers out if duplicates ever
+ * show up in practice.
+ */
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const NETWORK_ERROR_CODES = new Set([
   'ETIMEDOUT',
   'ECONNRESET',
@@ -16,6 +28,19 @@ const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 60_000;
+
+export interface GraphRetryOptions {
+  /**
+   * Per-attempt timeout. The default 60s bounds a single Graph request --
+   * NEVER wrap a multi-page enumeration in one with_graph_retry call: the
+   * timeout races the whole loop, restarts it from page 1 on expiry, and the
+   * losing arm keeps consuming Graph quota (issue #33). Retry per page so the
+   * paginator resumes from @odata.nextLink. Large single-object transfers
+   * (attachment $value, file content) should pass a bigger window -- corso
+   * converged on 1h default / 48h for large files against production tenants.
+   */
+  readonly timeout_ms?: number;
+}
 
 /**
  * Detects Graph errors that indicate an invalid/expired delta token.
@@ -82,7 +107,7 @@ export function rethrow_if_mailbox_not_licensed(err: unknown): void {
   }
 }
 
-/** Returns true when the error carries a transient HTTP status (429, 503, 504). */
+/** Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504). */
 export function is_transient_error(err: unknown): boolean {
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
@@ -118,7 +143,7 @@ export function is_retryable_error(err: unknown): boolean {
 
 /**
  * Wraps any async network call with exponential backoff + jitter for both
- * transient HTTP errors (429, 503, 504) and network-level errors (ETIMEDOUT,
+ * transient HTTP errors (429, 500, 502, 503, 504) and network-level errors (ETIMEDOUT,
  * ECONNRESET, socket hang up, etc.).
  *
  * Retries up to 12 times with delays capped at 5 minutes, giving a total
@@ -128,10 +153,14 @@ export function is_retryable_error(err: unknown): boolean {
  * This function is designed to be reusable across backup, restore, save, and
  * any other operation that communicates over the network.
  */
-export async function with_graph_retry<T>(fn: () => Promise<T>): Promise<T> {
+export async function with_graph_retry<T>(
+  fn: () => Promise<T>,
+  options: GraphRetryOptions = {},
+): Promise<T> {
+  const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      return await race_timeout(fn(), REQUEST_TIMEOUT_MS);
+      return await race_timeout(fn(), timeout_ms);
     } catch (err) {
       if (!is_retryable_error(err) || attempt === MAX_RETRIES) throw err;
 
@@ -140,7 +169,7 @@ export async function with_graph_retry<T>(fn: () => Promise<T>): Promise<T> {
       const jitter = Math.random() * BASE_DELAY_MS;
       const delay = Math.min(base + jitter, MAX_DELAY_MS);
 
-      const reason = describe_error(err);
+      const reason = describe_graph_error(err);
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
       );
@@ -159,8 +188,7 @@ function extract_retry_after(err: unknown): number | undefined {
     graph_err.headers as Record<string, string> | undefined,
     graph_err.responseHeaders as Record<string, string> | undefined,
     (graph_err.response as Record<string, unknown> | undefined)?.headers as
-      | Record<string, string>
-      | undefined,
+      Record<string, string> | undefined,
   ];
   for (const headers of headers_sources) {
     if (!headers) continue;
@@ -172,11 +200,41 @@ function extract_retry_after(err: unknown): number | undefined {
   return undefined;
 }
 
-function describe_error(err: unknown): string {
+/**
+ * Renders any Graph/network error as a non-empty, actionable one-liner.
+ * Graph SDK errors routinely carry an empty `message` with the useful part in
+ * `statusCode`/`code`/`body`, so every available facet is joined rather than
+ * picking the first one present (issue #92).
+ */
+export function describe_graph_error(err: unknown): string {
+  if (err === null || err === undefined) return 'unknown error';
+  if (typeof err !== 'object') return String(err);
+
   const graph_err = err as Record<string, unknown>;
-  if (graph_err.statusCode) return `HTTP ${graph_err.statusCode}`;
-  if (graph_err.code) return String(graph_err.code);
-  return err instanceof Error ? err.message.slice(0, 80) : 'unknown';
+  const status = graph_err.statusCode ?? graph_err.status;
+  const message = err instanceof Error ? err.message.trim() : '';
+  const parts = [
+    typeof status === 'number' || typeof status === 'string' ? `HTTP ${status}` : '',
+    typeof graph_err.code === 'string' ? graph_err.code.trim() : '',
+    message.slice(0, 200),
+    message === '' && typeof graph_err.body === 'string' ? graph_err.body.slice(0, 200) : '',
+  ].filter((part) => part !== '');
+
+  return parts.length > 0 ? parts.join(' -- ') : `unknown error (${err.constructor.name})`;
+}
+
+/**
+ * HTTP 404/410: the content is gone for good (version purged by retention,
+ * item hard-deleted). Distinct from a transient failure -- callers count these
+ * as expected, not as backup errors.
+ */
+export function is_content_gone_error(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const graph_err = err as Record<string, unknown>;
+  const status = graph_err.statusCode ?? graph_err.status;
+  if (status === 404 || status === 410) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes('404') || message.includes('Not Found') || message.includes('410');
 }
 
 function sleep(ms: number): Promise<void> {

@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-outlook",
-  "version": "2.0.0-beta.0",
+  "version": "2.1.0-beta",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -26,7 +26,6 @@
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "archiver": "^7.0.1",
-    "chalk": "^5.6.2",
     "inversify": "^7.11.0",
     "mimetext": "^3.0.28",
     "reflect-metadata": "^0.2.2"

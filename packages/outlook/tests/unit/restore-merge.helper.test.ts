@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  merge_snapshot_entries,
-  filter_manifests_by_date,
-} from '@/services/restore/manifest-entry-merger';
+import { merge_snapshot_entries, filter_manifests_by_date } from '@wisecom/atlas-core';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 
 function make_entry(id: string, folder_id = 'f1'): ManifestEntry {

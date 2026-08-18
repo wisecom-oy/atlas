@@ -5,15 +5,35 @@ import type {
   SharePointManifestEntry,
   SharePointSnapshotManifest,
 } from '@wisecom/atlas-types';
+import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
 import type { VersionSyncResult } from '@/services/sharepoint-version-sync';
+
+/**
+ * Flattens per-library package reports into backup summary warnings.
+ *
+ * Emits one informational line for the run plus every per-notebook
+ * incompleteness warning, so a notebook that lost section files is visible
+ * even though its files are stored as ordinary items.
+ */
+export function build_package_warnings(reports: readonly PackageReport[]): string[] {
+  const detected = reports.reduce((n, r) => n + r.notebooks_detected, 0);
+  if (detected === 0) return [];
+  const sections = reports.reduce((n, r) => n + r.section_files_backed_up, 0);
+  return [
+    `OneNote notebooks detected: ${detected} (${sections} section file(s) backed up as ordinary files).`,
+    ...reports.flatMap((r) => r.warnings),
+  ];
+}
 
 export function build_deleted_entry(
   item: SharePointDeltaItem,
   change_type: SharePointChangeType,
+  library_name: string,
 ): SharePointManifestEntry {
   return {
     file_id: item.item_id,
     drive_id: item.drive_id,
+    library_name,
     file_name: item.file_name,
     parent_path: item.parent_path,
     size_bytes: item.size_bytes,
@@ -30,10 +50,12 @@ export function build_stored_entry(
   storage_key: string,
   checksum: string,
   change_type: SharePointChangeType,
+  library_name: string,
 ): SharePointManifestEntry {
   return {
     file_id: item.item_id,
     drive_id: item.drive_id,
+    library_name,
     file_name: item.file_name,
     parent_path: item.parent_path,
     size_bytes: item.size_bytes,
@@ -81,10 +103,12 @@ export function build_empty_result(
   errors: string[],
   warnings: string[],
   healthy: boolean,
+  interrupted: boolean,
 ): SharePointBackupResult {
   return {
     site_id,
     snapshot: undefined,
+    interrupted,
     summary: {
       libraries_scanned,
       files_changed: 0,

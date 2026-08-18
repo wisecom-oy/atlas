@@ -1,4 +1,10 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { randomBytes } from 'node:crypto';
+import {
+  begin_operation_progress,
+  emit_operation_progress,
+  finish_operation_progress,
+} from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointBackupOptions,
@@ -8,7 +14,6 @@ import type {
   SharePointDeltaCursor,
   SharePointDeltaCursorRepository,
   SharePointFileVersionIndexRepository,
-  SharePointManifestEntry,
   SharePointManifestRepository,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -19,15 +24,26 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
-import { build_empty_result, build_snapshot_manifest } from '@/services/sharepoint-backup-builders';
-import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import {
-  process_single_library,
-  type FileTrackingState,
-  type VersionStatsState,
-} from '@/services/sharepoint-backup-library-processor';
+  describe_failed_items,
+  type FailedItemLedger,
+} from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import {
+  build_empty_result,
+  build_package_warnings,
+  build_snapshot_manifest,
+} from '@/services/sharepoint-backup-builders';
+import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
+import type {
+  FileTrackingState,
+  VersionStatsState,
+} from '@/services/sharepoint-library-item-processor';
+import {
+  scan_all_libraries,
+  type SharePointLibraryScanResult,
+} from '@/services/sharepoint-backup-library-scan';
 import { cleanup_stale_staging } from '@/services/sharepoint-large-file-pipeline';
+import { append_version_indexes } from '@/services/sharepoint-version-index-appender';
 
 @injectable()
 export class SharePointBackupService implements SharePointBackupUseCase {
@@ -48,12 +64,31 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     site_id: string,
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult> {
+    site_id = normalize_owner_id(site_id);
+    if (begin_operation_progress(options, 'backup', 'sharepoint')) {
+      finish_operation_progress(options, 'backup', 'sharepoint', 0, 0);
+      return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true);
+    }
     const ctx = await this._tenant_factory.create(tenant_id);
+    if (options.object_lock_request?.retention_days) {
+      // Bucket default retention: every new object version (files, versions,
+      // manifests, cursors) inherits the lock - no write path can forget it.
+      await ctx.storage.apply_default_retention(
+        options.object_lock_request.mode ?? 'GOVERNANCE',
+        options.object_lock_request.retention_days,
+      );
+    }
     try {
       const previous_cursor =
         options.force_full === true ? undefined : await this._cursors.load(ctx, site_id);
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
       ensure_libraries_discovered(libraries.length);
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'sharepoint',
+        phase: 'processing',
+        processed: 0,
+      });
 
       const delta_link_by_drive: Record<string, string> = {
         ...(previous_cursor?.delta_link_by_drive ?? {}),
@@ -64,7 +99,11 @@ export class SharePointBackupService implements SharePointBackupUseCase {
 
       const manifest_created_at = new Date();
       const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
-      const scan = await this.scan_all_libraries(
+      const scan = await scan_all_libraries({
+        connector: this._connector,
+        cursors: this._cursors,
+        file_indexes: this._file_indexes,
+        initial_failed_items: previous_cursor?.failed_items ?? {},
         tenant_id,
         site_id,
         snapshot_id,
@@ -74,41 +113,66 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         tracking,
         delta_link_by_drive,
         ctx,
-      );
+      });
 
-      const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking);
-      const warnings = this.build_version_warnings(scan.version_stats);
-      const healthy = scan.errors.length === 0;
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'sharepoint',
+        phase: 'finalizing',
+        processed: scan.items_processed,
+      });
+      scan.interrupted ||= options.should_interrupt?.() === true;
+      const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking, scan.failed_items);
+      const warnings = [
+        ...build_package_warnings(scan.package_reports),
+        ...describe_failed_items(scan.failed_items),
+      ];
+      // Version downloads that failed for an unexpected reason leave history out
+      // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
+      // like every other incomplete backup (issue #92).
+      const errors = [...scan.errors, ...this.build_version_errors(scan.version_stats)];
+      const healthy =
+        !scan.interrupted && errors.length === 0 && Object.keys(scan.failed_items).length === 0;
 
+      let result: SharePointBackupResult;
       if (scan.entries.length === 0) {
         await this._cursors.save(ctx, cursor);
-        return build_empty_result(
+        result = build_empty_result(
           site_id,
-          libraries.length,
+          scan.libraries_scanned,
           scan.files_stored,
           scan.files_deduplicated,
           scan.deleted_items,
           scan.version_stats.total_versions_stored,
           scan.version_stats.total_versions_unavailable,
-          scan.errors,
+          errors,
+          warnings,
+          healthy,
+          scan.interrupted,
+        );
+      } else {
+        result = await this.finalize_snapshot(
+          ctx,
+          tenant_id,
+          site_id,
+          scan,
+          snapshot_id,
+          manifest_created_at,
+          scan.libraries_scanned,
+          options,
+          cursor,
+          errors,
           warnings,
           healthy,
         );
       }
-
-      return this.finalize_snapshot(
-        ctx,
-        tenant_id,
-        site_id,
-        scan,
-        snapshot_id,
-        manifest_created_at,
-        libraries.length,
-        options,
-        cursor,
-        warnings,
-        healthy,
-      );
+      emit_operation_progress(options, {
+        operation: 'backup',
+        workload: 'sharepoint',
+        phase: scan.interrupted ? 'interrupted' : 'completed',
+        processed: scan.items_processed,
+      });
+      return result;
     } finally {
       ctx.destroy();
     }
@@ -125,105 +189,40 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     };
   }
 
-  private async scan_all_libraries(
-    tenant_id: string,
-    site_id: string,
-    snapshot_id: string,
-    libraries: Awaited<ReturnType<SharePointSiteConnector['list_document_libraries']>>,
-    options: SharePointBackupOptions,
-    previous_cursor: SharePointDeltaCursor | undefined,
-    tracking: FileTrackingState,
-    delta_link_by_drive: Record<string, string>,
-    ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
-  ): Promise<{
-    entries: SharePointManifestEntry[];
-    files_stored: number;
-    files_deduplicated: number;
-    deleted_items: number;
-    errors: string[];
-    version_stats: VersionStatsState;
-  }> {
-    const entries: SharePointManifestEntry[] = [];
-    let files_stored = 0;
-    let files_deduplicated = 0;
-    let deleted_items = 0;
-    const version_stats: VersionStatsState = {
-      total_versions_stored: 0,
-      total_versions_unavailable: 0,
-      total_versions_failed: 0,
-    };
-    const errors: string[] = [];
-
-    for (const library of libraries) {
-      try {
-        const library_result = await process_single_library(
-          this._connector,
-          this._cursors,
-          this._file_indexes,
-          tenant_id,
-          site_id,
-          snapshot_id,
-          library,
-          options,
-          previous_cursor,
-          tracking,
-          delta_link_by_drive,
-          ctx,
-          version_stats,
-          errors,
-        );
-
-        if (library_result.had_errors) continue;
-
-        entries.push(...library_result.entries);
-        files_stored += library_result.files_stored;
-        files_deduplicated += library_result.files_deduplicated;
-        deleted_items += library_result.deleted_items;
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
-        logger.error(`Library ${library.drive_id} failed: ${reason}`);
-        errors.push(`Library ${library.drive_name} (${library.drive_id}): ${reason}`);
-      }
-    }
-
-    return { entries, files_stored, files_deduplicated, deleted_items, errors, version_stats };
-  }
-
   private build_cursor(
     site_id: string,
     delta_link_by_drive: Record<string, string>,
     tracking: FileTrackingState,
+    failed_items: FailedItemLedger,
   ): SharePointDeltaCursor {
     return {
       site_id,
       delta_link_by_drive,
       ...tracking,
+      failed_items,
       updated_at: new Date().toISOString(),
     };
   }
 
-  private build_version_warnings(version_stats: VersionStatsState): string[] {
+  private build_version_errors(version_stats: VersionStatsState): string[] {
     if (version_stats.total_versions_failed === 0) return [];
-    return [`${version_stats.total_versions_failed} version download(s) failed unexpectedly`];
+    return [
+      `${version_stats.total_versions_failed} version download(s) failed unexpectedly ` +
+        `-- see the per-version reasons above; those versions are not in this snapshot`,
+    ];
   }
 
   private async finalize_snapshot(
     ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
     tenant_id: string,
     site_id: string,
-    scan: {
-      entries: SharePointManifestEntry[];
-      files_stored: number;
-      files_deduplicated: number;
-      deleted_items: number;
-      errors: string[];
-      version_stats: VersionStatsState;
-    },
+    scan: SharePointLibraryScanResult,
     snapshot_id: string,
     manifest_created_at: Date,
     libraries_scanned: number,
     options: SharePointBackupOptions,
     cursor: SharePointDeltaCursor,
+    errors: string[],
     warnings: string[],
     healthy: boolean,
   ): Promise<SharePointBackupResult> {
@@ -237,13 +236,20 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       options.site_display_name,
     );
     await this._manifests.save(ctx, snapshot);
-    await this.append_version_indexes(ctx, site_id, scan.entries, snapshot.snapshot_id);
+    await append_version_indexes(
+      this._file_indexes,
+      ctx,
+      site_id,
+      scan.entries,
+      snapshot.snapshot_id,
+    );
 
     await this._cursors.save(ctx, cursor);
 
     return {
       site_id,
       snapshot,
+      interrupted: scan.interrupted,
       summary: {
         libraries_scanned,
         files_changed: scan.entries.length,
@@ -254,36 +260,10 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         snapshot_created: true,
         versions_stored: scan.version_stats.total_versions_stored,
         versions_unavailable: scan.version_stats.total_versions_unavailable,
-        errors: scan.errors,
+        errors,
         warnings,
         healthy,
       },
     };
-  }
-
-  private async append_version_indexes(
-    ctx: Awaited<ReturnType<TenantContextFactory['create']>>,
-    site_id: string,
-    entries: SharePointManifestEntry[],
-    snapshot_id: string,
-  ): Promise<void> {
-    for (const entry of entries) {
-      await this._file_indexes.append_version(ctx, site_id, entry.file_id, {
-        snapshot_id,
-        backup_at: entry.backup_at,
-        drive_id: entry.drive_id,
-        file_name: entry.file_name,
-        parent_path: entry.parent_path,
-        size_bytes: entry.size_bytes,
-        change_type: entry.change_type,
-        ...(entry.web_url !== undefined ? { web_url: entry.web_url } : {}),
-        ...(entry.storage_key !== undefined ? { storage_key: entry.storage_key } : {}),
-        ...(entry.checksum !== undefined ? { checksum: entry.checksum } : {}),
-        ...(entry.etag !== undefined ? { etag: entry.etag } : {}),
-        ...(entry.last_modified_at !== undefined
-          ? { last_modified_at: entry.last_modified_at }
-          : {}),
-      });
-    }
   }
 }

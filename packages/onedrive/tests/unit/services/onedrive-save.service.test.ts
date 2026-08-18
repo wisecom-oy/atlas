@@ -88,6 +88,7 @@ describe('OneDriveSaveService', () => {
 
     const mock_factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     };
 
     mock_manifests = {
@@ -200,6 +201,34 @@ describe('OneDriveSaveService', () => {
 
       expect(result.files_saved).toBe(1);
       expect(result.integrity_failures).toHaveLength(0);
+    });
+
+    it('stops between files and returns partial counts when interrupted', async () => {
+      const manifest = make_manifest([
+        make_entry(),
+        make_entry({ file_id: 'file-2', file_name: 'budget.xlsx' }),
+      ]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(manifest);
+      let interrupted = false;
+      vi.mocked(mock_context.storage.get).mockImplementation(async () => {
+        interrupted = true;
+        return Buffer.from('encrypted-content');
+      });
+      const on_progress = vi.fn();
+
+      const result = await service.save_snapshot('test-tenant', 'owner-1', {
+        snapshot_id: 'od-snap-1',
+        output_path: '/tmp/interrupted.zip',
+        should_interrupt: () => interrupted,
+        on_progress,
+      });
+
+      expect(mock_context.storage.get).toHaveBeenCalledOnce();
+      expect(result.files_saved).toBe(1);
+      expect(result.interrupted).toBe(true);
+      expect(on_progress).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: 'save', workload: 'onedrive', phase: 'interrupted' }),
+      );
     });
   });
 });

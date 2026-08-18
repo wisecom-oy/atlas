@@ -253,14 +253,22 @@ Key implications for SaaS scheduling:
 
 ## Using the Limits in Code
 
+`graph_cost` is measured at the transport, so one recorded request is one HTTP
+request: each `@odata.nextLink` page and each retried attempt is counted
+separately. Cooldowns computed from it therefore reflect the quota actually
+consumed rather than the number of connector calls made.
+
 Atlas exports the `GRAPH_SERVICE_LIMITS` constant so your SaaS layer can use the same authoritative numbers for scheduling decisions:
 
 ```typescript
-import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
+import { getGraphCost, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
 import type { OperationCost } from '@wisecom/atlas-sdk';
 
-// After a backup job completes:
-const cost: OperationCost = result.graph_cost;
+// After a backup job finishes -- successfully or not. A run that threw has
+// usually spent MORE quota than one that completed, so cool down on it too.
+const cost: OperationCost | undefined = result?.graph_cost ?? getGraphCost(err);
+if (!cost) return;
+
 const outlook = GRAPH_SERVICE_LIMITS.outlook;
 
 // Estimate cooldown: how much of the 10-min window did we consume?
