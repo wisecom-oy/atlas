@@ -25,6 +25,7 @@ import { render_static_view } from '@/ui/render';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
+import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
 
 type ContainerFactory = () => Container;
 
@@ -80,7 +81,10 @@ async function execute_replicate(container: Container, options: ReplicateOptions
     const owner_scope = options.owner
       ? (await resolve_owner(container, tenant_id, options.owner)).object_id
       : undefined;
-    const scope_id = options.mailbox ?? options.site ?? owner_scope;
+    const site_scope = options.site
+      ? await resolve_site_id(container, tenant_id, options.site)
+      : undefined;
+    const scope_id = options.mailbox ?? site_scope ?? owner_scope;
     await show_status(use_case, tenant_id, options.snapshot, scope_id);
     return;
   }
@@ -99,46 +103,9 @@ async function execute_replicate(container: Container, options: ReplicateOptions
   );
 
   if (options.site) {
-    const sharepoint_replication = container.get<SharePointReplicationUseCase>(
-      SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
-    );
-    if (options.snapshot) {
-      const results = await sharepoint_replication.replicate_site(
-        tenant_id,
-        options.site,
-        options.snapshot,
-        [target],
-      );
-      await report_results(results);
-    } else {
-      const results = await sharepoint_replication.replicate_all_site_snapshots(
-        tenant_id,
-        options.site,
-        [target],
-      );
-      await report_results(results);
-    }
+    await replicate_site_scope(container, tenant_id, options, target);
   } else if (options.owner) {
-    const onedrive_replication = container.get<OneDriveReplicationUseCase>(
-      ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
-    );
-    const owner = await resolve_owner(container, tenant_id, options.owner);
-    if (options.snapshot) {
-      const results = await onedrive_replication.replicate_owner(
-        tenant_id,
-        owner.object_id,
-        options.snapshot,
-        [target],
-      );
-      await report_results(results);
-    } else {
-      const results = await onedrive_replication.replicate_all_owner_snapshots(
-        tenant_id,
-        owner.object_id,
-        [target],
-      );
-      await report_results(results);
-    }
+    await replicate_owner_scope(container, tenant_id, options, target);
   } else if (options.snapshot) {
     const results = await use_case.replicate_snapshot(tenant_id, options.snapshot, [target]);
     await report_results(results);
@@ -151,6 +118,40 @@ async function execute_replicate(container: Container, options: ReplicateOptions
     );
     process.exitCode = 1;
   }
+}
+
+/** Replicates one SharePoint site: a single snapshot with --snapshot, otherwise every unreplicated one. */
+async function replicate_site_scope(
+  container: Container,
+  tenant_id: string,
+  options: ReplicateOptions,
+  target: StorageTarget,
+): Promise<void> {
+  const replication = container.get<SharePointReplicationUseCase>(
+    SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  );
+  const site_id = await resolve_site_id(container, tenant_id, options.site!);
+  const results = options.snapshot
+    ? await replication.replicate_site(tenant_id, site_id, options.snapshot, [target])
+    : await replication.replicate_all_site_snapshots(tenant_id, site_id, [target]);
+  await report_results(results);
+}
+
+/** Replicates one OneDrive owner: a single snapshot with --snapshot, otherwise every unreplicated one. */
+async function replicate_owner_scope(
+  container: Container,
+  tenant_id: string,
+  options: ReplicateOptions,
+  target: StorageTarget,
+): Promise<void> {
+  const replication = container.get<OneDriveReplicationUseCase>(
+    ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
+  );
+  const owner = await resolve_owner(container, tenant_id, options.owner!);
+  const results = options.snapshot
+    ? await replication.replicate_owner(tenant_id, owner.object_id, options.snapshot, [target])
+    : await replication.replicate_all_owner_snapshots(tenant_id, owner.object_id, [target]);
+  await report_results(results);
 }
 
 function build_target(container: Container, options: ReplicateOptions): StorageTarget {
