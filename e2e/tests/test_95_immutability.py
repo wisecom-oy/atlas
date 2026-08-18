@@ -26,9 +26,11 @@ def test_01_backup_applies_retention(cli: Cli, settings: Settings, s3: Any, run_
     """A backup with `--retention-days 1 --require-immutability` stamps retention on what it writes.
 
     `--require-immutability` is the point: it makes the run fail rather than silently downgrade to
-    mutable writes, which is the failure mode an operator would never notice.
+    mutable writes, which is the failure mode an operator would never notice. A clean exit is the
+    whole signal here -- the flag's contract is to fail otherwise -- and whether retention actually
+    landed is read from S3 in the next test, not from the run's own summary.
     """
-    result = cli.ok(
+    cli.ok(
         "outlook",
         "backup",
         "-m",
@@ -41,7 +43,6 @@ def test_01_backup_applies_retention(cli: Cli, settings: Settings, s3: Any, run_
         settings.lock_mode,
         "--require-immutability",
     )
-    assert "immutab" in result.out.lower(), result.describe()
 
     owner_keys = [k for k in storage.list_keys(s3, settings.bucket) if k.startswith("data/")]
     assert owner_keys, "the locked backup stored no message blob"
