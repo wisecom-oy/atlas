@@ -13,6 +13,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { SharePointManifestEntry, TenantContext } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
 import {
   should_stream_restore,
   stream_decrypt_from_storage,
@@ -97,12 +98,6 @@ async function buffered_download_and_decrypt(
     );
     return undefined;
   }
-}
-
-function is_gcm_auth_failure(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  const lower = msg.toLowerCase();
-  return msg.includes('Unsupported state') || lower.includes('auth');
 }
 
 function plaintext_sha256_equals_expected(content: Buffer, expected_hex: string): boolean {

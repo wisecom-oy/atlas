@@ -26,8 +26,8 @@ import {
   stream_decrypt_from_storage,
   verify_streaming_checksum,
 } from '@/services/onedrive-restore-streaming';
+import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
 import {
-  is_gcm_auth_failure,
   OneDriveDecryptAuthError,
   plaintext_sha256_equals_expected,
 } from '@/services/onedrive-restore-integrity';
