@@ -7,7 +7,9 @@ import logging
 from atlas_e2e import drive, probe
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph, GraphError
+from atlas_e2e.config import Settings
 from atlas_e2e.marker import PREFIX, is_marked, is_stale, parse_graph_time
+from atlas_e2e.scrub import scrub
 
 log = logging.getLogger(__name__)
 
@@ -59,15 +61,16 @@ def sweep_mailbox(graph: Graph, mailbox: str, marker: str) -> list[str]:
     return removed
 
 
-def purge_bucket(cli: Cli) -> None:
+def purge_bucket(cli: Cli, settings: Settings) -> None:
     """Empties the tenant bucket through the product's own purge path.
 
-    Retained objects are expected on the compliance leg, so a non-zero exit is logged rather than
-    raised: the immutability suite owns that assertion (plan section 4.1).
+    Locked objects from the immutability suite legitimately refuse to delete, so a non-zero exit is
+    logged rather than raised -- the workflow's volume teardown owns those bytes. The output is
+    scrubbed before logging: purge output can carry object keys, and keys carry owner ids.
     """
     result = cli.run("outlook", "delete", "--purge", "-y")
     if result.code != 0:
-        log.warning("Purge exited %s: %s", result.code, result.out.strip()[:400])
+        log.warning("Purge exited %s: %s", result.code, scrub(result.out, settings).strip()[:400])
 
 
 def _delete_folder(graph: Graph, mailbox: str, folder_id: str, name: str, removed: list[str]) -> None:

@@ -91,3 +91,4 @@ def load() -> Settings:
         onedrive_owner=os.environ.get("E2E_ONEDRIVE_OWNER", ""),
         sharepoint_site=os.environ.get("E2E_SHAREPOINT_SITE", ""),
     )
+
