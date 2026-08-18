@@ -1,9 +1,17 @@
 name: E2E
 
-# Manual dispatch only for now. The weekly and monthly crons arrive with the remaining suites
-# (issue #108). Never add `pull_request`: this job holds tenant credentials, and a PR-triggered
-# run of fork-supplied code would be a secret-exfiltration path.
+# Runs on pushes to the long-lived branches, plus manual dispatch. The weekly and monthly crons
+# arrive with the remaining suites (issue #108).
+#
+# Never add `pull_request`: this job holds tenant credentials, and a PR-triggered run of
+# fork-supplied code would be a secret-exfiltration path.
+#
+# This workflow gates nothing. It is deliberately not a required status check -- a live-tenant run
+# depends on Graph and network availability, so a red E2E must inform, not block a merge. CI
+# (`ci.yml`) stays the gate.
 on:
+  push:
+    branches: [main, dev]
   workflow_dispatch:
     inputs:
       suite:
@@ -23,7 +31,8 @@ jobs:
   e2e:
     name: End-to-end against a live tenant
     runs-on: ubuntu-latest
-    environment: e2e
+    # No `environment:`: the E2E secrets are repository secrets, and an environment with approval
+    # rules would leave scheduled and push-triggered runs waiting for a human.
     timeout-minutes: 30
 
     steps:
@@ -57,6 +66,7 @@ jobs:
         run: echo "::add-mask::atlas-$E2E_TENANT_ID"
 
       - name: Run E2E suite
+        id: suite
         working-directory: e2e
         env:
           E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
@@ -67,6 +77,13 @@ jobs:
           E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
           E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
         run: uv run pytest ${{ inputs.suite && format('-k "{0}"', inputs.suite) || '' }}
+
+      # Status is readable from the run page itself, so a red badge can be triaged without
+      # opening logs. The XML holds test names only -- no tenant data.
+      - name: Report status
+        if: always()
+        working-directory: e2e
+        run: uv run python -m atlas_e2e.summary >> "$GITHUB_STEP_SUMMARY"
 
       # Belt and braces: pytest teardown already sweeps, but a crashed interpreter never gets there.
       - name: Sweep leftovers

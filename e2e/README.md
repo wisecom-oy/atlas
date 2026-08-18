@@ -72,6 +72,14 @@ bounds it to a single identity — see issue #105.
 
 ## CI
 
-`.github/workflows/e2e.yml`, manual dispatch only for now; the weekly and monthly crons land with
-issue #108. It never runs on `pull_request` — the job holds tenant credentials, and a PR trigger
-would let fork-supplied code exfiltrate them. Secrets come from the `e2e` GitHub environment.
+`.github/workflows/e2e.yml` runs on pushes to `main` and `dev`, and on manual dispatch. The weekly
+and monthly crons land with issue #108.
+
+It never runs on `pull_request` — the job holds tenant credentials, and a PR trigger would let
+fork-supplied code exfiltrate them. Secrets are repository secrets (`E2E_*`); no GitHub environment
+is attached, because approval rules would leave unattended runs waiting for a human.
+
+**The workflow gates nothing.** A live-tenant run depends on Graph and network availability, so it
+is deliberately not a required status check: `ci.yml` remains the merge gate, while E2E reports
+status through its own badge and a per-test table on the run's summary page
+(`python -m atlas_e2e.summary`). A red E2E means "investigate", not "blocked".
