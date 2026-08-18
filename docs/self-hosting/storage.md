@@ -8,6 +8,8 @@ Atlas creates each tenant's bucket automatically on first backup (`atlas-{tenant
 
 New buckets also receive housekeeping lifecycle rules: incomplete multipart uploads are aborted after 7 days, orphaned delete markers are removed, and noncurrent object versions expire after 30 days (versioning means overwritten delta cursors and indexes leave stale versions behind; Atlas never reads them -- its file version history is stored as first-class objects, not S3 versions).
 
+Provisioning happens on write paths only. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never issue `CreateBucket` and never bootstrap a DEK -- they fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot leave an empty billable bucket behind. See [Security](../security.md) for the per-command-class IAM split.
+
 Backends that reject `ObjectLockEnabledForBucket` get a plain bucket and a loud warning at creation time; immutability will not work there.
 
 Run `atlas storage-check` to see which class a tenant's bucket is: `lock-capable`, `versioned-only (legacy)`, or `unversioned (legacy)`.
