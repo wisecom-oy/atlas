@@ -38,16 +38,35 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
     const dek = await this.load_or_create_dek(storage, key_service, tenant_id);
 
-    return {
+    return build_context(tenant_id, storage, key_service, dek);
+  }
+
+  /**
+   * Loads a tenant context without provisioning: the bucket is never created
+   * and a missing DEK is never generated, so browsing an unknown tenant (a
+   * mistyped `-t`) cannot leave a lifecycle-configured bucket and wrapped key
+   * material behind, and read-only credentials need no `s3:CreateBucket` or
+   * `_meta/` write permission (issue #93).
+   */
+  async create_readonly(tenant_id: string): Promise<TenantContext> {
+    const storage = new S3ObjectStorage(this._s3, tenant_bucket_name(tenant_id));
+    const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
+
+    let wrapped: Buffer;
+    try {
+      wrapped = await storage.get(DEK_META_KEY);
+    } catch (err) {
+      key_service.destroy();
+      if (is_absent(err)) throw new Error(`No backups found for tenant ${tenant_id}`);
+      throw err;
+    }
+
+    return build_context(
       tenant_id,
       storage,
-      encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
-      decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
-      create_cipher: () => key_service.create_encrypt_cipher(dek),
-      create_decipher: (iv: Buffer, auth_tag: Buffer) =>
-        key_service.create_decrypt_decipher(dek, iv, auth_tag),
-      destroy: (): void => key_service.destroy(),
-    };
+      key_service,
+      key_service.unwrap_dek(wrapped, tenant_id),
+    );
   }
 
   /** Loads an existing DEK or creates one with a race-safe conditional write. */
@@ -101,4 +120,29 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     }
     return stored_dek;
   }
+}
+
+/** Binds storage and DEK-backed crypto operations into a tenant context. */
+function build_context(
+  tenant_id: string,
+  storage: S3ObjectStorage,
+  key_service: EnvelopeKeyService,
+  dek: Buffer,
+): TenantContext {
+  return {
+    tenant_id,
+    storage,
+    encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
+    decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
+    create_cipher: () => key_service.create_encrypt_cipher(dek),
+    create_decipher: (iv: Buffer, auth_tag: Buffer) =>
+      key_service.create_decrypt_decipher(dek, iv, auth_tag),
+    destroy: (): void => key_service.destroy(),
+  };
+}
+
+/** Returns whether a storage error means "no such object or bucket" rather than a real failure. */
+function is_absent(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name;
+  return name === 'NoSuchKey' || name === 'NoSuchBucket' || name === 'NotFound';
 }
