@@ -18,10 +18,11 @@ from atlas_e2e.config import Settings
 
 
 def test_purge_empties_the_whole_bucket(cli: Cli, settings: Settings, s3: Any) -> None:
-    """Every object, every workload prefix, and the DEK are gone; nothing is reported retained.
+    """Every object, every workload prefix, and the DEK are gone.
 
-    Governance leg only: the monthly compliance leg owns its own purge assertion, where retained
-    objects are the expected outcome (plan section 4.1).
+    Runs before the immutability suite, because a locked object would make this unsatisfiable
+    (Atlas has no governance bypass); anything locked afterwards is a deliberate survivor that the
+    volume teardown removes.
     """
     before = storage.list_keys(s3, settings.bucket)
     assert before, "nothing to purge: the workload suites stored no objects"

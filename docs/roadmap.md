@@ -89,7 +89,7 @@ Replaced manual end-to-end testing with a scheduled pipeline that drives the shi
 - **Regression guards** — one case per shipped bug that only reproduces against real infrastructure
 - **Weekly schedule with public-safe reporting** — per-suite results in the run summary, and artifacts scrubbed of tenant-identifying data before upload
 
-See [End-to-End Validation](/development/e2e) for the design and the security model.
+See [`e2e/README.md`](https://github.com/wisecom-oy/atlas/blob/main/e2e/README.md) for what a run does and how to add a case.
 
 ---
 

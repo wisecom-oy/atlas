@@ -85,7 +85,6 @@ export default defineConfig({
       {
         text: 'Development',
         items: [
-          { text: 'End-to-End Validation', link: '/development/e2e' },
           { text: 'Graph Request Tracing', link: '/development/graph-tap' },
           { text: 'Performance Profiling', link: '/development/performance-profiling' },
         ],
