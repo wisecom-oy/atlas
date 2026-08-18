@@ -97,14 +97,14 @@ The suite writes into a **real** mailbox, so containment is enforced, not assume
 | `E2E_S3_ENDPOINT` must be runner-local                                   | The bucket name embeds the real tenant id, so a shared endpoint would mean writing test data into a production bucket. Asserted in preflight. |
 | Outlook restore cannot overwrite existing mail                           | The product always builds a fresh `Restore-{timestamp}` root (`folder-restore-planner.ts:28-37`).                                             |
 
-Residual risk: the stored client secret can read and write the whole of that one mailbox, because
-Graph application permissions cannot be scoped below a user. An Exchange `ApplicationAccessPolicy`
-bounds it to a single identity — see issue #105.
+Residual risk: the stored client secret is a tenant-level Graph credential, so the rules above bound
+what the suite touches, not what the credential could reach. Scoping that credential is tenant
+administration and out of scope for this repository — it is configured and reviewed in the tenant.
 
 Storage teardown happens twice over, at two layers:
 
-1. **Tenant wipe, asserted.** `test_10_purge_empties_the_bucket` runs `outlook delete --purge -y`
-   and then lists the bucket with boto3, so the product's own erasure path is under test.
+1. **Tenant wipe, asserted.** `test_90_purge.py` runs `outlook delete --purge -y` after every
+   workload and then lists the bucket with boto3, so the product's own erasure path is under test.
 2. **Volume destruction, unconditional.** The workflow brings MinIO up on freshly created volumes
    (`down -v` before `up`) and destroys them afterwards in an `if: always()` step that fails if any
    `e2e_*` volume survives. So no ciphertext and no wrapped DEK outlive the job even when the purge
