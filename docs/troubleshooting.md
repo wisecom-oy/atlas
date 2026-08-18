@@ -2,6 +2,8 @@
 
 Common errors encountered when running Atlas, with specific error messages, likely causes, and steps to resolve.
 
+If none of the below resolves it and you are opening an issue, run `./tools/diagnostics.sh` from the repository root and include its output. It reports your OS, Node and Atlas versions, and which configuration sources Atlas can see, without printing any secret values. Replace real mailbox addresses, file names, and site URLs with generic placeholders before posting.
+
 ## Authentication Failures
 
 Authentication errors appear before any backup activity starts. Atlas authenticates with Microsoft Graph using the OAuth2 Client Credentials flow, so failures here are always credential or tenant configuration problems -- not network or storage issues.
