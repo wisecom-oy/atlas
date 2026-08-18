@@ -1,8 +1,3 @@
----
-description: Documentation style and mandatory freshness rules for all Atlas docs
-alwaysApply: true
----
-
 # Documentation Governance
 
 ## Docs Must Stay In Sync

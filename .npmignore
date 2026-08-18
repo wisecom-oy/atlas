@@ -2,7 +2,8 @@ packages/
 tools/
 docker/
 docs/
-.cursor/
+.claude/
+CLAUDE.md
 .github/
 .husky/
 .turbo/

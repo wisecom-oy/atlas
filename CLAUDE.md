@@ -1,8 +1,3 @@
----
-description: Core development rules for the Atlas (Wisecom Oy) monorepo
-alwaysApply: true
----
-
 # Atlas Development Rules
 
 ## Package Manager
@@ -25,6 +20,7 @@ ESLint and Prettier rules are the source of truth. Always consult these files fo
 - TypeScript: `tsconfig.json`
 
 Key enforced rules:
+
 - **File names**: `kebab-case` (e.g. `mailbox-sync.service.ts`)
 - **Variables / parameters**: `snake_case`
 - **Types / classes**: `PascalCase`
@@ -112,3 +108,9 @@ Maintain high test coverage on all business-critical logic.
 ## JSDoc
 
 Add JSDoc to all exported functions and public class methods. Keep it to one line when the name is already descriptive. Only add multi-line JSDoc when the behavior is non-obvious.
+
+## Build Cache
+
+`turbo.json` declares `tsconfig.tsbuildinfo` as a `build` output alongside `dist/**`. Composite `tsc` writes it to the package root, and if it desyncs from the cached `dist/`, `tsc` reports "up to date" and silently skips emitting stale `.d.ts` files. Never remove it from `outputs`.
+
+<!-- Documentation rules live in .claude/rules/docs-governance.md and load automatically. -->
