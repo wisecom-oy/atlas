@@ -89,6 +89,7 @@ function create_mocks() {
 
   const tenant_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
+    create_readonly: vi.fn().mockResolvedValue(ctx),
   };
 
   const manifests: SharePointManifestRepository = {

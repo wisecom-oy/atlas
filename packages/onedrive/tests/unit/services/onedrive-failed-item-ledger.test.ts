@@ -117,6 +117,7 @@ function make_harness(options: {
 
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(context),
+    create_readonly: vi.fn().mockResolvedValue(context),
     create_storage_only: vi.fn(),
   };
 

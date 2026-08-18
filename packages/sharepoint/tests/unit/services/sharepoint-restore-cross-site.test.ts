@@ -60,6 +60,7 @@ describe('SharePointRestoreService cross-site routing', () => {
 
     const factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(ctx),
+      create_readonly: vi.fn().mockResolvedValue(ctx),
       create_storage_only: vi.fn(),
     };
 

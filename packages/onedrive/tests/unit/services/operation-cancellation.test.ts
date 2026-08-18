@@ -122,6 +122,7 @@ describe('OneDrive operation cancellation', () => {
     const context = make_context(storage);
     const factory = {
       create: vi.fn().mockResolvedValue(context),
+      create_readonly: vi.fn().mockResolvedValue(context),
     } as unknown as TenantContextFactory;
     const connector = {
       list_drives: vi.fn().mockResolvedValue([{ drive_id: 'drive-1', drive_name: 'Documents' }]),
@@ -163,6 +164,7 @@ describe('OneDrive operation cancellation', () => {
     const context = make_context(storage);
     const factory = {
       create: vi.fn().mockResolvedValue(context),
+      create_readonly: vi.fn().mockResolvedValue(context),
     } as unknown as TenantContextFactory;
     const indexes = { find_by_file_id: vi.fn() } as unknown as OneDriveFileVersionIndexRepository;
     const on_progress = vi.fn();

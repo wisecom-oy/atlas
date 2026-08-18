@@ -88,6 +88,7 @@ describe('SharePointSaveService', () => {
 
     const mock_factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(mock_context),
+      create_readonly: vi.fn().mockResolvedValue(mock_context),
     };
 
     mock_manifests = {

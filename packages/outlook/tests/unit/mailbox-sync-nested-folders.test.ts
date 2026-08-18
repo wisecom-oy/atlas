@@ -75,6 +75,7 @@ describe('MailboxSyncService - nested folders', () => {
     };
     const mock_factory = {
       create: vi.fn().mockResolvedValue(make_mock_context()),
+      create_readonly: vi.fn().mockResolvedValue(make_mock_context()),
     } as unknown as TenantContextFactory;
 
     const container = new Container();

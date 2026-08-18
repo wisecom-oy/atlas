@@ -32,6 +32,7 @@ describe('workload deletion', () => {
     storage = make_storage();
     factory = {
       create: vi.fn(),
+      create_readonly: vi.fn(),
       create_storage_only: vi.fn().mockResolvedValue({ tenant_id: 't', storage }),
     };
 

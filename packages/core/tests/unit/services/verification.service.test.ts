@@ -77,6 +77,7 @@ describe('VerificationService', () => {
 
     tenant_factory = {
       create: vi.fn().mockResolvedValue(context),
+      create_readonly: vi.fn().mockResolvedValue(context),
     };
 
     manifests = {
