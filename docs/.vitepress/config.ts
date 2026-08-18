@@ -83,6 +83,13 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Development',
+        items: [
+          { text: 'Graph Request Tracing', link: '/development/graph-tap' },
+          { text: 'Performance Profiling', link: '/development/performance-profiling' },
+        ],
+      },
+      {
         text: 'Project',
         items: [{ text: 'Roadmap', link: '/roadmap' }],
       },

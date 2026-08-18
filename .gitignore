@@ -15,4 +15,5 @@ docs/.vitepress/cache/
 
 .turbo/
 .perf-output/
+.graph-tap/
 tools/perf/dist/
