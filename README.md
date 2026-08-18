@@ -1,6 +1,7 @@
 [![Atlas — open-source Microsoft 365 backup engine by Wisecom](assets/og-card.jpg)](https://wisecom.fi)
 
 [![CI](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml)
+[![E2E](https://github.com/wisecom-oy/atlas/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/wisecom-oy/atlas/actions/workflows/e2e.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/miikaok/34b7e6013b428e289db442d3d28f4f14/raw/m365-atlas-coverage.json)](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@wisecom/atlas-cli)](https://www.npmjs.com/package/@wisecom/atlas-cli)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)

@@ -1,0 +1,125 @@
+name: E2E
+
+# Runs on pushes to the long-lived branches, plus manual dispatch. The weekly and monthly crons
+# arrive with the remaining suites (issue #108).
+#
+# Never add `pull_request`: this job holds tenant credentials, and a PR-triggered run of
+# fork-supplied code would be a secret-exfiltration path.
+#
+# This workflow gates nothing. It is deliberately not a required status check -- a live-tenant run
+# depends on Graph and network availability, so a red E2E must inform, not block a merge. CI
+# (`ci.yml`) stays the gate.
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: 'pytest -k expression (empty runs everything)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Two runs seeding the same mailbox would fight over Graph delta cursors.
+concurrency:
+  group: atlas-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    name: End-to-end against a live tenant
+    runs-on: ubuntu-latest
+    # No `environment:`: the E2E secrets are repository secrets, and an environment with approval
+    # rules would leave scheduled and push-triggered runs waiting for a human.
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI
+        run: pnpm run build
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      # `down -v` first: on a self-hosted or reused runner a stale volume would carry a previous
+      # run's ciphertext into this one, and the purge assertions would be judging old objects.
+      - name: Start MinIO on empty volumes
+        run: |
+          docker compose -f e2e/docker-compose.e2e.yml down -v --remove-orphans
+          docker compose -f e2e/docker-compose.e2e.yml up -d --wait
+
+      - name: Mask derived values
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+        run: echo "::add-mask::atlas-$E2E_TENANT_ID"
+
+      - name: Run E2E suite
+        id: suite
+        working-directory: e2e
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+          E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
+          E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
+          E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
+          E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
+          E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
+          E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+        run: uv run pytest ${{ inputs.suite && format('-k "{0}"', inputs.suite) || '' }}
+
+      # Status is readable from the run page itself, so a red badge can be triaged without
+      # opening logs. The XML holds test names only -- no tenant data.
+      - name: Report status
+        if: always()
+        working-directory: e2e
+        run: uv run python -m atlas_e2e.summary >> "$GITHUB_STEP_SUMMARY"
+
+      # Belt and braces: pytest teardown already sweeps, but a crashed interpreter never gets there.
+      - name: Sweep leftovers
+        if: always()
+        working-directory: e2e
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+          E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
+          E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
+          E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
+          E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
+        run: uv run python -m atlas_e2e.sweep
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: e2e/report.xml
+          retention-days: 30
+
+      # The tenant wipe is asserted by the suite (`delete --purge`); this destroys the storage
+      # underneath it. Both matter: a passing purge proves the product erases, and a removed volume
+      # proves no ciphertext or DEK survives the job even when the purge assertion failed.
+      - name: Destroy MinIO and its volumes
+        if: always()
+        run: |
+          docker compose -f e2e/docker-compose.e2e.yml down -v --remove-orphans
+          leftovers="$(docker volume ls -q --filter name=e2e_)"
+          if [ -n "$leftovers" ]; then
+            echo "MinIO volumes survived teardown: $leftovers" >&2
+            docker volume rm -f $leftovers
+            exit 1
+          fi
+          echo "MinIO volumes destroyed; no E2E storage remains on the runner."

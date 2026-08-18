@@ -7,3 +7,5 @@ pnpm-lock.yaml
 tools/perf/dist/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+e2e/.venv/
+e2e/.pytest_cache/
