@@ -44,6 +44,23 @@ checks skip when unset.
 MinIO defaults (`E2E_S3_ENDPOINT`, `E2E_S3_ACCESS_KEY`, `E2E_S3_SECRET_KEY`,
 `E2E_S3_REPLICA_ENDPOINT`) need no configuration for a standard local run.
 
+## Required app permissions
+
+Application permissions (not delegated), admin-consented. Preflight probes each one and names the
+missing grant, so a permission gap fails in seconds instead of mid-backup:
+
+| Permission             | Needed for                                                  |
+| ---------------------- | ----------------------------------------------------------- |
+| `Mail.Read`            | backup, list, save, verify                                  |
+| `Mail.ReadWrite`       | seeding fixtures and restoring                              |
+| `MailboxSettings.Read` | folder enumeration and `userPurpose` (shared-mailbox) reads |
+| `User.Read.All`        | mailbox/owner discovery, email-to-object-id resolution      |
+| `Files.ReadWrite.All`  | OneDrive suite (backup and restore)                         |
+| `Sites.Read.All`       | SharePoint suite (site resolution and backup)               |
+| `Sites.Manage.All`     | SharePoint restore                                          |
+
+The canonical product-wide list lives in [`docs/azure-ad-setup.md`](../docs/azure-ad-setup.md).
+
 ## Safety model
 
 The suite writes into a **real** mailbox, so containment is enforced, not assumed:

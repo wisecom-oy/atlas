@@ -65,8 +65,37 @@ def test_graph_token_is_issued(graph: Graph) -> None:
 
 
 def test_mail_readwrite_permission(graph: Graph, settings: Settings) -> None:
-    """Mail.ReadWrite: required to seed, back up, and restore mail."""
+    """Mail.ReadWrite: required to seed and to restore mail."""
     _require(graph, f"/users/{settings.mailbox}/mailFolders", "Mail.ReadWrite", **{"$top": 1})
+
+
+def test_mail_read_permission(graph: Graph, settings: Settings) -> None:
+    """Mail.Read: what backup, list, save and verify actually read with."""
+    _require(
+        graph,
+        f"/users/{settings.mailbox}/mailFolders/inbox/messages",
+        "Mail.Read",
+        **{"$top": 1, "$select": "id"},
+    )
+
+
+def test_mailbox_settings_read_permission(graph: Graph, settings: Settings) -> None:
+    """MailboxSettings.Read: folder enumeration and shared-mailbox detection (`userPurpose`).
+
+    Probed separately because listing `mailFolders` succeeds without it, so a missing grant would
+    otherwise only surface mid-backup as a bare 403 (as it did on run 32134203049).
+    """
+    _require(
+        graph,
+        f"/users/{settings.mailbox}/mailboxSettings",
+        "MailboxSettings.Read",
+        **{"$select": "userPurpose"},
+    )
+
+
+def test_user_read_all_permission(graph: Graph) -> None:
+    """User.Read.All: mailbox and owner discovery, and email-to-object-id resolution."""
+    _require(graph, "/users", "User.Read.All", **{"$top": 1, "$select": "id"})
 
 
 def test_files_readwrite_permission(graph: Graph, settings: Settings) -> None:
