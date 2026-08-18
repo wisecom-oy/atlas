@@ -7,6 +7,7 @@ drive id is known. Only how the drive is found differs -- a user's default drive
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,8 @@ from typing import Any
 import httpx
 
 from atlas_e2e.graph import Graph
+
+log = logging.getLogger(__name__)
 
 FIXTURE_BYTES = 4096
 
@@ -84,16 +87,18 @@ def read_file(graph: Graph, drive_id: str, path: str) -> bytes | None:
     Uses the item's `@microsoft.graph.downloadUrl` rather than following the `/content` redirect:
     the redirect target is a pre-authenticated storage URL, so the bearer token must not be sent
     with it.
+
+    No `$select`: OData annotations are not selectable alongside ordinary properties on every drive
+    implementation, and asking for one returned 400 rather than the item (run 32136234300). The full
+    item is a few hundred bytes.
     """
-    response = graph.request(
-        "GET",
-        f"/drives/{drive_id}/root:{path}",
-        params={"$select": "id,@microsoft.graph.downloadUrl"},
-    )
+    response = graph.request("GET", f"/drives/{drive_id}/root:{path}")
     if response.status_code >= 400:
+        log.info("Drive item %s unavailable: HTTP %s", path, response.status_code)
         return None
     url = response.json().get("@microsoft.graph.downloadUrl")
     if not url:
+        log.info("Drive item %s carries no download URL", path)
         return None
     return httpx.get(url, timeout=60.0, follow_redirects=True).content
 

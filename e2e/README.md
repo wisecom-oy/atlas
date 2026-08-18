@@ -23,14 +23,20 @@ Design and rationale: [`PLAN.md`](./PLAN.md). Tracking: issue #103.
 
 Then the same shape for the file workloads, each seeding into `/atlas-e2e-<run_id>/`:
 
-- **OneDrive** (`test_20_onedrive.py`): uploads the fixture twice so the item has two versions,
-  backs up, asserts two content-addressed blobs and a per-file version index, verifies, exports,
-  deletes the item from the drive, restores with `--conflict rename`, and compares the restored
-  bytes' SHA-256 with the seed.
+- **OneDrive** (`test_20_onedrive.py`): backs up, asserts a blob and a per-file version index, then
+  uploads a second version and re-runs the backup asserting exactly **one** new content-addressed
+  blob, verifies, exports, deletes the item from the drive, restores with `--conflict rename`, and
+  compares the restored bytes' SHA-256 with the seed.
 - **SharePoint** (`test_30_sharepoint.py`): same lifecycle by site, plus the identifier guard from
   issue #90 — a browser URL, `hostname:/sites/name`, and a composite `hostname,siteGuid,webGuid` id
   must all address one stored tree, asserted by there being exactly one `sharepoint/manifests/<site>/`
   prefix afterwards.
+
+Note the scope difference from Outlook: `outlook backup` takes `-f <folder>`, but `onedrive backup`
+and `sharepoint backup` have no folder filter — they sync the whole drive or site. So a run reads
+everything the test owner and test site hold, and per-version assertions are written as **deltas**
+around a second backup rather than as absolute object counts. Keep the test site small; the mailbox
+folder filter is what keeps the Outlook side cheap.
 
 Finally `test_90_purge.py` runs `outlook delete --purge -y` and asserts the bucket is empty. It is a
 module of its own so it executes after every workload: `--purge` sweeps the whole bucket, so the

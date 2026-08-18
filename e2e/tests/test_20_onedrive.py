@@ -26,17 +26,22 @@ def _requires_owner(settings: Settings) -> None:
         pytest.skip("E2E_ONEDRIVE_OWNER not set")
 
 
-def test_01_seed_two_versions(graph: Any, settings: Settings, run_marker: str) -> None:
-    """Uploads the fixture file twice, so the version index has something to index."""
+def test_01_seed_a_file(graph: Any, settings: Settings, run_marker: str) -> None:
+    """Uploads the first version of the fixture file."""
     drive_id = drive.user_drive_id(graph, settings.onedrive_owner)
     STATE["drive_id"] = drive_id
-    STATE["file"] = drive.seed_fixture_file(graph, drive_id, run_marker, versions=2)
+    STATE["file"] = drive.seed_fixture_file(graph, drive_id, run_marker)
 
     assert drive.file_sha256(graph, drive_id, STATE["file"].path) == STATE["file"].sha256
 
 
 def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any) -> None:
-    """Backs up the owner's drive and asserts blobs, a manifest, and a version index landed."""
+    """Backs up the owner's drive and asserts blobs, a manifest, and a version index landed.
+
+    `onedrive backup` has no folder scope -- it syncs the whole drive -- so absolute object counts
+    include whatever else the owner has. Assertions here are existence-based, and the per-version
+    assertion below is a delta.
+    """
     cli.ok("onedrive", "backup", "-o", settings.onedrive_owner)
 
     owner = _owner_segment(s3, settings.bucket)
@@ -47,23 +52,34 @@ def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any)
     STATE["snapshot"] = snapshots[0]
 
     assert storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"), "no file blob written"
-    assert storage.list_keys(s3, settings.bucket, f"onedrive/index/{owner}/files/"), "no version index"
-
-
-def test_03_both_seeded_versions_are_stored(cli: Cli, settings: Settings, s3: Any) -> None:
-    """Two uploads of the same item are stored as two blobs and one version index.
-
-    Counting content-addressed blobs is the measurable form of "both versions were kept": the
-    fixtures are random, so two versions cannot deduplicate into one key. The index itself is
-    encrypted, so its readability is checked by running `list-versions` rather than by parsing it.
-    """
-    owner, file_id = STATE["owner"], STATE["file"].item_id
-    assert f"onedrive/index/{owner}/files/{file_id}.json" in storage.list_keys(
+    assert f"onedrive/index/{owner}/files/{STATE['file'].item_id}.json" in storage.list_keys(
         s3, settings.bucket, f"onedrive/index/{owner}/files/"
     ), "the seeded file has no version index of its own"
 
-    blobs = storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/")
-    assert len(blobs) == 2, f"expected two version blobs for two uploads, found {len(blobs)}"
+
+def test_03_a_new_version_is_stored_incrementally(
+    cli: Cli, graph: Any, settings: Settings, s3: Any, run_marker: str
+) -> None:
+    """Uploading a second version and re-running the backup stores exactly one more blob.
+
+    Measured as a delta rather than an absolute count: the backup covers the whole drive, so a
+    fixed expectation would depend on what else the owner keeps in OneDrive. Random fixtures cannot
+    deduplicate, so exactly one new content-addressed key is the honest signal that the new version
+    was captured and the old one retained.
+    """
+    owner = STATE["owner"]
+    before = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
+
+    STATE["file"] = drive.seed_fixture_file(graph, STATE["drive_id"], run_marker)
+    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner)
+
+    after = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
+    assert len(after - before) == 1, f"expected one new version blob, got {len(after - before)}"
+    assert before <= after, "an incremental run must not remove existing blobs"
+
+    snapshots = storage.snapshot_ids(s3, settings.bucket, owner, "onedrive")
+    assert len(snapshots) == 2, f"expected a second snapshot, found {snapshots}"
+    STATE["snapshot"] = snapshots[-1]
 
     cli.ok("onedrive", "list-versions", "-o", settings.onedrive_owner, "-f", STATE["file"].path)
 
