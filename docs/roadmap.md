@@ -107,22 +107,29 @@ See [`e2e/README.md`](https://github.com/wisecom-oy/atlas/blob/main/e2e/README.m
 
 ## Upcoming
 
-### Code Quality & Refactoring
+### Microsoft Teams Backup
 
-Systematic code quality pass across the entire codebase. Static analysis, complexity reduction, and enforcing consistent patterns in areas that grew organically during early development.
+Extend Atlas to Teams as a first-class workload. Team files already ride along with SharePoint backup -- every team is backed by a site -- so the gap is conversational and structural data: channel messages with replies and reactions, membership and ownership, and channel/tab configuration.
+
+The design constraint is Graph, not Atlas. Teams messages have no delta query comparable to `/messages/delta`, and bulk export runs through the protected `getAllMessages` endpoints, which require Microsoft approval per application and are metered per message retrieved. So this workload has to be planned around a request budget that has a real invoice attached, with change notifications as the incremental mechanism instead of a delta cursor. Chats (`/chats/{id}/messages`) are a separate scope decision from channels: they are personal data with different retention expectations, and will be opt-in rather than implied by a tenant backup.
+
+### Microsoft Entra ID Backup
+
+Back up directory configuration, which is the part of a tenant that no mailbox restore can rebuild: users and their attributes, groups and memberships, directory roles and administrative units, app registrations and service principals, Conditional Access policies, and named locations.
+
+Two properties make this different from data backup and shape the design:
+
+- **Restore is reapplication, not byte recovery.** Recreating a Conditional Access policy or an app registration produces new object IDs, and client secrets are write-only in Graph -- they cannot be read back at any privilege level. So the deliverable is a versioned configuration export plus a reviewed, diff-driven reapply path, never a silent overwrite of a live directory.
+- **The native window is short.** Deleted users, groups, and applications sit in `/directory/deletedItems` for 30 days; Conditional Access policy changes have no native history at all. The value Atlas adds is longer retention and a point-in-time diff that answers "what changed in this tenant, and when".
+
+Throttling is already modelled for this pool (`IdentityServiceLimits`: resource units on a token bucket, per app per tenant plus a global ceiling), so the cost accounting this needs is in place before the workload is.
 
 ### Argon2 KDF Migration
 
 Evaluate replacing scrypt with Argon2id for KEK derivation. The versioned DEK blob format (`v1`) already includes a `kdf_id` field, making algorithm upgrades possible without breaking existing tenants. This includes building an `atlas migrate-kdf` command that re-wraps all DEK blobs under the new KDF without re-encrypting data objects.
 
-### Performance Profiling & Optimization
+### Graph Throttling & Cost Audit
 
-Instrument the backup and restore pipelines with flamechart analysis to identify bottlenecks. Candidates include S3 upload concurrency, Graph API page fetch parallelism, and encryption throughput. Targeted optimizations based on measured data rather than assumptions.
+Profiling and optimization are done -- `tools/perf` measures the pipelines, and per-request cost is attributed per service pool (`getGraphCost`). What remains is auditing measured behaviour against the limits Atlas already models in `GRAPH_SERVICE_LIMITS`, because each pool fails differently: Outlook counts requests flatly per app per mailbox, SharePoint/OneDrive spends resource units that scale with tenant license count, and the identity pool refills on a token bucket.
 
-### SDK Documentation & Hosted Docs
-
-Write comprehensive SDK documentation with API reference, integration guides, and production deployment patterns. Host the VitePress documentation site on a dedicated server with versioned docs per release branch, replacing the current local-only build.
-
-### OneDrive & SharePoint Restore Enhancements
-
-Expand restore capabilities for file workloads: cross-owner OneDrive restore, selective file filtering at scale, and SharePoint library-level restore with conflict resolution policies.
+The audit uses `tools/graph-tap` traces from real runs to answer concrete questions: how close does a large-tenant backup come to the per-window ceiling, which call patterns spend resource units disproportionately, and does concurrency tuned for throughput on a small tenant push a large one into sustained 429s. Outcome is measured headroom per pool and concurrency defaults chosen against it -- not a faster benchmark on one tenant.
