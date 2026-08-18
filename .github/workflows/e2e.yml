@@ -13,6 +13,9 @@ on:
   push:
     branches: [main, dev]
   schedule:
+    # Weekly governance leg: the standing guard. Monday morning, so a red run has a working week
+    # in front of it rather than a weekend.
+    - cron: '0 3 * * 1'
     # Monthly compliance leg. Compliance-mode retention is undeletable until it expires, so this
     # cannot be the default cadence -- see the lock-mode note on the pytest step.
     - cron: '0 4 1 * *'
@@ -114,12 +117,42 @@ jobs:
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
         run: uv run python -m atlas_e2e.sweep
 
-      - name: Upload test report
+      # Artifacts are public downloads: GitHub's log masking does not apply to a file in a zip. The
+      # transcript is written scrubbed, and this step refuses to publish it if that failed. It
+      # compares against the secrets without ever echoing them.
+      - name: Verify artifacts carry no tenant data
+        id: leakcheck
         if: always()
+        env:
+          E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
+          E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
+          E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
+          E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+          E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
+          E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
+          E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
+        run: |
+          status=0
+          for name in E2E_TENANT_ID E2E_MAILBOX E2E_ONEDRIVE_OWNER E2E_SHAREPOINT_SITE \
+                      E2E_CLIENT_ID E2E_CLIENT_SECRET E2E_ENCRYPTION_PASSPHRASE; do
+            value="${!name}"
+            [ -z "$value" ] && continue
+            if grep -rqF -- "$value" e2e/report.xml e2e/logs 2>/dev/null; then
+              echo "$name appears in an artifact; refusing to upload" >&2
+              status=1
+            fi
+          done
+          [ "$status" -eq 0 ] && echo "Artifacts checked: no secret value present."
+          exit "$status"
+
+      - name: Upload test report and scrubbed CLI transcript
+        if: always() && steps.leakcheck.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: e2e-report
-          path: e2e/report.xml
+          path: |
+            e2e/report.xml
+            e2e/logs/
           retention-days: 30
 
       # The tenant wipe is asserted by the suite (`delete --purge`); this destroys the storage

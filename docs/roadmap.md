@@ -68,7 +68,7 @@ Comprehensive security audit and restore-flow hardening driven by external revie
 - **Restore-integrity verification** — post-restore folder verification integrated into the restore pipeline
 - **Dependency security patches** — Dependabot vulnerability fixes
 
-### v2.0.0 — Multi-Workload & Monorepo _(current branch)_
+### v2.0.0 — Multi-Workload & Monorepo
 
 Extended Atlas beyond Outlook mailboxes to additional Microsoft 365 workloads and restructured the codebase for independent package releases.
 
@@ -78,6 +78,18 @@ Extended Atlas beyond Outlook mailboxes to additional Microsoft 365 workloads an
 - **Monorepo restructure** — split into dedicated packages (`@wisecom/atlas-cli`, `@wisecom/atlas-sdk`, shared domain/ports) with independent versioning and smaller install footprints
 - **Multi-workload replication** — `atlas replicate` and `atlas rehydrate` extended with `--site` for SharePoint; OneDrive and Outlook snapshots replicate through the same tenant bucket and DEK
 - **Unified encryption model** — all workloads share the per-tenant DEK and scrypt-derived KEK; storage layout documented per workload in [Storage Layout](/operations/storage-layout)
+
+### v2.1.0 — Live-Tenant E2E Validation _(current branch)_
+
+Replaced manual end-to-end testing with a scheduled pipeline that drives the shipped CLI bundle against a real Microsoft 365 tenant.
+
+- **Full lifecycle per workload** — Outlook, OneDrive, and SharePoint each run seed → backup → verify → export → delete from M365 → restore → compare through Graph
+- **Disaster recovery drill** — replicate to a second endpoint, destroy the primary bucket, rehydrate, and verify that recovered data decrypts under the recovered key
+- **Immutability coverage** — Object Lock retention asserted through the S3 API, with governance weekly and compliance monthly
+- **Regression guards** — one case per shipped bug that only reproduces against real infrastructure
+- **Weekly schedule with public-safe reporting** — per-suite results in the run summary, and artifacts scrubbed of tenant-identifying data before upload
+
+See [End-to-End Validation](/development/e2e) for the design and the security model.
 
 ---
 
@@ -94,10 +106,6 @@ Evaluate replacing scrypt with Argon2id for KEK derivation. The versioned DEK bl
 ### Performance Profiling & Optimization
 
 Instrument the backup and restore pipelines with flamechart analysis to identify bottlenecks. Candidates include S3 upload concurrency, Graph API page fetch parallelism, and encryption throughput. Targeted optimizations based on measured data rather than assumptions.
-
-### CI/CD Restore & Backup Validation
-
-Add automated end-to-end pipeline stages that run a full backup → verify → restore → compare cycle against a dedicated testing tenant on every merge request. This replaces manual E2E testing and catches regressions before they reach a release branch.
 
 ### SDK Documentation & Hosted Docs
 

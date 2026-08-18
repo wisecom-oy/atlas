@@ -38,6 +38,25 @@ everything the test owner and test site hold, and per-version assertions are wri
 around a second backup rather than as absolute object counts. Keep the test site small; the mailbox
 folder filter is what keeps the Outlook side cheap.
 
+`test_35_regressions.py` then holds one case per shipped bug, but only for bugs that need real
+infrastructure to reproduce:
+
+- **#93**: `outlook list`, `stats` and `list-users` against an unknown tenant id must create no
+  bucket. `ListBuckets` before and after is the assertion; a bucket-per-tenant layout makes an
+  accidental provision billable storage plus an untracked key.
+- **#76**: a blob whose AES-GCM tag fails must be reported as an authentication failure. Node sets no
+  `error.code` for that failure, so the fix suggested in the issue (`ERR_OSSL_BAD_DECRYPT`) would
+  have silently classified nothing — only a real decrypt on the real runtime tells you which is true.
+  The mirror direction (a storage authorization error must _not_ read as tampering) stays a unit
+  test: producing a genuine per-prefix S3 denial needs a scoped MinIO user that exists only to be
+  denied, and a fabricated credential failure is what a mock is for.
+- **SDK smoke**: `packages/sdk/dist/index.mjs` — the file published to npm — is imported and asked
+  for the snapshots the CLI just wrote. The CLI and the SDK are separate artifacts over one core; a
+  bundle that cannot resolve its own dependencies would otherwise surface as an integrator's issue.
+
+It is numbered 35 so the workload blobs still exist to tamper with, and so it runs before the
+replication suite empties the bucket.
+
 Then the two suites that rehearse what backups exist for:
 
 - **Disaster recovery** (`test_40_replication.py`): replicates the mailbox to the **replica endpoint**
@@ -140,8 +159,9 @@ Storage teardown happens twice over, at two layers:
 
 ## CI
 
-`.github/workflows/e2e.yml` runs on pushes to `main` and `dev`, and on manual dispatch. The weekly
-and monthly crons land with issue #108.
+`.github/workflows/e2e.yml` runs weekly (Monday 03:00 UTC, governance-mode Object Lock), monthly (1st
+at 04:00 UTC, compliance mode), on pushes to `main` and `dev`, and on manual dispatch with a `-k`
+expression and a lock-mode choice.
 
 It never runs on `pull_request` — the job holds tenant credentials, and a PR trigger would let
 fork-supplied code exfiltrate them. Secrets are repository secrets (`E2E_*`); no GitHub environment
@@ -149,5 +169,14 @@ is attached, because approval rules would leave unattended runs waiting for a hu
 
 **The workflow gates nothing.** A live-tenant run depends on Graph and network availability, so it
 is deliberately not a required status check: `ci.yml` remains the merge gate, while E2E reports
-status through its own badge and a per-test table on the run's summary page
+status through its own badge and a per-suite table on the run's summary page
 (`python -m atlas_e2e.summary`). A red E2E means "investigate", not "blocked".
+
+### Artifacts
+
+Two files are uploaded: `report.xml` (JUnit, test names only) and `logs/cli.log`, every CLI
+invocation the run issued with its output. Artifacts are public downloads, and GitHub's log masking
+does not apply inside a zip, so the transcript is scrubbed **as it is written** (`atlas_e2e.scrub`):
+known secret values are replaced, then identifying shapes are templated — GUIDs, bearer tokens, UPNs
+and Graph drive ids. A workflow step then greps the artifacts for each secret and fails the job
+before upload if one appears; it compares without echoing the values.
