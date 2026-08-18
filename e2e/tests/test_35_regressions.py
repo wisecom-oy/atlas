@@ -64,16 +64,23 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
     a unit test: producing a genuine per-prefix S3 denial needs a scoped MinIO user that only exists
     to be denied, and a fabricated credential failure is exactly what a mock is for.
     """
+    owners = {k.split("/")[2] for k in storage.list_keys(s3, settings.bucket, "onedrive/manifests/")}
+    assert len(owners) == 1, f"expected one backed-up OneDrive owner, found {sorted(owners)}"
+    owner = owners.pop()
+    snapshots = storage.snapshot_ids(s3, settings.bucket, owner, "onedrive")
+    assert snapshots, "no OneDrive snapshot to restore"
+
     blobs = storage.list_keys(s3, settings.bucket, "onedrive/data/")
     assert blobs, "no OneDrive blob to corrupt; the OneDrive suite must have run first"
-    key = blobs[0]
 
-    original = s3.get_object(Bucket=settings.bucket, Key=key)["Body"].read()
-    # Flip one bit inside the ciphertext body, past the [IV][tag] envelope header, so the blob stays
-    # structurally valid and fails at the tag check rather than at parsing.
-    corrupted = bytearray(original)
-    corrupted[-1] ^= 0x01
-    s3.put_object(Bucket=settings.bucket, Key=key, Body=bytes(corrupted))
+    # Flip one bit inside every blob's ciphertext body, past the [IV][tag] envelope header, so each
+    # blob stays structurally valid and fails at the tag check rather than at parsing. Corrupting
+    # all of them removes the question of which blob the chosen snapshot references.
+    originals = {key: s3.get_object(Bucket=settings.bucket, Key=key)["Body"].read() for key in blobs}
+    for key, original in originals.items():
+        corrupted = bytearray(original)
+        corrupted[-1] ^= 0x01
+        s3.put_object(Bucket=settings.bucket, Key=key, Body=bytes(corrupted))
 
     try:
         result = cli.run(
@@ -81,6 +88,8 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
             "restore",
             "-o",
             settings.onedrive_owner,
+            "-s",
+            snapshots[0],
             "--conflict",
             "rename",
         )
@@ -91,7 +100,8 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
         # missing-object problem, because the honest diagnosis is wrong key or altered bytes.
         assert "missing or unreadable" not in lower, result.describe()
     finally:
-        s3.put_object(Bucket=settings.bucket, Key=key, Body=original)
+        for key, original in originals.items():
+            s3.put_object(Bucket=settings.bucket, Key=key, Body=original)
 
 
 def test_03_sdk_lists_the_snapshots_the_cli_wrote(settings: Settings, s3: Any) -> None:
