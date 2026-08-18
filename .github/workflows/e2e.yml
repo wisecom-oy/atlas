@@ -1,7 +1,7 @@
 name: E2E
 
-# Runs on pushes to the long-lived branches, plus manual dispatch. The weekly and monthly crons
-# arrive with the remaining suites (issue #108).
+# Runs on pushes to the long-lived branches, on a monthly compliance-mode schedule, and on manual
+# dispatch. The weekly governance cron arrives with issue #108.
 #
 # Never add `pull_request`: this job holds tenant credentials, and a PR-triggered run of
 # fork-supplied code would be a secret-exfiltration path.
@@ -12,12 +12,22 @@ name: E2E
 on:
   push:
     branches: [main, dev]
+  schedule:
+    # Monthly compliance leg. Compliance-mode retention is undeletable until it expires, so this
+    # cannot be the default cadence -- see the lock-mode note on the pytest step.
+    - cron: '0 4 1 * *'
   workflow_dispatch:
     inputs:
       suite:
         description: 'pytest -k expression (empty runs everything)'
         required: false
         default: ''
+      lock_mode:
+        description: 'Object Lock mode for the immutability suite'
+        required: false
+        default: governance
+        type: choice
+        options: [governance, compliance]
 
 permissions:
   contents: read
@@ -80,6 +90,9 @@ jobs:
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
           E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
           E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
+          # Compliance-mode objects cannot be deleted until retention expires, so only the monthly
+          # schedule (or an explicit dispatch) uses it. Every other run stays on governance.
+          E2E_LOCK_MODE: ${{ github.event.schedule == '0 4 1 * *' && 'compliance' || inputs.lock_mode || 'governance' }}
         run: uv run pytest ${{ inputs.suite && format('-k "{0}"', inputs.suite) || '' }}
 
       # Status is readable from the run page itself, so a red badge can be triaged without

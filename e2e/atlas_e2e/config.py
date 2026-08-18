@@ -19,6 +19,8 @@ _DEFAULTS = {
     "E2E_S3_SECRET_KEY": "minioadmin",
     "E2E_S3_REGION": "us-east-1",
     "E2E_CLI": str(REPO_ROOT / "packages" / "cli" / "dist" / "cli.mjs"),
+    # governance on the weekly leg, compliance on the monthly one.
+    "E2E_LOCK_MODE": "governance",
 }
 
 
@@ -39,6 +41,7 @@ class Settings:
     cli: Path
     onedrive_owner: str
     sharepoint_site: str
+    lock_mode: str
 
     @property
     def bucket(self) -> str:
@@ -87,7 +90,16 @@ def load() -> Settings:
         s3_secret_key=value("E2E_S3_SECRET_KEY"),
         s3_region=value("E2E_S3_REGION"),
         cli=cli,
+        lock_mode=_lock_mode(value("E2E_LOCK_MODE")),
         # Phase 2 workloads: absent until their fixtures exist, so the Outlook suite can run alone.
         onedrive_owner=os.environ.get("E2E_ONEDRIVE_OWNER", ""),
         sharepoint_site=os.environ.get("E2E_SHAREPOINT_SITE", ""),
     )
+
+
+def _lock_mode(raw: str) -> str:
+    """Validates the Object Lock mode; a typo must not silently downgrade immutability coverage."""
+    mode = raw.strip().lower()
+    if mode not in {"governance", "compliance"}:
+        raise RuntimeError(f"E2E_LOCK_MODE must be 'governance' or 'compliance', got {raw!r}")
+    return mode

@@ -38,10 +38,29 @@ everything the test owner and test site hold, and per-version assertions are wri
 around a second backup rather than as absolute object counts. Keep the test site small; the mailbox
 folder filter is what keeps the Outlook side cheap.
 
-Finally `test_90_purge.py` runs `outlook delete --purge -y` and asserts the bucket is empty. It is a
-module of its own so it executes after every workload: `--purge` sweeps the whole bucket, so the
-assertion should cover Outlook, OneDrive and SharePoint objects together. Teardown then sweeps every
-marked artifact from the mailbox and from both drives.
+Then the two suites that rehearse what backups exist for:
+
+- **Disaster recovery** (`test_40_replication.py`): replicates the mailbox to the **replica endpoint**
+  (a second MinIO, because Atlas derives the bucket name from the tenant id), checks `_meta/dek.enc`
+  and the ciphertext keys arrived, **purges primary**, rehydrates `--all` from the replica, and then
+  runs `outlook verify` — so the recovered data is proven to decrypt under the key that came back
+  with it. A drill that keeps its safety net proves nothing, which is why primary is really wiped.
+- **Immutability** (`test_95_immutability.py`): backs up with
+  `--retention-days 1 --lock-mode <mode> --require-immutability`, reads the retention back through
+  boto3, and asserts a blocked delete is reported as **retained**, not **failed** — the distinction
+  between "Object Lock is protecting this" and "something is broken".
+
+`test_90_purge.py` sits between them: `outlook delete --purge -y`, then the bucket must be empty. It
+is a module of its own so it runs after every workload, since `--purge` sweeps the whole bucket.
+
+**Ordering is load-bearing.** Atlas never sends `BypassGovernanceRetention`, so anything it locks is
+undeletable until expiry _even in governance mode_. The immutability suite therefore runs last
+(`test_95…`) — locking objects any earlier would make the purge assertion unsatisfiable. Its locked
+objects are deliberate survivors, and the workflow destroys the MinIO volumes afterwards.
+
+Lock mode comes from `E2E_LOCK_MODE` (`governance` default, `compliance` on the monthly cron).
+
+Teardown then sweeps every marked artifact from the mailbox and from both drives.
 
 ## Running locally
 
