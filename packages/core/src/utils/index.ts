@@ -16,3 +16,4 @@ export type { SecureStoreOptions, KeyringBackend } from './secure-config-store';
 export { CONFIG_KEYS, find_config_key, mask_secret } from './config-keys';
 export type { ConfigKeySpec } from './config-keys';
 export { html_to_text } from './html-to-text';
+export { is_gcm_auth_failure } from './gcm-auth';
