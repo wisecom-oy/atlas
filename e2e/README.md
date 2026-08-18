@@ -13,11 +13,13 @@ Design and rationale: [`PLAN.md`](./PLAN.md). Tracking: issue #103.
    4 KB attachment (Graph).
 2. Backs up **only that folder** (`-m <mailbox> -f atlas-e2e-<run_id>`), then asserts real objects
    exist under `manifests/`, `data/` and `attachments/` (boto3).
-3. Verifies, exports to `.eml`, then **deletes the message from M365** and restores it.
-4. Re-reads the restored message through Graph and compares the attachment SHA-256 with the bytes
-   it seeded. The tool's own "restored 1 item" output is never treated as evidence.
-5. Seeds a second message, re-runs the backup, and asserts the run resumed from saved delta state
-   and stored exactly one new blob.
+3. Verifies the snapshot and exports it to `.eml`.
+4. Seeds a second message, re-runs the backup, and asserts the run resumed from saved delta state
+   and stored exactly one new blob. This happens before the restore, because a `--folder` selector
+   matches a bare folder name at any depth, so a restored copy would re-enter backup scope.
+5. **Deletes the message from M365**, restores it, then re-reads it through Graph and compares the
+   attachment SHA-256 with the bytes it seeded. The tool's own "restored 1 item" output is never
+   treated as evidence.
 6. Purges the tenant bucket and sweeps every marked artifact from the mailbox.
 
 ## Running locally

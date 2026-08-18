@@ -69,7 +69,33 @@ def test_05_save_exports_an_eml_archive(cli: Cli, exports: Path, run_marker: str
         assert [n for n in zf.namelist() if n.endswith(".eml")], zf.namelist()
 
 
-def test_06_restore_recreates_a_deleted_message(
+def test_06_incremental_backup_adds_only_the_new_message(
+    cli: Cli, graph: Graph, settings: Settings, s3: Any, run_marker: str
+) -> None:
+    """A second run resumes from saved delta state and stores exactly the newly seeded message.
+
+    Ordered before the restore on purpose. A `--folder` selector matches a bare folder name at any
+    depth, so the restored copy at `Restore-<ts>/atlas-e2e-<run>/` would re-enter backup scope and a
+    later incremental run would legitimately store two new blobs. Measuring the delta first keeps
+    this assertion exact instead of approximate.
+    """
+    owner = STATE["owner"]
+    before = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
+
+    STATE["second"] = seed.create_message(graph, settings.mailbox, STATE["folder_id"], run_marker, 2)
+
+    result = cli.ok("outlook", "backup", "-m", settings.mailbox, "-f", run_marker)
+    assert "Resuming incremental sync" in result.out, result.describe()
+
+    after = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
+    assert len(after - before) == 1, f"expected exactly one new message blob, got {len(after - before)}"
+    assert before <= after, "an incremental run must not remove existing blobs"
+
+    snapshots = storage.snapshot_ids(s3, settings.bucket, owner)
+    assert len(snapshots) == 2, f"expected a second snapshot, found {snapshots}"
+
+
+def test_07_restore_recreates_a_deleted_message(
     cli: Cli, graph: Graph, settings: Settings, run_marker: str
 ) -> None:
     """Deletes the message from M365, restores it, and confirms Graph can see it again.
@@ -90,7 +116,7 @@ def test_06_restore_recreates_a_deleted_message(
     STATE["restore_root"] = roots[0]
 
 
-def test_07_restored_attachment_is_byte_identical(graph: Graph, settings: Settings) -> None:
+def test_08_restored_attachment_is_byte_identical(graph: Graph, settings: Settings) -> None:
     """The restored attachment hashes to the seeded bytes, and the body keeps its sentinel."""
     message = STATE["first"]
     restored = probe.find_message_in_tree(
@@ -103,27 +129,6 @@ def test_07_restored_attachment_is_byte_identical(graph: Graph, settings: Settin
 
     digest = probe.attachment_sha256(graph, settings.mailbox, str(restored["id"]), message.attachment_name)
     assert digest == message.attachment_sha256, "restored attachment does not match the seeded bytes"
-
-
-def test_08_incremental_backup_adds_only_the_new_message(
-    cli: Cli, graph: Graph, settings: Settings, s3: Any, run_marker: str
-) -> None:
-    """A second run resumes from saved delta state and stores exactly the newly seeded message."""
-    owner = STATE["owner"]
-    before = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
-
-    second = seed.create_message(graph, settings.mailbox, STATE["folder_id"], run_marker, 2)
-    STATE["second"] = second
-
-    result = cli.ok("outlook", "backup", "-m", settings.mailbox, "-f", run_marker)
-    assert "Resuming incremental sync" in result.out, result.describe()
-
-    after = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
-    assert len(after - before) == 1, f"expected exactly one new message blob, got {len(after - before)}"
-    assert before <= after, "an incremental run must not remove existing blobs"
-
-    snapshots = storage.snapshot_ids(s3, settings.bucket, owner)
-    assert len(snapshots) == 2, f"expected a second snapshot, found {snapshots}"
 
 
 def test_09_status_reports_the_backed_up_folder(cli: Cli, settings: Settings, run_marker: str) -> None:
