@@ -198,7 +198,18 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     return await resolve_download_url_helper(this._client, item);
   }
 
-  /** Lists historical versions of a file, following pagination. */
+  /**
+   * Lists a file's *historical* versions, following pagination.
+   *
+   * The newest entry is dropped: Graph returns versions newest-first, and its version-content
+   * endpoint refuses the current version ("Getting the content of the current version is not
+   * supported"), which surfaced as an HTTP 400 per new file and a `UNHEALTHY` run (issue #110).
+   * Current content already reaches storage through the item-content path.
+   *
+   * Dropping by position rather than by id is deliberate: SharePoint numbers versions `1.0`, `2.0`,
+   * ..., so comparing against a literal id silently matched nothing. This mirrors
+   * `GraphOneDriveConnector.list_file_versions`.
+   */
   async list_file_versions(drive_id: string, item_id: string): Promise<SharePointFileVersion[]> {
     const all_versions: SharePointFileVersion[] = [];
     let next_url: string | undefined;
@@ -229,8 +240,8 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       );
     }
 
-    if (all_versions.length === 0) return [];
-    return all_versions.filter((v) => v.version_id !== '1');
+    if (all_versions.length <= 1) return [];
+    return all_versions.slice(1);
   }
 
   /** Downloads a specific version's content with size-based timeout. */
