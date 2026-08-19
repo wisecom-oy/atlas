@@ -115,6 +115,8 @@ interface OperationProgressEvent {
 
 Cancellation returns normally with `interrupted: true`; it does not throw an abort error. Restore and save results contain partial counts, and save finalizes a valid zip with the completed files. A partially processed backup does not advance that folder, drive, or library's delta cursor, so the next run safely replays it. Completed units remain committed.
 
+If the signal is already aborted when the operation is called, no `discovering` event is emitted — the stream contains only `finalizing` followed by `interrupted`. The event stream never claims work that did not happen, so a progress bar driven by `discovering` will not paint a "starting..." state for a run that is already over.
+
 The callback is optional and runs inline with the operation. Keep it fast; move network writes or database updates to your own queue.
 
 ## Outlook API Reference

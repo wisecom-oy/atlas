@@ -3,14 +3,21 @@ import type { OperationControlOptions, OperationProgressEvent } from '@wisecom/a
 type Operation = OperationProgressEvent['operation'];
 type Workload = OperationProgressEvent['workload'];
 
-/** Emits discovery progress and reports whether cancellation was requested. */
+/**
+ * Emits discovery progress and reports whether cancellation was requested.
+ * A pre-aborted operation emits no `discovering` event — the stream only
+ * contains `finalizing` + terminal, never claiming work that did not happen.
+ */
 export function begin_operation_progress(
   control: OperationControlOptions,
   operation: Operation,
   workload: Workload,
 ): boolean {
+  if (control.should_interrupt?.() === true) {
+    return true;
+  }
   emit_operation_progress(control, { operation, workload, phase: 'discovering', processed: 0 });
-  return control.should_interrupt?.() === true;
+  return false;
 }
 
 /** Emits finalizing and exactly one terminal event, returning interruption state. */
