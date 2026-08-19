@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-cli",
-  "version": "2.1.0-beta",
+  "version": "2.1.0-beta.1",
   "description": "CLI for Atlas — secure Microsoft 365 backup and restore to S3-compatible storage.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
