@@ -2,12 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, 'release/**']
+    branches: [main, dev, 'release/**']
   pull_request:
-    # Release branches are integration targets for a whole beta line, so they
-    # need the same gate as main -- without this, PRs into release/** merge
-    # with no build, lint, format, or test run at all.
-    branches: [main, 'release/**']
+    # dev is the default target for feature work and release/** branches are
+    # integration targets for a whole line, so both need the same gate as main --
+    # without this, PRs merge with no build, lint, format, or test run at all.
+    branches: [main, dev, 'release/**']
 
 permissions:
   contents: read
@@ -60,3 +60,32 @@ jobs:
       - name: Update coverage badge
         if: success() && github.ref == 'refs/heads/main' && vars.GIST_ID != ''
         run: echo "Coverage badge update skipped -- monorepo coverage aggregation TBD"
+
+  release-guard:
+    name: Release version guard
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      (startsWith(github.head_ref, 'release/') || startsWith(github.head_ref, 'hotfix/'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Branch name and package version must agree on an untagged version
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          BRANCH_VERSION="${HEAD_REF##*/v}"
+          if [ "$BRANCH_VERSION" != "$HEAD_REF" ] && [ "$BRANCH_VERSION" != "$VERSION" ]; then
+            echo "::error::Branch $HEAD_REF disagrees with packages/sdk/package.json ($VERSION). Run: pnpm run release:version $BRANCH_VERSION"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::v$VERSION is already tagged, so merging this PR would publish nothing. Bump the version: pnpm run release:version patch"
+            exit 1
+          fi
+          echo "v$VERSION is unreleased -- merging this PR will tag and publish it."

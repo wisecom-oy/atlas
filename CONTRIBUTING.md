@@ -30,7 +30,10 @@ pnpm run test
 
 ## Development workflow
 
-1. Create a branch from `main` for your change.
+`dev` is the integration branch. It accumulates work until there is enough for a
+release; `main` always reflects the newest version published to npm.
+
+1. Create a branch from `dev` for your change.
 2. Make your changes following the conventions below.
 3. Run the full quality gate before pushing:
 
@@ -41,7 +44,33 @@ pnpm run format:check
 pnpm run test
 ```
 
-4. Open a pull request against `main`. CI will run the same checks automatically.
+4. Open a pull request against **`dev`**. CI will run the same checks automatically.
+
+### Where to target your PR
+
+| You are doing                     | Branch from | Target your PR at       |
+| --------------------------------- | ----------- | ----------------------- |
+| A feature, fix, refactor, or docs | `dev`       | **`dev`**               |
+| Cutting a release                 | `dev`       | `main` (opened for you) |
+| An urgent production fix          | `main`      | `main` (opened for you) |
+
+Never open a feature PR against `main`. Merging a version bump into `main` is what
+tags and publishes a release, so anything landing there is treated as a release or
+a hotfix.
+
+### Do not bump the version in a normal PR
+
+Version bumps belong exclusively to release PRs, which are created by the **Start
+release** workflow. Bumping `packages/*/package.json` in an ordinary PR publishes
+to npm the moment it reaches `main`. See
+[Release Process](./docs/development/releases.md) for how releases are cut, how
+hotfixes work, and how release notes are categorised.
+
+### Label your PR
+
+Release notes are generated from PR labels (`enhancement`, `bug`,
+`documentation`, `security`). An unlabelled PR shows up under "Other changes", so
+label it before it is merged.
 
 ## Code conventions
 

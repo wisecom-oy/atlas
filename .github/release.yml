@@ -1,0 +1,17 @@
+# Categories for the auto-generated release notes that publish.yml attaches to
+# every GitHub Release. GitHub matches on PR labels only -- it cannot read
+# conventional-commit prefixes -- so an unlabelled PR lands in "Other changes".
+changelog:
+  exclude:
+    authors: [dependabot, github-actions]
+  categories:
+    - title: Security
+      labels: [security]
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Documentation
+      labels: [documentation]
+    - title: Other changes
+      labels: ['*']
