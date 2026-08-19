@@ -1,6 +1,11 @@
 name: E2E
 
-# Runs nightly, on pushes to the long-lived branches, and on manual dispatch.
+# Runs nightly in the background, and on manual dispatch. Nothing else.
+#
+# It deliberately does not run per push or per merge: a live-tenant suite costs up to
+# 30 minutes and real Graph quota, and running it on every branch push told us nothing
+# a nightly run does not. Dispatch it explicitly when a change touches backup, restore,
+# or storage behaviour and you want the answer before the next cron.
 #
 # Never add `pull_request`: this job holds tenant credentials, and a PR-triggered run of
 # fork-supplied code would be a secret-exfiltration path.
@@ -9,8 +14,6 @@ name: E2E
 # depends on Graph and network availability, so a red E2E must inform, not block a merge. CI
 # (`ci.yml`) stays the gate.
 on:
-  push:
-    branches: [main, dev]
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:

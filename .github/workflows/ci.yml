@@ -1,8 +1,10 @@
 name: CI
 
+# Pull requests only. main and dev both require a PR, so a `push` trigger just ran
+# the identical commit a second time -- PR #126 showed two "Build, Lint & Test"
+# rows for one change. The merge result is covered because the release itself
+# re-runs build, lint, and test in publish.yml before anything reaches npm.
 on:
-  push:
-    branches: [main, dev, 'release/**']
   pull_request:
     # dev is the default target for feature work and release/** branches are
     # integration targets for a whole line, so both need the same gate as main --
@@ -11,6 +13,11 @@ on:
 
 permissions:
   contents: read
+
+# Superseded pushes to a PR branch are pointless work.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   quality:
@@ -56,10 +63,6 @@ jobs:
           path: |
             packages/*/coverage/
           retention-days: 30
-
-      - name: Update coverage badge
-        if: success() && github.ref == 'refs/heads/main' && vars.GIST_ID != ''
-        run: echo "Coverage badge update skipped -- monorepo coverage aggregation TBD"
 
   release-guard:
     name: Release version guard

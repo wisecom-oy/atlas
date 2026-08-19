@@ -27,7 +27,7 @@ merge came from:
 
 ```
 merge into main
-  └─ .github/workflows/tag.yml reads packages/sdk/package.json
+  └─ .github/workflows/publish.yml reads packages/sdk/package.json
        ├─ tag v<version> already exists  → nothing happens
        └─ tag v<version> does not exist  → create the tag, then publish
 ```
@@ -71,17 +71,24 @@ Merging is the release.
 
 ## What happens on merge
 
-| Step | Workflow      | Effect                                                                                       |
-| ---- | ------------- | -------------------------------------------------------------------------------------------- |
-| 1    | `tag.yml`     | Creates and pushes the annotated tag `v<version>`                                            |
-| 2    | `publish.yml` | Re-runs build, lint, and tests, then publishes `@wisecom/atlas-sdk` and `@wisecom/atlas-cli` |
-| 3    | `publish.yml` | Creates the GitHub Release with generated, categorised notes                                 |
-| 4    | `tag.yml`     | Fast-forwards `dev` onto `main` if `main` is ahead                                           |
+| Step | Job        | Effect                                                                                       |
+| ---- | ---------- | -------------------------------------------------------------------------------------------- |
+| 1    | `plan`     | Creates and pushes the annotated tag `v<version>`                                            |
+| 2    | `publish`  | Re-runs build, lint, and tests, then publishes `@wisecom/atlas-sdk` and `@wisecom/atlas-cli` |
+| 3    | `publish`  | Creates the GitHub Release with generated, categorised notes                                 |
+| 4    | `sync-dev` | Fast-forwards `dev` onto `main` if `main` is ahead                                           |
 
-`publish.yml` is invoked as a reusable workflow rather than by its own
-`push: tags` trigger. A tag pushed with the default `GITHUB_TOKEN` does not
-trigger workflows, so relying on the tag event would silently publish nothing.
-The `push: tags` trigger is retained so a manually pushed tag still publishes.
+All four jobs live in `publish.yml`, and that is not incidental. npm authentication
+is OIDC trusted publishing -- there is no `NPM_TOKEN` secret -- and npm validates the
+**entry-point** workflow, not the workflow that runs `npm publish`. An earlier design
+split tagging into `tag.yml` and called `publish.yml` via `workflow_call`; that made
+`tag.yml` the entry point, npm stopped matching the trusted publisher, and the
+publish failed with `ENEEDAUTH` _after_ the tag had already been pushed. Keep tagging
+and publishing in one file.
+
+Collapsing them also removes the reason the split existed: a tag pushed with the
+default `GITHUB_TOKEN` does not trigger workflows, so a separate tagging workflow
+could never have triggered the publish through the tag event at all.
 
 ### npm dist-tags
 
@@ -105,8 +112,9 @@ A hotfix is an urgent fix that cannot wait for `dev` to be release-ready. Run
 `dev` work.
 
 Because the fix lands on `main` first, `dev` would otherwise be missing it and
-the next release branch would silently revert it. `tag.yml` therefore pushes
-`main` onto `dev` after every push to `main` where `main` is ahead.
+the next release branch would silently revert it. The `sync-dev` job in
+`publish.yml` therefore pushes `main` onto `dev` after every push to `main` where
+`main` is ahead.
 
 That push is a fast-forward, which is the normal case: a release or hotfix merge
 leaves `dev` strictly behind `main`. If `dev` has diverged -- someone landed work
@@ -148,6 +156,40 @@ branches. It fails the PR when:
   is how a release can appear to succeed while npm never changes.
 
 Both failures print the exact `pnpm run release:version` command to fix them.
+
+## When each workflow runs
+
+CI minutes are not free and a live-tenant suite costs Graph quota, so every trigger
+is deliberately narrow:
+
+| Workflow            | Runs on                                            | Notes                                                |
+| ------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| `ci.yml`            | Pull requests into `main`, `dev`, `release/**`     | Superseded runs on the same branch are cancelled     |
+| `publish.yml`       | Push to `main`, a pushed `v*` tag, manual dispatch | Only actually publishes when the version is untagged |
+| `e2e.yml`           | Nightly cron at 03:00 UTC, manual dispatch         | Never per push or per PR                             |
+| `release-start.yml` | Manual dispatch only                               | —                                                    |
+| `docs.yml`          | Push to `main` touching `docs/**`                  | —                                                    |
+
+`ci.yml` has no `push` trigger. Both `main` and `dev` require a pull request, so a
+push trigger only re-ran the identical commit a second time -- PR #126 produced two
+`Build, Lint & Test` rows for one change. The merged result is still covered,
+because `publish.yml` re-runs build, lint, and tests before anything reaches npm.
+
+`e2e.yml` no longer runs per push. It takes up to 30 minutes against a live tenant
+and gates nothing, so a nightly run is enough. Dispatch it explicitly when a change
+touches backup, restore, or storage behaviour and you want an answer sooner:
+
+```bash
+gh workflow run e2e.yml                          # everything
+gh workflow run e2e.yml -f suite='object_lock'   # one suite
+```
+
+Before cutting a release, check the most recent nightly rather than waiting on a
+fresh run:
+
+```bash
+gh run list --workflow e2e.yml --limit 3
+```
 
 ## Branch protection
 

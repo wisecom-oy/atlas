@@ -1,8 +1,13 @@
 name: Deploy Docs
 
+# Only when the published site can actually have changed. Every other merge to main
+# was rebuilding and redeploying identical output.
 on:
   push:
     branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:

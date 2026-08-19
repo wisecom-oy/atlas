@@ -2,7 +2,7 @@ name: Start release
 
 # Opens a release. The version is the only decision a human makes; everything
 # after it -- branch, bump, commit, PR -- is derived. Merging the resulting PR
-# into main is what triggers the tag and the npm publish (see tag.yml).
+# into main is what triggers the tag and the npm publish (see publish.yml).
 on:
   workflow_dispatch:
     inputs:
