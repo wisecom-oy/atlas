@@ -39,8 +39,8 @@ describe('Outlook operation cancellation', () => {
     expect(factory.create).not.toHaveBeenCalled();
     expect(results.every((result) => result.interrupted)).toBe(true);
     for (const callback of callbacks) {
+      // Pre-aborted runs never claim discovery: finalizing + terminal only.
       expect(callback.mock.calls.map(([event]) => event.phase)).toEqual([
-        'discovering',
         'finalizing',
         'interrupted',
       ]);
