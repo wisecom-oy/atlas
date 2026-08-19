@@ -6,6 +6,10 @@ export default defineConfig({
 
   base: '/',
   cleanUrls: true,
+
+  // Internal planning artefacts under docs/superpowers/ are unreferenced by any page
+  // and were being published to the public site.
+  srcExclude: ['superpowers/**'],
   appearance: 'dark',
 
   head: [
@@ -38,21 +42,27 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Getting Started', link: '/getting-started' },
-          {
-            text: 'Self-Hosting',
-            collapsed: false,
-            items: [
-              { text: 'Overview', link: '/self-hosting/' },
-              { text: 'Storage Setup', link: '/self-hosting/storage' },
-              { text: 'Scheduling & Bandwidth', link: '/self-hosting/scheduling' },
-              { text: 'Replication Setup', link: '/self-hosting/replication' },
-            ],
-          },
+          { text: 'Concepts', link: '/concepts' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Azure AD Setup', link: '/azure-ad-setup' },
           { text: 'Security', link: '/security' },
-          { text: 'Concepts', link: '/concepts' },
           { text: 'Troubleshooting', link: '/troubleshooting' },
+        ],
+      },
+      {
+        text: 'Workloads',
+        items: [
+          { text: 'OneDrive Backup', link: '/onedrive-backup' },
+          { text: 'SharePoint Backup', link: '/sharepoint-backup' },
+        ],
+      },
+      {
+        text: 'Self-Hosting',
+        items: [
+          { text: 'Overview', link: '/self-hosting/' },
+          { text: 'Storage Setup', link: '/self-hosting/storage' },
+          { text: 'Scheduling & Bandwidth', link: '/self-hosting/scheduling' },
+          { text: 'Replication Setup', link: '/self-hosting/replication' },
         ],
       },
       {
@@ -69,17 +79,9 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'CLI Commands', link: '/reference/cli' },
-          { text: 'CLI — Recovery & Management', link: '/reference/cli-recovery' },
+          { text: 'CLI Recovery & Management', link: '/reference/cli-recovery' },
           { text: 'Programmatic SDK', link: '/reference/sdk' },
-          {
-            text: 'Examples',
-            collapsed: false,
-            items: [
-              { text: 'Backup Patterns', link: '/reference/examples/backup' },
-              { text: 'Maintenance & Monitoring', link: '/reference/examples/maintenance' },
-              { text: 'Export & Compliance', link: '/reference/examples/export' },
-            ],
-          },
+          { text: 'Examples', link: '/reference/examples' },
         ],
       },
       {
@@ -96,16 +98,16 @@ export default defineConfig({
       },
     ],
 
-    socialLinks: [{ icon: 'github', link: 'https://github.com/miikaok/atlas' }],
+    socialLinks: [{ icon: 'github', link: 'https://github.com/wisecom-oy/atlas' }],
 
     editLink: {
-      pattern: 'https://github.com/miikaok/atlas/edit/main/docs/:path',
+      pattern: 'https://github.com/wisecom-oy/atlas/edit/main/docs/:path',
       text: 'Edit this page on GitHub',
     },
 
     footer: {
       message: 'Released under the Apache-2.0 License.',
-      copyright: 'Copyright 2026 Miika Oja-Kaukola',
+      copyright: 'Copyright 2026 Wisecom Oy',
     },
 
     search: {

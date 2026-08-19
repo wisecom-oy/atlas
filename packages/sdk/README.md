@@ -1,6 +1,6 @@
 # @wisecom/atlas-sdk
 
-Programmatic API for embedding [Atlas](https://github.com/wisecom-oy/atlas) — Microsoft 365 backup and restore — in Node.js applications.
+Programmatic API for embedding [Atlas](https://github.com/wisecom-oy/atlas) in Node.js applications. Atlas backs up and restores Microsoft 365 data.
 
 Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, OneDrive, and SharePoint workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
 
@@ -22,7 +22,7 @@ npm add @wisecom/atlas-sdk@beta
 
 ## Quick start
 
-Config is explicit at construction time — the SDK does **not** read `.env` files or environment variables.
+Config is explicit at construction time. The SDK does **not** read `.env` files or environment variables.
 
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
@@ -75,4 +75,6 @@ Full SDK reference, examples, and security model:
 
 ## License
 
-Apache-2.0 — Copyright 2026 [Wisecom Oy](https://wisecom.fi)
+Code is licensed under Apache-2.0, Copyright 2026 [Wisecom Oy](https://wisecom.fi).
+
+The Atlas and Wisecom names and logos are trademarks of Wisecom Oy and are not covered by that licence. See [`assets/LICENSE.md`](https://github.com/wisecom-oy/atlas/blob/main/assets/LICENSE.md) in the repository.

@@ -1,6 +1,6 @@
 # @wisecom/atlas-cli
 
-Command-line tool for [Atlas](https://github.com/wisecom-oy/atlas) — secure Microsoft 365 backup and restore to S3-compatible object storage.
+Command-line tool for [Atlas](https://github.com/wisecom-oy/atlas). Secure Microsoft 365 backup and restore to S3-compatible object storage.
 
 Protects Outlook mailboxes, OneDrive files, and SharePoint document libraries with per-tenant envelope encryption (AES-256-GCM), content-addressed deduplication, and incremental delta sync via Microsoft Graph.
 
@@ -31,7 +31,7 @@ cp .env.example .env
 Run your first backup:
 
 ```bash
-# Outlook — single mailbox
+# Outlook, single mailbox
 atlas outlook backup --mailbox user@company.com
 
 # OneDrive
@@ -68,4 +68,6 @@ Full guides, security model, and CLI reference:
 
 ## License
 
-Apache-2.0 — Copyright 2026 [Wisecom Oy](https://wisecom.fi)
+Code is licensed under Apache-2.0, Copyright 2026 [Wisecom Oy](https://wisecom.fi).
+
+The Atlas and Wisecom names and logos are trademarks of Wisecom Oy and are not covered by that licence. See [`assets/LICENSE.md`](https://github.com/wisecom-oy/atlas/blob/main/assets/LICENSE.md) in the repository.
