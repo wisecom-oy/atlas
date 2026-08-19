@@ -1,4 +1,4 @@
-[![Atlas — open-source Microsoft 365 backup engine by Wisecom](assets/og-card.jpg)](https://wisecom.fi)
+[![Atlas, the open-source Microsoft 365 backup engine by Wisecom](assets/og-card.jpg)](https://wisecom.fi)
 
 [![CI](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/wisecom-oy/atlas/actions/workflows/ci.yml)
 [![E2E](https://github.com/wisecom-oy/atlas/actions/workflows/e2e.yml/badge.svg?branch=main)](https://github.com/wisecom-oy/atlas/actions/workflows/e2e.yml)
@@ -12,9 +12,7 @@
 
 Atlas backs up Outlook mailboxes, OneDrive files, and SharePoint document libraries into S3-compatible object storage that you control. Data is encrypted per tenant before it leaves the process, stored content-addressed and deduplicated, and synchronised incrementally through Microsoft Graph delta queries.
 
-It is built as infrastructure rather than as a desktop backup app: a CLI and a typed SDK, designed to be automated, inspected, and operated by the people responsible for recovery.
-
-Atlas is free and open source under Apache-2.0, and maintained by [Wisecom Oy](https://wisecom.fi), a Finnish software company building cloud continuity infrastructure. You can run it yourself, indefinitely, with no licence key and no feature gating.
+It is infrastructure rather than a desktop backup app: a CLI and a typed SDK, built to be automated, inspected, and operated by the people responsible for recovery. Atlas is free and open source under Apache-2.0, maintained by [Wisecom Oy](https://wisecom.fi). You can run it yourself, indefinitely, with no licence key and no feature gating.
 
 ## Why it is built this way
 
@@ -23,7 +21,7 @@ Recovery is only useful if it still works when the production environment cannot
 | Property | How it works | Why it matters |
 | --- | --- | --- |
 | **Per-tenant encryption** | AES-256-GCM envelope encryption; a scrypt-derived key wraps a per-tenant data key that never leaves memory unwrapped | Storage compromise alone does not expose mail or files |
-| **Customer-controlled storage** | Any S3-compatible backend — AWS, MinIO, or on-premise | You decide where backup data lives and who holds the credentials |
+| **Customer-controlled storage** | Any S3-compatible backend: AWS, MinIO, or on-premise | You decide where backup data lives and who holds the credentials |
 | **Content-addressed storage** | Messages, attachments, and files keyed by SHA-256 of the plaintext | Identical content is stored once; re-runs do not re-upload |
 | **Storage-level immutability** | S3 Object Lock with time-based retention | Retention is enforced by the storage layer, not by application logic |
 | **Delta synchronisation** | Graph delta cursors per folder, drive, and library | Incremental runs; a single failed item does not replay the whole backlog |
@@ -57,11 +55,11 @@ Restores, verification, catalogue queries, replication, and retention are docume
 
 Atlas currently protects:
 
-- **Exchange Online** — mailboxes, folder hierarchy, attachments
-- **OneDrive** — files with version history
-- **SharePoint** — document libraries, including subsites
+- **Exchange Online**: mailboxes, folder hierarchy, attachments
+- **OneDrive**: files with version history
+- **SharePoint**: document libraries, including subsites
 
-SharePoint coverage is document libraries; generic lists and site pages are not captured yet. Planned work is tracked in the [roadmap](https://wisecom-oy.github.io/atlas/roadmap), and current behaviour is documented rather than implied.
+SharePoint coverage is document libraries only. Generic lists and site pages are not captured yet, and planned work is tracked in the [roadmap](https://wisecom-oy.github.io/atlas/roadmap).
 
 ## Documentation
 
@@ -79,13 +77,13 @@ SharePoint coverage is document libraries; generic lists and site pages are not 
 | CLI Reference | [docs](https://wisecom-oy.github.io/atlas/reference/cli) |
 | SDK Reference | [docs](https://wisecom-oy.github.io/atlas/reference/sdk) |
 
-**Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) — command line · [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) — programmatic API for Node.js
+**Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the programmatic Node.js API.
 
 ## Running it as a service
 
 Atlas is the engine. Operating it in production also means scheduling, monitoring, alerting on failed runs, restore testing, and keeping credentials and retention under control.
 
-If you would rather not run that yourself, Wisecom operates Atlas as a managed service — [Wisecom Continuity](https://wisecom.fi/en/products/continuity) — with automated onboarding and monitoring, self-service restore, and options for keeping backup data in storage your own organisation controls.
+If you would rather not run that yourself, Wisecom operates Atlas as a managed service, [Wisecom Continuity](https://wisecom.fi/en/products/continuity), with automated onboarding and monitoring, self-service restore, and options for keeping backup data in storage your own organisation controls.
 
 Either path uses the same open engine and the same storage format, so self-hosting remains a supported choice rather than a trial.
 

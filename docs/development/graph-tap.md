@@ -1,10 +1,10 @@
 # Graph Request Tracing
 
 `graph-tap` records every HTTP request Atlas sends to Microsoft Graph and collapses
-the result into a report you can read in one screen. It exists because the
-interesting questions about a backup — why is this run throttled, why does this
-mailbox fail, how many Graph calls does one message really cost — are questions
-about the wire, and Atlas's own logs describe intent rather than traffic.
+the result into a report you can read in one screen. The interesting questions about
+a backup are questions about the wire: why a run is throttled, why one mailbox
+fails, how many Graph calls a single message really costs. Atlas's own logs describe
+intent rather than traffic.
 
 This is a development tool. It is not shipped to end users, is not part of the
 `atlas` CLI, and is excluded from the published package.
@@ -55,15 +55,14 @@ directly, and the OneDrive and SharePoint chunked download and upload paths call
 and undici publishes its full request lifecycle on
 [`node:diagnostics_channel`](https://nodejs.org/api/diagnostics_channel.html).
 
-`graph-tap` subscribes to those channels from a `--import` preload. The
-consequences are worth spelling out, because they are why this approach was chosen
-over a proxy:
+`graph-tap` subscribes to those channels from a `--import` preload. This is why the
+tap sits there rather than behind a proxy:
 
 - **No proxy, no certificate, no privileges.** Nothing is re-routed and TLS is not
   terminated, so the traffic you observe is the traffic Atlas actually sent.
 - **Nothing can be missed by sitting at the wrong layer.** The tap is below the
   SDK's retry and redirect handlers, so every retry and every followed redirect is
-  a separate recorded request — the same position the cost middleware occupies.
+  a separate recorded request, the same position the cost middleware occupies.
 - **No effect on the observed process.** Every subscriber is wrapped in a `try`
   block; a bug in the tap cannot break a backup.
 - **No dependency.** `node:diagnostics_channel` and `node:zlib` are standard
@@ -76,7 +75,7 @@ The undici channels used are `undici:request:create`, `:bodyChunkSent`,
 
 | Capability                                   | Requirement                       | If unmet                                    |
 | -------------------------------------------- | --------------------------------- | ------------------------------------------- |
-| URL, status, timing, throttling, error codes | Node >= 22                        | —                                           |
+| URL, status, timing, throttling, error codes | Node >= 22                        | n/a                                         |
 | Byte counts and `--bodies`                   | Node >= 24 (undici >= 7.11)       | Byte fields read `0`; everything else works |
 | `proxy` mode                                 | Node >= 24 (`NODE_USE_ENV_PROXY`) | Use default capture                         |
 
@@ -100,7 +99,7 @@ kilobytes of base64 that no analysis reads, so `$deltatoken=<1840b>` is recorded
 instead. The same applies to download-URL credentials.
 
 **Headers are an allowlist, not a denylist.** Only throttling and shape headers
-are kept — `retry-after`, `ratelimit-*`, `x-ms-throttle-*`, `x-ms-resource-unit`,
+are kept: `retry-after`, `ratelimit-*`, `x-ms-throttle-*`, `x-ms-resource-unit`,
 `location`, and non-JSON `content-type`. Server trace IDs, `x-ms-ags-diagnostic`
 payloads, HSTS, and CORS noise are discarded.
 
@@ -167,9 +166,8 @@ The redaction is therefore not configurable.
 | Request bodies                                                              | only with `--bodies`, capped | Restore and upload requests carry the customer's own mail and file data.                                                     |
 
 What remains is still sensitive: URLs contain mailbox UPNs, site paths, and drive
-IDs. Treat `.graph-tap/` as you would a log containing personal data — it is
-gitignored, and it should not be committed or shared outside the tenant's own
-operators.
+IDs. Treat `.graph-tap/` as a log containing personal data. It is gitignored, and it
+should not be committed or shared outside the tenant's own operators.
 
 ## Full TLS Inspection With mitmproxy
 
@@ -191,9 +189,9 @@ export NODE_EXTRA_CA_CERTS="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
 
 All three matter. `NODE_USE_ENV_PROXY=1` is mandatory and easy to miss: Node's
 `fetch` is undici, and **undici ignores `HTTPS_PROXY` unless this variable is
-set** — without it your traffic silently bypasses the proxy and you conclude
-nothing was sent. It was added in Node 24; on Node 22 there is no built-in
-equivalent, so use the default capture instead.
+set**. Without it your traffic silently bypasses the proxy and you conclude nothing
+was sent. It was added in Node 24; on Node 22 there is no built-in equivalent, so
+use the default capture instead.
 
 `NODE_EXTRA_CA_CERTS` is what makes Node trust mitmproxy's generated CA.
 mitmproxy writes that certificate on first launch, so the very first run may need
@@ -210,9 +208,9 @@ pipx install mitmproxy      # Linux
 ```
 
 Understand the trade before choosing this path. Proxy mode requires an install, a
-trusted CA certificate, Node >= 24, and it terminates TLS — meaning you are
-inspecting mitmproxy's connection rather than Atlas's. The default capture needs
-none of that and observes the real one.
+trusted CA certificate, Node >= 24, and it terminates TLS, so you inspect
+mitmproxy's connection rather than Atlas's. The default capture needs none of that
+and observes the real one.
 
 ## Files
 
@@ -235,8 +233,8 @@ elided, that IDs are templated, and that gzipped Graph errors still decode.
 
 ## Related
 
-- [Graph API Rate Limits](/operations/graph-rate-limits) — what the throttling
-  section is telling you
-- [Delta Sync](/operations/delta-sync) — what the delta requests are doing
-- [Performance Profiling](/development/performance-profiling) — CPU time rather
+- [Graph API Rate Limits](/operations/graph-rate-limits) explains what the
+  throttling section is telling you
+- [Delta Sync](/operations/delta-sync) explains what the delta requests are doing
+- [Performance Profiling](/development/performance-profiling) covers CPU time rather
   than network traffic

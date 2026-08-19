@@ -1,27 +1,27 @@
 # Microsoft Graph API Rate Limits
 
-Atlas communicates with Microsoft 365 services exclusively through the Microsoft Graph API. Understanding Graph's throttling model is essential for operators building high-throughput backup pipelines, especially when using a job queue (such as pg-boss) to orchestrate backups across many mailboxes or tenants.
+Atlas talks to Microsoft 365 exclusively through the Microsoft Graph API. Graph's throttling model determines how far a backup pipeline can be parallelized, which matters most when a job queue (such as pg-boss) orchestrates backups across many mailboxes or tenants.
 
-## The Two-Layer Throttling Model
+## Two-layer throttling model
 
-Every Graph API request is evaluated against **two independent categories** of limits simultaneously. The first limit reached triggers a `429 Too Many Requests` response:
+Every Graph request is evaluated against **two independent categories** of limits at once. The first limit reached triggers a `429 Too Many Requests` response:
 
 | Layer                | Scope                         | Limit                         |
 | -------------------- | ----------------------------- | ----------------------------- |
 | **Global**           | Per app across all tenants    | 130,000 requests / 10 seconds |
 | **Service-specific** | Varies by service (see below) | Separate pool per service     |
 
-The global limit is unlikely to be hit by Atlas unless running hundreds of tenants simultaneously from a single app registration. Service-specific limits are the operational bottleneck for most deployments.
+Atlas is unlikely to hit the global limit unless it runs hundreds of tenants simultaneously from a single app registration. Service-specific limits are the operational bottleneck for most deployments.
 
-## Independent Service Pools
+## Independent service pools
 
-Microsoft Graph enforces **separate, independent throttling pools** for each service. **Consuming quota in one pool does not affect quota in another.** For Atlas operators, this means:
+Microsoft Graph enforces **separate, independent throttling pools** for each service. **Consuming quota in one pool does not affect quota in another.** For Atlas operators that means:
 
 - A mailbox backup (Outlook pool, per-mailbox) does not compete with a future OneDrive backup (SharePoint pool, per-tenant) for the same user.
-- Running 50 mailbox backups in parallel uses 50 independent Outlook quota budgets — one per mailbox.
+- Running 50 mailbox backups in parallel uses 50 independent Outlook quota budgets, one per mailbox.
 - All SharePoint/OneDrive operations for a single tenant share one budget regardless of how many users or drives are targeted.
 
-The three pools Atlas uses are:
+Atlas uses three pools:
 
 | Pool                    | Scope               | Cost model                  | Used by                  |
 | ----------------------- | ------------------- | --------------------------- | ------------------------ |
@@ -33,13 +33,13 @@ The three pools Atlas uses are:
 
 ## Pool 1: Outlook / Exchange Online
 
-> **Official source:** [Graph throttling limits — Outlook service limits](https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits)
+> **Official source:** [Graph throttling limits: Outlook service limits](https://learn.microsoft.com/en-us/graph/throttling-limits#outlook-service-limits)
 
 **Scope:** Per app ID per mailbox. Limits for one mailbox are completely independent of limits for any other mailbox, even within the same tenant.
 
 **Applies to:** Mail API, Calendar API, Personal Contacts API, Search API, To-do Tasks API, Mailbox Import/Export API.
 
-**Cost model: flat** — every request counts as 1, regardless of endpoint or HTTP method.
+**Cost model: flat.** Every request counts as 1, regardless of endpoint or HTTP method.
 
 ### Limits
 
@@ -49,15 +49,15 @@ The three pools Atlas uses are:
 | Maximum concurrent requests per mailbox               | **4**      |
 | Upload body size per 5-minute window (POST/PATCH/PUT) | **150 MB** |
 
-### Batching Behavior
+### Batching behavior
 
-Microsoft Graph sends up to 4 individual Outlook requests from a batch at a time, regardless of target mailboxes. This is consistent with the 4-concurrent-request limit per mailbox. Using `dependsOn` in batch requests forces sequential execution (1 at a time).
+Microsoft Graph sends up to 4 individual Outlook requests from a batch at a time, regardless of target mailboxes, which is consistent with the 4-concurrent-request limit per mailbox. Using `dependsOn` in batch requests forces sequential execution (1 at a time).
 
-### Throttle Response
+### Throttle response
 
 `429 Too Many Requests` with a `Retry-After` header specifying how many seconds to wait. Throttled requests still count toward usage limits.
 
-### Atlas Operations — Outlook Pool
+### Atlas operations in the Outlook pool
 
 | Operation               | Graph endpoint                                                   | Cost                     |
 | ----------------------- | ---------------------------------------------------------------- | ------------------------ |
@@ -73,9 +73,9 @@ Microsoft Graph sends up to 4 individual Outlook requests from a batch at a time
 | `count_folder_messages` | `GET /users/{id}/mailFolders/{id}?$select=totalItemCount`        | 1 request                |
 | `list_folder_messages`  | `GET /users/{id}/mailFolders/{id}/messages`                      | 1 request                |
 
-### Why Outlook Is the Most Parallelizable Pool
+### Why Outlook is the most parallelizable pool
 
-Because the 10,000 req/10min budget is **per mailbox**, not per tenant, you can back up N mailboxes in parallel without any mailboxes competing for each other's quota. The constraint is concurrency (4 parallel requests per mailbox) and the Atlas sliding window limiter (9,600 requests per mailbox per 10 minutes, leaving a 4% safety margin).
+The 10,000 req/10min budget is **per mailbox**, not per tenant, so N mailboxes can be backed up in parallel without competing for each other's quota. The real constraints are concurrency (4 parallel requests per mailbox) and the Atlas sliding window limiter (9,600 requests per mailbox per 10 minutes, leaving a 4% safety margin).
 
 ---
 
@@ -83,15 +83,15 @@ Because the 10,000 req/10min budget is **per mailbox**, not per tenant, you can 
 
 > **Official source:** [How to avoid getting throttled or blocked in SharePoint Online](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online)
 
-**Scope:** Per app per tenant. All API calls to SharePoint and OneDrive from a single app registration share one quota bucket per tenant, regardless of the number of sites, drives, or users targeted.
+**Scope:** Per app per tenant. All SharePoint and OneDrive calls from a single app registration share one quota bucket per tenant, regardless of the number of sites, drives, or users targeted.
 
-**Cost model: resource units (RU)** — each Graph API request has a predetermined cost.
+**Cost model: resource units (RU).** Each Graph request has a predetermined cost.
 
-::: warning OneDrive Support
+:::: warning OneDrive support
 SharePoint/OneDrive backup is on the Atlas roadmap. The limits below are documented now so SaaS operators can design their scheduling logic in advance. Atlas does not currently emit any cost data for this pool.
-:::
+::::
 
-### Resource Unit Costs
+### Resource unit costs
 
 | Operation type                               | Cost     |
 | -------------------------------------------- | -------- |
@@ -101,7 +101,7 @@ SharePoint/OneDrive backup is on the Atlas roadmap. The limits below are documen
 
 > Microsoft reserves the right to change these costs. The Atlas `GRAPH_SERVICE_LIMITS.sharepoint_onedrive` constant provides the current values.
 
-### Per-App-Per-Tenant Limits (Scale with Tenant License Count)
+### Per-app-per-tenant limits (scale with tenant license count)
 
 | Licenses      | RU / minute | RU / 24 hours |
 | ------------- | ----------- | ------------- |
@@ -111,7 +111,7 @@ SharePoint/OneDrive backup is on the Atlas roadmap. The limits below are documen
 | 15,001–50,000 | 5,000       | 4,800,000     |
 | 50,000+       | 6,250       | 6,000,000     |
 
-### Tenant-Level Limits (All Apps Combined)
+### Tenant-level limits (all apps combined)
 
 | Licenses      | RU / 5 minutes |
 | ------------- | -------------- |
@@ -121,7 +121,7 @@ SharePoint/OneDrive backup is on the Atlas roadmap. The limits below are documen
 | 15,001–50,000 | 75,000         |
 | 50,000+       | 93,750         |
 
-### User-Level Limits
+### User-level limits
 
 | Limit    | Value             |
 | -------- | ----------------- |
@@ -129,31 +129,33 @@ SharePoint/OneDrive backup is on the Atlas roadmap. The limits below are documen
 | Ingress  | 50 GB / hour      |
 | Egress   | 100 GB / hour     |
 
-### Per-App-Per-Tenant Bandwidth
+### Per-app-per-tenant bandwidth
 
 | Direction | Limit         |
 | --------- | ------------- |
 | Ingress   | 400 GB / hour |
 | Egress    | 400 GB / hour |
 
-### RateLimit Headers (Preview)
+### RateLimit headers (preview)
 
-SharePoint proactively returns `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers (IETF draft-03) when an app consumes ≥ 80% of its 1-minute resource unit budget. This allows clients to back off before hitting `429`. Atlas will read these headers when OneDrive backup support is implemented.
+SharePoint proactively returns `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` headers (IETF draft-03) when an app consumes ≥ 80% of its 1-minute resource unit budget, letting clients back off before hitting `429`. Atlas will read these headers when OneDrive backup support is implemented.
 
-> Source: [RateLimit headers — preview](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online#ratelimit-headers---preview)
+> Source: [RateLimit headers, preview](https://learn.microsoft.com/en-us/sharepoint/dev/general-development/how-to-avoid-getting-throttled-or-blocked-in-sharepoint-online#ratelimit-headers---preview)
 
-### Throttle Responses
+### Throttle responses
 
-- `429 Too Many Requests` — app exceeded the rate limit. Includes `Retry-After`.
-- `503 Service Unavailable` — service-level load spike. Also includes `Retry-After`.
+| Response                    | Meaning                                              |
+| --------------------------- | ---------------------------------------------------- |
+| `429 Too Many Requests`     | App exceeded the rate limit. Includes `Retry-After`. |
+| `503 Service Unavailable`   | Service-level load spike. Includes `Retry-After`.    |
 
 Throttled requests still count toward limits. Persistent offenders may be blocked completely (503 indefinitely, with notification via the Office 365 Message Center).
 
-### Scheduling Implication
+### Scheduling implication
 
-Because the SharePoint budget is per-tenant (not per-user), a SaaS operator must track and coordinate OneDrive backup jobs across all users of a given tenant in their external scheduler. You cannot run N OneDrive backups in parallel for the same tenant the way you can for N mailbox backups.
+The SharePoint budget is per-tenant, not per-user, so a SaaS operator must track and coordinate OneDrive backup jobs across all users of a given tenant in their external scheduler. You cannot run N OneDrive backups in parallel for the same tenant the way you can for N mailbox backups.
 
-### Future Atlas Operations — SharePoint/OneDrive Pool
+### Future Atlas operations in the SharePoint/OneDrive pool
 
 | Operation                     | Graph endpoint                          | RU cost              |
 | ----------------------------- | --------------------------------------- | -------------------- |
@@ -168,13 +170,13 @@ Because the SharePoint budget is per-tenant (not per-user), a SaaS operator must
 
 ## Pool 3: Identity / Directory (Microsoft Entra ID)
 
-> **Official source:** [Graph throttling limits — Identity and access service limits](https://learn.microsoft.com/en-us/graph/throttling-limits#identity-and-access-service-limits)
+> **Official source:** [Graph throttling limits: Identity and access service limits](https://learn.microsoft.com/en-us/graph/throttling-limits#identity-and-access-service-limits)
 
 **Scope:** Per app per tenant, plus a global per-app limit across all tenants. Uses a token-bucket algorithm.
 
-**Cost model: resource units (RU)** — each operation has a base RU cost that can be modified by query parameters.
+**Cost model: resource units (RU).** Each operation has a base RU cost that query parameters can modify.
 
-### Per-App-Per-Tenant Limits (Scale with Tenant User Count)
+### Per-app-per-tenant limits (scale with tenant user count)
 
 | Tenant tier | Users  | RU / 10 seconds |
 | ----------- | ------ | --------------- |
@@ -184,20 +186,20 @@ Because the SharePoint budget is per-tenant (not per-user), a SaaS operator must
 
 **Write quota per app+tenant:** 3,000 requests / 2 minutes 30 seconds.
 
-### Global Per-App Limits (Across All Tenants)
+### Global per-app limits (across all tenants)
 
 | Limit | Value                       |
 | ----- | --------------------------- |
 | Read  | 150,000 RU / 20 seconds     |
 | Write | 35,000 requests / 5 minutes |
 
-### Per-Tenant Limits (All Apps Combined)
+### Per-tenant limits (all apps combined)
 
 | Limit          | Value              |
 | -------------- | ------------------ |
 | Write requests | 18,000 / 5 minutes |
 
-### Base Resource Unit Costs (Selection)
+### Base resource unit costs (selection)
 
 Atlas uses only read operations in the Identity pool. Relevant base costs:
 
@@ -208,7 +210,7 @@ Atlas uses only read operations in the Identity pool. Relevant base costs:
 | `GET /reports/getMailboxUsageDetail` | 1 RU (default) |
 | Unlisted read paths                  | **1 RU**       |
 
-### Cost Modifiers
+### Cost modifiers
 
 Applied on top of the base cost:
 
@@ -220,20 +222,18 @@ Applied on top of the base cost:
 
 Atlas uses `$select` on `/users` calls, reducing effective cost to approximately 1 RU per call in practice.
 
-### Atlas Operations — Identity Pool
+### Atlas operations in the Identity pool
 
 | Operation                        | Graph endpoint                       | Effective cost                               |
 | -------------------------------- | ------------------------------------ | -------------------------------------------- |
 | `mailbox_exists`                 | `GET /users/{id}?$select=id`         | ~1 RU (1 base − 0, $select modifier applies) |
 | `list_users` (mailbox discovery) | `GET /users?$select=...&$filter=...` | ~1 RU per page (2 base − 1 for $select)      |
 
-### Identity Pool in Practice
-
-Atlas consumes the Identity pool only during mailbox discovery (listing all mailboxes in a tenant) and individual mailbox existence checks. This is a small number of requests per backup job — typically a handful at startup. The Identity pool becomes a scheduling concern only at very large scale, with frequent tenant-wide mailbox listing across many tenants simultaneously.
+Atlas touches the Identity pool only during mailbox discovery (listing all mailboxes in a tenant) and individual mailbox existence checks, typically a handful of requests at job startup. It becomes a scheduling concern only at very large scale, with frequent tenant-wide mailbox listing across many tenants simultaneously.
 
 ---
 
-## Cross-Pool Summary
+## Cross-pool summary
 
 | Pool                    | Scope       | Cost model     | Bottleneck for                               |
 | ----------------------- | ----------- | -------------- | -------------------------------------------- |
@@ -244,14 +244,14 @@ Atlas consumes the Identity pool only during mailbox discovery (listing all mail
 
 Key implications for SaaS scheduling:
 
-- **Outlook is the most parallelizable pool** — N parallel mailbox backups use N independent budgets. Scale horizontally.
-- **SharePoint requires tenant-level coordination** — treat all OneDrive jobs for one tenant as sharing one budget.
-- **Identity cost is minimal per job** — ignore for individual jobs; monitor at the tenant-wide discovery level.
-- **Global limit is a backstop** — unlikely to be reached unless you are operating hundreds of active tenants simultaneously.
+- **Outlook is the most parallelizable pool.** N parallel mailbox backups use N independent budgets, so scale horizontally.
+- **SharePoint requires tenant-level coordination.** Treat all OneDrive jobs for one tenant as sharing one budget.
+- **Identity cost is minimal per job.** Ignore it for individual jobs and monitor at the tenant-wide discovery level.
+- **Global limit is a backstop.** Unlikely to be reached unless you operate hundreds of active tenants simultaneously.
 
 ---
 
-## Using the Limits in Code
+## Observing and using the limits in code
 
 `graph_cost` is measured at the transport, so one recorded request is one HTTP
 request: each `@odata.nextLink` page and each retried attempt is counted
@@ -284,7 +284,7 @@ See the [Programmatic SDK reference](/reference/sdk) for the full `OperationCost
 
 ---
 
-## Official Microsoft Documentation
+## Official Microsoft documentation
 
 | Resource                               | URL                                                                                                                                                             |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |

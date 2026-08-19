@@ -34,7 +34,7 @@ When a file approaches or exceeds 300 lines, **split the logic** into separate f
 
 ## Function Design (SRP)
 
-Every function name must describe exactly what it does -- no hidden side-effects.
+Every function name must describe exactly what it does, with no hidden side-effects.
 
 - If a function does multiple things, **split it** into smaller functions and create a parent that calls them. The parent reads like an outline of the procedure.
 - If the name can't fully describe the behavior, the function is too broad.
@@ -128,13 +128,15 @@ Every change that affects user-visible behavior must include corresponding docum
 
 ### Writing Style
 
-- **Explanatory IT tone**: write for IT administrators and security-conscious operators who need to understand WHY things work the way they do, not just WHAT to type. Assume the reader is technical but unfamiliar with Atlas internals.
-- **Cybersecurity awareness**: explain security implications where relevant -- why encryption parameters were chosen, what threat models are addressed, what the attack surface looks like, and what happens if credentials are compromised.
-- **Implementation-grounded**: when describing a behavior, ground it in the actual implementation -- cite specific parameters (e.g. scrypt N=16384), algorithms (AES-256-GCM), retry counts (12 attempts), and defaults rather than hand-waving.
-- **Self-hosting and operations**: include storage, scheduling, credentials management, platform recommendations, and network/bandwidth considerations where relevant.
+- **No dashes as punctuation**: never use an em dash (—) or `--` inside a phrase in prose. Rewrite the sentence instead: split it in two, use a comma, or restructure. This applies to docs, README, CONTRIBUTING, and PR descriptions. It does not apply to CLI flags, code, or YAML.
+- **Do not over-explain**: state the fact once. No restating the heading, no throat-clearing intro, no defending an obvious choice. If a paragraph can be cut without losing information, cut it.
+- **Explanatory IT tone**: write for IT administrators and security-conscious operators who need to understand why things work the way they do, not just what to type. Assume the reader is technical but unfamiliar with Atlas internals.
+- **Cybersecurity awareness**: explain security implications where relevant: why encryption parameters were chosen, what threat models are addressed, what the attack surface looks like, and what happens if credentials are compromised.
+- **Implementation-grounded**: ground behavior in the actual implementation. Cite specific parameters (scrypt N=16384), algorithms (AES-256-GCM), retry counts (12 attempts), and defaults rather than hand-waving.
+- **Self-hosting and operations**: include storage, scheduling, credentials management, platform recommendations, and network or bandwidth considerations where relevant.
 - **Examples first**: lead sections with a working code or CLI example, then explain options and behavior.
-- **Concise**: one idea per paragraph. Prefer tables for option/flag references. Avoid walls of prose.
-- **Consistent structure**: every CLI command page follows the pattern: description → examples → options table → tips/details.
+- **Concise**: one idea per paragraph. Prefer tables for option and flag references. Avoid walls of prose.
+- **Consistent structure**: every CLI command page follows the pattern description, examples, options table, then details.
 - **No jargon without context**: if a term (KEK, DEK, delta link, Object Lock) is needed, define it on first use or link to the relevant docs page.
 
 ### Pre-Merge Checklist
@@ -145,3 +147,6 @@ Every change that affects user-visible behavior must include corresponding docum
 4. The VitePress sidebar in `docs/.vitepress/config.ts` includes any new pages
 5. `pnpm run docs:build` succeeds without warnings
 6. Security-sensitive changes include updated threat model or risk notes in `docs/security.md`
+7. Prose contains no em dashes and no `--` used as punctuation
+8. Brand assets stay covered by `assets/LICENSE.md`, which is deliberately not Apache-2.0
+9. `packages/sdk/README.md` and `packages/cli/README.md` are current, since npm renders them as the package page

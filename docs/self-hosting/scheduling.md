@@ -1,48 +1,8 @@
 # Scheduling & Bandwidth
 
-Understanding bandwidth requirements is a prerequisite for planning when and how often to schedule backups. Atlas pulls full message bodies and attachments from Microsoft 365 -- the network profile determines whether your schedule is realistic.
-
-## Network and Bandwidth
-
-This is often the most overlooked aspect of deploying Atlas. Understanding the bandwidth profile is critical for professional environments.
-
-### Why Bandwidth Matters
-
-Atlas pulls **full message bodies and all attachments** from Microsoft 365 via the Graph API over HTTPS. For a mailbox with 10 GB of email and attachments, a full initial backup will transfer approximately 10 GB of data over the internet. Delta (incremental) syncs after the first run only transfer new and changed messages, which is dramatically less -- but the initial backup is a significant transfer.
-
-OneDrive and SharePoint workloads follow the same pattern: the first backup of a large drive or document library transfers the full file content. Large files (512 MiB and above) stream through Atlas without buffering the entire file in memory, but network throughput still limits how quickly they complete.
-
-When you run tenant-wide Outlook backups with multiple concurrent workers (`-C 4` is the default), the bandwidth requirement multiplies. Four workers backing up four large mailboxes simultaneously can easily saturate a typical office internet connection.
-
-### Professional Deployment Guidance
-
-::: danger Business Network Impact
-In professional environments, **always schedule backups during off-hours** (nights, weekends). Running Atlas during business hours on a shared internet connection will degrade network performance for all users -- video calls will drop, file downloads will slow, and cloud applications will become unresponsive.
-:::
-
-For organizations where off-hours scheduling is not sufficient, the recommended approach is to run the backup server on a **separate ISP connection or VLAN** that does not share bandwidth with employee traffic. This ensures that Graph API transfers never compete with business-critical network usage.
-
-### Microsoft Graph API Throttling
-
-Even with unlimited bandwidth on your side, Microsoft imposes its own limits. The Graph API returns **HTTP 429 (Too Many Requests)** responses when you exceed rate limits. Atlas handles this automatically with exponential backoff (up to 12 retries, honoring the `Retry-After` header), but it means effective throughput has a ceiling set by Microsoft, not your network.
-
-Monitor your first full tenant backup closely to understand the real-world throughput for your environment. Use this baseline to plan scheduling and capacity.
-
-### Sizing Estimates
-
-| Scenario                 | Data Transfer (Full Backup) | Delta Sync                     |
-| ------------------------ | --------------------------- | ------------------------------ |
-| Single 5 GB mailbox      | ~5 GB                       | Only changes (typically KB-MB) |
-| 10 users, avg 10 GB each | ~100 GB                     | Only changes per user          |
-| 100 users, avg 5 GB each | ~500 GB                     | Only changes per user          |
-| OneDrive user, 50 GB     | ~50 GB                      | Only changed files             |
-| SharePoint site, 200 GB  | ~200 GB                     | Only changed files per library |
-
-These are approximate -- actual sizes depend on attachment volume, HTML email sizes, and how much data is in each mailbox, drive, or site.
+Atlas is a CLI tool: it runs, performs the backup, and exits. Continuous protection means scheduling it to run automatically. How often you can run it is bounded by how much data each run pulls from Microsoft 365, so plan the schedule and the bandwidth together.
 
 ## Automated Backup Scheduling
-
-Atlas is a CLI tool -- it runs, performs the backup, and exits. For continuous protection, schedule it to run automatically.
 
 ### Using cron
 
@@ -107,6 +67,42 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now atlas-outlook-backup.timer
 ```
 
-::: tip Off-Hours Scheduling
-For professional deployments, always schedule backups outside business hours. A nightly 2 AM run avoids competing with daytime internet usage and Microsoft Graph API traffic from other applications in your tenant.
-:::
+:::: tip Off-Hours Scheduling
+A nightly 2 AM run avoids competing with daytime internet usage and with Microsoft Graph API traffic from other applications in your tenant.
+::::
+
+## Network and Bandwidth
+
+### Why Bandwidth Matters
+
+Atlas pulls **full message bodies and all attachments** from Microsoft 365 via the Graph API over HTTPS. For a mailbox with 10 GB of email and attachments, a full initial backup transfers approximately 10 GB over the internet. Delta (incremental) syncs after the first run only transfer new and changed messages, which is dramatically less, but that first run is a significant transfer.
+
+OneDrive and SharePoint follow the same pattern: the first backup of a large drive or document library transfers the full file content. Large files (512 MiB and above) stream through Atlas without buffering the entire file in memory, but network throughput still limits how quickly they complete.
+
+Tenant-wide Outlook backups multiply the requirement by the worker count (`-C 4` is the default). Four workers backing up four large mailboxes simultaneously can saturate a typical office internet connection.
+
+### Sizing Estimates
+
+| Scenario                 | Data Transfer (Full Backup) | Delta Sync                     |
+| ------------------------ | --------------------------- | ------------------------------ |
+| Single 5 GB mailbox      | ~5 GB                       | Only changes (typically KB-MB) |
+| 10 users, avg 10 GB each | ~100 GB                     | Only changes per user          |
+| 100 users, avg 5 GB each | ~500 GB                     | Only changes per user          |
+| OneDrive user, 50 GB     | ~50 GB                      | Only changed files             |
+| SharePoint site, 200 GB  | ~200 GB                     | Only changed files per library |
+
+These are approximate. Actual sizes depend on attachment volume, HTML email sizes, and how much data is in each mailbox, drive, or site.
+
+### Microsoft Graph API Throttling
+
+Even with unlimited bandwidth on your side, Microsoft imposes its own limits. The Graph API returns **HTTP 429 (Too Many Requests)** when you exceed rate limits. Atlas handles this automatically with exponential backoff (up to 12 retries, honoring the `Retry-After` header), so effective throughput has a ceiling set by Microsoft rather than by your network.
+
+Monitor your first full tenant backup to establish a real throughput baseline, then plan scheduling and capacity from it.
+
+### Professional Deployment Guidance
+
+:::: danger Business Network Impact
+In professional environments, **always schedule backups during off-hours** (nights, weekends). Running Atlas during business hours on a shared internet connection degrades network performance for everyone: video calls drop, file downloads slow, and cloud applications become unresponsive.
+::::
+
+Where off-hours scheduling is not enough, run the backup server on a **separate ISP connection or VLAN** that does not share bandwidth with employee traffic, so Graph API transfers never compete with business-critical network usage.
