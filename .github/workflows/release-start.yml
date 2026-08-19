@@ -19,11 +19,10 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   open-release:
-    name: Bump and open the release PR
+    name: Bump and stage the release
     runs-on: ubuntu-latest
 
     steps:
@@ -113,14 +112,25 @@ jobs:
           gh api graphql --input commit.json
           rm commit.json
 
-      - name: Open the PR into main
+      # The organisation forbids GitHub Actions from creating pull requests, so the
+      # job hands back a compare link with the title and body prefilled instead.
+      - name: Link the release PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.bump.outputs.version }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
-          gh pr create \
-            --base main \
-            --head "$BRANCH" \
-            --title "chore(release): $VERSION" \
-            --body "Releases \`v$VERSION\`. Merging this PR tags \`v$VERSION\` on \`main\` and publishes \`@wisecom/atlas-sdk\` and \`@wisecom/atlas-cli\` to npm. Label the PRs included in this release (\`enhancement\`, \`bug\`, \`documentation\`, \`security\`) so the generated notes are categorised."
+          BODY="Releases \`v$VERSION\`. Merging this PR tags \`v$VERSION\` on \`main\` and publishes @wisecom/atlas-sdk and @wisecom/atlas-cli to npm. Label the PRs in this release (enhancement, bug, documentation, security) so the generated notes are categorised."
+          URL=$(BODY="$BODY" node -p '
+            const q = new URLSearchParams({
+              expand: "1",
+              title: `chore(release): ${process.env.VERSION}`,
+              body: process.env.BODY,
+            });
+            `https://github.com/${process.env.GITHUB_REPOSITORY}/compare/main...${process.env.BRANCH}?${q}`
+          ')
+          {
+            echo "## Release v$VERSION is staged on \`$BRANCH\`"
+            echo
+            echo "[Open the release PR]($URL) -- merging it tags \`v$VERSION\` and publishes to npm."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL"
