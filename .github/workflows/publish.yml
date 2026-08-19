@@ -108,6 +108,20 @@ jobs:
           done
           echo "Publishing version $TAG_VERSION"
 
+      # v2.0.0-beta.0 shipped with no README at all, and because npmjs.com renders the
+      # README of whichever version holds the `latest` dist-tag, the package page stayed
+      # blank for months. Fail the release rather than publish a bare package again.
+      - name: Stage the licence and require a readme in each package
+        run: |
+          for pkg in sdk cli; do
+            if [ ! -s "packages/$pkg/README.md" ]; then
+              echo "::error::packages/$pkg/README.md is missing or empty. npm renders it as the package page."
+              exit 1
+            fi
+            cp LICENSE "packages/$pkg/LICENSE"
+            echo "packages/$pkg: README.md $(wc -c < "packages/$pkg/README.md") bytes, LICENSE staged"
+          done
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -157,6 +171,32 @@ jobs:
           else
             npm publish --provenance --access public --tag "$DIST_TAG"
           fi
+
+      # npmjs.com renders the README of whichever version holds `latest`, and `latest`
+      # is still pinned to 2.0.0-beta.0, which shipped without a README. That is why both
+      # package pages look empty even though every recent version ships one.
+      #
+      # A prerelease publishes to its own dist-tag and must never claim `latest` from a
+      # stable release. But while `latest` is itself a prerelease there is no stable to
+      # protect, so point it at what we just shipped. Once a real stable release exists
+      # it publishes with `--tag latest` directly and this step stops firing, because
+      # `latest` no longer contains a hyphen.
+      - name: Move latest off a stale prerelease
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in sdk cli; do
+            NAME=$(node -p "require('./packages/$pkg/package.json').name")
+            CURRENT=$(npm view "$NAME" dist-tags.latest 2>/dev/null || echo "")
+            if [ "$CURRENT" = "$TAG_VERSION" ]; then
+              echo "$NAME: latest is already $TAG_VERSION"
+            elif [ -z "$CURRENT" ] || [[ "$CURRENT" == *-* ]]; then
+              npm dist-tag add "$NAME@$TAG_VERSION" latest
+              echo "$NAME: latest moved from ${CURRENT:-none} to $TAG_VERSION"
+            else
+              echo "$NAME: latest is the stable $CURRENT, leaving it alone"
+            fi
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

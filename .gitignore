@@ -26,3 +26,6 @@ e2e/logs/
 # uv.lock is committed on purpose: CI must resolve the same dependency versions as a local run.
 e2e/.sweep-home/
 __pycache__/
+
+# Staged at publish time by .github/workflows/publish.yml, never committed
+packages/*/LICENSE
