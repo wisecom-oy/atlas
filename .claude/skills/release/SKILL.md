@@ -29,12 +29,19 @@ operational procedure.
 3. **Never delete a tag whose npm publish already succeeded.** npm versions are
    immutable. Recovery is always forward, at the next patch version.
 4. **Never reuse a version.** If `v<version>` is tagged, that version is spent.
-5. **Do not push a tag by hand** unless repairing a broken run. `tag.yml` owns
-   tag creation; a hand-pushed tag that does not match the packages fails.
+5. **Do not push a tag by hand** unless repairing a broken run. `publish.yml`
+   owns tag creation; a hand-pushed tag that does not match the packages fails.
 6. **Never create the release commit with `git commit` in CI.** `main` requires
    signed commits; the workflow uses GitHub's `createCommitOnBranch` mutation so
    the commit is signed. A runner-side `git commit` produces an unsigned commit
    and an unmergeable release PR.
+7. **Never split tagging out of `publish.yml`.** npm auth is OIDC trusted
+   publishing with no `NPM_TOKEN`, and npm validates the entry-point workflow. A
+   `workflow_call` hop makes the caller the entry point and the publish dies with
+   `ENEEDAUTH` after the tag is already pushed.
+8. **Never add `pull_request` or `push` to `e2e.yml`.** It holds tenant
+   credentials, costs 30 minutes, and gates nothing. Nightly cron plus manual
+   dispatch only.
 
 ## Which flow applies
 
@@ -90,7 +97,7 @@ Before merging:
 Merging the PR is the release. Then watch the pipeline:
 
 ```bash
-gh run watch                                    # tag.yml, then publish.yml
+gh run watch                                    # publish.yml: plan, publish, sync-dev
 npm view @wisecom/atlas-sdk dist-tags
 npm view @wisecom/atlas-cli dist-tags
 ```
@@ -104,10 +111,15 @@ gh workflow run release-start.yml -f version=patch -f from=main
 The fix itself goes on the generated `hotfix/v<version>` branch, which is cut
 from `main`, so unreleased `dev` work does not ship with it.
 
-**After the hotfix publishes, confirm `tag.yml` fast-forwarded `dev` onto
+**After the hotfix publishes, confirm the `sync-dev` job fast-forwarded `dev` onto
 `main`.** If `dev` had diverged the push is refused and the job fails -- merge
 `main` into `dev` by hand at that point. Skipping it means the next release
 branch is cut from a `dev` that lacks the fix, silently reverting it.
+
+E2E does not run per PR. Before a release, check the most recent nightly rather
+than blocking on a fresh run: `gh run list --workflow e2e.yml --limit 3`. Dispatch
+one explicitly with `gh workflow run e2e.yml` when the release touches backup,
+restore, or storage behaviour.
 
 ## Verifying a release actually shipped
 
