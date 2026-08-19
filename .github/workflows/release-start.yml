@@ -1,0 +1,126 @@
+name: Start release
+
+# Opens a release. The version is the only decision a human makes; everything
+# after it -- branch, bump, commit, PR -- is derived. Merging the resulting PR
+# into main is what triggers the tag and the npm publish (see tag.yml).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 2.2.0, 2.2.0-beta.1) or a bump keyword (patch, minor, major)'
+        required: true
+        type: string
+      from:
+        description: 'Branch to cut from -- dev for a release, main for a hotfix'
+        required: true
+        default: dev
+        type: choice
+        options: [dev, main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-release:
+    name: Bump and open the release PR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.from }}
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bump every workspace package
+        id: bump
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          pnpm run release:version "$INPUT_VERSION"
+          VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::v$VERSION is already tagged -- pick a higher version"
+            exit 1
+          fi
+
+      # The bump commit is created through GitHub's createCommitOnBranch mutation
+      # rather than `git commit`, so GitHub signs it. A plain runner commit is
+      # unsigned and would be unmergeable while main requires signed commits.
+      - name: Commit the bump on a release branch
+        id: branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          FROM: ${{ inputs.from }}
+        run: |
+          if [ "$FROM" = "main" ]; then
+            BRANCH="hotfix/v$VERSION"
+          else
+            BRANCH="release/v$VERSION"
+          fi
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+          # Push the branch at the unmodified base -- the bump is still uncommitted
+          # in the working tree, and the API supplies it as the branch's first commit.
+          HEAD_OID=$(git rev-parse HEAD)
+          git push origin "HEAD:refs/heads/$BRANCH"
+
+          BRANCH="$BRANCH" HEAD_OID="$HEAD_OID" node -e '
+            const { execSync } = require("node:child_process");
+            const fs = require("node:fs");
+            // Scoped so an incidentally dirty file -- a lockfile touched by install,
+            // for instance -- can never ride along in the release commit.
+            const files = execSync(String.raw`git diff --name-only -- "packages/*/package.json"`, { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+            if (files.length === 0) throw new Error("release:version changed nothing -- version is already " + process.env.VERSION);
+            fs.writeFileSync("commit.json", JSON.stringify({
+              query: `mutation($input: CreateCommitOnBranchInput!) {
+                createCommitOnBranch(input: $input) { commit { oid } }
+              }`,
+              variables: {
+                input: {
+                  branch: {
+                    repositoryNameWithOwner: process.env.GITHUB_REPOSITORY,
+                    branchName: process.env.BRANCH,
+                  },
+                  expectedHeadOid: process.env.HEAD_OID,
+                  message: { headline: `chore(release): ${process.env.VERSION}` },
+                  fileChanges: {
+                    additions: files.map((path) => ({
+                      path,
+                      contents: fs.readFileSync(path).toString("base64"),
+                    })),
+                  },
+                },
+              },
+            }));
+            console.log(`Committing ${files.length} file(s): ${files.join(", ")}`);
+          '
+          gh api graphql --input commit.json
+          rm commit.json
+
+      - name: Open the PR into main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): $VERSION" \
+            --body "Releases \`v$VERSION\`. Merging this PR tags \`v$VERSION\` on \`main\` and publishes \`@wisecom/atlas-sdk\` and \`@wisecom/atlas-cli\` to npm. Label the PRs included in this release (\`enhancement\`, \`bug\`, \`documentation\`, \`security\`) so the generated notes are categorised."

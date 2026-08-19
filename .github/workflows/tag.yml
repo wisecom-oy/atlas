@@ -1,0 +1,85 @@
+name: Tag release
+
+# A release is defined by a version bump reaching main, not by which branch the
+# merge came from. History showed why: a docs-only merge (d27afb6) landed on main
+# right after v2.1.0-beta, and v1.2.3's tag sat on a commit with no bump at all.
+# Keying on the version makes non-release merges free and hotfixes work without a
+# second code path.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  tag:
+    name: Tag if the version is new
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      created: ${{ steps.check.outputs.created }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create the tag when the version has no tag yet
+        id: check
+        run: |
+          VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "v$VERSION is already tagged -- this merge is not a release."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish
+    needs: tag
+    if: needs.tag.outputs.created == 'true'
+    # A tag pushed with GITHUB_TOKEN does not trigger workflows, so publish.yml is
+    # called directly instead of relying on its own push:tags trigger.
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
+    secrets: inherit
+
+  back-merge:
+    name: Keep dev in sync with main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open a back-merge PR when main is ahead of dev
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          AHEAD=$(git rev-list --count origin/dev..origin/main)
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "dev already contains main."
+            exit 0
+          fi
+          if [ -n "$(gh pr list --base dev --head main --state open --json number --jq '.[].number')" ]; then
+            echo "A back-merge PR is already open."
+            exit 0
+          fi
+          gh pr create \
+            --base dev \
+            --head main \
+            --title 'chore: back-merge main into dev' \
+            --body "\`main\` is $AHEAD commit(s) ahead of \`dev\`. Merge this so the next release branch is cut from a \`dev\` that already contains the release bump and any hotfixes."
