@@ -1,16 +1,18 @@
 name: Publish to npm
 
+# Single entry point for every release path: a version bump reaching main, a
+# manually pushed tag, or a manual dispatch to repair a stranded tag.
+#
+# Tagging and publishing MUST stay in this one file. npm trusted publishing
+# validates the *entry point* workflow rather than the workflow containing
+# `npm publish`, and there is no NPM_TOKEN -- authentication is OIDC. Splitting the
+# tag step into its own workflow that called this one via workflow_call made the
+# caller the entry point, so npm no longer matched the trusted publisher and the
+# publish failed with ENEEDAUTH after the tag had already been pushed.
 on:
   push:
+    branches: [main]
     tags: ['v*']
-  workflow_call:
-    inputs:
-      version:
-        description: 'Version to publish, without the leading v'
-        required: true
-        type: string
-  # Repair path: republish an existing tag whose pipeline never ran or failed
-  # after the tag was already pushed.
   workflow_dispatch:
     inputs:
       version:
@@ -23,15 +25,67 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
-    name: Build & Publish
+  plan:
+    name: Decide whether this is a release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.decide.outputs.version }}
+      publish: ${{ steps.decide.outputs.publish }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version && format('v{0}', inputs.version) || github.ref }}
+          fetch-depth: 0
+
+      # A release is defined by a version bump reaching main, not by the branch the
+      # merge came from. History showed why: a docs-only merge (d27afb6) landed on
+      # main right after v2.1.0-beta, and v1.2.3's tag sat on a commit with no bump
+      # at all. Keying on the version makes ordinary merges free and lets a hotfix
+      # use the same path as a release.
+      - name: Resolve the version and tag it when new
+        id: decide
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [ "$GITHUB_REF_TYPE" = tag ] || [ -n "$INPUT_VERSION" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "v$VERSION is already tagged -- this merge is not a release."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build & Publish
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TAG_VERSION: ${{ needs.plan.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.plan.outputs.version }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -44,11 +98,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Verify tag matches package versions
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          TAG_VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
-          echo "TAG_VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
           for pkg in sdk cli; do
             PKG_VERSION=$(node -p "require('./packages/$pkg/package.json').version")
             if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
@@ -114,3 +164,33 @@ jobs:
           tag_name: v${{ env.TAG_VERSION }}
           prerelease: ${{ contains(env.TAG_VERSION, '-') }}
           generate_release_notes: true
+
+  sync-dev:
+    name: Keep dev in sync with main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The organisation forbids GitHub Actions from creating pull requests, so this
+      # syncs dev by pushing main's commits straight onto it. A release or hotfix
+      # merge leaves dev strictly behind main, which fast-forwards. If dev has
+      # diverged the push is refused and the job fails loudly -- silently skipping
+      # would let the next release branch revert a shipped hotfix.
+      - name: Fast-forward dev onto main
+        run: |
+          AHEAD=$(git rev-list --count origin/dev..origin/main)
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "dev already contains main."
+            exit 0
+          fi
+          if git push origin "origin/main:refs/heads/dev"; then
+            echo "Fast-forwarded dev by $AHEAD commit(s)."
+            exit 0
+          fi
+          echo "::error::dev has diverged from main and cannot be fast-forwarded. Merge main into dev manually: https://github.com/${GITHUB_REPOSITORY}/compare/dev...main"
+          exit 1
