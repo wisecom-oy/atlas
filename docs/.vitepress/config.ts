@@ -87,6 +87,7 @@ export default defineConfig({
         items: [
           { text: 'Graph Request Tracing', link: '/development/graph-tap' },
           { text: 'Performance Profiling', link: '/development/performance-profiling' },
+          { text: 'Release Process', link: '/development/releases' },
         ],
       },
       {
