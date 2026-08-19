@@ -1,18 +1,18 @@
 # Contributing to Atlas
 
-Thank you for considering a contribution to Atlas. This guide covers everything you need to get started.
+This guide covers setup, code conventions, the architecture, and what a pull request needs.
 
 ## Prerequisites
 
 - **Node.js** 20 or later
-- **pnpm** (package manager -- do not use npm or yarn)
+- **pnpm** (never npm or yarn)
 - **Docker** (optional, for running MinIO locally)
 
 ## Getting started
 
 ```bash
 # clone and install
-git clone https://github.com/miikaok/atlas.git
+git clone https://github.com/wisecom-oy/atlas.git
 cd atlas
 pnpm install
 
@@ -30,8 +30,8 @@ pnpm run test
 
 ## Development workflow
 
-`dev` is the integration branch. It accumulates work until there is enough for a
-release; `main` always reflects the newest version published to npm.
+`dev` is the integration branch and accumulates work until there is enough for a
+release. `main` always reflects the newest version published to npm.
 
 1. Create a branch from `dev` for your change.
 2. Make your changes following the conventions below.
@@ -60,11 +60,10 @@ a hotfix.
 
 ### Do not bump the version in a normal PR
 
-Version bumps belong exclusively to release PRs, which are created by the **Start
-release** workflow. Bumping `packages/*/package.json` in an ordinary PR publishes
-to npm the moment it reaches `main`. See
-[Release Process](./docs/development/releases.md) for how releases are cut, how
-hotfixes work, and how release notes are categorised.
+Version bumps belong to release PRs, which are created by the **Start release**
+workflow. Bumping `packages/*/package.json` in an ordinary PR publishes to npm the
+moment it reaches `main`. See [Release Process](./docs/development/releases.md) for
+how releases are cut, how hotfixes work, and how release notes are categorised.
 
 ### Label your PR
 
@@ -156,8 +155,8 @@ pnpm run test:coverage  # with coverage report
 
 Use the GitHub issue templates:
 
-- **Bug report** -- for unexpected behavior, crashes, or incorrect results.
-- **Feature request** -- for new capabilities or improvements.
+- **Bug report**: unexpected behavior, crashes, or incorrect results.
+- **Feature request**: new capabilities or improvements.
 
 For bug reports, paste the output of `./tools/diagnostics.sh` into the Environment
 section. It collects the OS, kernel, Node and pnpm versions, Atlas version, git
@@ -167,7 +166,7 @@ never prints secret values.
 Scrub real tenant data first. Mailbox addresses, display names, file names, message
 subjects, and site URLs must be replaced with generic equivalents
 (`john.doe@example.com`, `John Doe`, `contoso.sharepoint.com`) before posting.
-Keep error codes and stack traces intact -- they are the diagnosis.
+Keep error codes and stack traces intact. They are the diagnosis.
 
 ## License
 

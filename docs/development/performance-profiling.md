@@ -1,6 +1,6 @@
 # Performance Profiling
 
-Atlas includes built-in CPU profiling tooling that instruments the backup and restore pipelines to identify bottlenecks. The profiler generates structured text reports designed for both human review and automated analysis.
+Atlas ships a CPU profiler for the backup and restore pipelines. It produces structured text reports meant for both human review and automated analysis.
 
 ## Quick Start
 
@@ -42,7 +42,7 @@ Structured text report          (stdout)
 
 ### Top Functions by Self-Time
 
-Shows the functions where CPU is actually consumed (excluding time in their callees). A function with high self-time is doing expensive work directly.
+The functions where CPU is actually consumed, excluding time spent in their callees. High self-time means the function is doing expensive work directly.
 
 | Column   | Meaning                                  |
 | -------- | ---------------------------------------- |
@@ -84,7 +84,7 @@ For interactive visual analysis, use the `--flamegraph` flag (requires `0x` inst
 node tools/perf/dist/cli.js profile --flamegraph -- backup -m user@example.com
 ```
 
-This generates both the `.cpuprofile` text report AND an interactive HTML flamegraph in `.perf-output/`.
+This produces the `.cpuprofile` text report and an interactive HTML flamegraph in `.perf-output/`.
 
 ## Limitations
 
@@ -93,7 +93,7 @@ This generates both the `.cpuprofile` text report AND an interactive HTML flameg
 For I/O-bound bottleneck analysis:
 
 - Use the `elapsed_ms` timers already present in backup/restore output
-- Compare total wall-clock time vs CPU time -- a large gap indicates I/O dominance
+- Compare total wall-clock time against CPU time. A large gap means I/O dominates
 - Add targeted `performance.now()` spans around suspected network operations
 
 ## Profiling Tips

@@ -9,7 +9,7 @@ Atlas ships as two npm packages:
 
 This page documents **`@wisecom/atlas-sdk`**. For shell commands and flags, see [CLI Commands](/reference/cli).
 
-The SDK is a standalone package with all internal modules bundled in — a single install, no peer `@wisecom/atlas-*` packages to add. The API is organized by workload namespace (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`) plus cross-cutting methods on the root instance (`replicateSnapshot`, `getBucketStats`, etc.).
+The SDK is a standalone package with every internal module bundled in. One install, no peer `@wisecom/atlas-*` packages to add. The API is organized by workload namespace (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`) plus cross-cutting methods on the root instance (`replicateSnapshot`, `getBucketStats`, etc.).
 
 ## Installation
 
@@ -33,11 +33,9 @@ const atlas = createAtlasInstance({
 });
 ```
 
-All config is explicit -- the SDK **does not read environment variables or config files**. This is a deliberate security choice for multi-tenant environments: there is no risk of accidentally picking up credentials from a stale `.env` file or inheriting environment variables meant for a different tenant. Every value is passed explicitly at construction time.
+All config is explicit. The SDK **does not read environment variables or config files**, a deliberate security choice for multi-tenant environments: no credentials picked up from a stale `.env` file, no environment variables inherited from a different tenant. Every value is passed at construction time.
 
-The tenant is bound at creation time, so every method operates within that tenant scope.
-
-The SDK uses standard ES6 camelCase naming. All methods are async and return Promises.
+The tenant is bound at creation time, so every method operates within that tenant scope. Methods use camelCase naming, are async, and return Promises.
 
 ## Available Methods
 
@@ -117,6 +115,8 @@ interface OperationProgressEvent {
 
 Cancellation returns normally with `interrupted: true`; it does not throw an abort error. Restore and save results contain partial counts, and save finalizes a valid zip with the completed files. A partially processed backup does not advance that folder, drive, or library's delta cursor, so the next run safely replays it. Completed units remain committed.
 
+If the signal is already aborted when the operation is called, no `discovering` event is emitted — the stream contains only `finalizing` followed by `interrupted`. The event stream never claims work that did not happen, so a progress bar driven by `discovering` will not paint a "starting..." state for a run that is already over.
+
 The callback is optional and runs inline with the operation. Keep it fast; move network writes or database updates to your own queue.
 
 ## Outlook API Reference
@@ -141,11 +141,11 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
-Deletion methods erase every version of the objects they match, and `purgeTenantData()` sweeps the whole bucket -- every workload, not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
+Deletion methods erase every version of the objects they match. `purgeTenantData()` sweeps the whole bucket, every workload and not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
 
 ### Shared mailbox identity
 
-Three result types carry an optional `mailbox_purpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property — `'shared'` identifies a shared mailbox:
+Three result types carry an optional `mailbox_purpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property. A value of `'shared'` identifies a shared mailbox:
 
 - `TenantMailbox.mailbox_purpose` (from `listAvailableMailboxes()`; resolved only for unlicensed mailboxes during discovery)
 - `MailboxSummary.mailbox_purpose` (from `listMailboxes()`; taken from the newest manifest that recorded one, so a transient lookup failure in the latest backup does not blank the field)
@@ -162,7 +162,7 @@ const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 
 Every method taking a mailbox address, an Entra object ID, or a SharePoint site ID lowercases it before it becomes a storage key segment, so two spellings of one identifier address one tree.
 
-The SDK is where this used to bite. Graph hands back these identifiers lowercase, so the CLI never saw the problem; an embedder holding an object ID in application state or reading one from a portal could. Two spellings meant two prefixes -- the same drive backed up twice, and worse:
+The SDK is where this used to bite. Graph hands back these identifiers lowercase, so the CLI never saw the problem; an embedder holding an object ID in application state or reading one from a portal could. Two spellings meant two prefixes, so the same drive was backed up twice. Worse:
 
 ```typescript
 // Before 2.1.0-beta: swept an empty prefix, reported what it deleted there,
@@ -241,7 +241,7 @@ interface RestoreResult {
 
 For backing up multiple mailboxes from a shell, use the CLI's built-in tenant-wide mode (`atlas outlook backup` without `-m`), which handles parallel workers with rate limiting and a live dashboard.
 
-For SDK usage, create one instance and iterate sequentially. Each backup/restore/save operation makes hundreds or thousands of Microsoft Graph API requests internally, so running mailboxes in parallel with `Promise.all` would overwhelm the Graph API and trigger aggressive throttling (HTTP 429 responses). Atlas retries throttled requests with exponential backoff up to 12 times, but parallel mailbox processing multiplies the request rate and makes throttling almost guaranteed. Sequential loops ensure reliable throughput:
+In the SDK, create one instance and iterate sequentially. Each backup, restore, or save makes hundreds or thousands of Graph requests internally, so running mailboxes through `Promise.all` multiplies the request rate and triggers aggressive throttling (HTTP 429). Atlas retries throttled requests with exponential backoff up to 12 times, but a sequential loop finishes sooner and more predictably:
 
 ```typescript
 const mailboxIds = ['alice@company.com', 'bob@company.com', 'carol@company.com'];
@@ -254,7 +254,7 @@ for (const mailboxId of mailboxIds) {
 
 ## Replication
 
-The SDK supports snapshot-level replication and disaster recovery rehydration. A `StorageTarget` represents a secondary S3 endpoint -- it only needs S3 credentials and the shared passphrase (no M365 credentials).
+The SDK supports snapshot-level replication and disaster recovery rehydration. A `StorageTarget` represents a secondary S3 endpoint and needs only S3 credentials plus the shared passphrase, no M365 credentials.
 
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
@@ -335,7 +335,7 @@ matches what the tenant is actually charged:
   counts 40, not 1. Same for folder trees, drive listings and version history.
 - **Every attempt.** A call throttled twice and succeeding on the third attempt
   counts 3. Retries made by Atlas and retries made internally by the Graph SDK
-  are both visible here -- and a throttled tenant is exactly when the count
+  are both visible here, and a throttled tenant is exactly when the count
   matters most.
 - **Every redirect** followed to a new location.
 - **Upload bytes per attempt.** A resumable chunk re-sent after a failure is
@@ -352,7 +352,7 @@ it, so a paginated `delta_sync` shows the page count under one label.
 Earlier releases recorded one request per connector method call, so pagination
 and retries were invisible and reported cost was a floor. Cooldowns derived from
 it were correspondingly too short. Numbers from this release are larger for the
-same work -- that is the undercount being removed, not a change in what Atlas
+same work. That is the undercount being removed, not a change in what Atlas
 does. Expect a step change in any dashboard built on the old values.
 :::
 
@@ -381,12 +381,12 @@ try {
 The error itself is rethrown unchanged, so `instanceof` checks and existing catch
 filters keep working, and the cost is a non-enumerable property, so error logging
 and serialisation are unaffected. A failure that happened before any Graph call
-reports `requests_total: 0` -- that is a fact worth recording, not a missing value.
+reports `requests_total: 0`, which is a fact worth recording rather than a missing value.
 
 ::: warning Ignoring this skews your scheduling in the wrong direction
 A scheduler that reads cost only on the success path treats the most expensive
 runs as free, and re-queues the next mailbox into a tenant that is already
-throttled -- producing another 429 and raising the throttle fence again.
+throttled, producing another 429 and raising the throttle fence again.
 :::
 
 ### OperationCost Type
@@ -488,9 +488,9 @@ boss.work('backup-mailbox', async (job) => {
 });
 ```
 
-Because the Outlook pool limit is per-mailbox, each mailbox's cooldown is independent. Running 50 parallel pg-boss workers for 50 different mailboxes is safe -- they do not share quota.
+Because the Outlook pool limit is per-mailbox, each mailbox's cooldown is independent. Running 50 parallel pg-boss workers for 50 different mailboxes is safe, because they do not share quota.
 
-For future OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant. You would need to aggregate `resource_units` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resource_units_per_minute['<tier>']` before scheduling the next OneDrive job.
+For OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant instead. Aggregate `resource_units` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resource_units_per_minute['<tier>']` before scheduling the next OneDrive job.
 
 ## Exports
 

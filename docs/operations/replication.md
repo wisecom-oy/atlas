@@ -1,8 +1,12 @@
 # Replication
 
-Atlas supports snapshot-level replication to one or more secondary S3-compatible storage targets. Replication is a first-class engine feature -- not a wrapper around `mc mirror` or provider-specific tools.
+Atlas replicates snapshots to one or more secondary S3-compatible storage targets. Replication is a first-class engine feature, not a wrapper around `mc mirror` or provider-specific tools.
 
-## How Replication Works
+```bash
+atlas replicate -s <snapshot-id> --target-config ./offsite.json
+```
+
+## How replication works
 
 ```
 Primary storage          Replication service          Secondary target(s)
@@ -22,35 +26,52 @@ Primary storage          Replication service          Secondary target(s)
 
 1. The replication service reads the snapshot manifest from primary storage.
 2. For each object (messages and attachments) referenced by the manifest, it checks whether the target already has the object.
-3. Missing objects are copied as raw ciphertext -- no decryption or re-encryption occurs.
-4. The manifest file is always copied last, ensuring a crash never leaves a manifest referencing missing objects.
+3. Missing objects are copied as raw ciphertext. No decryption or re-encryption occurs.
+4. The manifest file is always copied last, so a crash never leaves a manifest referencing missing objects.
 5. A durable status sidecar is written to primary storage recording the outcome.
 
-Replication is **idempotent**. Running it again for the same snapshot skips all objects that already exist on the target. This makes it safe to retry after failures or interruptions.
+Replication is **idempotent**. Running it again for the same snapshot skips every object that already exists on the target, which makes retry after failure or interruption safe.
 
-## Primary-Is-Truth Principle
+### Copy ordering and crash safety
 
-::: danger Primary Is Authoritative
-Primary storage is always the source of truth during normal operation. Secondary targets receive data only through replication. Never run `atlas outlook backup` directly against a replica target -- Atlas detects the replica marker file and logs a warning if this is attempted.
-:::
+Objects are always copied in this order:
 
-Replication is one-directional: primary to target. There is no bidirectional sync and no automatic conflict resolution. If you need to recover data from a secondary target (disaster recovery), use `atlas rehydrate` -- a separate, explicit operation described below.
+| Step | Object                                       | Notes                                                       |
+| ---- | -------------------------------------------- | ----------------------------------------------------------- |
+| 1    | DEK validation                               | Verifies source and target share the same encryption key    |
+| 2    | `_meta/dek.enc`                              | Copied to target if not already present                     |
+| 3    | `_meta/replica.marker`                       | Written on target (skipped during rehydration to primary)   |
+| 4    | Data and attachment objects                  | Copied in manifest order, skipping objects already on target |
+| 5    | Ancillary objects (OneDrive and SharePoint)  | File version indexes and delta cursors                      |
+| 6    | Manifest file                                | **Always last**                                             |
 
-## Shared Encryption Model
+If replication crashes at any point, the target is left in a safe state: orphan data blobs exist (harmless, reclaimable), but no manifest ever references missing objects. Rerunning replication picks up where it left off.
 
-Atlas uses a shared encryption model for replication. All targets use the same master passphrase and the same per-tenant Data Encryption Key (DEK). This means:
+## Safety model
 
-- Ciphertext is copied byte-for-byte -- no decryption or re-encryption during replication.
+### Primary is authoritative
+
+:::: danger Primary is the source of truth
+Primary storage is always authoritative during normal operation. Secondary targets receive data only through replication. Never run `atlas outlook backup` directly against a replica target. Atlas detects the replica marker file and logs a warning if you do.
+::::
+
+Replication is one-directional, primary to target. There is no bidirectional sync and no automatic conflict resolution. To recover data from a secondary target, use `atlas rehydrate`, a separate and explicit operation described below.
+
+### Shared encryption model
+
+All targets use the same master passphrase and the same per-tenant Data Encryption Key (DEK):
+
+- Ciphertext is copied byte-for-byte, with no decryption or re-encryption during replication.
 - Replication is fast because it only involves object reads and writes, not cryptographic operations.
 - The wrapped DEK (`_meta/dek.enc`) is copied to the target on first replication.
 
-::: warning Passphrase Compromise
-Because the same passphrase protects all copies, compromising the passphrase compromises data on every target. Mitigate this with separate IAM credentials per storage target -- an attacker who compromises one target's S3 keys cannot reach another target's data, even though the encryption keys are the same.
-:::
+:::: warning Passphrase compromise
+Because the same passphrase protects all copies, compromising the passphrase compromises data on every target. Mitigate this with separate IAM credentials per storage target. An attacker who compromises one target's S3 keys cannot reach another target's data, even though the encryption keys are the same.
+::::
 
-## DEK Mismatch Protection
+### DEK mismatch protection
 
-Before every replication, Atlas validates that the source and target share the same encryption key. If you purge and re-initialize a tenant on primary (generating a new DEK), Atlas refuses to replicate to a target that still holds objects encrypted with the old key:
+Before every replication, Atlas validates that source and target share the same encryption key. If you purge and re-initialize a tenant on primary (generating a new DEK), Atlas refuses to replicate to a target that still holds objects encrypted with the old key:
 
 ```
 Error: Target has a different encryption key than the source.
@@ -59,22 +80,13 @@ Purge the target before replicating from a re-initialized primary.
 
 This prevents silent data corruption where old objects on the target become permanently undecryptable.
 
-## Copy Ordering and Crash Safety
+### Object Lock is not replicated
 
-Objects are always copied in this order:
+Object Lock policies are **not** replicated per-object. For immutable backups on a secondary target, configure Object Lock at the bucket level on that target independently. The replication service copies raw ciphertext without lock metadata.
 
-1. **DEK validation** -- verifies source and target share the same encryption key
-2. `_meta/dek.enc` -- copied to target if not already present
-3. `_meta/replica.marker` -- written on target (skipped during rehydration to primary)
-4. Data and attachment objects -- copied in manifest order, skipping objects already on target
-5. Ancillary objects (OneDrive and SharePoint) -- file version indexes and delta cursors
-6. Manifest file -- **always last**
+## Observing replication status
 
-If replication crashes at any point, the target is left in a safe state: orphan data blobs exist (harmless, reclaimable), but no manifest ever references missing objects. Rerunning replication picks up where it left off.
-
-## Replication Status
-
-Replication status is persisted as encrypted sidecar files in the primary tenant bucket. The path structure varies by workload:
+Status is persisted as encrypted sidecar files in the primary tenant bucket. The path structure varies by workload:
 
 ```
 atlas-{tenant_id}/
@@ -91,7 +103,7 @@ atlas-{tenant_id}/
                 └── {target_id}.json
 ```
 
-Each sidecar records: target ID, status (COMPLETED/PARTIAL/FAILED), object counts, byte counts, timestamps, manifest checksums, and the last error. Query status with:
+Each sidecar records the target ID, status (COMPLETED/PARTIAL/FAILED), object counts, byte counts, timestamps, manifest checksums, and the last error.
 
 ```bash
 atlas replicate --status                          # all snapshots, all targets
@@ -100,9 +112,9 @@ atlas replicate --status --site <site-id>         # filter by SharePoint site
 atlas replicate --status -s <snapshot-id>         # filter by snapshot
 ```
 
-## CLI Usage
+## CLI usage
 
-### Replicate a Snapshot
+### Replicate a snapshot
 
 ```bash
 atlas replicate -s <snapshot-id> \
@@ -111,7 +123,7 @@ atlas replicate -s <snapshot-id> \
   --target-secret-key <secret>
 ```
 
-### Replicate All Snapshots for a Mailbox
+### Replicate all snapshots for a mailbox
 
 ```bash
 atlas replicate -m user@company.com \
@@ -120,9 +132,21 @@ atlas replicate -m user@company.com \
   --target-secret-key <secret>
 ```
 
-Only unreplicated snapshots are copied (the service diffs manifest lists).
+Only unreplicated snapshots are copied, because the service diffs manifest lists.
 
-### Replicate OneDrive Snapshots (SDK)
+### Replicate SharePoint site snapshots
+
+```bash
+# Replicate all unreplicated snapshots for a SharePoint site
+atlas replicate --site contoso.sharepoint.com,guid,guid --target-config ./offsite.json
+
+# Replicate a specific SharePoint snapshot
+atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --target-config ./offsite.json
+```
+
+SharePoint replication copies data blobs, file version index files, delta cursors, and manifests. Ancillary objects (indexes and cursors) are replicated alongside data so incremental sync resumes correctly after rehydration.
+
+### Replicate OneDrive snapshots (SDK)
 
 OneDrive per-owner replication is available through the SDK:
 
@@ -136,21 +160,9 @@ await atlas.onedrive.replicateAll('owner-id', [offsite]);
 await atlas.onedrive.replicateSnapshot('owner-id', 'od-snap-123', [offsite]);
 ```
 
-OneDrive replication copies data blobs, file version index files, delta cursors, and manifests -- the same ancillary set as SharePoint.
+OneDrive replication copies the same ancillary set as SharePoint: data blobs, file version index files, delta cursors, and manifests.
 
-### Replicate SharePoint Site Snapshots
-
-```bash
-# Replicate all unreplicated snapshots for a SharePoint site
-atlas replicate --site contoso.sharepoint.com,guid,guid --target-config ./offsite.json
-
-# Replicate a specific SharePoint snapshot
-atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --target-config ./offsite.json
-```
-
-SharePoint replication copies data blobs, file version index files, delta cursors, and manifests. Ancillary objects (indexes + cursors) are replicated alongside data so that incremental sync resumes correctly after rehydration.
-
-### Using a Target Config File
+### Using a target config file
 
 ```bash
 atlas replicate -s <snapshot-id> --target-config ./offsite.json
@@ -168,9 +180,9 @@ The file contains S3 credentials for the target:
 }
 ```
 
-`target_id` is optional (derived from endpoint if omitted). The encryption passphrase is not in this file -- it comes from the main Atlas configuration (shared model).
+`target_id` is optional and derived from the endpoint if omitted. The encryption passphrase is not in this file. It comes from the main Atlas configuration under the shared model.
 
-## SDK Usage
+## SDK usage
 
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
@@ -203,15 +215,15 @@ const spSingle = await atlas.sharepoint.replicateSnapshot('site-id', 'sp-snap-12
 const status = await atlas.getReplicationStatus('snapshot-id');
 ```
 
-## Rehydration (Disaster Recovery)
+## Rehydration (disaster recovery)
 
-Rehydration is a separate, explicit operation for recovering data from a replica to primary. It is **not** a sync -- it copies exactly what the operator specifies.
+Rehydration recovers data from a replica back to primary. It is **not** a sync. It copies exactly what the operator specifies, skips snapshots that already exist on primary, and never merges, diffs, or resolves conflicts.
 
-::: tip Rehydration Is a DR Operation
-Use `atlas rehydrate` only when primary storage has suffered data loss. After recovery, primary resumes as the source of truth. Delta links in restored manifests may be stale -- Atlas automatically falls back to full sync on the next backup.
-:::
+:::: tip Rehydration is a DR operation
+Use `atlas rehydrate` only when primary storage has suffered data loss. After recovery, primary resumes as the source of truth. Delta links in restored manifests may be stale, so Atlas automatically falls back to full sync on the next backup.
+::::
 
-### Three Recovery Modes
+### Recovery modes
 
 **Recover a specific snapshot:**
 
@@ -243,11 +255,9 @@ atlas rehydrate --site contoso.sharepoint.com,guid,guid -s sp-snap-123 --source-
 atlas rehydrate --all --source-config ./offsite.json
 ```
 
-`--all` enumerates all three manifest roots -- `manifests/` (Outlook), `onedrive/manifests/` (OneDrive), and `sharepoint/manifests/` (SharePoint) -- and reports copied/skipped/failed counts per workload. Any workload that yielded no objects is named in a warning, so an incomplete DR drill cannot pass silently.
+`--all` enumerates all three manifest roots (`manifests/` for Outlook, `onedrive/manifests/` for OneDrive, and `sharepoint/manifests/` for SharePoint) and reports copied/skipped/failed counts per workload. Any workload that yielded no objects is named in a warning, so an incomplete DR drill cannot pass silently.
 
-Rehydration skips snapshots that already exist on primary. It does not merge, diff, or resolve conflicts.
-
-### SDK Rehydration
+### SDK rehydration
 
 ```typescript
 // Recover a single Outlook snapshot
@@ -270,13 +280,7 @@ const recovery = await atlas.rehydrateTenant(offsite);
 recovery.workloads.forEach((w) => console.log(w.workload, w.result.objects_copied));
 ```
 
-## Object Lock
-
-Object Lock policies are **not** replicated per-object. If you want immutable backups on a secondary target, configure Object Lock at the bucket level on that target independently. The replication service copies raw ciphertext without lock metadata.
-
-## Operational Runbook: Recovering from Primary Failure
-
-If primary storage fails and you need to restore from a replica:
+## Runbook: recovering from primary failure
 
 1. **Ensure primary bucket exists** and is accessible (even if empty).
 
@@ -305,9 +309,10 @@ If primary storage fails and you need to restore from a replica:
    atlas sharepoint backup --site <site-url>
    ```
 
-   Stale delta links are handled automatically -- Atlas falls back to full sync.
+   Stale delta links are handled automatically. Atlas falls back to full sync.
 
 6. **Re-replicate** to ensure the secondary target is current:
+
    ```bash
    atlas replicate -m user@company.com --target-config ./offsite.json
    ```

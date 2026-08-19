@@ -1,12 +1,12 @@
 # Troubleshooting
 
-Common errors encountered when running Atlas, with specific error messages, likely causes, and steps to resolve.
+Each entry below starts with what you see in the logs, then why it happens and what to do.
 
-If none of the below resolves it and you are opening an issue, run `./tools/diagnostics.sh` from the repository root and include its output. It reports your OS, Node and Atlas versions, and which configuration sources Atlas can see, without printing any secret values. Replace real mailbox addresses, file names, and site URLs with generic placeholders before posting.
+Opening an issue? Run `./tools/diagnostics.sh` from the repository root and include its output. It reports your OS, Node and Atlas versions, and which configuration sources Atlas can see, without printing any secret values. Replace real mailbox addresses, file names, and site URLs with generic placeholders before posting.
 
 ## Authentication Failures
 
-Authentication errors appear before any backup activity starts. Atlas authenticates with Microsoft Graph using the OAuth2 Client Credentials flow, so failures here are always credential or tenant configuration problems -- not network or storage issues.
+Authentication errors appear before any backup activity starts. Atlas authenticates with Microsoft Graph using the OAuth2 Client Credentials flow, so failures here are credential or tenant configuration problems, never network or storage issues.
 
 ### AADSTS error codes
 
@@ -26,41 +26,45 @@ Error: ClientSecretCredential authentication failed
   AADSTS7000215: Invalid client secret provided...
 ```
 
-If the error message is ambiguous, cross-check in the Azure Portal under **Microsoft Entra ID → Sign-in logs → Application sign-ins**, filtering by your application's client ID.
+If the message is ambiguous, cross-check in the Azure Portal under **Microsoft Entra ID → Sign-in logs → Application sign-ins**, filtering by your application's client ID.
 
 ## Graph API 429 Throttling and Transient 5xx
 
-HTTP 429 responses from Microsoft Graph are normal and expected during large backups. They are not errors requiring intervention. The same is true of occasional `500 InternalServerError` and `502 Bad Gateway` responses: Graph raises them under load, and Atlas retries them on the same schedule as a 429 rather than failing the folder or drive batch.
-
-### What it looks like in logs
+### Rate limit warnings during a backup
 
 ```
 [warn] Graph API rate limit hit (attempt 3/12), retrying in 14s (Retry-After header)
 ```
 
-Atlas honors Microsoft's `Retry-After` header and retries up to **12 times** with exponential backoff. If all 12 retries are exhausted, the folder-level operation fails and is recorded in `summary.folder_errors` -- the backup continues with other folders.
+HTTP 429 responses from Microsoft Graph are normal during large backups and need no intervention. The same applies to occasional `500 InternalServerError` and `502 Bad Gateway` responses, which Graph raises under load and Atlas retries on the same schedule as a 429 rather than failing the folder or drive batch.
+
+Atlas honors Microsoft's `Retry-After` header and retries up to **12 times** with exponential backoff. If all 12 retries are exhausted, the folder-level operation fails and is recorded in `summary.folder_errors`, and the backup continues with other folders.
 
 ### When to worry
 
-- **Occasional 429s during large initial backups**: normal. Microsoft throttles per-application and per-mailbox. Atlas handles these automatically.
-- **Persistent 429s causing repeated folder failures**: this usually means you have too many concurrent workers (`-C` flag) for your tenant's allocated Graph API capacity. Try reducing to `-C 2` or `-C 1`.
-- **429s on every request from the start**: check whether another application in your tenant is also consuming heavy Graph API quota. Contact Microsoft support if the throttle limits seem unusually low.
-- **Occasional 500/502 responses**: normal under load, retried automatically. A run that logs a handful and completes needs no action.
-- **Persistent 500/502 on the same item**: not throttling. Retries are exhausted against a server-side fault; re-run the backup later and, if it repeats, open a Microsoft support case with the request IDs from `--log-level debug`.
+| What you see                                            | What it means                                                                        | What to do                                                                                                                              |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Occasional 429s during a large initial backup           | Normal. Microsoft throttles per-application and per-mailbox, and Atlas handles it.   | Nothing.                                                                                                                                |
+| Persistent 429s causing repeated folder failures        | Too many concurrent workers (`-C` flag) for your tenant's allocated Graph capacity.  | Reduce to `-C 2` or `-C 1`.                                                                                                             |
+| 429s on every request from the start                    | Another application in your tenant may be consuming heavy Graph API quota.           | Check tenant-wide Graph usage. Contact Microsoft support if the throttle limits seem unusually low.                                      |
+| Occasional 500/502 responses                            | Normal under load, retried automatically.                                            | Nothing, if the run completes.                                                                                                          |
+| Persistent 500/502 on the same item                     | Not throttling. Retries are exhausted against a server-side fault.                   | Re-run the backup later. If it repeats, open a Microsoft support case with the request IDs from `--log-level debug`.                     |
 
 ### Throughput ceiling
 
-Even with unlimited bandwidth, Graph API throttling caps effective throughput. For a first full tenant backup, monitor actual transfer rates and use the baseline to plan your scheduling window. See [Scheduling & Bandwidth](/self-hosting/scheduling) for sizing estimates.
+Graph API throttling caps effective throughput even with unlimited bandwidth. For a first full tenant backup, monitor actual transfer rates and use the baseline to plan your scheduling window. See [Scheduling & Bandwidth](/self-hosting/scheduling) for sizing estimates.
 
 ## OneDrive & SharePoint Permission Errors
 
-File workload backups require additional Graph API permissions beyond Outlook mailbox access.
+File workload backups require Graph API permissions beyond Outlook mailbox access. See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for the full permission matrix per command.
 
 ### OneDrive: user not found or no drive
 
 ```
 Error: Failed to resolve owner: user not found
 ```
+
+Atlas could not resolve the owner to a licensed OneDrive.
 
 - Verify the email/UPN in `-o` exists in the tenant and has a licensed OneDrive.
 - Confirm `User.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
@@ -71,9 +75,11 @@ Error: Failed to resolve owner: user not found
 Error: Failed to resolve site: itemNotFound
 ```
 
+Graph could not resolve the site URL.
+
 - Verify the site URL is correct and the site has not been deleted or renamed.
 - Confirm `Sites.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
-- Some sites require the full URL including `/sites/SiteName` -- root site URLs use a different path format.
+- Some sites require the full URL including `/sites/SiteName`, because root site URLs use a different path format.
 
 ### SharePoint restore: insufficient write permission
 
@@ -81,9 +87,7 @@ Error: Failed to resolve site: itemNotFound
 Error: accessDenied
 ```
 
-Restore requires `Sites.ReadWrite.All` in addition to the read permissions needed for backup. Grant admin consent after adding the permission.
-
-See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for the full permission matrix per command.
+Restore requires `Sites.ReadWrite.All` in addition to the read permissions needed for backup. Add the permission, then grant admin consent.
 
 ## S3 Connectivity Errors
 
@@ -95,23 +99,19 @@ S3 errors prevent Atlas from reading or writing backup data. These are configura
 Error: connect ECONNREFUSED 127.0.0.1:9000
 ```
 
+Nothing is listening on the configured endpoint.
+
 - Check that MinIO (or your S3-compatible storage) is running: `docker ps` or `systemctl status minio`.
 - Verify `ATLAS_S3_ENDPOINT` points to the correct host and port.
-- If running Atlas on a different machine than MinIO, confirm the firewall allows TCP on port 9000.
+- If Atlas runs on a different machine than MinIO, confirm the firewall allows TCP on port 9000.
 
-### Path-style vs. virtual-hosted style
+### NoSuchBucket on S3-compatible storage
 
 ```
 Error: NoSuchBucket: The specified bucket does not exist
 ```
 
-MinIO requires path-style URLs (`http://hostname:9000/bucket-name`). If Atlas is sending virtual-hosted-style requests (`http://bucket-name.hostname:9000`), set:
-
-```env
-ATLAS_S3_FORCE_PATH_STYLE=true
-```
-
-AWS S3 uses virtual-hosted-style by default. Managed S3-compatible services (Backblaze B2, Wasabi, etc.) vary -- check their documentation.
+Atlas always sends path-style URLs (`http://hostname:9000/bucket-name`), because MinIO and most S3-compatible services require them. On AWS S3 this error means the bucket name or region in `ATLAS_S3_BUCKET` is wrong, or the credentials belong to a different account. Create the bucket if it is missing; Atlas does not create it for you.
 
 ### Wrong credentials
 
@@ -119,14 +119,16 @@ AWS S3 uses virtual-hosted-style by default. Managed S3-compatible services (Bac
 Error: SignatureDoesNotMatch: The request signature we calculated does not match the signature you provided.
 ```
 
+The signature Atlas computed does not match what the server expected, which points at the keys or at the clock.
+
 - Verify `ATLAS_S3_ACCESS_KEY` and `ATLAS_S3_SECRET_KEY` are correct.
 - Check for trailing whitespace or newline characters in the environment variable values.
 - If using MinIO, confirm the credentials match `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` in your Docker environment.
-- Significant clock skew between the Atlas host and the S3 server can also cause this error. AWS S3 rejects requests where the timestamp differs by more than 15 minutes. Ensure both systems use NTP.
+- Significant clock skew between the Atlas host and the S3 server causes the same error. AWS S3 rejects requests where the timestamp differs by more than 15 minutes. Ensure both systems use NTP.
 
 ## Decryption Failures
 
-Decryption errors indicate a mismatch between the passphrase used to encrypt the data and the passphrase currently configured, or corruption of the key material.
+Decryption errors mean the configured passphrase does not match the one used to encrypt the data, or the key material is corrupt.
 
 ### Wrong passphrase
 
@@ -134,9 +136,9 @@ Decryption errors indicate a mismatch between the passphrase used to encrypt the
 Error: Unable to unwrap DEK: incorrect passphrase or corrupted key blob
 ```
 
-The passphrase in `ATLAS_ENCRYPTION_PASSPHRASE` does not match the one used when the tenant was first initialized. The wrapped DEK (stored at `_meta/dek.enc` in the bucket) was encrypted with the original passphrase using scrypt key derivation -- changing the passphrase without re-wrapping the DEK makes all data inaccessible.
+The passphrase in `ATLAS_ENCRYPTION_PASSPHRASE` does not match the one used when the tenant was first initialized. The wrapped DEK (stored at `_meta/dek.enc` in the bucket) was encrypted with the original passphrase using scrypt key derivation. Changing the passphrase without re-wrapping the DEK makes all data inaccessible.
 
-There is no way to recover data if the original passphrase is lost. This is by design -- the passphrase is the root of the entire encryption chain.
+There is no way to recover data if the original passphrase is lost. That is by design, because the passphrase is the root of the entire encryption chain.
 
 ### Corrupted DEK blob
 
@@ -144,7 +146,10 @@ There is no way to recover data if the original passphrase is lost. This is by d
 Error: Failed to parse DEK blob: unexpected end of data
 ```
 
-The `_meta/dek.enc` object in the bucket is corrupted or truncated. This can happen due to an interrupted write during initialization. If you have a replica, recover the DEK from there using `atlas rehydrate`. Otherwise, the tenant must be re-initialized (destroying all existing data).
+The `_meta/dek.enc` object in the bucket is corrupted or truncated, usually from an interrupted write during initialization.
+
+- If you have a replica, recover the DEK from there using `atlas rehydrate`.
+- Otherwise the tenant must be re-initialized, which destroys all existing data.
 
 ### GCM authentication failure
 
@@ -152,13 +157,13 @@ The `_meta/dek.enc` object in the bucket is corrupted or truncated. This can hap
 Error: GCM authentication failed: data may be corrupted or tampered with
 ```
 
-The GCM authentication tag on an encrypted object does not match. This means either:
+The GCM authentication tag on an encrypted object does not match. One of three things happened:
 
 1. **Corruption in transit or at rest**: the ciphertext was modified after being written. Run `atlas outlook verify -m <mailbox> -s <snapshot-id>`, `atlas onedrive verify -o <owner> -s <snapshot-id>`, or `atlas sharepoint verify --site <url> -s <snapshot-id>` to identify which objects are affected.
-2. **Wrong DEK**: the object was encrypted by a different tenant or after a tenant re-initialization. This can happen if objects from two different Atlas instances end up in the same bucket.
+2. **Wrong DEK**: the object was encrypted by a different tenant or after a tenant re-initialization. This happens when objects from two different Atlas instances end up in the same bucket.
 3. **Deliberate tampering**: the object was modified by an attacker or a misconfigured tool.
 
-In all cases, the affected items cannot be decrypted. The remaining items in the snapshot are not affected.
+In all cases the affected items cannot be decrypted. The remaining items in the snapshot are unaffected.
 
 ## Object Lock Errors
 
@@ -176,7 +181,7 @@ or
 Error: Object Lock requires versioning to be enabled.
 ```
 
-You are attempting to apply Object Lock to a bucket that was created without it. Create a new bucket with Object Lock enabled from the start, then update `ATLAS_S3_BUCKET` to point to the new bucket. See [Immutability & Object Lock](/operations/immutability) for step-by-step bucket setup.
+You are applying Object Lock to a bucket that was created without it. Create a new bucket with Object Lock enabled from the start, then update `ATLAS_S3_BUCKET` to point to it. See [Immutability & Object Lock](/operations/immutability) for step-by-step bucket setup.
 
 ### Object Lock not enabled at bucket creation
 
@@ -187,5 +192,5 @@ Error: InvalidRequest: Bucket is missing ObjectLockConfiguration
 The bucket exists and has versioning, but Object Lock was not enabled at creation. The only fix is to create a new bucket with Object Lock enabled.
 
 ::: tip Pre-flight check
-Run `atlas storage-check --lock-mode governance --retention-days 30` before running your first immutable backup. It reports versioning and Object Lock status without writing any data, letting you catch configuration problems before they affect a backup job.
+Run `atlas storage-check --lock-mode governance --retention-days 30` before your first immutable backup. It reports versioning and Object Lock status without writing any data, so you catch configuration problems before they affect a backup job.
 :::

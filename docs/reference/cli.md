@@ -2,7 +2,7 @@
 
 Complete reference for every Atlas CLI command.
 
-Atlas ships as **`@wisecom/atlas-cli`** — install globally for shell-based operations:
+Atlas ships as **`@wisecom/atlas-cli`**. Install globally for shell-based operations:
 
 ```bash
 npm install -g @wisecom/atlas-cli
@@ -10,9 +10,9 @@ npm install -g @wisecom/atlas-cli
 
 The CLI reads credentials from `.env` and environment variables (see [Configuration](/configuration)). It is the right choice for cron jobs, operator workflows, and simple deployments where you run commands directly.
 
-With a **local** (non-global) install, a postinstall hook links `atlas` into `/usr/local/bin` or `~/.local/bin` so the command works system-wide. The hook is conservative: if `atlas` is already a shell alias or an existing command on PATH, it skips with a warning and leaves your setup untouched (use `npx atlas` in that case). It never fails the install. Opt out with `ATLAS_SKIP_POSTINSTALL=1`; re-run manually with `npm run link-cli --prefix node_modules/@wisecom/atlas-cli`. Note: pnpm blocks dependency lifecycle scripts by default — run `pnpm approve-builds` to allow it. Windows relies on npm's own `.cmd` shims (global install).
+With a **local** (non-global) install, a postinstall hook links `atlas` into `/usr/local/bin` or `~/.local/bin` so the command works system-wide. The hook is conservative: if `atlas` is already a shell alias or an existing command on PATH, it skips with a warning and leaves your setup untouched (use `npx atlas` in that case). It never fails the install. Opt out with `ATLAS_SKIP_POSTINSTALL=1`; re-run manually with `npm run link-cli --prefix node_modules/@wisecom/atlas-cli`. Note: pnpm blocks dependency lifecycle scripts by default, so run `pnpm approve-builds` to allow it. Windows relies on npm's own `.cmd` shims (global install).
 
-For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@wisecom/atlas-sdk`** instead — see [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
+For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@wisecom/atlas-sdk`** instead. See [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
 
 ## `atlas outlook`
 
@@ -55,20 +55,20 @@ atlas outlook backup --full                                    # force full sync
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
-`0` -- complete: every folder/file/mailbox processed without error. `1` -- hard failure: the run aborted (auth, storage, unhandled error). `2` -- **partial**: a snapshot was saved but the run is incomplete -- per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
 :::
 ::: tip Tenant-wide mode
-When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox -- one failing mailbox never aborts the others -- but the command exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
+When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox: one failing mailbox never aborts the others. The command still exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
 :::
 
 ::: details Page size tuning
-The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_ -- the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
+The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_: the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
 :::
 
 :::: tip Nested folders and `--folder` matching
 Atlas walks the whole mail-folder hierarchy, not just the folders directly under the mailbox root: `GET /users/{id}/mailFolders` returns only top-level folders, so every folder reporting child folders is expanded through `/childFolders` until the tree is exhausted. Folders are identified by their root-relative path (`Inbox/Projects/2026`), which is what `status`, backup progress, and `save` archive directories display.
 
-A `--folder` selector matches either a full path (`Inbox/Projects`) or a bare folder name at any depth (`Projects`), case-insensitively, and always includes everything nested beneath the match -- `--folder Inbox` backs up `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when the same folder name exists under several parents. Excluded system folders (Drafts, Outbox, recoverable items) are pruned together with their subtrees.
+A `--folder` selector matches either a full path (`Inbox/Projects`) or a bare folder name at any depth (`Projects`), case-insensitively, and always includes everything nested beneath the match. `--folder Inbox` backs up `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when the same folder name exists under several parents. Excluded system folders (Drafts, Outbox, recoverable items) are pruned together with their subtrees.
 
 Recursion is bounded at 300 levels, matching Exchange's own folder-depth limit; anything deeper is skipped with a warning rather than recursed forever.
 ::::
@@ -79,7 +79,7 @@ Recursion is bounded at 300 levels, matching Exchange's own folder-depth limit; 
 
 ### `atlas outlook verify`
 
-Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object -- message bodies and attachments**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
+Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object, message bodies and attachments**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
 
 ```bash
 atlas outlook verify -m user@company.com -s <snapshot-id>
@@ -92,12 +92,12 @@ atlas outlook verify -m user@company.com -s <snapshot-id> --fast
 | `-m, --mailbox <email>` | Mailbox that owns the snapshot (required)                                                   |
 | `-s, --snapshot <id>`   | Snapshot identifier to verify (required)                                                    |
 | `-t, --tenant <id>`     | Override tenant ID from config                                                              |
-| `--fast`                | Existence-only checks (`HeadObject` per referenced key) -- no download, decrypt, or hashing |
+| `--fast`                | Existence-only checks (`HeadObject` per referenced key), with no download, decrypt, or hashing |
 
 ::: details What exactly is verified?
-Verification covers the **merged entry set of the snapshot's manifest chain**: the target delta manifest plus every older manifest of the same mailbox, deduplicated newest-first -- the same routine restore uses, so the two views cannot drift. A corrupt or missing object from an _older_ backup run fails verification of every later snapshot that still references it.
+Verification covers the **merged entry set of the snapshot's manifest chain**: the target delta manifest plus every older manifest of the same mailbox, deduplicated newest-first. It is the same routine restore uses, so the two views cannot drift. A corrupt or missing object from an _older_ backup run fails verification of every later snapshot that still references it.
 
-Both message blobs and `attachments` are checked (storage key + checksum). Entries with no stored blob at all (e.g. large attachments skipped by pre-v2.1.0 backups) are reported as **unverifiable** and fail the run with a non-zero exit code -- they represent content a restore cannot reproduce.
+Both message blobs and `attachments` are checked (storage key + checksum). Entries with no stored blob at all (e.g. large attachments skipped by pre-v2.1.0 backups) are reported as **unverifiable** and fail the run with a non-zero exit code, because they represent content a restore cannot reproduce.
 
 `--fast` trades depth for cost: it only confirms every referenced object exists in the bucket, which catches the most common real-world damage (lifecycle deletion, failed replication, manual cleanup) at near-zero bandwidth. Scheduled deep verification should use full mode, which also validates ciphertext integrity via the GCM authentication tag.
 :::
@@ -106,7 +106,7 @@ Both message blobs and `attachments` are checked (storage key + checksum). Entri
 
 Restore emails from backup to an M365 mailbox.
 
-**Snapshot mode** -- restore from a specific snapshot:
+**Snapshot mode**, restore from a specific snapshot:
 
 ```bash
 atlas outlook restore -s <snapshot-id>
@@ -115,7 +115,7 @@ atlas outlook restore -s <snapshot-id> --message 42
 atlas outlook restore -s <snapshot-id> -m target@company.com
 ```
 
-**Mailbox mode** -- aggregate all snapshots for a mailbox, deduplicate, and restore:
+**Mailbox mode**, aggregate all snapshots for a mailbox, deduplicate, and restore:
 
 ```bash
 atlas outlook restore -m user@company.com
@@ -248,25 +248,25 @@ atlas outlook delete --purge -y                 # skip confirmation prompt
 | `-y, --yes`             | Skip confirmation prompt                                       |
 | `-t, --tenant <id>`     | Override tenant ID                                             |
 
-When Object Lock retention protects objects, delete commands return non-zero and report retained items separately from generic failures. "Retained" means a backend named Object Lock as the reason and the object becomes deletable when retention expires. Anything else -- an IAM denial, an unreachable endpoint -- is reported as a failure, because it will not resolve on its own.
+When Object Lock retention protects objects, delete commands return non-zero and report retained items separately from generic failures. "Retained" means a backend named Object Lock as the reason and the object becomes deletable when retention expires. Anything else, such as an IAM denial or an unreachable endpoint, is reported as a failure, because it will not resolve on its own.
 
 ::: details Deletion ordering
 Atlas deletes **manifests first**, then data objects. This ordering is safe: if deletion is interrupted mid-way, you are left with orphan data blobs (harmless, can be cleaned up later) rather than dangling manifest references that point to missing data.
 
-When using `--snapshot`, only the manifest file is removed -- the underlying data objects are retained because they may be referenced by other snapshots (content-addressed deduplication).
+When using `--snapshot`, only the manifest file is removed. The underlying data objects are retained because they may be referenced by other snapshots (content-addressed deduplication).
 
-When using `--purge`, **everything** is deleted including the encrypted DEK at `_meta/dek.enc`. This is irreversible -- all data for the tenant becomes permanently inaccessible.
+When using `--purge`, **everything** is deleted including the encrypted DEK at `_meta/dek.enc`. This is irreversible. All data for the tenant becomes permanently inaccessible.
 :::
 
 ::: details Erasure in versioned buckets
-Every delete removes the object **and all of its noncurrent versions**. This matters wherever bucket versioning is on -- which is everywhere Object Lock is used, since versioning is its prerequisite. Deleting a key without naming a version writes a delete marker: the object disappears from listings while every byte stays retrievable, so a deletion that reports success would not have erased anything.
+Every delete removes the object **and all of its noncurrent versions**. This matters wherever bucket versioning is on, which is everywhere Object Lock is used, since versioning is its prerequisite. Deleting a key without naming a version writes a delete marker: the object disappears from listings while every byte stays retrievable, so a deletion that reports success would not have erased anything.
 
 `--purge` sweeps the whole bucket rather than a fixed list of prefixes, so Outlook, OneDrive, SharePoint, the identity registry, and any tree a later release adds all go. The encrypted DEK is deleted last, and only if nothing survived: dropping the key while its ciphertext is still retained would leave data that can neither be restored nor be claimed erased.
 :::
 
 ### `atlas outlook status`
 
-Check whether a mailbox backup is up to date by peeking at Microsoft Graph delta state. This does **not** run a backup -- it only queries the delta endpoint with the saved delta links from the latest manifest to detect pending changes.
+Check whether a mailbox backup is up to date by peeking at Microsoft Graph delta state. This does **not** run a backup. It only queries the delta endpoint with the saved delta links from the latest manifest to detect pending changes.
 
 ```bash
 atlas outlook status -m user@company.com
@@ -354,7 +354,7 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
 
 ::: details Object Lock semantics for OneDrive/SharePoint
-Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDrive and SharePoint apply immutability as **bucket default retention** (`PutObjectLockConfiguration`): every new object version — files, file versions, manifests, delta cursors — inherits the lock automatically, so no write path can bypass it. Two consequences: the setting **persists on the bucket** and covers all subsequent writes from any command, and the bucket must be lock-capable (created with Object Lock; see `atlas storage-check` and the migration runbook in the self-hosting docs) or the backup fails fast with `ObjectLockUnsupportedError`. Frequently-overwritten small objects (cursors, indexes) accumulate locked noncurrent versions until retention expires; the bucket housekeeping lifecycle rules clean them up afterwards.
+Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDrive and SharePoint apply immutability as **bucket default retention** (`PutObjectLockConfiguration`): every new object version (files, file versions, manifests, delta cursors) inherits the lock automatically, so no write path can bypass it. Two consequences: the setting **persists on the bucket** and covers all subsequent writes from any command, and the bucket must be lock-capable (created with Object Lock; see `atlas storage-check` and the migration runbook in the self-hosting docs) or the backup fails fast with `ObjectLockUnsupportedError`. Frequently-overwritten small objects (cursors, indexes) accumulate locked noncurrent versions until retention expires; the bucket housekeeping lifecycle rules clean them up afterwards.
 :::
 
 **`atlas onedrive restore`**
@@ -368,7 +368,7 @@ Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDriv
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
 | `-t, --tenant <id>`        | Override tenant ID from config                                           |
 
-Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree -- earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
+Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
 `--site` accepts the same three forms on **every** command that takes it, including `replicate` and `rehydrate`: a browser URL (`https://contoso.sharepoint.com/sites/Engineering`), the Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or a composite site ID (`contoso.sharepoint.com,<siteGuid>,<webGuid>`). URLs and short forms are resolved through Graph before any storage key is built; a composite ID is passed through untouched, so disaster recovery with `rehydrate` still works when Graph is unreachable.
 
@@ -467,7 +467,7 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | `-t, --tenant <id>`    | Override tenant ID from config                                                    |
 
 :::: tip Subsites are separate sites
-`GET /sites/{site-id}/sites` returns only a site's _direct_ subsites, so Atlas walks the tree explicitly. By default a backup covers the named site alone and emits one warning per uncovered subsite -- classic site collections with nested subsite trees would otherwise look fully protected while entire subsites sat outside the backup.
+`GET /sites/{site-id}/sites` returns only a site's _direct_ subsites, so Atlas walks the tree explicitly. By default a backup covers the named site alone and emits one warning per uncovered subsite. Classic site collections with nested subsite trees would otherwise look fully protected while entire subsites sat outside the backup.
 
 `--include-subsites` backs up the whole tree. Each subsite is a Graph site with its own drives, so it gets **its own snapshot under its own `site_id` prefix** (`sharepoint/manifests/{site_id}/...`), identical in structure to a root-site backup. Restore addressing is therefore unchanged: restore a subsite by naming that subsite.
 
@@ -501,7 +501,7 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 | `-t, --tenant <id>`         | Override tenant ID from config                                           |
 
 With `--target-site`, each file goes to the target library whose name matches the
-one it was backed up from, or -- when the restore comes from a single library --
+one it was backed up from, or, when the restore comes from a single library,
 to the target's only library. Anything ambiguous is refused: the file is skipped,
 the candidate libraries are listed, and the command exits non-zero. Atlas never
 writes into the source library instead. See
@@ -541,7 +541,7 @@ Application permissions `Sites.Read.All` and `Files.Read.All` are required for S
 
 ## `atlas storage-check`
 
-Validate immutable backup readiness without running a backup. Reports versioning, Object Lock status, and the bucket class: `lock-capable` (can take retention policies), `versioned-only (legacy)`, or `unversioned (legacy)` -- legacy classes mean the bucket predates v2.1.0 auto-provisioning and needs the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket-to-object-lock) before immutability can be used. Exits non-zero when the bucket is not lock-ready, so it can gate scheduled jobs.
+Validate immutable backup readiness without running a backup. Reports versioning, Object Lock status, and the bucket class: `lock-capable` (can take retention policies), `versioned-only (legacy)`, or `unversioned (legacy)`. Legacy classes mean the bucket predates v2.1.0 auto-provisioning and needs the [migration runbook](/self-hosting/storage#migrating-a-legacy-bucket-to-object-lock) before immutability can be used. Exits non-zero when the bucket is not lock-ready, so it can gate scheduled jobs.
 
 ```bash
 atlas storage-check
@@ -557,7 +557,7 @@ atlas storage-check --lock-mode compliance --retention-days 365
 
 ## `atlas stats`
 
-Show storage statistics across all backed-up services. By default the command reports Outlook, OneDrive, and SharePoint in one pass: per-service snapshot counts, item counts (messages or files), total encrypted storage size, and a monthly breakdown. Statistics are computed purely from the encrypted snapshot manifests in the bucket -- no Microsoft Graph calls are made unless you scope to a OneDrive owner or SharePoint site that needs identity resolution.
+Show storage statistics across all backed-up services. By default the command reports Outlook, OneDrive, and SharePoint in one pass: per-service snapshot counts, item counts (messages or files), total encrypted storage size, and a monthly breakdown. Statistics are computed purely from the encrypted snapshot manifests in the bucket. No Microsoft Graph calls are made unless you scope to a OneDrive owner or SharePoint site that needs identity resolution.
 
 ```bash
 atlas stats                            # all services: Outlook, OneDrive, SharePoint
@@ -579,7 +579,7 @@ atlas stats --json                     # raw JSON output
 | `--json`                  | Output raw JSON instead of formatted tables                                                |
 | `-t, --tenant <id>`       | Override tenant ID from config                                                             |
 
-Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards -- with multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
+Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards. With multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
 
 ## `atlas config`
 
@@ -649,7 +649,7 @@ The target config file is a JSON object with `s3_endpoint`, `s3_access_key`, `s3
 
 ## `atlas rehydrate`
 
-Recover snapshots from a replica to primary storage. This is a disaster recovery operation -- not a bidirectional sync. Snapshots already on primary are skipped.
+Recover snapshots from a replica to primary storage. This is a disaster recovery operation, not a bidirectional sync. Snapshots already on primary are skipped.
 
 ```bash
 atlas rehydrate -s <snapshot-id> \
@@ -683,10 +683,10 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 
 Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. Combining `--site` or `-o/--owner` with `-s/--snapshot` narrows the recovery to that single SharePoint or OneDrive snapshot; `-s` on its own resolves Outlook snapshots. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
 
-`-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only -- unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
+`-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only. Unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
 
 ::: tip What `--all` covers
-`--all` recovers all three workloads -- every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) present on the replica. The summary breaks the run down per workload, so a recovery that restored only part of the tenant is visible instead of hidden behind one aggregate status line:
+`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) present on the replica. The summary breaks the run down per workload, so a recovery that restored only part of the tenant is visible instead of hidden behind one aggregate status line:
 
 ```
 Workload    Scope       Copied  Skipped  Failed  Size
@@ -695,13 +695,13 @@ onedrive    1-owners     12      1        0       2.7 MB
 sharepoint  1-sites      59      0        0       7.1 MB
 ```
 
-A workload with no objects at all prints a warning naming it -- the replica held nothing for it. Verify that against the source before treating the drill as a pass.
+A workload with no objects at all prints a warning naming it, because the replica held nothing for it. Verify that against the source before treating the drill as a pass.
 :::
 
 ::: danger Rehydration Is Not Sync
-Rehydration copies explicitly selected data from a designated replica to primary. It does not merge, diff, or resolve conflicts. After rehydration, primary resumes as the source of truth. Delta links in recovered manifests may be stale -- Atlas falls back to full sync on the next backup automatically.
+Rehydration copies explicitly selected data from a designated replica to primary. It does not merge, diff, or resolve conflicts. After rehydration, primary resumes as the source of truth. Delta links in recovered manifests may be stale, so Atlas falls back to full sync on the next backup automatically.
 :::
 
 ::: warning Encryption Key Safety
-Rehydration needs the source replica's encryption key (`_meta/dek.enc`) on the primary. Atlas copies it automatically when the primary has none, and replaces it only when the key is provably the sole object in the primary bucket (a freshly auto-initialized bucket). If the primary already contains **any** other object -- Outlook, OneDrive, or SharePoint data, or replication records -- and its key differs from the source's, rehydration aborts with `DekOverwriteRefusedError` instead of making that data permanently undecryptable. If the primary's content is disposable, run `atlas delete --purge` first and rehydrate into the empty bucket.
+Rehydration needs the source replica's encryption key (`_meta/dek.enc`) on the primary. Atlas copies it automatically when the primary has none, and replaces it only when the key is provably the sole object in the primary bucket (a freshly auto-initialized bucket). If the primary already contains **any** other object (Outlook, OneDrive, or SharePoint data, or replication records) and its key differs from the source's, rehydration aborts with `DekOverwriteRefusedError` instead of making that data permanently undecryptable. If the primary's content is disposable, run `atlas delete --purge` first and rehydrate into the empty bucket.
 :::

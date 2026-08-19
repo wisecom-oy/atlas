@@ -1,17 +1,17 @@
 # Getting Started
 
+Install the CLI, point it at storage and a tenant, run a backup. Node.js 22 or later is required.
+
 ## Installation
 
-Atlas is published as two npm packages. Choose based on how you plan to run it:
+Atlas ships as two npm packages that share the same engine:
 
 | Package                  | Command                             | Best for                                                                                 |
 | ------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------- |
 | **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Shell operations, cron/systemd jobs, operator workflows. Reads `.env` automatically.     |
 | **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk`        | Node.js apps, custom schedulers, multi-tenant SaaS, portals. Explicit config, typed API. |
 
-Installed the CLI locally instead of globally? A postinstall hook links `atlas` onto your PATH (skipping with a warning if the name is already an alias or another command) — details in the [CLI reference](/reference/cli).
-
-This guide uses the **CLI**. Requires **Node.js 22** or later.
+This guide uses the CLI. A local (non-global) install still gets an `atlas` command: a postinstall hook links it onto your PATH, skipping with a warning if the name is already an alias or another command. See the [CLI reference](/reference/cli) for details.
 
 ## Start an S3-Compatible Backend
 
@@ -21,7 +21,7 @@ Atlas stores backups in any S3-compatible object storage. For local development 
 cd docker && docker compose up -d
 ```
 
-This starts MinIO on port **9000** (S3 API) and port **9001** (web console). See the [Self-Hosting Guide](./self-hosting/) for production deployment with external storage, RAID, and security hardening.
+MinIO comes up on port **9000** (S3 API) and port **9001** (web console). For production storage, RAID, and security hardening, see the [Self-Hosting Guide](./self-hosting/).
 
 ## Configure
 
@@ -43,10 +43,10 @@ Required variables:
 | `ATLAS_S3_SECRET_KEY`         | S3 secret key                                  |
 | `ATLAS_ENCRYPTION_PASSPHRASE` | Master passphrase for envelope encryption      |
 
-See [Configuration](./configuration.md) for all options and precedence rules.
+The first three values come from an Entra app registration, covered in [Azure AD Setup](./azure-ad-setup.md). For every other option and the precedence rules between `.env`, environment variables, and flags, see [Configuration](./configuration.md).
 
 ::: danger Protect Your Passphrase
-The encryption passphrase is **irrecoverable**. If you lose it, all backup data becomes permanently inaccessible. There is no reset mechanism, no recovery key, and no way to decrypt without it. Store it in a password manager or secrets vault, and test that you can retrieve it before relying on the backups. See [Security](./security.md) for the full encryption model.
+The encryption passphrase is **irrecoverable**. Lose it and all backup data becomes permanently inaccessible: no reset mechanism, no recovery key, no way to decrypt without it. Store it in a password manager or secrets vault and confirm you can retrieve it before you rely on the backups. [Security](./security.md) covers the full encryption model.
 :::
 
 ## First Backup
@@ -73,7 +73,7 @@ atlas onedrive backup -o user@company.com
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-The first backup performs a full synchronization -- every message, attachment, or file is downloaded and encrypted. Subsequent runs use [delta sync](./operations/delta-sync.md) to transfer only changes, which is dramatically faster.
+The first run is a full synchronization: every message, attachment, or file is downloaded and encrypted. Later runs use [delta sync](./operations/delta-sync.md) to transfer only what changed, which is dramatically faster.
 
 ## Explore Your Backups
 
@@ -97,17 +97,17 @@ atlas onedrive list-snapshots -o user@company.com
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-See the full [CLI Reference](./reference/cli.md) for all commands and options, and the [OneDrive Backup](./onedrive-backup.md) and [SharePoint Backup](./sharepoint-backup.md) guides for workload-specific details.
+Every command and option is listed in the [CLI Reference](./reference/cli.md). For workload-specific behavior, see the [OneDrive Backup](./onedrive-backup.md) and [SharePoint Backup](./sharepoint-backup.md) guides.
 
 ## Use as a Library
 
-If you need Atlas inside your own application — custom backup portals, multi-tenant schedulers, or SaaS integrations — install **`@wisecom/atlas-sdk`** instead of (or alongside) the CLI:
+To drive Atlas from your own application, such as a backup portal, a multi-tenant scheduler, or a SaaS integration, install the SDK instead of (or alongside) the CLI:
 
 ```bash
 npm add @wisecom/atlas-sdk
 ```
 
-The SDK exposes the same workloads as the CLI, organized by namespace. Config is passed explicitly at construction time (the SDK does not read `.env`):
+The SDK exposes the same workloads as the CLI, organized by namespace. Config is passed explicitly at construction time, since the SDK does not read `.env`:
 
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
@@ -132,4 +132,4 @@ const odResult = await atlas.onedrive.backup('owner-id');
 const spResult = await atlas.sharepoint.backup('site-id');
 ```
 
-See the [SDK Reference](./reference/sdk.md) for all available methods and [SDK Examples](./reference/examples.md) for production-ready patterns.
+See the [SDK Reference](./reference/sdk.md) for all methods and [SDK Examples](./reference/examples.md) for production-ready patterns.
