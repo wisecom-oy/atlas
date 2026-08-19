@@ -10,9 +10,20 @@ export interface MailboxSummary {
   readonly last_backup_at: Date;
 }
 
+/**
+ * A decrypted stored message. MIME entries (`payload_format: 'mime'`) expose the
+ * RFC 5322 bytes in `raw` and carry no `message` object and no separate
+ * attachments — their attachments are embedded in the MIME. Legacy Graph JSON
+ * entries expose the parsed payload in `message` plus manifest attachments.
+ */
 export interface ReadMessageResult {
-  readonly message: Record<string, unknown>;
+  /** Decrypted blob exactly as stored; always present. */
+  readonly raw: Buffer;
+  /** Parsed Graph JSON payload; absent for MIME entries. */
+  readonly message?: Record<string, unknown>;
   readonly attachments: AttachmentEntry[];
+  /** 'mime' = `raw` is RFC 5322 MIME. Absent = legacy Graph JSON payload. */
+  readonly payload_format?: 'mime' | undefined;
 }
 
 export interface CatalogUseCase {

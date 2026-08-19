@@ -78,8 +78,8 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 
 | Data                                       | Encrypted | Notes                                                                      |
 | ------------------------------------------ | --------- | -------------------------------------------------------------------------- |
-| Email message bodies                       | Yes       | Stored as encrypted JSON under `data/{mailbox}/{sha256}`                   |
-| Attachments                                | Yes       | Stored as encrypted blobs under `attachments/{mailbox}/{sha256}`           |
+| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`       |
+| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
 | Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                     |
 | OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                             |
 | OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`             |
@@ -104,6 +104,58 @@ OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version 
 
 There is **no built-in S3 object rename** between email-keyed and ID-keyed mailbox prefixes in the open-source CLI as shipped; migrating layout is an operational exercise (re-backup, copy, or custom tooling) if you need to align naming.
 
+## Backup Fidelity
+
+Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of *which* bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
+
+| Artifact                                                     | Fidelity                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Archived object in S3, and the `.eml` files `atlas outlook save` writes | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                    |
+| A message recreated in a mailbox by `atlas outlook restore`   | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
+| Snapshots taken before this version                          | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                      |
+
+### The archived object is the original message
+
+Backup fetches every new or changed message as **RFC 5322 MIME** -- the on-the-wire form of an email, every header and body part exactly as the sending and relaying servers produced them -- with `GET /users/{id}/messages/{id}/$value`, and stores those bytes as the canonical encrypted object.
+
+Earlier Atlas versions stored `JSON.stringify()` of roughly 24 selected Microsoft Graph fields and *reconstructed* an `.eml` file at export time with the `mimetext` library. A reconstruction is a plausible email, not the original one: it carries the fields Atlas thought to select, re-encoded by a library that was never in the message's transit path. Everything an investigator would use to prove where a message came from was missing, because Graph's JSON projection never contained it.
+
+Storing the original bytes recovers the following. Each row is a question an operator or auditor eventually has to answer:
+
+| Recovered content                                                        | What it answers                                                                                                                                          |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The `Received:` chain                                                    | Chain of custody: which servers handled the message, in what order, and when it passed each hop                                                           |
+| `Authentication-Results` with DKIM, SPF, and ARC results, `DKIM-Signature` | Whether the message was authentic or forged. DKIM is a cryptographic signature over selected headers and the body, so it verifies only against the original bytes |
+| `In-Reply-To` and `References`                                           | Threading. Exported `.eml` files group into conversations in any mail client instead of arriving as unrelated messages                                    |
+| Original multipart structure and transfer encodings                      | Byte-level attestation: part boundaries, `Content-Transfer-Encoding`, and part order are preserved rather than regenerated                                |
+| S/MIME signed and encrypted payloads                                     | Signature verification and decryption, both of which are only possible over the original bytes                                                            |
+| Custom `X-` headers and mailing-list headers                             | Gateway, DLP, and list-server annotations that no Graph field exposes                                                                                     |
+
+There is deliberately no `--fidelity` flag. MIME is the only mode for new snapshots, so an operator cannot accidentally archive a year of mail in the weaker format.
+
+### Attachments move inside the message object
+
+MIME carries its attachments, so a MIME entry stores no separate objects under `attachments/{mailbox}/{sha256}` and its manifest entry lists no attachment records. Two consequences are worth stating plainly:
+
+- **Attachment content is no longer deduplicated across messages within a mailbox.** A slide deck mailed to a distribution list is stored once per message that carries it, not once per distinct payload.
+- **Base64 encoding inside MIME costs roughly one third more bytes** than the raw attachment, because base64 represents three bytes of binary as four bytes of text.
+
+That is the price of byte-exact fidelity. An attachment that has been re-encoded or extracted is no longer the object the sender signed.
+
+### When Graph cannot produce MIME
+
+If Graph cannot return MIME for a particular item, Atlas stores that one message in the legacy JSON form rather than skipping it. A single unusual item never costs you the rest of the mailbox.
+
+Each manifest entry records which format its object holds. Entries with `payload_format: "mime"` hold original bytes; entries with no `payload_format` field hold the legacy Graph JSON payload. Mixed snapshots are normal, and `save`, `read`, `restore`, and `verify` all handle both formats inside the same snapshot chain, so a fallback item needs no operator intervention.
+
+### Restore is reconstruction, and that is a deliberate choice
+
+Atlas does **not** import archived MIME back into Exchange. Live testing established why: Graph's MIME import path always marks the created message as a draft (`isDraft: true`), and that flag cannot be cleared -- neither an `X-Unsent: 0` header inside the MIME nor a `PR_MESSAGE_FLAGS` patch afterwards clears it. Restoring a mailbox that way would hand the user thousands of drafts instead of their mail.
+
+`atlas outlook restore` therefore parses the archived MIME and recreates each message through Graph's JSON message-create path. The result is normal, non-draft mail with its original timestamps, but the restored copy does not carry the original `Received` chain.
+
+The archived object keeps full fidelity either way. When an operator needs the original bytes -- for a legal hold, a forensic review, or DKIM verification -- `atlas outlook save` is the path that delivers them, and it never touches the live mailbox.
+
 ## Integrity Validation
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
@@ -123,7 +175,7 @@ When you run `atlas outlook verify`, Atlas performs a full integrity check for a
 3. Computes SHA-256 of the decrypted plaintext.
 4. Compares against the checksum stored in the manifest using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
 
-Currently, `atlas outlook verify` checks **message body entries** listed in the manifest. Attachments are implicitly protected by GCM authentication during any decrypt operation (backup, restore, save).
+`atlas outlook verify` checks the **message entries** listed in the manifest. For a MIME entry that covers the attachments too, because they are part of the message bytes being hashed. For a legacy JSON entry the separate attachment objects are not hashed against the manifest; they are protected by GCM authentication during any decrypt operation (backup, restore, save), which detects tampering but not a checksum recorded wrong at backup time.
 
 ### Content-MD5 on Uploads
 

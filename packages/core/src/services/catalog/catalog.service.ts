@@ -54,8 +54,9 @@ export class CatalogService implements CatalogUseCase {
 
   /**
    * Finds a message entry in the manifest, fetches the encrypted blob
-   * from object storage, decrypts it, and returns the parsed JSON
-   * together with any attachment metadata from the manifest.
+   * from object storage and decrypts it. MIME entries are returned as raw
+   * bytes; legacy Graph JSON entries are parsed and returned together with
+   * their attachment metadata from the manifest.
    *
    * @param message_ref - Either a 1-based numeric index (e.g. "34") matching the
    *   `atlas list` output, or a full Graph API message ID string.
@@ -74,9 +75,12 @@ export class CatalogService implements CatalogUseCase {
       if (!entry) return undefined;
 
       const encrypted = await ctx.storage.get(entry.storage_key);
-      const json = ctx.decrypt(encrypted);
-      const message = JSON.parse(json.toString('utf-8')) as Record<string, unknown>;
-      return { message, attachments: entry.attachments ?? [] };
+      const raw = ctx.decrypt(encrypted);
+      if (entry.payload_format === 'mime') {
+        return { raw, payload_format: 'mime', attachments: [] };
+      }
+      const message = JSON.parse(raw.toString('utf-8')) as Record<string, unknown>;
+      return { raw, message, attachments: entry.attachments ?? [] };
     } finally {
       ctx.destroy();
     }

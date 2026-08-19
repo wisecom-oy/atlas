@@ -141,6 +141,8 @@ Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are ded
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
+Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path rather than imported as MIME. That is a deliberate choice: Graph's MIME import always marks the created message as a draft, and neither an `X-Unsent: 0` header nor a `PR_MESSAGE_FLAGS` patch clears the flag, so importing would hand the user thousands of drafts. The restored copy is therefore normal mail with its original timestamps, but it does not carry the original `Received:` chain. The archived object still does -- use [`atlas outlook save`](#atlas-outlook-save) when you need the original bytes.
+
 ### `atlas outlook list`
 
 Browse backed-up data at three zoom levels. Subjects are hidden by default for data protection. The mailbox overview includes a `Type` column sourced from each mailbox's newest manifest that recorded a purpose (`user`, `shared`, `room`, ...; `--` when never recorded).
@@ -163,23 +165,30 @@ atlas outlook list -s <snapshot-id> -S          # reveal email subjects
 
 ### `atlas outlook read`
 
-Decrypt and display a single backed-up message. Messages are referenced by their `#` index from `atlas outlook list` output. Attachment metadata (name, MIME type, size) is listed below the body when present.
+Decrypt and display a single backed-up message. Messages are referenced by their `#` index from `atlas outlook list` output. Attachment metadata (name, MIME type, size) is listed below the body when present, including attachments embedded inside an archived MIME message.
 
 ```bash
 atlas outlook read -s <snapshot-id> --message 34
 atlas outlook read -s <snapshot-id> --message 34 --raw
+atlas outlook read -s <snapshot-id> --message 34 --raw > message.eml
 ```
 
-| Option                | Description                                                     |
-| --------------------- | --------------------------------------------------------------- |
-| `-s, --snapshot <id>` | Snapshot containing the message                                 |
-| `--message <ref>`     | Message `#` from `atlas outlook list`, or full Graph message ID |
-| `--raw`               | Output full JSON blob instead of formatted headers + body       |
-| `-t, --tenant <id>`   | Override tenant ID                                              |
+| Option                | Description                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `-s, --snapshot <id>` | Snapshot containing the message                                    |
+| `--message <ref>`     | Message `#` from `atlas outlook list`, or full Graph message ID    |
+| `--raw`               | Output the stored object verbatim instead of formatted headers + body |
+| `-t, --tenant <id>`   | Override tenant ID                                                 |
+
+What `--raw` prints depends on the format of the stored object. For a message archived as RFC 5322 MIME -- the default for snapshots taken by this version -- Atlas writes the decrypted MIME bytes to stdout verbatim: no banner, no colour, no added trailing newline. Redirecting that output produces a valid `.eml` file with its original `Received:` chain, `Authentication-Results`, and any S/MIME payload intact, which is what you want when handing a single message to an investigator or verifying a DKIM signature by hand.
+
+For a legacy entry stored as a Graph JSON payload, `--raw` prints pretty-printed JSON with two-space indentation, exactly as it did before. Check a manifest entry's `payload_format` field if you need to know which to expect: `"mime"` means original bytes, an absent field means legacy JSON.
+
+The formatted view is identical for both formats -- subject, from, to, cc, date, a separator, then the decoded `text/plain` body, falling back to the HTML part converted to text. For MIME entries Atlas parses that view out of the archived bytes, so no separate attachment objects are needed to list the attachments.
 
 ### `atlas outlook save`
 
-Export backed-up emails as standard `.eml` files (RFC 5322) in a compressed zip archive. Messages include all backed-up attachments embedded as MIME parts. Every message and attachment is SHA-256 verified after decryption by default.
+Export backed-up emails as standard `.eml` files (RFC 5322) in a compressed zip archive. Messages archived as MIME are written **byte-for-byte** from the stored object -- no re-encoding, so the exported file is the message Exchange received. Legacy entries stored as Graph JSON are reconstructed into `.eml` at export time, as they always were. Attachments are embedded as MIME parts in both cases. Every message and attachment is SHA-256 verified after decryption by default.
 
 **Snapshot mode:**
 
@@ -226,6 +235,8 @@ Restore-2026-03-10T14-30-00.zip
 ```
 
 EML filenames use the format `YYYY-MM-DD_HHmmss_Sanitized-subject.eml` with timestamps from `receivedDateTime` for natural chronological sorting. Duplicate filenames within a folder get numeric suffixes (`_1`, `_2`).
+
+Mixed archives are normal. A mailbox that was backed up before this version and has kept receiving incremental snapshots contains both legacy JSON entries and MIME entries; `save` walks the whole snapshot chain and writes an `.eml` for each, regardless of format.
 
 If the output file already exists, Atlas prompts `Overwrite? [Y/n]` before proceeding.
 

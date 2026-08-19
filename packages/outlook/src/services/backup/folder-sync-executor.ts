@@ -1,5 +1,8 @@
-import { createHash } from 'node:crypto';
 import type { TenantContext } from '@wisecom/atlas-types';
+import {
+  capture_mime_payload,
+  store_single_message,
+} from '@/services/backup/message-payload-store';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
@@ -10,6 +13,7 @@ import type {
   OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface FolderSyncResult {
   entries: ManifestEntry[];
@@ -50,7 +54,11 @@ interface PendingAttachment {
   message_id: string;
 }
 
-/** Processes a single message: dedup check, encrypt, store. Returns index for deferred attachment fetch. */
+/**
+ * Processes a single message: capture MIME, dedup check, encrypt, store.
+ * MIME embeds its attachments, so only a JSON fallback queues a separate
+ * attachment fetch.
+ */
 async function process_message(
   ctx: TenantContext,
   connector: MailboxConnector,
@@ -62,14 +70,15 @@ async function process_message(
   pending_attachments: PendingAttachment[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
-  const entry = await store_single_message(ctx, message, owner_id, object_lock_policy);
+  const mime = await capture_mime_payload(connector, tenant_id, owner_id, message);
+  const entry = await store_single_message(ctx, message, owner_id, object_lock_policy, mime);
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
 
   const entry_index = entries.length;
   entries.push(entry.manifest_entry);
 
-  if (message.has_attachments) {
+  if (!mime && message.has_attachments) {
     pending_attachments.push({ entry_index, message_id: message.message_id });
   }
 }
@@ -291,40 +300,4 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     attachments_stored: stats.att_stored,
     folder_processed,
   };
-}
-
-/** Content-addressed storage with SHA-256 dedup: hash -> check exists -> encrypt -> upload. */
-export async function store_single_message(
-  ctx: TenantContext,
-  message: MailMessage,
-  owner_id: string,
-  object_lock_policy?: ObjectLockPolicy,
-): Promise<{ manifest_entry: ManifestEntry; was_new: boolean }> {
-  const checksum = createHash('sha256').update(message.raw_body).digest('hex');
-  const storage_key = `data/${owner_id}/${checksum}`;
-
-  const already_stored = await ctx.storage.exists(storage_key);
-  if (!already_stored) {
-    const ciphertext = ctx.encrypt(message.raw_body);
-    await ctx.storage.put(
-      storage_key,
-      ciphertext,
-      {
-        'x-message-id': message.message_id,
-        'x-plaintext-sha256': checksum,
-      },
-      object_lock_policy,
-    );
-  }
-
-  const manifest_entry: ManifestEntry = {
-    object_id: message.message_id,
-    storage_key,
-    checksum,
-    size_bytes: message.size_bytes,
-    subject: message.subject,
-    folder_id: message.folder_id,
-  };
-
-  return { manifest_entry, was_new: !already_stored };
 }

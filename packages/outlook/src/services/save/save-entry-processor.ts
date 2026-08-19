@@ -1,25 +1,15 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import type { ManifestEntry, AttachmentEntry } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { SaveResult } from '@wisecom/atlas-types';
-import { build_eml, build_eml_filename, deduplicate_filename } from '@/services/save/eml-builder';
+import type { EntryResult } from '@/services/save/save-entry-writer';
+import { save_json_entry, save_mime_entry } from '@/services/save/save-entry-writer';
 import { verify_checksum } from '@/services/save/save-integrity-validator';
-import {
-  create_save_archive,
-  add_eml_to_archive,
-  finalize_archive,
-} from '@/services/save/save-zip-writer';
+import type { ArchiveWriter } from '@/services/save/save-zip-writer';
+import { create_save_archive, finalize_archive } from '@/services/save/save-zip-writer';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
-
-interface DecryptedAttachment {
-  readonly name: string;
-  readonly content_type: string;
-  readonly content: Buffer;
-  readonly is_inline: boolean;
-  readonly content_id?: string;
-}
 
 /**
  * Processes all grouped entries into a zip archive, updating the dashboard.
@@ -117,13 +107,6 @@ export async function save_entries_to_archive(
   };
 }
 
-interface EntryResult {
-  attachment_count: number;
-  integrity_ok: number;
-  integrity_fail: number;
-  integrity_failures: string[];
-}
-
 interface FolderEntryCounters {
   all_errors: string[];
   integrity_failures: string[];
@@ -136,7 +119,7 @@ async function process_folder_entries(
   folder_name: string,
   folder_index: number,
   skip_integrity: boolean,
-  archive: Parameters<typeof add_eml_to_archive>[0],
+  archive: ArchiveWriter,
   used_names: Set<string>,
   groups: Map<string, ManifestEntry[]>,
   global_total: number,
@@ -210,12 +193,13 @@ async function process_folder_entries(
   return { folder_saved, folder_processed, folder_att, error_count };
 }
 
+/** Decrypts one manifest entry, verifies it, and writes its .eml into the archive. */
 async function process_single_entry(
   ctx: TenantContext,
   entry: ManifestEntry,
   folder_name: string,
   skip_integrity: boolean,
-  archive: Parameters<typeof add_eml_to_archive>[0],
+  archive: ArchiveWriter,
   used_names: Set<string>,
 ): Promise<EntryResult> {
   const result: EntryResult = {
@@ -238,73 +222,22 @@ async function process_single_entry(
     }
   }
 
-  const message_json = JSON.parse(plaintext.toString('utf-8')) as Record<string, unknown>;
-  const attachments = await decrypt_entry_attachments(ctx, entry, skip_integrity, result);
-
-  const eml_buffer = build_eml(message_json, attachments);
-  const received = message_json['receivedDateTime'] as string | undefined;
-  const subject = message_json['subject'] as string | undefined;
-  const raw_filename = build_eml_filename(received, subject);
-  const filename = deduplicate_filename(raw_filename, used_names);
-
-  await add_eml_to_archive(archive, folder_name, filename, eml_buffer);
-  result.attachment_count = attachments.length;
+  if (entry.payload_format === 'mime') {
+    await save_mime_entry(entry, folder_name, plaintext, archive, used_names);
+  } else {
+    await save_json_entry(
+      ctx,
+      entry,
+      folder_name,
+      plaintext,
+      skip_integrity,
+      archive,
+      used_names,
+      result,
+    );
+  }
 
   return result;
-}
-
-async function decrypt_entry_attachments(
-  ctx: TenantContext,
-  entry: ManifestEntry,
-  skip_integrity: boolean,
-  result: EntryResult,
-): Promise<DecryptedAttachment[]> {
-  if (!entry.attachments || entry.attachments.length === 0) return [];
-
-  const decrypted: DecryptedAttachment[] = [];
-
-  for (const att of entry.attachments) {
-    if (!att.storage_key) continue;
-
-    try {
-      const content = await decrypt_and_verify_attachment(ctx, att, skip_integrity, result);
-      decrypted.push({
-        name: att.name,
-        content_type: att.content_type,
-        content,
-        is_inline: att.is_inline,
-        ...(att.content_id ? { content_id: att.content_id } : {}),
-      });
-    } catch (err) {
-      logger.warn(
-        `Failed to decrypt attachment "${att.name}": ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }
-
-  return decrypted;
-}
-
-async function decrypt_and_verify_attachment(
-  ctx: TenantContext,
-  att: AttachmentEntry,
-  skip_integrity: boolean,
-  result: EntryResult,
-): Promise<Buffer> {
-  const ciphertext = await ctx.storage.get(att.storage_key);
-  const plaintext = ctx.decrypt(ciphertext);
-
-  if (!skip_integrity && att.checksum) {
-    if (!verify_checksum(plaintext, att.checksum)) {
-      result.integrity_fail++;
-      result.integrity_failures.push(`attachment:${att.attachment_id}`);
-      logger.warn(`Integrity check failed for attachment "${att.name}"`);
-    } else {
-      result.integrity_ok++;
-    }
-  }
-
-  return plaintext;
 }
 
 function count_processed_before(

@@ -6,6 +6,9 @@ export interface SaveArchive {
   readonly promise: Promise<number>;
 }
 
+/** The archiver instance EML entries are appended to. */
+export type ArchiveWriter = archiver.Archiver;
+
 /** Creates a zip archive with maximum compression, streaming to the output path. */
 export function create_save_archive(output_path: string): SaveArchive {
   const output = createWriteStream(output_path);
@@ -35,7 +38,7 @@ export function create_save_archive(output_path: string): SaveArchive {
  * peak memory at roughly one message + its attachments.
  */
 export function add_eml_to_archive(
-  archive: archiver.Archiver,
+  archive: ArchiveWriter,
   folder_path: string,
   filename: string,
   content: Buffer,
@@ -60,7 +63,7 @@ export function add_eml_to_archive(
 }
 
 /** Finalizes the archive. The returned promise resolves to total bytes written. */
-export async function finalize_archive(archive: archiver.Archiver): Promise<void> {
+export async function finalize_archive(archive: ArchiveWriter): Promise<void> {
   await archive.finalize();
 }
 
