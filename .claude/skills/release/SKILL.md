@@ -68,7 +68,14 @@ gh run watch
 ```
 
 It creates `release/v<version>`, bumps all nine packages, commits
-`chore(release): <version>`, and opens a PR into `main`.
+`chore(release): <version>`, and prints a prefilled compare link in the run
+summary. The organisation forbids GitHub Actions from creating pull requests, so
+open the release PR from that link:
+
+```bash
+gh run view --job "$(gh run list --workflow release-start.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --log | grep 'compare/main'
+gh pr create --base main --head "release/v<version>" --title "chore(release): <version>" --body '...'
+```
 
 Before merging:
 
@@ -97,9 +104,10 @@ gh workflow run release-start.yml -f version=patch -f from=main
 The fix itself goes on the generated `hotfix/v<version>` branch, which is cut
 from `main`, so unreleased `dev` work does not ship with it.
 
-**After the hotfix publishes, merge the back-merge PR that `tag.yml` opens**
-(`main` → `dev`). Skipping it means the next release branch is cut from a `dev`
-that lacks the fix, silently reverting it.
+**After the hotfix publishes, confirm `tag.yml` fast-forwarded `dev` onto
+`main`.** If `dev` had diverged the push is refused and the job fails -- merge
+`main` into `dev` by hand at that point. Skipping it means the next release
+branch is cut from a `dev` that lacks the fix, silently reverting it.
 
 ## Verifying a release actually shipped
 
