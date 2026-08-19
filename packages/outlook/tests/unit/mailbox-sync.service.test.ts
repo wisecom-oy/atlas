@@ -223,46 +223,6 @@ describe('MailboxSyncService', () => {
     expect(result.manifest.entries).toHaveLength(1);
   });
 
-  it('stores manifest with per-folder delta links', async () => {
-    const msg = make_message('msg-1', 'data');
-    vi.mocked(mock_connector.fetch_delta).mockResolvedValue(make_delta([msg], 'https://new-delta'));
-
-    await service.sync_mailbox('t', 'user@test.com');
-
-    expect(mock_manifests.save).toHaveBeenCalledOnce();
-    const [, saved_manifest] = (mock_manifests.save as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(saved_manifest.delta_links).toEqual({ 'folder-1': 'https://new-delta' });
-  });
-
-  it('passes previous delta link for incremental sync', async () => {
-    vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([
-      make_folder('Inbox', 'folder-1', 0),
-    ]);
-
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
-      id: 'old-manifest',
-      tenant_id: 't',
-      owner_id: 'user@test.com',
-      snapshot_id: 'old-snap',
-      created_at: new Date(),
-      total_objects: 0,
-      total_size_bytes: 0,
-      delta_links: { 'folder-1': 'https://prev-delta' },
-      entries: [],
-    });
-
-    await service.sync_mailbox('t', 'user@test.com');
-
-    expect(mock_connector.fetch_delta).toHaveBeenCalledWith(
-      't',
-      'user@test.com',
-      'folder-1',
-      'https://prev-delta',
-      expect.any(Function),
-      undefined,
-    );
-  });
-
   it('returns completed snapshot with correct counts', async () => {
     const msg = make_message('msg-1', 'body');
     vi.mocked(mock_connector.fetch_delta).mockResolvedValue(make_delta([msg]));

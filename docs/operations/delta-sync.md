@@ -36,8 +36,17 @@ Delta links are stored in the **encrypted manifest**, not in plaintext. They con
 | **Stale-delta safeguard** | A saved delta link returns zero items while the previous manifest had zero stored entries. That combination indicates the prior backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full. |
 | **`syncStateNotFound`**   | Microsoft purges delta tokens after roughly 30 days of inactivity. Atlas detects the error, resyncs the folder in full, and logs a warning so you know the incremental chain was broken. |
 | **`--full`**              | `atlas outlook backup --full` ignores every saved delta link. Use it for periodic audits or when you suspect a delta link is corrupted. |
+| **Legacy message IDs**    | Snapshots taken before Atlas adopted immutable Outlook IDs recorded mutable IDs in their manifests and delta links. Mixing the two formats would break correlation, so the first backup after upgrading restarts the mailbox in full and stamps the new manifest with `id_format: immutable`. This happens once per mailbox. |
 
 The stale-delta safeguard exists to prevent a specific failure: an interrupted backup saving a delta link that skips all the messages it never actually stored.
+
+## Immutable message IDs
+
+Graph returns two kinds of Outlook identifier. The default ID is **mutable**: it changes whenever a message moves between folders, so a user dragging mail into an archive folder looks like a deletion plus a brand-new message. Atlas would then re-download and re-store content it already held, and older manifest entries would point at IDs Graph no longer resolves.
+
+Atlas therefore sends `Prefer: IdType="ImmutableId"` on every Outlook request — delta pages, single-message reads, and attachment fetches alike. Microsoft requires the header on *every* request that handles an ID, because mixing formats within one dataset corrupts correlation. With it, a folder move keeps the message's identity: the manifest entry stays valid and only the message's changed folder metadata is re-stored.
+
+Two limits are worth knowing. Immutable IDs are stable within a mailbox, but not across mailboxes, and they still change when an item moves into an In-Place Archive or is exported and re-imported. See [Obtain immutable identifiers for Outlook resources](https://learn.microsoft.com/en-us/graph/outlook-immutable-id) for the underlying contract.
 
 ## Retry and error handling
 

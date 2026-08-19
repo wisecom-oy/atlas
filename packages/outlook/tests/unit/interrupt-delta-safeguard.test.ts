@@ -53,6 +53,7 @@ const PREVIOUS_MANIFEST: Manifest = {
   total_objects: 0,
   total_size_bytes: 0,
   delta_links: { 'folder-1': 'https://prev-delta' },
+  id_format: 'immutable',
   entries: [],
 };
 
