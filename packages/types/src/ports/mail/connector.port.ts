@@ -81,6 +81,16 @@ export interface MailboxConnector {
 
   fetch_message(tenant_id: string, owner_id: string, message_id: string): Promise<MailMessage>;
 
+  /**
+   * Fetches the message's RFC 5322 MIME via `GET /messages/{id}/$value` — the
+   * bytes that transited SMTP, including the Received chain, DKIM/SPF results,
+   * threading headers, and any S/MIME payload. Attachments are embedded.
+   * Resolves undefined when Graph cannot produce MIME for the item, so callers
+   * fall back to the JSON payload rather than losing the message (issue #50).
+   */
+  // ponytail: optional method — keeps existing MailboxConnector test literals compiling; make it required when a second caller needs it guaranteed
+  fetch_mime?(tenant_id: string, owner_id: string, message_id: string): Promise<Buffer | undefined>;
+
   /** Fetches file attachments for a message, decoding contentBytes from base64. */
   fetch_attachments(
     tenant_id: string,

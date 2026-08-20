@@ -5,10 +5,15 @@ import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreResult } from '@wisecom/atlas-types';
 import {
   decrypt_and_parse_message,
+  decrypt_and_parse_mime,
   sanitize_message_for_restore,
+  build_restore_payload_from_mime,
   extract_folder_id_from_json,
 } from '@/services/restore/restore-message-transformer';
-import { restore_entry_attachments } from '@/services/restore/restore-attachment-writer';
+import {
+  restore_entry_attachments,
+  restore_parsed_attachments,
+} from '@/services/restore/restore-attachment-writer';
 import {
   build_folder_map,
   create_restore_root,
@@ -19,8 +24,23 @@ import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 
-/** Decrypts, sanitizes, creates one message via Graph, then uploads attachments. */
+/** Creates one message via Graph from its stored payload, then uploads attachments. */
 export async function restore_one_entry(
+  ctx: TenantContext,
+  restore_connector: RestoreConnector,
+  tenant_id: string,
+  owner_id: string,
+  target_folder_id: string,
+  entry: ManifestEntry,
+): Promise<{ att: number }> {
+  if (entry.payload_format === 'mime') {
+    return restore_mime_entry(ctx, restore_connector, tenant_id, owner_id, target_folder_id, entry);
+  }
+  return restore_json_entry(ctx, restore_connector, tenant_id, owner_id, target_folder_id, entry);
+}
+
+/** Restores a legacy Graph JSON entry, pulling attachments back from storage. */
+async function restore_json_entry(
   ctx: TenantContext,
   restore_connector: RestoreConnector,
   tenant_id: string,
@@ -51,6 +71,40 @@ export async function restore_one_entry(
   }
 
   return { att };
+}
+
+/**
+ * Restores a MIME entry by parsing the stored RFC 5322 bytes and feeding the
+ * normal JSON create path. Graph's MIME import is not used: imported messages
+ * are always drafts and the flag cannot be cleared. Attachments are embedded
+ * in the blob, so they come from the parse rather than from storage.
+ */
+async function restore_mime_entry(
+  ctx: TenantContext,
+  restore_connector: RestoreConnector,
+  tenant_id: string,
+  owner_id: string,
+  target_folder_id: string,
+  entry: ManifestEntry,
+): Promise<{ att: number }> {
+  const parsed = await decrypt_and_parse_mime(ctx, entry);
+  const new_msg_id = await restore_connector.create_message(
+    tenant_id,
+    owner_id,
+    target_folder_id,
+    build_restore_payload_from_mime(parsed),
+  );
+
+  if (parsed.attachments.length === 0) return { att: 0 };
+
+  const result = await restore_parsed_attachments(
+    restore_connector,
+    tenant_id,
+    owner_id,
+    new_msg_id,
+    parsed.attachments,
+  );
+  return { att: result.restored };
 }
 
 /** Restores all entries for a single folder, updating dashboard per-message. */
@@ -128,8 +182,7 @@ export async function restore_single_message(
   entry: ManifestEntry,
 ): Promise<RestoreResult> {
   const root = await create_restore_root(restore_connector, tenant_id, target_mailbox);
-  const message_json = await decrypt_and_parse_message(ctx, entry);
-  const folder_id = entry.folder_id ?? extract_folder_id_from_json(message_json);
+  const folder_id = await resolve_source_folder_id(ctx, entry);
 
   const folder_map = await build_folder_map(connector, tenant_id, source_mailbox);
   const created_folders = new Map<string, string>();
@@ -143,26 +196,14 @@ export async function restore_single_message(
     created_folders,
   );
 
-  const sanitized = sanitize_message_for_restore(message_json);
-  const new_msg_id = await restore_connector.create_message(
+  const { att: att_count } = await restore_one_entry(
+    ctx,
+    restore_connector,
     tenant_id,
     target_mailbox,
     target_fid,
-    sanitized,
+    entry,
   );
-
-  let att_count = 0;
-  if (entry.attachments && entry.attachments.length > 0) {
-    const att_result = await restore_entry_attachments(
-      ctx,
-      restore_connector,
-      tenant_id,
-      target_mailbox,
-      new_msg_id,
-      entry.attachments,
-    );
-    att_count = att_result.restored;
-  }
 
   logger.success(`Restored 1 message${att_count > 0 ? ` + ${att_count} attachments` : ''}`);
   return {
@@ -176,6 +217,17 @@ export async function restore_single_message(
     restore_folder_name: root.display_name,
     interrupted: false,
   };
+}
+
+/**
+ * Resolves the source folder of an entry. MIME entries always carry
+ * `folder_id` from backup; only legacy JSON manifests need the payload
+ * decrypted to recover `parentFolderId`.
+ */
+async function resolve_source_folder_id(ctx: TenantContext, entry: ManifestEntry): Promise<string> {
+  if (entry.folder_id) return entry.folder_id;
+  if (entry.payload_format === 'mime') return '__unknown__';
+  return extract_folder_id_from_json(await decrypt_and_parse_message(ctx, entry));
 }
 
 /** Backfills folder_id for legacy manifest entries by decrypting message JSON. */

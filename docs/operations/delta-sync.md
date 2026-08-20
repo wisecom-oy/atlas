@@ -48,6 +48,31 @@ Atlas therefore sends `Prefer: IdType="ImmutableId"` on every Outlook request â€
 
 Two limits are worth knowing. Immutable IDs are stable within a mailbox, but not across mailboxes, and they still change when an item moves into an In-Place Archive or is exported and re-imported. See [Obtain immutable identifiers for Outlook resources](https://learn.microsoft.com/en-us/graph/outlook-immutable-id) for the underlying contract.
 
+## Original MIME retrieval
+
+A delta page tells Atlas which messages changed. For each new or changed message, backup then issues one more request to fetch that message's original **RFC 5322 MIME** -- the on-the-wire form of an email, headers and body parts exactly as the sending and relaying servers produced them -- and stores those bytes as the canonical encrypted object:
+
+```
+GET /users/{id}/messages/{id}/$value
+```
+
+Earlier versions stored `JSON.stringify()` of roughly 24 selected Graph fields and reconstructed an `.eml` at export time. The original bytes carry the `Received:` chain, `Authentication-Results` with DKIM/SPF/ARC results, `In-Reply-To`/`References` threading, and S/MIME payloads that no Graph field exposes. See [Backup Fidelity](/security#backup-fidelity) for what that recovers and why it matters.
+
+### What it costs per message
+
+| Message shape          | Requests before                                          | Requests now                                              |
+| ---------------------- | -------------------------------------------------------- | --------------------------------------------------------- |
+| No attachments         | None beyond the delta page, which carried the fields      | One `/$value` fetch                                       |
+| With attachments       | One attachment-list request plus one request per attachment | One `/$value` fetch; attachments arrive inside the MIME  |
+
+So the change costs one extra Graph request per new or changed message, offset by no longer issuing an attachment-list request plus one request per attachment. A message that carries attachments therefore costs fewer requests than it did before; a message without any costs one more.
+
+Incremental runs pay this only for messages that actually changed, which is the point of the delta query in the first place. A first full backup of a large mailbox is the expensive case, and the retry logic below -- up to 12 attempts, honoring the server's `Retry-After` header -- absorbs the throttling it provokes without operator involvement.
+
+There is deliberately **no `--fidelity` flag**. MIME is the only mode for new snapshots, so no configuration mistake can quietly archive a year of mail in the weaker format.
+
+If Graph cannot produce MIME for a particular item, Atlas stores that one message in the legacy JSON form and records the format in its manifest entry, so a single unusual item never costs you the rest of the mailbox. Entries with `payload_format: "mime"` hold original bytes; entries without the field hold legacy Graph JSON. Mixed snapshots are expected, and `save`, `read`, `restore`, and `verify` all read both.
+
 ## Retry and error handling
 
 Microsoft Graph rate-limits requests to protect the service, and its front end returns transient server errors under load. Atlas handles both transparently:

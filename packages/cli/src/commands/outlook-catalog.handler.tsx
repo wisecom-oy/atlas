@@ -11,6 +11,7 @@ import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
+import { print_mime_message } from '@/commands/outlook-mime-message-view';
 
 export interface OutlookListOptions {
   tenant?: string;
@@ -65,14 +66,25 @@ export async function execute_outlook_read(
   options: OutlookReadOptions,
 ): Promise<void> {
   const tenant_id = options.tenant ?? container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
-  await render_static_view(<Banner title="Atlas Read" />);
-
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
   const result = await catalog.read_message(tenant_id, options.snapshot, options.message);
+
+  // Raw MIME goes to stdout verbatim so it can be piped straight into an .eml file.
+  if (options.raw && result?.payload_format === 'mime') {
+    process.stdout.write(result.raw);
+    return;
+  }
+
+  await render_static_view(<Banner title="Atlas Read" />);
 
   if (!result) {
     logger.error(`Message not found. Check the snapshot ID and message ID are correct.`);
     process.exitCode = 1;
+    return;
+  }
+
+  if (result.payload_format === 'mime') {
+    await print_mime_message(result.raw);
     return;
   }
 
@@ -81,7 +93,7 @@ export async function execute_outlook_read(
     return;
   }
 
-  await print_formatted_message(result.message);
+  await print_formatted_message(result.message ?? {});
   await print_attachment_list(result.attachments);
 }
 

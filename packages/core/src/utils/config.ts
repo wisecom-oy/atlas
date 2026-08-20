@@ -49,7 +49,9 @@ const ENV_MAP: Record<string, keyof AtlasConfig> = {
  * Throws if any required field is missing after merging.
  */
 export function load_config(): AtlasConfig {
-  load_dotenv();
+  // quiet: dotenv's load banner goes to stdout, which corrupts pipeable output
+  // such as `atlas outlook read --raw > message.eml`.
+  load_dotenv({ quiet: true });
   const file_config = try_load_config_file();
   const secure_config = read_secure_config();
   const env_overrides = read_env_overrides();

@@ -18,6 +18,7 @@ import {
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
+import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
 import type {
   GraphUserRecord,
   GraphFolderRecord,
@@ -180,6 +181,15 @@ export class GraphMailboxConnector implements MailboxConnector {
       rethrow_if_access_denied(err);
       throw err;
     }
+  }
+
+  /** Fetches the message's original RFC 5322 MIME; undefined when Graph has none (issue #50). */
+  async fetch_mime(
+    _tenant_id: string,
+    owner_id: string,
+    message_id: string,
+  ): Promise<Buffer | undefined> {
+    return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 
   /**

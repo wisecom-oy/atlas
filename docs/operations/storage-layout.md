@@ -15,10 +15,10 @@ atlas-{tenant_id}/
 │       └── sharepoint/{site_id}/            # SharePoint replication status
 ├── data/
 │   └── {mailbox_id}/
-│       └── {sha256}                         # encrypted message (content-addressed)
+│       └── {sha256}                         # encrypted message: RFC 5322 MIME (Graph JSON in legacy snapshots)
 ├── attachments/
 │   └── {mailbox_id}/
-│       └── {sha256}                         # encrypted attachment (content-addressed)
+│       └── {sha256}                         # encrypted attachment (legacy JSON entries only)
 ├── manifests/
 │   └── {mailbox_id}/
 │       └── {snapshot_id}.json               # encrypted Outlook manifest
@@ -51,11 +51,21 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)   | **Most critical object.** Losing it means losing access to all tenant data     |
 | `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest         | Encrypted; updated after each successful manifest upload                       |
 | `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key   | Encrypted; avoids a tenant-wide manifest listing                               |
-| `data/{mailbox}/`                              | Encrypted email messages, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                       |
-| `attachments/{mailbox}/`                       | Encrypted attachments, addressed by SHA-256    | Content is encrypted; S3 metadata is not                                       |
+| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                     |
+| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256 | Content is encrypted; S3 metadata is not                           |
 | `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)            | Contains subjects, folder names, and delta URLs, all encrypted                 |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
+
+#### Message payload formats
+
+Objects under `data/{mailbox}/` hold one of two formats, and the manifest entry says which.
+
+Snapshots taken by this version store the message's original RFC 5322 MIME, fetched from `GET /users/{id}/messages/{id}/$value`. Because MIME carries its own attachments, these entries write **no** objects under `attachments/{mailbox}/` and their manifest entries list no attachment records. They do carry `payload_format: "mime"` and a `received_at` timestamp, the latter because there is no JSON payload left to read a receive time from.
+
+Legacy snapshots store a Graph JSON payload with each attachment as a separate content-addressed object under `attachments/{mailbox}/{sha256}`. Their manifest entries have no `payload_format` field. Nothing about them changes: they stay readable, restorable, verifiable, and exportable exactly as before, and a mailbox whose history spans the upgrade will contain both kinds in the same snapshot chain.
+
+If Graph cannot produce MIME for a single item, that message falls back to the legacy JSON form inside an otherwise MIME snapshot. `payload_format` is how an operator tells the two apart.
 
 #### Shared mailbox tracking
 
@@ -102,6 +112,8 @@ If `_meta/dek.enc` is deleted or corrupted, all data in the bucket becomes perma
 Messages and attachments use their **SHA-256 hash** as the object key (for example `data/{mailbox}/a1b2c3d4...`). The hash is taken over the **plaintext** content, before encryption.
 
 This gives automatic deduplication: if the same email appears in multiple snapshots, which is common with incremental backups, it is stored once. The manifest references the hash, and every snapshot containing that message points to the same S3 object.
+
+Embedding attachments in MIME narrows that property for message objects. Two messages carrying the same slide deck are two distinct MIME blobs with two distinct hashes, so the deck is stored once per message rather than once per mailbox. Base64 encoding inside MIME also costs roughly one third more bytes than the raw attachment, because base64 represents three binary bytes as four text bytes. Both are the deliberate price of byte-exact fidelity, since an attachment that has been extracted and re-encoded is no longer the object the sender signed. Legacy JSON entries keep the old per-attachment deduplication.
 
 Integrity verification follows from the same property. Decrypt the object, hash the result, and compare against the key. A match proves the content is exactly what was backed up.
 

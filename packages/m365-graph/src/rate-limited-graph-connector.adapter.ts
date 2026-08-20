@@ -143,6 +143,23 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     );
   }
 
+  /**
+   * Forwards the MIME capture (issue #50). Counted as a full message read
+   * against the outlook pool, because that is what /$value costs.
+   */
+  async fetch_mime(
+    tenant_id: string,
+    owner_id: string,
+    message_id: string,
+  ): Promise<Buffer | undefined> {
+    if (!this._inner.fetch_mime) return undefined;
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_mime' }, () =>
+        this._inner.fetch_mime!(tenant_id, owner_id, message_id),
+      ),
+    );
+  }
+
   /** Shuts down all per-mailbox limiters. */
   shutdown(): void {
     this._factory.shutdown_all();

@@ -1,5 +1,7 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
+import { parse_mime_message } from '@/services/shared/mime-message-parser';
+import type { MimeAddress, ParsedMimeMessage } from '@/services/shared/mime-message-parser';
 
 /**
  * Read-only fields that Graph returns on GET but rejects on POST.
@@ -61,6 +63,18 @@ export async function decrypt_and_parse_message(
 }
 
 /**
+ * Decrypts a `payload_format: 'mime'` manifest entry and parses the RFC 5322
+ * bytes stored during backup.
+ */
+export async function decrypt_and_parse_mime(
+  ctx: TenantContext,
+  entry: ManifestEntry,
+): Promise<ParsedMimeMessage> {
+  const ciphertext = await ctx.storage.get(entry.storage_key);
+  return parse_mime_message(ctx.decrypt(ciphertext));
+}
+
+/**
  * MAPI extended properties used to override Graph's default behavior
  * when restoring messages via POST (which always creates drafts with
  * the current timestamp).
@@ -92,31 +106,37 @@ export function sanitize_message_for_restore(
   }
 
   sanitized['isDraft'] = false;
-  sanitized['singleValueExtendedProperties'] = build_mapi_overrides(message_json);
+  sanitized['singleValueExtendedProperties'] = build_mapi_overrides({
+    is_read: Boolean(message_json['isRead']),
+    received_at: as_iso_string(message_json['receivedDateTime']),
+    sent_at: as_iso_string(message_json['sentDateTime']),
+  });
 
   return sanitized;
 }
 
+/** Timestamps and read state that drive the MAPI overrides, from JSON or MIME. */
+interface MapiOverrideSource {
+  readonly is_read: boolean;
+  readonly received_at?: string | undefined;
+  readonly sent_at?: string | undefined;
+}
+
 /** Builds the MAPI extended property array for draft flag and timestamps. */
-function build_mapi_overrides(
-  message_json: Record<string, unknown>,
-): Array<{ id: string; value: string }> {
-  const flags = message_json['isRead'] ? MSGFLAG_READ : 0;
+function build_mapi_overrides(source: MapiOverrideSource): Array<{ id: string; value: string }> {
   const props: Array<{ id: string; value: string }> = [
-    { id: PR_MESSAGE_FLAGS, value: String(flags) },
+    { id: PR_MESSAGE_FLAGS, value: String(source.is_read ? MSGFLAG_READ : 0) },
   ];
 
-  const received = message_json['receivedDateTime'];
-  if (typeof received === 'string') {
-    props.push({ id: PR_MESSAGE_DELIVERY_TIME, value: received });
-  }
-
-  const sent = message_json['sentDateTime'];
-  if (typeof sent === 'string') {
-    props.push({ id: PR_CLIENT_SUBMIT_TIME, value: sent });
-  }
+  if (source.received_at) props.push({ id: PR_MESSAGE_DELIVERY_TIME, value: source.received_at });
+  if (source.sent_at) props.push({ id: PR_CLIENT_SUBMIT_TIME, value: source.sent_at });
 
   return props;
+}
+
+/** Narrows an unknown stored field to a string, dropping non-string values. */
+function as_iso_string(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 /**
@@ -125,4 +145,45 @@ function build_mapi_overrides(
  */
 export function extract_folder_id_from_json(message_json: Record<string, unknown>): string {
   return (message_json['parentFolderId'] as string) ?? '__unknown__';
+}
+
+/**
+ * Builds the Graph create-message payload for a MIME-backed entry.
+ *
+ * Restore deliberately does not import MIME through Graph: messages created
+ * from MIME are always `isDraft: true` and that flag cannot be cleared, so a
+ * mailbox restore would land as thousands of drafts. Parsing the MIME and
+ * feeding the normal JSON create path keeps the existing restore quality.
+ */
+export function build_restore_payload_from_mime(
+  parsed: ParsedMimeMessage,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    subject: parsed.subject,
+    body: parsed.html
+      ? { contentType: 'html', content: parsed.html }
+      : { contentType: 'text', content: parsed.text ?? '' },
+    toRecipients: parsed.to.map(to_graph_recipient),
+    ccRecipients: parsed.cc.map(to_graph_recipient),
+    isDraft: false,
+    // ponytail: MIME carries no read state, so restored mail is marked read
+    // rather than dumping thousands of unread items on the user.
+    singleValueExtendedProperties: build_mapi_overrides({
+      is_read: true,
+      received_at: parsed.date,
+      sent_at: parsed.date,
+    }),
+  };
+
+  if (parsed.from) payload['from'] = to_graph_recipient(parsed.from);
+  if (parsed.message_id) payload['internetMessageId'] = parsed.message_id;
+
+  return payload;
+}
+
+/** Wraps a parsed MIME address in Graph's recipient envelope. */
+function to_graph_recipient(address: MimeAddress): {
+  emailAddress: { name: string; address: string };
+} {
+  return { emailAddress: { name: address.name, address: address.address } };
 }

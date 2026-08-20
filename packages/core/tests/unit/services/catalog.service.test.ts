@@ -1,97 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Container } from 'inversify';
 import 'reflect-metadata';
-import { CatalogService } from '@/services/catalog/catalog.service';
-import {
-  MANIFEST_REPOSITORY_TOKEN,
-  TENANT_CONTEXT_FACTORY_TOKEN,
-  type ManifestRepository,
-  type TenantContext,
-  type TenantContextFactory,
-  type ObjectStorage,
-  type Manifest,
-} from '@wisecom/atlas-types';
-import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
-
-function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
-  return {
-    id: 'manifest-1',
-    tenant_id: 't',
-    owner_id: 'user@test.com',
-    snapshot_id: 'snap-1',
-    created_at: new Date('2026-03-01T10:00:00Z'),
-    total_objects: 50,
-    total_size_bytes: 5000,
-    delta_links: {},
-    entries: [],
-    ...overrides,
-  };
-}
-
-function make_mock_storage(): ObjectStorage {
-  return {
-    put: vi.fn(),
-    get: vi.fn(),
-    delete: vi.fn(),
-    delete_version: vi.fn(),
-    exists: vi.fn().mockResolvedValue(false),
-    list: vi.fn().mockResolvedValue([]),
-    list_versions: vi.fn().mockResolvedValue([]),
-    begin_multipart_upload: vi.fn().mockResolvedValue({
-      upload_part: vi.fn(),
-      complete: vi.fn(),
-      abort: vi.fn(),
-    }),
-    copy: vi.fn(),
-    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
-    probe_immutability: vi.fn().mockResolvedValue({
-      bucket: 'test-bucket',
-      reachable: true,
-      versioning_enabled: true,
-      object_lock_enabled: true,
-      mode_supported: true,
-    }),
-  };
-}
-
-function make_mock_context(): TenantContext {
-  return {
-    tenant_id: 'test-tenant',
-    storage: make_mock_storage(),
-    encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
-    decrypt: vi.fn((data: Buffer) => data.subarray(1)),
-    create_cipher: stub_tenant_create_cipher,
-    destroy: vi.fn(),
-  };
-}
+import type { CatalogService } from '@/services/catalog/catalog.service';
+import type { ManifestRepository, TenantContext } from '@wisecom/atlas-types';
+import { build_catalog_harness, make_manifest } from './catalog-service.fixtures';
 
 describe('CatalogService', () => {
-  let container: Container;
   let mock_manifests: ManifestRepository;
   let mock_context: TenantContext;
   let service: CatalogService;
 
   beforeEach(() => {
-    mock_context = make_mock_context();
-
-    mock_manifests = {
-      save: vi.fn(),
-      find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
-    };
-
-    const mock_factory: TenantContextFactory = {
-      create: vi.fn().mockResolvedValue(mock_context),
-      create_readonly: vi.fn().mockResolvedValue(mock_context),
-    };
-
-    container = new Container();
-    container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
-    container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
-    container.bind(CatalogService).toSelf();
-
-    service = container.get(CatalogService);
+    ({ service, mock_manifests, mock_context } = build_catalog_harness());
   });
 
   // ---------------------------------------------------------------------------
@@ -267,82 +186,6 @@ describe('CatalogService', () => {
 
     it('returns undefined for unknown snapshot', async () => {
       const result = await service.get_snapshot_detail('t', 'nonexistent');
-      expect(result).toBeUndefined();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // read_message
-  // ---------------------------------------------------------------------------
-
-  describe('read_message', () => {
-    it('decrypts and parses a stored message with empty attachments', async () => {
-      const message_json = { subject: 'Hello', body: { content: 'World' } };
-      const plaintext = Buffer.from(JSON.stringify(message_json));
-      const ciphertext = Buffer.concat([Buffer.from('E'), plaintext]);
-
-      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({
-          entries: [
-            { object_id: 'msg-1', storage_key: 'data/u/abc', checksum: 'abc', size_bytes: 100 },
-          ],
-        }),
-      );
-      vi.mocked(mock_context.storage.get as ReturnType<typeof vi.fn>).mockResolvedValue(ciphertext);
-
-      const result = await service.read_message('t', 'snap-1', 'msg-1');
-
-      expect(result?.message).toEqual(message_json);
-      expect(result?.attachments).toEqual([]);
-      expect(mock_context.storage.get).toHaveBeenCalledWith('data/u/abc');
-      expect(mock_context.decrypt).toHaveBeenCalledWith(ciphertext);
-    });
-
-    it('returns attachment metadata from manifest entry', async () => {
-      const message_json = { subject: 'With PDF' };
-      const plaintext = Buffer.from(JSON.stringify(message_json));
-      const ciphertext = Buffer.concat([Buffer.from('E'), plaintext]);
-
-      const attachment_entry = {
-        attachment_id: 'att-1',
-        name: 'report.pdf',
-        content_type: 'application/pdf',
-        size_bytes: 2048,
-        storage_key: 'attachments/u/sha',
-        checksum: 'sha',
-        is_inline: false,
-      };
-
-      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({
-          entries: [
-            {
-              object_id: 'msg-1',
-              storage_key: 'data/u/abc',
-              checksum: 'abc',
-              size_bytes: 100,
-              attachments: [attachment_entry],
-            },
-          ],
-        }),
-      );
-      vi.mocked(mock_context.storage.get as ReturnType<typeof vi.fn>).mockResolvedValue(ciphertext);
-
-      const result = await service.read_message('t', 'snap-1', 'msg-1');
-
-      expect(result?.attachments).toHaveLength(1);
-      expect(result?.attachments[0]?.name).toBe('report.pdf');
-    });
-
-    it('returns undefined when snapshot does not exist', async () => {
-      const result = await service.read_message('t', 'missing', 'msg-1');
-      expect(result).toBeUndefined();
-    });
-
-    it('returns undefined when message is not in manifest', async () => {
-      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(make_manifest({ entries: [] }));
-
-      const result = await service.read_message('t', 'snap-1', 'no-such-msg');
       expect(result).toBeUndefined();
     });
   });
