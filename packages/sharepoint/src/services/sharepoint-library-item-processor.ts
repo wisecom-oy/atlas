@@ -80,9 +80,12 @@ export async function process_delta_item(
   if (!change_type) return;
 
   if (item.deleted) {
+    // Graph omits `name` for a removed item, so the last name we saw is the
+    // only one there is (issue #139).
+    const file_name = item.file_name || (tracking.previous_name_by_file_id[item.item_id] ?? '');
     library_state.library_deleted_items++;
     library_state.library_entries.push(
-      build_deleted_entry(item, change_type, library_state.library_name),
+      build_deleted_entry({ ...item, file_name }, change_type, library_state.library_name),
     );
     library_state.failed_items = clear_item_failure(library_state.failed_items, item.item_id);
     return;
