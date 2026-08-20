@@ -53,8 +53,9 @@ describe('stream_decrypt_from_storage', () => {
   });
 
   it('assembles the IV and auth tag when the header is split across chunks', async () => {
-    const plaintext = randomBytes(5 * 1024 * 1024);
-    // 7-byte chunks split the 28-byte header across four reads.
+    const plaintext = randomBytes(8 * 1024);
+    // 7-byte chunks split the 28-byte header across four reads; the payload
+    // stays small because chunk count, not size, is what this case exercises.
     const ctx = make_ctx(encrypt(plaintext), 7);
 
     const result = await stream_decrypt_from_storage(ctx, 'data/owner/checksum');
