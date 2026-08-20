@@ -46,7 +46,12 @@ def test_02_initial_backup_writes_objects(cli: Cli, settings: Settings, s3: Any,
     STATE["snapshot"] = snapshots[0]
 
     assert storage.list_keys(s3, settings.bucket, f"data/{owner}/"), "no message blob was written"
-    assert storage.list_keys(s3, settings.bucket, f"attachments/{owner}/"), "no attachment blob written"
+    # Since #50 the stored blob is the message's original MIME, which embeds its own
+    # attachments, so no separate attachment object is written. test_08 proves the
+    # attachment still survives backup and restore byte-for-byte.
+    assert not storage.list_keys(s3, settings.bucket, f"attachments/{owner}/"), (
+        "a MIME snapshot must not write separate attachment blobs"
+    )
 
 
 def test_03_list_reads_the_catalog(cli: Cli, settings: Settings) -> None:
