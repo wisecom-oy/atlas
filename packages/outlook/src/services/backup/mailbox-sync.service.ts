@@ -1,8 +1,7 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
-import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
@@ -17,6 +16,7 @@ import {
   build_manifest,
   create_pending_snapshot,
   mark_snapshot_completed,
+  resolve_saved_delta_links,
   resolve_sync_mode,
 } from '@/services/backup/snapshot-manifest-builder';
 import {
@@ -86,7 +86,7 @@ export class MailboxSyncService implements BackupUseCase {
       const previous = options.force_full
         ? undefined
         : await this._manifests.find_latest_by_owner(ctx, owner_id);
-      const saved_links = previous?.delta_links ?? {};
+      const saved_links = resolve_saved_delta_links(previous);
       const previous_entry_count = previous?.total_objects ?? 0;
       const mode = resolve_sync_mode(options.force_full, saved_links);
 

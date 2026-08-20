@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-outlook",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -27,7 +27,11 @@
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "archiver": "^7.0.1",
     "inversify": "^7.11.0",
+    "mailparser": "^3.9.15",
     "mimetext": "^3.0.28",
     "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/mailparser": "^3.4.6"
   }
 }

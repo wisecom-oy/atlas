@@ -8,6 +8,7 @@ import type {
   ManifestObjectLockPolicy,
 } from '@wisecom/atlas-types';
 import type { BackupSyncMode } from '@wisecom/atlas-types';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface OwnerIdentityHint {
   readonly owner_email?: string | undefined;
@@ -72,6 +73,7 @@ export function build_manifest(
     total_objects: Math.max(entries.length, previous_total_objects),
     total_size_bytes,
     delta_links,
+    id_format: 'immutable',
     ...(object_lock ? { object_lock } : {}),
     ...(mailbox_purpose ? { mailbox_purpose } : {}),
     entries,
@@ -85,4 +87,21 @@ export function resolve_sync_mode(
 ): BackupSyncMode {
   if (force_full) return 'full';
   return Object.keys(saved_links).length > 0 ? 'incremental' : 'initial';
+}
+
+/**
+ * Returns the previous manifest's delta links for an incremental sync.
+ * Manifests captured before the ImmutableId switch carry mutable IDs in both
+ * delta links and entries; resuming them would mix ID formats, so the first
+ * backup after upgrade restarts full (issue #48).
+ */
+export function resolve_saved_delta_links(previous: Manifest | undefined): Record<string, string> {
+  if (!previous) return {};
+  if (previous.id_format !== 'immutable') {
+    logger.info(
+      'previous snapshot uses legacy mutable message IDs; restarting with a full sync (issue #48)',
+    );
+    return {};
+  }
+  return previous.delta_links;
 }

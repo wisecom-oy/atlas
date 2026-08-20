@@ -18,6 +18,7 @@ import {
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
+import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
 import type {
   GraphUserRecord,
   GraphFolderRecord,
@@ -39,6 +40,11 @@ import {
 // 30 min per attempt for attachment $value transfers (up to ~150 MB); the
 // default 60s per-request window kills large bodies on slow links (issue #33).
 const LARGE_DOWNLOAD_TIMEOUT_MS = 1_800_000;
+
+// Graph's default message/folder IDs change on every folder move; immutable
+// IDs do not. Must be sent on EVERY request that produces or consumes an ID —
+// mixing formats corrupts correlation (issue #48).
+const IMMUTABLE_ID_PREFER = 'IdType="ImmutableId"';
 
 @injectable()
 export class GraphMailboxConnector implements MailboxConnector {
@@ -165,6 +171,7 @@ export class GraphMailboxConnector implements MailboxConnector {
         () =>
           this._client
             .api(`/users/${owner_id}/messages/${message_id}`)
+            .header('Prefer', IMMUTABLE_ID_PREFER)
             .get() as Promise<GraphDeltaMessage>,
       );
 
@@ -174,6 +181,15 @@ export class GraphMailboxConnector implements MailboxConnector {
       rethrow_if_access_denied(err);
       throw err;
     }
+  }
+
+  /** Fetches the message's original RFC 5322 MIME; undefined when Graph has none (issue #50). */
+  async fetch_mime(
+    _tenant_id: string,
+    owner_id: string,
+    message_id: string,
+  ): Promise<Buffer | undefined> {
+    return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 
   /**
@@ -225,7 +241,11 @@ export class GraphMailboxConnector implements MailboxConnector {
     const url = `/users/${owner_id}/messages/${message_id}/attachments/${attachment_id}/$value`;
     const data = await with_graph_retry(
       () =>
-        this._client.api(url).responseType(ResponseType.ARRAYBUFFER).get() as Promise<ArrayBuffer>,
+        this._client
+          .api(url)
+          .header('Prefer', IMMUTABLE_ID_PREFER)
+          .responseType(ResponseType.ARRAYBUFFER)
+          .get() as Promise<ArrayBuffer>,
       { timeout_ms: LARGE_DOWNLOAD_TIMEOUT_MS },
     );
     return Buffer.from(data);
@@ -255,7 +275,7 @@ export class GraphMailboxConnector implements MailboxConnector {
       () =>
         this._client
           .api(this.delta_path(owner_id, folder_id))
-          .header('Prefer', `odata.maxpagesize=${page_size}`)
+          .header('Prefer', `odata.maxpagesize=${page_size}, ${IMMUTABLE_ID_PREFER}`)
           .select(DELTA_SELECT_FIELDS)
           .get() as Promise<GraphPageResponse>,
     );
@@ -263,7 +283,8 @@ export class GraphMailboxConnector implements MailboxConnector {
 
   /**
    * Fetches a page using a full @odata.nextLink or @odata.deltaLink URL.
-   * The Prefer header is re-sent on each request to ensure larger pages.
+   * The Prefer headers are re-sent on each request (page size + immutable IDs);
+   * Graph requires the IdType preference on every request that handles IDs.
    */
   private async fetch_continuation_page(
     full_url: string,
@@ -273,7 +294,7 @@ export class GraphMailboxConnector implements MailboxConnector {
       () =>
         this._client
           .api(full_url)
-          .header('Prefer', `odata.maxpagesize=${page_size}`)
+          .header('Prefer', `odata.maxpagesize=${page_size}, ${IMMUTABLE_ID_PREFER}`)
           .get() as Promise<GraphPageResponse>,
     );
   }

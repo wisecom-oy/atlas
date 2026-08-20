@@ -31,6 +31,11 @@ export interface Manifest {
   readonly total_size_bytes: number;
   /** Maps folder_id -> full @odata.deltaLink URL for the next incremental sync. */
   readonly delta_links: Record<string, string>;
+  /**
+   * ID format the delta links and entry IDs were captured with. Absent means
+   * legacy mutable IDs — the next sync must restart full (issue #48).
+   */
+  readonly id_format?: 'immutable' | undefined;
   readonly object_lock?: ManifestObjectLockPolicy;
   readonly entries: ManifestEntry[];
 }
@@ -53,5 +58,20 @@ export interface ManifestEntry {
   readonly size_bytes: number;
   readonly subject?: string;
   readonly folder_id?: string;
+  /**
+   * File attachments stored as separate content-addressed objects. Only JSON
+   * entries carry these; MIME entries embed their attachments in the blob.
+   */
   readonly attachments?: AttachmentEntry[];
+  /**
+   * Format of the stored blob. 'mime' means the RFC 5322 MIME Graph returned
+   * from /$value, byte-for-byte as it transited SMTP. Absent means the legacy
+   * Graph JSON payload, which is a lossy reconstruction (issue #50).
+   */
+  readonly payload_format?: 'mime' | undefined;
+  /**
+   * ISO 8601 receive timestamp. Recorded for MIME entries, which have no JSON
+   * payload to read `receivedDateTime` from.
+   */
+  readonly received_at?: string | undefined;
 }

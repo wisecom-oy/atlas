@@ -75,6 +75,7 @@ export interface MailboxSyncHarness {
   readonly service: MailboxSyncService;
   readonly mock_connector: MailboxConnector;
   readonly mock_context: TenantContext;
+  readonly mock_manifests: ManifestRepository;
 }
 
 export function create_mailbox_sync_harness(): MailboxSyncHarness {
@@ -117,5 +118,6 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
     service: container.get(MailboxSyncService),
     mock_connector,
     mock_context,
+    mock_manifests,
   };
 }

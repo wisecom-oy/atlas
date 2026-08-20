@@ -28,7 +28,10 @@ export class MailboxStatusService implements StatusUseCase {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
-      const saved_links = previous?.delta_links ?? {};
+      // Legacy manifests carry mutable-ID delta links (issue #48); resuming
+      // them with the immutable preference would mix ID formats, so peek
+      // treats them as "no saved state" — every folder reports pending.
+      const saved_links = previous?.id_format === 'immutable' ? (previous?.delta_links ?? {}) : {};
 
       const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
       const folder_statuses = await this.peek_all_folders(

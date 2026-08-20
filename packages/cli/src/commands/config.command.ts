@@ -39,7 +39,7 @@ export function register_config_command(program: Command): void {
       ['', 'Keys:', ...CONFIG_KEYS.map((k) => `  ${k.key.padEnd(24)} ${k.description}`)].join('\n'),
     )
     .action(async (key: string | undefined, value: string | undefined) => {
-      load_dotenv();
+      load_dotenv({ quiet: true });
       if (key === undefined || key === 'list') return execute_list();
       if (key === 'validate') return execute_validate();
       if (key === 'unset') return execute_unset(value);

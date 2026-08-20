@@ -79,8 +79,11 @@ export async function process_delta_item(
   }
 
   if (item.deleted) {
+    // Graph omits `name` for a removed item, so the last name we saw is the
+    // only one there is (issue #139).
+    const file_name = item.file_name || (state.previous_name_by_file_id[item.item_id] ?? '');
     return {
-      entry: build_deleted_entry(item, change_type),
+      entry: build_deleted_entry({ ...item, file_name }, change_type),
       files_stored: 0,
       files_deduplicated: 0,
       deleted_items: 1,
