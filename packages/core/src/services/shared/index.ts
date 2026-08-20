@@ -9,3 +9,5 @@ export {
   filter_manifests_by_date,
   merge_snapshot_entries,
 } from '@/services/shared/manifest-entry-merger';
+export { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
+export type { StreamDecryptResult } from '@/services/shared/stream-decrypt';
