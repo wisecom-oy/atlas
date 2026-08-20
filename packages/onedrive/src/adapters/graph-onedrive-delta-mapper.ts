@@ -15,6 +15,12 @@ export interface GraphDeltaDriveItem {
   file?: Record<string, unknown>;
   folder?: Record<string, unknown>;
   package?: { type?: string };
+  /**
+   * Removal marker for `driveItem` delta. Graph uses this facet, NOT the
+   * `@removed` annotation that `messages/delta` uses (issue #139). It must be
+   * requested explicitly: `$select` strips it otherwise.
+   */
+  deleted?: { state?: string };
   '@removed'?: { reason: string };
   '@microsoft.graph.downloadUrl'?: string;
 }
@@ -35,6 +41,7 @@ export const DRIVE_DELTA_SELECT_FIELDS = [
   'file',
   'folder',
   'package',
+  'deleted',
   '@microsoft.graph.downloadUrl',
 ].join(',');
 
@@ -51,11 +58,26 @@ function extract_parent_path(raw_path: string | undefined): string {
   return result.length === 0 ? '/' : result;
 }
 
+/**
+ * True when Graph returned the carcass of a removed item: an id and facets, but
+ * no name.
+ *
+ * The `deleted` facet is the documented signal, but a saved `@odata.deltaLink`
+ * pins the `$select` it was created with, so cursors written before `deleted`
+ * joined the field list keep answering without it. Every live item carries a
+ * name (the drive root included), so a nameless item is a removed one, and this
+ * keeps deletions visible on existing cursors instead of waiting for a full
+ * re-enumeration.
+ */
+function is_removed_shape(raw: GraphDeltaDriveItem): boolean {
+  return raw.id !== undefined && raw.name === undefined;
+}
+
 /** Maps a raw Graph delta drive item to the domain delta item. */
 export function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): OneDriveDeltaItem {
   const parent_path = normalize_path(extract_parent_path(raw.parentReference?.path));
   const file_name = normalize_path(raw.name ?? '');
-  const is_deleted = Boolean(raw['@removed']);
+  const is_deleted = Boolean(raw.deleted ?? raw['@removed']) || is_removed_shape(raw);
   const kind: 'file' | 'folder' = raw.file
     ? 'file'
     : raw.folder

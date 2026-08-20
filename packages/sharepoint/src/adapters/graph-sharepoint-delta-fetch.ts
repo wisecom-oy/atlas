@@ -20,6 +20,7 @@ const DRIVE_DELTA_SELECT_FIELDS = [
   'file',
   'folder',
   'package',
+  'deleted',
   '@microsoft.graph.downloadUrl',
 ].join(',');
 
