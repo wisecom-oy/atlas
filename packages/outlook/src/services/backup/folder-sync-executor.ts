@@ -13,7 +13,6 @@ import type {
   OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface FolderSyncResult {
   entries: ManifestEntry[];
