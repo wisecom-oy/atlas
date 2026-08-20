@@ -31,6 +31,11 @@ export interface Manifest {
   readonly total_size_bytes: number;
   /** Maps folder_id -> full @odata.deltaLink URL for the next incremental sync. */
   readonly delta_links: Record<string, string>;
+  /**
+   * ID format the delta links and entry IDs were captured with. Absent means
+   * legacy mutable IDs — the next sync must restart full (issue #48).
+   */
+  readonly id_format?: 'immutable' | undefined;
   readonly object_lock?: ManifestObjectLockPolicy;
   readonly entries: ManifestEntry[];
 }

@@ -32,6 +32,7 @@ function make_manifest(owner_id: string, delta_links: Record<string, string>): M
     total_objects: 5,
     total_size_bytes: 1000,
     delta_links,
+    id_format: 'immutable',
     entries: [],
   };
 }
