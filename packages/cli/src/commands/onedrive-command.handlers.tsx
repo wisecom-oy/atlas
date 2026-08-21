@@ -23,7 +23,7 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
-import { report_run_outcome } from '@/command-run-outcome';
+import { report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -177,9 +177,7 @@ export async function execute_onedrive_restore(
       />
     </Box>,
   );
-  if (result.files_skipped > 0) {
-    logger.warn(`Files skipped: ${result.files_skipped}`);
-  }
+  report_skipped_items(result.files_skipped, 'File');
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
     process.exitCode = 1;
@@ -213,7 +211,7 @@ export async function execute_onedrive_save(
       />
     </Box>,
   );
-  if (result.files_skipped > 0) logger.warn(`Files skipped: ${result.files_skipped}`);
+  report_skipped_items(result.files_skipped, 'File');
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {

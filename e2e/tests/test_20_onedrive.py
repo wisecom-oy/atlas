@@ -27,12 +27,19 @@ def _requires_owner(settings: Settings) -> None:
 
 
 def test_01_seed_a_file(graph: Any, settings: Settings, run_marker: str) -> None:
-    """Uploads the first version of the fixture file."""
+    """Uploads the first version of the fixture file, plus a 5 MB file.
+
+    The large one is what makes the rest of this module cover chunked download, streaming restore
+    and multi-chunk upload. Without it every path below runs the small-file branch only, which is
+    how #143 shipped past a green nightly.
+    """
     drive_id = drive.user_drive_id(graph, settings.onedrive_owner)
     STATE["drive_id"] = drive_id
     STATE["file"] = drive.seed_fixture_file(graph, drive_id, run_marker)
+    STATE["large"] = drive.seed_large_fixture_file(graph, drive_id, run_marker)
 
     assert drive.file_sha256(graph, drive_id, STATE["file"].path) == STATE["file"].sha256
+    assert drive.file_sha256(graph, drive_id, STATE["large"].path) == STATE["large"].sha256
 
 
 def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any) -> None:
@@ -55,6 +62,9 @@ def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any)
     assert f"onedrive/index/{owner}/files/{STATE['file'].item_id}.json" in storage.list_keys(
         s3, settings.bucket, f"onedrive/index/{owner}/files/"
     ), "the seeded file has no version index of its own"
+    assert f"onedrive/index/{owner}/files/{STATE['large'].item_id}.json" in storage.list_keys(
+        s3, settings.bucket, f"onedrive/index/{owner}/files/"
+    ), "the 5 MB file has no version index of its own"
 
 
 def test_03_a_new_version_is_stored_incrementally(
@@ -109,7 +119,12 @@ def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
 
     assert archive.exists(), f"{archive} was not written"
     with zipfile.ZipFile(archive) as zf:
-        assert any(STATE["file"].name in n for n in zf.namelist()), zf.namelist()
+        names = zf.namelist()
+        assert any(STATE["file"].name in n for n in names), names
+        large = next((n for n in names if STATE["large"].name in n), None)
+        assert large is not None, names
+        # #143: export of a file over 4 MB aborted mid-stream, so the size is the assertion.
+        assert zf.getinfo(large).file_size == drive.LARGE_FIXTURE_BYTES
 
 
 def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Settings) -> None:
@@ -119,9 +134,9 @@ def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
     original `parent_path` with no `Restore-` root of its own, so an unexpected collision must never
     overwrite live data.
     """
-    file = STATE["file"]
-    drive.delete_item(graph, STATE["drive_id"], file.item_id)
-    assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
+    for file in (STATE["file"], STATE["large"]):
+        drive.delete_item(graph, STATE["drive_id"], file.item_id)
+        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
 
     cli.ok(
         "onedrive",
@@ -136,15 +151,15 @@ def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
 
 
 def test_07_restored_bytes_match_the_seed(graph: Any, settings: Settings, run_marker: str) -> None:
-    """The restored file hashes to the newest seeded version, read back through Graph."""
-    file = STATE["file"]
+    """Both restored files hash to their newest seeded version, read back through Graph."""
     restored = drive.children(graph, STATE["drive_id"], run_marker)
     assert restored, f"no files under /{run_marker} after restore"
 
     digests = {
         drive.file_sha256(graph, STATE["drive_id"], f"/{run_marker}/{item['name']}") for item in restored
     }
-    assert file.sha256 in digests, "no restored file matches the seeded bytes"
+    assert STATE["file"].sha256 in digests, "no restored file matches the seeded bytes"
+    assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
 
 
 def _owner_segment(s3: Any, bucket: str) -> str:

@@ -88,7 +88,7 @@ class Cli:
             handle.write(scrub(entry, self._settings))
 
     def ok(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
-        """Runs and asserts a clean exit. Exit 2 (partial) is a failure here: E2E fixtures are tiny."""
+        """Runs and asserts a clean exit. Exit 2 (partial) is a failure: the suite seeded every item."""
         result = self.run(*args, timeout=timeout)
         assert result.code == 0, result.describe()
         return result

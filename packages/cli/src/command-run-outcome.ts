@@ -40,3 +40,17 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
     process.exitCode = EXIT_PARTIAL;
   }
 }
+
+/**
+ * Reports items a restore or export dropped, and exits partial.
+ *
+ * Restore and save count a failed item as `files_skipped` rather than an error,
+ * so before this the command printed a warning and exited `0`. That is how #143
+ * hid: streaming decrypt aborted on every file over 4 MB, `save` wrote an empty
+ * archive, and both the operator's cron job and the nightly E2E run saw success.
+ */
+export function report_skipped_items(skipped: number, item_noun: string): void {
+  if (skipped <= 0) return;
+  logger.error(`${item_noun}s skipped: ${skipped} -- exit ${EXIT_PARTIAL}`);
+  process.exitCode = EXIT_PARTIAL;
+}
