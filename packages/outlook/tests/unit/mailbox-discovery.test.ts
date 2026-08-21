@@ -97,8 +97,8 @@ describe('map_users_to_tenant_mailboxes', () => {
 
   it('filters out users without id or mail', () => {
     const users: GraphUserRecord[] = [
-      { id: undefined, mail: 'no-id@contoso.com', displayName: 'No ID' },
-      { id: 'u3', mail: undefined, displayName: 'No Mail' },
+      { mail: 'no-id@contoso.com', displayName: 'No ID' },
+      { id: 'u3', displayName: 'No Mail' },
       { id: 'u4', mail: 'valid@contoso.com', displayName: 'Valid' },
     ];
     const result = map_users_to_tenant_mailboxes(users);

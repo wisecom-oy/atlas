@@ -6,6 +6,7 @@ import type {
   SyncResult,
   VerificationResult,
   StorageCheckResult,
+  StorageTarget,
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
@@ -168,12 +169,15 @@ describe('createAtlasInstance', () => {
     });
 
     it('verify delegates to VerificationUseCase with bound tenant_id', async () => {
-      const verification_result = {
+      const verification_result: VerificationResult = {
         snapshot_id: 'snap-1',
         total_checked: 10,
         passed: 10,
         failed: [],
-      } as VerificationResult;
+        unverifiable: [],
+        interrupted: false,
+        manifests_in_chain: 1,
+      };
       vi.mocked(mock_verification.verify_snapshot_integrity).mockResolvedValue(verification_result);
 
       const result = await atlas.outlook.verify('snap-1');
@@ -276,7 +280,13 @@ describe('createAtlasInstance', () => {
     });
 
     it('replicateSnapshot delegates to ReplicationUseCase with bound tenant_id', async () => {
-      const targets = [{ bucket: 'replica-bucket', region: 'us-west-2' }];
+      const targets: StorageTarget[] = [
+        {
+          target_id: 'replica',
+          endpoint: 'http://replica:9000',
+          create_context: vi.fn().mockResolvedValue(undefined),
+        },
+      ];
       const replication_result = [{ snapshot_id: 'snap-1', status: 'completed' }];
       vi.mocked(mock_replication.replicate_snapshot).mockResolvedValue(replication_result);
 

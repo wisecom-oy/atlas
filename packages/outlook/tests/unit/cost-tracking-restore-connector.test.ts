@@ -41,6 +41,7 @@ describe('CostTrackingRestoreConnector — operation labelling', () => {
       name: 'report.pdf',
       content_type: 'application/pdf',
       content: Buffer.alloc(8),
+      is_inline: false,
     });
     await connector.create_upload_session('t', 'user@example.com', 'm1', 'big.zip', 1024);
     await connector.upload_attachment_chunk('https://upload', Buffer.alloc(4), 0, 4);

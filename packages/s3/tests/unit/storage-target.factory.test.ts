@@ -66,7 +66,7 @@ describe('create_storage_target', () => {
   it('creates a context with working crypto when DEK exists', async () => {
     const svc = new EnvelopeKeyService('test-pass');
     const dek = svc.generate_dek();
-    crypto_state.wrapped_dek = svc.wrap_dek(dek, 'tenant-1');
+    crypto_state.wrapped_dek = Buffer.from(svc.wrap_dek(dek, 'tenant-1'));
     mock_exists_returns = true;
 
     const target = create_storage_target(base_config);

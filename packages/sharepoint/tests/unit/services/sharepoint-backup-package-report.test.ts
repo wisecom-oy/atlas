@@ -36,8 +36,12 @@ function connector_with(
       items,
       reset_detected: false,
     }),
+    // A failed download rejects; the port never resolves to undefined, and the
+    // download orchestrator is what turns the rejection into a failed item.
     download_file_content: vi.fn((item: SharePointDeltaItem) =>
-      Promise.resolve(item.item_id === failing_item_id ? undefined : Buffer.from(item.item_id)),
+      item.item_id === failing_item_id
+        ? Promise.reject(new Error('download failed'))
+        : Promise.resolve(Buffer.from(item.item_id)),
     ),
   });
 }

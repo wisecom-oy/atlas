@@ -117,7 +117,7 @@ describe('outlook backup command exit code for tenant runs', () => {
     program = new Command();
     register_outlook_command(program, () => container);
     mock_run_tenant_backup_with_cli_adapter.mockReset();
-    exit_code_before = process.exitCode;
+    exit_code_before = process.exitCode ?? undefined;
     process.exitCode = undefined;
   });
 
@@ -169,7 +169,7 @@ describe('outlook backup single-mailbox exit code (issue #32)', () => {
     program = new Command();
     register_outlook_command(program, () => container);
     mock_run_backup_with_cli_adapter.mockReset();
-    exit_code_before = process.exitCode;
+    exit_code_before = process.exitCode ?? undefined;
     process.exitCode = undefined;
   });
 

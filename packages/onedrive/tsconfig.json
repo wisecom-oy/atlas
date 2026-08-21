@@ -16,9 +16,5 @@
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist", "tests"],
-  "references": [
-    { "path": "../types" },
-    { "path": "../core" },
-    { "path": "../m365-graph" }
-  ]
+  "references": [{ "path": "../types" }, { "path": "../core" }, { "path": "../m365-graph" }]
 }

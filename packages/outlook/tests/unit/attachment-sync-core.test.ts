@@ -78,7 +78,7 @@ describe('MailboxSyncService - attachment backup (core)', () => {
     const result = await sync_mailbox('t', 'user@test.com');
 
     const att_puts = (mock_context.storage.put as ReturnType<typeof vi.fn>).mock.calls.filter(
-      ([key]: [string]) => key.startsWith('attachments/'),
+      (call: unknown[]) => String(call[0]).startsWith('attachments/'),
     );
     expect(att_puts).toHaveLength(1);
     expect(result.manifest.entries[0]!.attachments![0]!.storage_key).toBe(
@@ -127,7 +127,7 @@ describe('MailboxSyncService - attachment backup (core)', () => {
     await sync_mailbox('t', 'user@test.com');
 
     const att_put = (mock_context.storage.put as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([key]: [string]) => key.startsWith('attachments/'),
+      (call: unknown[]) => String(call[0]).startsWith('attachments/'),
     );
     expect(att_put).toBeDefined();
     expect(att_put![1][0]).toBe(0x45);

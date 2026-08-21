@@ -46,10 +46,9 @@ export default defineConfig({
   plugins: [atlas_workspace_at_alias()],
   resolve: {
     alias: [
-      {
-        find: '@wisecom/atlas-types/testing/stub-tenant-create-cipher',
-        replacement: resolve(types_src, 'testing/stub-tenant-create-cipher.ts'),
-      },
+      // Directory alias, so any helper under types/testing resolves without a
+      // per-file entry going stale (issue #155).
+      { find: /^@wisecom\/atlas-types\/testing\/(.+)$/, replacement: `${types_src}/testing/$1.ts` },
       { find: /^@wisecom\/atlas-types\/(.+)$/, replacement: `${types_src}/$1` },
       { find: '@wisecom/atlas-types', replacement: resolve(types_src, 'index.ts') },
       { find: /^@wisecom\/atlas-core\/(.+)$/, replacement: `${core_src}/$1` },

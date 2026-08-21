@@ -21,7 +21,7 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json && tsc-alias --project tsconfig.json -f",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "lint": "eslint src/ tests/",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
