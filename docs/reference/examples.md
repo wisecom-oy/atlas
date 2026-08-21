@@ -351,8 +351,8 @@ for (const site of sites) {
 const site = await atlas.sharepoint.resolveSite('https://contoso.sharepoint.com/sites/Engineering');
 console.log(`Site ID: ${site.id}`);
 
-// Back up the resolved site
-const result = await atlas.sharepoint.backup(site.id);
+// Back up the resolved site and every subsite beneath it
+const results = await atlas.sharepoint.backup(site.id, { include_subsites: true });
 ```
 
 ## Export and compliance

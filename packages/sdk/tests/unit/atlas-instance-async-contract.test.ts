@@ -59,7 +59,7 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
     rehydrate_owner: resolved({}),
   },
   OneDriveStatusUseCase: { check_onedrive_status: resolved({}) },
-  SharePointBackupUseCase: { backup_site: resolved({}) },
+  SharePointSiteTreeBackupUseCase: { backup_site_tree: resolved([]) },
   SharePointVerificationUseCase: { verify_sharepoint_snapshot: resolved({}) },
   SharePointCatalogUseCase: {
     list_sharepoint_snapshots: resolved([]),

@@ -9,7 +9,7 @@ import {
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
-  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
@@ -84,10 +84,10 @@ describe('SDK progress and cancellation option adaptation', () => {
   });
 
   it('adapts SharePoint backup onProgress and signal to internal hooks', async () => {
-    const backup_site = vi.fn().mockResolvedValue({ interrupted: false });
+    const backup_site_tree = vi.fn().mockResolvedValue([{ interrupted: false }]);
     const api = create_sharepoint_api(
       TENANT_ID,
-      container_with([SHAREPOINT_BACKUP_USE_CASE_TOKEN, { backup_site }]),
+      container_with([SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN, { backup_site_tree }]),
     );
     const controller = new AbortController();
     const on_progress = vi.fn();
@@ -97,7 +97,7 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controller.signal,
     });
 
-    expect_adapted_options(backup_site.mock.calls[0]![2], on_progress, controller);
+    expect_adapted_options(backup_site_tree.mock.calls[0]![2], on_progress, controller);
   });
 
   it('adapts Outlook verify, restore, and save options', async () => {

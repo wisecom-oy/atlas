@@ -61,8 +61,9 @@ const od = await atlas.onedrive.backup('owner-id');
 await atlas.onedrive.verify('owner-id', 'od-snap-123');
 await atlas.onedrive.checkStatus('owner-id');
 
-// --- SharePoint ---
-const sp = await atlas.sharepoint.backup('site-id');
+// --- SharePoint (one result per backed-up site) ---
+const [sp] = await atlas.sharepoint.backup('site-id');
+const tree = await atlas.sharepoint.backup('site-id', { include_subsites: true });
 await atlas.sharepoint.verify('site-id', 'sp-snap-123');
 const sites = await atlas.sharepoint.listSites();
 
