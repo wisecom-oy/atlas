@@ -135,7 +135,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
       const manifest_key = `${OD_MANIFEST_PREFIX}/${owner_id}/${snapshot_id}.json`;
 
       if (await primary_ctx.storage.exists(manifest_key)) {
-        return build_skip_result(snapshot_id, source.target_id);
+        return build_skip_result(snapshot_id, source.target_id, manifest.entries.length);
       }
 
       const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
