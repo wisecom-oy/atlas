@@ -642,7 +642,7 @@ atlas replicate --status -o user@company.com
 
 | Option                      | Description                                                |
 | --------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`       | Replicate a specific snapshot                              |
+| `-s, --snapshot <id>`       | Replicate a specific snapshot, any workload                |
 | `-m, --mailbox <email>`     | Replicate all unreplicated snapshots for a mailbox         |
 | `--site <url-or-id>`        | Replicate all unreplicated snapshots for a SharePoint site |
 | `-o, --owner <email-or-id>` | Replicate all unreplicated snapshots for a OneDrive owner  |
@@ -692,7 +692,7 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 | `--source-config <path>`    | Path to JSON file with source S3 credentials                 |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
 
-Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. Combining `--site` or `-o/--owner` with `-s/--snapshot` narrows the recovery to that single SharePoint or OneDrive snapshot; `-s` on its own resolves Outlook snapshots. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
+Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. `-s/--snapshot` works for all three workloads: the snapshot id says which one it belongs to (`od-snap-*` OneDrive, `sp-snap-*` SharePoint, `snap-*` Outlook), and the owning owner or site is resolved from storage, so it does not have to be named again. Combining `--site` or `-o/--owner` with `-s/--snapshot` addresses the same single snapshot explicitly. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
 
 `-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only. Unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
 

@@ -24,7 +24,15 @@ import {
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
+import {
+  replicate_drive_snapshot,
+  rehydrate_drive_snapshot,
+} from '@/services/replication/drive-snapshot-router';
+import {
+  copy_outlook_snapshot_to_target,
+  copy_outlook_snapshot_between,
+  type CopyDeps,
+} from '@/services/replication/outlook-snapshot-copier';
 import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
 import {
   save_replication_status,
@@ -39,7 +47,6 @@ import {
 } from '@/services/replication/outlook-replication-helpers';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
 import {
-  build_replication_result,
   build_skip_result,
   to_status_record,
   merge_replication_results,
@@ -68,6 +75,12 @@ export class ReplicationService implements ReplicationUseCase {
   ): Promise<ReplicationResult[]> {
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
+      const drive = await replicate_drive_snapshot(source_ctx, tenant_id, snapshot_id, targets, {
+        onedrive: this._onedrive,
+        sharepoint: this._sharepoint,
+      });
+      if (drive !== undefined) return drive;
+
       const manifest = await require_outlook_manifest(this._manifests, source_ctx, snapshot_id);
       const results: ReplicationResult[] = [];
 
@@ -124,6 +137,12 @@ export class ReplicationService implements ReplicationUseCase {
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
+      const drive = await rehydrate_drive_snapshot(source_ctx, tenant_id, snapshot_id, source, {
+        onedrive: this._onedrive,
+        sharepoint: this._sharepoint,
+      });
+      if (drive !== undefined) return drive;
+
       const manifest = await require_outlook_manifest(
         this._manifests,
         source_ctx,
@@ -263,25 +282,12 @@ export class ReplicationService implements ReplicationUseCase {
     manifest: Manifest,
     tenant_id: string,
   ): Promise<ReplicationResult> {
-    const start = Date.now();
-    const target_ctx = await target.create_context(tenant_id);
-    try {
-      await this._validate_dek(
-        source_ctx.storage,
-        target_ctx.storage,
-        this._config.encryption_passphrase,
-        tenant_id,
-      );
-      const rep = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
-      return build_replication_result(
-        rep,
-        manifest.snapshot_id,
-        target.target_id,
-        Date.now() - start,
-      );
-    } finally {
-      target_ctx.destroy();
-    }
+    return await copy_outlook_snapshot_to_target(
+      source_ctx,
+      target,
+      manifest,
+      this.copy_deps(tenant_id),
+    );
   }
 
   private async copy_between(
@@ -292,17 +298,22 @@ export class ReplicationService implements ReplicationUseCase {
     tenant_id: string,
     is_rehydration = false,
   ): Promise<ReplicationResult> {
-    const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      target_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
+    return await copy_outlook_snapshot_between(
+      source_ctx,
+      target_ctx,
+      manifest,
+      target_id,
+      this.copy_deps(tenant_id),
+      is_rehydration,
     );
-    const rep = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest, {
-      skip_marker: is_rehydration,
-    });
-    return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
+  }
+
+  private copy_deps(tenant_id: string): CopyDeps {
+    return {
+      validate_dek: this._validate_dek,
+      passphrase: this._config.encryption_passphrase,
+      tenant_id,
+    };
   }
 
   private create_primary_target(): StorageTarget {
