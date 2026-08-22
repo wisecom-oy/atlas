@@ -39,7 +39,13 @@ export type SharePointSdkSaveOptions = Omit<FileSaveOptions, 'on_progress' | 'sh
   SdkOperationOptions;
 
 export interface SharePointApi {
-  backup(siteId: string, options?: SharePointSdkBackupOptions): Promise<SharePointBackupResult>;
+  /**
+   * Backs up the site and, when `include_subsites` is set, every subsite beneath it.
+   * Returns one result per backed-up site, root first, so a partially covered tree is
+   * visible to the caller. With `include_subsites` unset, the single root result still
+   * carries warnings naming the subsites that were not covered.
+   */
+  backup(siteId: string, options?: SharePointSdkBackupOptions): Promise<SharePointBackupResult[]>;
   verify(
     siteId: string,
     snapshotId: string,

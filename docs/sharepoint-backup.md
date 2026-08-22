@@ -409,13 +409,19 @@ const atlas = createAtlasInstance({
   encryptionPassphrase: 'my-secret-passphrase',
 });
 
-// Incremental backup
-const result = await atlas.sharepoint.backup('contoso.sharepoint.com,site-guid,web-guid');
+// Incremental backup. One result per backed-up site, root first.
+const [result] = await atlas.sharepoint.backup('contoso.sharepoint.com,site-guid,web-guid');
 console.log(`Snapshot: ${result.snapshot?.snapshot_id}`);
 console.log(`Files stored: ${result.summary.files_stored}`);
+// With include_subsites unset, the root result warns about subsites it did not cover.
+console.log(result.summary.warnings);
 
 // Force full crawl
 const full = await atlas.sharepoint.backup('site-id', { force_full: true });
+
+// Include every subsite beneath the site: one snapshot, and one result, per site
+const tree = await atlas.sharepoint.backup('site-id', { include_subsites: true });
+console.log(`Backed up ${tree.length} site(s)`);
 
 // Verify snapshot integrity
 const verify = await atlas.sharepoint.verify('site-id', 'sp-snap-1735689600000-a1b2c3');
