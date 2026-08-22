@@ -26,6 +26,28 @@ function fit(text: string, width: number, align: 'left' | 'right'): string {
   return align === 'right' ? truncated.padStart(width) : truncated.padEnd(width);
 }
 
+const MIN_COLUMN_WIDTH = 8;
+
+/**
+ * Shrinks columns widest-first until the table (plus inter-column gaps) fits the terminal.
+ * Columns never go below their header length or MIN_COLUMN_WIDTH, whichever is larger.
+ */
+function fit_widths_to_terminal(widths: number[], header_lengths: number[]): void {
+  const gaps = 2 * Math.max(widths.length - 1, 0);
+  const budget = (process.stdout.columns || 80) - gaps;
+  let total = widths.reduce((sum, w) => sum + w, 0);
+  while (total > budget) {
+    let widest = -1;
+    for (let i = 0; i < widths.length; i++) {
+      const floor = Math.max(header_lengths[i] ?? 0, MIN_COLUMN_WIDTH);
+      if (widths[i]! > floor && (widest === -1 || widths[i]! > widths[widest]!)) widest = i;
+    }
+    if (widest === -1) break;
+    widths[widest]!--;
+    total--;
+  }
+}
+
 /** Column-aligned table with bold headers; replaces hand-padded console tables. */
 export function DataTable<Row extends object>({
   columns,
@@ -38,6 +60,10 @@ export function DataTable<Row extends object>({
     );
     return Math.min(content, col.max_width ?? content);
   });
+  fit_widths_to_terminal(
+    widths,
+    columns.map((col) => col.header.length),
+  );
 
   return (
     <Box flexDirection="column">

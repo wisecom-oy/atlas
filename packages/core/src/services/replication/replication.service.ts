@@ -152,7 +152,7 @@ export class ReplicationService implements ReplicationUseCase {
 
       const manifest_key = `manifests/${manifest.owner_id}/${snapshot_id}.json`;
       if (await primary_ctx.storage.exists(manifest_key)) {
-        return build_skip_result(snapshot_id, source.target_id);
+        return build_skip_result(snapshot_id, source.target_id, manifest.entries.length);
       }
 
       return await this.copy_between(

@@ -69,9 +69,19 @@ export async function execute_outlook_read(
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
   const result = await catalog.read_message(tenant_id, options.snapshot, options.message);
 
-  // Raw MIME goes to stdout verbatim so it can be piped straight into an .eml file.
-  if (options.raw && result?.payload_format === 'mime') {
-    process.stdout.write(result.raw);
+  // Machine-readable output suppresses all decorative output so stdout stays pipeable.
+  if (options.raw) {
+    if (!result) {
+      logger.error(`Message not found. Check the snapshot ID and message ID are correct.`);
+      process.exitCode = 1;
+      return;
+    }
+    // Raw MIME goes to stdout verbatim so it can be piped straight into an .eml file.
+    if (result.payload_format === 'mime') {
+      process.stdout.write(result.raw);
+      return;
+    }
+    console.log(JSON.stringify(result.message, null, 2));
     return;
   }
 
@@ -85,11 +95,6 @@ export async function execute_outlook_read(
 
   if (result.payload_format === 'mime') {
     await print_mime_message(result.raw);
-    return;
-  }
-
-  if (options.raw) {
-    console.log(JSON.stringify(result.message, null, 2));
     return;
   }
 
