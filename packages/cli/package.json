@@ -1,7 +1,7 @@
 {
   "name": "@wisecom/atlas-cli",
   "version": "2.1.1",
-  "description": "CLI for Atlas — secure Microsoft 365 backup and restore to S3-compatible storage.",
+  "description": "CLI for Atlas \u2014 secure Microsoft 365 backup and restore to S3-compatible storage.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
   "repository": {
@@ -39,7 +39,7 @@
     "build": "tsdown",
     "postinstall": "node scripts/postinstall.mjs",
     "link-cli": "node scripts/postinstall.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "lint": "eslint src/ tests/",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\""

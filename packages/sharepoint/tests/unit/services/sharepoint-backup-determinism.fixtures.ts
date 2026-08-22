@@ -39,6 +39,9 @@ export function make_ctx(): TenantContext {
       delete: vi.fn(),
       begin_multipart_upload: vi.fn(),
       copy: vi.fn(),
+      get_with_etag: vi.fn(),
+      get_stream: vi.fn(),
+      apply_default_retention: vi.fn(),
       abort_incomplete_uploads: vi.fn(),
     },
     encrypt: vi.fn((data: Buffer) => data),
@@ -105,7 +108,11 @@ export function make_service(
   } = {},
 ): SharePointBackupService {
   const ctx = make_ctx();
-  const factory: TenantContextFactory = { create: vi.fn().mockResolvedValue(ctx) };
+  const factory: TenantContextFactory = {
+    create: vi.fn().mockResolvedValue(ctx),
+    create_readonly: vi.fn().mockResolvedValue(ctx),
+    create_storage_only: vi.fn().mockResolvedValue(ctx),
+  };
   const connector = overrides.connector ?? make_connector();
   const manifests = overrides.manifests ?? make_manifests();
   const file_indexes = overrides.file_indexes ?? make_file_indexes();

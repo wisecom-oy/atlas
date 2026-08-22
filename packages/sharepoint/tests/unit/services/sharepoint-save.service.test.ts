@@ -14,6 +14,17 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 
+/** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
+type Overrides<T> = { [K in keyof T]?: T[K] | undefined };
+
+function apply_overrides<T extends object>(base: T, overrides: Overrides<T>): T {
+  const merged: Record<string, unknown> = { ...base, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete merged[key];
+  }
+  return merged as T;
+}
+
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   const mock_archive = {
     append: vi.fn(),
@@ -36,33 +47,36 @@ vi.mock('@/services/sharepoint-restore-streaming', () => ({
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 
-function make_entry(overrides: Partial<SharePointManifestEntry> = {}): SharePointManifestEntry {
-  return {
+function make_entry(overrides: Overrides<SharePointManifestEntry> = {}): SharePointManifestEntry {
+  const base: SharePointManifestEntry = {
     file_id: 'sp-file-1',
     drive_id: 'lib-1',
     file_name: 'proposal.pptx',
     parent_path: '/Shared Documents',
     size_bytes: 4096,
-    change_type: 'modified',
+    change_type: 'updated',
     backup_at: '2025-03-15T10:00:00.000Z',
     storage_key: 'sharepoint/data/site-1/def456',
     checksum: '0398517bbb3279028c12e29443c51d33698a9aca40da07df68da5a138c8325a7',
-    ...overrides,
   };
+  return apply_overrides(base, overrides);
 }
 
 function make_manifest(
   entries: SharePointManifestEntry[],
-  overrides: Partial<SharePointSnapshotManifest> = {},
+  overrides: Overrides<SharePointSnapshotManifest> = {},
 ): SharePointSnapshotManifest {
-  return {
+  const base: SharePointSnapshotManifest = {
+    id: 'manifest-sp-1',
+    tenant_id: 'tenant-1',
+    total_size_bytes: entries.reduce((sum, e) => sum + e.size_bytes, 0),
     snapshot_id: 'sp-snap-1',
     site_id: 'site-1',
     created_at: new Date('2025-03-15T10:00:00Z'),
     total_files: entries.length,
     entries,
-    ...overrides,
   };
+  return apply_overrides(base, overrides);
 }
 
 describe('SharePointSaveService', () => {
@@ -89,6 +103,7 @@ describe('SharePointSaveService', () => {
     const mock_factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(mock_context),
       create_readonly: vi.fn().mockResolvedValue(mock_context),
+      create_storage_only: vi.fn().mockResolvedValue(mock_context),
     };
 
     mock_manifests = {
@@ -225,7 +240,7 @@ describe('SharePointSaveService', () => {
 
     it('excludes deleted entries and entries without storage_key', async () => {
       const entries = [
-        make_entry({ file_id: 'f-live', change_type: 'modified' }),
+        make_entry({ file_id: 'f-live', change_type: 'updated' }),
         make_entry({ file_id: 'f-del', change_type: 'deleted' }),
         make_entry({ file_id: 'f-nokey', change_type: 'created', storage_key: undefined }),
       ];

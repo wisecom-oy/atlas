@@ -8,6 +8,7 @@ import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 const ATTACHMENT_BYTES = Buffer.from('col_a,col_b\n1,2\n', 'utf-8');
 const JSON_ATTACHMENT_BYTES = Buffer.from('stored-attachment-bytes', 'utf-8');
@@ -85,6 +86,7 @@ const JSON_ENTRY: ManifestEntry = {
       attachment_id: 'att-1',
       name: 'legacy.txt',
       content_type: 'text/plain',
+      checksum: 'chk-att-1',
       size_bytes: JSON_ATTACHMENT_BYTES.length,
       is_inline: false,
       storage_key: 'data/user/att-blob',
@@ -125,12 +127,16 @@ describe('restore of MIME and legacy JSON entries', () => {
           abort: vi.fn(),
         }),
         copy: vi.fn(),
+        get_with_etag: vi.fn(),
+        get_stream: vi.fn(),
+        apply_default_retention: vi.fn(),
         abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
         probe_immutability: vi.fn(),
       },
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
       create_cipher: stub_tenant_create_cipher,
+      create_decipher: stub_tenant_create_decipher,
       destroy: vi.fn(),
     };
 

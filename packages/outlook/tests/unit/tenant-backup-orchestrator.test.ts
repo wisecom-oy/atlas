@@ -33,19 +33,21 @@ function make_sync_result(mailbox_id: string): SyncResult {
     total_folder_count: 2,
     elapsed_ms: 1000,
   };
+  const snapshot: Snapshot = {
+    id: `snap-${mailbox_id}`,
+    tenant_id: 't1',
+    owner_id: mailbox_id,
+    status: SnapshotStatus.COMPLETED,
+    started_at: new Date(),
+    completed_at: new Date(),
+    object_count: 7,
+  };
   return {
-    snapshot: {
-      id: `snap-${mailbox_id}`,
-      tenant_id: 't1',
-      owner_id: mailbox_id,
-      status: SnapshotStatus.COMPLETED,
-      created_at: new Date(),
-      completed_at: new Date(),
-      entry_count: 7,
-    } as Snapshot,
+    snapshot,
     manifest: { total_objects: 7, total_size_bytes: 1000 } as Manifest,
     mode: 'incremental',
     summary,
+    interrupted: false,
   };
 }
 

@@ -14,6 +14,17 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 
+/** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
+type Overrides<T> = { [K in keyof T]?: T[K] | undefined };
+
+function apply_overrides<T extends object>(base: T, overrides: Overrides<T>): T {
+  const merged: Record<string, unknown> = { ...base, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete merged[key];
+  }
+  return merged as T;
+}
+
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   const mock_archive = {
     append: vi.fn(),
@@ -36,33 +47,36 @@ vi.mock('@/services/onedrive-restore-streaming', () => ({
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
 }));
 
-function make_entry(overrides: Partial<OneDriveManifestEntry> = {}): OneDriveManifestEntry {
-  return {
+function make_entry(overrides: Overrides<OneDriveManifestEntry> = {}): OneDriveManifestEntry {
+  const base: OneDriveManifestEntry = {
     file_id: 'file-1',
     drive_id: 'drive-1',
     file_name: 'report.docx',
     parent_path: '/Documents',
     size_bytes: 2048,
-    change_type: 'modified',
+    change_type: 'updated',
     backup_at: '2025-03-15T10:00:00.000Z',
     storage_key: 'onedrive/data/owner-1/abc123',
     checksum: '833183e24cabe9f5330eb37ab449543c4071217e490f7dd54a391923e676ab11',
-    ...overrides,
   };
+  return apply_overrides(base, overrides);
 }
 
 function make_manifest(
   entries: OneDriveManifestEntry[],
-  overrides: Partial<OneDriveSnapshotManifest> = {},
+  overrides: Overrides<OneDriveSnapshotManifest> = {},
 ): OneDriveSnapshotManifest {
-  return {
+  const base: OneDriveSnapshotManifest = {
+    id: 'manifest-od-1',
+    tenant_id: 'tenant-1',
     snapshot_id: 'od-snap-1',
     owner_id: 'owner-1',
+    total_size_bytes: entries.reduce((sum, e) => sum + e.size_bytes, 0),
     created_at: new Date('2025-03-15T10:00:00Z'),
     total_files: entries.length,
     entries,
-    ...overrides,
   };
+  return apply_overrides(base, overrides);
 }
 
 describe('OneDriveSaveService', () => {
@@ -89,6 +103,7 @@ describe('OneDriveSaveService', () => {
     const mock_factory: TenantContextFactory = {
       create: vi.fn().mockResolvedValue(mock_context),
       create_readonly: vi.fn().mockResolvedValue(mock_context),
+      create_storage_only: vi.fn().mockResolvedValue(mock_context),
     };
 
     mock_manifests = {

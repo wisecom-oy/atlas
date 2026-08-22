@@ -104,6 +104,8 @@ Maintain high test coverage on all business-critical logic.
 - When test files approach 300 lines, extract into focused test files (e.g. `delta-safeguard.test.ts`, `attachment-sync.test.ts`)
 - Mock port interfaces in tests, never real adapters
 - Run tests: `pnpm run test`
+- `pnpm run typecheck` runs `tsc --noEmit -p tsconfig.test.json`, which covers `src` **and** `tests`. Vitest does not typecheck, so a mock that has drifted from its port is only caught here. Build already typechecks `src`, so never point `typecheck` back at `tsconfig.json`.
+- Port stubs belong in `packages/types/src/testing/`, imported as `@wisecom/atlas-types/testing/<helper>`. Do not hand-roll crypto or context stubs per test file.
 
 ## JSDoc
 

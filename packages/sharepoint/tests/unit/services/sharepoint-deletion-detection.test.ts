@@ -8,9 +8,9 @@ import type {
 } from '@wisecom/atlas-types';
 import {
   process_delta_item,
+  type FileTrackingState,
   type LibraryProcessingState,
 } from '@/services/sharepoint-library-item-processor';
-import type { FileTrackingState } from '@/services/sharepoint-file-tracking';
 
 // Issue #139: removals arrive with the `deleted` facet, no name, and no download
 // URL. They must produce a deleted entry, skip the download, and clear any

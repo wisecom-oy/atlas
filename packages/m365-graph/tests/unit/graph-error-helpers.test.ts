@@ -186,7 +186,7 @@ describe('with_graph_retry', () => {
       calls++;
       if (calls <= 2) {
         const err = new Error('socket hang up');
-        (err as Record<string, unknown>).code = 'ECONNRESET';
+        (err as unknown as Record<string, unknown>).code = 'ECONNRESET';
         return Promise.reject(err);
       }
       return Promise.resolve('recovered');
