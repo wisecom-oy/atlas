@@ -28,13 +28,19 @@ def _requires_site(settings: Settings) -> None:
 
 
 def test_01_seed_a_library_file(graph: Any, settings: Settings, run_marker: str) -> None:
-    """Uploads the fixture file into the site's default document library."""
+    """Uploads the fixture file into the site's default document library, plus a 5 MB file.
+
+    SharePoint has its own chunked download and large-file restore path, separate from OneDrive's,
+    so the 4 MB boundary has to be crossed here too.
+    """
     composite_id = drive.site_id(graph, settings.sharepoint_site)
     STATE["composite_id"] = composite_id
     STATE["drive_id"] = drive.site_drive_id(graph, composite_id)
     STATE["file"] = drive.seed_fixture_file(graph, STATE["drive_id"], run_marker)
+    STATE["large"] = drive.seed_large_fixture_file(graph, STATE["drive_id"], run_marker)
 
     assert drive.file_sha256(graph, STATE["drive_id"], STATE["file"].path) == STATE["file"].sha256
+    assert drive.file_sha256(graph, STATE["drive_id"], STATE["large"].path) == STATE["large"].sha256
 
 
 def test_02_list_sites_reaches_graph(cli: Cli) -> None:
@@ -97,14 +103,19 @@ def test_06_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
 
     assert archive.exists(), f"{archive} was not written"
     with zipfile.ZipFile(archive) as zf:
-        assert any(STATE["file"].name in n for n in zf.namelist()), zf.namelist()
+        names = zf.namelist()
+        assert any(STATE["file"].name in n for n in names), names
+        large = next((n for n in names if STATE["large"].name in n), None)
+        assert large is not None, names
+        # #143: export of a file over 4 MB aborted mid-stream, so the size is the assertion.
+        assert zf.getinfo(large).file_size == drive.LARGE_FIXTURE_BYTES
 
 
 def test_07_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Settings) -> None:
     """Deletes the file from the library and restores it from the snapshot."""
-    file = STATE["file"]
-    drive.delete_item(graph, STATE["drive_id"], file.item_id)
-    assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
+    for file in (STATE["file"], STATE["large"]):
+        drive.delete_item(graph, STATE["drive_id"], file.item_id)
+        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
 
     cli.ok(
         "sharepoint",
@@ -119,7 +130,7 @@ def test_07_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
 
 
 def test_08_restored_bytes_match_the_seed(graph: Any, run_marker: str) -> None:
-    """The restored file hashes to the seeded bytes, read back through Graph."""
+    """Both restored files hash to the seeded bytes, read back through Graph."""
     restored = drive.children(graph, STATE["drive_id"], run_marker)
     assert restored, f"no files under /{run_marker} after restore"
 
@@ -127,6 +138,7 @@ def test_08_restored_bytes_match_the_seed(graph: Any, run_marker: str) -> None:
         drive.file_sha256(graph, STATE["drive_id"], f"/{run_marker}/{item['name']}") for item in restored
     }
     assert STATE["file"].sha256 in digests, "no restored file matches the seeded bytes"
+    assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
 
 
 def _site_segment(s3: Any, bucket: str) -> str:

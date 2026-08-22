@@ -13,7 +13,8 @@ Each suite is a lifecycle — every step depends on the previous one:
   from M365 → restore → compare the restored attachment against the seeded bytes **through Graph** →
   incremental backup delta.
 - **OneDrive / SharePoint** (`test_20`, `test_30`): same shape per drive/site, including a second
-  file version and a conflict-rename restore.
+  file version, a conflict-rename restore, and a 5 MB file that forces chunked download and
+  streaming restore instead of the small-file path.
 - **Regression guards** (`test_35`): one case per shipped bug that only reproduces against real
   infrastructure.
 - **Disaster recovery** (`test_40`): replicate to the replica MinIO → purge primary → rehydrate →
@@ -37,6 +38,13 @@ Two rules keep results trustworthy:
 - **New workload**: one `tests/test_*.py` plus seed/probe helpers in `atlas_e2e/`.
 - Anything created must carry `run_marker` in its name, or teardown will not find it.
 - Prefer Graph state and S3 keys over CLI output; never parse the Ink tables (they wrap — #94).
+- Fixture bytes are generated at runtime, never committed. Atlas treats content as opaque, so a
+  real `.docx` proves nothing a random blob does not. What changes behaviour is **size**:
+  `drive.FIXTURE_BYTES` (4 KB) stays on the small-file path, `drive.LARGE_FIXTURE_BYTES` (5 MB)
+  crosses chunked download, streaming restore and Graph's 4 MB simple-upload cap. Seed a large one
+  with `drive.seed_large_fixture_file`, which uses an upload session because a plain PUT cannot
+  carry it. Behaviour that only Graph can produce (OneNote sections, malware-flagged items, IRM)
+  lives in the tenant as durable seeded data, discovered by name.
 
 ## Running locally
 
