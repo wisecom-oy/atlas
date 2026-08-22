@@ -34,11 +34,12 @@ describe('build_deleted_entry', () => {
 
   it('builds a manifest entry for a deleted item', () => {
     const item = make_item({ deleted: true });
-    const entry = build_deleted_entry(item, 'deleted');
+    const entry = build_deleted_entry(item, 'deleted', 'Documents');
 
     expect(entry.file_id).toBe('item-1');
     expect(entry.drive_id).toBe('drive-1');
     expect(entry.change_type).toBe('deleted');
+    expect(entry.library_name).toBe('Documents');
     expect(entry.backup_at).toBe('2025-03-15T10:00:00.000Z');
     expect(entry.storage_key).toBeUndefined();
     expect(entry.checksum).toBeUndefined();
@@ -46,17 +47,17 @@ describe('build_deleted_entry', () => {
 
   it('includes optional fields only when present on the item', () => {
     const item_with_url = make_item({ web_url: 'https://tenant.sharepoint.com/file' });
-    const entry = build_deleted_entry(item_with_url, 'deleted');
+    const entry = build_deleted_entry(item_with_url, 'deleted', 'Documents');
     expect(entry.web_url).toBe('https://tenant.sharepoint.com/file');
 
     const item_without_url = make_item();
-    const entry2 = build_deleted_entry(item_without_url, 'deleted');
+    const entry2 = build_deleted_entry(item_without_url, 'deleted', 'Documents');
     expect(entry2).not.toHaveProperty('web_url');
   });
 
   it('includes last_modified_at and etag when present', () => {
     const item = make_item({ last_modified_at: '2025-01-01T00:00:00Z', etag: '"abc123"' });
-    const entry = build_deleted_entry(item, 'deleted');
+    const entry = build_deleted_entry(item, 'deleted', 'Documents');
     expect(entry.last_modified_at).toBe('2025-01-01T00:00:00Z');
     expect(entry.etag).toBe('"abc123"');
   });
@@ -74,18 +75,25 @@ describe('build_stored_entry', () => {
 
   it('builds a manifest entry with storage_key and checksum', () => {
     const item = make_item();
-    const entry = build_stored_entry(item, 'sp/site-1/sha256abc', 'sha256abc', 'created');
+    const entry = build_stored_entry(
+      item,
+      'sp/site-1/sha256abc',
+      'sha256abc',
+      'created',
+      'Documents',
+    );
 
     expect(entry.file_id).toBe('item-1');
     expect(entry.storage_key).toBe('sp/site-1/sha256abc');
     expect(entry.checksum).toBe('sha256abc');
     expect(entry.change_type).toBe('created');
+    expect(entry.library_name).toBe('Documents');
     expect(entry.backup_at).toBe('2025-03-15T10:00:00.000Z');
   });
 
   it('omits optional fields not present on item', () => {
     const item = make_item();
-    const entry = build_stored_entry(item, 'key', 'hash', 'updated');
+    const entry = build_stored_entry(item, 'key', 'hash', 'updated', 'Documents');
     expect(entry).not.toHaveProperty('web_url');
     expect(entry).not.toHaveProperty('etag');
   });

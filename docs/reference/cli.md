@@ -56,6 +56,8 @@ atlas outlook backup --full                                    # force full sync
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
 `0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+
+`restore` and `save` follow the same contract: a file they could not decrypt or write is counted as skipped, and any skipped file exits `2`. An export that produced an archive missing some of its files is not a success, and a cron job that only checks for `0` has to be able to see the difference.
 :::
 ::: tip Tenant-wide mode
 When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox: one failing mailbox never aborts the others. The command still exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
@@ -642,7 +644,7 @@ atlas replicate --status -o user@company.com
 
 | Option                      | Description                                                |
 | --------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`       | Replicate a specific snapshot                              |
+| `-s, --snapshot <id>`       | Replicate a specific snapshot, any workload                |
 | `-m, --mailbox <email>`     | Replicate all unreplicated snapshots for a mailbox         |
 | `--site <url-or-id>`        | Replicate all unreplicated snapshots for a SharePoint site |
 | `-o, --owner <email-or-id>` | Replicate all unreplicated snapshots for a OneDrive owner  |
@@ -692,7 +694,7 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 | `--source-config <path>`    | Path to JSON file with source S3 credentials                 |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
 
-Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. Combining `--site` or `-o/--owner` with `-s/--snapshot` narrows the recovery to that single SharePoint or OneDrive snapshot; `-s` on its own resolves Outlook snapshots. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
+Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. `-s/--snapshot` works for all three workloads: the snapshot id says which one it belongs to (`od-snap-*` OneDrive, `sp-snap-*` SharePoint, `snap-*` Outlook), and the owning owner or site is resolved from storage, so it does not have to be named again. Combining `--site` or `-o/--owner` with `-s/--snapshot` addresses the same single snapshot explicitly. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
 
 `-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only. Unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
 

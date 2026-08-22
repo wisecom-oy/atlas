@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
 import { Command } from 'commander';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -24,13 +25,15 @@ const SITE_ID =
 const RESULT: ReplicationResult = {
   snapshot_id: 'sp-snap-1',
   target_id: 'replica',
-  status: 'COMPLETED',
+  status: ReplicationStatus.COMPLETED,
+  objects_total: 2,
   objects_copied: 2,
   objects_skipped: 0,
   objects_failed: 0,
   bytes_copied: 512,
   elapsed_ms: 9,
   errors: [],
+  verification_status: ReplicationVerificationStatus.PASSED,
 };
 
 interface SharePointReplicationMock {

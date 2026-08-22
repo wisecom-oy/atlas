@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-sdk",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Programmatic API for embedding Atlas M365 backup and restore in Node.js applications.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
@@ -33,7 +33,7 @@
   },
   "scripts": {
     "build": "tsdown",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "lint": "eslint src/ tests/",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""

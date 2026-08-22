@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
 import { Command } from 'commander';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -19,13 +20,15 @@ const OWNER_OBJECT_ID = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
 const RESULT: ReplicationResult = {
   snapshot_id: 'od-snap-1',
   target_id: 'replica',
-  status: 'COMPLETED',
+  status: ReplicationStatus.COMPLETED,
+  objects_total: 3,
   objects_copied: 3,
   objects_skipped: 0,
   objects_failed: 0,
   bytes_copied: 1024,
   elapsed_ms: 12,
   errors: [],
+  verification_status: ReplicationVerificationStatus.PASSED,
 };
 
 interface OneDriveReplicationMock {

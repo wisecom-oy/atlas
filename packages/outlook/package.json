@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-outlook",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json && tsc-alias --project tsconfig.json -f",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "lint": "eslint src/ tests/",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""

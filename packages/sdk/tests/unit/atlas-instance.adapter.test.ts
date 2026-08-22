@@ -6,6 +6,7 @@ import type {
   SyncResult,
   VerificationResult,
   StorageCheckResult,
+  StorageTarget,
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
@@ -53,7 +54,7 @@ const mock_onedrive_catalog = {
   list_onedrive_file_versions: vi.fn(),
 };
 const mock_onedrive_restore = { restore_onedrive: vi.fn() };
-const mock_sharepoint_backup = { backup_site: vi.fn() };
+const mock_sharepoint_site_tree_backup = { backup_site_tree: vi.fn() };
 const mock_sharepoint_verification = { verify_sharepoint_snapshot: vi.fn() };
 const mock_onedrive_save = { save_snapshot: vi.fn() };
 const mock_onedrive_deletion = { delete_owner_data: vi.fn(), delete_snapshot: vi.fn() };
@@ -106,7 +107,7 @@ vi.mock('@/container', () => ({
         OneDriveDeletionUseCase: mock_onedrive_deletion,
         OneDriveReplicationUseCase: mock_onedrive_replication,
         OneDriveStatusUseCase: mock_onedrive_status,
-        SharePointBackupUseCase: mock_sharepoint_backup,
+        SharePointSiteTreeBackupUseCase: mock_sharepoint_site_tree_backup,
         SharePointVerificationUseCase: mock_sharepoint_verification,
         SharePointCatalogUseCase: mock_sharepoint_catalog,
         SharePointRestoreUseCase: mock_sharepoint_restore,
@@ -168,12 +169,15 @@ describe('createAtlasInstance', () => {
     });
 
     it('verify delegates to VerificationUseCase with bound tenant_id', async () => {
-      const verification_result = {
+      const verification_result: VerificationResult = {
         snapshot_id: 'snap-1',
         total_checked: 10,
         passed: 10,
         failed: [],
-      } as VerificationResult;
+        unverifiable: [],
+        interrupted: false,
+        manifests_in_chain: 1,
+      };
       vi.mocked(mock_verification.verify_snapshot_integrity).mockResolvedValue(verification_result);
 
       const result = await atlas.outlook.verify('snap-1');
@@ -218,16 +222,33 @@ describe('createAtlasInstance', () => {
   });
 
   describe('sharepoint', () => {
-    it('backup delegates to SharePointBackupUseCase with bound tenant_id', async () => {
-      const backup_result = { snapshot_id: 'sp-snap-1' };
-      vi.mocked(mock_sharepoint_backup.backup_site).mockResolvedValue(backup_result);
+    it('backup routes through the site-tree use case so include_subsites is honoured', async () => {
+      const results = [{ site_id: 'site-1' }, { site_id: 'subsite-1' }];
+      vi.mocked(mock_sharepoint_site_tree_backup.backup_site_tree).mockResolvedValue(results);
+
+      const result = await atlas.sharepoint.backup('site-1', { include_subsites: true });
+
+      // One result per backed-up site: a partially covered tree stays visible to the caller.
+      expect(result).toBe(results);
+      expect(mock_sharepoint_site_tree_backup.backup_site_tree).toHaveBeenCalledWith(
+        TENANT_ID,
+        'site-1',
+        { include_subsites: true },
+      );
+    });
+
+    it('backup forwards force_full and returns the single root result untouched', async () => {
+      const results = [{ site_id: 'site-1' }];
+      vi.mocked(mock_sharepoint_site_tree_backup.backup_site_tree).mockResolvedValue(results);
 
       const result = await atlas.sharepoint.backup('site-1', { force_full: true });
 
-      expect(result).toBe(backup_result);
-      expect(mock_sharepoint_backup.backup_site).toHaveBeenCalledWith(TENANT_ID, 'site-1', {
-        force_full: true,
-      });
+      expect(result).toEqual(results);
+      expect(mock_sharepoint_site_tree_backup.backup_site_tree).toHaveBeenCalledWith(
+        TENANT_ID,
+        'site-1',
+        { force_full: true },
+      );
     });
 
     it('verify delegates to SharePointVerificationUseCase with bound tenant_id', async () => {
@@ -276,7 +297,13 @@ describe('createAtlasInstance', () => {
     });
 
     it('replicateSnapshot delegates to ReplicationUseCase with bound tenant_id', async () => {
-      const targets = [{ bucket: 'replica-bucket', region: 'us-west-2' }];
+      const targets: StorageTarget[] = [
+        {
+          target_id: 'replica',
+          endpoint: 'http://replica:9000',
+          create_context: vi.fn().mockResolvedValue(undefined),
+        },
+      ];
       const replication_result = [{ snapshot_id: 'snap-1', status: 'completed' }];
       vi.mocked(mock_replication.replicate_snapshot).mockResolvedValue(replication_result);
 

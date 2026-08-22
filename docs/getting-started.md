@@ -128,8 +128,8 @@ const result = await atlas.outlook.backup('user@company.com');
 // OneDrive — mirrors `atlas onedrive backup`
 const odResult = await atlas.onedrive.backup('owner-id');
 
-// SharePoint — mirrors `atlas sharepoint backup`
-const spResult = await atlas.sharepoint.backup('site-id');
+// SharePoint — mirrors `atlas sharepoint backup`, one result per backed-up site
+const [spResult] = await atlas.sharepoint.backup('site-id');
 ```
 
 See the [SDK Reference](./reference/sdk.md) for all methods and [SDK Examples](./reference/examples.md) for production-ready patterns.

@@ -114,6 +114,7 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
         abort: vi.fn(),
       }),
       copy: vi.fn(),
+      apply_default_retention: vi.fn(),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       probe_immutability: vi.fn().mockResolvedValue({
         bucket: 'b',

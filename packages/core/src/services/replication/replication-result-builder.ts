@@ -48,14 +48,22 @@ export function build_replication_result(
   };
 }
 
-export function build_skip_result(snapshot_id: string, target_id: string): ReplicationResult {
+/**
+ * Result for a snapshot already present at the target. `objects_present` is the manifest's
+ * entry count, reported as skipped so the summary distinguishes "nothing to do" from "nothing found".
+ */
+export function build_skip_result(
+  snapshot_id: string,
+  target_id: string,
+  objects_present = 0,
+): ReplicationResult {
   return {
     snapshot_id,
     target_id,
     status: ReplicationStatus.COMPLETED,
-    objects_total: 0,
+    objects_total: objects_present,
     objects_copied: 0,
-    objects_skipped: 0,
+    objects_skipped: objects_present,
     objects_failed: 0,
     bytes_copied: 0,
     elapsed_ms: 0,

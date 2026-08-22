@@ -48,4 +48,30 @@ describe('DataTable', () => {
     expect(lines[2]!.endsWith('    1')).toBe(true);
     expect(lines[3]!.endsWith('12345')).toBe(true);
   });
+
+  it('shrinks the widest columns so the table fits the terminal width', () => {
+    const original_columns = process.stdout.columns;
+    Object.defineProperty(process.stdout, 'columns', { value: 40, configurable: true });
+    try {
+      const wide: TableColumn<{ a: string; b: string }>[] = [
+        { key: 'a', header: 'Site' },
+        { key: 'b', header: 'Url' },
+      ];
+      const { lastFrame } = render(
+        <DataTable
+          columns={wide}
+          rows={[{ a: 'x'.repeat(90), b: 'https://example.com/'.repeat(4) }]}
+        />,
+      );
+      for (const line of lastFrame()!.split('\n')) {
+        expect(line.length).toBeLessThanOrEqual(40);
+      }
+      expect(lastFrame()).toContain('~');
+    } finally {
+      Object.defineProperty(process.stdout, 'columns', {
+        value: original_columns,
+        configurable: true,
+      });
+    }
+  });
 });

@@ -5,7 +5,13 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
-    "sourceMap": false
+    "sourceMap": false,
+    // Tests index fixtures they just built; an out-of-range index fails the test on the
+    // spot, so the `!` noise buys nothing here. Every other strict check stays on.
+    "noUncheckedIndexedAccess": false,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src", "tests"],
   "exclude": ["node_modules", "dist"]

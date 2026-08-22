@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
 import type { MailboxConnector, TenantContext, ObjectStorage } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_mock_storage(): ObjectStorage {
   return {
@@ -18,6 +19,9 @@ function make_mock_storage(): ObjectStorage {
       abort: vi.fn(),
     }),
     copy: vi.fn(),
+    get_with_etag: vi.fn(),
+    get_stream: vi.fn(),
+    apply_default_retention: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
@@ -36,6 +40,7 @@ function make_mock_context(): TenantContext {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     create_cipher: stub_tenant_create_cipher,
+    create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
 }
@@ -43,6 +48,7 @@ function make_mock_context(): TenantContext {
 function make_mock_connector(attachments: unknown[]): MailboxConnector {
   return {
     list_mailboxes: vi.fn(),
+    mailbox_exists: vi.fn(),
     list_mail_folders: vi.fn(),
     fetch_delta: vi.fn(),
     fetch_message: vi.fn(),

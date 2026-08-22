@@ -139,7 +139,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
       const manifest_key = `${SP_MANIFEST_PREFIX}/${site_id}/${snapshot_id}.json`;
 
       if (await primary_ctx.storage.exists(manifest_key)) {
-        return build_skip_result(snapshot_id, source.target_id);
+        return build_skip_result(snapshot_id, source.target_id, manifest.entries.length);
       }
 
       const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);

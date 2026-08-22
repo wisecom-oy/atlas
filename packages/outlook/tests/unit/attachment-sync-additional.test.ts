@@ -125,7 +125,7 @@ describe('MailboxSyncService - attachment backup (additional)', () => {
     });
 
     const att_put = (mock_context.storage.put as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([key]: [string]) => key.startsWith('attachments/'),
+      (call: unknown[]) => String(call[0]).startsWith('attachments/'),
     );
     expect(att_put?.[3]).toEqual({
       mode: 'GOVERNANCE',

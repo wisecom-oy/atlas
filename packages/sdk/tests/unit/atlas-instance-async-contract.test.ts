@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
+import type { AtlasInstance, AtlasInstanceConfig, StorageTarget } from '@wisecom/atlas-types';
 
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: 'test-tenant-id',
@@ -59,7 +59,7 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
     rehydrate_owner: resolved({}),
   },
   OneDriveStatusUseCase: { check_onedrive_status: resolved({}) },
-  SharePointBackupUseCase: { backup_site: resolved({}) },
+  SharePointSiteTreeBackupUseCase: { backup_site_tree: resolved([]) },
   SharePointVerificationUseCase: { verify_sharepoint_snapshot: resolved({}) },
   SharePointCatalogUseCase: {
     list_sharepoint_snapshots: resolved([]),
@@ -103,7 +103,11 @@ describe('createAtlasInstance — async contract', () => {
   });
 
   it('every method on every sub-API returns a Promise', () => {
-    const source = { bucket: 'src-bucket', region: 'us-east-1' };
+    const source: StorageTarget = {
+      target_id: 'src-target',
+      endpoint: 'http://src:9000',
+      create_context: vi.fn().mockResolvedValue(undefined),
+    };
     const targets = [source];
     for (const call of [
       () => atlas.outlook.backup('m'),

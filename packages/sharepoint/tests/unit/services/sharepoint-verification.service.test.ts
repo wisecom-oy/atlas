@@ -11,6 +11,17 @@ import type {
 } from '@wisecom/atlas-types';
 import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 
+/** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
+type Overrides<T> = { [K in keyof T]?: T[K] | undefined };
+
+function apply_overrides<T extends object>(base: T, overrides: Overrides<T>): T {
+  const merged: Record<string, unknown> = { ...base, ...overrides };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete merged[key];
+  }
+  return merged as T;
+}
+
 const TENANT_ID = 'tenant-1';
 const SITE_ID = 'site-1';
 const SNAPSHOT_ID = 'snap-1';
@@ -19,20 +30,22 @@ function sha256(data: Buffer): string {
   return createHash('sha256').update(data).digest('hex');
 }
 
-function make_entry(overrides: Partial<SharePointManifestEntry> = {}): SharePointManifestEntry {
+function make_entry(overrides: Overrides<SharePointManifestEntry> = {}): SharePointManifestEntry {
   const content = Buffer.from('file-content');
-  return {
-    file_id: 'file-1',
-    drive_id: 'drive-1',
-    file_name: 'doc.pdf',
-    parent_path: '/Documents',
-    size_bytes: content.length,
-    storage_key: `sharepoint/data/${SITE_ID}/${sha256(content)}`,
-    checksum: sha256(content),
-    backup_at: new Date().toISOString(),
-    change_type: 'created',
-    ...overrides,
-  };
+  return apply_overrides<SharePointManifestEntry>(
+    {
+      file_id: 'file-1',
+      drive_id: 'drive-1',
+      file_name: 'doc.pdf',
+      parent_path: '/Documents',
+      size_bytes: content.length,
+      storage_key: `sharepoint/data/${SITE_ID}/${sha256(content)}`,
+      checksum: sha256(content),
+      backup_at: new Date().toISOString(),
+      change_type: 'created',
+    },
+    overrides,
+  );
 }
 
 function make_manifest(entries: SharePointManifestEntry[]): SharePointSnapshotManifest {
@@ -90,6 +103,7 @@ function create_mocks() {
   const tenant_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
     create_readonly: vi.fn().mockResolvedValue(ctx),
+    create_storage_only: vi.fn().mockResolvedValue(ctx),
   };
 
   const manifests: SharePointManifestRepository = {

@@ -16,6 +16,7 @@ import type {
   SharePointReplicationUseCase,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
 
 vi.mock('@/services/replication/rehydration-dek-helper', () => ({
@@ -37,6 +38,9 @@ function make_storage(): ObjectStorage {
       abort: vi.fn(),
     }),
     copy: vi.fn(),
+    get_with_etag: vi.fn(),
+    get_stream: vi.fn(),
+    apply_default_retention: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
@@ -115,6 +119,7 @@ describe('ReplicationService', () => {
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
       create_cipher: stub_tenant_create_cipher,
+      create_decipher: stub_tenant_create_decipher,
       destroy: vi.fn(),
     };
 
@@ -124,10 +129,15 @@ describe('ReplicationService', () => {
       encrypt: vi.fn((d: Buffer) => d),
       decrypt: vi.fn((d: Buffer) => d),
       create_cipher: stub_tenant_create_cipher,
+      create_decipher: stub_tenant_create_decipher,
       destroy: vi.fn(),
     };
 
-    tenant_factory = { create: vi.fn().mockResolvedValue(source_ctx) };
+    tenant_factory = {
+      create: vi.fn().mockResolvedValue(source_ctx),
+      create_readonly: vi.fn().mockResolvedValue(source_ctx),
+      create_storage_only: vi.fn().mockResolvedValue(source_ctx),
+    };
 
     manifests = {
       save: vi.fn(),

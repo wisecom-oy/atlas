@@ -11,6 +11,7 @@ import {
   type Manifest,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 /** Builds a manifest with sensible defaults, overridable per test. */
 export function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
@@ -44,6 +45,9 @@ export function make_mock_storage(): ObjectStorage {
       abort: vi.fn(),
     }),
     copy: vi.fn(),
+    get_with_etag: vi.fn(),
+    get_stream: vi.fn(),
+    apply_default_retention: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn().mockResolvedValue({
       bucket: 'test-bucket',
@@ -63,6 +67,7 @@ export function make_mock_context(): TenantContext {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     create_cipher: stub_tenant_create_cipher,
+    create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
 }
@@ -87,6 +92,7 @@ export function build_catalog_harness(): CatalogTestHarness {
   const mock_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(mock_context),
     create_readonly: vi.fn().mockResolvedValue(mock_context),
+    create_storage_only: vi.fn().mockResolvedValue(mock_context),
   };
 
   const container = new Container();

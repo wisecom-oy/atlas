@@ -8,10 +8,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(root_dir, 'src'),
-      '@wisecom/atlas-types/testing/stub-tenant-create-cipher': resolve(
-        root_dir,
-        '../types/src/testing/stub-tenant-create-cipher.ts',
-      ),
+      // Directory alias, so any helper under types/testing resolves without a
+      // per-file entry going stale (issue #155).
+      '@wisecom/atlas-types/testing': resolve(root_dir, '../types/src/testing'),
       '@wisecom/atlas-types': resolve(root_dir, '../types/src/index.ts'),
     },
   },
@@ -20,11 +19,6 @@ export default defineConfig({
     root: '.',
     include: ['tests/**/*.test.ts'],
     testTimeout: 15000,
-    exclude: [
-      'tests/unit/services/delta-safeguard.test.ts',
-      'tests/unit/services/mailbox-sync-object-lock.test.ts',
-      'tests/unit/services/attachment-progress-callback.test.ts',
-    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov', 'html', 'json-summary'],

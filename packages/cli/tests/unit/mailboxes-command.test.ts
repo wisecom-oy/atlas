@@ -13,7 +13,7 @@ function make_mailbox(mail: string, licensed = true, purpose?: MailboxPurpose): 
     mail,
     display_name: mail.split('@')[0]!,
     has_exchange_license: licensed,
-    exchange_plan_status: licensed ? 'Enabled' : undefined,
+    ...(licensed ? { exchange_plan_status: 'Enabled' } : {}),
     ...(purpose ? { mailbox_purpose: purpose } : {}),
   };
 }

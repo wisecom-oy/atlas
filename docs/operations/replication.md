@@ -260,7 +260,7 @@ atlas rehydrate --all --source-config ./offsite.json
 ### SDK rehydration
 
 ```typescript
-// Recover a single Outlook snapshot
+// Recover a single snapshot. Outlook, OneDrive and SharePoint ids all resolve.
 await atlas.rehydrateSnapshot('snapshot-id', offsite);
 
 // Recover a mailbox

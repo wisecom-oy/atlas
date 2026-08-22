@@ -11,6 +11,7 @@ import type {
   ObjectStorage,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_storage(): ObjectStorage {
   return {
@@ -27,6 +28,9 @@ function make_storage(): ObjectStorage {
       abort: vi.fn(),
     }),
     copy: vi.fn(),
+    get_with_etag: vi.fn(),
+    get_stream: vi.fn(),
+    apply_default_retention: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
@@ -39,19 +43,18 @@ function make_context(storage: ObjectStorage, tenant_id = 'tenant-1'): TenantCon
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: stub_tenant_create_cipher,
+    create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
 }
 
 function make_entry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
   return {
-    object_id: overrides.object_id ?? 'obj-1',
-    storage_key: overrides.storage_key ?? 'data/mailbox/key-1',
-    checksum: overrides.checksum ?? 'abc123',
-    size_bytes: overrides.size_bytes ?? 100,
-    subject: overrides.subject,
-    folder_id: overrides.folder_id,
-    attachments: overrides.attachments,
+    object_id: 'obj-1',
+    storage_key: 'data/mailbox/key-1',
+    checksum: 'abc123',
+    size_bytes: 100,
+    ...overrides,
   };
 }
 

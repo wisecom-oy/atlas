@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-types",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json && tsc-alias --project tsconfig.json -f",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src/",
     "format:check": "prettier --check \"src/**/*.ts\""
   }

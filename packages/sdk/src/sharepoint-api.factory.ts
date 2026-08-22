@@ -1,7 +1,7 @@
 import type { Container } from 'inversify';
 import type {
   SharePointApi,
-  SharePointBackupUseCase,
+  SharePointSiteTreeBackupUseCase,
   SharePointCatalogUseCase,
   SharePointReplicationUseCase,
   SharePointRestoreUseCase,
@@ -12,7 +12,7 @@ import type {
   SharePointSiteConnector,
 } from '@wisecom/atlas-types';
 import {
-  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
+  SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
@@ -26,7 +26,9 @@ import { adapt_operation_options } from '@/operation-options';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
 export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {
-  const backup = container.get<SharePointBackupUseCase>(SHAREPOINT_BACKUP_USE_CASE_TOKEN);
+  const backup = container.get<SharePointSiteTreeBackupUseCase>(
+    SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
+  );
   const verification = container.get<SharePointVerificationUseCase>(
     SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   );
@@ -42,7 +44,7 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
 
   return {
     async backup(site_id, options) {
-      return await backup.backup_site(tenant_id, site_id, adapt_operation_options(options));
+      return await backup.backup_site_tree(tenant_id, site_id, adapt_operation_options(options));
     },
     async verify(site_id, snapshot_id, options) {
       const adapted = adapt_operation_options(options);

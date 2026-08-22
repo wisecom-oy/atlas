@@ -60,6 +60,7 @@ function create_mocks() {
   const tenant_factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(ctx),
     create_readonly: vi.fn().mockResolvedValue(ctx),
+    create_storage_only: vi.fn().mockResolvedValue(ctx),
   };
 
   const manifests: SharePointManifestRepository = {
@@ -270,6 +271,48 @@ describe('SharePointCatalogService', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].file_name).toBe('b.docx');
+    });
+
+    it('resolves a bare filename to a unique basename match', async () => {
+      const versions = [
+        make_version({ parent_path: '/Shared Documents', file_name: 'report.docx' }),
+      ];
+      const idx = make_index('file-bare', versions);
+      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.find_by_file_id).mockImplementation(async (_ctx, _site, fid) =>
+        fid === 'file-bare' ? idx : undefined,
+      );
+
+      const result = await service.list_sharepoint_file_versions(TENANT_ID, SITE_ID, 'report.docx');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].file_name).toBe('report.docx');
+    });
+
+    it('throws with candidate paths when a bare filename matches multiple files', async () => {
+      const idx1 = make_index('file-one', [
+        make_version({ parent_path: '/Docs', file_name: 'report.docx' }),
+      ]);
+      const idx2 = make_index('file-two', [
+        make_version({ parent_path: '/Archive', file_name: 'report.docx' }),
+      ]);
+      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx1, idx2]);
+
+      await expect(
+        service.list_sharepoint_file_versions(TENANT_ID, SITE_ID, 'report.docx'),
+      ).rejects.toThrow(/matches 2 files.*\/Archive\/report\.docx.*\/Docs\/report\.docx/);
+    });
+
+    it('returns empty when a bare filename matches nothing', async () => {
+      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([]);
+
+      const result = await service.list_sharepoint_file_versions(
+        TENANT_ID,
+        SITE_ID,
+        'unknown.docx',
+      );
+
+      expect(result).toEqual([]);
     });
   });
 });

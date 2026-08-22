@@ -15,6 +15,7 @@ import type {
   SharePointSnapshotManifest,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
 
 import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
@@ -59,6 +60,9 @@ function make_storage(): ObjectStorage {
     list_versions: vi.fn(),
     begin_multipart_upload: vi.fn(),
     copy: vi.fn(),
+    get_with_etag: vi.fn(),
+    get_stream: vi.fn(),
+    apply_default_retention: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
@@ -71,6 +75,7 @@ function make_ctx(storage: ObjectStorage): TenantContext {
     encrypt: vi.fn((d: Buffer) => d),
     decrypt: vi.fn((d: Buffer) => d),
     create_cipher: stub_tenant_create_cipher,
+    create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
 }
@@ -117,7 +122,11 @@ describe('tenant-wide workload rehydration', () => {
     primary_storage = make_storage();
     source_ctx = make_ctx(source_storage);
     primary_ctx = make_ctx(primary_storage);
-    tenant_factory = { create: vi.fn().mockResolvedValue(primary_ctx) };
+    tenant_factory = {
+      create: vi.fn().mockResolvedValue(primary_ctx),
+      create_readonly: vi.fn().mockResolvedValue(primary_ctx),
+      create_storage_only: vi.fn().mockResolvedValue(primary_ctx),
+    };
     validate_dek = vi.fn().mockResolvedValue(undefined) as unknown as DekValidationFn;
     target_factory = vi.fn().mockReturnValue({
       target_id: 'primary',

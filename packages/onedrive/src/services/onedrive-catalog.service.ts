@@ -67,7 +67,8 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     const trimmed = file_ref.trim();
     if (!this.looks_like_path(trimmed)) {
       const direct = await this._indexes.find_by_file_id(ctx, owner_id, trimmed);
-      return direct ? trimmed : undefined;
+      if (direct) return trimmed;
+      return this.match_by_file_name(ctx, owner_id, trimmed);
     }
     const want = normalize_path_ref(trimmed);
     const indexes = await this._indexes.list_by_owner(ctx, owner_id);
@@ -77,6 +78,30 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Matches a bare filename against every indexed version of the owner's files.
+   * Throws with the candidate paths when the name maps to more than one file.
+   */
+  private async match_by_file_name(
+    ctx: TenantContext,
+    owner_id: string,
+    file_name: string,
+  ): Promise<string | undefined> {
+    const matches = new Map<string, string>();
+    for (const idx of await this._indexes.list_by_owner(ctx, owner_id)) {
+      for (const v of idx.versions) {
+        if (v.file_name === file_name) matches.set(idx.file_id, version_logical_path(v));
+      }
+    }
+    if (matches.size > 1) {
+      const candidates = [...new Set(matches.values())].sort().join(', ');
+      throw new Error(
+        `'${file_name}' matches ${matches.size} files: ${candidates}. Pass a full path instead.`,
+      );
+    }
+    return [...matches.keys()][0];
   }
 
   /** Paths contain a slash; Graph ids do not. */

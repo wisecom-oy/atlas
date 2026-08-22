@@ -14,11 +14,17 @@ from typing import Any
 
 import httpx
 
-from atlas_e2e.graph import Graph
+from atlas_e2e.graph import Graph, GraphError
 
 log = logging.getLogger(__name__)
 
 FIXTURE_BYTES = 4096
+# Crosses the 4 MB thresholds the product changes behaviour at: chunked download
+# (CHUNK_DOWNLOAD_THRESHOLD), streaming restore (STREAM_THRESHOLD_BYTES / SMALL_FILE_LIMIT), and
+# Graph's own simple-upload cap. Issue #143 broke every one of those and the suite stayed green.
+# ponytail: one size, not a matrix. 12 MB (LARGE_UPLOAD_CHUNK) and 64 MB (HASH_CHUNK_SIZE) belong
+# in an opt-in dispatch suite, not a nightly that pays real Graph quota for them.
+LARGE_FIXTURE_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -79,6 +85,42 @@ def seed_fixture_file(graph: Graph, drive_id: str, marker: str, versions: int = 
         seeded = upload_file(graph, drive_id, marker, f"{marker}-file.bin", os.urandom(FIXTURE_BYTES))
     assert seeded is not None
     return seeded
+
+
+def upload_large_file(graph: Graph, drive_id: str, folder: str, name: str, content: bytes) -> SeededFile:
+    """Uploads a file above Graph's 4 MB simple-upload cap through an upload session.
+
+    Any fixture that crosses the product's 4 MB thresholds also crosses Graph's own, so
+    `PUT .../content` cannot seed it. One final-range PUT is enough here: the 320 KiB fragment rule
+    binds intermediate chunks only, and the 60 MiB per-request ceiling is far above this size.
+    The upload URL is pre-authenticated, so it is called without the bearer token.
+    """
+    session = graph.post(
+        f"/drives/{drive_id}/root:/{folder}/{name}:/createUploadSession",
+        {"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+    )
+    total = len(content)
+    response = httpx.put(
+        str(session["uploadUrl"]),
+        content=content,
+        timeout=300.0,
+        headers={"Content-Range": f"bytes 0-{total - 1}/{total}"},
+    )
+    if response.status_code not in (200, 201):
+        raise GraphError(f"upload session PUT {name} -> {response.status_code}")
+    return SeededFile(
+        item_id=str(response.json()["id"]),
+        name=name,
+        folder=folder,
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+
+
+def seed_large_fixture_file(graph: Graph, drive_id: str, marker: str) -> SeededFile:
+    """Seeds `<marker>/<marker>-large.bin` at 5 MB, above every 4 MB code path in backup and restore."""
+    return upload_large_file(
+        graph, drive_id, marker, f"{marker}-large.bin", os.urandom(LARGE_FIXTURE_BYTES)
+    )
 
 
 def read_file(graph: Graph, drive_id: str, path: str) -> bytes | None:
