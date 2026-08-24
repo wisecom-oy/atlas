@@ -20,6 +20,10 @@ import { create_sharepoint_api } from '@/sharepoint-api.factory';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = 'owner-1';
+// Graph composite site id (hostname,site-guid,web-guid). Anything without commas is treated
+// as a URL and resolved through the connector first.
+const SITE_ID =
+  'contoso.sharepoint.com,00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 
 function container_with(...entries: [symbol, unknown][]): Container {
   const services = new Map(entries);
@@ -92,7 +96,7 @@ describe('SDK progress and cancellation option adaptation', () => {
     const controller = new AbortController();
     const on_progress = vi.fn();
 
-    await api.backup(OWNER_ID, {
+    await api.backup(SITE_ID, {
       onProgress: on_progress,
       signal: controller.signal,
     });
@@ -191,16 +195,16 @@ describe('SDK progress and cancellation option adaptation', () => {
     const controllers = [new AbortController(), new AbortController(), new AbortController()];
     const callbacks = [vi.fn(), vi.fn(), vi.fn()];
 
-    await api.verify(OWNER_ID, 'snap-1', {
+    await api.verify(SITE_ID, 'snap-1', {
       onProgress: callbacks[0],
       signal: controllers[0].signal,
     });
-    await api.restore(OWNER_ID, {
+    await api.restore(SITE_ID, {
       snapshot_id: 'snap-1',
       onProgress: callbacks[1],
       signal: controllers[1].signal,
     });
-    await api.save(OWNER_ID, {
+    await api.save(SITE_ID, {
       snapshot_id: 'snap-1',
       onProgress: callbacks[2],
       signal: controllers[2].signal,

@@ -42,30 +42,45 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   const status = container.get<SharePointStatusUseCase>(SHAREPOINT_STATUS_USE_CASE_TOKEN);
   const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
 
+  /**
+   * Mirrors the CLI: a composite site ID contains commas, anything else is a URL or hostname
+   * and gets resolved through Graph first. Passing a URL straight through addresses a
+   * non-existent site and returns an empty result instead of failing.
+   */
+  async function resolve_site_id(site: string): Promise<string> {
+    if (site.includes(',')) return site;
+    return (await connector.resolve_site(tenant_id, site)).site_id;
+  }
+
   return {
-    async backup(site_id, options) {
+    async backup(site_input, options) {
+      const site_id = await resolve_site_id(site_input);
       return await backup.backup_site_tree(tenant_id, site_id, adapt_operation_options(options));
     },
-    async verify(site_id, snapshot_id, options) {
+    async verify(site_input, snapshot_id, options) {
+      const site_id = await resolve_site_id(site_input);
       const adapted = adapt_operation_options(options);
       return adapted === undefined
         ? await verification.verify_sharepoint_snapshot(tenant_id, site_id, snapshot_id)
         : await verification.verify_sharepoint_snapshot(tenant_id, site_id, snapshot_id, adapted);
     },
-    async restore(site_id, options) {
+    async restore(site_input, options) {
+      const site_id = await resolve_site_id(site_input);
       return await restore.restore_sharepoint(
         tenant_id,
         site_id,
         adapt_operation_options(options)!,
       );
     },
-    async save(site_id, options) {
+    async save(site_input, options) {
+      const site_id = await resolve_site_id(site_input);
       return await save.save_snapshot(tenant_id, site_id, adapt_operation_options(options)!);
     },
-    async listSnapshots(site_id) {
-      return await catalog.list_sharepoint_snapshots(tenant_id, site_id);
+    async listSnapshots(site_input) {
+      return await catalog.list_sharepoint_snapshots(tenant_id, await resolve_site_id(site_input));
     },
-    async listFileVersions(site_id, file_ref) {
+    async listFileVersions(site_input, file_ref) {
+      const site_id = await resolve_site_id(site_input);
       return await catalog.list_sharepoint_file_versions(tenant_id, site_id, file_ref);
     },
     async listSites() {
@@ -74,26 +89,31 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     async resolveSite(url_or_id) {
       return await connector.resolve_site(tenant_id, url_or_id);
     },
-    async deleteSiteData(site_id) {
-      return await deletion.delete_site_data(tenant_id, site_id);
+    async deleteSiteData(site_input) {
+      return await deletion.delete_site_data(tenant_id, await resolve_site_id(site_input));
     },
-    async deleteSnapshot(site_id, snapshot_id) {
+    async deleteSnapshot(site_input, snapshot_id) {
+      const site_id = await resolve_site_id(site_input);
       return await deletion.delete_snapshot(tenant_id, site_id, snapshot_id);
     },
-    async replicateSnapshot(site_id, snapshot_id, targets) {
+    async replicateSnapshot(site_input, snapshot_id, targets) {
+      const site_id = await resolve_site_id(site_input);
       return await replication.replicate_site(tenant_id, site_id, snapshot_id, targets);
     },
-    async replicateAll(site_id, targets) {
+    async replicateAll(site_input, targets) {
+      const site_id = await resolve_site_id(site_input);
       return await replication.replicate_all_site_snapshots(tenant_id, site_id, targets);
     },
-    async rehydrateSnapshot(site_id, snapshot_id, source) {
+    async rehydrateSnapshot(site_input, snapshot_id, source) {
+      const site_id = await resolve_site_id(site_input);
       return await replication.rehydrate_site_snapshot(tenant_id, site_id, snapshot_id, source);
     },
-    async rehydrateSite(site_id, source) {
+    async rehydrateSite(site_input, source) {
+      const site_id = await resolve_site_id(site_input);
       return await replication.rehydrate_site(tenant_id, site_id, source);
     },
-    async checkStatus(site_id) {
-      return await status.check_sharepoint_status(tenant_id, site_id);
+    async checkStatus(site_input) {
+      return await status.check_sharepoint_status(tenant_id, await resolve_site_id(site_input));
     },
   };
 }

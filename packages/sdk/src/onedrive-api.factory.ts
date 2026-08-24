@@ -9,6 +9,8 @@ import type {
   OneDriveDeletionUseCase,
   OneDriveReplicationUseCase,
   OneDriveStatusUseCase,
+  UserIdentityResolver,
+  ResolvedUserIdentity,
 } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
@@ -19,6 +21,7 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { adapt_operation_options } from '@/operation-options';
 
@@ -37,48 +40,81 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   );
   const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
 
+  const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
+
+  /**
+   * Mirrors the CLI: an owner containing `@` is an email and is resolved to an Entra object ID,
+   * anything else already is one. Without this the same input addresses a non-existent owner and
+   * the call returns an empty result instead of failing.
+   */
+  async function resolve_owner(owner: string): Promise<ResolvedUserIdentity | undefined> {
+    if (!owner.includes('@')) return undefined;
+    return await identity.resolve_user(tenant_id, owner);
+  }
+
+  async function resolve_owner_id(owner: string): Promise<string> {
+    return (await resolve_owner(owner))?.object_id ?? owner;
+  }
+
   return {
-    async backup(owner_id, options) {
-      return await backup.backup_onedrive(tenant_id, owner_id, adapt_operation_options(options));
+    async backup(owner_input, options) {
+      const resolved = await resolve_owner(owner_input);
+      const adapted = adapt_operation_options(options);
+      // Forward the resolved identity so the registry learns the email, as the CLI does.
+      return await backup.backup_onedrive(tenant_id, resolved?.object_id ?? owner_input, {
+        ...adapted,
+        ...(resolved && adapted?.owner_email === undefined
+          ? { owner_email: resolved.email, owner_display_name: resolved.display_name }
+          : {}),
+      });
     },
-    async verify(owner_id, snapshot_id, options) {
+    async verify(owner_input, snapshot_id, options) {
+      const owner_id = await resolve_owner_id(owner_input);
       const adapted = adapt_operation_options(options);
       return adapted === undefined
         ? await verification.verify_onedrive_snapshot(tenant_id, owner_id, snapshot_id)
         : await verification.verify_onedrive_snapshot(tenant_id, owner_id, snapshot_id, adapted);
     },
-    async restore(owner_id, options) {
+    async restore(owner_input, options) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await restore.restore_onedrive(tenant_id, owner_id, adapt_operation_options(options)!);
     },
-    async save(owner_id, options) {
+    async save(owner_input, options) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await save.save_snapshot(tenant_id, owner_id, adapt_operation_options(options)!);
     },
-    async listSnapshots(owner_id) {
-      return await catalog.list_onedrive_snapshots(tenant_id, owner_id);
+    async listSnapshots(owner_input) {
+      return await catalog.list_onedrive_snapshots(tenant_id, await resolve_owner_id(owner_input));
     },
-    async listFileVersions(owner_id, file_ref) {
+    async listFileVersions(owner_input, file_ref) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref);
     },
-    async deleteOwnerData(owner_id) {
-      return await deletion.delete_owner_data(tenant_id, owner_id);
+    async deleteOwnerData(owner_input) {
+      return await deletion.delete_owner_data(tenant_id, await resolve_owner_id(owner_input));
     },
-    async deleteSnapshot(owner_id, snapshot_id) {
+    async deleteSnapshot(owner_input, snapshot_id) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await deletion.delete_snapshot(tenant_id, owner_id, snapshot_id);
     },
-    async replicateSnapshot(owner_id, snapshot_id, targets) {
+    async replicateSnapshot(owner_input, snapshot_id, targets) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await replication.replicate_owner(tenant_id, owner_id, snapshot_id, targets);
     },
-    async replicateAll(owner_id, targets) {
+    async replicateAll(owner_input, targets) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await replication.replicate_all_owner_snapshots(tenant_id, owner_id, targets);
     },
-    async rehydrateSnapshot(owner_id, snapshot_id, source) {
+    async rehydrateSnapshot(owner_input, snapshot_id, source) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await replication.rehydrate_owner_snapshot(tenant_id, owner_id, snapshot_id, source);
     },
-    async rehydrateOwner(owner_id, source) {
+    async rehydrateOwner(owner_input, source) {
+      const owner_id = await resolve_owner_id(owner_input);
       return await replication.rehydrate_owner(tenant_id, owner_id, source);
     },
-    async checkStatus(owner_id) {
-      return await status.check_onedrive_status(tenant_id, owner_id);
+    async checkStatus(owner_input) {
+      return await status.check_onedrive_status(tenant_id, await resolve_owner_id(owner_input));
     },
   };
 }
