@@ -68,6 +68,12 @@ jobs:
           docker compose -f e2e/docker-compose.e2e.yml down -v --remove-orphans
           docker compose -f e2e/docker-compose.e2e.yml up -d --wait
 
+      # Redaction is what makes a public artifact safe, so it is proved before the first Graph call
+      # rather than after an upload. Uses stand-in values only and needs no secrets.
+      - name: Prove the redaction boundary holds
+        working-directory: e2e
+        run: uv run python -m atlas_e2e.self_check
+
       - name: Mask derived values
         env:
           E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
@@ -107,7 +113,9 @@ jobs:
 
       # Artifacts are public downloads: GitHub's log masking does not apply to a file in a zip. The
       # transcript is written scrubbed, and this step refuses to publish it if that failed. It
-      # compares against the secrets without ever echoing them.
+      # compares against the secrets without ever echoing them. Each artifact is checked twice: as
+      # written, and with all whitespace stripped, because the CLI used to wrap long cells and a
+      # value split across two lines is not a contiguous match (issue #175).
       - name: Verify artifacts carry no tenant data
         id: leakcheck
         if: always()
@@ -121,6 +129,9 @@ jobs:
           E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
         run: |
           status=0
+          strip() { tr -d '[:space:]'; }
+          flat="$(mktemp)"
+          find e2e/report.xml e2e/logs -type f 2>/dev/null -exec cat {} + | strip > "$flat"
           for name in E2E_TENANT_ID E2E_MAILBOX E2E_ONEDRIVE_OWNER E2E_SHAREPOINT_SITE \
                       E2E_CLIENT_ID E2E_CLIENT_SECRET E2E_ENCRYPTION_PASSPHRASE; do
             value="${!name}"
@@ -128,8 +139,12 @@ jobs:
             if grep -rqF -- "$value" e2e/report.xml e2e/logs 2>/dev/null; then
               echo "$name appears in an artifact; refusing to upload" >&2
               status=1
+            elif printf '%s' "$value" | strip | grep -qFf /dev/stdin "$flat"; then
+              echo "$name appears in an artifact across a line break; refusing to upload" >&2
+              status=1
             fi
           done
+          rm -f "$flat"
           [ "$status" -eq 0 ] && echo "Artifacts checked: no secret value present."
           exit "$status"
 

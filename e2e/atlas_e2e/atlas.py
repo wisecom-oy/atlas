@@ -15,10 +15,19 @@ log = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 900
 
+# Ink wraps to `process.stdout.columns` and falls back to 80 without a TTY. The CLI honours
+# `COLUMNS` when its output is piped, so this width keeps every cell on one line.
+NO_WRAP_COLUMNS = 4096
+
 
 @dataclass(frozen=True)
 class Result:
-    """One CLI invocation: what was asked, what came back."""
+    """One CLI invocation: what was asked, what came back.
+
+    Every field is already scrubbed. `run` redacts both streams before constructing this, so no
+    consumer can reach raw CLI output: not an assertion message, not the transcript, not a future
+    code path someone adds without reading this module.
+    """
 
     argv: tuple[str, ...]
     code: int
@@ -44,8 +53,7 @@ class Cli:
         # must depend on the env vars it sets, not on whatever a developer configured locally.
         self._home = home
         home.mkdir(parents=True, exist_ok=True)
-        # Uploaded as an artifact, so it is written scrubbed rather than scrubbed later: a file that
-        # was never allowed to hold a secret cannot leak one through a forgotten code path.
+        # Commands and exit codes only, never CLI output: see `_record`.
         self._transcript = transcript
         if transcript:
             transcript.parent.mkdir(parents=True, exist_ok=True)
@@ -64,6 +72,10 @@ class Cli:
             # Non-TTY output: Ink renders a static view, which is what we want in CI logs.
             "CI": "1",
             "NO_COLOR": "1",
+            # Without a TTY Ink lays out at 80 columns and wraps long cells mid-value. Every rule in
+            # `scrub` needs the value contiguous, so a wrapped address or site URL survives
+            # redaction. A width nothing reaches keeps values on one line.
+            "COLUMNS": str(NO_WRAP_COLUMNS),
             **self._settings.cli_env(),
         }
         log.info("atlas %s", " ".join(display_argv))
@@ -75,15 +87,27 @@ class Cli:
             cwd=self._home,  # no repo-root atlas.config.json in scope
             env=env,
         )
-        result = Result(argv=display_argv, code=proc.returncode, stdout=proc.stdout, stderr=proc.stderr)
+        result = Result(
+            argv=display_argv,
+            code=proc.returncode,
+            stdout=scrub(proc.stdout, self._settings),
+            stderr=scrub(proc.stderr, self._settings),
+        )
         self._record(result)
         return result
 
     def _record(self, result: Result) -> None:
-        """Appends one scrubbed invocation to the transcript, when one is configured."""
+        """Appends one invocation to the transcript: the command and its exit code, no output.
+
+        The transcript is a public artifact and the CLI prints live tenant content -- owner display
+        names, document names, the tenant's site inventory. None of that is a secret value or a
+        recognisable shape, so no redaction rule can catch it, and pattern matching is the wrong
+        tool for "everything except our own fixtures". So the output is simply never written.
+        Assertions still carry the scrubbed output through `describe`.
+        """
         if not self._transcript:
             return
-        entry = f"$ atlas {' '.join(result.argv)}\n{result.out.strip()}\n[exit {result.code}]\n\n"
+        entry = f"$ atlas {' '.join(result.argv)}\n[exit {result.code}]\n\n"
         with self._transcript.open("a", encoding="utf-8") as handle:
             handle.write(scrub(entry, self._settings))
 

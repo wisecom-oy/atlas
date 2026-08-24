@@ -1,8 +1,8 @@
 """Redaction for every byte this suite logs or uploads.
 
 Two audiences, one rule. GitHub masks registered secrets in *workflow logs*, but only the exact
-values it was given: a tenant id also appears as `wisecomfi-my.sharepoint.com`, a mailbox also
-appears as `/personal/miika_wisecom_fi`, and neither is masked. Artifacts get no masking at all --
+values it was given: a tenant id also appears as `contoso-my.sharepoint.com`, a mailbox also
+appears as `/personal/john_doe_example_com`, and neither is masked. Artifacts get no masking at all --
 they are raw files in a public repository.
 
 So everything passes through here, in two deliberately overlapping layers:
