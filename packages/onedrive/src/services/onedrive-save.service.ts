@@ -31,6 +31,10 @@ import {
   verify_streaming_checksum,
 } from '@/services/onedrive-restore-streaming';
 import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
+import {
+  load_onedrive_chain_entries,
+  restorable_entries,
+} from '@/services/onedrive-manifest-chain';
 
 @injectable()
 export class OneDriveSaveService implements OneDriveSaveUseCase {
@@ -53,13 +57,16 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
-      if (!manifest) {
-        throw new Error(`Snapshot ${options.snapshot_id} not found for owner ${owner_id}`);
-      }
-
-      const entries = filter_onedrive_entries(manifest.entries, options.file_filter);
-      const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
+      const chain = await load_onedrive_chain_entries(
+        this._manifests,
+        ctx,
+        owner_id,
+        options.snapshot_id,
+      );
+      const restorable = filter_onedrive_entries(
+        restorable_entries(chain.entries),
+        options.file_filter,
+      );
 
       if (restorable.length === 0) {
         const interrupted = finish_operation_progress(options, 'save', 'onedrive', 0, 0);

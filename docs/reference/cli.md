@@ -14,6 +14,16 @@ With a **local** (non-global) install, a postinstall hook links `atlas` into `/u
 
 For programmatic use in Node.js applications (custom schedulers, multi-tenant SaaS, portals), use **`@wisecom/atlas-sdk`** instead. See [Programmatic SDK](/reference/sdk). The SDK uses explicit config at construction time (no `.env` dependency) and exposes the same operations as typed methods.
 
+## Output width
+
+Tables and dashboards are laid out for the terminal width. When output is piped or redirected there is no terminal to measure, so Atlas falls back to 80 columns and long cells such as site URLs and object ids wrap onto a second line. Set `COLUMNS` to keep each row intact:
+
+```bash
+COLUMNS=200 atlas sharepoint list-sites > sites.txt
+```
+
+This matters beyond readability. Anything that post-processes the output, a log scrubber, a grep for an id, a parser, sees a wrapped value as two unrelated fragments and misses it.
+
 ## `atlas outlook`
 
 Outlook mailbox backup, restore, and management commands. All mailbox operations live under this group; cross-cutting storage and replication commands remain at the root level.
@@ -335,6 +345,8 @@ The `Type` column shows the Graph `mailboxSettings.userPurpose` value (`user`, `
 
 Back up and verify OneDrive files per user using Graph delta sync. Blobs and manifests live under the `onedrive/` prefix in the tenant bucket (see [OneDrive Backup](/onedrive-backup)). When `-o` contains `@`, Atlas resolves the mailbox to an Entra object ID via `GET /users/{email}` before touching storage keys.
 
+A snapshot is a delta: its manifest lists only what changed in that run. `restore`, `save` and `verify` therefore resolve the snapshot's **manifest chain**, the target manifest plus every older manifest for the same owner, merged newest-first and deduplicated by drive item. Restoring the newest snapshot gives the whole drive as it stood at that moment, not just the last few changed files. A file whose newest entry is a deletion stays deleted: the tombstone wins over the older stored version, so a restore never resurrects a file the user removed.
+
 ```bash
 atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full
@@ -448,6 +460,8 @@ Application permissions `Files.Read.All` and `User.Read.All` are required for ba
 ## `atlas sharepoint`
 
 Back up, restore, and verify SharePoint document library files per site using Graph delta sync. Blobs and manifests live under the `sharepoint/` prefix in the tenant bucket. SharePoint backup is site-targeted (not user-targeted like OneDrive). The site can be specified as a full URL or a Graph site ID.
+
+As with OneDrive, a snapshot is a delta and `restore`, `save` and `verify` resolve the full manifest chain for the site. See the note under [`atlas onedrive`](#atlas-onedrive) for how tombstones and superseded versions are merged.
 
 ```bash
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering

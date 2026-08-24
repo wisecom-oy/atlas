@@ -32,6 +32,10 @@ import {
   plaintext_sha256_equals_expected,
 } from '@/services/onedrive-restore-integrity';
 import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
+import {
+  load_onedrive_chain_entries,
+  restorable_entries,
+} from '@/services/onedrive-manifest-chain';
 import { empty_restore_result } from '@/services/onedrive-restore-result';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
@@ -58,10 +62,12 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, options.snapshot_id);
-      if (!manifest) {
-        throw new Error(`Snapshot ${options.snapshot_id} not found`);
-      }
+      const chain = await load_onedrive_chain_entries(
+        this._manifests,
+        ctx,
+        owner_id,
+        options.snapshot_id,
+      );
 
       const target_owner = options.target_owner_id ?? owner_id;
       const drives = await this._connector.list_drives(tenant_id, target_owner);
@@ -72,7 +78,10 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const drive_id = primary_drive.drive_id;
 
       const conflict = options.conflict_behavior ?? 'rename';
-      const entries = filter_onedrive_entries(manifest.entries, options.file_filter);
+      const restorable = filter_onedrive_entries(
+        restorable_entries(chain.entries),
+        options.file_filter,
+      );
       const folder_ids = new Map<string, string>();
       folder_ids.set('/', 'root');
 
@@ -80,18 +89,15 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       let files_skipped = 0;
       const errors: string[] = [];
 
-      const sorted_entries = [...entries].filter(
-        (e) => e.change_type !== 'deleted' && e.storage_key,
-      );
       emit_operation_progress(options, {
         operation: 'restore',
         workload: 'onedrive',
         phase: 'processing',
         processed: 0,
-        total: sorted_entries.length,
+        total: restorable.length,
       });
 
-      for (const entry of sorted_entries) {
+      for (const entry of restorable) {
         if (options.should_interrupt?.() === true) break;
         const result = await this.restore_single_entry(
           tenant_id,
@@ -113,7 +119,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           workload: 'onedrive',
           phase: 'processing',
           processed: files_restored + files_skipped,
-          total: sorted_entries.length,
+          total: restorable.length,
           current: entry.file_name,
         });
       }
@@ -124,8 +130,8 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         'restore',
         'onedrive',
         files_restored + files_skipped,
-        sorted_entries.length,
-        files_restored + files_skipped < sorted_entries.length,
+        restorable.length,
+        files_restored + files_skipped < restorable.length,
       );
 
       return {

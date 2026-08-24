@@ -74,4 +74,24 @@ describe('DataTable', () => {
       });
     }
   });
+
+  // #175: at the 80-column fallback a site URL is cut to `https://contoso.sharepoint~`, which no
+  // longer matches a hostname pattern, so anything scrubbing the output misses the tenant name.
+  it('keeps a long cell intact when the width budget is wide', () => {
+    const original_columns = process.stdout.columns;
+    Object.defineProperty(process.stdout, 'columns', { value: 4096, configurable: true });
+    try {
+      const wide: TableColumn<{ url: string }>[] = [{ key: 'url', header: 'Url' }];
+      const url = 'https://contoso.sharepoint.com/sites/ExampleLongSiteName';
+      const { lastFrame } = render(<DataTable columns={wide} rows={[{ url }]} />);
+
+      expect(lastFrame()).toContain(url);
+      expect(lastFrame()).not.toContain('~');
+    } finally {
+      Object.defineProperty(process.stdout, 'columns', {
+        value: original_columns,
+        configurable: true,
+      });
+    }
+  });
 });

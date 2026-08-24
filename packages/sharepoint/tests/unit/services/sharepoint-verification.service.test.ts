@@ -110,7 +110,7 @@ function create_mocks() {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
     find_latest_by_site: vi.fn(),
-    list_snapshots_by_site: vi.fn(),
+    list_snapshots_by_site: vi.fn().mockResolvedValue([]),
   } as unknown as SharePointManifestRepository;
 
   const indexes: SharePointFileVersionIndexRepository = {

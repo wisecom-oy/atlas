@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -24,21 +24,28 @@ _DEFAULTS = {
 
 @dataclass(frozen=True)
 class Settings:
-    """Everything the suite needs to talk to Graph, S3, and the CLI."""
+    """Everything the suite needs to talk to Graph, S3, and the CLI.
 
-    tenant_id: str
-    client_id: str
-    client_secret: str
-    passphrase: str
-    mailbox: str
+    Secret and tenant-identifying fields are `repr=False`: pytest prints the repr of every fixture
+    argument in a failing test's traceback, and that traceback is written verbatim into
+    `report.xml`, which is uploaded as a public artifact. GitHub masks secrets in *logs*, never in
+    a file. Non-identifying fields stay visible so a failure header still says how the run was
+    configured.
+    """
+
+    tenant_id: str = field(repr=False)
+    client_id: str = field(repr=False)
+    client_secret: str = field(repr=False)
+    passphrase: str = field(repr=False)
+    mailbox: str = field(repr=False)
     s3_endpoint: str
     s3_replica_endpoint: str
-    s3_access_key: str
-    s3_secret_key: str
+    s3_access_key: str = field(repr=False)
+    s3_secret_key: str = field(repr=False)
     s3_region: str
     cli: Path
-    onedrive_owner: str
-    sharepoint_site: str
+    onedrive_owner: str = field(repr=False)
+    sharepoint_site: str = field(repr=False)
 
     @property
     def bucket(self) -> str:

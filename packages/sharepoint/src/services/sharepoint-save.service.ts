@@ -31,6 +31,10 @@ import {
   verify_streaming_checksum,
 } from '@/services/sharepoint-restore-streaming';
 import { filter_sharepoint_entries } from '@/services/sharepoint-entry-filter';
+import {
+  load_sharepoint_chain_entries,
+  restorable_entries,
+} from '@/services/sharepoint-manifest-chain';
 
 @injectable()
 export class SharePointSaveService implements SharePointSaveUseCase {
@@ -53,13 +57,16 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
-      if (!manifest) {
-        throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
-      }
-
-      const entries = filter_sharepoint_entries(manifest.entries, options.file_filter);
-      const restorable = entries.filter((e) => e.change_type !== 'deleted' && e.storage_key);
+      const chain = await load_sharepoint_chain_entries(
+        this._manifests,
+        ctx,
+        site_id,
+        options.snapshot_id,
+      );
+      const restorable = filter_sharepoint_entries(
+        restorable_entries(chain.entries),
+        options.file_filter,
+      );
 
       if (restorable.length === 0) {
         const interrupted = finish_operation_progress(options, 'save', 'sharepoint', 0, 0);

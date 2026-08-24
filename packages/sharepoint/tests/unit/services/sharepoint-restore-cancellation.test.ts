@@ -106,6 +106,7 @@ describe('SharePoint restore cancellation', () => {
         total_files: 2,
         entries: [make_entry('f1'), make_entry('f2')],
       }),
+      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
     } as unknown as SharePointManifestRepository;
     const service = new SharePointRestoreService(factory, connector, manifests);
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {
