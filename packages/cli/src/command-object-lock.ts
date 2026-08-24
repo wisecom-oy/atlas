@@ -8,7 +8,6 @@ import type {
 export interface ObjectLockFlagOptions {
   retentionDays?: string;
   lockMode?: string;
-  requireImmutability?: boolean;
 }
 
 /** Builds an ObjectLockRequest from CLI flags; undefined when no retention requested. */
@@ -33,14 +32,12 @@ export function build_object_lock_policy(
 ): ObjectLockPolicy | undefined {
   const retention_days = parse_retention_days(options.retentionDays);
   const mode = parse_lock_mode(options.lockMode, retention_days ? 'GOVERNANCE' : undefined);
-  const require_immutability = options.requireImmutability ?? true;
   if (!retention_days) {
     return undefined;
   }
 
   return {
     mode,
-    require_immutability,
     retain_until: compute_retain_until_utc(retention_days),
   };
 }

@@ -10,11 +10,12 @@ atlas storage-check --lock-mode governance --retention-days 30
 atlas outlook backup -m user@company.com --retention-days 30 --lock-mode governance
 ```
 
-| Option                   | Description                                             |
-| ------------------------ | ------------------------------------------------------- |
-| `--retention-days <n>`   | Apply Object Lock retention for `n` days                |
-| `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`)         |
-| `--require-immutability` | Fail if immutability cannot be enforced                 |
+| Option                 | Description                                     |
+| ---------------------- | ----------------------------------------------- |
+| `--retention-days <n>` | Apply Object Lock retention for `n` days        |
+| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`) |
+
+A run that asks for retention fails when the bucket cannot honour it. Versioning off, Object Lock off, or the requested mode unsupported all abort the write rather than storing unprotected data, so a backup never silently downgrades to mutable objects. Check a bucket before relying on it with `atlas storage-check --lock-mode governance --retention-days 30`.
 
 ## Why immutability matters
 

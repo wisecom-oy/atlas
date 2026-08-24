@@ -6,10 +6,15 @@ import type { OperationControlOptions } from '@/ports/atlas/progress-event.port'
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
 
+/**
+ * Requested Object Lock protection for the objects a run writes. Any policy carrying
+ * `retain_until` is enforced fail-closed by the storage adapter: a bucket without
+ * versioning or Object Lock, or one that cannot honour the mode, rejects the write
+ * rather than storing unprotected data.
+ */
 export interface ObjectLockPolicy {
   readonly mode?: ObjectLockMode | undefined;
   readonly retain_until?: string | undefined;
-  readonly require_immutability?: boolean | undefined;
 }
 
 export interface ObjectLockRequest {

@@ -23,7 +23,6 @@ export interface OutlookBackupOptions {
   pageSize?: string;
   retentionDays?: string;
   lockMode?: string;
-  requireImmutability?: boolean;
   concurrency?: string;
 }
 

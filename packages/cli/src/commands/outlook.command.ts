@@ -58,7 +58,6 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
     .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
-    .option('--require-immutability', 'fail when immutability cannot be enforced')
     .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
     .action((options: OutlookBackupOptions) => execute_outlook_backup(get_container(), options));
 }
