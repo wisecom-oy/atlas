@@ -66,6 +66,43 @@ describe('SDK progress and cancellation option adaptation', () => {
     expect_adapted_options(sync_mailbox.mock.calls[0]![2], on_progress, controller);
   });
 
+  it('maps hardStopSignal to should_force_stop, independent of the graceful signal', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({ interrupted: false });
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with([BACKUP_USE_CASE_TOKEN, { sync_mailbox }]),
+    );
+    const graceful = new AbortController();
+    const immediate = new AbortController();
+
+    await api.backup(OWNER_ID, { signal: graceful.signal, hardStopSignal: immediate.signal });
+
+    const options = sync_mailbox.mock.calls[0]![2] as Record<string, unknown>;
+    expect(options).not.toHaveProperty('hardStopSignal');
+    const should_interrupt = options.should_interrupt as () => boolean;
+    const should_force_stop = options.should_force_stop as () => boolean;
+
+    expect(should_force_stop()).toBe(false);
+    graceful.abort();
+    expect(should_interrupt()).toBe(true);
+    expect(should_force_stop()).toBe(false);
+
+    immediate.abort();
+    expect(should_force_stop()).toBe(true);
+  });
+
+  it('leaves should_force_stop unset when no hardStopSignal is given', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({ interrupted: false });
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with([BACKUP_USE_CASE_TOKEN, { sync_mailbox }]),
+    );
+
+    await api.backup(OWNER_ID, { signal: new AbortController().signal });
+
+    expect(sync_mailbox.mock.calls[0]![2]).not.toHaveProperty('should_force_stop');
+  });
+
   it('adapts OneDrive backup onProgress and signal to internal hooks', async () => {
     const backup_onedrive = vi.fn().mockResolvedValue({ interrupted: false });
     const api = create_onedrive_api(
