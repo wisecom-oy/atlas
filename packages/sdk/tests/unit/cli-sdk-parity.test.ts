@@ -28,8 +28,6 @@ const APP_PORT_EXTRAS: Record<string, true> = {
 
 /** CLI-reachable capabilities the SDK cannot reach yet, each with its tracking issue. */
 const KNOWN_METHOD_GAPS: Record<string, string> = {
-  'StatsUseCase.get_onedrive_stats': '#165',
-  'StatsUseCase.get_sharepoint_stats': '#165',
   'TenantBackupOrchestrator.backup_tenant': '#165',
 };
 
