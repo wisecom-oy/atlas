@@ -31,6 +31,11 @@ import {
   resolve_destination_library,
 } from '@/services/sharepoint-restore-target';
 import { filter_sharepoint_entries } from '@/services/sharepoint-entry-filter';
+import {
+  load_sharepoint_chain_entries,
+  restorable_entries,
+} from '@/services/sharepoint-manifest-chain';
+import { ensure_sharepoint_folder_path } from '@/services/sharepoint-restore-folder-path';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
 
@@ -65,14 +70,15 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, site_id, options.snapshot_id);
-      if (!manifest) {
-        throw new Error(`Snapshot ${options.snapshot_id} not found for site ${site_id}`);
-      }
+      const chain = await load_sharepoint_chain_entries(
+        this._manifests,
+        ctx,
+        site_id,
+        options.snapshot_id,
+      );
 
       const target_site = options.target_site_id ?? site_id;
       const conflict = options.conflict_behavior ?? 'rename';
-      const entries = filter_sharepoint_entries(manifest.entries, options.file_filter);
 
       // Entry drive ids belong to the source site, so a cross-site restore has to
       // re-point every upload at a library of the target site.
@@ -93,7 +99,10 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       let files_skipped = 0;
       const errors: string[] = [];
 
-      const restorable = [...entries].filter((e) => e.change_type !== 'deleted' && e.storage_key);
+      const restorable = filter_sharepoint_entries(
+        restorable_entries(chain.entries),
+        options.file_filter,
+      );
       const routing: EntryRouting = {
         cross_site,
         target_libraries,
@@ -215,7 +224,8 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     errors: string[],
   ): Promise<'restored' | 'skipped'> {
     try {
-      const parent_id = await this.ensure_folder_path(
+      const parent_id = await ensure_sharepoint_folder_path(
+        this._connector,
         tenant_id,
         target_site,
         destination_drive_id,
@@ -273,56 +283,6 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return 'skipped';
     }
-  }
-
-  private async ensure_folder_path(
-    tenant_id: string,
-    site_id: string,
-    drive_id: string,
-    path: string,
-    folder_ids: Map<string, string>,
-  ): Promise<string | undefined> {
-    const normalized = path.length === 0 || path === '.' ? '/' : path;
-    const cache_key = `${drive_id}:${normalized}`;
-    if (folder_ids.has(cache_key)) return folder_ids.get(cache_key)!;
-
-    // Root always resolves to 'root'
-    if (normalized === '/') {
-      folder_ids.set(cache_key, 'root');
-      return 'root';
-    }
-
-    const segments = normalized.split('/').filter(Boolean);
-    let current_path = '';
-    let parent_id = 'root';
-
-    for (const segment of segments) {
-      current_path = current_path ? `${current_path}/${segment}` : `/${segment}`;
-      const segment_key = `${drive_id}:${current_path}`;
-      if (folder_ids.has(segment_key)) {
-        parent_id = folder_ids.get(segment_key)!;
-        continue;
-      }
-
-      try {
-        const folder_id = await this._connector.create_folder(
-          tenant_id,
-          site_id,
-          drive_id,
-          parent_id,
-          segment,
-        );
-        folder_ids.set(segment_key, folder_id);
-        parent_id = folder_id;
-      } catch (err) {
-        logger.warn(
-          `Failed to create folder ${current_path} in drive ${drive_id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return undefined;
-      }
-    }
-
-    return parent_id;
   }
 }
 

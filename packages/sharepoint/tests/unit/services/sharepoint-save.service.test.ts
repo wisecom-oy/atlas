@@ -108,6 +108,7 @@ describe('SharePointSaveService', () => {
 
     mock_manifests = {
       find_by_snapshot: vi.fn(),
+      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
       list_manifests: vi.fn().mockResolvedValue([]),
       save_manifest: vi.fn(),
     } as unknown as SharePointManifestRepository;
@@ -140,6 +141,42 @@ describe('SharePointSaveService', () => {
       expect(result.output_path).toBe('/tmp/sp-test-save.zip');
     });
 
+    // #173: a delta snapshot lists only what changed, so an export that reads one manifest loses
+    // every file whose last change was an earlier run.
+    it('exports a file carried over from an older snapshot', async () => {
+      const newest = make_manifest([make_entry({ file_id: 'sp-file-1' })], {
+        snapshot_id: 'sp-snap-2',
+        created_at: new Date('2025-03-16T10:00:00Z'),
+      });
+      const older = make_manifest([make_entry({ file_id: 'sp-file-2', file_name: 'report.docx' })]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
+      vi.mocked(mock_manifests.list_snapshots_by_site).mockResolvedValue([newest, older]);
+
+      const result = await service.save_snapshot('test-tenant', 'site-1', {
+        snapshot_id: 'sp-snap-2',
+        output_path: '/tmp/sp-test-save.zip',
+      });
+
+      expect(result.files_saved).toBe(2);
+    });
+
+    it('does not export a file the newest snapshot records as deleted', async () => {
+      const newest = make_manifest(
+        [make_entry({ file_id: 'sp-file-2', change_type: 'deleted', storage_key: undefined })],
+        { snapshot_id: 'sp-snap-2', created_at: new Date('2025-03-16T10:00:00Z') },
+      );
+      const older = make_manifest([make_entry({ file_id: 'sp-file-2', file_name: 'report.docx' })]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
+      vi.mocked(mock_manifests.list_snapshots_by_site).mockResolvedValue([newest, older]);
+
+      const result = await service.save_snapshot('test-tenant', 'site-1', {
+        snapshot_id: 'sp-snap-2',
+        output_path: '/tmp/sp-test-save.zip',
+      });
+
+      expect(result.files_saved).toBe(0);
+    });
+
     it('returns empty result when no restorable entries', async () => {
       const entries = [make_entry({ change_type: 'deleted', storage_key: undefined })];
       const manifest = make_manifest(entries);
@@ -158,7 +195,7 @@ describe('SharePointSaveService', () => {
 
       await expect(
         service.save_snapshot('test-tenant', 'site-1', { snapshot_id: 'sp-snap-bad' }),
-      ).rejects.toThrow('Snapshot sp-snap-bad not found');
+      ).rejects.toThrow('No SharePoint manifest found for snapshot sp-snap-bad');
     });
 
     it('filters entries by file_filter (file ID)', async () => {

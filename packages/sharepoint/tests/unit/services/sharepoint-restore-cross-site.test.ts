@@ -79,6 +79,7 @@ describe('SharePointRestoreService cross-site routing', () => {
         total_files: 1,
         entries: [make_entry()],
       }),
+      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
     } as unknown as SharePointManifestRepository;
 
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);

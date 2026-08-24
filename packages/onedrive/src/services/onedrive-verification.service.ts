@@ -21,6 +21,7 @@ import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
+import { load_onedrive_chain_entries } from '@/services/onedrive-manifest-chain';
 
 const HASH_CHUNK_SIZE = 64 * 1024 * 1024;
 
@@ -56,10 +57,15 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
     }
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
-      if (!manifest) {
-        throw new Error(`No OneDrive manifest found for snapshot ${snapshot_id}`);
-      }
+      // The chain, not the single manifest: a snapshot inherits every file that last changed in an
+      // earlier run, and verifying only the target would report those as checked when they were
+      // never looked at (issue #173).
+      const { manifest, entries } = await load_onedrive_chain_entries(
+        this._manifests,
+        ctx,
+        owner_id,
+        snapshot_id,
+      );
 
       const failed_file_ids: string[] = [];
       const index_issues: string[] = [];
@@ -70,16 +76,18 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
         workload: 'onedrive',
         phase: 'processing',
         processed: 0,
-        total: manifest.entries.length,
+        total: entries.length,
       });
 
-      for (const entry of manifest.entries) {
+      for (const { snapshot_id: source_snapshot, entry } of entries) {
         if (options.should_interrupt?.() === true) break;
         const idx = await this._indexes.find_by_file_id(ctx, manifest.owner_id, entry.file_id);
-        const has_version = idx?.versions.some((v) => v.snapshot_id === snapshot_id);
+        // Against the snapshot that recorded the entry, not the one being verified: a carried-over
+        // file has its index row under the older snapshot.
+        const has_version = idx?.versions.some((v) => v.snapshot_id === source_snapshot);
         if (!has_version) {
           index_issues.push(
-            `missing index version for file ${entry.file_id} snapshot ${snapshot_id}`,
+            `missing index version for file ${entry.file_id} snapshot ${source_snapshot}`,
           );
         }
 
@@ -94,7 +102,7 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
           workload: 'onedrive',
           phase: 'processing',
           processed,
-          total: manifest.entries.length,
+          total: entries.length,
           current: entry.file_name,
         });
       }
@@ -103,8 +111,8 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
         'verify',
         'onedrive',
         processed,
-        manifest.entries.length,
-        processed < manifest.entries.length,
+        entries.length,
+        processed < entries.length,
       );
 
       return {

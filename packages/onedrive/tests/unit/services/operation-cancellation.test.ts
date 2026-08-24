@@ -60,6 +60,7 @@ function make_context(storage: TenantContext['storage']): TenantContext {
 function make_manifest_repository(manifest: OneDriveSnapshotManifest): OneDriveManifestRepository {
   return {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
+    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
   } as unknown as OneDriveManifestRepository;
 }
 

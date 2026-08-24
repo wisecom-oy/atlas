@@ -108,6 +108,7 @@ describe('OneDriveSaveService', () => {
 
     mock_manifests = {
       find_by_snapshot: vi.fn(),
+      list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
       list_manifests: vi.fn().mockResolvedValue([]),
       save_manifest: vi.fn(),
     } as unknown as OneDriveManifestRepository;
@@ -137,6 +138,59 @@ describe('OneDriveSaveService', () => {
       expect(result.output_path).toBe('/tmp/test-save.zip');
     });
 
+    // #173: a delta snapshot lists only what changed, so an export that reads one manifest loses
+    // every file whose last change was an earlier run.
+    it('exports a file carried over from an older snapshot', async () => {
+      const newest = make_manifest([make_entry({ file_id: 'file-1', file_name: 'report.docx' })], {
+        snapshot_id: 'od-snap-2',
+        created_at: new Date('2025-03-16T10:00:00Z'),
+      });
+      const older = make_manifest([make_entry({ file_id: 'file-2', file_name: 'budget.xlsx' })]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
+      vi.mocked(mock_manifests.list_snapshots_by_owner).mockResolvedValue([newest, older]);
+
+      const result = await service.save_snapshot('test-tenant', 'owner-1', {
+        snapshot_id: 'od-snap-2',
+        output_path: '/tmp/test-save.zip',
+      });
+
+      expect(result.files_saved).toBe(2);
+    });
+
+    it('does not export a file the newest snapshot records as deleted', async () => {
+      const newest = make_manifest(
+        [make_entry({ file_id: 'file-2', change_type: 'deleted', storage_key: undefined })],
+        { snapshot_id: 'od-snap-2', created_at: new Date('2025-03-16T10:00:00Z') },
+      );
+      const older = make_manifest([make_entry({ file_id: 'file-2', file_name: 'budget.xlsx' })]);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(newest);
+      vi.mocked(mock_manifests.list_snapshots_by_owner).mockResolvedValue([newest, older]);
+
+      const result = await service.save_snapshot('test-tenant', 'owner-1', {
+        snapshot_id: 'od-snap-2',
+        output_path: '/tmp/test-save.zip',
+      });
+
+      expect(result.files_saved).toBe(0);
+    });
+
+    it('ignores snapshots newer than the one being exported', async () => {
+      const target = make_manifest([make_entry({ file_id: 'file-1' })]);
+      const newer = make_manifest([make_entry({ file_id: 'file-9', file_name: 'later.docx' })], {
+        snapshot_id: 'od-snap-9',
+        created_at: new Date('2025-04-01T10:00:00Z'),
+      });
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(target);
+      vi.mocked(mock_manifests.list_snapshots_by_owner).mockResolvedValue([newer, target]);
+
+      const result = await service.save_snapshot('test-tenant', 'owner-1', {
+        snapshot_id: 'od-snap-1',
+        output_path: '/tmp/test-save.zip',
+      });
+
+      expect(result.files_saved).toBe(1);
+    });
+
     it('returns empty result when no restorable entries', async () => {
       const entries = [make_entry({ change_type: 'deleted', storage_key: undefined })];
       const manifest = make_manifest(entries);
@@ -155,7 +209,7 @@ describe('OneDriveSaveService', () => {
 
       await expect(
         service.save_snapshot('test-tenant', 'owner-1', { snapshot_id: 'od-snap-bad' }),
-      ).rejects.toThrow('Snapshot od-snap-bad not found');
+      ).rejects.toThrow('No OneDrive manifest found for snapshot od-snap-bad');
     });
 
     it('filters entries by file_filter', async () => {
