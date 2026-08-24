@@ -37,7 +37,7 @@ npm install -g @wisecom/atlas-cli
 
 # Outlook
 atlas outlook backup --mailbox user@example.com    # one mailbox
-atlas outlook backup                                # every mailbox in the tenant
+atlas outlook mailboxes                            # list mailboxes to loop over
 atlas outlook status -m user@example.com            # check freshness
 
 # OneDrive

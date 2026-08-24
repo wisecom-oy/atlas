@@ -304,7 +304,7 @@ recovery.workloads.forEach((w) => console.log(w.workload, w.result.objects_copie
 5. **Run a fresh backup** to capture any changes since the last replication:
 
    ```bash
-   atlas outlook backup
+   atlas outlook backup -m <mailbox>
    atlas onedrive backup -o <owner>
    atlas sharepoint backup --site <site-url>
    ```

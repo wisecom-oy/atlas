@@ -1,6 +1,10 @@
 /**
  * CLI adapter that wires the Ink tenant dashboard + SIGINT handling
  * for the full-tenant backup command (`atlas backup` without `-m`).
+ *
+ * Intentionally unreachable since #166: `atlas outlook backup` requires `-m` and the
+ * tenant fan-out handler is commented out. Kept for recovery together with the
+ * tenant dashboard components; do not delete in a dead-code sweep.
  */
 
 import type { Instance } from 'ink';

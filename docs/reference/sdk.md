@@ -240,7 +240,7 @@ interface RestoreResult {
 
 ## Batch Processing
 
-For backing up multiple mailboxes from a shell, use the CLI's built-in tenant-wide mode (`atlas outlook backup` without `-m`), which handles parallel workers with rate limiting and a live dashboard.
+For backing up multiple mailboxes from a shell, enumerate them with `atlas outlook mailboxes` and loop over `atlas outlook backup -m <id>` in your scheduler. The CLI backs up one mailbox per invocation; fan-out is scheduling and belongs to the caller.
 
 In the SDK, create one instance and iterate sequentially. Each backup, restore, or save makes hundreds or thousands of Graph requests internally, so running mailboxes through `Promise.all` multiplies the request rate and triggers aggressive throttling (HTTP 429). Atlas retries throttled requests with exponential backoff up to 12 times, but a sequential loop finishes sooner and more predictably:
 

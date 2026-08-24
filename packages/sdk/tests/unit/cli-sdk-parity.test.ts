@@ -27,16 +27,21 @@ const APP_PORT_EXTRAS: Record<string, true> = {
 };
 
 /** CLI-reachable capabilities the SDK cannot reach yet, each with its tracking issue. */
+/**
+ * CLI files that are intentionally unreachable (disabled, kept for recovery) and so
+ * must not count as CLI-reachable capability. Each entry needs its retiring issue.
+ */
+const RETIRED_CLI_FILES: Record<string, string> = {
+  'adapters/tenant-backup-operation.adapter.tsx': '#166',
+};
+
 const KNOWN_METHOD_GAPS: Record<string, string> = {
   'StatsUseCase.get_onedrive_stats': '#165',
   'StatsUseCase.get_sharepoint_stats': '#165',
-  'TenantBackupOrchestrator.backup_tenant': '#165',
 };
 
 /** DI tokens the CLI resolves and the SDK does not. */
 const KNOWN_TOKEN_GAPS: Record<string, string> = {
-  // Retired with #166: the CLI tenant fan-out goes away, so this stops being a gap.
-  TENANT_ORCHESTRATOR_TOKEN: '#165',
   // Intentional: the uncached inner resolver, used during rehydrate when the identity
   // cache lives in the bucket being recovered. The SDK takes owner ids directly.
   GRAPH_IDENTITY_RESOLVER_TOKEN: 'intentional',
@@ -45,14 +50,28 @@ const KNOWN_TOKEN_GAPS: Record<string, string> = {
   ATLAS_CONFIG_TOKEN: 'intentional',
 };
 
-function collect_sources(dir: string): string[] {
+/** Reads every source file under dir, excluding intentionally retired CLI files. */
+function collect_sources(dir: string, retired: Record<string, string> = {}): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...collect_sources(full));
-    else if (/\.tsx?$/.test(entry)) out.push(readFileSync(full, 'utf8'));
+    if (statSync(full).isDirectory()) out.push(...collect_sources(full, retired));
+    else if (Object.keys(retired).some((rel) => full.endsWith(rel))) continue;
+    else if (/\.tsx?$/.test(entry)) out.push(strip_comments(readFileSync(full, 'utf8')));
   }
   return out;
+}
+/**
+ * Removes comments so intentionally disabled code (commented out but kept for recovery,
+ * e.g. the #166 tenant fan-out) does not count as CLI-reachable. Handles block comments
+ * and full-line // comments; trailing inline comments stay, which is harmless here.
+ */
+function strip_comments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter((line) => !/^\s*\/\//.test(line))
+    .join('\n');
 }
 
 /** Maps every application port interface to the method names it declares. */
@@ -88,7 +107,7 @@ function resolved_tokens(sources: string[]): Set<string> {
 
 describe('CLI/SDK capability parity', () => {
   const ports = read_app_port_methods();
-  const cli = collect_sources(CLI_SRC);
+  const cli = collect_sources(CLI_SRC, RETIRED_CLI_FILES);
   const sdk = collect_sources(SDK_SRC);
 
   it('finds the application ports to compare', () => {

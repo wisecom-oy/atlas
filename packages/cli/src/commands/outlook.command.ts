@@ -50,16 +50,17 @@ export function register_outlook_command(program: Command, get_container: Contai
 function register_outlook_backup(group: Command, get_container: ContainerFactory): void {
   group
     .command('backup')
-    .description('Back up mailboxes from M365 tenant to object storage')
+    .description('Back up one mailbox from M365 tenant to object storage')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('-m, --mailbox <id>', 'specific mailbox to back up (backs up all if omitted)')
+    .requiredOption('-m, --mailbox <id>', 'mailbox to back up')
     .option('-f, --folder <name...>', 'specific folder(s) to back up (e.g. -f Inbox "Sent Items")')
     .option('--full', 'force a full backup, ignoring saved delta state from prior runs')
     .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
     .option('--require-immutability', 'fail when immutability cannot be enforced')
-    .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
+    // Retired with #166: tenant fan-out is disabled; scheduling belongs to the caller.
+    // .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
     .action((options: OutlookBackupOptions) => execute_outlook_backup(get_container(), options));
 }
 
