@@ -59,8 +59,6 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
     .option('--require-immutability', 'fail when immutability cannot be enforced')
-    // Retired with #166: tenant fan-out is disabled; scheduling belongs to the caller.
-    // .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
     .action((options: OutlookBackupOptions) => execute_outlook_backup(get_container(), options));
 }
 
