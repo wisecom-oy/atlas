@@ -302,7 +302,7 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 
 ## Status Checking
 
-Check whether a OneDrive backup is up to date by peeking at Graph delta state. This queries the delta endpoint with the saved delta links from the latest cursor without advancing them, so it does not interfere with the next backup.
+Check whether a OneDrive backup is up to date by peeking at Graph delta state. This queries the delta endpoint with the saved delta links from the latest cursor without advancing them, so it does not interfere with the next backup. On the CLI this is `atlas onedrive status -o <owner>`.
 
 ```typescript
 const status = await atlas.onedrive.checkStatus('owner-id');
@@ -330,7 +330,7 @@ for (const drive of status.drives) {
 
 ## Deletion
 
-Per-owner and per-snapshot deletion of OneDrive data is available through the SDK. The CLI uses the tenant-level `atlas outlook delete --purge` for full tenant cleanup.
+Per-owner and per-snapshot deletion of OneDrive data is available from both adapters: `atlas onedrive delete -o <owner>`, optionally with `-s <snapshot>`, or the SDK methods below. For a tenant-wide wipe across every workload, use `atlas delete --purge`.
 
 ```typescript
 // Erases manifests, blobs, indexes, cursors and staging -- every version of each

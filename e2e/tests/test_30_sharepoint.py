@@ -141,6 +141,13 @@ def test_08_restored_bytes_match_the_seed(graph: Any, run_marker: str) -> None:
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
 
 
+def test_09_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:
+    """`sharepoint status` resolves the site and names the last snapshot (wired by #163)."""
+    result = cli.ok("sharepoint", "status", "--site", settings.sharepoint_site)
+
+    assert STATE["snapshot"] in result.out, result.describe()
+
+
 def _site_segment(s3: Any, bucket: str) -> str:
     """Reads the site segment Atlas used, rather than assuming how the composite id was normalised."""
     keys = storage.list_keys(s3, bucket, "sharepoint/manifests/")
