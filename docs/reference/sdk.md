@@ -175,7 +175,7 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 | `listAvailableMailboxes(options?)`    | _(discovery)_                  | List all tenant mailboxes via Graph                                                                |
 | `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`      | Delete all data for a mailbox                                                                      |
 | `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`      | Delete a single snapshot manifest                                                                  |
-| `purgeTenantData()`                   | `atlas outlook delete --purge` | Purge entire tenant bucket                                                                         |
+| `purgeTenantData()`                   | `atlas delete --purge`         | Purge entire tenant bucket                                                                         |
 | `getMailboxStats(mailboxId)`          | `atlas stats -m`               | Mailbox-level statistics                                                                           |
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.

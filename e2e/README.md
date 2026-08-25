@@ -19,6 +19,8 @@ Each suite is a lifecycle — every step depends on the previous one:
   infrastructure.
 - **Disaster recovery** (`test_40`): replicate to the replica MinIO → purge primary → rehydrate →
   verify the recovered data decrypts.
+- **Workload deletion** (`test_85`): `onedrive delete` and `sharepoint delete` drop one snapshot
+  manifest, keep the shared blobs, and leave the other workloads' objects untouched.
 - **Purge** (`test_90`): `delete --purge` must leave an empty bucket.
 - **Immutability** (`test_95`): backup with Object Lock → S3 reports the retention → deleting the
   locked object fails. Runs last on purpose: a locked object would make the purge assertion

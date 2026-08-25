@@ -132,11 +132,10 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
 function register_outlook_delete(group: Command, get_container: ContainerFactory): void {
   group
     .command('delete')
-    .description('Delete backed-up data (mailbox, snapshot, or entire tenant)')
+    .description('Delete backed-up mail data (one mailbox or one snapshot)')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('-m, --mailbox <email>', 'delete all data and manifests for a mailbox')
     .option('-s, --snapshot <id>', 'delete a single snapshot manifest')
-    .option('--purge', 'delete ALL data in the tenant bucket (irreversible)')
     .option('-y, --yes', 'skip confirmation prompt')
     .action((options: OutlookDeleteOptions) => execute_outlook_delete(get_container(), options));
 }

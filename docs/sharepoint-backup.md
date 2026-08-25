@@ -316,7 +316,7 @@ Exit code is `0` when all checked entries pass, `1` when any blob mismatch or in
 
 ## Status Checking
 
-Check whether a SharePoint site backup is up to date by peeking at Graph delta state. This queries the delta endpoint with the saved delta links from the latest cursor without advancing them, so it does not interfere with the next backup.
+Check whether a SharePoint site backup is up to date by peeking at Graph delta state. This queries the delta endpoint with the saved delta links from the latest cursor without advancing them, so it does not interfere with the next backup. On the CLI this is `atlas sharepoint status --site <site>`.
 
 ```typescript
 const status = await atlas.sharepoint.checkStatus('site-id');
@@ -344,7 +344,7 @@ for (const lib of status.libraries) {
 
 ## Deletion
 
-Per-site and per-snapshot deletion of SharePoint data is available through the SDK.
+Per-site and per-snapshot deletion of SharePoint data is available from both adapters: `atlas sharepoint delete --site <site>`, optionally with `-s <snapshot>`, or the SDK methods below.
 
 ```typescript
 // Erases manifests, blobs, indexes, cursors and staging -- every version of each

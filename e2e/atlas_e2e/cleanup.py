@@ -68,7 +68,7 @@ def purge_bucket(cli: Cli, settings: Settings) -> None:
     logged rather than raised -- the workflow's volume teardown owns those bytes. The output is
     scrubbed before logging: purge output can carry object keys, and keys carry owner ids.
     """
-    result = cli.run("outlook", "delete", "--purge", "-y")
+    result = cli.run("delete", "--purge", "-y")
     if result.code != 0:
         log.warning("Purge exited %s: %s", result.code, scrub(result.out, settings).strip()[:400])
 

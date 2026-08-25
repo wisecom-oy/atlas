@@ -59,7 +59,8 @@ export interface SharePointSaveCommandOptions extends SharePointTenantOptions {
   skipVerify?: boolean;
 }
 
-function resolve_tenant_id(container: Container, options: SharePointTenantOptions): string {
+/** Resolves the tenant id from CLI options, falling back to the configured tenant. */
+export function resolve_tenant_id(container: Container, options: SharePointTenantOptions): string {
   if (options.tenant) return options.tenant;
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
 }

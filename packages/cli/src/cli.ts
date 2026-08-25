@@ -6,6 +6,7 @@ import { compose_container } from '@/container';
 import { register_outlook_command } from '@/commands/outlook.command';
 import { register_onedrive_command } from '@/commands/onedrive.command';
 import { register_sharepoint_command } from '@/commands/sharepoint.command';
+import { register_tenant_delete_command } from '@/commands/tenant-delete.command';
 import { register_stats_command } from '@/commands/stats.command';
 import { register_storage_check_command } from '@/commands/storage-check.command';
 import { register_replicate_command } from '@/commands/replicate.command';
@@ -42,6 +43,7 @@ function register_commands(program: Command): void {
   register_outlook_command(program, get_container);
   register_onedrive_command(program, get_container);
   register_sharepoint_command(program, get_container);
+  register_tenant_delete_command(program, get_container);
   register_stats_command(program, get_container);
   register_storage_check_command(program, get_container);
   register_replicate_command(program, get_container);
