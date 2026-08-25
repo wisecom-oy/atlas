@@ -18,7 +18,11 @@ import {
 } from '@/services/sharepoint-backup-builders';
 import { process_backup_file } from '@/services/sharepoint-backup-file-processor';
 import { classify_change_type } from '@/services/sharepoint-change-classifier';
-import { sync_file_versions, type RunVersionCollector } from '@/services/sharepoint-version-sync';
+import {
+  collect_run_versions,
+  sync_file_versions,
+  type RunVersionCollector,
+} from '@/services/sharepoint-version-sync';
 
 export interface FileTrackingState {
   previous_path_by_file_id: Record<string, string>;
@@ -114,10 +118,7 @@ export async function process_delta_item(
       ctx,
       versions.known.get(item.item_id) ?? new Set<string>(),
     );
-    versions.rows.set(item.item_id, [
-      ...(versions.rows.get(item.item_id) ?? []),
-      ...version_result.records,
-    ]);
+    collect_run_versions(versions, item.item_id, version_result.records);
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
       version_stats.total_versions_stored = s;
       version_stats.total_versions_unavailable = u;

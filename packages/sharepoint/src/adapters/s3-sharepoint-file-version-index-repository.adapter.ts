@@ -1,4 +1,6 @@
 import { injectable } from 'inversify';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import { ConcurrencySemaphore } from '@wisecom/atlas-core/services/shared/concurrency-semaphore';
 import type {
   SharePointFileVersionIndex,
   SharePointFileVersionIndexRepository,
@@ -25,10 +27,22 @@ interface RunIndexPayload {
 type StoredIndexPayload = RunIndexPayload | SharePointFileVersionIndex;
 
 /**
+ * Parallel GETs per index read. The objects are small and independent, so the
+ * scan is latency-bound; serial awaits leave the process idle. Kept modest
+ * because a read can coincide with a backup saturating the same S3 client.
+ */
+const INDEX_READ_CONCURRENCY = 8;
+
+/**
  * S3-backed version index with one object per backup run
  * (`sharepoint/index/<site>/runs/<snapshot_id>.json`). A 20,000-file site
  * costs one PUT and one small object per run instead of one object per file,
  * each billed at the provider's minimum size floor (issue #161).
+ *
+ * Reads scan the site prefix, so their cost grows with the number of runs
+ * (plus any legacy per-file objects still present). Callers that need more
+ * than one file's history must call `list_by_site` once and index the result
+ * rather than scanning per file.
  */
 @injectable()
 export class S3SharePointFileVersionIndexRepository implements SharePointFileVersionIndexRepository {
@@ -37,14 +51,16 @@ export class S3SharePointFileVersionIndexRepository implements SharePointFileVer
     ctx: TenantContext,
     site_id: string,
   ): Promise<Map<string, Set<string>>> {
-    const indexes = await this.list_by_site(ctx, site_id);
+    // Only the ids are kept: materializing full history for a 20,000-file
+    // site just to reduce it to a dedup set costs hundreds of MB.
     const known = new Map<string, Set<string>>();
-    for (const idx of indexes) {
-      known.set(
-        idx.file_id,
-        new Set(idx.versions.map((v) => v.version_id).filter(Boolean) as string[]),
-      );
-    }
+    await this.for_each_index(ctx, site_id, (idx) => {
+      let ids = known.get(idx.file_id);
+      if (!ids) known.set(idx.file_id, (ids = new Set<string>()));
+      for (const version of idx.versions) {
+        if (version.version_id) ids.add(version.version_id);
+      }
+    });
     return known;
   }
 
@@ -64,64 +80,73 @@ export class S3SharePointFileVersionIndexRepository implements SharePointFileVer
     );
   }
 
-  /** Retrieves the merged version history for a specific file across all index objects. */
-  async find_by_file_id(
-    ctx: TenantContext,
-    site_id: string,
-    file_id: string,
-  ): Promise<SharePointFileVersionIndex | undefined> {
-    const keys = await ctx.storage.list(sharepoint_index_prefix(site_id));
-    const versions: SharePointFileVersionIndex['versions'] = [];
-    for (const key of keys) {
-      for (const idx of await this.download_indexes(ctx, key)) {
-        if (idx.file_id === file_id) versions.push(...idx.versions);
-      }
-    }
-    if (versions.length === 0) return undefined;
-    return { file_id, site_id, versions: sort_versions(versions) };
-  }
-
   /** Lists per-file version histories for a site, merged across all index objects. */
   async list_by_site(ctx: TenantContext, site_id: string): Promise<SharePointFileVersionIndex[]> {
+    const rows_by_file = new Map<string, SharePointFileVersionIndex['versions']>();
+    await this.for_each_index(ctx, site_id, (idx) => {
+      const rows = rows_by_file.get(idx.file_id);
+      if (rows) rows.push(...idx.versions);
+      else rows_by_file.set(idx.file_id, [...idx.versions]);
+    });
+    return [...rows_by_file].map(([file_id, versions]) => ({
+      file_id,
+      site_id,
+      versions: sort_versions(versions),
+    }));
+  }
+
+  /** Streams every index object of the site through `visit`, reading with bounded concurrency. */
+  private async for_each_index(
+    ctx: TenantContext,
+    site_id: string,
+    visit: (idx: SharePointFileVersionIndex) => void,
+  ): Promise<void> {
     const keys = await ctx.storage.list(sharepoint_index_prefix(site_id));
-    const by_file = new Map<string, SharePointFileVersionIndex>();
-    for (const key of keys) {
-      for (const idx of await this.download_indexes(ctx, key)) {
-        merge_index(by_file, idx);
-      }
+    const semaphore = new ConcurrencySemaphore(INDEX_READ_CONCURRENCY);
+    const reads = await Promise.allSettled(
+      keys.map(async (key) => {
+        await semaphore.acquire();
+        try {
+          return await this.download_indexes(ctx, key);
+        } finally {
+          semaphore.release();
+        }
+      }),
+    );
+    for (const read of reads) {
+      if (read.status === 'rejected') throw read.reason;
+      for (const idx of read.value) visit(idx);
     }
-    return [...by_file.values()];
   }
 
   /**
-   * Downloads one index object and yields its per-file indexes. Storage or
-   * parse failures yield nothing for that object, matching the previous
-   * per-file behaviour of skipping unreadable entries.
+   * Downloads one index object and returns its per-file indexes.
+   *
+   * Storage failures propagate: an unread object is indistinguishable from a
+   * file with no history, and that value decides both version dedup and
+   * verification outcomes, so a transient GET error must not be reported as
+   * "nothing recorded". Only an undecryptable or unparseable payload is
+   * skipped, and it is logged.
    */
   private async download_indexes(
     ctx: TenantContext,
     key: string,
   ): Promise<SharePointFileVersionIndex[]> {
+    const payload = await ctx.storage.get(key);
     try {
-      const payload = await ctx.storage.get(key);
       const parsed = JSON.parse(ctx.decrypt(payload).toString('utf-8')) as StoredIndexPayload;
       return 'indexes' in parsed ? parsed.indexes : [parsed];
-    } catch {
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn(`Skipping unreadable version index object ${key}: ${reason}`);
       return [];
     }
   }
 }
 
-function merge_index(
-  by_file: Map<string, SharePointFileVersionIndex>,
-  idx: SharePointFileVersionIndex,
-): void {
-  const existing = by_file.get(idx.file_id);
-  const merged = sort_versions(existing ? [...existing.versions, ...idx.versions] : idx.versions);
-  by_file.set(idx.file_id, { file_id: idx.file_id, site_id: idx.site_id, versions: merged });
-}
+/** Orders version rows oldest first by backup timestamp. */
 function sort_versions(versions: SharePointFileVersionIndex['versions']): typeof versions {
-  return [...versions].sort((a, b) =>
+  return versions.sort((a, b) =>
     a.backup_at < b.backup_at ? -1 : a.backup_at > b.backup_at ? 1 : 0,
   );
 }

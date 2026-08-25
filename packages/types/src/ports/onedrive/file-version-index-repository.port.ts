@@ -26,13 +26,11 @@ export interface OneDriveFileVersionIndexRepository {
     indexes: OneDriveFileVersionIndex[],
   ): Promise<void>;
 
-  /** Retrieves the version history for a specific file, merged across index objects. */
-  find_by_file_id(
-    ctx: TenantContext,
-    owner_id: string,
-    file_id: string,
-  ): Promise<OneDriveFileVersionIndex | undefined>;
-
-  /** Lists per-file version histories for an owner, merged across index objects. */
+  /**
+   * Lists per-file version histories for an owner, merged across index
+   * objects. One scan answers every file: there is no per-file lookup,
+   * because with a per-run layout that would rescan the whole prefix for a
+   * single file.
+   */
   list_by_owner(ctx: TenantContext, owner_id: string): Promise<OneDriveFileVersionIndex[]>;
 }

@@ -99,6 +99,8 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 
 Since the per-run index layout, Atlas writes **one** version index object per owner or site per backup run under `runs/`, holding every version row that run captured. A run with no new file versions writes no index object at all. Objects under `files/` were written by older Atlas versions and remain fully readable: reads merge both layouts, so history that predates an upgrade stays listable and verifiable until you purge the bucket.
 
+Reading history means listing the owner or site index prefix and fetching every object under it, eight at a time. The cost therefore grows with the number of backup runs, not with the number of files, and each call that needs version rows (`atlas onedrive versions`, `atlas sharepoint versions`, verification, and the dedup preload at the start of a backup) pays it once. Upgraded buckets pay more until the legacy `files/` objects are gone, because those are one object per file: a 20,000-file drive means 20,000 objects in that first scan. They are only removed when the owner or site is deleted, so plan an upgrade window accordingly on Object Lock buckets, where nothing can be removed before its retention expires.
+
 Subsites are stored exactly like any other site. A subsite is a Graph site with its own `site_id`, so `atlas sharepoint backup --include-subsites` writes one snapshot per subsite under that subsite's own `sharepoint/manifests/{site_id}/` prefix rather than folding its files into the parent site's manifest. Blobs, indexes, and delta cursors follow the same per-`site_id` split, which keeps a subsite's backup, restore, and retention independent of its parent.
 
 ## The `_meta/dek.enc` object

@@ -26,13 +26,10 @@ export interface SharePointFileVersionIndexRepository {
     indexes: SharePointFileVersionIndex[],
   ): Promise<void>;
 
-  /** Retrieves the version history for a specific file, merged across index objects. */
-  find_by_file_id(
-    ctx: TenantContext,
-    site_id: string,
-    file_id: string,
-  ): Promise<SharePointFileVersionIndex | undefined>;
-
-  /** Lists per-file version histories for a site, merged across index objects. */
+  /**
+   * Lists per-file version histories for a site, merged across index objects.
+   * One scan answers every file: there is no per-file lookup, because with a
+   * per-run layout that would rescan the whole prefix for a single file.
+   */
   list_by_site(ctx: TenantContext, site_id: string): Promise<SharePointFileVersionIndex[]>;
 }

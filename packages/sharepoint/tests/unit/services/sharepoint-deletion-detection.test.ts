@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import type {
   FailedItemLedger,
   SharePointDeltaItem,
-  SharePointFileVersionIndexRepository,
   SharePointSiteConnector,
   TenantContext,
 } from '@wisecom/atlas-types';

@@ -250,8 +250,6 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       scan.version_rows,
     );
 
-    await this._cursors.save(ctx, cursor);
-
     return {
       site_id,
       snapshot,

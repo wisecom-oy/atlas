@@ -136,7 +136,9 @@ export function build_run_version_indexes(
 ): OneDriveFileVersionIndex[] {
   const versions_by_file = new Map<string, OneDriveFileVersionRecord[]>();
   const add = (file_id: string, record: OneDriveFileVersionRecord): void => {
-    versions_by_file.set(file_id, [...(versions_by_file.get(file_id) ?? []), record]);
+    const rows = versions_by_file.get(file_id);
+    if (rows) rows.push(record);
+    else versions_by_file.set(file_id, [record]);
   };
   for (const entry of entries) {
     add(entry.file_id, {

@@ -46,6 +46,28 @@ const EMPTY_OUTCOME: VersionSyncOutcome = {
 };
 
 /**
+ * Records what one file's sync captured. The version ids are folded into
+ * `known` as well: it is preloaded once per run, so without this a file that
+ * appears twice in the same delta cycle would be downloaded and recorded
+ * twice.
+ */
+export function collect_run_versions(
+  versions: RunVersionCollector,
+  file_id: string,
+  records: readonly OneDriveFileVersionRecord[],
+): void {
+  if (records.length === 0) return;
+  const rows = versions.rows.get(file_id);
+  if (rows) rows.push(...records);
+  else versions.rows.set(file_id, [...records]);
+  let known = versions.known.get(file_id);
+  if (!known) versions.known.set(file_id, (known = new Set<string>()));
+  for (const record of records) {
+    if (record.version_id) known.add(record.version_id);
+  }
+}
+
+/**
  * Enumerates historical versions for a file and stores any that are new.
  * Compares against the version ids already recorded by earlier runs
  * (`known_version_ids`, preloaded once per run) to avoid re-downloading

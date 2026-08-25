@@ -1,7 +1,6 @@
 import type {
   OneDriveConnector,
   OneDriveDeltaItem,
-  OneDriveFileVersionRecord,
   OneDriveManifestEntry,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -12,7 +11,11 @@ import {
 } from '@/services/onedrive-backup-builders';
 import { process_backup_file } from '@/services/onedrive-backup-file-processor';
 import { classify_change_type } from '@/services/onedrive-change-classifier';
-import { sync_file_versions, type RunVersionCollector } from '@/services/onedrive-version-sync';
+import {
+  collect_run_versions,
+  sync_file_versions,
+  type RunVersionCollector,
+} from '@/services/onedrive-version-sync';
 
 export interface DriveTrackingState {
   previous_path_by_file_id: Record<string, string>;
@@ -109,8 +112,7 @@ export async function process_delta_item(
       ctx,
       versions.known.get(item.item_id) ?? new Set<string>(),
     );
-    const existing_rows = versions.rows.get(item.item_id) ?? [];
-    versions.rows.set(item.item_id, [...existing_rows, ...version_result.records]);
+    collect_run_versions(versions, item.item_id, version_result.records);
     accumulate_version_stats(version_result, version_stats, on_version_stats_update);
   }
   state.previous_path_by_file_id[item.item_id] = item.parent_path;
