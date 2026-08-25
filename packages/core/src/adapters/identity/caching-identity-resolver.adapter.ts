@@ -76,14 +76,6 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     );
   }
 
-  async resolve_users(tenant_id: string, emails: string[]): Promise<ResolvedUserIdentity[]> {
-    const results: ResolvedUserIdentity[] = [];
-    for (const e of emails) {
-      results.push(await this.resolve_user(tenant_id, e));
-    }
-    return results;
-  }
-
   async resolve_by_object_id(
     tenant_id: string,
     object_id: string,

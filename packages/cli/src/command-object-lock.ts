@@ -1,8 +1,11 @@
 import type {
-  ObjectLockMode,
   ObjectLockPolicy,
   ObjectLockRequest,
 } from '@wisecom/atlas-types/ports/backup/use-case.port';
+import {
+  build_object_lock_policy as build_policy,
+  build_object_lock_request as build_request,
+} from '@wisecom/atlas-core/services/shared/object-lock-policy';
 
 /** CLI flags shared by every command that accepts Object Lock options. */
 export interface ObjectLockFlagOptions {
@@ -14,46 +17,20 @@ export interface ObjectLockFlagOptions {
 export function build_object_lock_request(
   options: ObjectLockFlagOptions,
 ): ObjectLockRequest | undefined {
-  const retention_days = parse_retention_days(options.retentionDays);
-  const mode = parse_lock_mode(options.lockMode, retention_days ? 'GOVERNANCE' : undefined);
-  if (!retention_days) {
-    return undefined;
-  }
-
-  return {
-    mode,
-    retention_days,
-  };
+  return build_request({
+    retention_days: parse_retention_days(options.retentionDays),
+    lock_mode: options.lockMode,
+  });
 }
 
 /** Builds an ObjectLockPolicy from CLI flags; undefined when no retention requested. */
 export function build_object_lock_policy(
   options: ObjectLockFlagOptions,
 ): ObjectLockPolicy | undefined {
-  const retention_days = parse_retention_days(options.retentionDays);
-  const mode = parse_lock_mode(options.lockMode, retention_days ? 'GOVERNANCE' : undefined);
-  if (!retention_days) {
-    return undefined;
-  }
-
-  return {
-    mode,
-    retain_until: compute_retain_until_utc(retention_days),
-  };
-}
-
-/** Parses --lock-mode into an ObjectLockMode, falling back to default_mode. */
-export function parse_lock_mode(
-  raw_mode?: string,
-  default_mode?: ObjectLockMode,
-): ObjectLockMode | undefined {
-  if (!raw_mode) return default_mode;
-  const normalized = raw_mode.trim().toUpperCase();
-  if (normalized === 'GOVERNANCE') return 'GOVERNANCE';
-  if (normalized === 'COMPLIANCE') return 'COMPLIANCE';
-  throw new Error(
-    `Invalid --lock-mode value "${raw_mode}". Expected "governance" or "compliance".`,
-  );
+  return build_policy({
+    retention_days: parse_retention_days(options.retentionDays),
+    lock_mode: options.lockMode,
+  });
 }
 
 /** Parses --retention-days into a positive integer. */
@@ -64,10 +41,4 @@ export function parse_retention_days(raw_days?: string): number | undefined {
     throw new Error(`Invalid --retention-days value "${raw_days}". Expected a positive integer.`);
   }
   return parsed;
-}
-
-function compute_retain_until_utc(retention_days: number): string {
-  const now = Date.now();
-  const days_ms = retention_days * 24 * 60 * 60 * 1000;
-  return new Date(now + days_ms).toISOString();
 }

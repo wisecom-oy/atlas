@@ -24,7 +24,7 @@ import {
 } from '@wisecom/atlas-types';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options } from '@/operation-options';
-
+import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/object-lock-policy';
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {
   const backup = container.get<BackupUseCase>(BACKUP_USE_CASE_TOKEN);
@@ -39,8 +39,21 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
 
   return {
     async backup(mailbox_id, options) {
+      const adapted = adapt_operation_options(options);
+      // Derive retain_until from the shared builder when the caller supplies only a
+      // request, so SDK and CLI agree on the policy.
+      const sync_options =
+        adapted?.object_lock_request && !adapted.object_lock_policy
+          ? {
+              ...adapted,
+              object_lock_policy: build_object_lock_policy({
+                retention_days: adapted.object_lock_request.retention_days,
+                lock_mode: adapted.object_lock_request.mode,
+              }),
+            }
+          : adapted;
       const [result, cost_result] = await run_with_cost_tracking(() =>
-        backup.sync_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
+        backup.sync_mailbox(tenant_id, mailbox_id, sync_options),
       );
       return { ...result, graph_cost: cost_result };
     },

@@ -13,6 +13,7 @@ import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { ReplicationResult } from '@/domain/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OneDriveStatusResult } from '@/ports/onedrive/status.port';
+import type { DriveStats } from '@/domain/stats';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 
@@ -60,4 +61,6 @@ export interface OneDriveApi {
   ): Promise<ReplicationResult>;
   rehydrateOwner(ownerId: string, source: StorageTarget): Promise<ReplicationResult>;
   checkStatus(ownerId: string): Promise<OneDriveStatusResult>;
+  /** Aggregates OneDrive backup statistics; without ownerId, tenant-wide across drives. */
+  getStats(ownerId?: string): Promise<DriveStats>;
 }

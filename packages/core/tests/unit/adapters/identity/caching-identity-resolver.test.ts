@@ -13,7 +13,6 @@ import { CachingIdentityResolver } from '@/adapters/identity/caching-identity-re
 function make_graph_resolver(overrides: Partial<UserIdentityResolver> = {}): UserIdentityResolver {
   return {
     resolve_user: vi.fn().mockRejectedValue(new Error('Not found')),
-    resolve_users: vi.fn().mockResolvedValue([]),
     resolve_by_object_id: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };

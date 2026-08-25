@@ -2,32 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container } from 'inversify';
 import { Command } from 'commander';
 import { register_outlook_command } from '@/commands/outlook.command';
-import { BACKUP_USE_CASE_TOKEN, TENANT_ORCHESTRATOR_TOKEN } from '@wisecom/atlas-types';
+import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 
 const mock_run_backup_with_cli_adapter = vi.fn();
-const mock_run_tenant_backup_with_cli_adapter = vi.fn();
 
 vi.mock('@/adapters/backup-operation.adapter', () => ({
   run_backup_with_cli_adapter: (...args: unknown[]): unknown =>
     mock_run_backup_with_cli_adapter(...args),
 }));
-
-vi.mock('@/adapters/tenant-backup-operation.adapter', () => ({
-  run_tenant_backup_with_cli_adapter: (...args: unknown[]): unknown =>
-    mock_run_tenant_backup_with_cli_adapter(...args),
-}));
-
-function make_tenant_result(failed: number): Record<string, unknown> {
-  return {
-    outcomes: failed > 0 ? [{ owner_id: 'broken@t.com', error: 'Graph 503' }] : [],
-    total_mailboxes: 2,
-    succeeded: 2 - failed,
-    failed,
-    interrupted: false,
-    elapsed_ms: 100,
-  };
-}
 
 function make_sync_result(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -103,56 +86,26 @@ describe('outlook backup command immutability options', () => {
   });
 });
 
-describe('outlook backup command exit code for tenant runs', () => {
+describe('outlook backup requires a mailbox (issue #166)', () => {
   let container: Container;
   let program: Command;
-  let exit_code_before: string | number | undefined;
 
   beforeEach(() => {
     container = new Container();
     container.bind(BACKUP_USE_CASE_TOKEN).toConstantValue({ sync_mailbox: vi.fn() });
-    container.bind(TENANT_ORCHESTRATOR_TOKEN).toConstantValue({ backup_tenant: vi.fn() });
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-from-config' });
 
     program = new Command();
+    program.exitOverride();
     register_outlook_command(program, () => container);
-    mock_run_tenant_backup_with_cli_adapter.mockReset();
-    exit_code_before = process.exitCode ?? undefined;
-    process.exitCode = undefined;
+    mock_run_backup_with_cli_adapter.mockReset();
   });
 
-  afterEach(() => {
-    process.exitCode = exit_code_before;
-  });
-
-  it('exits 2 (partial) and names the mailbox when any mailbox backup failed (issue #32)', async () => {
-    mock_run_tenant_backup_with_cli_adapter.mockResolvedValue(make_tenant_result(1));
-
-    await program.parseAsync(['outlook', 'backup'], { from: 'user' });
-
-    expect(process.exitCode).toBe(2);
-  });
-
-  it('keeps a clean exit code when all mailbox backups succeed', async () => {
-    mock_run_tenant_backup_with_cli_adapter.mockResolvedValue(make_tenant_result(0));
-
-    await program.parseAsync(['outlook', 'backup'], { from: 'user' });
-
-    expect(process.exitCode).toBeUndefined();
-  });
-
-  it('forwards lock flags to the tenant-wide orchestrator run (issue #29)', async () => {
-    mock_run_tenant_backup_with_cli_adapter.mockResolvedValue(make_tenant_result(0));
-
-    await program.parseAsync(
-      ['outlook', 'backup', '--retention-days', '30', '--lock-mode', 'compliance'],
-      { from: 'user' },
+  it('rejects the invocation without running a backup when -m is omitted', async () => {
+    await expect(program.parseAsync(['outlook', 'backup'], { from: 'user' })).rejects.toThrow(
+      /mailbox/,
     );
-
-    const tenant_options = mock_run_tenant_backup_with_cli_adapter.mock.calls[0][2];
-    expect(tenant_options.object_lock_request).toEqual({ mode: 'COMPLIANCE', retention_days: 30 });
-    expect(tenant_options.object_lock_policy.mode).toBe('COMPLIANCE');
-    expect(tenant_options.object_lock_policy.retain_until).toBeDefined();
+    expect(mock_run_backup_with_cli_adapter).not.toHaveBeenCalled();
   });
 });
 
