@@ -15,10 +15,11 @@ import { register_onedrive_command } from '@/commands/onedrive.command';
 import { register_sharepoint_command } from '@/commands/sharepoint.command';
 import { register_tenant_delete_command } from '@/commands/tenant-delete.command';
 import { register_outlook_command } from '@/commands/outlook.command';
-import { ask_confirmation } from '@/ui/components/confirm-prompt';
+import { ask_confirmation, ask_exact_match } from '@/ui/components/confirm-prompt';
 
 vi.mock('@/ui/components/confirm-prompt', () => ({
   ask_confirmation: vi.fn().mockResolvedValue(true),
+  ask_exact_match: vi.fn().mockResolvedValue(true),
 }));
 
 const TENANT_ID = 'test-tenant';
@@ -141,6 +142,7 @@ describe('drive deletion commands (issue #163)', () => {
 
   it('deletes nothing when the operator declines the confirmation', async () => {
     vi.mocked(ask_confirmation).mockResolvedValue(false);
+    vi.mocked(ask_exact_match).mockResolvedValue(false);
 
     await h.program.parseAsync(['onedrive', 'delete', '-o', OWNER_OBJECT_ID], { from: 'user' });
     await h.program.parseAsync(['sharepoint', 'delete', '--site', SITE_ID], { from: 'user' });
@@ -164,7 +166,10 @@ describe('tenant-wide purge moved out of the outlook group (issue #163)', () => 
 
   beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.mocked(ask_confirmation).mockClear();
     vi.mocked(ask_confirmation).mockResolvedValue(true);
+    vi.mocked(ask_exact_match).mockClear();
+    vi.mocked(ask_exact_match).mockResolvedValue(true);
     process.exitCode = undefined;
     h = harness();
   });
@@ -193,5 +198,32 @@ describe('tenant-wide purge moved out of the outlook group (issue #163)', () => 
     await h.program.parseAsync(['outlook', 'delete', '-m', OWNER_EMAIL, '-y'], { from: 'user' });
 
     expect(h.outlook.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL);
+  });
+
+  it('purges only when the tenant ID is typed back exactly', async () => {
+    vi.mocked(ask_exact_match).mockResolvedValue(false);
+    await h.program.parseAsync(['delete', '--purge'], { from: 'user' });
+    expect(h.outlook.purge_tenant).not.toHaveBeenCalled();
+
+    vi.mocked(ask_exact_match).mockResolvedValue(true);
+    await h.program.parseAsync(['delete', '--purge'], { from: 'user' });
+
+    expect(ask_exact_match).toHaveBeenLastCalledWith(expect.any(String), TENANT_ID);
+    expect(h.outlook.purge_tenant).toHaveBeenCalledWith(TENANT_ID);
+  });
+
+  it('never asks the operator to type anything when -y is given', async () => {
+    await h.program.parseAsync(['delete', '--purge', '-y'], { from: 'user' });
+
+    expect(ask_exact_match).not.toHaveBeenCalled();
+    expect(ask_confirmation).not.toHaveBeenCalled();
+    expect(h.outlook.purge_tenant).toHaveBeenCalledWith(TENANT_ID);
+  });
+
+  it('asks for the tenant ID against --tenant, not the configured tenant', async () => {
+    await h.program.parseAsync(['delete', '--purge', '-t', 'other-tenant'], { from: 'user' });
+
+    expect(ask_exact_match).toHaveBeenLastCalledWith(expect.any(String), 'other-tenant');
+    expect(h.outlook.purge_tenant).toHaveBeenCalledWith('other-tenant');
   });
 });

@@ -4,11 +4,8 @@ import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type { DeletionUseCase } from '@wisecom/atlas-types';
 import { DELETION_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import {
-  confirm_deletion,
-  print_delete_result,
-  render_delete_banner,
-} from '@/commands/deletion-presenter';
+import { print_delete_result, render_delete_banner } from '@/commands/deletion-presenter';
+import { ask_exact_match } from '@/ui/components/confirm-prompt';
 
 type ContainerFactory = () => Container;
 
@@ -49,11 +46,27 @@ export async function execute_tenant_delete(
   const tenant_id = options.tenant ?? container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
   await render_delete_banner();
 
-  const description =
+  logger.warn(
     `This will delete ALL data for tenant ${tenant_id} across Outlook, OneDrive and ` +
-    `SharePoint (data, manifests, encryption keys)`;
-  if (!(await confirm_deletion(description, options.yes))) return;
+      `SharePoint (data, manifests, encryption keys)`,
+  );
+  if (!(await confirm_purge_target(tenant_id, options.yes))) {
+    logger.info('Aborted');
+    return;
+  }
 
   const deletion = container.get<DeletionUseCase>(DELETION_USE_CASE_TOKEN);
   print_delete_result(await deletion.purge_tenant(tenant_id));
+}
+
+/**
+ * Confirms the purge by having the tenant ID typed back, rather than accepting a keypress.
+ *
+ * A purge deletes every workload's objects and then the encryption key, so the mistake worth
+ * guarding is not "meant to type n" but "purged the wrong tenant" (issue #187). Typing the target
+ * is the only confirmation that catches it. `-y` remains a full bypass for scheduled runs.
+ */
+async function confirm_purge_target(tenant_id: string, skip_prompt = false): Promise<boolean> {
+  if (skip_prompt) return true;
+  return await ask_exact_match('Type the tenant ID to confirm:', tenant_id);
 }

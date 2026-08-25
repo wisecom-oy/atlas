@@ -55,3 +55,20 @@ export async function ask_confirmation(message: string, default_yes = false): Pr
   instance.unmount();
   return confirmed;
 }
+
+/**
+ * Asks the operator to type a value back and reports whether it matched exactly.
+ *
+ * Readline on a TTY as well as on piped stdin: a typed answer needs echo and line editing, which
+ * the single-keypress Ink prompt above deliberately does not provide. Trailing whitespace is
+ * forgiven because terminals and `echo` add it; nothing else is.
+ */
+export async function ask_exact_match(message: string, expected: string): Promise<boolean> {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  rl.question(`${message} `, (answer) => {
+    rl.close();
+    resolve(answer.trim() === expected);
+  });
+  return await promise;
+}
