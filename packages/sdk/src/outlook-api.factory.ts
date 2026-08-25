@@ -25,6 +25,9 @@ import {
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options } from '@/operation-options';
 import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/object-lock-policy';
+import type { OutlookBackupOptions } from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
+import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
+
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {
   const backup = container.get<BackupUseCase>(BACKUP_USE_CASE_TOKEN);
@@ -39,21 +42,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
 
   return {
     async backup(mailbox_id, options) {
-      const adapted = adapt_operation_options(options);
-      // Derive retain_until from the shared builder when the caller supplies only a
-      // request, so SDK and CLI agree on the policy.
-      const sync_options =
-        adapted?.object_lock_request && !adapted.object_lock_policy
-          ? {
-              ...adapted,
-              object_lock_policy: build_object_lock_policy({
-                retention_days: adapted.object_lock_request.retention_days,
-                lock_mode: adapted.object_lock_request.mode,
-              }),
-            }
-          : adapted;
       const [result, cost_result] = await run_with_cost_tracking(() =>
-        backup.sync_mailbox(tenant_id, mailbox_id, sync_options),
+        backup.sync_mailbox(tenant_id, mailbox_id, adapt_backup_options(options)),
       );
       return { ...result, graph_cost: cost_result };
     },
@@ -115,5 +105,32 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     async listAvailableMailboxes(options) {
       return await discovery.list_tenant_mailboxes(tenant_id, options);
     },
+  };
+}
+
+/**
+ * Adapts backup options, derives the Object Lock policy, and maps `hardStopSignal` to the
+ * internal `should_force_stop` hook, the escalation the CLI wires to a second Ctrl+C.
+ */
+function adapt_backup_options(options?: OutlookBackupOptions): SyncOptions | undefined {
+  if (!options) return undefined;
+  const { hardStopSignal: hard_stop, ...rest } = options;
+  const adapted = derive_object_lock_policy(adapt_operation_options(rest));
+  if (!hard_stop) return adapted;
+  return { ...adapted, should_force_stop: () => hard_stop.aborted };
+}
+
+/**
+ * Derives `object_lock_policy` from `object_lock_request` when the caller supplied only the
+ * request, so SDK and CLI agree on `retain_until`. A caller-supplied policy is kept as is.
+ */
+function derive_object_lock_policy(adapted?: SyncOptions): SyncOptions | undefined {
+  if (!adapted?.object_lock_request || adapted.object_lock_policy) return adapted;
+  return {
+    ...adapted,
+    object_lock_policy: build_object_lock_policy({
+      retention_days: adapted.object_lock_request.retention_days,
+      lock_mode: adapted.object_lock_request.mode,
+    }),
   };
 }

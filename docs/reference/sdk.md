@@ -102,6 +102,30 @@ if (result.interrupted) {
 | `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.            |
 | `signal`     | `AbortSignal`                             | Requests graceful cancellation. Atlas finishes the current item, then stops at a safe boundary. |
 
+`atlas.outlook.backup` accepts a third option, `hardStopSignal`, for the case where graceful is not fast enough. This is the escalation the CLI wires to a second Ctrl+C:
+
+```typescript
+const graceful = new AbortController();
+const immediate = new AbortController();
+
+process.on('SIGTERM', () => graceful.abort());
+setTimeout(() => immediate.abort(), 30_000); // shutdown deadline
+
+const result = await atlas.outlook.backup('user@company.com', {
+  signal: graceful.signal,
+  hardStopSignal: immediate.signal,
+});
+```
+
+| Signal           | Effect                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal`         | Finishes the page in flight, stores its attachments, and persists the delta link for every completed folder. The next run resumes from there.             |
+| `hardStopSignal` | Drops the page in flight and its pending attachments. The affected folder keeps its previous delta link and is re-enumerated on the next run.             |
+
+Both return a result with `interrupted: true` rather than throwing, and both keep the snapshot manifest that was written for the work already done. `hardStopSignal` trades re-enumeration of one folder for a faster exit, so use it when a deadline matters more than the wasted work.
+
+OneDrive and SharePoint backups accept `signal` only. Their long unit of work is a single file transfer, and aborting one mid-stream is not implemented, so there is nothing for an escalation to shorten.
+
 `OperationProgressEvent` is stable across workloads:
 
 ```typescript
