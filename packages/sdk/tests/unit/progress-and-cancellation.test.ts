@@ -103,6 +103,27 @@ describe('SDK progress and cancellation option adaptation', () => {
     expect(sync_mailbox.mock.calls[0]![2]).not.toHaveProperty('should_force_stop');
   });
 
+  it('derives the Object Lock policy on the hard-stop path too', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({ interrupted: false });
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with([BACKUP_USE_CASE_TOKEN, { sync_mailbox }]),
+    );
+
+    await api.backup(OWNER_ID, {
+      hardStopSignal: new AbortController().signal,
+      object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+    });
+
+    const options = sync_mailbox.mock.calls[0]![2] as {
+      should_force_stop?: () => boolean;
+      object_lock_policy?: { mode: string; retain_until: string };
+    };
+    expect(options.should_force_stop).toBeTypeOf('function');
+    expect(options.object_lock_policy).toMatchObject({ mode: 'COMPLIANCE' });
+    expect(Date.parse(options.object_lock_policy!.retain_until)).toBeGreaterThan(Date.now());
+  });
+
   it('adapts OneDrive backup onProgress and signal to internal hooks', async () => {
     const backup_onedrive = vi.fn().mockResolvedValue({ interrupted: false });
     const api = create_onedrive_api(

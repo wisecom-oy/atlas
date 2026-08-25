@@ -31,7 +31,12 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
   },
   StorageCheckUseCase: { check_storage: resolved({}) },
   SaveUseCase: { save_snapshot: resolved({}), save_mailbox: resolved({}) },
-  StatsUseCase: { get_bucket_stats: resolved({}), get_mailbox_stats: resolved({}) },
+  StatsUseCase: {
+    get_bucket_stats: resolved({}),
+    get_mailbox_stats: resolved({}),
+    get_onedrive_stats: resolved({}),
+    get_sharepoint_stats: resolved({}),
+  },
   StatusUseCase: { check_mailbox_status: resolved({}) },
   MailboxDiscoveryService: { list_tenant_mailboxes: resolved([]) },
   ReplicationUseCase: {
@@ -139,6 +144,7 @@ describe('createAtlasInstance — async contract', () => {
       () => atlas.onedrive.replicateAll('o', targets),
       () => atlas.onedrive.rehydrateSnapshot('o', 's', source),
       () => atlas.onedrive.rehydrateOwner('o', source),
+      () => atlas.onedrive.getStats('o'),
       () => atlas.sharepoint.backup('site'),
       () => atlas.sharepoint.verify('site', 's'),
       () => atlas.sharepoint.restore('site', { snapshot_id: 's' }),
@@ -154,6 +160,7 @@ describe('createAtlasInstance — async contract', () => {
       () => atlas.sharepoint.replicateAll('site', targets),
       () => atlas.sharepoint.rehydrateSnapshot('site', 's', source),
       () => atlas.sharepoint.rehydrateSite('site', source),
+      () => atlas.sharepoint.getStats('site'),
       () => atlas.checkStorage(),
       () => atlas.getBucketStats(),
       () => atlas.resolveUser('alice@test.com'),
@@ -164,7 +171,7 @@ describe('createAtlasInstance — async contract', () => {
       () => atlas.rehydrateMailbox('m', source),
       () => atlas.rehydrateTenant(source),
       () => atlas.getReplicationStatus('s'),
-      () => atlas.getReplicationStatusByMailbox('m'),
+      () => atlas.getReplicationStatusByOwner('m'),
     ]) {
       expect(call()).toBeInstanceOf(Promise);
     }

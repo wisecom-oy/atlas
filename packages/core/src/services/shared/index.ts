@@ -16,3 +16,10 @@ export {
 export type { DriveChainEntry, DriveChainManifest } from '@/services/shared/drive-snapshot-chain';
 export { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
 export type { StreamDecryptResult } from '@/services/shared/stream-decrypt';
+export {
+  build_object_lock_policy,
+  build_object_lock_request,
+  compute_retain_until_utc,
+  parse_object_lock_mode,
+} from '@/services/shared/object-lock-policy';
+export type { ObjectLockSettings } from '@/services/shared/object-lock-policy';
