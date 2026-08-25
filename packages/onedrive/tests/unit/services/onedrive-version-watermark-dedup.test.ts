@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import type {
   OneDriveDeltaCursor,
   OneDriveDeltaItem,
@@ -27,6 +27,11 @@ const VERSIONS = [
   { version_id: '2.0', last_modified_at: '2026-02-01T00:00:00Z', size_bytes: 20 },
   { version_id: '1.0', last_modified_at: '2026-01-01T00:00:00Z', size_bytes: 10 },
 ];
+
+const COMPLETE_WATERMARK = {
+  last_modified_at: '2026-02-01T00:00:00Z',
+  version_ids: ['2.0'],
+};
 
 /**
  * `failing_extra_item` makes a second delta item throw out of the item loop,
@@ -89,7 +94,9 @@ function make_harness(
   return { service, connector, file_indexes, cursors };
 }
 
-function make_cursor(watermarks: Record<string, string> | undefined): OneDriveDeltaCursor {
+function make_cursor(
+  watermarks: OneDriveDeltaCursor['version_watermark_by_file_id'],
+): OneDriveDeltaCursor {
   return {
     owner_id: 'owner-1',
     delta_link_by_drive: { d1: 'link-0' },
@@ -103,15 +110,14 @@ function make_cursor(watermarks: Record<string, string> | undefined): OneDriveDe
 }
 
 /** The cursor the run persisted, whichever finalize path saved it. */
-function saved_cursor(cursors: { save: ReturnType<typeof vi.fn> }): OneDriveDeltaCursor {
-  const last = cursors.save.mock.calls.at(-1);
-  return last?.[1] as OneDriveDeltaCursor;
+function saved_cursor(cursors: { save: Mock }): OneDriveDeltaCursor {
+  return cursors.save.mock.calls.at(-1)?.[1] as OneDriveDeltaCursor;
 }
 
 describe('OneDrive version dedup watermarks (issue #161)', () => {
   it('reads no index objects when the cursor already carries watermarks', async () => {
     const { service, file_indexes, connector } = make_harness(
-      make_cursor({ f1: '2026-02-01T00:00:00Z' }),
+      make_cursor({ f1: COMPLETE_WATERMARK }),
     );
 
     await service.backup_onedrive('t', 'owner-1', {});
@@ -134,13 +140,13 @@ describe('OneDrive version dedup watermarks (issue #161)', () => {
     await service.backup_onedrive('t', 'owner-1', {});
 
     expect(saved_cursor(cursors).version_watermark_by_file_id).toEqual({
-      f1: '2026-02-01T00:00:00Z',
+      f1: COMPLETE_WATERMARK,
     });
   });
 
   it('keeps watermarks across a forced full run, which only resets the delta link', async () => {
     const { service, file_indexes, connector } = make_harness(
-      make_cursor({ f1: '2026-02-01T00:00:00Z' }),
+      make_cursor({ f1: COMPLETE_WATERMARK }),
     );
 
     await service.backup_onedrive('t', 'owner-1', { force_full: true });
@@ -169,7 +175,7 @@ describe('OneDrive version dedup watermarks (issue #161)', () => {
     // The watermark that makes the next run skip those versions must never be
     // durable before the rows describing them.
     expect(saved_cursor(cursors).version_watermark_by_file_id).toEqual({
-      f1: '2026-02-01T00:00:00Z',
+      f1: COMPLETE_WATERMARK,
     });
     expect(file_indexes.write_run_index.mock.invocationCallOrder[0]).toBeLessThan(
       cursors.save.mock.invocationCallOrder.at(-1) as number,

@@ -40,6 +40,7 @@ export type {
   OneDriveFileVersionRecord,
   OneDriveFileVersionIndex,
   OneDriveDeltaCursor,
+  OneDriveVersionWatermark,
 } from './onedrive-manifest';
 export type {
   IdentityRegistry,
@@ -53,6 +54,7 @@ export type {
   SharePointFileVersionRecord,
   SharePointFileVersionIndex,
   SharePointDeltaCursor,
+  SharePointVersionWatermark,
 } from './sharepoint-manifest';
 export type {
   GraphOperation,

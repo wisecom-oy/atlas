@@ -17,7 +17,14 @@ const VERSIONS = [
   { version_id: '1.0', last_modified_at: '2026-01-01T00:00:00Z', size_bytes: 10 },
 ];
 
-function make_cursor(watermarks: Record<string, string> | undefined): SharePointDeltaCursor {
+const COMPLETE_WATERMARK = {
+  last_modified_at: '2026-02-01T00:00:00Z',
+  version_ids: ['2.0'],
+};
+
+function make_cursor(
+  watermarks: SharePointDeltaCursor['version_watermark_by_file_id'],
+): SharePointDeltaCursor {
   return {
     site_id: 'site-1',
     delta_link_by_drive: { 'drive-1': 'https://delta-link-0' },
@@ -64,14 +71,14 @@ function make_harness(
 
 /** The cursor the run persisted, whichever finalize path saved it. */
 function saved_cursor(cursors: { save: unknown }): SharePointDeltaCursor {
-  const save = cursors.save as ReturnType<typeof vi.fn>;
+  const save = cursors.save as unknown as Mock;
   return save.mock.calls.at(-1)?.[1] as SharePointDeltaCursor;
 }
 
 describe('SharePoint version dedup watermarks (issue #161)', () => {
   it('reads no index objects when the cursor already carries watermarks', async () => {
     const { service, file_indexes, connector } = make_harness(
-      make_cursor({ f1: '2026-02-01T00:00:00Z' }),
+      make_cursor({ f1: COMPLETE_WATERMARK }),
     );
 
     await service.backup_site('tenant-1', 'site-1', {});
@@ -94,13 +101,13 @@ describe('SharePoint version dedup watermarks (issue #161)', () => {
     await service.backup_site('tenant-1', 'site-1', {});
 
     expect(saved_cursor(cursors).version_watermark_by_file_id).toEqual({
-      f1: '2026-02-01T00:00:00Z',
+      f1: COMPLETE_WATERMARK,
     });
   });
 
   it('keeps watermarks across a forced full run, which only resets the delta link', async () => {
     const { service, file_indexes, connector } = make_harness(
-      make_cursor({ f1: '2026-02-01T00:00:00Z' }),
+      make_cursor({ f1: COMPLETE_WATERMARK }),
     );
 
     await service.backup_site('tenant-1', 'site-1', { force_full: true });
@@ -129,7 +136,7 @@ describe('SharePoint version dedup watermarks (issue #161)', () => {
     // The watermark that makes the next run skip those versions must never be
     // durable before the rows describing them.
     expect(saved_cursor(cursors).version_watermark_by_file_id).toEqual({
-      f1: '2026-02-01T00:00:00Z',
+      f1: COMPLETE_WATERMARK,
     });
     const save = cursors.save as unknown as Mock;
     expect(write_run_index.mock.invocationCallOrder[0]).toBeLessThan(

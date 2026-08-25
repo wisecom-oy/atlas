@@ -4,6 +4,7 @@ import { ConcurrencySemaphore } from '@wisecom/atlas-core/services/shared/concur
 import type {
   OneDriveFileVersionIndex,
   OneDriveFileVersionIndexRepository,
+  OneDriveVersionWatermark,
   TenantContext,
 } from '@wisecom/atlas-types';
 import {
@@ -58,13 +59,17 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
   async load_version_watermarks(
     ctx: TenantContext,
     owner_id: string,
-  ): Promise<Record<string, string>> {
-    const watermarks: Record<string, string> = {};
+  ): Promise<Record<string, OneDriveVersionWatermark>> {
+    const watermarks: Record<string, OneDriveVersionWatermark> = {};
     await this.for_each_index(ctx, owner_id, (idx) => {
       for (const version of idx.versions) {
         if (!version.version_id) continue;
-        const next = later_watermark(watermarks[idx.file_id], version.last_modified_at);
-        if (next !== undefined) watermarks[idx.file_id] = next;
+        const next = later_watermark(
+          watermarks[idx.file_id],
+          version.last_modified_at,
+          version.version_id,
+        );
+        if (next !== undefined && typeof next !== 'string') watermarks[idx.file_id] = next;
       }
     });
     return watermarks;
@@ -97,7 +102,7 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
     return [...rows_by_file].map(([file_id, versions]) => ({
       file_id,
       owner_id,
-      versions: sort_versions(versions),
+      versions: sort_and_deduplicate_versions(versions),
     }));
   }
 
@@ -150,9 +155,18 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
   }
 }
 
-/** Orders version rows oldest first by backup timestamp. */
-function sort_versions(versions: OneDriveFileVersionIndex['versions']): typeof versions {
-  return versions.sort((a, b) =>
-    a.backup_at < b.backup_at ? -1 : a.backup_at > b.backup_at ? 1 : 0,
-  );
+/** Orders rows oldest first and drops repeated historical version ids. */
+function sort_and_deduplicate_versions(
+  versions: OneDriveFileVersionIndex['versions'],
+): typeof versions {
+  versions.sort((a, b) => (a.backup_at < b.backup_at ? -1 : a.backup_at > b.backup_at ? 1 : 0));
+  const seen_version_ids = new Set<string>();
+  let write_index = 0;
+  for (const version of versions) {
+    if (version.version_id && seen_version_ids.has(version.version_id)) continue;
+    if (version.version_id) seen_version_ids.add(version.version_id);
+    versions[write_index++] = version;
+  }
+  versions.length = write_index;
+  return versions;
 }

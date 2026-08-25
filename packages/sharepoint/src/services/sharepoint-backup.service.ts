@@ -219,7 +219,9 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     delta_link_by_drive: Record<string, string>,
     tracking: FileTrackingState,
     failed_items: FailedItemLedger,
-    version_watermark_by_file_id: Record<string, string>,
+    version_watermark_by_file_id: NonNullable<
+      SharePointDeltaCursor['version_watermark_by_file_id']
+    >,
   ): SharePointDeltaCursor {
     return {
       site_id,

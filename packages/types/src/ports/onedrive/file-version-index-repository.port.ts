@@ -1,4 +1,7 @@
-import type { OneDriveFileVersionIndex } from '../../domain/onedrive-manifest';
+import type {
+  OneDriveFileVersionIndex,
+  OneDriveVersionWatermark,
+} from '../../domain/onedrive-manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 /**
@@ -11,13 +14,15 @@ import type { TenantContext } from '../tenant/context.port';
  */
 export interface OneDriveFileVersionIndexRepository {
   /**
-   * Newest captured historical version per file, as a Graph
-   * `lastModifiedDateTime`, reconstructed by scanning the owner's index
-   * objects. Seeds the delta cursor's watermarks once when upgrading from a
-   * version of Atlas that did not carry them; steady-state backups read the
-   * cursor instead and never call this.
+   * Exact captured position per file, reconstructed by scanning the owner's
+   * index objects. Seeds the delta cursor's watermarks once when upgrading
+   * from a version of Atlas that did not carry them; steady-state backups read
+   * the cursor instead and never call this.
    */
-  load_version_watermarks(ctx: TenantContext, owner_id: string): Promise<Record<string, string>>;
+  load_version_watermarks(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<Record<string, OneDriveVersionWatermark>>;
 
   /**
    * Writes the version rows captured during one backup run as a single index

@@ -4,6 +4,7 @@ import type {
   SharePointDeltaItem,
   SharePointFileVersion,
   SharePointFileVersionRecord,
+  SharePointVersionWatermark,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -30,7 +31,7 @@ export interface VersionSyncOutcome extends VersionSyncResult {
    * Stops short of any version this run failed to capture for an unexpected
    * reason, so the next run retries it instead of skipping past it.
    */
-  next_watermark?: string;
+  next_watermark?: SharePointVersionWatermark | string;
 }
 
 /**
@@ -40,7 +41,7 @@ export interface VersionSyncOutcome extends VersionSyncResult {
  * captured for its single index object (issue #161).
  */
 export interface RunVersionCollector {
-  watermarks: Record<string, string>;
+  watermarks: Record<string, SharePointVersionWatermark | string>;
   rows: Map<string, SharePointFileVersionRecord[]>;
 }
 
@@ -99,7 +100,7 @@ export async function sync_file_versions(
   site_id: string,
   snapshot_id: string,
   ctx: TenantContext,
-  watermark: string | undefined,
+  watermark: SharePointVersionWatermark | string | undefined,
 ): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
   if (versions.length === 0) return EMPTY_OUTCOME;
@@ -129,7 +130,7 @@ async function capture_new_versions(
   snapshot_id: string,
   ctx: TenantContext,
   versions: readonly SharePointFileVersion[],
-  watermark: string | undefined,
+  watermark: SharePointVersionWatermark | string | undefined,
 ): Promise<VersionSyncOutcome> {
   const totals: VersionSyncResult = {
     new_versions_stored: 0,
@@ -142,14 +143,20 @@ async function capture_new_versions(
   let watermark_blocked = false;
 
   for (const version of [...versions].sort(by_version_age)) {
-    if (is_version_already_captured(version.last_modified_at, watermark)) continue;
+    if (is_version_already_captured(version.version_id, version.last_modified_at, watermark)) {
+      continue;
+    }
 
     const captured = await capture_version(connector, item, site_id, snapshot_id, ctx, version);
     // Not `||=`: that short-circuits once blocked and would stop tallying the
     // remaining versions entirely.
     if (!tally_capture(totals, records, captured)) watermark_blocked = true;
     if (!watermark_blocked) {
-      next_watermark = later_watermark(next_watermark, version.last_modified_at);
+      next_watermark = later_watermark(
+        next_watermark,
+        version.last_modified_at,
+        version.version_id,
+      );
     }
   }
 

@@ -54,6 +54,13 @@ export interface OneDriveFileVersionIndex {
   readonly versions: OneDriveFileVersionRecord[];
 }
 
+/** Exact position in one file's historical-version stream. */
+export interface OneDriveVersionWatermark {
+  readonly last_modified_at: string;
+  /** Version ids captured at this timestamp; Graph timestamps have only second precision. */
+  readonly version_ids: string[];
+}
+
 export interface OneDriveDeltaCursor {
   readonly owner_id: string;
   readonly delta_link_by_drive: Record<string, string>;
@@ -62,16 +69,13 @@ export interface OneDriveDeltaCursor {
   readonly previous_etag_by_file_id: Record<string, string>;
   readonly previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
   /**
-   * Newest historical version already captured per file, as the Graph
-   * `lastModifiedDateTime` of that version. A later run skips every version at
-   * or below this mark instead of re-reading the version index, so version
-   * dedup costs one cursor read rather than a scan of the owner's whole
-   * history (issue #161).
-   *
-   * Absent on cursors written before watermarks existed; the next run seeds it
-   * from the index once and never scans again.
+   * Exact historical-version position per file. The timestamp skips older
+   * versions; `version_ids` distinguishes versions that share Graph's
+   * second-precision timestamp. Legacy string values are upgraded on the next
+   * change to that file. Absent on older cursors; the next run seeds it once
+   * from the index.
    */
-  readonly version_watermark_by_file_id?: Record<string, string>;
+  readonly version_watermark_by_file_id?: Record<string, OneDriveVersionWatermark | string>;
   /**
    * Items that failed to back up, kept so a later run can retry them: delta
    * will not re-present an unchanged item once the link has advanced past it.

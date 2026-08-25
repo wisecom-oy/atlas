@@ -108,6 +108,56 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
     });
 
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, {
+      last_modified_at: '2024-01-01T00:00:00Z',
+      version_ids: ['v2.0'],
+    });
+
+    expect(connector.download_file_version).toHaveBeenCalledTimes(1);
+    expect(result.records.map((r) => r.version_id)).toEqual(['v3.0']);
+    expect(result.next_watermark).toEqual({
+      last_modified_at: '2024-02-01T00:00:00Z',
+      version_ids: ['v3.0'],
+    });
+  });
+
+  it('captures only unseen version ids at the watermark timestamp', async () => {
+    const versions = [
+      { version_id: 'v2.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 500 },
+      { version_id: 'v3.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 600 },
+    ];
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+    });
+
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, {
+      last_modified_at: '2024-01-01T00:00:00Z',
+      version_ids: ['v2.0'],
+    });
+
+    expect(connector.download_file_version).toHaveBeenCalledTimes(1);
+    expect(connector.download_file_version).toHaveBeenCalledWith(
+      item.drive_id,
+      item.item_id,
+      'v3.0',
+    );
+    expect(result.next_watermark).toEqual({
+      last_modified_at: '2024-01-01T00:00:00Z',
+      version_ids: ['v2.0', 'v3.0'],
+    });
+  });
+
+  it('upgrades a legacy timestamp without skipping equal-second versions', async () => {
+    const versions = [
+      { version_id: 'v2.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 500 },
+      { version_id: 'v3.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 600 },
+    ];
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+    });
+
     const result = await sync_file_versions(
       connector,
       item,
@@ -117,9 +167,11 @@ describe('sync_file_versions', () => {
       '2024-01-01T00:00:00Z',
     );
 
-    expect(connector.download_file_version).toHaveBeenCalledTimes(1);
-    expect(result.records.map((r) => r.version_id)).toEqual(['v3.0']);
-    expect(result.next_watermark).toBe('2024-02-01T00:00:00Z');
+    expect(connector.download_file_version).toHaveBeenCalledTimes(2);
+    expect(result.next_watermark).toEqual({
+      last_modified_at: '2024-01-01T00:00:00Z',
+      version_ids: ['v2.0', 'v3.0'],
+    });
   });
 
   it('deduplicates when storage key already exists', async () => {
@@ -221,7 +273,10 @@ describe('sync_file_versions', () => {
     expect(result.records.length).toBe(1);
     // v2 captured, v3 permanently gone, v4 failed: the mark stops at v3 so the
     // next run retries v4 rather than skipping past it.
-    expect(result.next_watermark).toBe('2024-02-01');
+    expect(result.next_watermark).toEqual({
+      last_modified_at: '2024-02-01',
+      version_ids: ['v3.0'],
+    });
   });
 
   it('walks versions oldest first even though Graph returns them newest first', async () => {
@@ -238,7 +293,10 @@ describe('sync_file_versions', () => {
     const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
 
     expect(result.records.map((r) => r.version_id)).toEqual(['v2.0', 'v3.0', 'v4.0']);
-    expect(result.next_watermark).toBe('2024-03-01T00:00:00Z');
+    expect(result.next_watermark).toEqual({
+      last_modified_at: '2024-03-01T00:00:00Z',
+      version_ids: ['v4.0'],
+    });
   });
 
   it('holds the watermark back when the oldest version fails unexpectedly', async () => {

@@ -31,11 +31,11 @@ Delta links are stored in the **encrypted manifest**, not in plaintext. They con
 
 ## When Atlas falls back to a full enumeration
 
-| Trigger                  | Behavior                                                                                                                                                                        |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Stale-delta safeguard** | A saved delta link returns zero items while the previous manifest had zero stored entries. That combination indicates the prior backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full. |
-| **`syncStateNotFound`**   | Microsoft purges delta tokens after roughly 30 days of inactivity. Atlas detects the error, resyncs the folder in full, and logs a warning so you know the incremental chain was broken. |
-| **`--full`**              | `atlas outlook backup --full` ignores every saved delta link. Use it for periodic audits or when you suspect a delta link is corrupted. |
+| Trigger                   | Behavior                                                                                                                                                                                                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Stale-delta safeguard** | A saved delta link returns zero items while the previous manifest had zero stored entries. That combination indicates the prior backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full.                                                                                |
+| **`syncStateNotFound`**   | Microsoft purges delta tokens after roughly 30 days of inactivity. Atlas detects the error, resyncs the folder in full, and logs a warning so you know the incremental chain was broken.                                                                                                                                     |
+| **`--full`**              | `atlas outlook backup --full` ignores every saved delta link. Use it for periodic audits or when you suspect a delta link is corrupted.                                                                                                                                                                                      |
 | **Legacy message IDs**    | Snapshots taken before Atlas adopted immutable Outlook IDs recorded mutable IDs in their manifests and delta links. Mixing the two formats would break correlation, so the first backup after upgrading restarts the mailbox in full and stamps the new manifest with `id_format: immutable`. This happens once per mailbox. |
 
 The stale-delta safeguard exists to prevent a specific failure: an interrupted backup saving a delta link that skips all the messages it never actually stored.
@@ -51,40 +51,43 @@ That raises a question every run has to answer before it spends bandwidth: which
   "owner_id": "2f1c9a04-7b3d-4e11-9c2a-6d5e8f0a1b2c",
   "delta_link_by_drive": { "b!x9Kp...": "https://graph.microsoft.com/v1.0/..." },
   "version_watermark_by_file_id": {
-    "01ABCDEF...": "2026-08-24T09:12:44Z"
+    "01ABCDEF...": {
+      "last_modified_at": "2026-08-24T09:12:44Z",
+      "version_ids": ["7.0", "8.0"]
+    }
   }
 }
 ```
 
-The value is a **watermark**: the `lastModifiedDateTime` of the newest historical version Atlas has already dealt with for that file. On the next run, every version at or below the watermark is skipped without contacting Graph.
+The watermark has two parts. `last_modified_at` skips versions with an older timestamp. `version_ids` skips only the exact versions already captured at the boundary timestamp.
 
-### Why a timestamp and not a list of version IDs
+### Why a timestamp plus boundary version IDs
 
-A file's version history is totally ordered in time and only ever grows at the newest end. A version's timestamp is fixed when the version is created, and restoring an old version produces a **new** version with a current timestamp rather than reviving the old one. One timestamp per file therefore carries exactly as much information as the full set of version IDs, at a fraction of the size, which is what lets the state live in the cursor instead of in storage.
+Graph returns `lastModifiedDateTime` with second precision, so distinct versions can share one timestamp. A timestamp alone cannot distinguish them and could silently skip a version created later in the same second. Atlas therefore retains all captured IDs at the newest timestamp. It discards older IDs because the timestamp proves those versions precede the boundary.
 
-Atlas deliberately does not key this on `driveItemVersion.id`. The Graph reference documents that field only as "The ID of the version", with no guarantee of format or ordering. Real values look like `3.0`, SharePoint adds minor versions such as `1.1`, and libraries prune the oldest versions server-side once the version limit is reached. Treating it as a sortable sequence would be relying on undocumented behavior.
+Atlas treats `driveItemVersion.id` only as an equality key. The Graph reference does not guarantee its format or ordering. Real values include major and minor versions, and libraries can prune old versions under their version limits. Atlas never parses or sorts these IDs.
 
 ### How the watermark advances
 
 Versions are processed oldest first, and the watermark stops at the first version the run could not capture:
 
-| Outcome for a version | Watermark | Reason |
-| --- | --- | --- |
-| Downloaded and stored, or already present as a deduplicated blob | Advances past it | Atlas holds the content |
-| `404` or `410` from Graph | Advances past it | The version expired under the library's version policy and will never be retrievable |
-| Any other error, for example `403` or `500` | Stops before it | The version may still be retrievable, so the next run must retry it rather than skip past it |
+| Outcome for a version                                            | Watermark        | Reason                                                                                       |
+| ---------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------------- |
+| Downloaded and stored, or already present as a deduplicated blob | Advances past it | Atlas holds the content                                                                      |
+| `404` or `410` from Graph                                        | Advances past it | The version expired under the library's version policy and will never be retrievable         |
+| Any other error, for example `403` or `500`                      | Stops before it  | The version may still be retrievable, so the next run must retry it rather than skip past it |
 
 A run that fails to fetch one old version therefore re-attempts that version, and everything newer than it, on the next run. Nothing is silently dropped.
 
-Two edge cases are handled conservatively. A version whose `lastModifiedDateTime` is missing or unparseable is never treated as already captured, so it is fetched again on each run and deduplicated at the content-addressed blob layer instead. Two versions sharing an identical timestamp can cause one redundant download, which the same blob-level check absorbs. Both trade a little Graph bandwidth for the guarantee that history is never skipped on an unprovable assumption.
+A version whose `lastModifiedDateTime` is missing or unparseable is never treated as captured. Atlas fetches it again when the file changes and deduplicates it at the content-addressed blob layer. Versions sharing a valid timestamp are distinguished by ID, so no history is skipped and no boundary version needs a recurring download.
 
 ### What this costs
 
-One cursor read per run, which the run performs anyway. The version index in object storage is not read during backup at all. Before watermarks, every run scanned the owner's or site's entire version index to rebuild the same answer, which is one request per backup run ever performed. On a fleet of a thousand mailboxes with years of history, that scan alone grew past the nightly window.
+One cursor read per run, which the run performs anyway. The version index in object storage is not read during steady-state backup. Each watermark stores one timestamp plus only the IDs at that timestamp, not the file's full version history. Before watermarks, every run scanned the owner's or site's entire version index to rebuild the same answer, which is one request per backup run ever performed. On a fleet of a thousand mailboxes with years of history, that scan alone grew past the nightly window.
 
 ### Upgrading, and `--full`
 
-A cursor written by an older version of Atlas has no watermark map. The first run after upgrading rebuilds it once by scanning that owner's or site's version index, logs `Seeding version dedup watermarks`, and writes the result into the cursor. Every run after that uses the cursor. Nothing is re-downloaded from Graph during seeding, and the scan happens once per owner or site, not once per run.
+A cursor written before watermarks existed has no watermark map. The first run after upgrading rebuilds it once by scanning that owner's or site's version index, logs `Seeding version dedup watermarks`, and writes exact timestamp and boundary-ID state into the cursor. An intermediate cursor containing timestamp-only values upgrades a file when that file next changes. Atlas conservatively captures equal-timestamp versions once during that conversion. Every later run uses the exact cursor state.
 
 Watermarks survive `--full`. A forced full backup discards saved delta links so every file is re-read from Graph, but the version history Atlas already holds is unaffected by that decision, and re-downloading it would be pure waste. To deliberately re-fetch version history, delete the version index and the cursor for that owner or site.
 
@@ -92,7 +95,7 @@ Watermarks survive `--full`. A forced full backup discards saved delta links so 
 
 Graph returns two kinds of Outlook identifier. The default ID is **mutable**: it changes whenever a message moves between folders, so a user dragging mail into an archive folder looks like a deletion plus a brand-new message. Atlas would then re-download and re-store content it already held, and older manifest entries would point at IDs Graph no longer resolves.
 
-Atlas therefore sends `Prefer: IdType="ImmutableId"` on every Outlook request — delta pages, single-message reads, and attachment fetches alike. Microsoft requires the header on *every* request that handles an ID, because mixing formats within one dataset corrupts correlation. With it, a folder move keeps the message's identity: the manifest entry stays valid and only the message's changed folder metadata is re-stored.
+Atlas therefore sends `Prefer: IdType="ImmutableId"` on every Outlook request — delta pages, single-message reads, and attachment fetches alike. Microsoft requires the header on _every_ request that handles an ID, because mixing formats within one dataset corrupts correlation. With it, a folder move keeps the message's identity: the manifest entry stays valid and only the message's changed folder metadata is re-stored.
 
 Two limits are worth knowing. Immutable IDs are stable within a mailbox, but not across mailboxes, and they still change when an item moves into an In-Place Archive or is exported and re-imported. See [Obtain immutable identifiers for Outlook resources](https://learn.microsoft.com/en-us/graph/outlook-immutable-id) for the underlying contract.
 
@@ -108,10 +111,10 @@ Earlier versions stored `JSON.stringify()` of roughly 24 selected Graph fields a
 
 ### What it costs per message
 
-| Message shape          | Requests before                                          | Requests now                                              |
-| ---------------------- | -------------------------------------------------------- | --------------------------------------------------------- |
-| No attachments         | None beyond the delta page, which carried the fields      | One `/$value` fetch                                       |
-| With attachments       | One attachment-list request plus one request per attachment | One `/$value` fetch; attachments arrive inside the MIME  |
+| Message shape    | Requests before                                             | Requests now                                            |
+| ---------------- | ----------------------------------------------------------- | ------------------------------------------------------- |
+| No attachments   | None beyond the delta page, which carried the fields        | One `/$value` fetch                                     |
+| With attachments | One attachment-list request plus one request per attachment | One `/$value` fetch; attachments arrive inside the MIME |
 
 So the change costs one extra Graph request per new or changed message, offset by no longer issuing an attachment-list request plus one request per attachment. A message that carries attachments therefore costs fewer requests than it did before; a message without any costs one more.
 

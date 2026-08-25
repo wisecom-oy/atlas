@@ -91,6 +91,42 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
     expect(file_a?.versions.map((v) => v.snapshot_id)).toEqual(['legacy', 'snap-2']);
   });
 
+  it('deduplicates a historical version repeated after a cursor-save retry', async () => {
+    const duplicate = {
+      version_id: 'v1',
+      last_modified_at: '2026-01-01T00:00:00Z',
+      checksum: 'same',
+    };
+    const { ctx } = make_ctx({
+      'onedrive/index/owner-1/runs/snap-1.json': {
+        owner_id: OWNER,
+        snapshot_id: 'snap-1',
+        indexes: [
+          {
+            file_id: 'file-a',
+            owner_id: OWNER,
+            versions: [make_version({ ...duplicate, snapshot_id: 'snap-1' })],
+          },
+        ],
+      },
+      'onedrive/index/owner-1/runs/snap-2.json': {
+        owner_id: OWNER,
+        snapshot_id: 'snap-2',
+        indexes: [
+          {
+            file_id: 'file-a',
+            owner_id: OWNER,
+            versions: [make_version({ ...duplicate, snapshot_id: 'snap-2' })],
+          },
+        ],
+      },
+    });
+
+    const indexes = await repo.list_by_owner(ctx, OWNER);
+
+    expect(indexes[0]?.versions.map((version) => version.snapshot_id)).toEqual(['snap-1']);
+  });
+
   it('rebuilds watermarks from the newest captured version of each file', async () => {
     const { ctx } = make_ctx({
       'onedrive/index/owner-1/files/file-a.json': {
@@ -109,6 +145,7 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
             owner_id: OWNER,
             versions: [
               make_version({ version_id: 'v2', last_modified_at: '2026-03-01T00:00:00.000Z' }),
+              make_version({ version_id: 'v3', last_modified_at: '2026-03-01T00:00:00.000Z' }),
               // Copied from a manifest entry: describes the file's current state,
               // carries no version_id, and must not raise the watermark.
               make_version({ last_modified_at: '2030-01-01T00:00:00.000Z' }),
@@ -120,7 +157,10 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
 
     const watermarks = await repo.load_version_watermarks(ctx, OWNER);
 
-    expect(watermarks['file-a']).toBe('2026-03-01T00:00:00.000Z');
+    expect(watermarks['file-a']).toEqual({
+      last_modified_at: '2026-03-01T00:00:00.000Z',
+      version_ids: ['v2', 'v3'],
+    });
   });
 
   it('propagates storage failures instead of reporting an empty history', async () => {

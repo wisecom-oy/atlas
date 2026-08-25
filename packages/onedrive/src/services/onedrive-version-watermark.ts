@@ -1,26 +1,16 @@
+import type { OneDriveVersionWatermark } from '@wisecom/atlas-types';
+
 /**
  * Version dedup watermarks (issue #161).
  *
- * A backup must decide, before spending a Graph download, whether it already
- * captured a historical version of a file. The obvious answer is a set of
- * every version id ever captured, but that set only exists in the version
- * index, and reading it costs one GET per backup run ever performed for the
- * owner: at a thousand mailboxes and years of daily backups the preload alone
- * outgrows the backup window.
+ * A timestamp skips all older versions without reading the full version
+ * index. Graph timestamps have only second precision, so the watermark also
+ * carries every captured version id at its boundary timestamp. Version ids
+ * are equality keys only: Graph does not guarantee their format or ordering.
  *
- * Graph gives a cheaper key. `driveItem/versions` returns versions ordered
- * newest first, each carrying `lastModifiedDateTime`, and a version's
- * timestamp never changes once written: restoring an old version creates a
- * new version with a current timestamp rather than resurrecting the old one.
- * Version history is therefore totally ordered in time, and a single
- * timestamp per file replaces the whole id set. That fits in the delta
- * cursor, which every run already reads and writes.
- *
- * Deliberately not keyed on `driveItemVersion.id`: the Graph reference
- * documents it only as "The ID of the version", with no format or ordering
- * guarantee. Real values look like `3.0`, SharePoint adds minor versions like
- * `1.1`, and libraries prune old versions server-side once the version limit
- * is reached. Parsing it would be relying on undocumented behaviour.
+ * Legacy cursors stored only the timestamp. Equal-timestamp versions are
+ * conservatively recaptured once while that string is upgraded to an exact
+ * watermark; losing history is more expensive than one redundant download.
  */
 
 /**
@@ -34,36 +24,45 @@ export function version_timestamp_ms(value: string | undefined): number | undefi
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-/**
- * Whether a version is at or below the file's watermark and can be skipped.
- *
- * Conservative by design: a version with no usable timestamp is never treated
- * as captured, because skipping it would drop history on an unprovable
- * assumption. Such a version is re-downloaded on every run and deduplicated
- * at the content-addressed blob layer instead, which costs Graph bandwidth
- * but cannot lose data. Graph has always returned `lastModifiedDateTime` in
- * practice.
- */
+/** Whether this exact historical version is already captured. */
 export function is_version_already_captured(
+  version_id: string,
   version_last_modified_at: string | undefined,
-  watermark: string | undefined,
+  watermark: OneDriveVersionWatermark | string | undefined,
 ): boolean {
-  const mark = version_timestamp_ms(watermark);
+  const mark = version_timestamp_ms(
+    typeof watermark === 'string' ? watermark : watermark?.last_modified_at,
+  );
   if (mark === undefined) return false;
   const at = version_timestamp_ms(version_last_modified_at);
   if (at === undefined) return false;
-  return at <= mark;
+  if (at !== mark) return at < mark;
+  return typeof watermark === 'object' && watermark.version_ids.includes(version_id);
 }
 
-/** The later of two watermarks, treating an unusable timestamp as no advance. */
+/** Advances an exact watermark, treating an unusable timestamp as no advance. */
 export function later_watermark(
-  current: string | undefined,
-  candidate: string | undefined,
-): string | undefined {
-  const next = version_timestamp_ms(candidate);
-  if (next === undefined) return current;
-  const now = version_timestamp_ms(current);
-  return now === undefined || next > now ? candidate : current;
+  current: OneDriveVersionWatermark | string | undefined,
+  candidate_at: string | undefined,
+  candidate_version_id: string,
+): OneDriveVersionWatermark | string | undefined {
+  const next = version_timestamp_ms(candidate_at);
+  if (next === undefined || candidate_at === undefined) return current;
+  const now = version_timestamp_ms(
+    typeof current === 'string' ? current : current?.last_modified_at,
+  );
+  if (now !== undefined && next < now) return current;
+  if (now === undefined || next > now) {
+    return { last_modified_at: candidate_at, version_ids: [candidate_version_id] };
+  }
+  if (typeof current === 'object' && current.version_ids.includes(candidate_version_id)) {
+    return current;
+  }
+  const version_ids =
+    typeof current === 'object'
+      ? [...current.version_ids, candidate_version_id].sort()
+      : [candidate_version_id];
+  return { last_modified_at: candidate_at, version_ids };
 }
 
 /** Orders versions oldest first, so a watermark can stop at the first uncaptured one. */
