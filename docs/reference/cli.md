@@ -327,16 +327,25 @@ Tenant-wide deletion, across every workload. This is a top-level command rather 
 
 ```bash
 atlas delete --purge        # delete EVERYTHING in the tenant bucket
-atlas delete --purge -y     # skip confirmation prompt
+atlas delete --purge -y     # skip the typed confirmation
 ```
 
-| Option              | Description                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| `--purge`           | Delete all data, manifests, and encryption keys (irreversible) |
-| `-y, --yes`         | Skip confirmation prompt                                       |
-| `-t, --tenant <id>` | Override tenant ID                                             |
+| Option              | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `--purge`           | Delete all data, manifests, and encryption keys (irreversible)    |
+| `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs      |
+| `-t, --tenant <id>` | Override tenant ID; the typed confirmation checks against this ID |
 
 `atlas delete` without `--purge` exits non-zero and deletes nothing: a tenant wipe is never the default reading of an incomplete command. For scoped deletes use `atlas outlook delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
+
+Interactively, the purge asks for the tenant ID to be typed back and aborts on anything else:
+
+```
+[!] This will delete ALL data for tenant <tenant-id> across Outlook, OneDrive and SharePoint (data, manifests, encryption keys)
+Type the tenant ID to confirm:
+```
+
+A keypress is not enough here. The mistake this catches is not a mistyped `y` but a purge aimed at the wrong tenant, which typing the target is the only prompt that can catch. Workload-scoped deletes keep the single-keypress `y/n` prompt, deliberately: making every delete laborious trains operators to pass `-y` everywhere, which would remove the guard that matters. `-y` still bypasses the prompt entirely, so scheduled jobs and the E2E suite are unaffected.
 
 `--purge` sweeps the whole bucket rather than a fixed list of prefixes, so Outlook, OneDrive, SharePoint, the identity registry, and any tree a later release adds all go. **Everything** is deleted including the encrypted DEK at `_meta/dek.enc`. The DEK is deleted last, and only if nothing survived: dropping the key while its ciphertext is still retained would leave data that can neither be restored nor be claimed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
 
