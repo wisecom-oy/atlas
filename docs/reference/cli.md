@@ -49,8 +49,10 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | `--full`                 | Ignore saved delta links, run full enumeration                            |
 | `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)                |
 | `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
-| `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`)                           |
+| `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
+
+`--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
 
 Requesting retention is fail-closed: when the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
 
@@ -359,7 +361,7 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | `-o, --owner <id>`     | User email or Entra object ID (required)                              |
 | `--full`               | Force full crawl ignoring saved delta links                           |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below) |
-| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`) |
+| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
 | `-t, --tenant <id>`    | Override tenant ID from config                                        |
 
 While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
@@ -476,7 +478,7 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | `--full`               | Force full crawl ignoring saved delta links                                       |
 | `--include-subsites`   | Also back up every subsite beneath the site, one snapshot per subsite             |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive) |
-| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`)             |
+| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
 | `-t, --tenant <id>`    | Override tenant ID from config                                                    |
 
 :::: tip Subsites are separate sites

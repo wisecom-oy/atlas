@@ -91,6 +91,8 @@ export async function execute_onedrive_backup(
   options: OneDriveBackupOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
+  // Built before the Graph lookup: invalid Object Lock flags must fail without a network call.
+  const object_lock_request = build_object_lock_request(options);
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const backup = container.get<OneDriveBackupUseCase>(ONEDRIVE_BACKUP_USE_CASE_TOKEN);
 
@@ -114,7 +116,7 @@ export async function execute_onedrive_backup(
     force_full: options.full ?? false,
     owner_email: owner.email,
     owner_display_name: owner.display_name,
-    object_lock_request: build_object_lock_request(options),
+    object_lock_request,
     create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
   });
 

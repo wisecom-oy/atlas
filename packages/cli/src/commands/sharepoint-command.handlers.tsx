@@ -123,6 +123,8 @@ export async function execute_sharepoint_backup(
   options: SharePointBackupOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
+  // Built before the Graph lookup: invalid Object Lock flags must fail without a network call.
+  const object_lock_request = build_object_lock_request(options);
   const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
   const site = await connector.resolve_site(tenant_id, options.site);
   logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
@@ -135,7 +137,7 @@ export async function execute_sharepoint_backup(
     include_subsites: options.includeSubsites ?? false,
     site_url: site.site_url,
     site_display_name: site.display_name,
-    object_lock_request: build_object_lock_request(options),
+    object_lock_request,
   });
 
   await render_static_view(<Banner title="Atlas SharePoint Backup" />);
