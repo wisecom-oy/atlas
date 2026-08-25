@@ -10,8 +10,14 @@ import type { TenantContext } from '../tenant/context.port';
  * before the change, so history recorded by older versions stays visible.
  */
 export interface OneDriveFileVersionIndexRepository {
-  /** Version ids already recorded per file id across the owner's index objects, for dedup before downloading versions again. */
-  load_known_version_ids(ctx: TenantContext, owner_id: string): Promise<Map<string, Set<string>>>;
+  /**
+   * Newest captured historical version per file, as a Graph
+   * `lastModifiedDateTime`, reconstructed by scanning the owner's index
+   * objects. Seeds the delta cursor's watermarks once when upgrading from a
+   * version of Atlas that did not carry them; steady-state backups read the
+   * cursor instead and never call this.
+   */
+  load_version_watermarks(ctx: TenantContext, owner_id: string): Promise<Record<string, string>>;
 
   /**
    * Writes the version rows captured during one backup run as a single index

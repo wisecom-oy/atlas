@@ -40,6 +40,54 @@ Delta links are stored in the **encrypted manifest**, not in plaintext. They con
 
 The stale-delta safeguard exists to prevent a specific failure: an interrupted backup saving a delta link that skips all the messages it never actually stored.
 
+## File version dedup (OneDrive and SharePoint)
+
+OneDrive and SharePoint backups capture more than the current copy of a file. For every file the delta stream reports as changed, Atlas also enumerates the file's **historical versions** through `GET /drives/{drive-id}/items/{item-id}/versions` and stores each one it has not captured before. The current version is skipped, because the manifest entry already covers it.
+
+That raises a question every run has to answer before it spends bandwidth: which versions of this file do we already hold? Atlas answers it from the delta cursor, in a per-file map:
+
+```json
+{
+  "owner_id": "2f1c9a04-7b3d-4e11-9c2a-6d5e8f0a1b2c",
+  "delta_link_by_drive": { "b!x9Kp...": "https://graph.microsoft.com/v1.0/..." },
+  "version_watermark_by_file_id": {
+    "01ABCDEF...": "2026-08-24T09:12:44Z"
+  }
+}
+```
+
+The value is a **watermark**: the `lastModifiedDateTime` of the newest historical version Atlas has already dealt with for that file. On the next run, every version at or below the watermark is skipped without contacting Graph.
+
+### Why a timestamp and not a list of version IDs
+
+A file's version history is totally ordered in time and only ever grows at the newest end. A version's timestamp is fixed when the version is created, and restoring an old version produces a **new** version with a current timestamp rather than reviving the old one. One timestamp per file therefore carries exactly as much information as the full set of version IDs, at a fraction of the size, which is what lets the state live in the cursor instead of in storage.
+
+Atlas deliberately does not key this on `driveItemVersion.id`. The Graph reference documents that field only as "The ID of the version", with no guarantee of format or ordering. Real values look like `3.0`, SharePoint adds minor versions such as `1.1`, and libraries prune the oldest versions server-side once the version limit is reached. Treating it as a sortable sequence would be relying on undocumented behavior.
+
+### How the watermark advances
+
+Versions are processed oldest first, and the watermark stops at the first version the run could not capture:
+
+| Outcome for a version | Watermark | Reason |
+| --- | --- | --- |
+| Downloaded and stored, or already present as a deduplicated blob | Advances past it | Atlas holds the content |
+| `404` or `410` from Graph | Advances past it | The version expired under the library's version policy and will never be retrievable |
+| Any other error, for example `403` or `500` | Stops before it | The version may still be retrievable, so the next run must retry it rather than skip past it |
+
+A run that fails to fetch one old version therefore re-attempts that version, and everything newer than it, on the next run. Nothing is silently dropped.
+
+Two edge cases are handled conservatively. A version whose `lastModifiedDateTime` is missing or unparseable is never treated as already captured, so it is fetched again on each run and deduplicated at the content-addressed blob layer instead. Two versions sharing an identical timestamp can cause one redundant download, which the same blob-level check absorbs. Both trade a little Graph bandwidth for the guarantee that history is never skipped on an unprovable assumption.
+
+### What this costs
+
+One cursor read per run, which the run performs anyway. The version index in object storage is not read during backup at all. Before watermarks, every run scanned the owner's or site's entire version index to rebuild the same answer, which is one request per backup run ever performed. On a fleet of a thousand mailboxes with years of history, that scan alone grew past the nightly window.
+
+### Upgrading, and `--full`
+
+A cursor written by an older version of Atlas has no watermark map. The first run after upgrading rebuilds it once by scanning that owner's or site's version index, logs `Seeding version dedup watermarks`, and writes the result into the cursor. Every run after that uses the cursor. Nothing is re-downloaded from Graph during seeding, and the scan happens once per owner or site, not once per run.
+
+Watermarks survive `--full`. A forced full backup discards saved delta links so every file is re-read from Graph, but the version history Atlas already holds is unaffected by that decision, and re-downloading it would be pure waste. To deliberately re-fetch version history, delete the version index and the cursor for that owner or site.
+
 ## Immutable message IDs
 
 Graph returns two kinds of Outlook identifier. The default ID is **mutable**: it changes whenever a message moves between folders, so a user dragging mail into an archive folder looks like a deletion plus a brand-new message. Atlas would then re-download and re-store content it already held, and older manifest entries would point at IDs Graph no longer resolves.

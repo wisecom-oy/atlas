@@ -86,7 +86,7 @@ export function make_manifests(): SharePointManifestRepository {
 
 export function make_file_indexes(): SharePointFileVersionIndexRepository {
   return {
-    load_known_version_ids: vi.fn().mockResolvedValue(new Map()),
+    load_version_watermarks: vi.fn().mockResolvedValue({}),
     write_run_index: vi.fn(),
   } as unknown as SharePointFileVersionIndexRepository;
 }

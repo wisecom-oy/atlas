@@ -10,11 +10,7 @@ import { process_delta_item } from '@/services/onedrive-delta-item-processor';
 import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
 import type { RunVersionCollector } from '@/services/onedrive-version-sync';
 
-const EMPTY_VERSIONS: RunVersionCollector = { known: new Map(), rows: new Map() };
-const FILE_INDEXES = {
-  load_known_version_ids: vi.fn().mockResolvedValue(new Map()),
-};
-
+const EMPTY_VERSIONS: RunVersionCollector = { watermarks: {}, rows: new Map() };
 vi.mock('@/services/onedrive-delta-item-processor', () => ({
   clear_file_tracking_on_reset: vi.fn(),
   process_delta_item: vi.fn(),
@@ -57,7 +53,6 @@ describe('scan_all_drives progress reporting', () => {
 
     const result = await scan_all_drives(
       connector,
-      FILE_INDEXES as never,
       cursors,
       DRIVES,
       'tenant-1',
@@ -118,7 +113,6 @@ describe('scan_all_drives progress reporting', () => {
 
     const result = await scan_all_drives(
       connector,
-      FILE_INDEXES as never,
       cursors,
       [DRIVES[0]!],
       'tenant-1',

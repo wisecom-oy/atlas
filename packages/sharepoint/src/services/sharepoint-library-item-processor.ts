@@ -116,9 +116,9 @@ export async function process_delta_item(
       site_id,
       snapshot_id,
       ctx,
-      versions.known.get(item.item_id) ?? new Set<string>(),
+      versions.watermarks[item.item_id],
     );
-    collect_run_versions(versions, item.item_id, version_result.records);
+    collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
       version_stats.total_versions_stored = s;
       version_stats.total_versions_unavailable = u;

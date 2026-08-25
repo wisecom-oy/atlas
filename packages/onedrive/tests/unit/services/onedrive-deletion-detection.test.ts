@@ -14,7 +14,7 @@ import type { RunVersionCollector } from '@/services/onedrive-version-sync';
 const OWNER_ID = 'owner-1';
 const SNAPSHOT_ID = 'od-snap-test';
 
-const EMPTY_VERSIONS: RunVersionCollector = { known: new Map(), rows: new Map() };
+const EMPTY_VERSIONS: RunVersionCollector = { watermarks: {}, rows: new Map() };
 function make_state(overrides: Partial<DriveTrackingState> = {}): DriveTrackingState {
   return {
     previous_path_by_file_id: {},

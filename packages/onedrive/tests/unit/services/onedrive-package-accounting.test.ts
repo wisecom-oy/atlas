@@ -70,7 +70,7 @@ function run_backup(
   };
   const manifests = { save: vi.fn().mockResolvedValue(undefined) };
   const file_indexes = {
-    load_known_version_ids: vi.fn().mockResolvedValue(new Map()),
+    load_version_watermarks: vi.fn().mockResolvedValue({}),
     write_run_index: vi.fn(),
   };
   const cursors = {

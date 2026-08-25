@@ -136,7 +136,7 @@ function make_harness(options: {
     connector as never,
     manifests as never,
     {
-      load_known_version_ids: vi.fn().mockResolvedValue(new Map()),
+      load_version_watermarks: vi.fn().mockResolvedValue({}),
       write_run_index: vi.fn(),
     } as never,
     cursors as never,

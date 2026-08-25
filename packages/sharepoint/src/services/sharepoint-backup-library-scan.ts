@@ -7,7 +7,6 @@ import type {
   SharePointDeltaCursor,
   SharePointDeltaCursorRepository,
   SharePointDocumentLibrary,
-  SharePointFileVersionIndexRepository,
   SharePointFileVersionRecord,
   SharePointManifestEntry,
   SharePointSiteConnector,
@@ -38,7 +37,6 @@ export interface SharePointLibraryScanResult {
 
 interface SharePointLibraryScanParams {
   connector: SharePointSiteConnector;
-  file_indexes: SharePointFileVersionIndexRepository;
   cursors: SharePointDeltaCursorRepository;
   versions: RunVersionCollector;
   tenant_id: string;
@@ -57,7 +55,6 @@ interface SharePointLibraryScanParams {
 export async function scan_all_libraries({
   connector,
   cursors,
-  file_indexes,
   versions,
   tenant_id,
   site_id,
@@ -70,9 +67,8 @@ export async function scan_all_libraries({
   ctx,
   initial_failed_items,
 }: SharePointLibraryScanParams): Promise<SharePointLibraryScanResult> {
-  // One preload for the whole run replaces the previous one GET per file when
-  // syncing versions (issue #161).
-  versions.known = await file_indexes.load_known_version_ids(ctx, site_id);
+  // No index read here: version dedup rides on the delta cursor watermarks the
+  // caller already loaded (issue #161).
   const result: SharePointLibraryScanResult = {
     entries: [],
     files_stored: 0,

@@ -110,9 +110,9 @@ export async function process_delta_item(
       owner_id,
       snapshot_id,
       ctx,
-      versions.known.get(item.item_id) ?? new Set<string>(),
+      versions.watermarks[item.item_id],
     );
-    collect_run_versions(versions, item.item_id, version_result.records);
+    collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, on_version_stats_update);
   }
   state.previous_path_by_file_id[item.item_id] = item.parent_path;

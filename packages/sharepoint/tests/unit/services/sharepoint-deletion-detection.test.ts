@@ -78,7 +78,7 @@ describe('SharePoint deletion handling (issue #139)', () => {
         previous_kind_by_file_id: { i1: 'file' },
       }),
       library_state,
-      { known: new Map(), rows: new Map() },
+      { watermarks: {}, rows: new Map() },
       { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     );
 
@@ -116,7 +116,7 @@ describe('SharePoint deletion handling (issue #139)', () => {
         previous_kind_by_file_id: { i1: 'file' },
       }),
       library_state,
-      { known: new Map(), rows: new Map() },
+      { watermarks: {}, rows: new Map() },
       { total_versions_stored: 0, total_versions_unavailable: 0, total_versions_failed: 0 },
     );
 

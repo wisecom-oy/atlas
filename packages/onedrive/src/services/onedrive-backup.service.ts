@@ -16,6 +16,7 @@ import type {
   OneDriveDeltaCursorRepository,
   OneDriveFileVersionIndexRepository,
   OneDriveManifestRepository,
+  TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
@@ -37,6 +38,7 @@ import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
 import type { PackageReportTotals } from '@/services/onedrive-package-report';
 import { cleanup_stale_staging } from '@/services/onedrive-large-file-pipeline';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 @injectable()
 export class OneDriveBackupService implements OneDriveBackupUseCase {
@@ -73,8 +75,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     }
     let progress: BackupProgressReporter | undefined;
     try {
-      const previous_cursor =
-        options.force_full === true ? undefined : await this._cursors.load(ctx, owner_id);
+      const stored_cursor = await this._cursors.load(ctx, owner_id);
+      const previous_cursor = options.force_full === true ? undefined : stored_cursor;
       const drives = await this._connector.list_drives(tenant_id, owner_id);
       ensure_drives_discovered(drives.length);
       progress = options.create_progress?.(
@@ -107,7 +109,11 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       let total_versions_stored = 0;
       let total_versions_unavailable = 0;
       let total_versions_failed = 0;
-      const versions: RunVersionCollector = { known: new Map(), rows: new Map() };
+      // Watermarks are read from the cursor even on a forced full run: they
+      // record which historical versions Graph already handed over, not where
+      // the delta stream stopped, and discarding them would re-download every
+      // version of every file (issue #161).
+      const versions = await this.load_run_version_collector(ctx, owner_id, stored_cursor);
       const warnings: string[] = [];
       const version_stats = {
         total_versions_stored,
@@ -125,7 +131,6 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
 
       const scan_result = await scan_all_drives(
         this._connector,
-        this._file_indexes,
         this._cursors,
         drives,
         tenant_id,
@@ -155,6 +160,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         owner_id,
         delta_link_by_drive,
         ...tracking_state,
+        version_watermark_by_file_id: versions.watermarks,
         failed_items: scan_result.failed_items,
         updated_at: new Date().toISOString(),
       };
@@ -242,6 +248,28 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       progress?.finish();
       ctx.destroy();
     }
+  }
+
+  /**
+   * Builds the run's version bookkeeping from the delta cursor.
+   *
+   * Steady state costs nothing: the cursor is one object the run already reads,
+   * and it carries the dedup watermarks. Only a cursor written before
+   * watermarks existed falls back to scanning the version index, once, to seed
+   * them; from the next run on that owner is on the cheap path (issue #161).
+   */
+  private async load_run_version_collector(
+    ctx: TenantContext,
+    owner_id: string,
+    stored_cursor: OneDriveDeltaCursor | undefined,
+  ): Promise<RunVersionCollector> {
+    const carried = stored_cursor?.version_watermark_by_file_id;
+    if (carried) return { watermarks: { ...carried }, rows: new Map() };
+    logger.info(`Seeding version dedup watermarks for ${owner_id} from the version index`);
+    return {
+      watermarks: await this._file_indexes.load_version_watermarks(ctx, owner_id),
+      rows: new Map(),
+    };
   }
 }
 

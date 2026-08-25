@@ -10,23 +10,18 @@ function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDelt
   return {
     item_id: 'item-1',
     drive_id: 'drive-1',
-    file_name: 'report.docx',
-    parent_path: '/Shared Documents',
-    size_bytes: 1024,
-    kind: 'file',
+    file_name: 'file.txt',
+    parent_path: '/docs',
+    size_bytes: 1234,
+    etag: 'e1',
     deleted: false,
+    kind: 'file',
     ...overrides,
-  };
+  } as SharePointDeltaItem;
 }
 
 function make_connector(overrides: Partial<SharePointSiteConnector> = {}): SharePointSiteConnector {
   return {
-    list_sites: vi.fn(),
-    resolve_site: vi.fn(),
-    list_document_libraries: vi.fn(),
-    fetch_delta: vi.fn(),
-    download_file_content: vi.fn(),
-    resolve_download_url: vi.fn(),
     list_file_versions: vi.fn().mockResolvedValue([]),
     download_file_version: vi.fn(),
     ...overrides,
@@ -57,8 +52,8 @@ describe('sync_file_versions', () => {
   let connector: SharePointSiteConnector;
   let ctx: TenantContext;
   const item = make_item();
-  const site_id = 'site-1';
-  const snapshot_id = 'snap-1';
+  const site_id = 'site-abc';
+  const snapshot_id = 'snap-001';
 
   beforeEach(() => {
     ctx = make_ctx();
@@ -66,9 +61,7 @@ describe('sync_file_versions', () => {
 
   it('returns empty result when no versions exist', async () => {
     connector = make_connector({ list_file_versions: vi.fn().mockResolvedValue([]) });
-
-    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
-
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
     expect(result).toEqual({
       new_versions_stored: 0,
       versions_deduplicated: 0,
@@ -80,34 +73,39 @@ describe('sync_file_versions', () => {
 
   it('stores new versions and returns correct counts', async () => {
     const versions = [
-      { version_id: 'v2', last_modified_at: '2025-01-01', size_bytes: 500 },
-      { version_id: 'v3', last_modified_at: '2025-01-02', size_bytes: 600 },
+      { version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 },
+      { version_id: 'v3.0', last_modified_at: '2024-02-01', size_bytes: 600 },
     ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
       download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
     });
 
-    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
 
     expect(result.new_versions_stored).toBe(2);
     expect(result.versions_deduplicated).toBe(0);
+    expect(result.versions_unavailable).toBe(0);
+    expect(result.versions_failed).toBe(0);
     expect(ctx.storage.put).toHaveBeenCalledTimes(2);
     // Rows are returned for the run's single index object instead of written per file (issue #161).
-    expect(result.records.map((record) => record.version_id)).toEqual(['v2', 'v3']);
+    expect(result.records.map((r) => r.version_id)).toEqual(['v2.0', 'v3.0']);
     expect(result.records[0]).toMatchObject({
       snapshot_id,
       drive_id: item.drive_id,
       file_name: item.file_name,
-      parent_path: item.parent_path,
       change_type: 'updated',
     });
   });
 
-  it('skips already-known version IDs', async () => {
-    const versions = [{ version_id: 'v2', last_modified_at: '2025-01-01', size_bytes: 500 }];
+  it('skips versions at or below the watermark without contacting Graph', async () => {
+    const versions = [
+      { version_id: 'v2.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 500 },
+      { version_id: 'v3.0', last_modified_at: '2024-02-01T00:00:00Z', size_bytes: 600 },
+    ];
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
     });
 
     const result = await sync_file_versions(
@@ -116,24 +114,23 @@ describe('sync_file_versions', () => {
       site_id,
       snapshot_id,
       ctx,
-      new Set(['v2']),
+      '2024-01-01T00:00:00Z',
     );
 
-    expect(result.new_versions_stored).toBe(0);
-    expect(connector.download_file_version).not.toHaveBeenCalled();
-    expect(result.records).toEqual([]);
+    expect(connector.download_file_version).toHaveBeenCalledTimes(1);
+    expect(result.records.map((r) => r.version_id)).toEqual(['v3.0']);
+    expect(result.next_watermark).toBe('2024-02-01T00:00:00Z');
   });
 
   it('deduplicates when storage key already exists', async () => {
+    const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
     connector = make_connector({
-      list_file_versions: vi
-        .fn()
-        .mockResolvedValue([{ version_id: 'v2', last_modified_at: '2025-01-01', size_bytes: 500 }]),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockResolvedValue(Buffer.from('duplicate')),
     });
     (ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
-    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
 
     expect(result.versions_deduplicated).toBe(1);
     expect(result.new_versions_stored).toBe(0);
@@ -142,32 +139,145 @@ describe('sync_file_versions', () => {
     expect(result.records.length).toBe(1);
   });
 
-  it('counts unavailable versions (404/410)', async () => {
+  it('classifies 404 errors as unavailable (not failed)', async () => {
+    const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
+    const error_404 = Object.assign(new Error('Not Found'), { statusCode: 404 });
     connector = make_connector({
-      list_file_versions: vi
-        .fn()
-        .mockResolvedValue([{ version_id: 'v2', last_modified_at: '2025-01-01', size_bytes: 500 }]),
-      download_file_version: vi.fn().mockRejectedValue({ statusCode: 404 }),
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockRejectedValue(error_404),
     });
 
-    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
 
     expect(result.versions_unavailable).toBe(1);
     expect(result.versions_failed).toBe(0);
     expect(result.records).toEqual([]);
   });
 
-  it('counts failed versions on unexpected errors', async () => {
+  it('classifies 410 errors as unavailable', async () => {
+    const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
+    const error_410 = Object.assign(new Error('Gone'), { status: 410 });
     connector = make_connector({
-      list_file_versions: vi
-        .fn()
-        .mockResolvedValue([{ version_id: 'v2', last_modified_at: '2025-01-01', size_bytes: 500 }]),
-      download_file_version: vi.fn().mockRejectedValue(new Error('server error')),
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockRejectedValue(error_410),
     });
 
-    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
+
+    expect(result.versions_unavailable).toBe(1);
+    expect(result.versions_failed).toBe(0);
+  });
+
+  it('classifies 403 errors as failed', async () => {
+    const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
+    const error_403 = Object.assign(new Error('Forbidden'), { statusCode: 403 });
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockRejectedValue(error_403),
+    });
+
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
 
     expect(result.versions_failed).toBe(1);
     expect(result.versions_unavailable).toBe(0);
+  });
+
+  it('classifies 500 errors as failed', async () => {
+    const versions = [{ version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 500 }];
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockRejectedValue(new Error('Internal Server Error')),
+    });
+
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
+
+    expect(result.versions_failed).toBe(1);
+    expect(result.versions_unavailable).toBe(0);
+  });
+
+  it('handles mixed outcomes correctly', async () => {
+    const versions = [
+      { version_id: 'v2.0', last_modified_at: '2024-01-01', size_bytes: 100 },
+      { version_id: 'v3.0', last_modified_at: '2024-02-01', size_bytes: 200 },
+      { version_id: 'v4.0', last_modified_at: '2024-03-01', size_bytes: 300 },
+    ];
+    const error_404 = Object.assign(new Error('Not Found'), { statusCode: 404 });
+    const error_500 = Object.assign(new Error('Server Error'), { statusCode: 500 });
+
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi
+        .fn()
+        .mockResolvedValueOnce(Buffer.from('v2-content'))
+        .mockRejectedValueOnce(error_404)
+        .mockRejectedValueOnce(error_500),
+    });
+
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
+
+    expect(result.new_versions_stored).toBe(1);
+    expect(result.versions_unavailable).toBe(1);
+    expect(result.versions_failed).toBe(1);
+    expect(result.records.length).toBe(1);
+    // v2 captured, v3 permanently gone, v4 failed: the mark stops at v3 so the
+    // next run retries v4 rather than skipping past it.
+    expect(result.next_watermark).toBe('2024-02-01');
+  });
+
+  it('walks versions oldest first even though Graph returns them newest first', async () => {
+    const versions = [
+      { version_id: 'v4.0', last_modified_at: '2024-03-01T00:00:00Z', size_bytes: 300 },
+      { version_id: 'v3.0', last_modified_at: '2024-02-01T00:00:00Z', size_bytes: 200 },
+      { version_id: 'v2.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 100 },
+    ];
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+    });
+
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
+
+    expect(result.records.map((r) => r.version_id)).toEqual(['v2.0', 'v3.0', 'v4.0']);
+    expect(result.next_watermark).toBe('2024-03-01T00:00:00Z');
+  });
+
+  it('holds the watermark back when the oldest version fails unexpectedly', async () => {
+    const versions = [
+      { version_id: 'v2.0', last_modified_at: '2024-01-01T00:00:00Z', size_bytes: 100 },
+      { version_id: 'v3.0', last_modified_at: '2024-02-01T00:00:00Z', size_bytes: 200 },
+    ];
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi
+        .fn()
+        .mockRejectedValueOnce(Object.assign(new Error('Server Error'), { statusCode: 500 }))
+        .mockResolvedValueOnce(Buffer.from('v3-content')),
+    });
+
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, undefined);
+
+    // v3 is captured, but the mark must not jump the failed v2 or its retry is lost.
+    expect(result.records.map((r) => r.version_id)).toEqual(['v3.0']);
+    expect(result.next_watermark).toBeUndefined();
+  });
+
+  it('never treats a version without a usable timestamp as already captured', async () => {
+    const versions = [{ version_id: 'v2.0', last_modified_at: '', size_bytes: 100 }];
+    connector = make_connector({
+      list_file_versions: vi.fn().mockResolvedValue(versions),
+      download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
+    });
+
+    const result = await sync_file_versions(
+      connector,
+      item,
+      site_id,
+      snapshot_id,
+      ctx,
+      '2030-01-01T00:00:00Z',
+    );
+
+    expect(connector.download_file_version).toHaveBeenCalledTimes(1);
+    expect(result.next_watermark).toBeUndefined();
   });
 });

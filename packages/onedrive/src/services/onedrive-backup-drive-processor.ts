@@ -6,7 +6,6 @@ import type {
   OneDriveDrive,
   OneDriveFileVersionRecord,
   OneDriveDeltaCursorRepository,
-  OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
   TenantContext,
   OperationControlOptions,
@@ -72,7 +71,6 @@ export interface DriveScanAccumulators {
 /** Fetches delta changes across all drives and accumulates manifest entries. */
 export async function scan_all_drives(
   connector: OneDriveConnector,
-  file_indexes: OneDriveFileVersionIndexRepository,
   cursors: OneDriveDeltaCursorRepository,
   drives: OneDriveDrive[],
   tenant_id: string,
@@ -91,9 +89,8 @@ export async function scan_all_drives(
   progress?: BackupProgressReporter,
   control: OperationControlOptions = {},
 ): Promise<DriveScanAccumulators> {
-  // One preload for the whole run replaces the previous one GET per file when
-  // syncing versions (issue #161).
-  versions.known = await file_indexes.load_known_version_ids(ctx, owner_id);
+  // No index read here: version dedup rides on the delta cursor watermarks the
+  // caller already loaded (issue #161).
   const accumulators: DriveScanAccumulators = {
     entries: [],
     files_stored: 0,

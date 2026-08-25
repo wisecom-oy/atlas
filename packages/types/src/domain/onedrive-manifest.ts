@@ -62,6 +62,17 @@ export interface OneDriveDeltaCursor {
   readonly previous_etag_by_file_id: Record<string, string>;
   readonly previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
   /**
+   * Newest historical version already captured per file, as the Graph
+   * `lastModifiedDateTime` of that version. A later run skips every version at
+   * or below this mark instead of re-reading the version index, so version
+   * dedup costs one cursor read rather than a scan of the owner's whole
+   * history (issue #161).
+   *
+   * Absent on cursors written before watermarks existed; the next run seeds it
+   * from the index once and never scans again.
+   */
+  readonly version_watermark_by_file_id?: Record<string, string>;
+  /**
    * Items that failed to back up, kept so a later run can retry them: delta
    * will not re-present an unchanged item once the link has advanced past it.
    */

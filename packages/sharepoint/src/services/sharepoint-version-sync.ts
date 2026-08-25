@@ -9,6 +9,11 @@ import type {
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365-graph';
 import { sharepoint_data_key } from '@/services/sharepoint-storage-keys';
+import {
+  by_version_age,
+  is_version_already_captured,
+  later_watermark,
+} from '@/services/sharepoint-version-watermark';
 
 export interface VersionSyncResult {
   new_versions_stored: number;
@@ -20,15 +25,22 @@ export interface VersionSyncResult {
 export interface VersionSyncOutcome extends VersionSyncResult {
   /** Rows captured by this file, destined for the run's single index object. */
   records: SharePointFileVersionRecord[];
+  /**
+   * Watermark to persist for this file, or `undefined` to leave it untouched.
+   * Stops short of any version this run failed to capture for an unexpected
+   * reason, so the next run retries it instead of skipping past it.
+   */
+  next_watermark?: string;
 }
 
 /**
- * Per-run version bookkeeping shared by every delta item of a backup:
- * `known` is preloaded once from the existing index objects, and `rows`
- * accumulates what this run captured for its single index object.
+ * Per-run version bookkeeping shared by every delta item of a backup.
+ * `watermarks` is carried in and out through the delta cursor, so version
+ * dedup costs no index reads at all; `rows` accumulates what this run
+ * captured for its single index object (issue #161).
  */
 export interface RunVersionCollector {
-  known: Map<string, Set<string>>;
+  watermarks: Record<string, string>;
   rows: Map<string, SharePointFileVersionRecord[]>;
 }
 
@@ -46,34 +58,40 @@ const EMPTY_OUTCOME: VersionSyncOutcome = {
 };
 
 /**
- * Records what one file's sync captured. The version ids are folded into
- * `known` as well: it is preloaded once per run, so without this a file that
- * appears twice in the same delta cycle would be downloaded and recorded
- * twice.
+ * Records what one file's sync captured: the index rows for this run, and the
+ * advanced watermark. Writing the watermark back immediately also means a file
+ * that appears twice in one delta cycle is not downloaded twice.
  */
 export function collect_run_versions(
   versions: RunVersionCollector,
   file_id: string,
-  records: readonly SharePointFileVersionRecord[],
+  outcome: VersionSyncOutcome,
 ): void {
-  if (records.length === 0) return;
-  const rows = versions.rows.get(file_id);
-  if (rows) rows.push(...records);
-  else versions.rows.set(file_id, [...records]);
-  let known = versions.known.get(file_id);
-  if (!known) versions.known.set(file_id, (known = new Set<string>()));
-  for (const record of records) {
-    if (record.version_id) known.add(record.version_id);
+  if (outcome.records.length > 0) {
+    const rows = versions.rows.get(file_id);
+    if (rows) rows.push(...outcome.records);
+    else versions.rows.set(file_id, [...outcome.records]);
+  }
+  if (outcome.next_watermark !== undefined) {
+    versions.watermarks[file_id] = outcome.next_watermark;
   }
 }
 
 /**
- * Enumerates historical versions for a file and stores any that are new.
- * Compares against the version ids already recorded by earlier runs
- * (`known_version_ids`, preloaded once per run) to avoid re-downloading
- * them. Captured rows are returned to the caller instead of written here:
- * the whole run shares one index object, persisted at finalize time
- * (issue #161).
+ * Enumerates historical versions for a file and stores any not already
+ * captured, deciding that from the file's dedup watermark rather than from the
+ * version index (issue #161).
+ *
+ * Versions are walked oldest first so the returned watermark can stop at the
+ * first version this run could not capture:
+ * - captured, or permanently gone from Graph (404/410, expired by the
+ *   library's version policy): the watermark advances past it, since a later
+ *   run can neither improve on it nor ever see it again
+ * - failed for any other reason: the watermark stops there, so the next run
+ *   retries that version and everything after it
+ *
+ * Captured rows are returned to the caller rather than written here: the whole
+ * run shares one index object, persisted at finalize time.
  */
 export async function sync_file_versions(
   connector: SharePointSiteConnector,
@@ -81,45 +99,126 @@ export async function sync_file_versions(
   site_id: string,
   snapshot_id: string,
   ctx: TenantContext,
-  known_version_ids: ReadonlySet<string>,
+  watermark: string | undefined,
 ): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
   if (versions.length === 0) return EMPTY_OUTCOME;
 
-  let new_versions_stored = 0;
-  let versions_deduplicated = 0;
-  let versions_unavailable = 0;
-  let versions_failed = 0;
+  const outcome = await capture_new_versions(
+    connector,
+    item,
+    site_id,
+    snapshot_id,
+    ctx,
+    versions,
+    watermark,
+  );
+  if (outcome.new_versions_stored > 0) {
+    logger.info(
+      `Stored ${outcome.new_versions_stored} historical version(s) for ${item.file_name}`,
+    );
+  }
+  return outcome;
+}
+
+/** Walks the file's versions oldest first, capturing everything past the watermark. */
+async function capture_new_versions(
+  connector: SharePointSiteConnector,
+  item: SharePointDeltaItem,
+  site_id: string,
+  snapshot_id: string,
+  ctx: TenantContext,
+  versions: readonly SharePointFileVersion[],
+  watermark: string | undefined,
+): Promise<VersionSyncOutcome> {
+  const totals: VersionSyncResult = {
+    new_versions_stored: 0,
+    versions_deduplicated: 0,
+    versions_unavailable: 0,
+    versions_failed: 0,
+  };
   const records: SharePointFileVersionRecord[] = [];
+  let next_watermark = watermark;
+  let watermark_blocked = false;
 
-  for (const version of versions) {
-    if (known_version_ids.has(version.version_id)) continue;
+  for (const version of [...versions].sort(by_version_age)) {
+    if (is_version_already_captured(version.last_modified_at, watermark)) continue;
 
-    const outcome = await download_version_classified(connector, item, version);
-
-    if (outcome.status === 'unavailable') {
-      versions_unavailable++;
-      continue;
+    const captured = await capture_version(connector, item, site_id, snapshot_id, ctx, version);
+    // Not `||=`: that short-circuits once blocked and would stop tallying the
+    // remaining versions entirely.
+    if (!tally_capture(totals, records, captured)) watermark_blocked = true;
+    if (!watermark_blocked) {
+      next_watermark = later_watermark(next_watermark, version.last_modified_at);
     }
+  }
 
-    if (outcome.status === 'failed') {
-      versions_failed++;
-      logger.warn(`Version ${version.version_id} of ${item.file_name}: ${outcome.reason}`);
-      continue;
-    }
+  return {
+    ...totals,
+    records,
+    ...(next_watermark !== undefined && next_watermark !== watermark ? { next_watermark } : {}),
+  };
+}
 
-    const checksum = createHash('sha256').update(outcome.content).digest('hex');
-    const storage_key = sharepoint_data_key(site_id, checksum);
-    const exists = await ctx.storage.exists(storage_key);
+/**
+ * Folds one capture into the run totals. Returns whether the file's watermark
+ * may still advance past this version, which is false only for a version that
+ * might yet be retrievable on a later run.
+ */
+function tally_capture(
+  totals: VersionSyncResult,
+  records: SharePointFileVersionRecord[],
+  captured: VersionCapture,
+): boolean {
+  if (captured.kind === 'failed') {
+    totals.versions_failed++;
+    return false;
+  }
+  if (captured.kind === 'gone') {
+    totals.versions_unavailable++;
+    return true;
+  }
+  records.push(captured.record);
+  if (captured.deduplicated) totals.versions_deduplicated++;
+  else totals.new_versions_stored++;
+  return true;
+}
 
-    if (!exists) {
-      await ctx.storage.put(storage_key, ctx.encrypt(outcome.content));
-      new_versions_stored++;
-    } else {
-      versions_deduplicated++;
-    }
+type VersionCapture =
+  | { kind: 'stored'; record: SharePointFileVersionRecord; deduplicated: boolean }
+  | { kind: 'gone' }
+  | { kind: 'failed' };
 
-    records.push({
+/**
+ * Downloads one historical version, stores it content-addressed, and builds
+ * its index row. `gone` means Graph no longer has the version at all, which is
+ * expected once a library's version policy expires it; `failed` means the
+ * version may still be retrievable and the run should come back for it.
+ */
+async function capture_version(
+  connector: SharePointSiteConnector,
+  item: SharePointDeltaItem,
+  site_id: string,
+  snapshot_id: string,
+  ctx: TenantContext,
+  version: SharePointFileVersion,
+): Promise<VersionCapture> {
+  const outcome = await download_version_classified(connector, item, version);
+  if (outcome.status === 'unavailable') return { kind: 'gone' };
+  if (outcome.status === 'failed') {
+    logger.warn(`Version ${version.version_id} of ${item.file_name}: ${outcome.reason}`);
+    return { kind: 'failed' };
+  }
+
+  const checksum = createHash('sha256').update(outcome.content).digest('hex');
+  const storage_key = sharepoint_data_key(site_id, checksum);
+  const deduplicated = await ctx.storage.exists(storage_key);
+  if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(outcome.content));
+
+  return {
+    kind: 'stored',
+    deduplicated,
+    record: {
       snapshot_id,
       backup_at: new Date().toISOString(),
       drive_id: item.drive_id,
@@ -131,19 +230,7 @@ export async function sync_file_versions(
       checksum,
       last_modified_at: version.last_modified_at,
       change_type: 'updated',
-    });
-  }
-
-  if (new_versions_stored > 0) {
-    logger.info(`Stored ${new_versions_stored} historical version(s) for ${item.file_name}`);
-  }
-
-  return {
-    new_versions_stored,
-    versions_deduplicated,
-    versions_unavailable,
-    versions_failed,
-    records,
+    },
   };
 }
 

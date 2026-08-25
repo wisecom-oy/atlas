@@ -91,12 +91,14 @@ describe('S3SharePointFileVersionIndexRepository', () => {
     expect(file_a?.versions.map((v) => v.snapshot_id)).toEqual(['legacy', 'snap-2']);
   });
 
-  it('collects known version ids across every index object', async () => {
+  it('rebuilds watermarks from the newest captured version of each file', async () => {
     const { ctx } = make_ctx({
       'sharepoint/index/site-1/files/file-a.json': {
         file_id: 'file-a',
         site_id: SITE,
-        versions: [make_version({ version_id: 'v1' })],
+        versions: [
+          make_version({ version_id: 'v1', last_modified_at: '2026-01-01T00:00:00.000Z' }),
+        ],
       },
       'sharepoint/index/site-1/runs/snap-2.json': {
         site_id: SITE,
@@ -105,15 +107,20 @@ describe('S3SharePointFileVersionIndexRepository', () => {
           {
             file_id: 'file-a',
             site_id: SITE,
-            versions: [make_version({ version_id: 'v2' }), make_version()],
+            versions: [
+              make_version({ version_id: 'v2', last_modified_at: '2026-03-01T00:00:00.000Z' }),
+              // Copied from a manifest entry: describes the file's current state,
+              // carries no version_id, and must not raise the watermark.
+              make_version({ last_modified_at: '2030-01-01T00:00:00.000Z' }),
+            ],
           },
         ],
       },
     });
 
-    const known = await repo.load_known_version_ids(ctx, SITE);
+    const watermarks = await repo.load_version_watermarks(ctx, SITE);
 
-    expect([...(known.get('file-a') ?? [])].sort()).toEqual(['v1', 'v2']);
+    expect(watermarks['file-a']).toBe('2026-03-01T00:00:00.000Z');
   });
 
   it('propagates storage failures instead of reporting an empty history', async () => {
@@ -123,7 +130,7 @@ describe('S3SharePointFileVersionIndexRepository', () => {
       { [key]: new Error('connection reset') },
     );
 
-    await expect(repo.load_known_version_ids(ctx, SITE)).rejects.toThrow('connection reset');
+    await expect(repo.load_version_watermarks(ctx, SITE)).rejects.toThrow('connection reset');
   });
 
   it('skips an unparseable object but still returns the readable ones', async () => {

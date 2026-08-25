@@ -11,6 +11,7 @@ import {
   sharepoint_run_index_key,
   validate_key_segment,
 } from '@/services/sharepoint-storage-keys';
+import { later_watermark } from '@/services/sharepoint-version-watermark';
 
 /** Payload of one run's version index object. */
 interface RunIndexPayload {
@@ -46,22 +47,27 @@ const INDEX_READ_CONCURRENCY = 8;
  */
 @injectable()
 export class S3SharePointFileVersionIndexRepository implements SharePointFileVersionIndexRepository {
-  /** Version ids already recorded per file id across the site's index objects. */
-  async load_known_version_ids(
+  /**
+   * Rebuilds each file's dedup watermark from the site's index objects.
+   *
+   * Only rows written by version sync carry `version_id`; the rows copied from
+   * manifest entries describe the file's current state, and letting those set
+   * the watermark would skip historical versions that were never captured.
+   * Only called to seed a cursor written before watermarks existed.
+   */
+  async load_version_watermarks(
     ctx: TenantContext,
     site_id: string,
-  ): Promise<Map<string, Set<string>>> {
-    // Only the ids are kept: materializing full history for a 20,000-file
-    // site just to reduce it to a dedup set costs hundreds of MB.
-    const known = new Map<string, Set<string>>();
+  ): Promise<Record<string, string>> {
+    const watermarks: Record<string, string> = {};
     await this.for_each_index(ctx, site_id, (idx) => {
-      let ids = known.get(idx.file_id);
-      if (!ids) known.set(idx.file_id, (ids = new Set<string>()));
       for (const version of idx.versions) {
-        if (version.version_id) ids.add(version.version_id);
+        if (!version.version_id) continue;
+        const next = later_watermark(watermarks[idx.file_id], version.last_modified_at);
+        if (next !== undefined) watermarks[idx.file_id] = next;
       }
     });
-    return known;
+    return watermarks;
   }
 
   /** Writes the run's captured rows as a single create-only index object; no-op when empty. */

@@ -83,7 +83,7 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 | `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types            |
 | `onedrive/index/{owner_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run      |
 | `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge   |
-| `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors                    | Required for incremental sync                           |
+| `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors                    | Holds delta links, per-file paths, names, etags, and version watermarks |
 
 ### SharePoint
 
@@ -93,13 +93,15 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 | `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types  |
 | `sharepoint/index/{site_id}/runs/`      | One version index object per backup run     | Maps file IDs to the versions captured by that run     |
 | `sharepoint/index/{site_id}/files/`     | Legacy per-file version indexes             | Readable alongside run objects; removed only by purge  |
-| `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors                    | Required for incremental sync                 |
+| `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors                    | Holds delta links, per-file paths, names, etags, and version watermarks |
 
 #### Version index objects
 
 Since the per-run index layout, Atlas writes **one** version index object per owner or site per backup run under `runs/`, holding every version row that run captured. A run with no new file versions writes no index object at all. Objects under `files/` were written by older Atlas versions and remain fully readable: reads merge both layouts, so history that predates an upgrade stays listable and verifiable until you purge the bucket.
 
-Reading history means listing the owner or site index prefix and fetching every object under it, eight at a time. The cost therefore grows with the number of backup runs, not with the number of files, and each call that needs version rows (`atlas onedrive versions`, `atlas sharepoint versions`, verification, and the dedup preload at the start of a backup) pays it once. Upgraded buckets pay more until the legacy `files/` objects are gone, because those are one object per file: a 20,000-file drive means 20,000 objects in that first scan. They are only removed when the owner or site is deleted, so plan an upgrade window accordingly on Object Lock buckets, where nothing can be removed before its retention expires.
+Reading history means listing the owner or site index prefix and fetching every object under it, eight at a time, so the cost grows with the number of backup runs rather than the number of files. **Backups do not pay this.** Version dedup runs off a watermark carried in the delta cursor, described in [Delta Sync](/operations/delta-sync#file-version-dedup-onedrive-and-sharepoint), so a backup reads no index objects at all. The scan is paid only by the commands that genuinely need version rows: `atlas onedrive versions`, `atlas sharepoint versions`, and snapshot verification.
+
+One exception is a one-time cost. A cursor written before watermarks existed has none, so the first backup after upgrading scans the index once to seed them, then never again for that owner or site. Upgraded buckets pay more during that single scan than new ones will, because the legacy `files/` objects are one object per file: a 20,000-file drive means 20,000 objects in that seeding scan. Those objects are removed only when the owner or site is deleted, and on Object Lock buckets nothing can be removed before its retention expires.
 
 Subsites are stored exactly like any other site. A subsite is a Graph site with its own `site_id`, so `atlas sharepoint backup --include-subsites` writes one snapshot per subsite under that subsite's own `sharepoint/manifests/{site_id}/` prefix rather than folding its files into the parent site's manifest. Blobs, indexes, and delta cursors follow the same per-`site_id` split, which keeps a subsite's backup, restore, and retention independent of its parent.
 
