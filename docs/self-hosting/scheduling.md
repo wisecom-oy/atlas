@@ -41,7 +41,7 @@ After=network-online.target docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/atlas outlook backup
+ExecStart=/usr/bin/atlas outlook backup -m user@company.com
 Environment=ATLAS_TENANT_ID=your-tenant-id
 Environment=ATLAS_CLIENT_ID=your-client-id
 EnvironmentFile=/etc/atlas/atlas.env

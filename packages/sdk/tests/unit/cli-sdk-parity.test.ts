@@ -26,17 +26,13 @@ const APP_PORT_EXTRAS: Record<string, true> = {
   IdentityRegistryRepository: true,
 };
 
-/** CLI-reachable capabilities the SDK cannot reach yet, each with its tracking issue. */
 const KNOWN_METHOD_GAPS: Record<string, string> = {
   'StatsUseCase.get_onedrive_stats': '#165',
   'StatsUseCase.get_sharepoint_stats': '#165',
-  'TenantBackupOrchestrator.backup_tenant': '#165',
 };
 
 /** DI tokens the CLI resolves and the SDK does not. */
 const KNOWN_TOKEN_GAPS: Record<string, string> = {
-  // Retired with #166: the CLI tenant fan-out goes away, so this stops being a gap.
-  TENANT_ORCHESTRATOR_TOKEN: '#165',
   // Intentional: the uncached inner resolver, used during rehydrate when the identity
   // cache lives in the bucket being recovered. The SDK takes owner ids directly.
   GRAPH_IDENTITY_RESOLVER_TOKEN: 'intentional',
@@ -45,6 +41,7 @@ const KNOWN_TOKEN_GAPS: Record<string, string> = {
   ATLAS_CONFIG_TOKEN: 'intentional',
 };
 
+/** Reads every source file under dir. */
 function collect_sources(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
