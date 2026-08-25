@@ -30,9 +30,7 @@ Outlook mailbox backup, restore, and management commands. All mailbox operations
 
 ### `atlas outlook backup`
 
-Back up mailboxes from an M365 tenant to object storage. When a mailbox is specified with `-m`, backs up that single mailbox with a per-folder progress dashboard. When no mailbox is specified, discovers all Exchange-licensed and shared mailboxes in the tenant and backs them up in parallel.
-
-**Single mailbox:**
+Back up one mailbox from an M365 tenant to object storage, with a per-folder progress dashboard. The `-m` flag is required. To back up multiple mailboxes, enumerate them with `atlas outlook mailboxes` and loop in your scheduler (cron, systemd timer, CI); fan-out across mailboxes is scheduling and belongs to the caller.
 
 ```bash
 atlas outlook backup -m user@company.com                      # incremental backup
@@ -44,35 +42,23 @@ atlas outlook backup -m user@company.com --retention-days 365 --lock-mode compli
 atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 ```
 
-**Full tenant (all licensed and shared mailboxes):**
-
-```bash
-atlas outlook backup                                           # back up all licensed and shared mailboxes (4 concurrent)
-atlas outlook backup -C 8                                      # increase parallel workers to 8
-atlas outlook backup --full                                    # force full sync for all mailboxes
-```
-
 | Option                   | Description                                                               |
 | ------------------------ | ------------------------------------------------------------------------- |
-| `-m, --mailbox <id>`     | Specific mailbox to back up (backs up all licensed and shared if omitted) |
+| `-m, --mailbox <id>`     | Mailbox to back up (required)                                             |
 | `-f, --folder <name...>` | Filter to specific folder(s) by name or path (see below)                  |
 | `--full`                 | Ignore saved delta links, run full enumeration                            |
 | `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)                |
-| `-C, --concurrency <n>`  | Parallel mailbox count for tenant backup (default 4)                      |
 | `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
 | `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`)                           |
-| `--require-immutability` | Fail if immutability cannot be enforced                                   |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
 
+Requesting retention is fail-closed: when the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
+
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
-`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
 
 `restore` and `save` follow the same contract: a file they could not decrypt or write is counted as skipped, and any skipped file exits `2`. An export that produced an archive missing some of its files is not a success, and a cron job that only checks for `0` has to be able to see the difference.
 :::
-::: tip Tenant-wide mode
-When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox: one failing mailbox never aborts the others. The command still exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
-:::
-
 ::: details Page size tuning
 The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_: the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
 :::

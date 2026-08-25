@@ -39,5 +39,5 @@ export interface AtlasInstance {
   /** Full tenant recovery across Outlook, OneDrive, and SharePoint, reported per workload. */
   rehydrateTenant(source: StorageTarget): Promise<TenantRehydrationResult>;
   getReplicationStatus(snapshotId?: string): Promise<ReplicationStatusRecord[]>;
-  getReplicationStatusByMailbox(mailboxId: string): Promise<ReplicationStatusRecord[]>;
+  getReplicationStatusByOwner(mailboxId: string): Promise<ReplicationStatusRecord[]>;
 }

@@ -77,8 +77,8 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     async getReplicationStatus(snapshot_id) {
       return await replication.get_replication_status(tenant_id, snapshot_id);
     },
-    async getReplicationStatusByMailbox(mailbox_id) {
-      return await replication.get_replication_status_by_owner(tenant_id, mailbox_id);
+    async getReplicationStatusByOwner(owner_id) {
+      return await replication.get_replication_status_by_owner(tenant_id, owner_id);
     },
   };
 }

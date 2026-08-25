@@ -7,6 +7,7 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
+  STATS_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { create_onedrive_api } from '@/onedrive-api.factory';
@@ -117,6 +118,25 @@ describe('OneDrive owner resolution (issue #181)', () => {
     await expect(api.backup(EMAIL)).rejects.toThrow('user not found');
     expect(backup_onedrive).not.toHaveBeenCalled();
   });
+
+  it('resolves the owner on getStats and stays tenant-wide when it is omitted', async () => {
+    const get_onedrive_stats = vi.fn().mockResolvedValue({});
+    const resolver = identity_resolver();
+    const api = create_onedrive_api(
+      TENANT_ID,
+      container_with(
+        [STATS_USE_CASE_TOKEN, { get_onedrive_stats }],
+        [USER_IDENTITY_RESOLVER_TOKEN, resolver],
+      ),
+    );
+
+    await api.getStats(EMAIL);
+    await api.getStats();
+
+    expect(resolver.resolve_user).toHaveBeenCalledTimes(1);
+    expect(get_onedrive_stats).toHaveBeenNthCalledWith(1, TENANT_ID, OBJECT_ID);
+    expect(get_onedrive_stats).toHaveBeenNthCalledWith(2, TENANT_ID, undefined);
+  });
 });
 
 describe('SharePoint site resolution (issue #181)', () => {
@@ -156,5 +176,28 @@ describe('SharePoint site resolution (issue #181)', () => {
 
     expect(resolve_site).not.toHaveBeenCalled();
     expect(backup_site_tree.mock.calls[0]![1]).toBe(SITE_ID);
+  });
+
+  it('resolves the site on getStats and stays tenant-wide when it is omitted', async () => {
+    const get_sharepoint_stats = vi.fn().mockResolvedValue({});
+    const resolve_site = vi.fn().mockResolvedValue({
+      site_id: SITE_ID,
+      site_url: SITE_URL,
+      display_name: 'Example',
+    });
+    const api = create_sharepoint_api(
+      TENANT_ID,
+      container_with(
+        [STATS_USE_CASE_TOKEN, { get_sharepoint_stats }],
+        [SHAREPOINT_CONNECTOR_TOKEN, { resolve_site }],
+      ),
+    );
+
+    await api.getStats(SITE_URL);
+    await api.getStats();
+
+    expect(resolve_site).toHaveBeenCalledTimes(1);
+    expect(get_sharepoint_stats).toHaveBeenNthCalledWith(1, TENANT_ID, SITE_ID);
+    expect(get_sharepoint_stats).toHaveBeenNthCalledWith(2, TENANT_ID, undefined);
   });
 });

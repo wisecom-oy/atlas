@@ -10,7 +10,8 @@ import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import type { KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
-import { parse_lock_mode, parse_retention_days } from '@/command-object-lock';
+import { parse_object_lock_mode } from '@wisecom/atlas-core/services/shared/object-lock-policy';
+import { parse_retention_days } from '@/command-object-lock';
 
 type ContainerFactory = () => Container;
 
@@ -107,7 +108,7 @@ function build_request(options: StorageCheckOptions): {
   mode?: ObjectLockMode;
   retention_days?: number;
 } {
-  const mode = parse_lock_mode(options.lockMode);
+  const mode = parse_object_lock_mode(options.lockMode);
   const retention_days = parse_retention_days(options.retentionDays);
   return {
     ...(mode !== undefined ? { mode } : {}),

@@ -11,6 +11,7 @@ import type {
   OneDriveStatusUseCase,
   UserIdentityResolver,
   ResolvedUserIdentity,
+  StatsUseCase,
 } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
@@ -22,6 +23,7 @@ import {
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
+  STATS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { adapt_operation_options } from '@/operation-options';
 
@@ -39,6 +41,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   );
   const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
+  const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
   const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
 
@@ -115,6 +118,10 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     },
     async checkStatus(owner_input) {
       return await status.check_onedrive_status(tenant_id, await resolve_owner_id(owner_input));
+    },
+    async getStats(owner_input) {
+      const owner_id = owner_input === undefined ? undefined : await resolve_owner_id(owner_input);
+      return await stats.get_onedrive_stats(tenant_id, owner_id);
     },
   };
 }

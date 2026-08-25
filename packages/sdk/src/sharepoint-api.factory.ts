@@ -10,6 +10,7 @@ import type {
   SharePointDeletionUseCase,
   SharePointStatusUseCase,
   SharePointSiteConnector,
+  StatsUseCase,
 } from '@wisecom/atlas-types';
 import {
   SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
@@ -21,6 +22,7 @@ import {
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
+  STATS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { adapt_operation_options } from '@/operation-options';
 
@@ -41,6 +43,7 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   const deletion = container.get<SharePointDeletionUseCase>(SHAREPOINT_DELETION_USE_CASE_TOKEN);
   const status = container.get<SharePointStatusUseCase>(SHAREPOINT_STATUS_USE_CASE_TOKEN);
   const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
+  const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
   /**
    * Mirrors the CLI: a composite site ID contains commas, anything else is a URL or hostname
@@ -114,6 +117,10 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
     },
     async checkStatus(site_input) {
       return await status.check_sharepoint_status(tenant_id, await resolve_site_id(site_input));
+    },
+    async getStats(site_input) {
+      const site_id = site_input === undefined ? undefined : await resolve_site_id(site_input);
+      return await stats.get_sharepoint_stats(tenant_id, site_id);
     },
   };
 }

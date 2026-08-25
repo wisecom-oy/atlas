@@ -3,11 +3,9 @@ import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { BackupUseCase, SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
-import type { TenantBackupOrchestrator } from '@wisecom/atlas-types';
-import { BACKUP_USE_CASE_TOKEN, TENANT_ORCHESTRATOR_TOKEN } from '@wisecom/atlas-types';
+import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { run_backup_with_cli_adapter } from '@/adapters/backup-operation.adapter';
 import { build_object_lock_policy, build_object_lock_request } from '@/command-object-lock';
-import { run_tenant_backup_with_cli_adapter } from '@/adapters/tenant-backup-operation.adapter';
 import { format_bytes } from '@/command-formatters';
 import { report_run_outcome } from '@/command-run-outcome';
 import { logger } from '@wisecom/atlas-core';
@@ -23,8 +21,6 @@ export interface OutlookBackupOptions {
   pageSize?: string;
   retentionDays?: string;
   lockMode?: string;
-  requireImmutability?: boolean;
-  concurrency?: string;
 }
 
 /** Resolves the tenant ID from CLI flag or config. */
@@ -48,15 +44,18 @@ function build_sync_options(options: OutlookBackupOptions): SyncOptions {
   };
 }
 
-/** Dispatches a backup run for a single mailbox or the entire tenant. */
+/** Runs a backup for the single mailbox given by the required -m flag. */
 export async function execute_outlook_backup(
   container: Container,
   options: OutlookBackupOptions,
 ): Promise<void> {
+  const { mailbox } = options;
+  if (!mailbox) throw new Error('mailbox is required (pass -m, --mailbox <id>)');
+
   const tenant_id = resolve_tenant_id(container, options);
   const items: KeyValueItem[] = [{ label: 'Tenant', value: tenant_id }];
   if (options.folder) items.push({ label: 'Folders', value: options.folder.join(', ') });
-  if (options.mailbox) items.push({ label: 'Mailbox', value: options.mailbox });
+  items.push({ label: 'Mailbox', value: mailbox });
 
   await render_static_view(
     <Box flexDirection="column">
@@ -65,11 +64,7 @@ export async function execute_outlook_backup(
     </Box>,
   );
 
-  if (options.mailbox) {
-    await backup_single_mailbox(container, tenant_id, options.mailbox, build_sync_options(options));
-  } else {
-    await backup_all_mailboxes(container, tenant_id, options);
-  }
+  await backup_single_mailbox(container, tenant_id, mailbox, build_sync_options(options));
 }
 
 /** Runs a single-mailbox backup and logs the outcome. */
@@ -98,44 +93,5 @@ async function backup_single_mailbox(
       interrupted: result.summary.interrupted,
     },
     'folder',
-  );
-}
-
-/** Runs full-tenant backup via the orchestrator with CLI dashboard. */
-async function backup_all_mailboxes(
-  container: Container,
-  tenant_id: string,
-  options: OutlookBackupOptions,
-): Promise<void> {
-  const concurrency = Math.max(1, parseInt(options.concurrency ?? '4', 10) || 4);
-  const page_size = Math.max(1, Math.min(100, parseInt(options.pageSize ?? '10', 10) || 10));
-  const object_lock_request = build_object_lock_request(options);
-  const object_lock_policy = build_object_lock_policy(options);
-
-  logger.info(`Backing up all licensed and shared mailboxes (concurrency=${concurrency})`);
-
-  const orchestrator = container.get<TenantBackupOrchestrator>(TENANT_ORCHESTRATOR_TOKEN);
-  const result = await run_tenant_backup_with_cli_adapter(orchestrator, tenant_id, {
-    concurrency,
-    force_full: options.full ?? false,
-    page_size,
-    object_lock_request,
-    object_lock_policy,
-  });
-
-  const mailbox_errors = result.outcomes
-    .filter((o) => o.error !== undefined)
-    .map((o) => `${o.owner_id}: ${o.error}`);
-  report_run_outcome(
-    {
-      // Outcomes can be truncated on hard stops; the failed counter is authoritative.
-      errors:
-        result.failed > 0 && mailbox_errors.length === 0
-          ? [`${result.failed} mailbox(es) failed`]
-          : mailbox_errors,
-      warnings: [],
-      interrupted: result.interrupted,
-    },
-    'mailbox',
   );
 }

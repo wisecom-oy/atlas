@@ -17,6 +17,7 @@ import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.por
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { SharePointSite } from '@/ports/sharepoint/connector.port';
 import type { SharePointStatusResult } from '@/ports/sharepoint/status.port';
+import type { DriveStats } from '@/domain/stats';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 
@@ -72,4 +73,6 @@ export interface SharePointApi {
   ): Promise<ReplicationResult>;
   rehydrateSite(siteId: string, source: StorageTarget): Promise<ReplicationResult>;
   checkStatus(siteId: string): Promise<SharePointStatusResult>;
+  /** Aggregates SharePoint backup statistics; without siteId, tenant-wide across sites. */
+  getStats(siteId?: string): Promise<DriveStats>;
 }
