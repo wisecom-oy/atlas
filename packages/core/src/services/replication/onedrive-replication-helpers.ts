@@ -35,13 +35,18 @@ export function to_onedrive_status_record(
   };
 }
 
-/** Collects ancillary S3 keys for an owner: version indexes + delta cursor. */
+/**
+ * Collects ancillary S3 keys for an owner: version indexes + delta cursor.
+ * The index prefix is the owner root, not `files/`: since issue #161 version
+ * rows live in per-run objects under `runs/`, and scoping to `files/` would
+ * replicate only the legacy per-file objects.
+ */
 export async function collect_od_ancillary_keys(
   ctx: TenantContext,
   owner_id: string,
 ): Promise<string[]> {
   const keys: string[] = [];
-  const index_keys = await ctx.storage.list(`${OD_INDEX_PREFIX}/${owner_id}/files/`);
+  const index_keys = await ctx.storage.list(`${OD_INDEX_PREFIX}/${owner_id}/`);
   keys.push(...index_keys);
   const cursor_key = `${OD_META_PREFIX}/${owner_id}/delta.json`;
   if (await ctx.storage.exists(cursor_key)) keys.push(cursor_key);

@@ -4,8 +4,8 @@ import type {
   OneDriveDeltaItem,
   OneDriveDeltaResult,
   OneDriveDrive,
+  OneDriveFileVersionRecord,
   OneDriveDeltaCursorRepository,
-  OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
   TenantContext,
   OperationControlOptions,
@@ -25,6 +25,7 @@ import {
   type VersionStats,
 } from '@/services/onedrive-delta-item-processor';
 import { resolve_retry_items } from '@/services/onedrive-failed-item-retry';
+import type { RunVersionCollector } from '@/services/onedrive-version-sync';
 import {
   make_item_progress_callback,
   report_drive_success,
@@ -63,12 +64,13 @@ export interface DriveScanAccumulators {
   items_processed: number;
   interrupted: boolean;
   package_report: PackageReportTotals;
+  /** Version rows captured during this run, per file id; written as one index object at finalize time. */
+  version_rows: Map<string, OneDriveFileVersionRecord[]>;
 }
 
 /** Fetches delta changes across all drives and accumulates manifest entries. */
 export async function scan_all_drives(
   connector: OneDriveConnector,
-  file_indexes: OneDriveFileVersionIndexRepository,
   cursors: OneDriveDeltaCursorRepository,
   drives: OneDriveDrive[],
   tenant_id: string,
@@ -81,11 +83,14 @@ export async function scan_all_drives(
     | { delta_link_by_drive: Record<string, string>; failed_items?: FailedItemLedger | undefined }
     | undefined,
   force_full: boolean,
+  versions: RunVersionCollector,
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   progress?: BackupProgressReporter,
   control: OperationControlOptions = {},
 ): Promise<DriveScanAccumulators> {
+  // No index read here: version dedup rides on the delta cursor watermarks the
+  // caller already loaded (issue #161).
   const accumulators: DriveScanAccumulators = {
     entries: [],
     files_stored: 0,
@@ -97,6 +102,7 @@ export async function scan_all_drives(
     items_processed: 0,
     interrupted: false,
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
+    version_rows: versions.rows,
   };
 
   const totals: ScanProgressTotals = { processed: 0, total: 0, started_at: Date.now() };
@@ -134,7 +140,7 @@ export async function scan_all_drives(
 
       const drive_result = await process_single_drive(
         connector,
-        file_indexes,
+        versions,
         drive,
         tenant_id,
         owner_id,
@@ -224,7 +230,7 @@ function accumulate_drive_result(
  */
 export async function process_single_drive(
   connector: OneDriveConnector,
-  file_indexes: OneDriveFileVersionIndexRepository,
+  versions: RunVersionCollector,
   drive: OneDriveDrive,
   tenant_id: string,
   owner_id: string,
@@ -283,7 +289,6 @@ export async function process_single_drive(
     }
     const outcome = await process_delta_item(
       connector,
-      file_indexes,
       item,
       owner_id,
       snapshot_id,
@@ -291,6 +296,7 @@ export async function process_single_drive(
       state,
       version_stats,
       on_version_stats_update,
+      versions,
     );
     // Progress rows were sized from the delta batch; retried items are extra.
     if (from_delta) on_item_processed?.(item);

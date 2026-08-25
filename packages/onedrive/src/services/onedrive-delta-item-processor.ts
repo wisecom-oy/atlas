@@ -1,7 +1,6 @@
 import type {
   OneDriveConnector,
   OneDriveDeltaItem,
-  OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -12,7 +11,11 @@ import {
 } from '@/services/onedrive-backup-builders';
 import { process_backup_file } from '@/services/onedrive-backup-file-processor';
 import { classify_change_type } from '@/services/onedrive-change-classifier';
-import { sync_file_versions } from '@/services/onedrive-version-sync';
+import {
+  collect_run_versions,
+  sync_file_versions,
+  type RunVersionCollector,
+} from '@/services/onedrive-version-sync';
 
 export interface DriveTrackingState {
   previous_path_by_file_id: Record<string, string>;
@@ -49,7 +52,6 @@ export function clear_file_tracking_on_reset(state: DriveTrackingState): void {
 /** Processes one delta item and returns manifest entries or errors. */
 export async function process_delta_item(
   connector: OneDriveConnector,
-  file_indexes: OneDriveFileVersionIndexRepository,
   item: OneDriveDeltaItem,
   owner_id: string,
   snapshot_id: string,
@@ -57,6 +59,7 @@ export async function process_delta_item(
   state: DriveTrackingState,
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
+  versions: RunVersionCollector,
 ): Promise<DeltaItemOutcome> {
   const effective_kind =
     item.deleted && item.kind === 'file' && state.previous_kind_by_file_id[item.item_id]
@@ -107,11 +110,11 @@ export async function process_delta_item(
       owner_id,
       snapshot_id,
       ctx,
-      file_indexes,
+      versions.watermarks[item.item_id],
     );
+    collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, on_version_stats_update);
   }
-
   state.previous_path_by_file_id[item.item_id] = item.parent_path;
   state.previous_name_by_file_id[item.item_id] = item.file_name;
   state.previous_kind_by_file_id[item.item_id] = 'file';

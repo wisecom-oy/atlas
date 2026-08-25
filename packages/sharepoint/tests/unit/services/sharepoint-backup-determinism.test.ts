@@ -114,11 +114,10 @@ describe('SharePoint backup determinism — error isolation', () => {
     await service.backup_site('tenant-1', 'site-1');
 
     expect(manifests.save).toHaveBeenCalledTimes(1);
-
-    const append_calls = (file_indexes.append_version as ReturnType<typeof vi.fn>).mock.calls;
-    const appended_file_ids = append_calls.map((c: unknown[]) => c[2]);
-    expect(appended_file_ids).toContain('f1');
-    expect(appended_file_ids).not.toContain('f2');
+    const run_indexes = vi.mocked(file_indexes.write_run_index).mock.calls.at(-1)![3];
+    const indexed_file_ids = run_indexes.map((index) => index.file_id);
+    expect(indexed_file_ids).toContain('f1');
+    expect(indexed_file_ids).not.toContain('f2');
   });
 
   it('isolates errors per library — a healthy library is NOT contaminated by a failed one', async () => {
