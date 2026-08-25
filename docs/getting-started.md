@@ -57,8 +57,10 @@ The encryption passphrase is **irrecoverable**. Lose it and all backup data beco
 # back up a single mailbox
 atlas outlook backup --mailbox user@company.com
 
-# back up all licensed and shared mailboxes in the tenant
-atlas outlook backup
+
+# list mailboxes to loop over in your scheduler
+atlas outlook mailboxes
+
 ```
 
 **OneDrive files:**

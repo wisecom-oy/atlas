@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BackupProgressLineReporter } from '@/ui/dashboards/backup-progress-line-reporter';
-import { TenantBackupLineReporter } from '@/ui/dashboards/tenant-backup-line-reporter';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -34,18 +33,5 @@ describe('BackupProgressLineReporter', () => {
     expect(spy).toHaveBeenCalledWith('  [!!] Inbox -- ERROR: timeout');
     expect(spy).toHaveBeenCalledWith('  [~~] Drafts -- interrupted');
     expect(spy).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe('TenantBackupLineReporter', () => {
-  it('logs one line per completed or failed mailbox', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const reporter = new TenantBackupLineReporter();
-
-    reporter.mark_mailbox_done(0, 'alice@t.com', 10, 5);
-    reporter.mark_mailbox_error(1, 'bob@t.com', 'timeout');
-
-    expect(spy).toHaveBeenCalledWith('  [ok] alice@t.com -- 10 stored, 5 dedup');
-    expect(spy).toHaveBeenCalledWith('  [!!] bob@t.com -- ERROR: timeout');
   });
 });
