@@ -135,7 +135,10 @@ function make_harness(options: {
     factory,
     connector as never,
     manifests as never,
-    { append_version: vi.fn() } as never,
+    {
+      load_known_version_ids: vi.fn().mockResolvedValue(new Map()),
+      write_run_index: vi.fn(),
+    } as never,
     cursors as never,
   );
   return { service, fetch_item_by_id, saved_cursors, calls, save_order };

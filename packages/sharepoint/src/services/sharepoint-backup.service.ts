@@ -32,18 +32,19 @@ import {
   build_empty_result,
   build_package_warnings,
   build_snapshot_manifest,
+  persist_snapshot_backup,
 } from '@/services/sharepoint-backup-builders';
 import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import type {
   FileTrackingState,
   VersionStatsState,
 } from '@/services/sharepoint-library-item-processor';
+import type { RunVersionCollector } from '@/services/sharepoint-version-sync';
 import {
   scan_all_libraries,
   type SharePointLibraryScanResult,
 } from '@/services/sharepoint-backup-library-scan';
 import { cleanup_stale_staging } from '@/services/sharepoint-large-file-pipeline';
-import { append_version_indexes } from '@/services/sharepoint-version-index-appender';
 
 @injectable()
 export class SharePointBackupService implements SharePointBackupUseCase {
@@ -99,10 +100,12 @@ export class SharePointBackupService implements SharePointBackupUseCase {
 
       const manifest_created_at = new Date();
       const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
+      const versions: RunVersionCollector = { known: new Map(), rows: new Map() };
       const scan = await scan_all_libraries({
         connector: this._connector,
         cursors: this._cursors,
         file_indexes: this._file_indexes,
+        versions,
         initial_failed_items: previous_cursor?.failed_items ?? {},
         tenant_id,
         site_id,
@@ -235,13 +238,16 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       options.site_url,
       options.site_display_name,
     );
-    await this._manifests.save(ctx, snapshot);
-    await append_version_indexes(
+    await persist_snapshot_backup(
+      this._manifests,
       this._file_indexes,
+      this._cursors,
       ctx,
       site_id,
+      snapshot,
       scan.entries,
-      snapshot.snapshot_id,
+      cursor,
+      scan.version_rows,
     );
 
     await this._cursors.save(ctx, cursor);

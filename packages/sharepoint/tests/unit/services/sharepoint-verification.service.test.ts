@@ -114,9 +114,7 @@ function create_mocks() {
   } as unknown as SharePointManifestRepository;
 
   const indexes: SharePointFileVersionIndexRepository = {
-    find_by_file_id: vi.fn(),
-    append_version: vi.fn(),
-    list_by_site: vi.fn(),
+    list_by_site: vi.fn().mockResolvedValue([]),
   } as unknown as SharePointFileVersionIndexRepository;
 
   return { ctx, tenant_factory, manifests, indexes };
@@ -146,7 +144,7 @@ describe('SharePointVerificationService', () => {
   it('returns all passed when blobs are intact and indexes are consistent', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, true));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -159,7 +157,7 @@ describe('SharePointVerificationService', () => {
   it('reports blob mismatch when decrypted content has wrong checksum', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, true));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
     vi.mocked(mocks.ctx.decrypt).mockReturnValue(Buffer.from('tampered-content'));
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
@@ -171,7 +169,7 @@ describe('SharePointVerificationService', () => {
   it('reports blob corrupt when storage.exists returns false', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, true));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
     vi.mocked(mocks.ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
@@ -182,7 +180,6 @@ describe('SharePointVerificationService', () => {
   it('reports index issue when file version index is missing', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(undefined);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -193,7 +190,7 @@ describe('SharePointVerificationService', () => {
   it('reports index issue when index has no record for this snapshot', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, false));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, false)]);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -207,7 +204,7 @@ describe('SharePointVerificationService', () => {
       checksum: undefined,
     });
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, true));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -219,7 +216,7 @@ describe('SharePointVerificationService', () => {
   it('skips blob check for entries without storage key', async () => {
     const entry = make_entry({ storage_key: undefined, checksum: undefined });
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, true));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -230,7 +227,7 @@ describe('SharePointVerificationService', () => {
   it('reports blob corrupt when decrypt throws', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.find_by_file_id).mockResolvedValue(make_index(entry.file_id, true));
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
     vi.mocked(mocks.ctx.decrypt).mockImplementation(() => {
       throw new Error('decryption failed');
     });
@@ -258,11 +255,10 @@ describe('SharePointVerificationService', () => {
       make_manifest([good_entry, bad_entry, deleted_entry]),
     );
 
-    vi.mocked(mocks.indexes.find_by_file_id).mockImplementation(async (_ctx, _site, file_id) => {
-      if (file_id === 'file-del') return make_index(file_id, true);
-      if (file_id === 'file-good') return make_index(file_id, true);
-      return undefined;
-    });
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([
+      make_index('file-del', true),
+      make_index('file-good', true),
+    ]);
 
     vi.mocked(mocks.ctx.decrypt).mockImplementation((_ciphertext: Buffer) => {
       return good_content;
@@ -278,9 +274,10 @@ describe('SharePointVerificationService', () => {
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(
       make_manifest([make_entry({ file_id: 'f1' }), make_entry({ file_id: 'f2' })]),
     );
-    vi.mocked(mocks.indexes.find_by_file_id).mockImplementation(async (_ctx, _site, file_id) => {
-      return make_index(file_id, true);
-    });
+    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([
+      make_index('f1', true),
+      make_index('f2', true),
+    ]);
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {
       if (event.phase === 'processing' && event.processed === 1) interrupted = true;
     });

@@ -31,6 +31,7 @@ import {
   build_success_result,
   persist_snapshot_backup,
 } from '@/services/onedrive-backup-builders';
+import type { RunVersionCollector } from '@/services/onedrive-version-sync';
 import { ensure_drives_discovered } from '@/services/onedrive-backup-file-processor';
 import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
 import type { PackageReportTotals } from '@/services/onedrive-package-report';
@@ -106,6 +107,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       let total_versions_stored = 0;
       let total_versions_unavailable = 0;
       let total_versions_failed = 0;
+      const versions: RunVersionCollector = { known: new Map(), rows: new Map() };
       const warnings: string[] = [];
       const version_stats = {
         total_versions_stored,
@@ -134,6 +136,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         delta_link_by_drive,
         previous_cursor,
         options.force_full === true,
+        versions,
         version_stats,
         update_version_stats,
         progress,
@@ -210,6 +213,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           snapshot,
           scan_result.entries,
           cursor,
+          scan_result.version_rows,
         );
         result = build_success_result(
           owner_id,

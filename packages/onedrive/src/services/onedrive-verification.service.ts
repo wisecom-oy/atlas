@@ -71,6 +71,14 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
       const index_issues: string[] = [];
       let total_checked = 0;
       let processed = 0;
+      // One read of the owner's merged version index instead of one lookup per
+      // entry: the index is a handful of per-run objects since issue #161.
+      const indexes_by_file = new Map(
+        (await this._indexes.list_by_owner(ctx, manifest.owner_id)).map((idx) => [
+          idx.file_id,
+          idx,
+        ]),
+      );
       emit_operation_progress(options, {
         operation: 'verify',
         workload: 'onedrive',
@@ -81,7 +89,7 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
 
       for (const { snapshot_id: source_snapshot, entry } of entries) {
         if (options.should_interrupt?.() === true) break;
-        const idx = await this._indexes.find_by_file_id(ctx, manifest.owner_id, entry.file_id);
+        const idx = indexes_by_file.get(entry.file_id);
         // Against the snapshot that recorded the entry, not the one being verified: a carried-over
         // file has its index row under the older snapshot.
         const has_version = idx?.versions.some((v) => v.snapshot_id === source_snapshot);

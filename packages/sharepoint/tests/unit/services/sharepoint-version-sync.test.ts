@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   SharePointSiteConnector,
   SharePointDeltaItem,
-  SharePointFileVersionIndexRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { sync_file_versions } from '@/services/sharepoint-version-sync';
@@ -54,41 +53,32 @@ function make_ctx(): TenantContext {
   } as unknown as TenantContext;
 }
 
-function make_file_indexes(): SharePointFileVersionIndexRepository {
-  return {
-    find_by_file_id: vi.fn().mockResolvedValue(undefined),
-    append_version: vi.fn().mockResolvedValue(undefined),
-  } as unknown as SharePointFileVersionIndexRepository;
-}
-
 describe('sync_file_versions', () => {
   let connector: SharePointSiteConnector;
   let ctx: TenantContext;
-  let file_indexes: SharePointFileVersionIndexRepository;
+  const item = make_item();
+  const site_id = 'site-1';
+  const snapshot_id = 'snap-1';
 
   beforeEach(() => {
-    connector = make_connector();
     ctx = make_ctx();
-    file_indexes = make_file_indexes();
   });
 
   it('returns empty result when no versions exist', async () => {
-    const result = await sync_file_versions(
-      connector,
-      make_item(),
-      'site-1',
-      'snap-1',
-      ctx,
-      file_indexes,
-    );
+    connector = make_connector({ list_file_versions: vi.fn().mockResolvedValue([]) });
 
-    expect(result.new_versions_stored).toBe(0);
-    expect(result.versions_deduplicated).toBe(0);
-    expect(result.versions_unavailable).toBe(0);
-    expect(result.versions_failed).toBe(0);
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
+
+    expect(result).toEqual({
+      new_versions_stored: 0,
+      versions_deduplicated: 0,
+      versions_unavailable: 0,
+      versions_failed: 0,
+      records: [],
+    });
   });
 
-  it('downloads and stores new versions', async () => {
+  it('stores new versions and returns correct counts', async () => {
     const versions = [
       { version_id: 'v2', last_modified_at: '2025-01-01', size_bytes: 500 },
       { version_id: 'v3', last_modified_at: '2025-01-02', size_bytes: 600 },
@@ -98,17 +88,20 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockResolvedValue(Buffer.from('content')),
     });
 
-    const result = await sync_file_versions(
-      connector,
-      make_item(),
-      'site-1',
-      'snap-1',
-      ctx,
-      file_indexes,
-    );
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
 
     expect(result.new_versions_stored).toBe(2);
-    expect(file_indexes.append_version).toHaveBeenCalledTimes(2);
+    expect(result.versions_deduplicated).toBe(0);
+    expect(ctx.storage.put).toHaveBeenCalledTimes(2);
+    // Rows are returned for the run's single index object instead of written per file (issue #161).
+    expect(result.records.map((record) => record.version_id)).toEqual(['v2', 'v3']);
+    expect(result.records[0]).toMatchObject({
+      snapshot_id,
+      drive_id: item.drive_id,
+      file_name: item.file_name,
+      parent_path: item.parent_path,
+      change_type: 'updated',
+    });
   });
 
   it('skips already-known version IDs', async () => {
@@ -116,26 +109,19 @@ describe('sync_file_versions', () => {
     connector = make_connector({
       list_file_versions: vi.fn().mockResolvedValue(versions),
     });
-    file_indexes = {
-      ...make_file_indexes(),
-      find_by_file_id: vi.fn().mockResolvedValue({
-        file_id: 'item-1',
-        site_id: 'site-1',
-        versions: [{ version_id: 'v2' }],
-      }),
-    } as unknown as SharePointFileVersionIndexRepository;
 
     const result = await sync_file_versions(
       connector,
-      make_item(),
-      'site-1',
-      'snap-1',
+      item,
+      site_id,
+      snapshot_id,
       ctx,
-      file_indexes,
+      new Set(['v2']),
     );
 
     expect(result.new_versions_stored).toBe(0);
     expect(connector.download_file_version).not.toHaveBeenCalled();
+    expect(result.records).toEqual([]);
   });
 
   it('deduplicates when storage key already exists', async () => {
@@ -147,18 +133,13 @@ describe('sync_file_versions', () => {
     });
     (ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
-    const result = await sync_file_versions(
-      connector,
-      make_item(),
-      'site-1',
-      'snap-1',
-      ctx,
-      file_indexes,
-    );
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
 
     expect(result.versions_deduplicated).toBe(1);
     expect(result.new_versions_stored).toBe(0);
     expect(ctx.storage.put).not.toHaveBeenCalled();
+    // The row is still recorded so the version stays addressable in history.
+    expect(result.records.length).toBe(1);
   });
 
   it('counts unavailable versions (404/410)', async () => {
@@ -169,17 +150,11 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockRejectedValue({ statusCode: 404 }),
     });
 
-    const result = await sync_file_versions(
-      connector,
-      make_item(),
-      'site-1',
-      'snap-1',
-      ctx,
-      file_indexes,
-    );
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
 
     expect(result.versions_unavailable).toBe(1);
     expect(result.versions_failed).toBe(0);
+    expect(result.records).toEqual([]);
   });
 
   it('counts failed versions on unexpected errors', async () => {
@@ -190,14 +165,7 @@ describe('sync_file_versions', () => {
       download_file_version: vi.fn().mockRejectedValue(new Error('server error')),
     });
 
-    const result = await sync_file_versions(
-      connector,
-      make_item(),
-      'site-1',
-      'snap-1',
-      ctx,
-      file_indexes,
-    );
+    const result = await sync_file_versions(connector, item, site_id, snapshot_id, ctx, new Set());
 
     expect(result.versions_failed).toBe(1);
     expect(result.versions_unavailable).toBe(0);

@@ -1,15 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import type {
-  OneDriveConnector,
-  OneDriveDeltaItem,
-  OneDriveFileVersionIndexRepository,
-  TenantContext,
-} from '@wisecom/atlas-types';
+import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@wisecom/atlas-types';
 import {
   process_delta_item,
   type DriveTrackingState,
   type VersionStats,
 } from '@/services/onedrive-delta-item-processor';
+import type { RunVersionCollector } from '@/services/onedrive-version-sync';
 
 // Issue #139: a removed item arrives with no name and no download URL. It must
 // become a deleted manifest entry, never a download attempt, and never a
@@ -18,6 +14,7 @@ import {
 const OWNER_ID = 'owner-1';
 const SNAPSHOT_ID = 'od-snap-test';
 
+const EMPTY_VERSIONS: RunVersionCollector = { known: new Map(), rows: new Map() };
 function make_state(overrides: Partial<DriveTrackingState> = {}): DriveTrackingState {
   return {
     previous_path_by_file_id: {},
@@ -81,7 +78,6 @@ describe('process_delta_item deletion handling (issue #139)', () => {
 
     const outcome = await process_delta_item(
       connector,
-      {} as OneDriveFileVersionIndexRepository,
       deleted_item('i1'),
       OWNER_ID,
       SNAPSHOT_ID,
@@ -89,6 +85,7 @@ describe('process_delta_item deletion handling (issue #139)', () => {
       state,
       version_stats(),
       () => {},
+      EMPTY_VERSIONS,
     );
 
     expect(outcome.error).toBeUndefined();
@@ -108,7 +105,6 @@ describe('process_delta_item deletion handling (issue #139)', () => {
 
     const outcome = await process_delta_item(
       connector,
-      {} as OneDriveFileVersionIndexRepository,
       deleted_item('i1'),
       OWNER_ID,
       SNAPSHOT_ID,
@@ -116,6 +112,7 @@ describe('process_delta_item deletion handling (issue #139)', () => {
       state,
       version_stats(),
       () => {},
+      EMPTY_VERSIONS,
     );
 
     expect(outcome.entry?.file_name).toBe('Budget.xlsx');
@@ -126,7 +123,6 @@ describe('process_delta_item deletion handling (issue #139)', () => {
 
     const outcome = await process_delta_item(
       connector,
-      {} as OneDriveFileVersionIndexRepository,
       deleted_item('unknown-item'),
       OWNER_ID,
       SNAPSHOT_ID,
@@ -134,6 +130,7 @@ describe('process_delta_item deletion handling (issue #139)', () => {
       make_state(),
       version_stats(),
       () => {},
+      EMPTY_VERSIONS,
     );
 
     expect(outcome.deleted_items).toBe(1);
@@ -146,7 +143,6 @@ describe('process_delta_item deletion handling (issue #139)', () => {
 
     const outcome = await process_delta_item(
       connector,
-      { append: vi.fn() } as unknown as OneDriveFileVersionIndexRepository,
       {
         item_id: 'i2',
         drive_id: 'd1',
@@ -164,6 +160,7 @@ describe('process_delta_item deletion handling (issue #139)', () => {
       make_state(),
       version_stats(),
       () => {},
+      EMPTY_VERSIONS,
     );
 
     expect(downloads).toEqual(['i2']);

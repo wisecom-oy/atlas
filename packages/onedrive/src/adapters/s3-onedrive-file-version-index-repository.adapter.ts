@@ -1,128 +1,127 @@
 import { injectable } from 'inversify';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   OneDriveFileVersionIndex,
-  OneDriveFileVersionRecord,
   OneDriveFileVersionIndexRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { onedrive_index_key, onedrive_index_prefix } from '@/services/onedrive-storage-keys';
+import {
+  onedrive_index_prefix,
+  onedrive_run_index_key,
+  validate_key_segment,
+} from '@/services/onedrive-storage-keys';
 
-const MAX_APPEND_RETRIES = 3;
+/** Payload of one run's version index object. */
+interface RunIndexPayload {
+  owner_id: string;
+  snapshot_id: string;
+  indexes: OneDriveFileVersionIndex[];
+}
 
-/** Persists per-file version history as encrypted JSON in S3. */
+/**
+ * Either a per-run payload or a legacy per-file index written before
+ * issue #161. Both stay readable so history recorded by older Atlas versions
+ * remains visible until those objects are purged.
+ */
+type StoredIndexPayload = RunIndexPayload | OneDriveFileVersionIndex;
+
+/**
+ * S3-backed version index with one object per backup run
+ * (`onedrive/index/<owner>/runs/<snapshot_id>.json`). A 20,000-file drive
+ * costs one PUT and one small object per run instead of one object per file,
+ * each billed at the provider's minimum size floor (issue #161).
+ */
 @injectable()
 export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersionIndexRepository {
-  private readonly _key_locks = new Map<string, Promise<unknown>>();
+  /** Version ids already recorded per file id across the owner's index objects. */
+  async load_known_version_ids(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<Map<string, Set<string>>> {
+    const indexes = await this.list_by_owner(ctx, owner_id);
+    const known = new Map<string, Set<string>>();
+    for (const idx of indexes) {
+      known.set(
+        idx.file_id,
+        new Set(idx.versions.map((v) => v.version_id).filter(Boolean) as string[]),
+      );
+    }
+    return known;
+  }
 
-  /** Retrieves the version index for a specific file. */
+  /** Writes the run's captured rows as a single create-only index object; no-op when empty. */
+  async write_run_index(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_id: string,
+    indexes: OneDriveFileVersionIndex[],
+  ): Promise<void> {
+    if (indexes.length === 0) return;
+    validate_key_segment(snapshot_id);
+    const payload: RunIndexPayload = { owner_id, snapshot_id, indexes };
+    await ctx.storage.put(
+      onedrive_run_index_key(owner_id, snapshot_id),
+      ctx.encrypt(Buffer.from(JSON.stringify(payload), 'utf-8')),
+    );
+  }
+
+  /** Retrieves the merged version history for a specific file across all index objects. */
   async find_by_file_id(
     ctx: TenantContext,
     owner_id: string,
     file_id: string,
   ): Promise<OneDriveFileVersionIndex | undefined> {
-    const key = onedrive_index_key(owner_id, file_id);
-    const exists = await ctx.storage.exists(key);
-    if (!exists) return undefined;
-    return this.download_index(ctx, key);
+    const keys = await ctx.storage.list(onedrive_index_prefix(owner_id));
+    const versions: OneDriveFileVersionIndex['versions'] = [];
+    for (const key of keys) {
+      for (const idx of await this.download_indexes(ctx, key)) {
+        if (idx.file_id === file_id) versions.push(...idx.versions);
+      }
+    }
+    if (versions.length === 0) return undefined;
+    return { file_id, owner_id, versions: sort_versions(versions) };
+  }
+
+  /** Lists per-file version histories for an owner, merged across all index objects. */
+  async list_by_owner(ctx: TenantContext, owner_id: string): Promise<OneDriveFileVersionIndex[]> {
+    const keys = await ctx.storage.list(onedrive_index_prefix(owner_id));
+    const by_file = new Map<string, OneDriveFileVersionIndex>();
+    for (const key of keys) {
+      for (const idx of await this.download_indexes(ctx, key)) {
+        merge_index(by_file, idx);
+      }
+    }
+    return [...by_file.values()];
   }
 
   /**
-   * Appends a version record and persists the updated index.
-   * Uses per-key serialization + S3 conditional put to prevent races.
+   * Downloads one index object and yields its per-file indexes. Storage or
+   * parse failures yield nothing for that object, matching the previous
+   * per-file behaviour of skipping unreadable entries.
    */
-  async append_version(
-    ctx: TenantContext,
-    owner_id: string,
-    file_id: string,
-    version: OneDriveFileVersionRecord,
-  ): Promise<OneDriveFileVersionIndex> {
-    const key = onedrive_index_key(owner_id, file_id);
-    return this.with_key_lock(key, () =>
-      this.append_version_serialized(ctx, owner_id, file_id, version),
-    );
-  }
-
-  /** Lists all file version indexes for an owner. */
-  async list_by_owner(ctx: TenantContext, owner_id: string): Promise<OneDriveFileVersionIndex[]> {
-    const keys = await ctx.storage.list(onedrive_index_prefix(owner_id));
-    const results: OneDriveFileVersionIndex[] = [];
-    for (const key of keys) {
-      const idx = await this.download_index(ctx, key);
-      if (idx) results.push(idx);
-    }
-    return results;
-  }
-
-  private async append_version_serialized(
-    ctx: TenantContext,
-    owner_id: string,
-    file_id: string,
-    version: OneDriveFileVersionRecord,
-  ): Promise<OneDriveFileVersionIndex> {
-    const key = onedrive_index_key(owner_id, file_id);
-
-    for (let attempt = 0; attempt < MAX_APPEND_RETRIES; attempt++) {
-      const existing = await ctx.storage.exists(key);
-      let current_versions: OneDriveFileVersionRecord[] = [];
-      let etag: string | undefined;
-
-      if (existing) {
-        const result = await ctx.storage.get_with_etag(key);
-        const json = ctx.decrypt(result.data).toString('utf-8');
-        const parsed = JSON.parse(json) as OneDriveFileVersionIndex;
-        current_versions = parsed.versions;
-        etag = result.etag;
-      }
-
-      const next: OneDriveFileVersionIndex = {
-        file_id,
-        owner_id,
-        versions: [...current_versions, version],
-      };
-
-      try {
-        const payload = Buffer.from(JSON.stringify(next));
-        await ctx.storage.put(key, ctx.encrypt(payload), undefined, undefined, etag);
-        return next;
-      } catch (err) {
-        const is_precondition = (err as { name?: string }).name === 'PreconditionFailedError';
-        if (!is_precondition || attempt === MAX_APPEND_RETRIES - 1) {
-          throw new Error(`append_version failed for ${file_id} after ${attempt + 1} attempts`);
-        }
-        logger.debug(`Version index ETag conflict for ${file_id}, retry ${attempt + 1}`);
-      }
-    }
-    throw new Error('append_version: unreachable');
-  }
-
-  /** Decrypts and parses an index object from storage, or undefined on failure. */
-  private async download_index(
+  private async download_indexes(
     ctx: TenantContext,
     key: string,
-  ): Promise<OneDriveFileVersionIndex | undefined> {
+  ): Promise<OneDriveFileVersionIndex[]> {
     try {
       const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload).toString('utf-8');
-      return JSON.parse(json) as OneDriveFileVersionIndex;
+      const parsed = JSON.parse(ctx.decrypt(payload).toString('utf-8')) as StoredIndexPayload;
+      return 'indexes' in parsed ? parsed.indexes : [parsed];
     } catch {
-      return undefined;
+      return [];
     }
   }
+}
 
-  private async with_key_lock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    while (this._key_locks.has(key)) {
-      await this._key_locks.get(key);
-    }
-    const promise = fn();
-    this._key_locks.set(
-      key,
-      promise.catch(() => {}),
-    );
-    try {
-      return await promise;
-    } finally {
-      this._key_locks.delete(key);
-    }
-  }
+function merge_index(
+  by_file: Map<string, OneDriveFileVersionIndex>,
+  idx: OneDriveFileVersionIndex,
+): void {
+  const existing = by_file.get(idx.file_id);
+  const merged = sort_versions(existing ? [...existing.versions, ...idx.versions] : idx.versions);
+  by_file.set(idx.file_id, { file_id: idx.file_id, owner_id: idx.owner_id, versions: merged });
+}
+function sort_versions(versions: OneDriveFileVersionIndex['versions']): typeof versions {
+  return [...versions].sort((a, b) =>
+    a.backup_at < b.backup_at ? -1 : a.backup_at > b.backup_at ? 1 : 0,
+  );
 }

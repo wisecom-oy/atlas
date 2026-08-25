@@ -3,7 +3,6 @@ import type {
   SharePointSiteConnector,
   SharePointDeltaItem,
   SharePointFileVersion,
-  SharePointFileVersionIndexRepository,
   SharePointFileVersionRecord,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -12,10 +11,25 @@ import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365
 import { sharepoint_data_key } from '@/services/sharepoint-storage-keys';
 
 export interface VersionSyncResult {
-  readonly new_versions_stored: number;
-  readonly versions_deduplicated: number;
-  readonly versions_unavailable: number;
-  readonly versions_failed: number;
+  new_versions_stored: number;
+  versions_deduplicated: number;
+  versions_unavailable: number;
+  versions_failed: number;
+}
+
+export interface VersionSyncOutcome extends VersionSyncResult {
+  /** Rows captured by this file, destined for the run's single index object. */
+  records: SharePointFileVersionRecord[];
+}
+
+/**
+ * Per-run version bookkeeping shared by every delta item of a backup:
+ * `known` is preloaded once from the existing index objects, and `rows`
+ * accumulates what this run captured for its single index object.
+ */
+export interface RunVersionCollector {
+  known: Map<string, Set<string>>;
+  rows: Map<string, SharePointFileVersionRecord[]>;
 }
 
 type VersionDownloadOutcome =
@@ -23,17 +37,21 @@ type VersionDownloadOutcome =
   | { status: 'unavailable' }
   | { status: 'failed'; reason: string };
 
-const EMPTY_RESULT: VersionSyncResult = {
+const EMPTY_OUTCOME: VersionSyncOutcome = {
   new_versions_stored: 0,
   versions_deduplicated: 0,
   versions_unavailable: 0,
   versions_failed: 0,
+  records: [],
 };
 
 /**
  * Enumerates historical versions for a file and stores any that are new.
- * Compares against the existing version index to avoid re-downloading
- * versions already captured in previous syncs.
+ * Compares against the version ids already recorded by earlier runs
+ * (`known_version_ids`, preloaded once per run) to avoid re-downloading
+ * them. Captured rows are returned to the caller instead of written here:
+ * the whole run shares one index object, persisted at finalize time
+ * (issue #161).
  */
 export async function sync_file_versions(
   connector: SharePointSiteConnector,
@@ -41,20 +59,16 @@ export async function sync_file_versions(
   site_id: string,
   snapshot_id: string,
   ctx: TenantContext,
-  file_indexes: SharePointFileVersionIndexRepository,
-): Promise<VersionSyncResult> {
+  known_version_ids: ReadonlySet<string>,
+): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
-  if (versions.length === 0) return EMPTY_RESULT;
-
-  const existing_index = await file_indexes.find_by_file_id(ctx, site_id, item.item_id);
-  const known_version_ids = new Set(
-    (existing_index?.versions ?? []).map((v) => v.version_id).filter(Boolean) as string[],
-  );
+  if (versions.length === 0) return EMPTY_OUTCOME;
 
   let new_versions_stored = 0;
   let versions_deduplicated = 0;
   let versions_unavailable = 0;
   let versions_failed = 0;
+  const records: SharePointFileVersionRecord[] = [];
 
   for (const version of versions) {
     if (known_version_ids.has(version.version_id)) continue;
@@ -83,7 +97,7 @@ export async function sync_file_versions(
       versions_deduplicated++;
     }
 
-    const record: SharePointFileVersionRecord = {
+    records.push({
       snapshot_id,
       backup_at: new Date().toISOString(),
       drive_id: item.drive_id,
@@ -95,18 +109,27 @@ export async function sync_file_versions(
       checksum,
       last_modified_at: version.last_modified_at,
       change_type: 'updated',
-    };
-
-    await file_indexes.append_version(ctx, site_id, item.item_id, record);
+    });
   }
 
   if (new_versions_stored > 0) {
     logger.info(`Stored ${new_versions_stored} historical version(s) for ${item.file_name}`);
   }
 
-  return { new_versions_stored, versions_deduplicated, versions_unavailable, versions_failed };
+  return {
+    new_versions_stored,
+    versions_deduplicated,
+    versions_unavailable,
+    versions_failed,
+    records,
+  };
 }
 
+/**
+ * Attempts to download a version, classifying the outcome:
+ * - 404/410: version expired by retention policy (unavailable, expected)
+ * - Other errors: unexpected failure worth reporting
+ */
 async function download_version_classified(
   connector: SharePointSiteConnector,
   item: SharePointDeltaItem,

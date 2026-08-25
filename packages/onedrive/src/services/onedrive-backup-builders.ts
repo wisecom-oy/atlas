@@ -4,6 +4,8 @@ import type {
   OneDriveDeltaCursor,
   OneDriveDeltaCursorRepository,
   OneDriveDeltaItem,
+  OneDriveFileVersionIndex,
+  OneDriveFileVersionRecord,
   OneDriveFileVersionIndexRepository,
   OneDriveManifestEntry,
   OneDriveManifestRepository,
@@ -125,16 +127,19 @@ export function accumulate_version_stats(
   );
 }
 
-/** Appends manifest entries to the per-file version index. */
-export async function append_entries_to_version_index(
-  file_indexes: OneDriveFileVersionIndexRepository,
-  ctx: TenantContext,
+/** Folds manifest entries and version downloads into per-file groups for the run's single index object. */
+export function build_run_version_indexes(
   owner_id: string,
   snapshot_id: string,
   entries: OneDriveManifestEntry[],
-): Promise<void> {
+  collected_rows: Map<string, OneDriveFileVersionRecord[]>,
+): OneDriveFileVersionIndex[] {
+  const versions_by_file = new Map<string, OneDriveFileVersionRecord[]>();
+  const add = (file_id: string, record: OneDriveFileVersionRecord): void => {
+    versions_by_file.set(file_id, [...(versions_by_file.get(file_id) ?? []), record]);
+  };
   for (const entry of entries) {
-    await file_indexes.append_version(ctx, owner_id, entry.file_id, {
+    add(entry.file_id, {
       snapshot_id,
       backup_at: entry.backup_at,
       drive_id: entry.drive_id,
@@ -149,6 +154,14 @@ export async function append_entries_to_version_index(
       ...(entry.last_modified_at !== undefined ? { last_modified_at: entry.last_modified_at } : {}),
     });
   }
+  for (const [file_id, rows] of collected_rows) {
+    for (const row of rows) add(file_id, row);
+  }
+  return [...versions_by_file.entries()].map(([file_id, versions]) => ({
+    file_id,
+    owner_id,
+    versions,
+  }));
 }
 
 /** Builds the success result after snapshot persistence. */
@@ -187,7 +200,7 @@ export function build_success_result(
   };
 }
 
-/** Saves snapshot manifest, version index entries, and the delta cursor. */
+/** Saves snapshot manifest, the run's single version index object, and the delta cursor. */
 export async function persist_snapshot_backup(
   manifests: OneDriveManifestRepository,
   file_indexes: OneDriveFileVersionIndexRepository,
@@ -197,8 +210,14 @@ export async function persist_snapshot_backup(
   snapshot: OneDriveSnapshotManifest,
   entries: OneDriveManifestEntry[],
   cursor: OneDriveDeltaCursor,
+  collected_rows: Map<string, OneDriveFileVersionRecord[]>,
 ): Promise<void> {
   await manifests.save(ctx, snapshot);
-  await append_entries_to_version_index(file_indexes, ctx, owner_id, snapshot.snapshot_id, entries);
+  await file_indexes.write_run_index(
+    ctx,
+    owner_id,
+    snapshot.snapshot_id,
+    build_run_version_indexes(owner_id, snapshot.snapshot_id, entries, collected_rows),
+  );
   await cursors.save(ctx, cursor);
 }

@@ -25,13 +25,15 @@ atlas-{tenant_id}/
 ├── onedrive/
 │   ├── data/{owner_id}/{sha256}             # encrypted file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
-│   ├── index/{owner_id}/files/{file_id}.json
+│   ├── index/{owner_id}/runs/{snapshot_id}.json
+│   ├── index/{owner_id}/files/{file_id}.json # legacy, readable until purged
 │   ├── staging/{owner_id}/{item_id}-{rand}  # temporary multipart staging
 │   └── _meta/{owner_id}/delta.json          # encrypted delta cursors
 └── sharepoint/
     ├── data/{site_id}/{sha256}              # encrypted file blobs
     ├── manifests/{site_id}/{snapshot_id}.json
-    ├── index/{site_id}/files/{file_id}.json
+    ├── index/{site_id}/runs/{snapshot_id}.json
+    ├── index/{site_id}/files/{file_id}.json   # legacy, readable until purged
     ├── staging/{site_id}/{item_id}-{rand}   # temporary multipart staging
     └── _meta/{site_id}/delta.json           # encrypted delta cursors
 ```
@@ -79,7 +81,8 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 | -------------------------------------- | ------------------------------------------ | ------------------------------------------------------- |
 | `onedrive/data/{owner_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID |
 | `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types            |
-| `onedrive/index/{owner_id}/files/`     | Per-file version indexes                   | Maps file IDs to snapshot versions                      |
+| `onedrive/index/{owner_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run      |
+| `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge   |
 | `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors                    | Required for incremental sync                           |
 
 ### SharePoint
@@ -88,8 +91,13 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 | --------------------------------------- | ------------------------------------------ | --------------------------------------------- |
 | `sharepoint/data/{site_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID |
 | `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types  |
-| `sharepoint/index/{site_id}/files/`     | Per-file version indexes                   | Maps file IDs to snapshot versions            |
+| `sharepoint/index/{site_id}/runs/`      | One version index object per backup run     | Maps file IDs to the versions captured by that run     |
+| `sharepoint/index/{site_id}/files/`     | Legacy per-file version indexes             | Readable alongside run objects; removed only by purge  |
 | `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors                    | Required for incremental sync                 |
+
+#### Version index objects
+
+Since the per-run index layout, Atlas writes **one** version index object per owner or site per backup run under `runs/`, holding every version row that run captured. A run with no new file versions writes no index object at all. Objects under `files/` were written by older Atlas versions and remain fully readable: reads merge both layouts, so history that predates an upgrade stays listable and verifiable until you purge the bucket.
 
 Subsites are stored exactly like any other site. A subsite is a Graph site with its own `site_id`, so `atlas sharepoint backup --include-subsites` writes one snapshot per subsite under that subsite's own `sharepoint/manifests/{site_id}/` prefix rather than folding its files into the parent site's manifest. Blobs, indexes, and delta cursors follow the same per-`site_id` split, which keeps a subsite's backup, restore, and retention independent of its parent.
 

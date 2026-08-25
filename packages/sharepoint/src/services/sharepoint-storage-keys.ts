@@ -10,7 +10,7 @@ export const SHAREPOINT_STAGING_PREFIX = 'sharepoint/staging';
 /** Prefix for snapshot manifest JSON objects. */
 export const SHAREPOINT_MANIFEST_PREFIX = 'sharepoint/manifests';
 
-/** Prefix for per-file version index JSON objects. */
+/** Prefix for version index objects (one per backup run, plus legacy per-file objects). */
 export const SHAREPOINT_INDEX_PREFIX = 'sharepoint/index';
 
 /** Prefix for SharePoint sync metadata (e.g. delta cursors). */
@@ -69,20 +69,24 @@ export function sharepoint_manifest_root_prefix(): string {
   return `${SHAREPOINT_MANIFEST_PREFIX}/`;
 }
 
-/** Builds the key for a file's version index. */
-export function sharepoint_index_key(site_id: string, file_id: string): string {
+/** Builds the key for one backup run's version index object (issue #161). */
+export function sharepoint_run_index_key(site_id: string, snapshot_id: string): string {
   const site = site_segment(site_id);
-  validate_key_segment(file_id);
-  return `${SHAREPOINT_INDEX_PREFIX}/${site}/files/${file_id}.json`;
+  validate_key_segment(snapshot_id);
+  return `${SHAREPOINT_INDEX_PREFIX}/${site}/runs/${snapshot_id}.json`;
 }
 
-/** Builds the prefix for listing all file indexes of a site. */
+/**
+ * Prefix listing every version index object of a site. Covers both the
+ * per-run objects and the legacy per-file objects written before issue #161,
+ * so reads keep seeing history recorded by older Atlas versions.
+ */
 export function sharepoint_index_prefix(site_id: string): string {
   const site = site_segment(site_id);
-  return `${SHAREPOINT_INDEX_PREFIX}/${site}/files/`;
+  return `${SHAREPOINT_INDEX_PREFIX}/${site}/`;
 }
 
-/** Returns the root prefix for all SharePoint file indexes. */
+/** Returns the root prefix for all SharePoint version index objects. */
 export function sharepoint_index_root_prefix(): string {
   return `${SHAREPOINT_INDEX_PREFIX}/`;
 }

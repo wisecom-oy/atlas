@@ -10,7 +10,7 @@ export const ONEDRIVE_STAGING_PREFIX = 'onedrive/staging';
 /** Prefix for snapshot manifest JSON objects. */
 export const ONEDRIVE_MANIFEST_PREFIX = 'onedrive/manifests';
 
-/** Prefix for per-file version index JSON objects. */
+/** Prefix for version index objects (one per backup run, plus legacy per-file objects). */
 export const ONEDRIVE_INDEX_PREFIX = 'onedrive/index';
 
 /** Prefix for OneDrive sync metadata (e.g. delta cursors). */
@@ -64,20 +64,24 @@ export function onedrive_manifest_root_prefix(): string {
   return `${ONEDRIVE_MANIFEST_PREFIX}/`;
 }
 
-/** Builds the key for a file's version index. */
-export function onedrive_index_key(owner_id: string, file_id: string): string {
+/** Builds the key for one backup run's version index object (issue #161). */
+export function onedrive_run_index_key(owner_id: string, snapshot_id: string): string {
   const owner = owner_segment(owner_id);
-  validate_key_segment(file_id);
-  return `${ONEDRIVE_INDEX_PREFIX}/${owner}/files/${file_id}.json`;
+  validate_key_segment(snapshot_id);
+  return `${ONEDRIVE_INDEX_PREFIX}/${owner}/runs/${snapshot_id}.json`;
 }
 
-/** Builds the prefix for listing all file indexes of an owner. */
+/**
+ * Prefix listing every version index object of an owner. Covers both the
+ * per-run objects and the legacy per-file objects written before issue #161,
+ * so reads keep seeing history recorded by older Atlas versions.
+ */
 export function onedrive_index_prefix(owner_id: string): string {
   const owner = owner_segment(owner_id);
-  return `${ONEDRIVE_INDEX_PREFIX}/${owner}/files/`;
+  return `${ONEDRIVE_INDEX_PREFIX}/${owner}/`;
 }
 
-/** Returns the root prefix for all OneDrive file indexes. */
+/** Returns the root prefix for all OneDrive version index objects. */
 export function onedrive_index_root_prefix(): string {
   return `${ONEDRIVE_INDEX_PREFIX}/`;
 }
