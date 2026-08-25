@@ -11,7 +11,6 @@ import {
 export interface ObjectLockFlagOptions {
   retentionDays?: string;
   lockMode?: string;
-  requireImmutability?: boolean;
 }
 
 /** Builds an ObjectLockRequest from CLI flags; undefined when no retention requested. */
@@ -31,7 +30,6 @@ export function build_object_lock_policy(
   return build_policy({
     retention_days: parse_retention_days(options.retentionDays),
     lock_mode: options.lockMode,
-    require_immutability: options.requireImmutability,
   });
 }
 

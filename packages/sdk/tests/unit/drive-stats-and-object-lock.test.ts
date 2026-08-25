@@ -70,7 +70,7 @@ describe('Object Lock policy construction through the SDK (issue #165)', () => {
     atlas = createAtlasInstance(VALID_CONFIG);
   });
 
-  it('derives retain_until and the fail-closed default from an object lock request', async () => {
+  it('derives retain_until from an object lock request', async () => {
     const before = Date.now();
     await atlas.outlook.backup('user@test.com', {
       object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
@@ -78,7 +78,6 @@ describe('Object Lock policy construction through the SDK (issue #165)', () => {
 
     const options = mock_backup.sync_mailbox.mock.calls[0]![2];
     expect(options.object_lock_policy.mode).toBe('COMPLIANCE');
-    expect(options.object_lock_policy.require_immutability).toBe(true);
     const retain_until = Date.parse(options.object_lock_policy.retain_until);
     expect(retain_until).toBeGreaterThanOrEqual(before + 29 * 24 * 60 * 60 * 1000);
     expect(retain_until).toBeLessThanOrEqual(Date.now() + 31 * 24 * 60 * 60 * 1000);
@@ -89,14 +88,12 @@ describe('Object Lock policy construction through the SDK (issue #165)', () => {
       object_lock_request: { mode: 'GOVERNANCE', retention_days: 30 },
       object_lock_policy: {
         mode: 'GOVERNANCE',
-        require_immutability: false,
         retain_until: '2030-01-01T00:00:00.000Z',
       },
     });
 
     const options = mock_backup.sync_mailbox.mock.calls[0]![2];
     expect(options.object_lock_policy.retain_until).toBe('2030-01-01T00:00:00.000Z');
-    expect(options.object_lock_policy.require_immutability).toBe(false);
   });
 
   it('leaves the policy unset when no retention was requested', async () => {

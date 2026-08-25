@@ -40,8 +40,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   return {
     async backup(mailbox_id, options) {
       const adapted = adapt_operation_options(options);
-      // Derive retain_until and the require_immutability default from the shared builder
-      // when the caller supplies only a request, so SDK and CLI agree on the policy.
+      // Derive retain_until from the shared builder when the caller supplies only a
+      // request, so SDK and CLI agree on the policy.
       const sync_options =
         adapted?.object_lock_request && !adapted.object_lock_policy
           ? {

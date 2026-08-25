@@ -163,7 +163,6 @@ describe('DefaultTenantBackupOrchestrator', () => {
       object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
       object_lock_policy: {
         mode: 'COMPLIANCE',
-        require_immutability: true,
         retain_until: '2030-01-01T00:00:00.000Z',
       },
     });

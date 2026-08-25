@@ -50,8 +50,9 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)                |
 | `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
 | `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`)                           |
-| `--require-immutability` | Fail if immutability cannot be enforced                                   |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
+
+Requesting retention is fail-closed: when the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
 `0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).

@@ -21,7 +21,6 @@ export interface OutlookBackupOptions {
   pageSize?: string;
   retentionDays?: string;
   lockMode?: string;
-  requireImmutability?: boolean;
 }
 
 /** Resolves the tenant ID from CLI flag or config. */

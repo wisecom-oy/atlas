@@ -11,7 +11,6 @@ import type {
 export interface ObjectLockSettings {
   retention_days?: number | undefined;
   lock_mode?: string | undefined;
-  require_immutability?: boolean | undefined;
 }
 
 /** Builds an ObjectLockRequest; undefined when no retention was requested. */
@@ -27,10 +26,7 @@ export function build_object_lock_request(
   };
 }
 
-/**
- * Builds an ObjectLockPolicy; undefined when no retention was requested.
- * `require_immutability` defaults to true so every adapter fails closed by default.
- */
+/** Builds an ObjectLockPolicy; undefined when no retention was requested. */
 export function build_object_lock_policy(
   settings: ObjectLockSettings,
 ): ObjectLockPolicy | undefined {
@@ -39,7 +35,6 @@ export function build_object_lock_policy(
   }
   return {
     mode: parse_object_lock_mode(settings.lock_mode, 'GOVERNANCE'),
-    require_immutability: settings.require_immutability ?? true,
     retain_until: compute_retain_until_utc(settings.retention_days),
   };
 }
