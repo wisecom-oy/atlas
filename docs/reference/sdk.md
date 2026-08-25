@@ -56,18 +56,19 @@ const save = await atlas.outlook.save('snapshot-id', {
 const message = await atlas.outlook.readMessage('snapshot-id', '42');
 const status = await atlas.outlook.checkMailboxStatus('user@company.com');
 
-// --- OneDrive ---
-const od = await atlas.onedrive.backup('owner-id');
-await atlas.onedrive.verify('owner-id', 'od-snap-123');
-await atlas.onedrive.checkStatus('owner-id');
-const odStats = await atlas.onedrive.getStats('owner-id'); // omit the owner for every drive
+// --- OneDrive (owner: email or Entra object id) ---
+const od = await atlas.onedrive.backup('john.doe@example.com');
+await atlas.onedrive.verify('john.doe@example.com', 'od-snap-123');
+await atlas.onedrive.checkStatus('john.doe@example.com');
+const odStats = await atlas.onedrive.getStats('john.doe@example.com'); // omit the owner for every drive
 
-// --- SharePoint (one result per backed-up site) ---
-const [sp] = await atlas.sharepoint.backup('site-id');
-const tree = await atlas.sharepoint.backup('site-id', { include_subsites: true });
-await atlas.sharepoint.verify('site-id', 'sp-snap-123');
+// --- SharePoint (site: URL or composite site id; one result per backed-up site) ---
+const site = 'https://contoso.sharepoint.com/sites/Example';
+const [sp] = await atlas.sharepoint.backup(site);
+const tree = await atlas.sharepoint.backup(site, { include_subsites: true });
+await atlas.sharepoint.verify(site, 'sp-snap-123');
 const sites = await atlas.sharepoint.listSites();
-const spStats = await atlas.sharepoint.getStats('site-id'); // omit the site for every site
+const spStats = await atlas.sharepoint.getStats(site); // omit the site for every site
 
 // --- Cross-cutting (tenant scope) ---
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 });
@@ -76,6 +77,17 @@ await atlas.replicateSnapshot('snapshot-id', [offsite]);
 ```
 
 Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. Every capability the CLI can reach is reachable from the SDK; the SDK exposes some the CLI does not. See [SDK Examples](/reference/examples) for production-ready patterns.
+
+### Identifiers
+
+Drive methods take the same identifiers the CLI takes, and normalise them the same way.
+
+| Namespace          | Accepted                                                        | Normalisation                                                                  |
+| ------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `atlas.onedrive.*` | An email or UPN, or an Entra object id                          | An argument containing `@` is resolved through Graph; anything else is used as is |
+| `atlas.sharepoint.*` | A site URL or hostname, or a composite `host,siteGuid,webGuid` id | An argument without commas is resolved through Graph; anything else is used as is |
+
+Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance, and `atlas.onedrive.backup` records the resolved email and display name with the snapshot, which is what makes owners readable in later listings. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
 
 ## Progress and Cancellation
 

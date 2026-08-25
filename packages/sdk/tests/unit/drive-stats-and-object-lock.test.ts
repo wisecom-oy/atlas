@@ -4,6 +4,8 @@ import type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 import { createAtlasInstance } from '@/atlas-instance.adapter';
 
 const TENANT_ID = 'test-tenant-id';
+const SITE_ID =
+  'contoso.sharepoint.com,00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: TENANT_ID,
   clientId: 'cid',
@@ -55,10 +57,10 @@ describe('drive statistics through the SDK (issue #165)', () => {
   });
 
   it('scopes SharePoint stats to a site and tenant-wide when the site is omitted', async () => {
-    await atlas.sharepoint.getStats('site-1');
+    await atlas.sharepoint.getStats(SITE_ID);
     await atlas.sharepoint.getStats();
 
-    expect(mock_stats.get_sharepoint_stats).toHaveBeenNthCalledWith(1, TENANT_ID, 'site-1');
+    expect(mock_stats.get_sharepoint_stats).toHaveBeenNthCalledWith(1, TENANT_ID, SITE_ID);
     expect(mock_stats.get_sharepoint_stats).toHaveBeenNthCalledWith(2, TENANT_ID, undefined);
   });
 });

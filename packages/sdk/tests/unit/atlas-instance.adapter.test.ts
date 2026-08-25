@@ -10,6 +10,10 @@ import type {
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
+// A Graph composite site id: hostname,site-guid,web-guid. The SDK treats anything without
+// commas as a URL and resolves it first, so pass-through cases need a realistic id.
+const SITE_ID =
+  'contoso.sharepoint.com,00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: TENANT_ID,
   clientId: 'cid',
@@ -226,13 +230,13 @@ describe('createAtlasInstance', () => {
       const results = [{ site_id: 'site-1' }, { site_id: 'subsite-1' }];
       vi.mocked(mock_sharepoint_site_tree_backup.backup_site_tree).mockResolvedValue(results);
 
-      const result = await atlas.sharepoint.backup('site-1', { include_subsites: true });
+      const result = await atlas.sharepoint.backup(SITE_ID, { include_subsites: true });
 
       // One result per backed-up site: a partially covered tree stays visible to the caller.
       expect(result).toBe(results);
       expect(mock_sharepoint_site_tree_backup.backup_site_tree).toHaveBeenCalledWith(
         TENANT_ID,
-        'site-1',
+        SITE_ID,
         { include_subsites: true },
       );
     });
@@ -241,12 +245,12 @@ describe('createAtlasInstance', () => {
       const results = [{ site_id: 'site-1' }];
       vi.mocked(mock_sharepoint_site_tree_backup.backup_site_tree).mockResolvedValue(results);
 
-      const result = await atlas.sharepoint.backup('site-1', { force_full: true });
+      const result = await atlas.sharepoint.backup(SITE_ID, { force_full: true });
 
       expect(result).toEqual(results);
       expect(mock_sharepoint_site_tree_backup.backup_site_tree).toHaveBeenCalledWith(
         TENANT_ID,
-        'site-1',
+        SITE_ID,
         { force_full: true },
       );
     });
@@ -257,12 +261,12 @@ describe('createAtlasInstance', () => {
         verify_result,
       );
 
-      const result = await atlas.sharepoint.verify('site-1', 'sp-snap-1');
+      const result = await atlas.sharepoint.verify(SITE_ID, 'sp-snap-1');
 
       expect(result).toBe(verify_result);
       expect(mock_sharepoint_verification.verify_sharepoint_snapshot).toHaveBeenCalledWith(
         TENANT_ID,
-        'site-1',
+        SITE_ID,
         'sp-snap-1',
       );
     });
