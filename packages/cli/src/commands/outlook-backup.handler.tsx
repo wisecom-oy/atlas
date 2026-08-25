@@ -50,10 +50,13 @@ export async function execute_outlook_backup(
   container: Container,
   options: OutlookBackupOptions,
 ): Promise<void> {
+  const { mailbox } = options;
+  if (!mailbox) throw new Error('mailbox is required (pass -m, --mailbox <id>)');
+
   const tenant_id = resolve_tenant_id(container, options);
   const items: KeyValueItem[] = [{ label: 'Tenant', value: tenant_id }];
   if (options.folder) items.push({ label: 'Folders', value: options.folder.join(', ') });
-  if (options.mailbox) items.push({ label: 'Mailbox', value: options.mailbox });
+  items.push({ label: 'Mailbox', value: mailbox });
 
   await render_static_view(
     <Box flexDirection="column">
@@ -62,13 +65,7 @@ export async function execute_outlook_backup(
     </Box>,
   );
 
-  if (options.mailbox) {
-    await backup_single_mailbox(container, tenant_id, options.mailbox, build_sync_options(options));
-  } else {
-    // Retired with #166: -m is a required option, so this branch is unreachable.
-    // await backup_all_mailboxes(container, tenant_id, options);
-    throw new Error('mailbox is required (pass -m, --mailbox <id>)');
-  }
+  await backup_single_mailbox(container, tenant_id, mailbox, build_sync_options(options));
 }
 
 /** Runs a single-mailbox backup and logs the outcome. */
