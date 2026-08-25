@@ -24,24 +24,6 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
     };
   }
 
-  /** Batch resolves multiple emails using individual Graph calls with concurrency limit. */
-  async resolve_users(tenant_id: string, emails: string[]): Promise<ResolvedUserIdentity[]> {
-    const CONCURRENCY = 5;
-    const results: ResolvedUserIdentity[] = [];
-    const queue = [...emails];
-
-    const worker = async (): Promise<void> => {
-      while (queue.length > 0) {
-        const next_email = queue.shift()!;
-        results.push(await this.resolve_user(tenant_id, next_email));
-      }
-    };
-
-    const workers = Array.from({ length: Math.min(CONCURRENCY, emails.length) }, () => worker());
-    await Promise.all(workers);
-    return results;
-  }
-
   /** Graph-only resolver cannot do reverse lookups without an object ID query. Returns undefined. */
   async resolve_by_object_id(
     _tenant_id: string,

@@ -9,6 +9,7 @@ import type {
   OneDriveDeletionUseCase,
   OneDriveReplicationUseCase,
   OneDriveStatusUseCase,
+  StatsUseCase,
 } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
@@ -19,6 +20,7 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
+  STATS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { adapt_operation_options } from '@/operation-options';
 
@@ -36,6 +38,7 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   );
   const status = container.get<OneDriveStatusUseCase>(ONEDRIVE_STATUS_USE_CASE_TOKEN);
+  const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
   return {
     async backup(owner_id, options) {
@@ -79,6 +82,9 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     },
     async checkStatus(owner_id) {
       return await status.check_onedrive_status(tenant_id, owner_id);
+    },
+    async getStats(owner_id) {
+      return await stats.get_onedrive_stats(tenant_id, owner_id);
     },
   };
 }

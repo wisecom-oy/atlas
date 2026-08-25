@@ -60,12 +60,14 @@ const status = await atlas.outlook.checkMailboxStatus('user@company.com');
 const od = await atlas.onedrive.backup('owner-id');
 await atlas.onedrive.verify('owner-id', 'od-snap-123');
 await atlas.onedrive.checkStatus('owner-id');
+const odStats = await atlas.onedrive.getStats('owner-id'); // omit the owner for every drive
 
 // --- SharePoint (one result per backed-up site) ---
 const [sp] = await atlas.sharepoint.backup('site-id');
 const tree = await atlas.sharepoint.backup('site-id', { include_subsites: true });
 await atlas.sharepoint.verify('site-id', 'sp-snap-123');
 const sites = await atlas.sharepoint.listSites();
+const spStats = await atlas.sharepoint.getStats('site-id'); // omit the site for every site
 
 // --- Cross-cutting (tenant scope) ---
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 });
@@ -73,7 +75,7 @@ const stats = await atlas.getBucketStats();
 await atlas.replicateSnapshot('snapshot-id', [offsite]);
 ```
 
-Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. See [SDK Examples](/reference/examples) for production-ready patterns.
+Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. Every capability the CLI can reach is reachable from the SDK; the SDK exposes some the CLI does not. See [SDK Examples](/reference/examples) for production-ready patterns.
 
 ## Progress and Cancellation
 
@@ -238,6 +240,27 @@ interface RestoreResult {
 | `errors`                 | Human-readable detail for each message-level failure.                                       |
 | `verification_warnings`  | Per-folder verification warnings, including API failures that prevented count confirmation. |
 
+## Object Lock
+
+Pass `object_lock_request` to any backup method to apply WORM retention. Atlas derives the rest of the policy from it, so the SDK and the CLI produce the same result for the same retention period:
+
+```typescript
+await atlas.outlook.backup('user@company.com', {
+  object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+});
+
+await atlas.onedrive.backup('owner-id', {
+  object_lock_request: { mode: 'GOVERNANCE', retention_days: 30 },
+});
+```
+
+| Field            | Derived behavior                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `mode`           | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Defaults to `GOVERNANCE`. |
+| `retention_days` | Converted to an absolute `retain_until` timestamp in UTC at the moment the run starts.               |
+
+Outlook applies the policy to each stored object; OneDrive and SharePoint set the bucket default retention so every new object version inherits it. Writes are fail-closed: when a lock policy is present and the bucket has versioning or Object Lock disabled, or does not support the requested mode, the write throws instead of storing unprotected data. Immutability is therefore never silently downgraded.
+
 ## Batch Processing
 
 For backing up multiple mailboxes from a shell, enumerate them with `atlas outlook mailboxes` and loop over `atlas outlook backup -m <id>` in your scheduler. The CLI backs up one mailbox per invocation; fan-out is scheduling and belongs to the caller.
@@ -276,8 +299,9 @@ const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
 // Replicate all unreplicated snapshots for a mailbox
 const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
 
-// Query replication status
+// Query replication status: by snapshot, or every snapshot for one owner
 const status = await atlas.getReplicationStatus('snapshot-id');
+const ownerStatus = await atlas.getReplicationStatusByOwner('user@company.com');
 
 // Disaster recovery: recover from a replica
 await atlas.rehydrateSnapshot('snapshot-id', offsite);

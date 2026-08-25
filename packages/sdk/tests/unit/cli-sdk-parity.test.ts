@@ -26,10 +26,8 @@ const APP_PORT_EXTRAS: Record<string, true> = {
   IdentityRegistryRepository: true,
 };
 
-const KNOWN_METHOD_GAPS: Record<string, string> = {
-  'StatsUseCase.get_onedrive_stats': '#165',
-  'StatsUseCase.get_sharepoint_stats': '#165',
-};
+/** CLI-reachable capabilities the SDK cannot reach yet, each with its tracking issue. */
+const KNOWN_METHOD_GAPS: Record<string, string> = {};
 
 /** DI tokens the CLI resolves and the SDK does not. */
 const KNOWN_TOKEN_GAPS: Record<string, string> = {
