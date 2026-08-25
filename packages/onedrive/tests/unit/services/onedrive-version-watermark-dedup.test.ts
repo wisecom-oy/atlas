@@ -28,7 +28,18 @@ const VERSIONS = [
   { version_id: '1.0', last_modified_at: '2026-01-01T00:00:00Z', size_bytes: 10 },
 ];
 
-function make_harness(stored_cursor: OneDriveDeltaCursor | undefined) {
+/**
+ * `failing_extra_item` makes a second delta item throw out of the item loop,
+ * which costs the drive its accumulated entries: the run then finalizes with
+ * no snapshot while still holding the version rows captured before the throw.
+ */
+function make_harness(
+  stored_cursor: OneDriveDeltaCursor | undefined,
+  options: { failing_extra_item?: boolean } = {},
+) {
+  const items: OneDriveDeltaItem[] = options.failing_extra_item
+    ? [FILE, { ...FILE, item_id: 'f2', file_name: 'broken.docx', etag: 'etag-f2' }]
+    : [FILE];
   const context = {
     tenant_id: 't',
     storage: {
@@ -50,11 +61,14 @@ function make_harness(stored_cursor: OneDriveDeltaCursor | undefined) {
     fetch_delta: vi.fn().mockResolvedValue({
       drive_id: 'd1',
       delta_link: 'link-1',
-      items: [FILE],
+      items,
       reset_detected: false,
     }),
     download_file_content: vi.fn().mockResolvedValue(Buffer.from('content')),
-    list_file_versions: vi.fn().mockResolvedValue(VERSIONS),
+    list_file_versions: vi.fn(async (_drive_id: string, item_id: string) => {
+      if (item_id === 'f2') throw new Error('graph failed mid-drive');
+      return VERSIONS;
+    }),
     download_file_version: vi.fn().mockResolvedValue(Buffer.from('old-content')),
   };
   const file_indexes = {
@@ -135,5 +149,30 @@ describe('OneDrive version dedup watermarks (issue #161)', () => {
     // history Atlas already holds is pure waste.
     expect(file_indexes.load_version_watermarks).not.toHaveBeenCalled();
     expect(connector.download_file_version).not.toHaveBeenCalled();
+  });
+
+  it('indexes captured versions before the watermark cursor when the run keeps no entries', async () => {
+    const { service, file_indexes, cursors } = make_harness(make_cursor({}), {
+      failing_extra_item: true,
+    });
+
+    const result = await service.backup_onedrive('t', 'owner-1', {});
+
+    expect(result.summary.snapshot_created).toBe(false);
+    const indexes = file_indexes.write_run_index.mock.calls.at(-1)?.[3] as Array<{
+      file_id: string;
+      versions: Array<{ version_id?: string }>;
+    }>;
+    expect(indexes.flatMap((idx) => idx.versions.map((v) => v.version_id))).toEqual(
+      expect.arrayContaining(['1.0', '2.0']),
+    );
+    // The watermark that makes the next run skip those versions must never be
+    // durable before the rows describing them.
+    expect(saved_cursor(cursors).version_watermark_by_file_id).toEqual({
+      f1: '2026-02-01T00:00:00Z',
+    });
+    expect(file_indexes.write_run_index.mock.invocationCallOrder[0]).toBeLessThan(
+      cursors.save.mock.invocationCallOrder.at(-1) as number,
+    );
   });
 });

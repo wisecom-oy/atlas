@@ -33,6 +33,7 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   build_empty_result,
   build_package_warnings,
+  build_run_version_indexes,
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/sharepoint-backup-builders';
@@ -150,6 +151,16 @@ export class SharePointBackupService implements SharePointBackupUseCase {
 
       let result: SharePointBackupResult;
       if (scan.entries.length === 0) {
+        // Versions captured before the run lost its entries (a library-level
+        // failure discards them) are still on the wire and still watermarked:
+        // the rows have to land before the cursor that tells the next run to
+        // skip those versions, or that history is unreachable forever.
+        await this._file_indexes.write_run_index(
+          ctx,
+          site_id,
+          snapshot_id,
+          build_run_version_indexes(site_id, snapshot_id, [], scan.version_rows),
+        );
         await this._cursors.save(ctx, cursor);
         result = build_empty_result(
           site_id,

@@ -28,6 +28,7 @@ import {
 } from '@wisecom/atlas-types';
 import {
   build_empty_result,
+  build_run_version_indexes,
   build_snapshot_manifest,
   build_success_result,
   persist_snapshot_backup,
@@ -186,6 +187,16 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
 
       let result: OneDriveBackupResult;
       if (scan_result.entries.length === 0) {
+        // Versions captured before the run lost its entries (a drive-level
+        // failure discards them) are still on the wire and still watermarked:
+        // the rows have to land before the cursor that tells the next run to
+        // skip those versions, or that history is unreachable forever.
+        await this._file_indexes.write_run_index(
+          ctx,
+          owner_id,
+          snapshot_id,
+          build_run_version_indexes(owner_id, snapshot_id, [], scan_result.version_rows),
+        );
         await this._cursors.save(ctx, cursor);
         result = build_empty_result(
           owner_id,
