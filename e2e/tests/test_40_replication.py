@@ -69,7 +69,7 @@ def test_03_status_records_the_replication(cli: Cli, settings: Settings, s3: Any
 
 def test_04_primary_is_destroyed(cli: Cli, settings: Settings, s3: Any) -> None:
     """Wipes primary, including the DEK. Without this the rehydrate below proves nothing."""
-    cli.ok("outlook", "delete", "--purge", "-y")
+    cli.ok("delete", "--purge", "-y")
     assert storage.list_keys(s3, settings.bucket) == [], "primary still holds objects after purge"
 
 

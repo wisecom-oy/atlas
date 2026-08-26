@@ -59,8 +59,8 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
     connector as never,
     { save: vi.fn().mockResolvedValue(undefined) } as never,
     {
-      find_by_file_id: vi.fn().mockResolvedValue(undefined),
-      append_version: vi.fn().mockResolvedValue(undefined),
+      load_version_watermarks: vi.fn().mockResolvedValue({}),
+      write_run_index: vi.fn(),
     } as never,
     {
       load: vi.fn().mockResolvedValue(undefined),

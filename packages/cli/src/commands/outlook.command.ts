@@ -50,16 +50,14 @@ export function register_outlook_command(program: Command, get_container: Contai
 function register_outlook_backup(group: Command, get_container: ContainerFactory): void {
   group
     .command('backup')
-    .description('Back up mailboxes from M365 tenant to object storage')
+    .description('Back up one mailbox from M365 tenant to object storage')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('-m, --mailbox <id>', 'specific mailbox to back up (backs up all if omitted)')
+    .requiredOption('-m, --mailbox <id>', 'mailbox to back up')
     .option('-f, --folder <name...>', 'specific folder(s) to back up (e.g. -f Inbox "Sent Items")')
     .option('--full', 'force a full backup, ignoring saved delta state from prior runs')
     .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
-    .option('--require-immutability', 'fail when immutability cannot be enforced')
-    .option('-C, --concurrency <n>', 'parallel mailbox count for tenant backup (default 4)', '4')
     .action((options: OutlookBackupOptions) => execute_outlook_backup(get_container(), options));
 }
 
@@ -134,11 +132,10 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
 function register_outlook_delete(group: Command, get_container: ContainerFactory): void {
   group
     .command('delete')
-    .description('Delete backed-up data (mailbox, snapshot, or entire tenant)')
+    .description('Delete backed-up mail data (one mailbox or one snapshot)')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('-m, --mailbox <email>', 'delete all data and manifests for a mailbox')
     .option('-s, --snapshot <id>', 'delete a single snapshot manifest')
-    .option('--purge', 'delete ALL data in the tenant bucket (irreversible)')
     .option('-y, --yes', 'skip confirmation prompt')
     .action((options: OutlookDeleteOptions) => execute_outlook_delete(get_container(), options));
 }

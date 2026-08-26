@@ -15,5 +15,5 @@ export {
   onedrive_manifest_prefix,
   onedrive_staging_key,
   onedrive_delta_cursor_key,
-  onedrive_index_key,
+  onedrive_run_index_key,
 } from './onedrive-storage-keys';

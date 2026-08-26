@@ -54,8 +54,7 @@ function create_mocks() {
   } as unknown as OneDriveManifestRepository;
 
   const indexes: OneDriveFileVersionIndexRepository = {
-    find_by_file_id: vi.fn().mockResolvedValue(undefined),
-    append_version: vi.fn(),
+    write_run_index: vi.fn(),
     list_by_owner: vi.fn().mockResolvedValue([]),
   } as unknown as OneDriveFileVersionIndexRepository;
 
@@ -79,9 +78,6 @@ describe('OneDriveCatalogService', () => {
     it('resolves a bare filename to a unique basename match', async () => {
       const idx = make_index('file-bare', [make_version()]);
       vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([idx]);
-      vi.mocked(mocks.indexes.find_by_file_id).mockImplementation(async (_ctx, _owner, fid) =>
-        fid === 'file-bare' ? idx : undefined,
-      );
 
       const result = await service.list_onedrive_file_versions(TENANT_ID, OWNER_ID, 'report.xlsx');
 

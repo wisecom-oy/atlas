@@ -19,12 +19,12 @@ STATE: dict[str, Any] = {}
 
 
 def test_01_backup_applies_retention(cli: Cli, settings: Settings, s3: Any) -> None:
-    """A backup with `--retention-days 1 --require-immutability` stamps retention on what it writes.
+    """A backup with `--retention-days 1` stamps retention on what it writes.
 
-    `--require-immutability` is the point: it makes the run fail rather than silently downgrade to
+    Requesting retention is fail-closed: the run aborts rather than silently downgrading to
     mutable writes, which is the failure mode an operator would never notice. A clean exit is the
-    whole signal here -- the flag's contract is to fail otherwise -- and whether retention actually
-    landed is read from S3 in the next test, not from the run's own summary.
+    whole signal here, and whether retention actually landed is read from S3 in the next test,
+    not from the run's own summary.
     """
     cli.ok(
         "outlook",
@@ -35,7 +35,6 @@ def test_01_backup_applies_retention(cli: Cli, settings: Settings, s3: Any) -> N
         "1",
         "--lock-mode",
         "governance",
-        "--require-immutability",
     )
 
     owner_keys = [k for k in storage.list_keys(s3, settings.bucket) if k.startswith("data/")]

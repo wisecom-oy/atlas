@@ -167,7 +167,7 @@ describe('OneDrive operation cancellation', () => {
       create: vi.fn().mockResolvedValue(context),
       create_readonly: vi.fn().mockResolvedValue(context),
     } as unknown as TenantContextFactory;
-    const indexes = { find_by_file_id: vi.fn() } as unknown as OneDriveFileVersionIndexRepository;
+    const indexes = { list_by_owner: vi.fn() } as unknown as OneDriveFileVersionIndexRepository;
     const on_progress = vi.fn();
     const service = new OneDriveVerificationService(
       factory,
@@ -181,7 +181,7 @@ describe('OneDrive operation cancellation', () => {
     });
 
     expect(factory.create).not.toHaveBeenCalled();
-    expect(indexes.find_by_file_id).not.toHaveBeenCalled();
+    expect(indexes.list_by_owner).not.toHaveBeenCalled();
     expect(storage.exists).not.toHaveBeenCalled();
     expect(result.total_checked).toBe(0);
     expect(result.interrupted).toBe(true);

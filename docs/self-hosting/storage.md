@@ -189,3 +189,25 @@ As defense in depth, a bucket policy can _mandate_ the create-only header on the
 :::: warning S3-compatible stores
 Some S3-compatible backends (older MinIO releases, some Ceph RGW versions, various emulators) silently ignore unknown conditional headers instead of rejecting the write. On such a backend the create-only guarantee is illusory. Verify support by writing the same key twice with `If-None-Match: *` and confirming the second write fails with 412. Atlas additionally reads the stored key back after bootstrap and always proceeds with what storage actually holds, which converges concurrent bootstraps even where the header is ignored.
 ::::
+
+## Provider Minimum Billable Object Sizes
+
+Some providers bill a small object above its stored size. A worked example: a drive with 20,000 files carries roughly 8 MB of version index data (about 400 bytes per file). Written as one object per file, which is what older Atlas versions did, those 8 MB are billed as about 1.28 GB per month on a provider with a 64 KB minimum billable size. Writing the same data as one object per backup run removes that multiplier entirely: the floor then applies to a single object instead of twenty thousand.
+
+Atlas therefore writes version index data as **one object per owner or site per backup run**: `onedrive/index/<owner_id>/runs/<snapshot_id>.json` for OneDrive and `sharepoint/index/<site_id>/runs/<snapshot_id>.json` for SharePoint. A quiet run that stores nothing writes no index object at all.
+
+Buckets created by earlier Atlas versions still hold legacy per-file index objects under `.../index/<id>/files/<file_id>.json`. They remain readable, and reads merge them with the per-run objects, until they are purged.
+
+Content blobs stay one object per file, addressed by SHA-256 (`onedrive/data/<owner_id>/<sha256>`). Packing multiple files into one blob object is deliberately not implemented: S3 Object Lock applies to the pack rather than to the individual files inside it, and doing it safely needs ranged reads, compaction, and retention design first.
+
+| Provider                                                       | Minimum billable object size            | Note                                                                                              |
+| -------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Hetzner Object Storage                                         | 64 KB                                   | API calls are free, so trading requests for fewer objects costs nothing ([pricing](https://www.hetzner.com/storage/object-storage/)) |
+| Wasabi                                                         | 4 KB                                    | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq))            |
+| AWS S3 Standard                                                | None                                    |                                                                                                   |
+| AWS S3 Standard-IA / One Zone-IA / Glacier Instant Retrieval   | 128 KB                                  | Plus a 30 or 90-day minimum duration ([storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html)) |
+| AWS S3 Glacier Flexible Retrieval / Deep Archive               | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/))           |
+| Cloudflare R2                                                  | None documented                         | Usage is billed per GB-month; Infrequent Access has a 30-day minimum ([pricing](https://developers.cloudflare.com/r2/pricing/)) |
+| Scaleway                                                       | None documented                         | Recommends objects larger than 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/)) |
+| Backblaze B2                                                   | None documented                         | B2's own cost guide warns some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing)) |
+| MinIO self-hosted                                              | None                                    | Filesystem block size still applies                                                               |

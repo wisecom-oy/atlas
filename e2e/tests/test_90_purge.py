@@ -27,7 +27,7 @@ def test_purge_empties_the_whole_bucket(cli: Cli, settings: Settings, s3: Any) -
     before = storage.list_keys(s3, settings.bucket)
     assert before, "nothing to purge: the workload suites stored no objects"
 
-    cli.ok("outlook", "delete", "--purge", "-y")
+    cli.ok("delete", "--purge", "-y")
 
     remaining = storage.list_keys(s3, settings.bucket)
     assert remaining == [], f"purge left {len(remaining)} object(s) behind: {remaining[:5]}"

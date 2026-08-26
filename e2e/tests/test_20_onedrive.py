@@ -162,6 +162,16 @@ def test_07_restored_bytes_match_the_seed(graph: Any, settings: Settings, run_ma
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
 
 
+def test_08_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:
+    """`onedrive status` reaches Graph and the manifest chain, and names the last snapshot.
+
+    Wired to the CLI by #163: the status use case existed and only the SDK could reach it.
+    """
+    result = cli.ok("onedrive", "status", "-o", settings.onedrive_owner)
+
+    assert STATE["snapshot"] in result.out, result.describe()
+
+
 def _owner_segment(s3: Any, bucket: str) -> str:
     """Reads the owner segment Atlas used, rather than assuming how the email was normalised."""
     keys = storage.list_keys(s3, bucket, "onedrive/manifests/")

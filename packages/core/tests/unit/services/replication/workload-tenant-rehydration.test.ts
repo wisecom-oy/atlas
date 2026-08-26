@@ -172,11 +172,18 @@ describe('tenant-wide workload rehydration', () => {
   });
 
   it('rehydrate_all_owners collects ancillary keys per owner, never one owner for all', async () => {
-    vi.mocked(source_storage.list).mockImplementation(async (prefix: string) => {
-      if (prefix.includes('owner-a')) return ['onedrive/index/owner-a/files/1'];
-      if (prefix.includes('owner-b')) return ['onedrive/index/owner-b/files/2'];
-      return [];
-    });
+    // Keyed on the exact prefix: version rows live in per-run objects since
+    // issue #161, so a collector scoped to `files/` would replicate nothing.
+    const objects: Record<string, string[]> = {
+      'onedrive/index/owner-a/': [
+        'onedrive/index/owner-a/files/1',
+        'onedrive/index/owner-a/runs/od-1.json',
+      ],
+      'onedrive/index/owner-b/': ['onedrive/index/owner-b/runs/od-2.json'],
+    };
+    vi.mocked(source_storage.list).mockImplementation(async (prefix: string) =>
+      prefix in objects ? (objects[prefix] as string[]) : [],
+    );
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
@@ -200,8 +207,11 @@ describe('tenant-wide workload rehydration', () => {
     const ancillary_by_snapshot = new Map(
       calls.map((c) => [c[2].snapshot_id, c[4]?.ancillary_keys]),
     );
-    expect(ancillary_by_snapshot.get('od-1')).toEqual(['onedrive/index/owner-a/files/1']);
-    expect(ancillary_by_snapshot.get('od-2')).toEqual(['onedrive/index/owner-b/files/2']);
+    expect(ancillary_by_snapshot.get('od-1')).toEqual([
+      'onedrive/index/owner-a/files/1',
+      'onedrive/index/owner-a/runs/od-1.json',
+    ]);
+    expect(ancillary_by_snapshot.get('od-2')).toEqual(['onedrive/index/owner-b/runs/od-2.json']);
   });
 
   it('rehydrate_all_owners returns an empty result when the replica holds no OneDrive data', async () => {

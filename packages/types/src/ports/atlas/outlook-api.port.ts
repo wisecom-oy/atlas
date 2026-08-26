@@ -14,7 +14,16 @@ export type OutlookBackupOptions = Omit<
   SyncOptions,
   'progress' | 'create_progress' | 'on_progress' | 'should_interrupt' | 'should_force_stop'
 > &
-  SdkOperationOptions;
+  SdkOperationOptions & {
+    /**
+     * Escalation beyond `signal`. Aborting `signal` finishes the page in flight, persists the
+     * delta link for completed folders, and returns a resumable snapshot. Aborting
+     * `hardStopSignal` drops the page in flight and its pending attachments, so the affected
+     * folder keeps its previous delta link and is re-enumerated on the next run. Both return a
+     * result with `interrupted: true`; neither throws.
+     */
+    readonly hardStopSignal?: AbortSignal;
+  };
 export type OutlookVerificationOptions = Omit<
   VerificationOptions,
   'on_progress' | 'should_interrupt'

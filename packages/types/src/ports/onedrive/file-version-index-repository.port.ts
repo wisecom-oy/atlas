@@ -1,25 +1,47 @@
 import type {
   OneDriveFileVersionIndex,
-  OneDriveFileVersionRecord,
+  OneDriveVersionWatermark,
 } from '../../domain/onedrive-manifest';
 import type { TenantContext } from '../tenant/context.port';
 
+/**
+ * Per-file version history for an owner, stored as one index object per backup
+ * run instead of one object per file. A 20,000-file drive therefore costs one
+ * PUT and one small object per run rather than tens of thousands of objects
+ * each billed at the provider's minimum object size floor (issue #161).
+ * Reads merge the per-run objects, including legacy per-file objects written
+ * before the change, so history recorded by older versions stays visible.
+ */
 export interface OneDriveFileVersionIndexRepository {
-  /** Retrieves the version history for a specific file. */
-  find_by_file_id(
+  /**
+   * Exact captured position per file, reconstructed by scanning the owner's
+   * index objects. Seeds the delta cursor's watermarks once when upgrading
+   * from a version of Atlas that did not carry them; steady-state backups read
+   * the cursor instead and never call this.
+   */
+  load_version_watermarks(
     ctx: TenantContext,
     owner_id: string,
-    file_id: string,
-  ): Promise<OneDriveFileVersionIndex | undefined>;
+  ): Promise<Record<string, OneDriveVersionWatermark>>;
 
-  /** Appends a new version record to a file's history. */
-  append_version(
+  /**
+   * Writes the version rows captured during one backup run as a single index
+   * object. Create-only by construction: snapshot ids are unique per run.
+   * No-op when the run captured nothing, so quiet incremental runs write no
+   * index object at all.
+   */
+  write_run_index(
     ctx: TenantContext,
     owner_id: string,
-    file_id: string,
-    version: OneDriveFileVersionRecord,
-  ): Promise<OneDriveFileVersionIndex>;
+    snapshot_id: string,
+    indexes: OneDriveFileVersionIndex[],
+  ): Promise<void>;
 
-  /** Lists all file version indexes for an owner. */
+  /**
+   * Lists per-file version histories for an owner, merged across index
+   * objects. One scan answers every file: there is no per-file lookup,
+   * because with a per-run layout that would rescan the whole prefix for a
+   * single file.
+   */
   list_by_owner(ctx: TenantContext, owner_id: string): Promise<OneDriveFileVersionIndex[]>;
 }

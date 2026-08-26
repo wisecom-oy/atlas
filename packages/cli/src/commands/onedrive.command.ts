@@ -17,6 +17,12 @@ import {
   type OneDriveListSnapshotsOptions,
   type OneDriveListVersionsOptions,
 } from '@/commands/onedrive-catalog-command.handlers';
+import {
+  execute_onedrive_delete,
+  execute_onedrive_status,
+  type OneDriveDeleteOptions,
+  type OneDriveStatusCommandOptions,
+} from '@/commands/onedrive-data-ops.handlers';
 
 type ContainerFactory = () => Container;
 
@@ -31,6 +37,8 @@ export function register_onedrive_command(program: Command, get_container: Conta
   register_onedrive_list_snapshots(group, get_container);
   register_onedrive_list_versions(group, get_container);
   register_onedrive_verify(group, get_container);
+  register_onedrive_status(group, get_container);
+  register_onedrive_delete(group, get_container);
 }
 
 function register_onedrive_backup(group: Command, get_container: ContainerFactory): void {
@@ -115,4 +123,26 @@ function register_onedrive_verify(group: Command, get_container: ContainerFactor
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: OneDriveVerifyOptions) => execute_onedrive_verify(get_container(), options));
+}
+
+function register_onedrive_status(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('status')
+    .description('Check whether an owner OneDrive backup is up to date')
+    .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: OneDriveStatusCommandOptions) =>
+      execute_onedrive_status(get_container(), options),
+    );
+}
+
+function register_onedrive_delete(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('delete')
+    .description('Delete OneDrive backups for one owner, or a single snapshot')
+    .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
+    .option('-s, --snapshot <id>', 'delete a single snapshot instead of every backup')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .option('-y, --yes', 'skip confirmation prompt')
+    .action((options: OneDriveDeleteOptions) => execute_onedrive_delete(get_container(), options));
 }

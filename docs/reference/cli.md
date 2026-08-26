@@ -30,9 +30,7 @@ Outlook mailbox backup, restore, and management commands. All mailbox operations
 
 ### `atlas outlook backup`
 
-Back up mailboxes from an M365 tenant to object storage. When a mailbox is specified with `-m`, backs up that single mailbox with a per-folder progress dashboard. When no mailbox is specified, discovers all Exchange-licensed and shared mailboxes in the tenant and backs them up in parallel.
-
-**Single mailbox:**
+Back up one mailbox from an M365 tenant to object storage, with a per-folder progress dashboard. The `-m` flag is required. To back up multiple mailboxes, enumerate them with `atlas outlook mailboxes` and loop in your scheduler (cron, systemd timer, CI); fan-out across mailboxes is scheduling and belongs to the caller.
 
 ```bash
 atlas outlook backup -m user@company.com                      # incremental backup
@@ -44,35 +42,25 @@ atlas outlook backup -m user@company.com --retention-days 365 --lock-mode compli
 atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 ```
 
-**Full tenant (all licensed and shared mailboxes):**
-
-```bash
-atlas outlook backup                                           # back up all licensed and shared mailboxes (4 concurrent)
-atlas outlook backup -C 8                                      # increase parallel workers to 8
-atlas outlook backup --full                                    # force full sync for all mailboxes
-```
-
 | Option                   | Description                                                               |
 | ------------------------ | ------------------------------------------------------------------------- |
-| `-m, --mailbox <id>`     | Specific mailbox to back up (backs up all licensed and shared if omitted) |
+| `-m, --mailbox <id>`     | Mailbox to back up (required)                                             |
 | `-f, --folder <name...>` | Filter to specific folder(s) by name or path (see below)                  |
 | `--full`                 | Ignore saved delta links, run full enumeration                            |
 | `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)                |
-| `-C, --concurrency <n>`  | Parallel mailbox count for tenant backup (default 4)                      |
 | `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
-| `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`)                           |
-| `--require-immutability` | Fail if immutability cannot be enforced                                   |
+| `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
 
+`--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
+
+Requesting retention is fail-closed: when the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
+
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
-`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors, failed mailboxes in a tenant run, or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
 
 `restore` and `save` follow the same contract: a file they could not decrypt or write is counted as skipped, and any skipped file exits `2`. An export that produced an archive missing some of its files is not a success, and a cron job that only checks for `0` has to be able to see the difference.
 :::
-::: tip Tenant-wide mode
-When no `-m` flag is given, Atlas discovers all Exchange Online-licensed and shared mailboxes via Microsoft Graph, then runs up to `-C` concurrent backup workers. Shared mailboxes are detected via the Graph `mailboxSettings.userPurpose` property; unlicensed users that are not shared mailboxes are skipped because Graph rejects their mail endpoints. A compact dashboard shows each active worker's mailbox, folder progress, and overall completion. The first Ctrl+C gracefully finishes active mailboxes; a second Ctrl+C force-quits immediately. Failures are isolated per mailbox: one failing mailbox never aborts the others. The command still exits `2` (partial) and lists the failed mailboxes when any of them failed, so schedulers and monitoring can detect partial backups instead of treating them as clean runs.
-:::
-
 ::: details Page size tuning
 The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_: the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
 :::
@@ -254,22 +242,20 @@ If the output file already exists, Atlas prompts `Overwrite? [Y/n]` before proce
 
 ### `atlas outlook delete`
 
-Delete backed-up data with confirmation prompt.
+Delete backed-up mail data with a confirmation prompt. Mail-scoped only: the tenant-wide purge is [`atlas delete`](#atlas-delete).
 
 ```bash
 atlas outlook delete -m user@company.com        # delete all data + manifests for a mailbox
 atlas outlook delete -s <snapshot-id>           # delete one snapshot manifest (data retained)
-atlas outlook delete --purge                    # delete EVERYTHING in the tenant bucket
-atlas outlook delete --purge -y                 # skip confirmation prompt
+atlas outlook delete -m user@company.com -y     # skip confirmation prompt
 ```
 
-| Option                  | Description                                                    |
-| ----------------------- | -------------------------------------------------------------- |
-| `-m, --mailbox <email>` | Delete all data, attachments, and manifests for a mailbox      |
-| `-s, --snapshot <id>`   | Delete a single snapshot manifest (data objects retained)      |
-| `--purge`               | Delete all data, manifests, and encryption keys (irreversible) |
-| `-y, --yes`             | Skip confirmation prompt                                       |
-| `-t, --tenant <id>`     | Override tenant ID                                             |
+| Option                  | Description                                               |
+| ----------------------- | --------------------------------------------------------- |
+| `-m, --mailbox <email>` | Delete all data, attachments, and manifests for a mailbox |
+| `-s, --snapshot <id>`   | Delete a single snapshot manifest (data objects retained) |
+| `-y, --yes`             | Skip confirmation prompt                                  |
+| `-t, --tenant <id>`     | Override tenant ID                                        |
 
 When Object Lock retention protects objects, delete commands return non-zero and report retained items separately from generic failures. "Retained" means a backend named Object Lock as the reason and the object becomes deletable when retention expires. Anything else, such as an IAM denial or an unreachable endpoint, is reported as a failure, because it will not resolve on its own.
 
@@ -277,14 +263,10 @@ When Object Lock retention protects objects, delete commands return non-zero and
 Atlas deletes **manifests first**, then data objects. This ordering is safe: if deletion is interrupted mid-way, you are left with orphan data blobs (harmless, can be cleaned up later) rather than dangling manifest references that point to missing data.
 
 When using `--snapshot`, only the manifest file is removed. The underlying data objects are retained because they may be referenced by other snapshots (content-addressed deduplication).
-
-When using `--purge`, **everything** is deleted including the encrypted DEK at `_meta/dek.enc`. This is irreversible. All data for the tenant becomes permanently inaccessible.
 :::
 
 ::: details Erasure in versioned buckets
 Every delete removes the object **and all of its noncurrent versions**. This matters wherever bucket versioning is on, which is everywhere Object Lock is used, since versioning is its prerequisite. Deleting a key without naming a version writes a delete marker: the object disappears from listings while every byte stays retrievable, so a deletion that reports success would not have erased anything.
-
-`--purge` sweeps the whole bucket rather than a fixed list of prefixes, so Outlook, OneDrive, SharePoint, the identity registry, and any tree a later release adds all go. The encrypted DEK is deleted last, and only if nothing survived: dropping the key while its ciphertext is still retained would leave data that can neither be restored nor be claimed erased.
 :::
 
 ### `atlas outlook status`
@@ -341,6 +323,36 @@ Mailbox size requires the `Reports.Read.All` Graph API permission. If the permis
 The `Type` column shows the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, `equipment`, ...). To keep discovery fast, it is only resolved for unlicensed mailboxes; `--` means the purpose was not resolved. Note that `--licensed-only` excludes shared mailboxes, which are typically unlicensed.
 :::
 
+## `atlas delete`
+
+Tenant-wide deletion, across every workload. This is a top-level command rather than a subcommand of `outlook`, because the purge sweeps the whole bucket and nothing about it is mail-scoped.
+
+```bash
+atlas delete --purge        # delete EVERYTHING in the tenant bucket
+atlas delete --purge -y     # skip the typed confirmation
+```
+
+| Option              | Description                                                       |
+| ------------------- | ----------------------------------------------------------------- |
+| `--purge`           | Delete all data, manifests, and encryption keys (irreversible)    |
+| `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs      |
+| `-t, --tenant <id>` | Override tenant ID; the typed confirmation checks against this ID |
+
+`atlas delete` without `--purge` exits non-zero and deletes nothing: a tenant wipe is never the default reading of an incomplete command. For scoped deletes use `atlas outlook delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
+
+Interactively, the purge asks for the tenant ID to be typed back and aborts on anything else:
+
+```
+[!] This will delete ALL data for tenant <tenant-id> across Outlook, OneDrive and SharePoint (data, manifests, encryption keys)
+Type the tenant ID to confirm:
+```
+
+A keypress is not enough here. The mistake this catches is not a mistyped `y` but a purge aimed at the wrong tenant, which typing the target is the only prompt that can catch. Workload-scoped deletes keep the single-keypress `y/n` prompt, deliberately: making every delete laborious trains operators to pass `-y` everywhere, which would remove the guard that matters. `-y` still bypasses the prompt entirely, so scheduled jobs and the E2E suite are unaffected.
+
+`--purge` sweeps the whole bucket rather than a fixed list of prefixes, so Outlook, OneDrive, SharePoint, the identity registry, and any tree a later release adds all go. **Everything** is deleted including the encrypted DEK at `_meta/dek.enc`. The DEK is deleted last, and only if nothing survived: dropping the key while its ciphertext is still retained would leave data that can neither be restored nor be claimed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
+
+Before v2.2.0 this was `atlas outlook delete --purge`. That flag is gone; scripts must call `atlas delete --purge`.
+
 ## `atlas onedrive`
 
 Back up and verify OneDrive files per user using Graph delta sync. Blobs and manifests live under the `onedrive/` prefix in the tenant bucket (see [OneDrive Backup](/onedrive-backup)). When `-o` contains `@`, Atlas resolves the mailbox to an Entra object ID via `GET /users/{email}` before touching storage keys.
@@ -356,6 +368,9 @@ atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
 atlas onedrive list-snapshots -o user@company.com
 atlas onedrive list-versions -o user@company.com -f "Documents/report.docx"
 atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
+atlas onedrive status -o user@company.com
+atlas onedrive delete -o user@company.com -s od-snap-123
+atlas onedrive delete -o user@company.com -y
 ```
 
 | Option           | Description                                                              |
@@ -365,6 +380,8 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | `list-snapshots` | List snapshot IDs and timestamps for the owner                           |
 | `list-versions`  | List indexed versions for one file (`-f` file ID or path)                |
 | `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows    |
+| `status`         | Report pending Graph changes per drive without backing up                |
+| `delete`         | Delete the owner's OneDrive backups, or a single snapshot                |
 
 **`atlas onedrive backup`**
 
@@ -373,7 +390,7 @@ atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 | `-o, --owner <id>`     | User email or Entra object ID (required)                              |
 | `--full`               | Force full crawl ignoring saved delta links                           |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below) |
-| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`) |
+| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
 | `-t, --tenant <id>`    | Override tenant ID from config                                        |
 
 While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
@@ -453,6 +470,26 @@ Files larger than 4 MiB use streaming decryption to avoid buffering the full cip
 | `-s, --snapshot <id>` | OneDrive snapshot id (required)          |
 | `-t, --tenant <id>`   | Override tenant ID from config           |
 
+**`atlas onedrive status`**
+
+Reports pending Graph changes per drive by replaying the saved delta links from the latest manifest chain. Reads only: no backup runs and nothing is written.
+
+| Option              | Description                              |
+| ------------------- | ---------------------------------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required) |
+| `-t, --tenant <id>` | Override tenant ID from config           |
+
+**`atlas onedrive delete`**
+
+Deletes the owner's OneDrive backups behind the same confirmation prompt as the Outlook delete. Without `-s` it sweeps the owner's `manifests`, `data`, `index`, `_meta` and `staging` prefixes, staging included so an interrupted large-file upload does not leave file content parked in the bucket. With `-s` only that snapshot's manifest is removed; the content-addressed blobs stay, because other snapshots may reference them.
+
+| Option                | Description                                          |
+| --------------------- | ---------------------------------------------------- |
+| `-o, --owner <id>`    | User email or Entra object ID (required)             |
+| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup    |
+| `-y, --yes`           | Skip confirmation prompt                             |
+| `-t, --tenant <id>`   | Override tenant ID from config                       |
+
 ::: tip Permissions
 Application permissions `Files.Read.All` and `User.Read.All` are required for backup and read operations; `Files.ReadWrite.All` is additionally required for restore. See Details and storage layout are documented on the [OneDrive Backup](/onedrive-backup) page.
 :::
@@ -471,6 +508,9 @@ atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engin
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
+atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
+atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
+atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering -y
 ```
 
 | Subcommand       | Description                                                           |
@@ -481,6 +521,8 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | `restore`        | Restore files from a snapshot back to the site's document libraries   |
 | `save`           | Decrypt and save files from a snapshot to a local zip archive         |
 | `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
+| `status`         | Report pending Graph changes per document library without backing up  |
+| `delete`         | Delete the site's SharePoint backups, or a single snapshot            |
 
 **`atlas sharepoint backup`**
 
@@ -490,7 +532,7 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 | `--full`               | Force full crawl ignoring saved delta links                                       |
 | `--include-subsites`   | Also back up every subsite beneath the site, one snapshot per subsite             |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive) |
-| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`)             |
+| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
 | `-t, --tenant <id>`    | Override tenant ID from config                                                    |
 
 :::: tip Subsites are separate sites
@@ -561,6 +603,26 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 | `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required) |
 | `-s, --snapshot <id>` | SharePoint snapshot ID (required)               |
 | `-t, --tenant <id>`   | Override tenant ID from config                  |
+
+**`atlas sharepoint status`**
+
+Reports pending Graph changes per document library from the saved delta links. Reads only.
+
+| Option               | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
+| `-t, --tenant <id>`  | Override tenant ID from config                  |
+
+**`atlas sharepoint delete`**
+
+Deletes the site's SharePoint backups behind a confirmation prompt. Without `-s` it sweeps the site's `manifests`, `data`, `index`, `_meta` and `staging` prefixes. With `-s` only that snapshot's manifest is removed and the shared blobs stay.
+
+| Option                | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `--site <url-or-id>`  | SharePoint site URL or Graph site ID (required)   |
+| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
+| `-y, --yes`           | Skip confirmation prompt                          |
+| `-t, --tenant <id>`   | Override tenant ID from config                    |
 
 ::: tip Permissions
 Application permissions `Sites.Read.All` and `Files.Read.All` are required for SharePoint backup and verification. Restore additionally requires `Sites.ReadWrite.All`.

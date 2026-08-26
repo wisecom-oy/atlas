@@ -3,19 +3,46 @@ import type {
   OneDriveConnector,
   OneDriveDeltaItem,
   OneDriveFileVersion,
-  OneDriveFileVersionIndexRepository,
   OneDriveFileVersionRecord,
+  OneDriveVersionWatermark,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365-graph';
 import { onedrive_data_key } from '@/services/onedrive-storage-keys';
+import {
+  by_version_age,
+  is_version_already_captured,
+  later_watermark,
+} from '@/services/onedrive-version-watermark';
 
 export interface VersionSyncResult {
-  readonly new_versions_stored: number;
-  readonly versions_deduplicated: number;
-  readonly versions_unavailable: number;
-  readonly versions_failed: number;
+  new_versions_stored: number;
+  versions_deduplicated: number;
+  versions_unavailable: number;
+  versions_failed: number;
+}
+
+export interface VersionSyncOutcome extends VersionSyncResult {
+  /** Rows captured by this file, destined for the run's single index object. */
+  records: OneDriveFileVersionRecord[];
+  /**
+   * Watermark to persist for this file, or `undefined` to leave it untouched.
+   * Stops short of any version this run failed to capture for an unexpected
+   * reason, so the next run retries it instead of skipping past it.
+   */
+  next_watermark?: OneDriveVersionWatermark | string;
+}
+
+/**
+ * Per-run version bookkeeping shared by every delta item of a backup.
+ * `watermarks` is carried in and out through the delta cursor, so version
+ * dedup costs no index reads at all; `rows` accumulates what this run
+ * captured for its single index object (issue #161).
+ */
+export interface RunVersionCollector {
+  watermarks: Record<string, OneDriveVersionWatermark | string>;
+  rows: Map<string, OneDriveFileVersionRecord[]>;
 }
 
 type VersionDownloadOutcome =
@@ -23,17 +50,49 @@ type VersionDownloadOutcome =
   | { status: 'unavailable' }
   | { status: 'failed'; reason: string };
 
-const EMPTY_RESULT: VersionSyncResult = {
+const EMPTY_OUTCOME: VersionSyncOutcome = {
   new_versions_stored: 0,
   versions_deduplicated: 0,
   versions_unavailable: 0,
   versions_failed: 0,
+  records: [],
 };
 
 /**
- * Enumerates historical versions for a file and stores any that are new.
- * Compares against the existing version index to avoid re-downloading
- * versions already captured in previous syncs.
+ * Records what one file's sync captured: the index rows for this run, and the
+ * advanced watermark. Writing the watermark back immediately also means a file
+ * that appears twice in one delta cycle is not downloaded twice.
+ */
+export function collect_run_versions(
+  versions: RunVersionCollector,
+  file_id: string,
+  outcome: VersionSyncOutcome,
+): void {
+  if (outcome.records.length > 0) {
+    const rows = versions.rows.get(file_id);
+    if (rows) rows.push(...outcome.records);
+    else versions.rows.set(file_id, [...outcome.records]);
+  }
+  if (outcome.next_watermark !== undefined) {
+    versions.watermarks[file_id] = outcome.next_watermark;
+  }
+}
+
+/**
+ * Enumerates historical versions for a file and stores any not already
+ * captured, deciding that from the file's dedup watermark rather than from the
+ * version index (issue #161).
+ *
+ * Versions are walked oldest first so the returned watermark can stop at the
+ * first version this run could not capture:
+ * - captured, or permanently gone from Graph (404/410, expired by the
+ *   library's version policy): the watermark advances past it, since a later
+ *   run can neither improve on it nor ever see it again
+ * - failed for any other reason: the watermark stops there, so the next run
+ *   retries that version and everything after it
+ *
+ * Captured rows are returned to the caller rather than written here: the whole
+ * run shares one index object, persisted at finalize time.
  */
 export async function sync_file_versions(
   connector: OneDriveConnector,
@@ -41,49 +100,132 @@ export async function sync_file_versions(
   owner_id: string,
   snapshot_id: string,
   ctx: TenantContext,
-  file_indexes: OneDriveFileVersionIndexRepository,
-): Promise<VersionSyncResult> {
+  watermark: OneDriveVersionWatermark | string | undefined,
+): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
-  if (versions.length === 0) return EMPTY_RESULT;
+  if (versions.length === 0) return EMPTY_OUTCOME;
 
-  const existing_index = await file_indexes.find_by_file_id(ctx, owner_id, item.item_id);
-  const known_version_ids = new Set(
-    (existing_index?.versions ?? []).map((v) => v.version_id).filter(Boolean) as string[],
+  const outcome = await capture_new_versions(
+    connector,
+    item,
+    owner_id,
+    snapshot_id,
+    ctx,
+    versions,
+    watermark,
   );
+  if (outcome.new_versions_stored > 0) {
+    logger.info(
+      `Stored ${outcome.new_versions_stored} historical version(s) for ${item.file_name}`,
+    );
+  }
+  return outcome;
+}
 
-  let new_versions_stored = 0;
-  let versions_deduplicated = 0;
-  let versions_unavailable = 0;
-  let versions_failed = 0;
+/** Walks the file's versions oldest first, capturing everything past the watermark. */
+async function capture_new_versions(
+  connector: OneDriveConnector,
+  item: OneDriveDeltaItem,
+  owner_id: string,
+  snapshot_id: string,
+  ctx: TenantContext,
+  versions: readonly OneDriveFileVersion[],
+  watermark: OneDriveVersionWatermark | string | undefined,
+): Promise<VersionSyncOutcome> {
+  const totals: VersionSyncResult = {
+    new_versions_stored: 0,
+    versions_deduplicated: 0,
+    versions_unavailable: 0,
+    versions_failed: 0,
+  };
+  const records: OneDriveFileVersionRecord[] = [];
+  let next_watermark = watermark;
+  let watermark_blocked = false;
 
-  for (const version of versions) {
-    if (known_version_ids.has(version.version_id)) continue;
-
-    const outcome = await download_version_classified(connector, item, version);
-
-    if (outcome.status === 'unavailable') {
-      versions_unavailable++;
+  for (const version of [...versions].sort(by_version_age)) {
+    if (is_version_already_captured(version.version_id, version.last_modified_at, watermark)) {
       continue;
     }
 
-    if (outcome.status === 'failed') {
-      versions_failed++;
-      logger.warn(`Version ${version.version_id} of ${item.file_name}: ${outcome.reason}`);
-      continue;
+    const captured = await capture_version(connector, item, owner_id, snapshot_id, ctx, version);
+    // Not `||=`: that short-circuits once blocked and would stop tallying the
+    // remaining versions entirely.
+    if (!tally_capture(totals, records, captured)) watermark_blocked = true;
+    if (!watermark_blocked) {
+      next_watermark = later_watermark(
+        next_watermark,
+        version.last_modified_at,
+        version.version_id,
+      );
     }
+  }
 
-    const checksum = createHash('sha256').update(outcome.content).digest('hex');
-    const storage_key = onedrive_data_key(owner_id, checksum);
-    const exists = await ctx.storage.exists(storage_key);
+  return {
+    ...totals,
+    records,
+    ...(next_watermark !== undefined && next_watermark !== watermark ? { next_watermark } : {}),
+  };
+}
 
-    if (!exists) {
-      await ctx.storage.put(storage_key, ctx.encrypt(outcome.content));
-      new_versions_stored++;
-    } else {
-      versions_deduplicated++;
-    }
+/**
+ * Folds one capture into the run totals. Returns whether the file's watermark
+ * may still advance past this version, which is false only for a version that
+ * might yet be retrievable on a later run.
+ */
+function tally_capture(
+  totals: VersionSyncResult,
+  records: OneDriveFileVersionRecord[],
+  captured: VersionCapture,
+): boolean {
+  if (captured.kind === 'failed') {
+    totals.versions_failed++;
+    return false;
+  }
+  if (captured.kind === 'gone') {
+    totals.versions_unavailable++;
+    return true;
+  }
+  records.push(captured.record);
+  if (captured.deduplicated) totals.versions_deduplicated++;
+  else totals.new_versions_stored++;
+  return true;
+}
 
-    const record: OneDriveFileVersionRecord = {
+type VersionCapture =
+  | { kind: 'stored'; record: OneDriveFileVersionRecord; deduplicated: boolean }
+  | { kind: 'gone' }
+  | { kind: 'failed' };
+
+/**
+ * Downloads one historical version, stores it content-addressed, and builds
+ * its index row. `gone` means Graph no longer has the version at all, which is
+ * expected once a library's version policy expires it; `failed` means the
+ * version may still be retrievable and the run should come back for it.
+ */
+async function capture_version(
+  connector: OneDriveConnector,
+  item: OneDriveDeltaItem,
+  owner_id: string,
+  snapshot_id: string,
+  ctx: TenantContext,
+  version: OneDriveFileVersion,
+): Promise<VersionCapture> {
+  const outcome = await download_version_classified(connector, item, version);
+  if (outcome.status === 'unavailable') return { kind: 'gone' };
+  if (outcome.status === 'failed') {
+    logger.warn(`Version ${version.version_id} of ${item.file_name}: ${outcome.reason}`);
+    return { kind: 'failed' };
+  }
+
+  const checksum = createHash('sha256').update(outcome.content).digest('hex');
+  const storage_key = onedrive_data_key(owner_id, checksum);
+  const deduplicated = await ctx.storage.exists(storage_key);
+  if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(outcome.content));
+
+  return {
+    kind: 'stored',
+    deduplicated,
+    record: {
       snapshot_id,
       backup_at: new Date().toISOString(),
       drive_id: item.drive_id,
@@ -95,16 +237,8 @@ export async function sync_file_versions(
       checksum,
       last_modified_at: version.last_modified_at,
       change_type: 'updated',
-    };
-
-    await file_indexes.append_version(ctx, owner_id, item.item_id, record);
-  }
-
-  if (new_versions_stored > 0) {
-    logger.info(`Stored ${new_versions_stored} historical version(s) for ${item.file_name}`);
-  }
-
-  return { new_versions_stored, versions_deduplicated, versions_unavailable, versions_failed };
+    },
+  };
 }
 
 /**

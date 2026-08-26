@@ -1,6 +1,5 @@
 import type {
   SharePointDeltaItem,
-  SharePointFileVersionIndexRepository,
   SharePointManifestEntry,
   SharePointSiteConnector,
   TenantContext,
@@ -19,7 +18,11 @@ import {
 } from '@/services/sharepoint-backup-builders';
 import { process_backup_file } from '@/services/sharepoint-backup-file-processor';
 import { classify_change_type } from '@/services/sharepoint-change-classifier';
-import { sync_file_versions } from '@/services/sharepoint-version-sync';
+import {
+  collect_run_versions,
+  sync_file_versions,
+  type RunVersionCollector,
+} from '@/services/sharepoint-version-sync';
 
 export interface FileTrackingState {
   previous_path_by_file_id: Record<string, string>;
@@ -59,7 +62,7 @@ export async function process_delta_item(
   ctx: TenantContext,
   tracking: FileTrackingState,
   library_state: LibraryProcessingState,
-  file_indexes: SharePointFileVersionIndexRepository,
+  versions: RunVersionCollector,
   version_stats: VersionStatsState,
 ): Promise<void> {
   const effective_kind =
@@ -113,15 +116,15 @@ export async function process_delta_item(
       site_id,
       snapshot_id,
       ctx,
-      file_indexes,
+      versions.watermarks[item.item_id],
     );
+    collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
       version_stats.total_versions_stored = s;
       version_stats.total_versions_unavailable = u;
       version_stats.total_versions_failed = f;
     });
   }
-
   library_state.library_entries.push(
     build_stored_entry(
       item,
@@ -147,7 +150,7 @@ export async function process_item_guarded(
   ctx: TenantContext,
   tracking: FileTrackingState,
   library_state: LibraryProcessingState,
-  file_indexes: SharePointFileVersionIndexRepository,
+  versions: RunVersionCollector,
   version_stats: VersionStatsState,
 ): Promise<void> {
   try {
@@ -159,7 +162,7 @@ export async function process_item_guarded(
       ctx,
       tracking,
       library_state,
-      file_indexes,
+      versions,
       version_stats,
     );
   } catch (err) {
@@ -189,7 +192,7 @@ export async function retry_failed_items(
   ctx: TenantContext,
   tracking: FileTrackingState,
   library_state: LibraryProcessingState,
-  file_indexes: SharePointFileVersionIndexRepository,
+  versions: RunVersionCollector,
   version_stats: VersionStatsState,
   should_interrupt?: () => boolean,
   on_item_processed?: (file_name: string) => void,
@@ -217,7 +220,7 @@ export async function retry_failed_items(
       ctx,
       tracking,
       library_state,
-      file_indexes,
+      versions,
       version_stats,
     );
     on_item_processed?.(item.file_name);

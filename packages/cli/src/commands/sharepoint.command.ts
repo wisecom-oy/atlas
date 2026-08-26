@@ -17,6 +17,12 @@ import {
   register_sharepoint_list_snapshots,
   register_sharepoint_list_versions,
 } from '@/commands/sharepoint-catalog.command';
+import {
+  execute_sharepoint_delete,
+  execute_sharepoint_status,
+  type SharePointDeleteOptions,
+  type SharePointStatusCommandOptions,
+} from '@/commands/sharepoint-data-ops.handlers';
 
 type ContainerFactory = () => Container;
 
@@ -35,6 +41,8 @@ export function register_sharepoint_command(
   register_sharepoint_restore(group, get_container);
   register_sharepoint_save(group, get_container);
   register_sharepoint_verify(group, get_container);
+  register_sharepoint_status(group, get_container);
+  register_sharepoint_delete(group, get_container);
 }
 
 function register_sharepoint_list_sites(group: Command, get_container: ContainerFactory): void {
@@ -113,5 +121,29 @@ function register_sharepoint_verify(group: Command, get_container: ContainerFact
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: SharePointVerifyOptions) =>
       execute_sharepoint_verify(get_container(), options),
+    );
+}
+
+function register_sharepoint_status(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('status')
+    .description('Check whether a site SharePoint backup is up to date')
+    .requiredOption('--site <site>', 'site URL, hostname, or composite site ID')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: SharePointStatusCommandOptions) =>
+      execute_sharepoint_status(get_container(), options),
+    );
+}
+
+function register_sharepoint_delete(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('delete')
+    .description('Delete SharePoint backups for one site, or a single snapshot')
+    .requiredOption('--site <site>', 'site URL, hostname, or composite site ID')
+    .option('-s, --snapshot <id>', 'delete a single snapshot instead of every backup')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .option('-y, --yes', 'skip confirmation prompt')
+    .action((options: SharePointDeleteOptions) =>
+      execute_sharepoint_delete(get_container(), options),
     );
 }

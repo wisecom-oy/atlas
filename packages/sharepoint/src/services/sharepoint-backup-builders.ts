@@ -1,9 +1,16 @@
 import type {
   SharePointBackupResult,
   SharePointChangeType,
+  SharePointDeltaCursor,
+  SharePointDeltaCursorRepository,
   SharePointDeltaItem,
+  SharePointFileVersionIndex,
+  SharePointFileVersionIndexRepository,
+  SharePointFileVersionRecord,
   SharePointManifestEntry,
+  SharePointManifestRepository,
   SharePointSnapshotManifest,
+  TenantContext,
 } from '@wisecom/atlas-types';
 import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-item-reporter';
 import type { VersionSyncResult } from '@/services/sharepoint-version-sync';
@@ -140,4 +147,65 @@ export function accumulate_version_stats(
     current.total_versions_unavailable + result.versions_unavailable,
     current.total_versions_failed + result.versions_failed,
   );
+}
+
+/** Folds manifest entries and version downloads into per-file groups for the run's single index object. */
+export function build_run_version_indexes(
+  site_id: string,
+  snapshot_id: string,
+  entries: SharePointManifestEntry[],
+  collected_rows: Map<string, SharePointFileVersionRecord[]>,
+): SharePointFileVersionIndex[] {
+  const versions_by_file = new Map<string, SharePointFileVersionRecord[]>();
+  const add = (file_id: string, record: SharePointFileVersionRecord): void => {
+    const rows = versions_by_file.get(file_id);
+    if (rows) rows.push(record);
+    else versions_by_file.set(file_id, [record]);
+  };
+  for (const entry of entries) {
+    add(entry.file_id, {
+      snapshot_id,
+      backup_at: entry.backup_at,
+      drive_id: entry.drive_id,
+      file_name: entry.file_name,
+      parent_path: entry.parent_path,
+      size_bytes: entry.size_bytes,
+      change_type: entry.change_type,
+      ...(entry.web_url !== undefined ? { web_url: entry.web_url } : {}),
+      ...(entry.storage_key !== undefined ? { storage_key: entry.storage_key } : {}),
+      ...(entry.checksum !== undefined ? { checksum: entry.checksum } : {}),
+      ...(entry.etag !== undefined ? { etag: entry.etag } : {}),
+      ...(entry.last_modified_at !== undefined ? { last_modified_at: entry.last_modified_at } : {}),
+    });
+  }
+  for (const [file_id, rows] of collected_rows) {
+    for (const row of rows) add(file_id, row);
+  }
+  return [...versions_by_file.entries()].map(([file_id, versions]) => ({
+    file_id,
+    site_id,
+    versions,
+  }));
+}
+
+/** Saves snapshot manifest, the run's single version index object, and the delta cursor. */
+export async function persist_snapshot_backup(
+  manifests: SharePointManifestRepository,
+  file_indexes: SharePointFileVersionIndexRepository,
+  cursors: SharePointDeltaCursorRepository,
+  ctx: TenantContext,
+  site_id: string,
+  snapshot: SharePointSnapshotManifest,
+  entries: SharePointManifestEntry[],
+  cursor: SharePointDeltaCursor,
+  collected_rows: Map<string, SharePointFileVersionRecord[]>,
+): Promise<void> {
+  await manifests.save(ctx, snapshot);
+  await file_indexes.write_run_index(
+    ctx,
+    site_id,
+    snapshot.snapshot_id,
+    build_run_version_indexes(site_id, snapshot.snapshot_id, entries, collected_rows),
+  );
+  await cursors.save(ctx, cursor);
 }

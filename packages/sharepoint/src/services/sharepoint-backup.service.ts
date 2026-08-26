@@ -15,6 +15,7 @@ import type {
   SharePointDeltaCursorRepository,
   SharePointFileVersionIndexRepository,
   SharePointManifestRepository,
+  TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
@@ -28,22 +29,25 @@ import {
   describe_failed_items,
   type FailedItemLedger,
 } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   build_empty_result,
   build_package_warnings,
+  build_run_version_indexes,
   build_snapshot_manifest,
+  persist_snapshot_backup,
 } from '@/services/sharepoint-backup-builders';
 import { ensure_libraries_discovered } from '@/services/sharepoint-backup-file-processor';
 import type {
   FileTrackingState,
   VersionStatsState,
 } from '@/services/sharepoint-library-item-processor';
+import type { RunVersionCollector } from '@/services/sharepoint-version-sync';
 import {
   scan_all_libraries,
   type SharePointLibraryScanResult,
 } from '@/services/sharepoint-backup-library-scan';
 import { cleanup_stale_staging } from '@/services/sharepoint-large-file-pipeline';
-import { append_version_indexes } from '@/services/sharepoint-version-index-appender';
 
 @injectable()
 export class SharePointBackupService implements SharePointBackupUseCase {
@@ -79,8 +83,8 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       );
     }
     try {
-      const previous_cursor =
-        options.force_full === true ? undefined : await this._cursors.load(ctx, site_id);
+      const stored_cursor = await this._cursors.load(ctx, site_id);
+      const previous_cursor = options.force_full === true ? undefined : stored_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
       ensure_libraries_discovered(libraries.length);
       emit_operation_progress(options, {
@@ -99,10 +103,15 @@ export class SharePointBackupService implements SharePointBackupUseCase {
 
       const manifest_created_at = new Date();
       const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
+      // Watermarks are read from the cursor even on a forced full run: they
+      // record which historical versions Graph already handed over, not where
+      // the delta stream stopped, and discarding them would re-download every
+      // version of every file (issue #161).
+      const versions = await this.load_run_version_collector(ctx, site_id, stored_cursor);
       const scan = await scan_all_libraries({
         connector: this._connector,
         cursors: this._cursors,
-        file_indexes: this._file_indexes,
+        versions,
         initial_failed_items: previous_cursor?.failed_items ?? {},
         tenant_id,
         site_id,
@@ -122,7 +131,13 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         processed: scan.items_processed,
       });
       scan.interrupted ||= options.should_interrupt?.() === true;
-      const cursor = this.build_cursor(site_id, delta_link_by_drive, tracking, scan.failed_items);
+      const cursor = this.build_cursor(
+        site_id,
+        delta_link_by_drive,
+        tracking,
+        scan.failed_items,
+        versions.watermarks,
+      );
       const warnings = [
         ...build_package_warnings(scan.package_reports),
         ...describe_failed_items(scan.failed_items),
@@ -136,6 +151,16 @@ export class SharePointBackupService implements SharePointBackupUseCase {
 
       let result: SharePointBackupResult;
       if (scan.entries.length === 0) {
+        // Versions captured before the run lost its entries (a library-level
+        // failure discards them) are still on the wire and still watermarked:
+        // the rows have to land before the cursor that tells the next run to
+        // skip those versions, or that history is unreachable forever.
+        await this._file_indexes.write_run_index(
+          ctx,
+          site_id,
+          snapshot_id,
+          build_run_version_indexes(site_id, snapshot_id, [], scan.version_rows),
+        );
         await this._cursors.save(ctx, cursor);
         result = build_empty_result(
           site_id,
@@ -194,13 +219,39 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     delta_link_by_drive: Record<string, string>,
     tracking: FileTrackingState,
     failed_items: FailedItemLedger,
+    version_watermark_by_file_id: NonNullable<
+      SharePointDeltaCursor['version_watermark_by_file_id']
+    >,
   ): SharePointDeltaCursor {
     return {
       site_id,
       delta_link_by_drive,
       ...tracking,
+      version_watermark_by_file_id,
       failed_items,
       updated_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Builds the run's version bookkeeping from the delta cursor.
+   *
+   * Steady state costs nothing: the cursor is one object the run already reads,
+   * and it carries the dedup watermarks. Only a cursor written before
+   * watermarks existed falls back to scanning the version index, once, to seed
+   * them; from the next run on that site is on the cheap path (issue #161).
+   */
+  private async load_run_version_collector(
+    ctx: TenantContext,
+    site_id: string,
+    stored_cursor: SharePointDeltaCursor | undefined,
+  ): Promise<RunVersionCollector> {
+    const carried = stored_cursor?.version_watermark_by_file_id;
+    if (carried) return { watermarks: { ...carried }, rows: new Map() };
+    logger.info(`Seeding version dedup watermarks for ${site_id} from the version index`);
+    return {
+      watermarks: await this._file_indexes.load_version_watermarks(ctx, site_id),
+      rows: new Map(),
     };
   }
 
@@ -235,16 +286,17 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       options.site_url,
       options.site_display_name,
     );
-    await this._manifests.save(ctx, snapshot);
-    await append_version_indexes(
+    await persist_snapshot_backup(
+      this._manifests,
       this._file_indexes,
+      this._cursors,
       ctx,
       site_id,
+      snapshot,
       scan.entries,
-      snapshot.snapshot_id,
+      cursor,
+      scan.version_rows,
     );
-
-    await this._cursors.save(ctx, cursor);
 
     return {
       site_id,

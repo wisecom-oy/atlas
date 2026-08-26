@@ -8,7 +8,7 @@ import {
   onedrive_data_key,
   onedrive_manifest_key,
   onedrive_manifest_prefix,
-  onedrive_index_key,
+  onedrive_run_index_key,
   onedrive_index_prefix,
   onedrive_staging_key,
   onedrive_staging_prefix,
@@ -23,7 +23,11 @@ describe('owner segment normalization', () => {
     expect(onedrive_data_key(UPPER, 'abc')).toBe(onedrive_data_key(LOWER, 'abc'));
     expect(onedrive_manifest_key(UPPER, 'snap-1')).toBe(onedrive_manifest_key(LOWER, 'snap-1'));
     expect(onedrive_manifest_prefix(UPPER)).toBe(onedrive_manifest_prefix(LOWER));
-    expect(onedrive_index_key(UPPER, 'f1')).toBe(onedrive_index_key(LOWER, 'f1'));
+    expect(onedrive_run_index_key(UPPER, 'snap-1')).toBe(onedrive_run_index_key(LOWER, 'snap-1'));
+    expect(onedrive_run_index_key(UPPER, 'snap-1')).toBe(
+      `onedrive/index/${LOWER}/runs/snap-1.json`,
+    );
+    expect(onedrive_index_prefix(UPPER)).toBe(`onedrive/index/${LOWER}/`);
     expect(onedrive_index_prefix(UPPER)).toBe(onedrive_index_prefix(LOWER));
     expect(onedrive_staging_prefix(UPPER)).toBe(onedrive_staging_prefix(LOWER));
     expect(onedrive_delta_cursor_key(UPPER)).toBe(onedrive_delta_cursor_key(LOWER));
@@ -37,7 +41,7 @@ describe('owner segment normalization', () => {
     // A drive item id like 01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3 must survive intact.
     const item_id = '01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3';
     expect(onedrive_staging_key(UPPER, item_id)).toContain(`/${item_id}-`);
-    expect(onedrive_index_key(UPPER, item_id)).toContain(`/${item_id}.json`);
+    expect(onedrive_run_index_key(UPPER, item_id)).toContain(`/${item_id}.json`);
   });
 
   it('still rejects a traversal segment', () => {

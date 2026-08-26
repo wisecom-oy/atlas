@@ -56,16 +56,19 @@ const save = await atlas.outlook.save('snapshot-id', {
 const message = await atlas.outlook.readMessage('snapshot-id', '42');
 const status = await atlas.outlook.checkMailboxStatus('user@company.com');
 
-// --- OneDrive ---
-const od = await atlas.onedrive.backup('owner-id');
-await atlas.onedrive.verify('owner-id', 'od-snap-123');
-await atlas.onedrive.checkStatus('owner-id');
+// --- OneDrive (owner: email or Entra object id) ---
+const od = await atlas.onedrive.backup('john.doe@example.com');
+await atlas.onedrive.verify('john.doe@example.com', 'od-snap-123');
+await atlas.onedrive.checkStatus('john.doe@example.com');
+const odStats = await atlas.onedrive.getStats('john.doe@example.com'); // omit the owner for every drive
 
-// --- SharePoint (one result per backed-up site) ---
-const [sp] = await atlas.sharepoint.backup('site-id');
-const tree = await atlas.sharepoint.backup('site-id', { include_subsites: true });
-await atlas.sharepoint.verify('site-id', 'sp-snap-123');
+// --- SharePoint (site: URL or composite site id; one result per backed-up site) ---
+const site = 'https://contoso.sharepoint.com/sites/Example';
+const [sp] = await atlas.sharepoint.backup(site);
+const tree = await atlas.sharepoint.backup(site, { include_subsites: true });
+await atlas.sharepoint.verify(site, 'sp-snap-123');
 const sites = await atlas.sharepoint.listSites();
+const spStats = await atlas.sharepoint.getStats(site); // omit the site for every site
 
 // --- Cross-cutting (tenant scope) ---
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 });
@@ -73,7 +76,18 @@ const stats = await atlas.getBucketStats();
 await atlas.replicateSnapshot('snapshot-id', [offsite]);
 ```
 
-Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. See [SDK Examples](/reference/examples) for production-ready patterns.
+Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. Every capability the CLI can reach is reachable from the SDK; the SDK exposes some the CLI does not. See [SDK Examples](/reference/examples) for production-ready patterns.
+
+### Identifiers
+
+Drive methods take the same identifiers the CLI takes, and normalise them the same way.
+
+| Namespace          | Accepted                                                        | Normalisation                                                                  |
+| ------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `atlas.onedrive.*` | An email or UPN, or an Entra object id                          | An argument containing `@` is resolved through Graph; anything else is used as is |
+| `atlas.sharepoint.*` | A site URL or hostname, or a composite `host,siteGuid,webGuid` id | An argument without commas is resolved through Graph; anything else is used as is |
+
+Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance, and `atlas.onedrive.backup` records the resolved email and display name with the snapshot, which is what makes owners readable in later listings. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
 
 ## Progress and Cancellation
 
@@ -99,6 +113,30 @@ if (result.interrupted) {
 | ------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.            |
 | `signal`     | `AbortSignal`                             | Requests graceful cancellation. Atlas finishes the current item, then stops at a safe boundary. |
+
+`atlas.outlook.backup` accepts a third option, `hardStopSignal`, for the case where graceful is not fast enough. This is the escalation the CLI wires to a second Ctrl+C:
+
+```typescript
+const graceful = new AbortController();
+const immediate = new AbortController();
+
+process.on('SIGTERM', () => graceful.abort());
+setTimeout(() => immediate.abort(), 30_000); // shutdown deadline
+
+const result = await atlas.outlook.backup('user@company.com', {
+  signal: graceful.signal,
+  hardStopSignal: immediate.signal,
+});
+```
+
+| Signal           | Effect                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal`         | Finishes the page in flight, stores its attachments, and persists the delta link for every completed folder. The next run resumes from there.             |
+| `hardStopSignal` | Drops the page in flight and its pending attachments. The affected folder keeps its previous delta link and is re-enumerated on the next run.             |
+
+Both return a result with `interrupted: true` rather than throwing, and both keep the snapshot manifest that was written for the work already done. `hardStopSignal` trades re-enumeration of one folder for a faster exit, so use it when a deadline matters more than the wasted work.
+
+OneDrive and SharePoint backups accept `signal` only. Their long unit of work is a single file transfer, and aborting one mid-stream is not implemented, so there is nothing for an escalation to shorten.
 
 `OperationProgressEvent` is stable across workloads:
 
@@ -137,7 +175,7 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 | `listAvailableMailboxes(options?)`    | _(discovery)_                  | List all tenant mailboxes via Graph                                                                |
 | `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`      | Delete all data for a mailbox                                                                      |
 | `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`      | Delete a single snapshot manifest                                                                  |
-| `purgeTenantData()`                   | `atlas outlook delete --purge` | Purge entire tenant bucket                                                                         |
+| `purgeTenantData()`                   | `atlas delete --purge`         | Purge entire tenant bucket                                                                         |
 | `getMailboxStats(mailboxId)`          | `atlas stats -m`               | Mailbox-level statistics                                                                           |
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
@@ -238,9 +276,30 @@ interface RestoreResult {
 | `errors`                 | Human-readable detail for each message-level failure.                                       |
 | `verification_warnings`  | Per-folder verification warnings, including API failures that prevented count confirmation. |
 
+## Object Lock
+
+Pass `object_lock_request` to any backup method to apply WORM retention. Atlas derives the rest of the policy from it, so the SDK and the CLI produce the same result for the same retention period:
+
+```typescript
+await atlas.outlook.backup('user@company.com', {
+  object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+});
+
+await atlas.onedrive.backup('owner-id', {
+  object_lock_request: { mode: 'GOVERNANCE', retention_days: 30 },
+});
+```
+
+| Field            | Derived behavior                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `mode`           | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Defaults to `GOVERNANCE`. |
+| `retention_days` | Converted to an absolute `retain_until` timestamp in UTC at the moment the run starts.               |
+
+Outlook applies the policy to each stored object; OneDrive and SharePoint set the bucket default retention so every new object version inherits it. Writes are fail-closed: when a lock policy is present and the bucket has versioning or Object Lock disabled, or does not support the requested mode, the write throws instead of storing unprotected data. Immutability is therefore never silently downgraded.
+
 ## Batch Processing
 
-For backing up multiple mailboxes from a shell, use the CLI's built-in tenant-wide mode (`atlas outlook backup` without `-m`), which handles parallel workers with rate limiting and a live dashboard.
+For backing up multiple mailboxes from a shell, enumerate them with `atlas outlook mailboxes` and loop over `atlas outlook backup -m <id>` in your scheduler. The CLI backs up one mailbox per invocation; fan-out is scheduling and belongs to the caller.
 
 In the SDK, create one instance and iterate sequentially. Each backup, restore, or save makes hundreds or thousands of Graph requests internally, so running mailboxes through `Promise.all` multiplies the request rate and triggers aggressive throttling (HTTP 429). Atlas retries throttled requests with exponential backoff up to 12 times, but a sequential loop finishes sooner and more predictably:
 
@@ -276,8 +335,9 @@ const results = await atlas.replicateSnapshot('snapshot-id', [offsite]);
 // Replicate all unreplicated snapshots for a mailbox
 const mailboxResults = await atlas.replicateMailbox('user@company.com', [offsite]);
 
-// Query replication status
+// Query replication status: by snapshot, or every snapshot for one owner
 const status = await atlas.getReplicationStatus('snapshot-id');
+const ownerStatus = await atlas.getReplicationStatusByOwner('user@company.com');
 
 // Disaster recovery: recover from a replica
 await atlas.rehydrateSnapshot('snapshot-id', offsite);

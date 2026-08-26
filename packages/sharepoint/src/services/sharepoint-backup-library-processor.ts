@@ -4,7 +4,6 @@ import type {
   SharePointDeltaCursorRepository,
   SharePointDeltaResult,
   SharePointDocumentLibrary,
-  SharePointFileVersionIndexRepository,
   SharePointManifestEntry,
   SharePointSiteConnector,
   TenantContext,
@@ -17,6 +16,7 @@ import {
   type LibraryProcessingState,
   type VersionStatsState,
 } from '@/services/sharepoint-library-item-processor';
+import type { RunVersionCollector } from '@/services/sharepoint-version-sync';
 import {
   summarize_package_items,
   type PackageReport,
@@ -55,7 +55,7 @@ export function clear_file_tracking_on_reset(tracking: FileTrackingState): void 
 export async function process_single_library(
   connector: SharePointSiteConnector,
   cursors: SharePointDeltaCursorRepository,
-  file_indexes: SharePointFileVersionIndexRepository,
+  versions: RunVersionCollector,
   tenant_id: string,
   site_id: string,
   snapshot_id: string,
@@ -103,7 +103,7 @@ export async function process_single_library(
     ctx,
     tracking,
     library_state,
-    file_indexes,
+    versions,
     version_stats,
     options.should_interrupt,
     on_item_processed,
@@ -123,7 +123,7 @@ export async function process_single_library(
       ctx,
       tracking,
       library_state,
-      file_indexes,
+      versions,
       version_stats,
     );
     processed_delta_items++;

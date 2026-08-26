@@ -20,6 +20,10 @@ import { create_sharepoint_api } from '@/sharepoint-api.factory';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = 'owner-1';
+// Graph composite site id (hostname,site-guid,web-guid). Anything without commas is treated
+// as a URL and resolved through the connector first.
+const SITE_ID =
+  'contoso.sharepoint.com,00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 
 function container_with(...entries: [symbol, unknown][]): Container {
   const services = new Map(entries);
@@ -66,6 +70,64 @@ describe('SDK progress and cancellation option adaptation', () => {
     expect_adapted_options(sync_mailbox.mock.calls[0]![2], on_progress, controller);
   });
 
+  it('maps hardStopSignal to should_force_stop, independent of the graceful signal', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({ interrupted: false });
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with([BACKUP_USE_CASE_TOKEN, { sync_mailbox }]),
+    );
+    const graceful = new AbortController();
+    const immediate = new AbortController();
+
+    await api.backup(OWNER_ID, { signal: graceful.signal, hardStopSignal: immediate.signal });
+
+    const options = sync_mailbox.mock.calls[0]![2] as Record<string, unknown>;
+    expect(options).not.toHaveProperty('hardStopSignal');
+    const should_interrupt = options.should_interrupt as () => boolean;
+    const should_force_stop = options.should_force_stop as () => boolean;
+
+    expect(should_force_stop()).toBe(false);
+    graceful.abort();
+    expect(should_interrupt()).toBe(true);
+    expect(should_force_stop()).toBe(false);
+
+    immediate.abort();
+    expect(should_force_stop()).toBe(true);
+  });
+
+  it('leaves should_force_stop unset when no hardStopSignal is given', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({ interrupted: false });
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with([BACKUP_USE_CASE_TOKEN, { sync_mailbox }]),
+    );
+
+    await api.backup(OWNER_ID, { signal: new AbortController().signal });
+
+    expect(sync_mailbox.mock.calls[0]![2]).not.toHaveProperty('should_force_stop');
+  });
+
+  it('derives the Object Lock policy on the hard-stop path too', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({ interrupted: false });
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with([BACKUP_USE_CASE_TOKEN, { sync_mailbox }]),
+    );
+
+    await api.backup(OWNER_ID, {
+      hardStopSignal: new AbortController().signal,
+      object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+    });
+
+    const options = sync_mailbox.mock.calls[0]![2] as {
+      should_force_stop?: () => boolean;
+      object_lock_policy?: { mode: string; retain_until: string };
+    };
+    expect(options.should_force_stop).toBeTypeOf('function');
+    expect(options.object_lock_policy).toMatchObject({ mode: 'COMPLIANCE' });
+    expect(Date.parse(options.object_lock_policy!.retain_until)).toBeGreaterThan(Date.now());
+  });
+
   it('adapts OneDrive backup onProgress and signal to internal hooks', async () => {
     const backup_onedrive = vi.fn().mockResolvedValue({ interrupted: false });
     const api = create_onedrive_api(
@@ -92,7 +154,7 @@ describe('SDK progress and cancellation option adaptation', () => {
     const controller = new AbortController();
     const on_progress = vi.fn();
 
-    await api.backup(OWNER_ID, {
+    await api.backup(SITE_ID, {
       onProgress: on_progress,
       signal: controller.signal,
     });
@@ -191,16 +253,16 @@ describe('SDK progress and cancellation option adaptation', () => {
     const controllers = [new AbortController(), new AbortController(), new AbortController()];
     const callbacks = [vi.fn(), vi.fn(), vi.fn()];
 
-    await api.verify(OWNER_ID, 'snap-1', {
+    await api.verify(SITE_ID, 'snap-1', {
       onProgress: callbacks[0],
       signal: controllers[0].signal,
     });
-    await api.restore(OWNER_ID, {
+    await api.restore(SITE_ID, {
       snapshot_id: 'snap-1',
       onProgress: callbacks[1],
       signal: controllers[1].signal,
     });
-    await api.save(OWNER_ID, {
+    await api.save(SITE_ID, {
       snapshot_id: 'snap-1',
       onProgress: callbacks[2],
       signal: controllers[2].signal,

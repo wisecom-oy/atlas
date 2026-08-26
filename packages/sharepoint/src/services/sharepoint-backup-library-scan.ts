@@ -7,7 +7,7 @@ import type {
   SharePointDeltaCursor,
   SharePointDeltaCursorRepository,
   SharePointDocumentLibrary,
-  SharePointFileVersionIndexRepository,
+  SharePointFileVersionRecord,
   SharePointManifestEntry,
   SharePointSiteConnector,
   TenantContext,
@@ -17,6 +17,7 @@ import type {
   FileTrackingState,
   VersionStatsState,
 } from '@/services/sharepoint-library-item-processor';
+import type { RunVersionCollector } from '@/services/sharepoint-version-sync';
 
 export interface SharePointLibraryScanResult {
   entries: SharePointManifestEntry[];
@@ -26,6 +27,8 @@ export interface SharePointLibraryScanResult {
   errors: string[];
   failed_items: FailedItemLedger;
   version_stats: VersionStatsState;
+  /** Version rows captured during this run, per file id; written as one index object at finalize time. */
+  version_rows: Map<string, SharePointFileVersionRecord[]>;
   package_reports: PackageReport[];
   libraries_scanned: number;
   items_processed: number;
@@ -35,7 +38,7 @@ export interface SharePointLibraryScanResult {
 interface SharePointLibraryScanParams {
   connector: SharePointSiteConnector;
   cursors: SharePointDeltaCursorRepository;
-  file_indexes: SharePointFileVersionIndexRepository;
+  versions: RunVersionCollector;
   tenant_id: string;
   site_id: string;
   snapshot_id: string;
@@ -52,7 +55,7 @@ interface SharePointLibraryScanParams {
 export async function scan_all_libraries({
   connector,
   cursors,
-  file_indexes,
+  versions,
   tenant_id,
   site_id,
   snapshot_id,
@@ -64,6 +67,8 @@ export async function scan_all_libraries({
   ctx,
   initial_failed_items,
 }: SharePointLibraryScanParams): Promise<SharePointLibraryScanResult> {
+  // No index read here: version dedup rides on the delta cursor watermarks the
+  // caller already loaded (issue #161).
   const result: SharePointLibraryScanResult = {
     entries: [],
     files_stored: 0,
@@ -80,6 +85,7 @@ export async function scan_all_libraries({
     libraries_scanned: 0,
     items_processed: 0,
     interrupted: false,
+    version_rows: versions.rows,
   };
 
   for (const library of libraries) {
@@ -92,7 +98,7 @@ export async function scan_all_libraries({
       const library_result = await process_single_library(
         connector,
         cursors,
-        file_indexes,
+        versions,
         tenant_id,
         site_id,
         snapshot_id,

@@ -3,8 +3,8 @@ import {
   sharepoint_data_key,
   sharepoint_manifest_key,
   sharepoint_manifest_prefix,
-  sharepoint_index_key,
   sharepoint_index_prefix,
+  sharepoint_run_index_key,
   sharepoint_staging_key,
   sharepoint_staging_prefix,
   sharepoint_delta_cursor_key,
@@ -62,17 +62,23 @@ describe('sharepoint_manifest_prefix', () => {
   });
 });
 
-describe('sharepoint_index_key', () => {
-  it('builds file version index key', () => {
-    expect(sharepoint_index_key('site-1', 'file-abc')).toBe(
-      'sharepoint/index/site-1/files/file-abc.json',
+describe('sharepoint_run_index_key', () => {
+  it('builds per-run version index key', () => {
+    expect(sharepoint_run_index_key('site-1', 'snap-001')).toBe(
+      'sharepoint/index/site-1/runs/snap-001.json',
     );
   });
 });
 
 describe('sharepoint_index_prefix', () => {
-  it('builds prefix for listing file indexes', () => {
-    expect(sharepoint_index_prefix('site-1')).toBe('sharepoint/index/site-1/files/');
+  it('covers per-run index objects and legacy per-file indexes alike', () => {
+    expect(sharepoint_index_prefix('site-1')).toBe('sharepoint/index/site-1/');
+    expect(
+      sharepoint_run_index_key('site-1', 'snap-001').startsWith(sharepoint_index_prefix('site-1')),
+    ).toBe(true);
+    expect(
+      'sharepoint/index/site-1/files/file-abc.json'.startsWith(sharepoint_index_prefix('site-1')),
+    ).toBe(true);
   });
 });
 
