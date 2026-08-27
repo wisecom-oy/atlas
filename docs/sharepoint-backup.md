@@ -130,6 +130,23 @@ Once the underlying problem clears, the next run picks the file up automatically
 `UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human. Check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the library keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
 :::
 
+### Content the service refuses to serve
+
+Malware-quarantined files are a separate case, and they are detected rather than retried. Atlas selects the Graph `malware` facet in its delta query, so a quarantined item is recognised before any download is attempted:
+
+```
+[!] Not backed up: infected.docx (01STBDHIPIY7N3OWY...) -- Quarantined by Microsoft 365 malware
+    policy: infected.docx (01STBDHIPIY7N3OWY...); PERMANENTLY SKIPPED by service policy, not
+    retried, first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+These records never consume the 5-attempt budget, because the budget exists for failures that might still succeed. A quarantine is a policy decision, and no number of retries changes it.
+
+Attempting the download is not merely wasteful, it is actively harmful. Graph refuses quarantined content by aborting the transfer rather than returning a clean 403, and an aborted transfer is indistinguishable from a network fault, so it engages the full Graph retry budget of 12 attempts over roughly 23 minutes. A single quarantined file could hold up an entire library backup for that long, per run. Detecting the facet up front removes that stall.
+
+The file stays reported on every run until it is removed or cleaned in the source, and the run stays `UNHEALTHY`, so an operator can always answer which files are not in the backup and why.
+
 ## Snapshot Health Status
 
 Every backup prints a health status at the end:

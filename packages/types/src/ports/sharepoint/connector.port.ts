@@ -35,6 +35,11 @@ export interface SharePointDeltaItem {
   readonly etag?: string;
   readonly last_modified_at?: string;
   readonly deleted: boolean;
+  /**
+   * Graph reports a non-null `malware` facet for this item, so the service will
+   * not serve its content. Requires `malware` in the delta `$select`.
+   */
+  readonly quarantined?: boolean;
   readonly download_url?: string;
 }
 

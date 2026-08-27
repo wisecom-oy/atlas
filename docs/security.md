@@ -156,6 +156,21 @@ Atlas does **not** import archived MIME back into Exchange. Live testing establi
 
 The archived object keeps full fidelity either way. When an operator needs the original bytes -- for a legal hold, a forensic review, or DKIM verification -- `atlas outlook save` is the path that delivers them, and it never touches the live mailbox.
 
+### Content Microsoft 365 refuses to release
+
+Some drive content cannot be archived at all, because the service will not serve it. Malware-quarantined files are the clear case: Microsoft blocks the download by policy, so no backup tool can capture the bytes.
+
+Atlas selects the Graph `malware` facet during delta enumeration and skips a quarantined item without attempting the download. The item is then recorded in the drive's failed-item ledger, reported on every run, and the run is marked `UNHEALTHY` with a non-zero exit code. An operator can always answer which files are absent from a backup and why, which is the property that matters for an audit.
+
+Two consequences worth stating plainly:
+
+- **The quarantined file is not in your backup.** Atlas reports it rather than silently omitting it, but a restore cannot produce a file the service never released. If the content matters, it has to be cleaned or released in Microsoft 365 first.
+- **Retrying is not a workaround.** A quarantine is a policy state, so quarantined items do not consume the 5-attempt retry budget that transient failures use. Attempting the download is worse than useless: Graph aborts the transfer instead of returning a clean 403, an aborted transfer is indistinguishable from a network fault, and the request therefore inherits the full Graph retry budget of 12 attempts across roughly 23 minutes. One quarantined file could stall a whole drive backup for that long on every run.
+
+::: warning Sensitivity labels are not captured
+Atlas does not currently capture Microsoft Purview sensitivity labels or IRM protection state for drive items. Labelled files whose content Graph does serve are backed up as ciphertext like any other file, but the label itself is not recorded, so a restored copy does not carry its original classification. Treat restored content as unclassified until it is relabelled. Capturing label metadata is tracked separately; it is a metered Graph surface and is deliberately out of scope for the quarantine handling described above.
+:::
+
 ## Integrity Validation
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:

@@ -26,7 +26,14 @@ export const MAX_FAILED_ITEM_ATTEMPTS = 5;
 /** Returns the ledger with this failure recorded, incrementing the item's attempt count. */
 export function record_item_failure(
   ledger: FailedItemLedger,
-  failure: { item_id: string; drive_id: string; name: string; reason: string },
+  failure: {
+    item_id: string;
+    drive_id: string;
+    name: string;
+    reason: string;
+    /** The service refuses this content by policy; retrying cannot help. */
+    permanent?: boolean;
+  },
 ): FailedItemLedger {
   const now = new Date().toISOString();
   const previous = ledger[failure.item_id];
@@ -39,6 +46,7 @@ export function record_item_failure(
       name: failure.name,
       reason: failure.reason,
       attempts: (previous?.attempts ?? 0) + 1,
+      ...(failure.permanent === true ? { permanent: true } : {}),
       first_failed_at: previous?.first_failed_at ?? now,
       last_failed_at: now,
     },
@@ -52,28 +60,34 @@ export function clear_item_failure(ledger: FailedItemLedger, item_id: string): F
   return rest;
 }
 
-/** Items belonging to one drive that still have retry budget left. */
+/** Items belonging to one drive that are still worth re-fetching. */
 export function retryable_items(ledger: FailedItemLedger, drive_id: string): FailedItemRecord[] {
   return Object.values(ledger).filter(
-    (record) => record.drive_id === drive_id && record.attempts < MAX_FAILED_ITEM_ATTEMPTS,
+    (record) => record.drive_id === drive_id && !is_retry_exhausted(record),
   );
 }
 
-/** True once an item has exhausted its retry budget and is only reported. */
+/** True once an item will no longer be re-fetched, whether by budget or by policy. */
 export function is_retry_exhausted(record: FailedItemRecord): boolean {
-  return record.attempts >= MAX_FAILED_ITEM_ATTEMPTS;
+  return record.permanent === true || record.attempts >= MAX_FAILED_ITEM_ATTEMPTS;
 }
 
 /**
- * One operator-facing line per outstanding failure. Items past the budget are
- * called out as permanent, so a transient blip reads differently from a file
- * that will never back up without intervention.
+ * One operator-facing line per outstanding failure, so a transient blip reads
+ * differently from a file that will never back up without intervention.
+ *
+ * Three states, not two: a policy block is called out separately from a burned
+ * attempt budget, because "5 attempts failed" invites the operator to retry
+ * while "the service refuses this content" tells them not to bother.
  */
 export function describe_failed_items(ledger: FailedItemLedger): string[] {
   return Object.values(ledger).map((record) => {
-    const status = is_retry_exhausted(record)
-      ? `PERMANENTLY SKIPPED after ${record.attempts} attempts`
-      : `will retry (attempt ${record.attempts} of ${MAX_FAILED_ITEM_ATTEMPTS})`;
+    const status =
+      record.permanent === true
+        ? 'PERMANENTLY SKIPPED by service policy, not retried'
+        : record.attempts >= MAX_FAILED_ITEM_ATTEMPTS
+          ? `PERMANENTLY SKIPPED after ${record.attempts} attempts`
+          : `will retry (attempt ${record.attempts} of ${MAX_FAILED_ITEM_ATTEMPTS})`;
     return (
       `Not backed up: ${record.name} (${record.item_id}) -- ${record.reason}; ` +
       `${status}, first failed ${record.first_failed_at}`

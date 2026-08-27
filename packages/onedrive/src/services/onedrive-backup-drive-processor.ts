@@ -311,6 +311,7 @@ export async function process_single_drive(
         drive_id: drive.drive_id,
         name: item.file_name,
         reason: outcome.error,
+        ...(outcome.permanent === true ? { permanent: true } : {}),
       });
       continue;
     }
