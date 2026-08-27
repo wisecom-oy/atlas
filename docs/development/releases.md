@@ -175,7 +175,7 @@ push trigger only re-ran the identical commit a second time -- PR #126 produced 
 `Build, Lint & Test` rows for one change. The merged result is still covered,
 because `publish.yml` re-runs build, lint, and tests before anything reaches npm.
 
-`e2e.yml` no longer runs per push. It takes up to 30 minutes against a live tenant
+`e2e.yml` no longer runs per push. It takes tens of minutes against a live tenant
 and gates nothing, so a nightly run is enough. Dispatch it explicitly when a change
 touches backup, restore, or storage behaviour and you want an answer sooner:
 

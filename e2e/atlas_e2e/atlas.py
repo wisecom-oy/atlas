@@ -15,6 +15,18 @@ log = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 900
 
+# `onedrive backup` has no folder scope: it syncs the owner's entire drive, and the suite recreates
+# the MinIO volumes every run, so every run pays a full initial crawl of whatever that drive holds.
+# Backup, verify, save and restore therefore scale with the tenant's real content rather than with
+# the fixtures, and 900s was not enough for a drive with many items (issue #211).
+#
+# ponytail: a flat 30 minutes per whole-drive call, not a size-derived budget. The ceiling is the
+# 60-minute job timeout in e2e.yml, so this cannot grow much further. The real fixes are a folder or
+# filter scope on `onedrive backup`, or a test account whose drive holds only the fixtures; until one
+# of those exists, a drive that outgrows this will fail here with a clear timeout rather than silently
+# eating the whole job budget.
+WHOLE_DRIVE_TIMEOUT = 1800
+
 # Ink wraps to `process.stdout.columns` and falls back to 80 without a TTY. The CLI honours
 # `COLUMNS` when its output is piped, so this width keeps every cell on one line.
 NO_WRAP_COLUMNS = 4096

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from atlas_e2e import drive, storage
-from atlas_e2e.atlas import Cli
+from atlas_e2e.atlas import Cli, WHOLE_DRIVE_TIMEOUT
 from atlas_e2e.config import Settings
 
 STATE: dict[str, Any] = {}
@@ -46,10 +46,10 @@ def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any)
     """Backs up the owner's drive and asserts blobs, a manifest, and a version index landed.
 
     `onedrive backup` has no folder scope -- it syncs the whole drive -- so absolute object counts
-    include whatever else the owner has. Assertions here are existence-based, and the per-version
-    assertion below is a delta.
+    include whatever else the owner has, and the call needs `WHOLE_DRIVE_TIMEOUT` rather than the
+    default. Assertions here are existence-based, and the per-version assertion below is a delta.
     """
-    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner)
+    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner, timeout=WHOLE_DRIVE_TIMEOUT)
 
     owner = _owner_segment(s3, settings.bucket)
     STATE["owner"] = owner
@@ -59,12 +59,15 @@ def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any)
     STATE["snapshot"] = snapshots[0]
 
     assert storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"), "no file blob written"
-    assert f"onedrive/index/{owner}/files/{STATE['file'].item_id}.json" in storage.list_keys(
-        s3, settings.bucket, f"onedrive/index/{owner}/files/"
-    ), "the seeded file has no version index of its own"
-    assert f"onedrive/index/{owner}/files/{STATE['large'].item_id}.json" in storage.list_keys(
-        s3, settings.bucket, f"onedrive/index/{owner}/files/"
-    ), "the 5 MB file has no version index of its own"
+
+    # One version-index object per run, not per file: issue #161 retired the
+    # `index/<owner>/files/<item_id>.json` layout because Hetzner bills a 64 KB minimum per object.
+    # Reads still merge legacy per-file objects, but a fresh bucket has none, so the run shard is the
+    # only thing that can be asserted from key names here. Per-file visibility is covered by
+    # `list-versions` in the next test, which exercises the read path.
+    assert f"onedrive/index/{owner}/runs/{STATE['snapshot']}.json" in storage.list_keys(
+        s3, settings.bucket, f"onedrive/index/{owner}/runs/"
+    ), "the run wrote no version index shard"
 
 
 def test_03_a_new_version_is_stored_incrementally(
@@ -81,7 +84,7 @@ def test_03_a_new_version_is_stored_incrementally(
     before = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
 
     STATE["file"] = drive.seed_fixture_file(graph, STATE["drive_id"], run_marker)
-    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner)
+    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner, timeout=WHOLE_DRIVE_TIMEOUT)
 
     after = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
     assert len(after - before) == 1, f"expected one new version blob, got {len(after - before)}"
@@ -96,7 +99,15 @@ def test_03_a_new_version_is_stored_incrementally(
 
 def test_04_verify_passes(cli: Cli, settings: Settings) -> None:
     """Deep verification of the snapshot: blobs decrypt, hash, and match the index rows."""
-    cli.ok("onedrive", "verify", "-o", settings.onedrive_owner, "-s", STATE["snapshot"])
+    cli.ok(
+        "onedrive",
+        "verify",
+        "-o",
+        settings.onedrive_owner,
+        "-s",
+        STATE["snapshot"],
+        timeout=WHOLE_DRIVE_TIMEOUT,
+    )
 
 
 def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, run_marker: str) -> None:
@@ -115,6 +126,7 @@ def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
         STATE["snapshot"],
         "-O",
         str(archive),
+        timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
     assert archive.exists(), f"{archive} was not written"
@@ -147,6 +159,7 @@ def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
         STATE["snapshot"],
         "-c",
         "rename",
+        timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
 
