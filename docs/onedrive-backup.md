@@ -108,6 +108,23 @@ This matters most for deletion. Before 2.1.0-beta, `deleteOwnerData` given an up
 
 Graph **item** IDs (`file_id`, `item_id`) are genuinely case-sensitive and are never folded. `--file-filter` accepts them exactly as a listing prints them, and compares case-insensitively so a retyped ID still matches.
 
+## Scoping a backup to one folder
+
+`atlas onedrive backup` covers the owner's whole drive by default. `--folder` narrows it to one subtree:
+
+```bash
+atlas onedrive backup -o user@company.com --folder /Projects
+```
+
+This matters on large accounts. Because the default is the whole drive, a backup's runtime and cost scale with everything the user keeps in OneDrive, including content nobody intends to archive. Scoping to the folders that matter keeps a run proportional to the data you actually want.
+
+Graph's drive delta is drive-wide, so the scope is applied to the delta result rather than pushed into the query. The run still enumerates the whole drive, but nothing outside the folder is downloaded, hashed, version-synced or written, which is where the time and the Graph quota go.
+
+Two behaviours to know before scheduling scoped runs:
+
+- **Changing the scope forces a full re-crawl.** A delta link records how far the drive was consumed, not how far the folder was, so resuming one under a different scope would permanently skip changes the previous run filtered out. Switching between scoped and unscoped does the same. Runs that repeat the same scope stay incremental, and the scope in force is recorded in the delta cursor.
+- **A scoped snapshot holds only that folder.** Restoring it restores only those files. Scoped backups are not a cheaper substitute for a whole-drive backup unless the scope covers everything you need recovered.
+
 ## Failed Items and Delta Progress
 
 A file that refuses to download, whether from a permissions quirk, a corrupted item, IRM-protected content, or a chronically 4xx-ing CDN link, must not be able to stop the rest of the drive from being backed up. Atlas therefore **advances past per-item failures and records them**, rather than discarding the batch:

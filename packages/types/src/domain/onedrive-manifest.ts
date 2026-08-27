@@ -81,5 +81,15 @@ export interface OneDriveDeltaCursor {
    * will not re-present an unchanged item once the link has advanced past it.
    */
   readonly failed_items?: FailedItemLedger | undefined;
+  /**
+   * Folder scope this cursor's delta links were advanced under, normalised, or
+   * absent for a whole-drive backup.
+   *
+   * A delta link records how far the *drive* was consumed, not how far the
+   * scope was, so reusing a link across different scopes would skip changes
+   * that were filtered out under the previous one. A run whose scope differs
+   * from this value therefore re-crawls instead of resuming.
+   */
+  readonly folder_scope?: string | undefined;
   readonly updated_at: string;
 }

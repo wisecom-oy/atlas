@@ -42,14 +42,28 @@ def test_01_seed_a_file(graph: Any, settings: Settings, run_marker: str) -> None
     assert drive.file_sha256(graph, drive_id, STATE["large"].path) == STATE["large"].sha256
 
 
-def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any) -> None:
+def test_02_backup_writes_blobs_and_index(
+    cli: Cli, settings: Settings, s3: Any, run_marker: str
+) -> None:
     """Backs up the owner's drive and asserts blobs, a manifest, and a version index landed.
 
-    `onedrive backup` has no folder scope -- it syncs the whole drive -- so absolute object counts
-    include whatever else the owner has, and the call needs `WHOLE_DRIVE_TIMEOUT` rather than the
-    default. Assertions here are existence-based, and the per-version assertion below is a delta.
+    Scoped to this run's fixture folder with `--folder`. Without it the backup syncs the owner's
+    entire drive, so the suite's runtime and object counts depended on whatever else that account
+    happened to hold, and a drive with many items pushed the call past its timeout. Scoping keeps
+    the assertions about the fixtures and nothing else.
+
+    The timeout stays generous anyway: Graph's driveItem delta is drive-wide, so the enumeration
+    still pages the whole drive even though only the scoped items are downloaded.
     """
-    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner, timeout=WHOLE_DRIVE_TIMEOUT)
+    cli.ok(
+        "onedrive",
+        "backup",
+        "-o",
+        settings.onedrive_owner,
+        "--folder",
+        f"/{run_marker}",
+        timeout=WHOLE_DRIVE_TIMEOUT,
+    )
 
     owner = _owner_segment(s3, settings.bucket)
     STATE["owner"] = owner
@@ -84,7 +98,17 @@ def test_03_a_new_version_is_stored_incrementally(
     before = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
 
     STATE["file"] = drive.seed_fixture_file(graph, STATE["drive_id"], run_marker)
-    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner, timeout=WHOLE_DRIVE_TIMEOUT)
+    # Same scope as the initial run: a scope change would force a re-crawl instead of
+    # resuming the delta link, and this test is specifically about the incremental path.
+    cli.ok(
+        "onedrive",
+        "backup",
+        "-o",
+        settings.onedrive_owner,
+        "--folder",
+        f"/{run_marker}",
+        timeout=WHOLE_DRIVE_TIMEOUT,
+    )
 
     after = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
     assert len(after - before) == 1, f"expected one new version blob, got {len(after - before)}"
