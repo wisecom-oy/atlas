@@ -5,6 +5,7 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atlas-types';
 import { RESTORE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
+import { report_run_outcome } from '@/command-run-outcome';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -132,7 +133,7 @@ async function execute_mailbox_restore(
 
 /** Prints a human-readable summary of the restore result. */
 async function report_restore_result(result: RestoreResult): Promise<void> {
-  if (result.error_count === 0) {
+  if (result.error_count === 0 && !result.interrupted) {
     const entries: SummaryEntry[] = [
       { label: 'messages restored', value: result.restored_count, color: 'green' },
     ];
@@ -148,7 +149,18 @@ async function report_restore_result(result: RestoreResult): Promise<void> {
     return;
   }
 
-  logger.warn(`Restored ${result.restored_count} messages with ${result.error_count} errors`);
-  await render_static_view(<ErrorList errors={result.errors} />);
-  process.exitCode = 1;
+  logger.warn(`Restored ${result.restored_count} messages`);
+  if (result.errors.length > 0) {
+    await render_static_view(<ErrorList errors={result.errors} />);
+  }
+  // Shared with the OneDrive and SharePoint handlers: a restore that dropped
+  // messages is partial (2), not a hard failure (1).
+  report_run_outcome(
+    {
+      errors: result.errors,
+      warnings: result.verification_warnings,
+      interrupted: result.interrupted,
+    },
+    'message',
+  );
 }

@@ -6,6 +6,7 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { SaveUseCase, SaveResult, SaveOptions, DeletionUseCase } from '@wisecom/atlas-types';
 import { SAVE_USE_CASE_TOKEN, DELETION_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
+import { report_run_outcome } from '@/command-run-outcome';
 import {
   confirm_deletion,
   print_delete_result,
@@ -168,7 +169,7 @@ async function execute_mailbox_save(
 async function report_save_result(result: SaveResult): Promise<void> {
   const size_mb = (result.total_bytes / (1024 * 1024)).toFixed(1);
 
-  if (result.error_count === 0 && result.integrity_failures.length === 0) {
+  if (result.error_count === 0 && result.integrity_failures.length === 0 && !result.interrupted) {
     const entries: SummaryEntry[] = [
       { label: 'messages saved', value: result.saved_count, color: 'green' },
     ];
@@ -181,13 +182,20 @@ async function report_save_result(result: SaveResult): Promise<void> {
     return;
   }
 
-  if (result.integrity_failures.length > 0) {
-    logger.warn(`${result.integrity_failures.length} integrity check failures`);
-  }
-
-  if (result.error_count > 0) {
-    logger.warn(`Saved ${result.saved_count} messages with ${result.error_count} errors`);
+  logger.warn(`Saved ${result.saved_count} messages to ${result.output_path} (${size_mb} MB)`);
+  if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} />);
-    process.exitCode = 1;
   }
+  // Same reporter the OneDrive and SharePoint handlers use, so an incomplete
+  // export exits 2 rather than 1, and an archive whose only defect is a checksum
+  // mismatch stops reporting success.
+  report_run_outcome(
+    {
+      errors: result.errors,
+      warnings: [],
+      interrupted: result.interrupted,
+      integrity_failures: result.integrity_failures,
+    },
+    'message',
+  );
 }
