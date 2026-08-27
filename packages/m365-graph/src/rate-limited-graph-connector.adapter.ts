@@ -24,7 +24,10 @@ import type {
   MailboxRateLimiterFactory,
 } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import type { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
-import { run_with_graph_operation } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import {
+  run_with_graph_operation,
+  run_with_throttle_fence,
+} from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -179,7 +182,9 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     const limiter = this.getLimiter(owner_id);
     await limiter.acquire(cost);
     try {
-      return await fn();
+      // Published so the retry loop inside `fn` parks on the fence between its
+      // own attempts. acquire() above only covers the first one.
+      return await run_with_throttle_fence(this._fence, fn);
     } catch (err) {
       this.handleThrottle(err);
       throw err;
