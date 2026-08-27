@@ -91,6 +91,7 @@ SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.g
 - **Transient-status detection** on direct download URLs. `429`, `500`, `502`, `503`, and `504` are retried, with `Retry-After` header parsing that supports both delta-seconds and HTTP-date formats.
 - **Exponential backoff** when `Retry-After` is absent (base 1s, max 32s, with jitter).
 - **Graph content fallback.** If the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content`, which routes through the Graph gateway rather than the CDN.
+- **Stall timeout per chunk.** Each range request is aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. The budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB. If the CDN ignores the `Range` header and answers `200` with the whole file, the budget is re-sized to that body before it is read.
 
 ## Failed Items and Delta Progress
 

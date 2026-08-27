@@ -123,11 +123,11 @@ async function download_single_chunk(
   item_id: string,
   total_bytes: number,
 ): Promise<Buffer> {
-  const timeout_ms = compute_chunk_timeout_ms(
-    expected_length < total_bytes ? total_bytes : expected_length,
-  );
+  // Scaled to this chunk, not to the file. Passing total_bytes here gave every
+  // non-final chunk a ceil(total_bytes / 256) ms budget, so one stalled CDN
+  // connection held a 1 GB backup for ~68 minutes before aborting (issue #198).
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout_ms);
+  let timer = setTimeout(() => controller.abort(), compute_chunk_timeout_ms(expected_length));
 
   try {
     const response = await fetch(url, {
@@ -149,6 +149,15 @@ async function download_single_chunk(
         `HTTP ${response.status} for chunk bytes=${range_start}-${range_end} of ${item_id}`,
         response.status,
       );
+    }
+
+    // A CDN that ignored the Range header answers 200 with the entire file, so
+    // the body about to be drained is total_bytes rather than one chunk. Only
+    // that case needs the whole-file budget, and by now it is known rather than
+    // assumed, so re-arm before reading instead of pre-paying on every chunk.
+    if (response.status === 200) {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), compute_chunk_timeout_ms(total_bytes));
     }
 
     const buf = Buffer.from(await response.arrayBuffer());
