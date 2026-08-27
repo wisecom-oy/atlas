@@ -40,8 +40,8 @@ operational procedure.
    `workflow_call` hop makes the caller the entry point and the publish dies with
    `ENEEDAUTH` after the tag is already pushed.
 8. **Never add `pull_request` or `push` to `e2e.yml`.** It holds tenant
-   credentials, costs 30 minutes, and gates nothing. Nightly cron plus manual
-   dispatch only.
+   credentials, costs tens of minutes, and gates nothing. Nightly cron plus
+   manual dispatch only.
 
 ## Which flow applies
 
