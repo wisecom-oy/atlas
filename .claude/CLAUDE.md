@@ -1,5 +1,39 @@
 # Atlas Development Rules
 
+## This Is a Public Repository
+
+Everything committed here is public and permanent, including commit messages,
+issue and pull request text, comments, test fixtures, and documentation. Deleting
+something later does not unpublish it: it stays in the history, in forks, and in
+anything that mirrored it.
+
+Never write, commit, or post:
+
+- **Secrets.** Encryption passphrases, KEKs, DEKs, wrapped keys, S3 access and
+  secret keys, client secrets, certificates, tokens, connection strings. Not in
+  code, not in tests, not in a fixture, not in an example, not "obviously fake"
+  in a log paste. Placeholders are `<redacted>` or the value omitted entirely.
+- **Tenant or customer data.** Mailbox addresses, UPNs, display names, real file
+  names, message subjects, SharePoint site URLs, drive item and message IDs,
+  bucket names, tenant and client GUIDs. Substitute using the table in the
+  `write-issue` skill and keep the substitution consistent so a reproduction
+  still makes sense.
+- **Personal information.** Names, email addresses, handles, and anything about
+  who ran what and when, beyond what the committing account already shows.
+- **System and environment detail.** Internal hostnames, private endpoints, VPN
+  and network topology, absolute paths that carry a username, machine names, and
+  full environment dumps. `./tools/diagnostics.sh` output is fine in an issue,
+  but read the `ATLAS_S3_ENDPOINT` line first and drop it if the endpoint is
+  private.
+
+Sanitise pasted output line by line rather than trusting it. Atlas log lines and
+`graph-tap` captures carry UPNs and site paths even though credentials are
+already redacted, and a stack trace carries local filesystem paths.
+
+Scrubbing evidence of its meaning is the other failure. Status codes, Graph
+error codes, byte counts, timings, function names, and paths inside this
+repository all stay: they are the diagnosis, and none of them identify anyone.
+
 ## Package Manager
 
 Use **pnpm** exclusively. Never use npm or yarn.
@@ -152,3 +186,4 @@ Every change that affects user-visible behavior must include corresponding docum
 7. Prose contains no em dashes and no `--` used as punctuation
 8. Brand assets stay covered by `assets/LICENSE.md`, which is deliberately not Apache-2.0
 9. `packages/sdk/README.md` and `packages/cli/README.md` are current, since npm renders them as the package page
+10. The diff, the commit messages, and the PR text carry no secrets, tenant data, personal information, or internal system detail, per [This Is a Public Repository](#this-is-a-public-repository)
