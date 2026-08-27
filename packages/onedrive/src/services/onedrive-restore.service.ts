@@ -37,6 +37,12 @@ import {
   restorable_entries,
 } from '@/services/onedrive-manifest-chain';
 import { empty_restore_result } from '@/services/onedrive-restore-result';
+import {
+  assert_renameable,
+  resolve_restore_root,
+  restore_parent_path,
+} from '@wisecom/atlas-core/services/shared/restore-destination';
+import { ensure_onedrive_folder_path } from '@/services/onedrive-restore-folder-path';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
 
@@ -82,6 +88,8 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         restorable_entries(chain.entries),
         options.file_filter,
       );
+      assert_renameable(options.rename_to, restorable.length);
+      const restore_root = resolve_restore_root(options);
       const folder_ids = new Map<string, string>();
       folder_ids.set('/', 'root');
 
@@ -107,6 +115,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           ctx,
           folder_ids,
           conflict,
+          { root: restore_root, file_name: options.rename_to ?? entry.file_name },
         );
         if (result.restored) {
           files_restored++;
@@ -156,18 +165,21 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     ctx: TenantContext,
     folder_ids: Map<string, string>,
     conflict: NonNullable<OneDriveRestoreOptions['conflict_behavior']>,
+    placement: { readonly root: string; readonly file_name: string },
   ): Promise<{ restored: boolean; error?: string }> {
+    const target_path = restore_parent_path(placement.root, entry.parent_path);
     try {
-      const parent_id = await this.ensure_folder_path(
+      const parent_id = await ensure_onedrive_folder_path(
+        this._connector,
         tenant_id,
         target_owner,
         drive_id,
-        entry.parent_path,
+        target_path,
         folder_ids,
       );
 
       if (parent_id === undefined) {
-        return { restored: false, error: `Could not create folder path: ${entry.parent_path}` };
+        return { restored: false, error: `Could not create folder path: ${target_path}` };
       }
 
       const content = await this.download_and_decrypt(ctx, entry);
@@ -181,7 +193,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           target_owner,
           drive_id,
           parent_id,
-          entry.file_name,
+          placement.file_name,
           content,
           conflict,
         );
@@ -191,13 +203,13 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           target_owner,
           drive_id,
           parent_id,
-          entry.file_name,
+          placement.file_name,
           content,
           conflict,
         );
       }
 
-      logger.info(`Restored: ${entry.parent_path}/${entry.file_name}`);
+      logger.info(`Restored: ${target_path}/${placement.file_name}`);
       return { restored: true };
     } catch (err) {
       if (err instanceof OneDriveDecryptAuthError) {
@@ -209,48 +221,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return { restored: false, error: msg };
     }
-  }
-
-  private async ensure_folder_path(
-    tenant_id: string,
-    owner_id: string,
-    drive_id: string,
-    path: string,
-    folder_ids: Map<string, string>,
-  ): Promise<string | undefined> {
-    const normalized = path.length === 0 || path === '.' ? '/' : path;
-    if (folder_ids.has(normalized)) return folder_ids.get(normalized)!;
-
-    const segments = normalized.split('/').filter(Boolean);
-    let current_path = '';
-    let parent_id = 'root';
-
-    for (const segment of segments) {
-      current_path = current_path ? `${current_path}/${segment}` : `/${segment}`;
-      if (folder_ids.has(current_path)) {
-        parent_id = folder_ids.get(current_path)!;
-        continue;
-      }
-
-      try {
-        const folder_id = await this._connector.create_folder(
-          tenant_id,
-          owner_id,
-          drive_id,
-          parent_id,
-          segment,
-        );
-        folder_ids.set(current_path, folder_id);
-        parent_id = folder_id;
-      } catch (err) {
-        logger.warn(
-          `Failed to create folder ${current_path}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return undefined;
-      }
-    }
-
-    return parent_id;
   }
 
   private async download_and_decrypt(

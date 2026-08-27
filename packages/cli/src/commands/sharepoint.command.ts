@@ -84,6 +84,12 @@ function register_sharepoint_restore(group: Command, get_container: ContainerFac
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
     .option('--target-site <url-or-id>', 'target site to restore to (defaults to original site)')
     .option('--file-filter <paths...>', 'only restore specific files (by ID or path)')
+    .option(
+      '--destination <path>',
+      'restore under this folder instead of a generated Restore-<timestamp> root',
+    )
+    .option('--in-place', 'restore to the original paths, mixing files into live content')
+    .option('--name <filename>', 'rename the restored file; requires a single-file restore')
     .addOption(
       new Option('-c, --conflict <mode>', 'file conflict policy (default: rename)').choices([
         'replace',

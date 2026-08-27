@@ -49,6 +49,9 @@ export interface SharePointRestoreCommandOptions extends SharePointTenantOptions
   targetSite?: string;
   fileFilter?: string[];
   conflict?: 'replace' | 'rename' | 'fail';
+  destination?: string;
+  inPlace?: boolean;
+  name?: string;
 }
 
 export interface SharePointSaveCommandOptions extends SharePointTenantOptions {
@@ -223,6 +226,9 @@ export async function execute_sharepoint_restore(
     ...(target_site_id ? { target_site_id } : {}),
     ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
     ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+    ...(options.destination ? { destination: options.destination } : {}),
+    ...(options.inPlace === true ? { in_place: true } : {}),
+    ...(options.name ? { rename_to: options.name } : {}),
   });
 
   await render_static_view(

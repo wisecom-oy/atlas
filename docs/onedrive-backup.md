@@ -226,14 +226,17 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas onedrive restore`
 
-| Flag                       | Description                                          | Default           |
-| -------------------------- | ---------------------------------------------------- | ----------------- |
-| `-o, --owner <id>`         | User email or Entra object ID                        | Required          |
-| `-s, --snapshot <id>`      | Snapshot to restore from                             | Required          |
-| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner` |
-| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files         |
-| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`          |
-| `-t, --tenant <id>`        | Tenant identifier                                    | Config default    |
+| Flag                       | Description                                          | Default                    |
+| -------------------------- | ---------------------------------------------------- | -------------------------- |
+| `-o, --owner <id>`         | User email or Entra object ID                        | Required                   |
+| `-s, --snapshot <id>`      | Snapshot to restore from                             | Required                   |
+| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner`          |
+| `--destination <path>`     | Folder to restore under, created when missing        | `/Restore-<timestamp>`     |
+| `--in-place`               | Restore to the original paths                        | `false`                    |
+| `--name <filename>`        | Rename the restored file; single-file restores only  | Original name              |
+| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files                  |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`                   |
+| `-t, --tenant <id>`        | Tenant identifier                                    | Config default             |
 
 ### `atlas onedrive save`
 
@@ -272,16 +275,34 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 ## Restore
 
 ```bash
-# Restore a whole snapshot back to the same user
+# Restore a whole snapshot into a fresh Restore-<timestamp> folder
 atlas onedrive restore -o user@company.com -s od-snap-123
 
 # Restore into another user's OneDrive
 atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@company.com
 
-# Restore specific files only, replacing what is already there
+# Restore into a folder you name
+atlas onedrive restore -o user@company.com -s od-snap-123 --destination /DR-drill
+
+# Put files back exactly where they came from, mixed into live content
+atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
+
+# Restore one file under a new name
 atlas onedrive restore -o user@company.com -s od-snap-123 \
-  --file-filter "/Documents/report.docx" -c replace
+  --file-filter "/Documents/report.docx" --name report-2026-08.docx
 ```
+
+### Where restored files land
+
+A restore creates `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it. A file backed up from `/Projects/2026/Report.docx` restores to `/Restore-2026-08-27T10-15-30/Projects/2026/Report.docx`. The timestamp format matches the Outlook restore folder, so the two workloads read alike.
+
+This exists because the conflict policy is not a safety net. With the default `rename`, restoring a snapshot whose files still exist neither fails nor overwrites; it writes a suffixed copy next to every original. Repeated across a few DR rehearsals that leaves copies of the same file interleaved with real data, with nothing marking which is which. A restore root makes the result reviewable before it matters and reversible afterwards: delete the folder and the restore is undone.
+
+`--destination` replaces the generated root with one you name, created if missing. `--in-place` restores to the original paths, which was the behaviour before 3.1.0 and is now opt-in. `--conflict` keeps its meaning and applies inside whichever destination is chosen; under a fresh root there is normally nothing to collide with.
+
+`--name` renames a single restored file and is rejected when the restore resolves to more than one file, since renaming many files to one name would either collide or silently rename only the first. Pair it with `--file-filter`.
+
+Nesting the original structure under a restore root lengthens every path, and OneDrive enforces a path length limit. A file that exceeds it is reported as a skipped item with the reason and does not abort the run.
 
 Restored files are uploaded to the target user's primary drive. Folders are created as needed, and existing folders with the same name are reused rather than overwritten. Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on any transient Graph status: 429, 500, 502, 503, 504). A range PUT is addressed by its `Content-Range`, so a replayed chunk rewrites the same bytes rather than appending them twice.
 

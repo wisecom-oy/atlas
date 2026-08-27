@@ -127,6 +127,7 @@ describe('OneDrive operation cancellation', () => {
     } as unknown as TenantContextFactory;
     const connector = {
       list_drives: vi.fn().mockResolvedValue([{ drive_id: 'drive-1', drive_name: 'Documents' }]),
+      create_folder: vi.fn().mockResolvedValue('restore-root'),
       upload_small_file: vi.fn().mockResolvedValue(undefined),
     } as unknown as OneDriveConnector;
     const on_progress = vi.fn();

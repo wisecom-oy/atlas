@@ -163,12 +163,15 @@ def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
         assert zf.getinfo(large).file_size == drive.LARGE_FIXTURE_BYTES
 
 
-def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Settings) -> None:
-    """Deletes the file from OneDrive and restores it from the snapshot.
+def test_06_restore_recreates_a_deleted_file(
+    cli: Cli, graph: Any, settings: Settings, run_marker: str
+) -> None:
+    """Deletes the files from OneDrive and restores them under this run's destination.
 
-    `--conflict rename` is the default and is passed explicitly: OneDrive restore writes back to the
-    original `parent_path` with no `Restore-` root of its own, so an unexpected collision must never
-    overwrite live data.
+    Issue #217: a restore now nests under a root instead of writing back over live content. The
+    suite passes `--destination` rather than taking the default `Restore-<timestamp>` root, because
+    that default lands at the drive root, outside the marker namespace cleanup is allowed to touch.
+    `--conflict rename` is still passed explicitly: an unexpected collision must never overwrite.
     """
     for file in (STATE["file"], STATE["large"]):
         drive.delete_item(graph, STATE["drive_id"], file.item_id)
@@ -183,22 +186,30 @@ def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
         STATE["snapshot"],
         "-c",
         "rename",
+        "--destination",
+        drive.restore_destination(run_marker),
         timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
 
 def test_07_restored_bytes_match_the_seed(graph: Any, settings: Settings, run_marker: str) -> None:
     """Both restored files hash to their newest seeded version, read back through Graph."""
-    restored = drive.children(graph, STATE["drive_id"], drive.fixture_folder(run_marker))
-    assert restored, f"no files under /{drive.fixture_folder(run_marker)} after restore"
+    tree = drive.restored_tree(run_marker)
+    restored = drive.children(graph, STATE["drive_id"], tree.lstrip("/"))
+    assert restored, f"no files under {tree} after restore"
 
     digests = {
-        drive.file_sha256(
-            graph, STATE["drive_id"], f"/{drive.fixture_folder(run_marker)}/{item['name']}"
-        ) for item in restored
+        drive.file_sha256(graph, STATE["drive_id"], f"{tree}/{item['name']}") for item in restored
     }
     assert STATE["file"].sha256 in digests, "no restored file matches the seeded bytes"
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
+
+    # The point of the restore root: live content is left alone. These paths were deleted in
+    # test_06 and a pre-#217 restore would have put them back, mixed in with real files.
+    for file in (STATE["file"], STATE["large"]):
+        assert (
+            drive.file_sha256(graph, STATE["drive_id"], file.path) is None
+        ), f"restore wrote back to the original path {file.path}"
 
 
 def test_08_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:

@@ -88,6 +88,22 @@ def fixture_folder(marker: str) -> str:
     return f"{FIXTURE_ROOT}/{marker}"
 
 
+def restore_destination(marker: str) -> str:
+    """Where this run sends restore output.
+
+    Issue #217 made a drive restore nest under a generated `Restore-<timestamp>` root at the drive
+    root. That is the right default for an operator, but it sits outside the marker namespace the
+    suite owns, and cleanup must never delete outside it, so the suite restores into its own fixture
+    folder instead and asserts the nesting there.
+    """
+    return f"/{fixture_folder(marker)}/restored"
+
+
+def restored_tree(marker: str) -> str:
+    """Restored files keep their original nesting beneath the destination."""
+    return f"{restore_destination(marker)}/{fixture_folder(marker)}"
+
+
 def ensure_fixture_folder(graph: Graph, drive_id: str, marker: str) -> None:
     """Creates `E2E/<marker>`, and `E2E` itself when the drive has no fixture root yet.
 
