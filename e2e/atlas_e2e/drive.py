@@ -194,19 +194,20 @@ def children(graph: Graph, drive_id: str, folder: str) -> list[dict[str, Any]]:
 
 
 def fixture_items(graph: Graph, drive_id: str, prefix: str) -> list[dict[str, Any]]:
-    """Everything cleanup may delete: the whole fixture root, plus legacy marker folders at the root.
+    """Marker-named folders cleanup may delete, from the fixture root and from the drive root.
 
-    Direct children of `E2E` are suite-owned by definition, so they are returned whether or not they
-    carry a marker: that is what catches restore output and any other debris a failed run left inside
-    the fixture root. Root level is still scanned because runs before the fixture root existed seeded
-    there, and because SharePoint libraries may hold the same legacy layout.
+    Both locations are filtered by the marker prefix. Returning unfiltered children of the fixture
+    root once deleted a tenant's real files: the folder is suite-owned by convention only, and a
+    convention is not a safe basis for deletion. The drive root is still scanned because runs before
+    the fixture root existed seeded there, and because SharePoint libraries may hold that layout.
     """
     select = {"$select": "id,name,createdDateTime"}
-    items: list[dict[str, Any]] = []
-    try:
-        items.extend(graph.paged(f"/drives/{drive_id}/root:/{FIXTURE_ROOT}:/children", **select))
-    except GraphError as err:
-        log.debug("No %s fixture root on this drive: %s", FIXTURE_ROOT, err)
-    root_items = graph.paged(f"/drives/{drive_id}/root/children", **select)
-    items.extend(i for i in root_items if str(i.get("name", "")).startswith(prefix))
-    return items
+    marked: list[dict[str, Any]] = []
+    for path in (f"/drives/{drive_id}/root:/{FIXTURE_ROOT}:/children", f"/drives/{drive_id}/root/children"):
+        try:
+            marked.extend(
+                i for i in graph.paged(path, **select) if str(i.get("name", "")).startswith(prefix)
+            )
+        except GraphError as err:
+            log.debug("Could not list %s: %s", path, err)
+    return marked

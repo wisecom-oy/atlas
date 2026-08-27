@@ -15,26 +15,31 @@ log = logging.getLogger(__name__)
 
 
 def sweep_drive(graph: Graph, drive_id: str, marker: str) -> list[str]:
-    """Deletes this run's fixture folders and any debris inside the fixture root.
+    """Deletes marked fixture folders from a OneDrive or SharePoint drive.
 
-    Restored copies land inside the fixture folder they were backed up from, so they go with it.
-    Anything else sitting directly under the fixture root is suite debris from a run that died
-    before its own teardown, and is removed regardless of naming. Foreign *marked* folders follow
-    the staleness rule, so a concurrent run's fixtures are never deleted from under it.
+    Restored copies land inside the marked fixture folder they were backed up from, so they go with
+    it. Foreign markers follow the staleness rule, so a concurrent run's fixtures are never deleted
+    from under it.
+
+    Only names carrying the E2E marker are ever deleted, no matter which folder they were found in.
+    An earlier version of this function treated any unmarked item under the fixture root as debris,
+    on the theory that the folder was suite-owned; it deleted a tenant's real files. Cleanup must
+    never remove anything the suite did not create, so membership is decided by the marker alone.
     """
     removed: list[str] = []
     for item in drive.fixture_items(graph, drive_id, PREFIX):
         name = str(item.get("name", ""))
-        foreign_marked = is_marked(name) and marker not in name
-        if foreign_marked and not is_stale(parse_graph_time(item.get("createdDateTime"))):
+        if not is_marked(name):
+            continue
+        if marker not in name and not is_stale(parse_graph_time(item.get("createdDateTime"))):
             log.info("Leaving foreign, non-stale drive folder %s", name)
             continue
         try:
             drive.delete_item(graph, drive_id, str(item["id"]))
             removed.append(name)
-            log.info("Cleaned up drive item %s", name)
+            log.info("Cleaned up drive folder %s", name)
         except GraphError as err:
-            log.warning("Could not delete drive item %s: %s", name, err)
+            log.warning("Could not delete drive folder %s: %s", name, err)
     return removed
 
 
