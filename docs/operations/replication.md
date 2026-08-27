@@ -47,6 +47,8 @@ Objects are always copied in this order:
 
 If replication crashes at any point, the target is left in a safe state: orphan data blobs exist (harmless, reclaimable), but no manifest ever references missing objects. Rerunning replication picks up where it left off.
 
+The same guarantee covers a run that completes with failures instead of crashing. If any object fails to copy, the manifest is not written at all, so the snapshot still counts as unreplicated and the next run retries it. This applies to Outlook, OneDrive and SharePoint alike. Whether a snapshot needs replicating is decided by manifest presence on the target, so a manifest written after a partial copy would make the failure permanent: the retry would report nothing to do while the missing objects stayed missing.
+
 ## Safety model
 
 ### Primary is authoritative

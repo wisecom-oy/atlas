@@ -48,6 +48,14 @@ export async function replicate_onedrive_snapshot(
   const all_keys = [...storage_keys, ...(options.ancillary_keys ?? [])];
   const tally = await copy_keys_with_tally(source_ctx, target_ctx, all_keys);
 
+  // A manifest is what makes a snapshot reachable, so a partial copy must leave none behind.
+  // diff_od_manifests decides "already replicated" from manifest presence alone, so writing one
+  // after a failed blob copy makes the failure sticky: the next run skips the snapshot and never
+  // retries the missing objects. Mirrors the Outlook gate in replicate_snapshot_to_target.
+  if (tally.objects_failed > 0) {
+    return { ...tally, source_manifest_checksum: '', replicated_manifest_checksum: '' };
+  }
+
   const source_manifest_blob = await source_ctx.storage.get(manifest_key);
   const source_manifest_checksum = sha256_hex(source_manifest_blob);
   await target_ctx.storage.put(manifest_key, source_manifest_blob);
