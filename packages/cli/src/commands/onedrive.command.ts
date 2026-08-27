@@ -47,6 +47,10 @@ function register_onedrive_backup(group: Command, get_container: ContainerFactor
     .description('Back up changed OneDrive files for one user')
     .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
     .option('--full', 'force full crawl ignoring saved delta state')
+    .option(
+      '--folder <path>',
+      'only back up this folder and its subfolders (e.g. /Projects); changing it forces a full crawl',
+    )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option(
       '--retention-days <n>',

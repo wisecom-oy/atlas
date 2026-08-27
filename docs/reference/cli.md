@@ -362,6 +362,7 @@ A snapshot is a delta: its manifest lists only what changed in that run. `restor
 ```bash
 atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full
+atlas onedrive backup -o user@company.com --folder /Projects
 atlas onedrive restore -o user@company.com -s od-snap-1735689600000-a1b2c3
 atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@company.com
 atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
@@ -389,6 +390,7 @@ atlas onedrive delete -o user@company.com -y
 | ---------------------- | --------------------------------------------------------------------- |
 | `-o, --owner <id>`     | User email or Entra object ID (required)                              |
 | `--full`               | Force full crawl ignoring saved delta links                           |
+| `--folder <path>`      | Back up only this folder and its subfolders; see note below           |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below) |
 | `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
 | `-t, --tenant <id>`    | Override tenant ID from config                                        |
@@ -397,6 +399,14 @@ While the backup runs, a live dashboard shows one row per drive: delta fetch (`f
 
 ::: details Object Lock semantics for OneDrive/SharePoint
 Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDrive and SharePoint apply immutability as **bucket default retention** (`PutObjectLockConfiguration`): every new object version (files, file versions, manifests, delta cursors) inherits the lock automatically, so no write path can bypass it. Two consequences: the setting **persists on the bucket** and covers all subsequent writes from any command, and the bucket must be lock-capable (created with Object Lock; see `atlas storage-check` and the migration runbook in the self-hosting docs) or the backup fails fast with `ObjectLockUnsupportedError`. Frequently-overwritten small objects (cursors, indexes) accumulate locked noncurrent versions until retention expires; the bucket housekeeping lifecycle rules clean them up afterwards.
+:::
+
+::: details How --folder interacts with delta state
+Graph's drive delta is drive-wide, so `--folder` filters the result rather than the query. The run still enumerates the whole drive, but only items inside the folder are downloaded, hashed, version-synced and written, which is where a drive backup spends its time.
+
+A saved delta link records how far the **drive** was consumed, not how far the folder was. Resuming one under a different scope would skip changes the previous run filtered out, so **changing `--folder` between runs forces a full re-crawl**, as does switching between a scoped and an unscoped backup. Repeated runs with the same value stay incremental. The scope in force is stored in the delta cursor, and the run logs the re-crawl when it detects a change.
+
+A snapshot taken with `--folder` contains only that folder's files. Restoring it restores only those files, so a scoped backup is not a substitute for a whole-drive one unless the scope covers everything you need.
 :::
 
 **`atlas onedrive restore`**

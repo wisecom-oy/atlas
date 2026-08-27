@@ -15,7 +15,12 @@ from atlas_e2e.graph import Graph
 
 
 def main() -> int:
-    """Sweeps marked M365 fixtures and empties the tenant bucket. Never fails the job."""
+    """Sweeps marked M365 fixtures and empties the tenant bucket.
+
+    Returns non-zero only when this run's own drive artifacts survived the sweep. Test outcomes are
+    a separate step, so failing here reports a cleanup problem without touching them, and a silent
+    leftover is what let the tenant accumulate duplicates of its own fixtures.
+    """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     log = logging.getLogger("sweep")
     try:
@@ -32,6 +37,7 @@ def main() -> int:
     except Exception as err:  # noqa: BLE001 - a failed sweep must not fail the job after the tests
         log.warning("Mailbox sweep failed: %s", err)
 
+    survivors: list[str] = []
     for label, resolve in (
         ("onedrive", lambda: drive.user_drive_id(graph, settings.onedrive_owner)),
         ("sharepoint", lambda: drive.site_drive_id(graph, drive.site_id(graph, settings.sharepoint_site))),
@@ -40,8 +46,13 @@ def main() -> int:
         if not configured:
             continue
         try:
-            removed = cleanup.sweep_drive(graph, resolve(), tag)
-            log.info("Removed %d %s folder(s)", len(removed), label)
+            drive_id = resolve()
+            removed = cleanup.sweep_drive(graph, drive_id, tag)
+            log.info("Removed %d %s item(s)", len(removed), label)
+            left = cleanup.surviving_drive_artifacts(graph, drive_id, tag)
+            if left:
+                log.error("%s still holds this run's artifacts: %s", label, left)
+                survivors.extend(f"{label}:{name}" for name in left)
         except Exception as err:  # noqa: BLE001 - same rule as above
             log.warning("%s sweep failed: %s", label, err)
 
@@ -49,6 +60,10 @@ def main() -> int:
 
     # Purge is independent of Graph: an unreachable tenant must not leave the bucket populated.
     cleanup.purge_bucket(Cli(settings, config.REPO_ROOT / "e2e" / ".sweep-home"), settings)
+
+    if survivors:
+        log.error("Cleanup incomplete; %d artifact(s) survived", len(survivors))
+        return 1
     return 0
 
 

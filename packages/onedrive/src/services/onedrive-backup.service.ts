@@ -38,6 +38,7 @@ import { ensure_drives_discovered } from '@/services/onedrive-backup-file-proces
 import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
 import type { PackageReportTotals } from '@/services/onedrive-package-report';
 import { cleanup_stale_staging } from '@/services/onedrive-large-file-pipeline';
+import { normalize_folder_scope } from '@/services/onedrive-folder-scope';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -77,7 +78,18 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     let progress: BackupProgressReporter | undefined;
     try {
       const stored_cursor = await this._cursors.load(ctx, owner_id);
-      const previous_cursor = options.force_full === true ? undefined : stored_cursor;
+      const folder_scope = normalize_folder_scope(options.folder_scope);
+      // A delta link records how far the drive was consumed, not how far the scope was, so
+      // resuming one under a different scope would skip changes the previous run filtered out.
+      const scope_changed = (stored_cursor?.folder_scope ?? undefined) !== folder_scope;
+      if (scope_changed && stored_cursor !== undefined) {
+        logger.info(
+          `Folder scope changed (${stored_cursor.folder_scope ?? 'whole drive'} -> ` +
+            `${folder_scope ?? 'whole drive'}); re-crawling instead of resuming the delta link`,
+        );
+      }
+      const previous_cursor =
+        options.force_full === true || scope_changed ? undefined : stored_cursor;
       const drives = await this._connector.list_drives(tenant_id, owner_id);
       ensure_drives_discovered(drives.length);
       progress = options.create_progress?.(
@@ -147,6 +159,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         update_version_stats,
         progress,
         options,
+        folder_scope,
       );
       const processed = scan_result.items_processed;
       emit_operation_progress(options, {
@@ -163,6 +176,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         ...tracking_state,
         version_watermark_by_file_id: versions.watermarks,
         failed_items: scan_result.failed_items,
+        ...(folder_scope !== undefined ? { folder_scope } : {}),
         updated_at: new Date().toISOString(),
       };
 

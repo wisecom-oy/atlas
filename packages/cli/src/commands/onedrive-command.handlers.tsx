@@ -32,6 +32,7 @@ export interface OneDriveTenantOptions {
 export interface OneDriveBackupOptions extends OneDriveTenantOptions {
   owner: string;
   full?: boolean;
+  folder?: string;
   retentionDays?: string;
   lockMode?: string;
 }
@@ -114,6 +115,7 @@ export async function execute_onedrive_backup(
 
   const result = await backup.backup_onedrive(tenant_id, owner.object_id, {
     force_full: options.full ?? false,
+    ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
     owner_email: owner.email,
     owner_display_name: owner.display_name,
     object_lock_request,
