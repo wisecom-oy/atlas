@@ -49,18 +49,13 @@ describe('chunk download abort timeout', () => {
     vi.restoreAllMocks();
   });
 
-  it('arms the floor for the first chunk of a 100 MB file', async () => {
+  it('arms the floor for every chunk of a 100 MB file, not the whole-file value', async () => {
     const total = 100 * 1024 * 1024;
     await download_file_chunked('https://cdn.test/file', total, 'item-1');
 
     expect(delays[0]).toBe(FLOOR_MS);
     expect(delays[0]).not.toBe(Math.ceil(total / 256));
-  });
-
-  it('never arms a whole-file budget on any chunk of a 1 GB file', async () => {
-    const total = 1024 * 1024 * 1024;
-    await download_file_chunked('https://cdn.test/file', total, 'item-1');
-
+    expect(delays).toHaveLength(Math.ceil(total / CHUNK_SIZE_BYTES));
     expect(Math.max(...delays)).toBe(FLOOR_MS);
   });
 

@@ -52,7 +52,7 @@ describe('chunk download abort timeout', () => {
     } as unknown as Response;
   }
 
-  it('arms the floor for the first chunk of a 100 MB file, not the whole-file value', async () => {
+  it('arms the floor for every chunk of a 100 MB file, not the whole-file value', async () => {
     const total = 100 * 1024 * 1024;
     fetch_mock.mockImplementation((_url: string, init: { headers: { Range: string } }) => {
       const [, start, end] = /bytes=(\d+)-(\d+)/.exec(init.headers.Range)!;
@@ -65,20 +65,9 @@ describe('chunk download abort timeout', () => {
     expect(delays[0]).toBe(FLOOR_MS);
     // The pre-fix value, kept explicit so the regression is unmistakable.
     expect(delays[0]).not.toBe(Math.ceil(total / 256));
-  });
-
-  it('never arms a whole-file budget on any chunk of a 1 GB file', async () => {
-    const total = 1024 * 1024 * 1024;
-    fetch_mock.mockImplementation((_url: string, init: { headers: { Range: string } }) => {
-      const [, start, end] = /bytes=(\d+)-(\d+)/.exec(init.headers.Range)!;
-      return Promise.resolve(range_response(Number(start), Number(end)));
-    });
-
-    const delays = capture_armed_delays();
-    await download_file_chunked('https://cdn.test/file', total, 'item-1');
-
-    expect(Math.max(...delays)).toBe(FLOOR_MS);
+    // Not just the first: every non-final chunk had the defect.
     expect(delays).toHaveLength(Math.ceil(total / CHUNK_SIZE_BYTES));
+    expect(Math.max(...delays)).toBe(FLOOR_MS);
   });
 
   it('aborts a hung chunk at the floor rather than the whole-file value', async () => {
