@@ -254,11 +254,11 @@ export async function process_single_drive(
   on_item_processed?: (item: OneDriveDeltaItem) => void,
   control: OperationControlOptions = {},
 ): Promise<SingleDriveResult> {
+  const delta_item_ids = new Set(delta.items.map((item) => item.item_id));
   if (delta.reset_detected) {
-    clear_file_tracking_on_reset(state);
+    clear_file_tracking_on_reset(state, delta_item_ids);
   }
 
-  const delta_item_ids = new Set(delta.items.map((item) => item.item_id));
   const retry = await resolve_retry_items(
     connector,
     tenant_id,

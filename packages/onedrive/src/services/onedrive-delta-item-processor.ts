@@ -40,10 +40,27 @@ export interface DeltaItemOutcome {
   permanent?: boolean;
 }
 
-/** Clears file tracking maps when Graph signals a delta reset. */
-export function clear_file_tracking_on_reset(state: DriveTrackingState): void {
-  for (const [fid, kind] of Object.entries(state.previous_kind_by_file_id)) {
-    if (kind === 'file') {
+/**
+ * Forgets tracking for the files a reset re-enumerates, so they rebaseline as
+ * `created`.
+ *
+ * Scoped to the ids the resetting delta returned rather than the whole map. The
+ * maps are keyed by file id alone and shared by every drive an owner has, so
+ * clearing all of them let one drive's dead delta link wipe its siblings' path,
+ * name and etag records, and a genuine change elsewhere then looked like a first
+ * backup (issue #199). With `--folder` in play the delta is already scoped, so
+ * this also stops a reset from forgetting files outside the scope it never read.
+ *
+ * A reset delta is a full enumeration, so its ids are exactly the entries that
+ * need forgetting. That holds for cursors written before this fix too, which is
+ * why nothing has to be migrated.
+ */
+export function clear_file_tracking_on_reset(
+  state: DriveTrackingState,
+  reset_item_ids: Iterable<string>,
+): void {
+  for (const fid of reset_item_ids) {
+    if (state.previous_kind_by_file_id[fid] === 'file') {
       delete state.previous_path_by_file_id[fid];
       delete state.previous_name_by_file_id[fid];
       delete state.previous_etag_by_file_id[fid];

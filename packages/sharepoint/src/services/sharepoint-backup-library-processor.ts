@@ -34,10 +34,26 @@ export interface LibraryProcessingResult {
   package_report: PackageReport;
 }
 
-/** Clears file tracking maps when Graph signals a delta reset. */
-export function clear_file_tracking_on_reset(tracking: FileTrackingState): void {
-  for (const [fid, kind] of Object.entries(tracking.previous_kind_by_file_id)) {
-    if (kind === 'file') {
+/**
+ * Forgets tracking for the files a reset re-enumerates, so they rebaseline as
+ * `created`.
+ *
+ * Scoped to the ids the resetting delta returned rather than the whole map. The
+ * maps are keyed by file id alone and shared by every library in the site, so
+ * clearing all of them let one library's dead delta link wipe its siblings'
+ * path, name and etag records. A genuine change in a sibling on a still-valid
+ * link then looked like a first backup (issue #199).
+ *
+ * A reset delta is a full enumeration of that drive, so its ids are exactly the
+ * entries that need forgetting. That holds for cursors written before this fix
+ * too, which is why nothing has to be migrated.
+ */
+export function clear_file_tracking_on_reset(
+  tracking: FileTrackingState,
+  reset_item_ids: Iterable<string>,
+): void {
+  for (const fid of reset_item_ids) {
+    if (tracking.previous_kind_by_file_id[fid] === 'file') {
       delete tracking.previous_path_by_file_id[fid];
       delete tracking.previous_name_by_file_id[fid];
       delete tracking.previous_etag_by_file_id[fid];
@@ -81,7 +97,10 @@ export async function process_single_library(
   );
 
   if (delta.reset_detected) {
-    clear_file_tracking_on_reset(tracking);
+    clear_file_tracking_on_reset(
+      tracking,
+      delta.items.map((item) => item.item_id),
+    );
   }
 
   const library_state: LibraryProcessingState = {

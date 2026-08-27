@@ -40,6 +40,13 @@ Delta links are stored in the **encrypted manifest**, not in plaintext. They con
 
 The stale-delta safeguard exists to prevent a specific failure: an interrupted backup saving a delta link that skips all the messages it never actually stored.
 
+A full enumeration is scoped to the drive or library that triggered it. Delta
+links are per drive, so a site with several document libraries, or a user with
+more than one drive, keeps the valid links working while only the affected one
+rebaselines. Files in the rebaselining drive are recorded as `created` again,
+which is what a lost delta chain means; files elsewhere keep their history and a
+genuine edit there is still reported as `updated`.
+
 ## File version dedup (OneDrive and SharePoint)
 
 OneDrive and SharePoint backups capture more than the current copy of a file. For every file the delta stream reports as changed, Atlas also enumerates the file's **historical versions** through `GET /drives/{drive-id}/items/{item-id}/versions` and stores each one it has not captured before. The current version is skipped, because the manifest entry already covers it.
