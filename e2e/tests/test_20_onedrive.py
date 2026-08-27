@@ -61,7 +61,7 @@ def test_02_backup_writes_blobs_and_index(
         "-o",
         settings.onedrive_owner,
         "--folder",
-        f"/{run_marker}",
+        f"/{drive.fixture_folder(run_marker)}",
         timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
@@ -106,7 +106,7 @@ def test_03_a_new_version_is_stored_incrementally(
         "-o",
         settings.onedrive_owner,
         "--folder",
-        f"/{run_marker}",
+        f"/{drive.fixture_folder(run_marker)}",
         timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
@@ -189,11 +189,13 @@ def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
 
 def test_07_restored_bytes_match_the_seed(graph: Any, settings: Settings, run_marker: str) -> None:
     """Both restored files hash to their newest seeded version, read back through Graph."""
-    restored = drive.children(graph, STATE["drive_id"], run_marker)
-    assert restored, f"no files under /{run_marker} after restore"
+    restored = drive.children(graph, STATE["drive_id"], drive.fixture_folder(run_marker))
+    assert restored, f"no files under /{drive.fixture_folder(run_marker)} after restore"
 
     digests = {
-        drive.file_sha256(graph, STATE["drive_id"], f"/{run_marker}/{item['name']}") for item in restored
+        drive.file_sha256(
+            graph, STATE["drive_id"], f"/{drive.fixture_folder(run_marker)}/{item['name']}"
+        ) for item in restored
     }
     assert STATE["file"].sha256 in digests, "no restored file matches the seeded bytes"
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
