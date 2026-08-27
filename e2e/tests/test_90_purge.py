@@ -27,6 +27,15 @@ def test_purge_empties_the_whole_bucket(cli: Cli, settings: Settings, s3: Any) -
     before = storage.list_keys(s3, settings.bucket)
     assert before, "nothing to purge: the workload suites stored no objects"
 
+    # The cross-workload claim in this module's docstring has to be checked, not assumed. Before
+    # issue #210 the bucket held Outlook objects alone by this point, so the sweep was proven
+    # against one prefix while reading as though it covered three.
+    for workload in settings.configured_workloads:
+        prefix = storage.MANIFEST_PREFIXES[workload]
+        assert [k for k in before if k.startswith(prefix)], (
+            f"{workload} has no objects to purge; the sweep would not be proven across workloads"
+        )
+
     cli.ok("delete", "--purge", "-y")
 
     remaining = storage.list_keys(s3, settings.bucket)
