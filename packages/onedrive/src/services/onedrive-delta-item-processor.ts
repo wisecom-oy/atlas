@@ -36,6 +36,8 @@ export interface DeltaItemOutcome {
   files_deduplicated: number;
   deleted_items: number;
   error?: string;
+  /** The error is a policy refusal, so retrying it on later runs is pointless. */
+  permanent?: boolean;
 }
 
 /** Clears file tracking maps when Graph signals a delta reset. */
@@ -90,6 +92,20 @@ export async function process_delta_item(
       files_stored: 0,
       files_deduplicated: 0,
       deleted_items: 1,
+    };
+  }
+
+  // Quarantined content is never served, so attempting the download only burns
+  // the Graph retry budget: the refusal arrives as an aborted transfer, which
+  // `is_network_error` classifies as retryable, and a single blocked file can
+  // then hold a backup for the full ~23 minute budget (issue #53).
+  if (item.quarantined === true) {
+    return {
+      files_stored: 0,
+      files_deduplicated: 0,
+      deleted_items: 0,
+      error: `Quarantined by Microsoft 365 malware policy: ${item.file_name} (${item.item_id})`,
+      permanent: true,
     };
   }
 

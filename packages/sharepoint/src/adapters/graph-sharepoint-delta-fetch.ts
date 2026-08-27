@@ -21,6 +21,7 @@ const DRIVE_DELTA_SELECT_FIELDS = [
   'folder',
   'package',
   'deleted',
+  'malware',
   '@microsoft.graph.downloadUrl',
 ].join(',');
 

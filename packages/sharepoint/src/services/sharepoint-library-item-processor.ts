@@ -94,6 +94,22 @@ export async function process_delta_item(
     return;
   }
 
+  // Quarantined content is never served, so attempting the download only burns
+  // the Graph retry budget: the refusal arrives as an aborted transfer, which
+  // `is_network_error` classifies as retryable, and a single blocked file can
+  // then hold a backup for the full ~23 minute budget (issue #53).
+  if (item.quarantined === true) {
+    library_state.failed_item_ids.add(item.item_id);
+    library_state.failed_items = record_item_failure(library_state.failed_items, {
+      item_id: item.item_id,
+      drive_id: item.drive_id,
+      name: item.file_name,
+      reason: `Quarantined by Microsoft 365 malware policy: ${item.file_name} (${item.item_id})`,
+      permanent: true,
+    });
+    return;
+  }
+
   const result = await process_backup_file(connector, item, site_id, ctx);
   if (!result) {
     library_state.failed_item_ids.add(item.item_id);

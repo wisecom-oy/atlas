@@ -14,6 +14,14 @@ export interface FailedItemRecord {
   readonly reason: string;
   /** Backup runs that have tried and failed on this item. */
   readonly attempts: number;
+  /**
+   * Set when the service refuses the content by policy rather than failing
+   * transiently, so no number of retries can change the outcome. A
+   * malware-quarantined item is the canonical case. Permanent records are
+   * reported on every run but never re-fetched, and they do not consume the
+   * attempt budget, which exists for failures that might still succeed.
+   */
+  readonly permanent?: boolean;
   readonly first_failed_at: string;
   readonly last_failed_at: string;
 }
