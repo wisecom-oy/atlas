@@ -42,7 +42,11 @@ export class ThrottleFence {
       }
     }, seconds * 1000);
 
-    if (timer.unref) timer.unref();
+    // Deliberately not unref'd. This timer is the only thing that will ever
+    // release the callers parked in wait(), and an awaited promise is not a
+    // libuv handle, so an unref'd timer lets Node exit 0 with the whole
+    // workload still parked -- a truncated backup reported as a success.
+    // Bounded by Retry-After, and clear() exists for shutdown.
     this._timers.set(id, timer);
   }
 

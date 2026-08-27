@@ -57,6 +57,29 @@ Microsoft Graph sends up to 4 individual Outlook requests from a batch at a time
 
 `429 Too Many Requests` with a `Retry-After` header specifying how many seconds to wait. Throttled requests still count toward usage limits.
 
+### How Atlas backs off
+
+A throttled response does two things. The call that received it enters exponential
+backoff, honoring `Retry-After`, for up to 12 retries. It also raises a global
+throttle fence for the length of the `Retry-After` window, and every mailbox
+operation in the process waits on that fence before issuing its next HTTP
+request.
+
+The fence engages on the first throttled response, not after a call has spent its
+retry budget, and calls already inside a retry loop check it between attempts. One
+throttled mailbox therefore pauses the whole Outlook path for the cooldown
+Microsoft asked for, instead of leaving every other mailbox to keep sending
+requests that are counted against the same limit and, being throttled, accomplish
+nothing.
+
+Retry lives in exactly one layer. The Graph SDK's own retry handler is disabled,
+so a single logical call is bounded at 13 HTTP attempts. Leaving both enabled
+multiplied the budgets and let one call reach roughly 52 attempts against the
+limits the backoff exists to respect.
+
+SharePoint and OneDrive have no equivalent fence yet. Their calls back off
+individually on the same schedule.
+
 ### Atlas operations in the Outlook pool
 
 | Operation               | Graph endpoint                                                   | Cost                     |

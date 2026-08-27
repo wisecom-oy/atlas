@@ -12,10 +12,12 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GraphRequestCounter } from './graph-request-counter';
+import type { ThrottleFence } from './throttle-fence';
 import type { GraphOperation, OperationCost } from '@wisecom/atlas-types';
 
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
 const _operation = new AsyncLocalStorage<GraphOperation>();
+const _fence = new AsyncLocalStorage<ThrottleFence>();
 
 /**
  * Runs `fn` inside a fresh cost-tracking context and returns both the result
@@ -104,4 +106,27 @@ export function run_with_graph_operation<T>(
 /** The operation the current async context is inside, if any. */
 export function get_active_operation(): GraphOperation | undefined {
   return _operation.getStore();
+}
+
+/**
+ * Publishes the throttle fence guarding `fn` so the retry loop deep inside it
+ * can reach the fence without every connector signature carrying it.
+ *
+ * The fence has to be consulted per HTTP attempt, not per logical call. A retry
+ * loop is the only layer that sees each attempt, and it sits several adapters
+ * below the wrapper that owns the fence, so the fence travels as ambient
+ * context for the same reason the request counter does.
+ */
+export function run_with_throttle_fence<T>(fence: ThrottleFence, fn: () => Promise<T>): Promise<T> {
+  return _fence.run(fence, fn);
+}
+
+/**
+ * The throttle fence guarding the current async context, if any.
+ *
+ * Absent for workloads that wire no fence, and for direct CLI calls. Callers
+ * treat undefined as "no global throttling in force" and proceed unchanged.
+ */
+export function get_active_fence(): ThrottleFence | undefined {
+  return _fence.getStore();
 }

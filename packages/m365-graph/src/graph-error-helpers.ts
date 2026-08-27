@@ -1,4 +1,5 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { get_active_fence } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
 /**
  * Statuses Graph recovers from on its own, per Microsoft's throttling and
@@ -28,6 +29,8 @@ const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 60_000;
+/** Cooldown applied to a 429 that arrives without a usable Retry-After. */
+const DEFAULT_THROTTLE_SECONDS = 30;
 
 export interface GraphRetryOptions {
   /**
@@ -159,12 +162,18 @@ export async function with_graph_retry<T>(
 ): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // Per attempt, not per call. A retry loop that started before the fence
+    // went up would otherwise keep firing into Graph for the whole cooldown.
+    await get_active_fence()?.wait();
     try {
       return await race_timeout(fn(), timeout_ms);
     } catch (err) {
       if (!is_retryable_error(err) || attempt === MAX_RETRIES) throw err;
 
       const retry_after = extract_retry_after(err);
+      // Raise on the response that carried the 429, not after the budget is
+      // spent, so every other owner backs off during this cooldown too.
+      raise_fence_on_throttle(err, retry_after);
       const base = retry_after ?? BASE_DELAY_MS * 2 ** attempt;
       const jitter = Math.random() * BASE_DELAY_MS;
       const delay = Math.min(base + jitter, MAX_DELAY_MS);
@@ -177,8 +186,26 @@ export async function with_graph_retry<T>(
       await sleep(delay);
     }
   }
-
   throw new Error('with_graph_retry: unreachable');
+}
+
+/**
+ * Raises the ambient throttle fence when `err` is a 429, so the cooldown starts
+ * on the first throttled response rather than after a retry budget is spent.
+ *
+ * Only 429 raises the fence. A 500 or a socket reset is one unlucky request and
+ * is the retry loop's business alone; a 429 is Graph asking the whole client to
+ * slow down. `raise` is non-additive, so concurrent owners hitting the same
+ * cooldown extend it rather than stacking it.
+ */
+function raise_fence_on_throttle(err: unknown, retry_after_ms: number | undefined): void {
+  if ((err as Record<string, unknown>).statusCode !== 429) return;
+
+  const fence = get_active_fence();
+  if (!fence) return;
+
+  const seconds = retry_after_ms !== undefined ? retry_after_ms / 1000 : DEFAULT_THROTTLE_SECONDS;
+  fence.raise(seconds);
 }
 
 /** Extracts the Retry-After header value (in ms) from a Graph error, if present. */

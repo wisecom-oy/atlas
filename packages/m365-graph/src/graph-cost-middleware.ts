@@ -4,14 +4,15 @@
  * Recording at the connector-method boundary counted one request per method,
  * but a method routinely issues many: a delta sync follows `@odata.nextLink`
  * until the collection is exhausted, and a throttled call is retried by
- * `with_graph_retry` (up to 12 attempts) and again by the SDK's own
- * RetryHandler, which this layer is the only place able to see. Reported cost
- * was therefore a floor, and consumers computing a throttling cooldown from it
- * got a number that was always too small -- the unsafe direction.
+ * `with_graph_retry` (up to 12 attempts), which this layer is the only place
+ * able to see. Reported cost was therefore a floor, and consumers computing a
+ * throttling cooldown from it got a number that was always too small, the
+ * unsafe direction.
  *
  * Placed immediately before HTTPMessageHandler, this middleware is invoked once
  * per outgoing HTTP request, including every retry and every followed redirect,
- * because both of those handlers re-execute the chain downstream of themselves.
+ * because RedirectHandler re-executes the chain downstream of itself and the
+ * retry wrapper re-enters the client entirely.
  *
  * @see https://learn.microsoft.com/en-us/graph/throttling-limits
  */
