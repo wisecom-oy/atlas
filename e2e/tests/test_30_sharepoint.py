@@ -111,8 +111,14 @@ def test_06_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
         assert zf.getinfo(large).file_size == drive.LARGE_FIXTURE_BYTES
 
 
-def test_07_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Settings) -> None:
-    """Deletes the file from the library and restores it from the snapshot."""
+def test_07_restore_recreates_a_deleted_file(
+    cli: Cli, graph: Any, settings: Settings, run_marker: str
+) -> None:
+    """Deletes the files from the library and restores them under this run's destination.
+
+    Same reasoning as the OneDrive suite (issue #217): `--destination` keeps restore output inside
+    the marker namespace cleanup owns, rather than the default root at the library root.
+    """
     for file in (STATE["file"], STATE["large"]):
         drive.delete_item(graph, STATE["drive_id"], file.item_id)
         assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
@@ -126,21 +132,27 @@ def test_07_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
         STATE["snapshot"],
         "-c",
         "rename",
+        "--destination",
+        drive.restore_destination(run_marker),
     )
 
 
 def test_08_restored_bytes_match_the_seed(graph: Any, run_marker: str) -> None:
     """Both restored files hash to the seeded bytes, read back through Graph."""
-    restored = drive.children(graph, STATE["drive_id"], drive.fixture_folder(run_marker))
-    assert restored, f"no files under /{drive.fixture_folder(run_marker)} after restore"
+    tree = drive.restored_tree(run_marker)
+    restored = drive.children(graph, STATE["drive_id"], tree.lstrip("/"))
+    assert restored, f"no files under {tree} after restore"
 
     digests = {
-        drive.file_sha256(
-            graph, STATE["drive_id"], f"/{drive.fixture_folder(run_marker)}/{item['name']}"
-        ) for item in restored
+        drive.file_sha256(graph, STATE["drive_id"], f"{tree}/{item['name']}") for item in restored
     }
     assert STATE["file"].sha256 in digests, "no restored file matches the seeded bytes"
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
+
+    for file in (STATE["file"], STATE["large"]):
+        assert (
+            drive.file_sha256(graph, STATE["drive_id"], file.path) is None
+        ), f"restore wrote back to the original path {file.path}"
 
 
 def test_09_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:

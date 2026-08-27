@@ -43,6 +43,9 @@ export interface OneDriveRestoreCommandOptions extends OneDriveTenantOptions {
   targetOwner?: string;
   fileFilter?: string[];
   conflict?: 'replace' | 'rename' | 'fail';
+  destination?: string;
+  inPlace?: boolean;
+  name?: string;
 }
 
 export interface OneDriveVerifyOptions extends OneDriveTenantOptions {
@@ -167,6 +170,9 @@ export async function execute_onedrive_restore(
     ...(target_owner ? { target_owner_id: target_owner.object_id } : {}),
     ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
     ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+    ...(options.destination ? { destination: options.destination } : {}),
+    ...(options.inPlace === true ? { in_place: true } : {}),
+    ...(options.name ? { rename_to: options.name } : {}),
   });
 
   await render_static_view(

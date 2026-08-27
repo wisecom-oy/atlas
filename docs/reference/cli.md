@@ -364,6 +364,8 @@ atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full
 atlas onedrive backup -o user@company.com --folder /Projects
 atlas onedrive restore -o user@company.com -s od-snap-1735689600000-a1b2c3
+atlas onedrive restore -o user@company.com -s od-snap-123 --destination /DR-drill
+atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
 atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@company.com
 atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
 atlas onedrive list-snapshots -o user@company.com
@@ -411,14 +413,19 @@ A snapshot taken with `--folder` contains only that folder's files. Restoring it
 
 **`atlas onedrive restore`**
 
-| Option                     | Description                                                              |
-| -------------------------- | ------------------------------------------------------------------------ |
-| `-o, --owner <id>`         | User email or Entra object ID (required)                                 |
-| `-s, --snapshot <id>`      | Snapshot to restore from (required)                                      |
-| `--target-owner <id>`      | Restore to a different user's OneDrive (defaults to owner)               |
-| `--file-filter <paths...>` | Only restore specific files by ID or path                                |
-| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
-| `-t, --tenant <id>`        | Override tenant ID from config                                           |
+| Option                     | Description                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `-o, --owner <id>`         | User email or Entra object ID (required)                                           |
+| `-s, --snapshot <id>`      | Snapshot to restore from (required)                                                |
+| `--target-owner <id>`      | Restore to a different user's OneDrive (defaults to owner)                         |
+| `--destination <path>`     | Folder to restore under, created when missing (default: `/Restore-<timestamp>`)    |
+| `--in-place`               | Restore to the original paths instead of a restore root                            |
+| `--name <filename>`        | Rename the restored file; rejected unless exactly one file matches                 |
+| `--file-filter <paths...>` | Only restore specific files by ID or path                                          |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)          |
+| `-t, --tenant <id>`        | Override tenant ID from config                                                     |
+
+A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-3.1.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
@@ -516,6 +523,7 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering 
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --destination /DR-drill
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
@@ -570,14 +578,22 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 
 **`atlas sharepoint restore`**
 
-| Option                      | Description                                                              |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)                          |
-| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                                        |
-| `--target-site <url-or-id>` | Restore to a different site (defaults to original)                       |
-| `--file-filter <paths...>`  | Only restore specific files (by ID or path)                              |
-| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
-| `-t, --tenant <id>`         | Override tenant ID from config                                           |
+| Option                      | Description                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)                                |
+| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                                              |
+| `--target-site <url-or-id>` | Restore to a different site (defaults to original)                             |
+| `--destination <path>`      | Folder to restore under, created when missing (default: `/Restore-<timestamp>`) |
+| `--in-place`                | Restore to the original paths instead of a restore root                         |
+| `--name <filename>`         | Rename the restored file; rejected unless exactly one file matches             |
+| `--file-filter <paths...>`  | Only restore specific files (by ID or path)                                    |
+| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)       |
+| `-t, --tenant <id>`         | Override tenant ID from config                                                  |
+
+Restored files nest under `Restore-<timestamp>` in each destination library, with the original
+structure recreated beneath it. `--in-place` restores over the original paths, which was the
+behaviour before 3.1.0. See
+[Where restored files land](../sharepoint-backup.md#where-restored-files-land).
 
 With `--target-site`, each file goes to the target library whose name matches the
 one it was backed up from, or, when the restore comes from a single library,

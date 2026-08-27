@@ -7,6 +7,15 @@ export interface OneDriveRestoreOptions extends OperationControlOptions {
   readonly target_owner_id?: string;
   readonly file_filter?: string[];
   readonly conflict_behavior?: OneDriveRestoreConflictBehavior;
+  /**
+   * Folder to restore under, created when missing. Absent means a generated `Restore-{timestamp}`
+   * root at the target drive root.
+   */
+  readonly destination?: string;
+  /** Restore to the original paths instead of nesting under a restore root. */
+  readonly in_place?: boolean;
+  /** Renames the restored file. Rejected unless the restore resolves to exactly one file. */
+  readonly rename_to?: string;
 }
 
 export interface OneDriveRestoreResult {

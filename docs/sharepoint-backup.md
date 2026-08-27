@@ -214,14 +214,17 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas sharepoint restore`
 
-| Flag                        | Description                                          | Default        |
-| --------------------------- | ---------------------------------------------------- | -------------- |
-| `--site <url-or-id>`        | SharePoint site URL or Graph site ID                 | Required       |
-| `-s, --snapshot <id>`       | SharePoint snapshot ID                               | Required       |
-| `--target-site <url-or-id>` | Restore to a different site                          | Original site  |
-| `--file-filter <paths...>`  | Only restore specific files (by ID or path)          | All files      |
-| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` | `rename`       |
-| `-t, --tenant <id>`         | Tenant identifier                                    | Config default |
+| Flag                        | Description                                          | Default                |
+| --------------------------- | ---------------------------------------------------- | ---------------------- |
+| `--site <url-or-id>`        | SharePoint site URL or Graph site ID                 | Required               |
+| `-s, --snapshot <id>`       | SharePoint snapshot ID                               | Required               |
+| `--target-site <url-or-id>` | Restore to a different site                          | Original site          |
+| `--destination <path>`      | Folder to restore under, created when missing        | `/Restore-<timestamp>` |
+| `--in-place`                | Restore to the original paths                        | `false`                |
+| `--name <filename>`         | Rename the restored file; single-file restores only   | Original name          |
+| `--file-filter <paths...>`  | Only restore specific files (by ID or path)          | All files              |
+| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` | `rename`               |
+| `-t, --tenant <id>`         | Tenant identifier                                    | Config default         |
 
 ### `atlas sharepoint save`
 
@@ -260,17 +263,33 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 ## Restore
 
 ```bash
-# Restore all files from a snapshot
+# Restore all files into a fresh Restore-<timestamp> folder in each library
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
 
 # Restore to a different site
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
   --target-site https://contoso.sharepoint.com/sites/Staging
 
+# Restore into a folder you name
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
+  --destination /DR-drill
+
+# Put files back exactly where they came from, mixed into live content
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
+  --in-place
+
 # Restore specific files only, replacing existing
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
   --file-filter /Documents/report.docx /Documents/budget.xlsx -c replace
 ```
+
+### Where restored files land
+
+A restore creates `Restore-<timestamp>` in each destination library and recreates the original folder structure beneath it, so a file backed up from `/Reports/2026` returns to `/Restore-2026-08-27T10-15-30/Reports/2026`. Deleting that one folder undoes the whole restore.
+
+Before 3.1.0 a restore wrote every file back over its original path. With the default `rename` conflict policy that neither failed nor overwrote; it left a suffixed copy beside each original, scattered through live library content with nothing marking which copy came from a backup. `--in-place` still does exactly that, but it now has to be asked for.
+
+`--destination` names the folder instead of generating one, and is created when missing. `--name` renames a single restored file and is rejected when more than one file matches, so pair it with `--file-filter`. Path length limits apply to the deeper nesting: a file that exceeds one is reported as a skipped item and does not abort the run.
 
 Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via the Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site, described in [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 

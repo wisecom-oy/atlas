@@ -116,7 +116,7 @@ describe('SharePointRestoreService cross-site routing', () => {
     expect(drive_arg).not.toBe(SOURCE_DRIVE);
   });
 
-  it('creates the folder path in the target drive', async () => {
+  it('recreates the folder path beneath the restore root in the target drive', async () => {
     vi.mocked(connector.list_document_libraries).mockResolvedValue([
       { drive_id: 'target-drive', drive_name: 'Documents' },
     ]);
@@ -126,13 +126,16 @@ describe('SharePointRestoreService cross-site routing', () => {
       target_site_id: TARGET_SITE,
     });
 
-    expect(connector.create_folder).toHaveBeenCalledWith(
+    const [root_call, nested_call] = vi.mocked(connector.create_folder).mock.calls;
+    expect(root_call).toEqual([
       'tenant',
       TARGET_SITE,
       'target-drive',
       'root',
-      'Reports',
-    );
+      expect.stringMatching(/^Restore-\d{4}-\d{2}-\d{2}T/),
+    ]);
+    // The original nesting is recreated under that root, never at the drive root.
+    expect(nested_call).toEqual(['tenant', TARGET_SITE, 'target-drive', 'folder-id', 'Reports']);
   });
 
   it('routes by library name when the target has several libraries', async () => {
