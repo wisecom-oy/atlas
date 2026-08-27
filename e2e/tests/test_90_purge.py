@@ -30,8 +30,12 @@ def test_purge_empties_the_whole_bucket(cli: Cli, settings: Settings, s3: Any) -
     # The cross-workload claim in this module's docstring has to be checked, not assumed. Before
     # issue #210 the bucket held Outlook objects alone by this point, so the sweep was proven
     # against one prefix while reading as though it covered three.
+    #
+    # Asserted on the data prefix, not the manifest one: `test_85` deletes a snapshot per drive and
+    # a snapshot delete deliberately retains the content-addressed blobs, so a workload whose only
+    # manifest was the deleted one still has objects the purge must sweep.
     for workload in settings.configured_workloads:
-        prefix = storage.MANIFEST_PREFIXES[workload]
+        prefix = storage.DATA_PREFIXES[workload]
         assert [k for k in before if k.startswith(prefix)], (
             f"{workload} has no objects to purge; the sweep would not be proven across workloads"
         )
