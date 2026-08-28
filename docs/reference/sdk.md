@@ -180,13 +180,13 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
-The drive restore methods take `destination`, `in_place` and `rename_to` alongside `conflict_behavior`. As of 3.1.0 they default to a generated `Restore-<timestamp>` root rather than writing back over the original paths, so an embedder that relied on the old behaviour has to pass `in_place: true`:
+The drive restore methods take `destination`, `in_place` and `rename_to` alongside `conflict_behavior`. As of 4.0.0 they default to a generated `Restore-<timestamp>` root rather than writing back over the original paths, so an embedder that relied on the old behaviour has to pass `in_place: true`:
 
 ```typescript
 const snapshot_id = 'od-snap-123';
 await atlas.onedrive.restore('owner-id', { snapshot_id }); // /Restore-2026-08-27T10-15-30/...
 await atlas.onedrive.restore('owner-id', { snapshot_id, destination: '/DR-drill' });
-await atlas.onedrive.restore('owner-id', { snapshot_id, in_place: true }); // pre-3.1.0 behaviour
+await atlas.onedrive.restore('owner-id', { snapshot_id, in_place: true }); // pre-4.0.0 behaviour
 ```
 
 `restore` and `save` on both drive workloads require an options object containing `snapshot_id`. TypeScript enforces that at compile time; a JavaScript caller that omits it now gets a `TypeError` naming the method, for example `onedrive.restore() requires an options object with a snapshot_id`, instead of a crash from inside the service about an internal property. `verify` continues to accept options optionally.

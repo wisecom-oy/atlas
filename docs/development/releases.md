@@ -239,3 +239,40 @@ npm versions are immutable, so recovery is always forward, never a re-publish:
    lockstep, so a partial publish must be resolved by moving both forward.
 3. **Wrong dist-tag:** correct it with `npm dist-tag add` rather than
    republishing.
+
+## If no workflow run appears at all
+
+Distinct from a publish that ran and failed. Here GitHub created no run for the
+push, so nothing tagged anything and there is no failure to read. It happened on
+the v3.0.0 merge: `publish.yml` declares `on: push: branches: [main]`, the merge
+landed, and no run existed. Pushing the tag by hand produced no run either, even
+though the same file declares `on: push: tags: ['v*']`. `pull_request` and
+`workflow_dispatch` events fired normally throughout, which is what made the
+release recoverable.
+
+Recovery, in this order:
+
+```bash
+gh run list --workflow publish.yml --limit 3        # confirm no run exists for the merge
+gh workflow run publish.yml -f version=<version> --ref main
+gh run watch
+```
+
+The dispatch creates the tag when it is missing, provided the dispatched ref's
+packages already say that version. If they disagree it stops and says so, rather
+than tagging a commit the version guard would reject. There is no need to push a
+tag by hand for this case any more.
+
+Confirm all four artefacts afterwards, since a dispatch that tags and publishes
+still leaves `sync-dev` to run:
+
+```bash
+git ls-remote --tags origin | grep "v<version>"
+npm view @wisecom/atlas-sdk@<version> version
+gh release view "v<version>"
+git log --oneline -1 origin/dev                     # should be at or ahead of main
+```
+
+If `sync-dev` was skipped or failed, fast-forward `dev` onto `main` by hand. A
+`dev` that lacks the release commit means the next release branch is cut without
+it.

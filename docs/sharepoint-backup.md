@@ -288,7 +288,7 @@ atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering
 
 A restore creates `Restore-<timestamp>` in each destination library and recreates the original folder structure beneath it, so a file backed up from `/Reports/2026` returns to `/Restore-2026-08-27T10-15-30/Reports/2026`. Deleting that one folder undoes the whole restore.
 
-Before 3.1.0 a restore wrote every file back over its original path. With the default `rename` conflict policy that neither failed nor overwrote; it left a suffixed copy beside each original, scattered through live library content with nothing marking which copy came from a backup. `--in-place` still does exactly that, but it now has to be asked for.
+Before 4.0.0 a restore wrote every file back over its original path. With the default `rename` conflict policy that neither failed nor overwrote; it left a suffixed copy beside each original, scattered through live library content with nothing marking which copy came from a backup. `--in-place` still does exactly that, but it now has to be asked for.
 
 `--destination` names the folder instead of generating one, and is created when missing. `--name` renames a single restored file and is rejected when more than one file matches, so pair it with `--file-filter`. Path length limits apply to the deeper nesting: a file that exceeds one is reported as a skipped item and does not abort the run.
 
