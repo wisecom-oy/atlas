@@ -3,6 +3,7 @@ import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import {
   copy_sharepoint_snapshot_between,
+  copy_sharepoint_snapshot_into_context,
   copy_sharepoint_snapshot_to_target,
 } from '@/services/replication/sharepoint-snapshot-copier';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
@@ -99,15 +100,23 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
       for (const target of targets) {
         const target_ctx = await target.create_context(tenant_id);
         try {
+          // Once per target, not once per snapshot: whether the two buckets share a DEK does not
+          // change between snapshots, and each check is two scrypt unwraps (issue #206).
+          await this._validate_dek(
+            source_ctx.storage,
+            target_ctx.storage,
+            this._config.encryption_passphrase,
+            tenant_id,
+          );
           const missing = await diff_sp_manifests(manifests, target_ctx, site_id);
 
           for (const manifest of missing) {
-            const result = await copy_sharepoint_snapshot_to_target(
+            const result = await copy_sharepoint_snapshot_into_context(
               source_ctx,
-              target,
+              target_ctx,
               manifest,
               ancillary,
-              this.copy_deps(tenant_id),
+              target.target_id,
             );
             await save_replication_status(
               source_ctx,
