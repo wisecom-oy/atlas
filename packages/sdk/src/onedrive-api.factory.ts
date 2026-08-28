@@ -25,7 +25,7 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
   STATS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import { adapt_operation_options } from '@/operation-options';
+import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
@@ -80,11 +80,19 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     },
     async restore(owner_input, options) {
       const owner_id = await resolve_owner_id(owner_input);
-      return await restore.restore_onedrive(tenant_id, owner_id, adapt_operation_options(options)!);
+      return await restore.restore_onedrive(
+        tenant_id,
+        owner_id,
+        adapt_required_operation_options(options, 'onedrive.restore()'),
+      );
     },
     async save(owner_input, options) {
       const owner_id = await resolve_owner_id(owner_input);
-      return await save.save_snapshot(tenant_id, owner_id, adapt_operation_options(options)!);
+      return await save.save_snapshot(
+        tenant_id,
+        owner_id,
+        adapt_required_operation_options(options, 'onedrive.save()'),
+      );
     },
     async listSnapshots(owner_input) {
       return await catalog.list_onedrive_snapshots(tenant_id, await resolve_owner_id(owner_input));

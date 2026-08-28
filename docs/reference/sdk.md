@@ -189,6 +189,8 @@ await atlas.onedrive.restore('owner-id', { snapshot_id, destination: '/DR-drill'
 await atlas.onedrive.restore('owner-id', { snapshot_id, in_place: true }); // pre-3.1.0 behaviour
 ```
 
+`restore` and `save` on both drive workloads require an options object containing `snapshot_id`. TypeScript enforces that at compile time; a JavaScript caller that omits it now gets a `TypeError` naming the method, for example `onedrive.restore() requires an options object with a snapshot_id`, instead of a crash from inside the service about an internal property. `verify` continues to accept options optionally.
+
 Deletion methods erase every version of the objects they match. `purgeTenantData()` sweeps the whole bucket, every workload and not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
 
 ### Shared mailbox identity
