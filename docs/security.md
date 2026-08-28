@@ -247,6 +247,8 @@ If an attacker compromises one target's S3 credentials, they can read that targe
 
 Atlas validates encryption key consistency before every replication and rehydration. If the primary tenant was purged and re-initialized (generating a new DEK), replication to a target with the old DEK is refused with an explicit error. This prevents a scenario where objects encrypted with different keys coexist on the same target, making older objects permanently undecryptable.
 
+The check runs once per target per run, before the first snapshot is copied, rather than once per snapshot. Whether two buckets share a DEK is a property of the pair, and each check unwraps both wrapped DEKs, which is two scrypt derivations at N=65536. A target that fails the check is refused before anything is written to it.
+
 ### Replica Marker
 
 Atlas writes a marker file (`_meta/replica.marker`) on each target during first replication. If a user accidentally runs `atlas outlook backup` against a replica target, Atlas detects the marker and logs a warning. This guards against accidental violation of the primary-is-truth principle, which could lead to data inconsistency.

@@ -212,3 +212,131 @@ describe('drive replication target context lifecycle', () => {
     });
   });
 });
+
+/**
+ * Issue #206: the per-target loop already opened a context for the manifest diff, then every
+ * snapshot copy opened another one. Each open unwraps the tenant DEK, and each DEK validation
+ * unwraps two, so a run paid three scrypt derivations per snapshot at N=65536 instead of one per
+ * target.
+ */
+describe('drive replication context reuse', () => {
+  let source: ReturnType<typeof make_source_context>;
+  let tenant_factory: TenantContextFactory;
+  let target_factory: StorageTargetFactory;
+
+  beforeEach(() => {
+    source = make_source_context();
+    tenant_factory = { create: vi.fn(async () => source.ctx) } as unknown as TenantContextFactory;
+    target_factory = {} as unknown as StorageTargetFactory;
+  });
+
+  it('opens one OneDrive target context per target, not per snapshot', async () => {
+    const stub = stub_storage_target();
+    const manifests = [od_manifest('od-1'), od_manifest('od-2'), od_manifest('od-3')];
+    const repo = {
+      list_snapshots_by_owner: vi.fn(async () => manifests),
+    } as unknown as OneDriveManifestRepository;
+    const validate_dek = vi.fn(async () => undefined);
+    const service = new OneDriveReplicationService(
+      tenant_factory,
+      repo,
+      CONFIG,
+      validate_dek,
+      target_factory,
+    );
+
+    await service.replicate_all_owner_snapshots('t', 'owner-1', [stub.target]);
+
+    expect(stub.created()).toBe(1);
+    expect(stub.destroyed()).toBe(1);
+    expect(validate_dek).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens one SharePoint target context per target, not per snapshot', async () => {
+    const stub = stub_storage_target();
+    const manifests = [sp_manifest('sp-1'), sp_manifest('sp-2'), sp_manifest('sp-3')];
+    const repo = {
+      list_snapshots_by_site: vi.fn(async () => manifests),
+    } as unknown as SharePointManifestRepository;
+    const validate_dek = vi.fn(async () => undefined);
+    const service = new SharePointReplicationService(
+      tenant_factory,
+      repo,
+      CONFIG,
+      validate_dek,
+      target_factory,
+    );
+
+    await service.replicate_all_site_snapshots('t', 'site-1', [stub.target]);
+
+    expect(stub.created()).toBe(1);
+    expect(stub.destroyed()).toBe(1);
+    expect(validate_dek).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens one context per target when there are several targets', async () => {
+    const a = stub_storage_target({ target_id: 'a' });
+    const b = stub_storage_target({ target_id: 'b' });
+    const repo = {
+      list_snapshots_by_owner: vi.fn(async () => [od_manifest('od-1'), od_manifest('od-2')]),
+    } as unknown as OneDriveManifestRepository;
+    const validate_dek = vi.fn(async () => undefined);
+    const service = new OneDriveReplicationService(
+      tenant_factory,
+      repo,
+      CONFIG,
+      validate_dek,
+      target_factory,
+    );
+
+    await service.replicate_all_owner_snapshots('t', 'owner-1', [a.target, b.target]);
+
+    expect(a.created()).toBe(1);
+    expect(b.created()).toBe(1);
+    expect(validate_dek).toHaveBeenCalledTimes(2);
+  });
+
+  it('still opens one context for the diff when nothing is missing', async () => {
+    // The negative case: no snapshots to copy must not mean no context, since the diff needs one,
+    // and must not mean one per manifest either.
+    const stub = stub_storage_target();
+    const repo = {
+      list_snapshots_by_owner: vi.fn(async () => []),
+    } as unknown as OneDriveManifestRepository;
+    const service = new OneDriveReplicationService(
+      tenant_factory,
+      repo,
+      CONFIG,
+      vi.fn(async () => undefined),
+      target_factory,
+    );
+
+    await service.replicate_all_owner_snapshots('t', 'owner-1', [stub.target]);
+
+    expect(stub.created()).toBe(1);
+    expect(stub.destroyed()).toBe(1);
+  });
+
+  it('destroys the reused context exactly once when a copy fails mid-loop', async () => {
+    const stub = stub_storage_target();
+    const repo = {
+      list_snapshots_by_owner: vi.fn(async () => [od_manifest('od-1'), od_manifest('od-2')]),
+    } as unknown as OneDriveManifestRepository;
+    const service = new OneDriveReplicationService(
+      tenant_factory,
+      repo,
+      CONFIG,
+      vi.fn(() => {
+        throw new Error('validation blew up');
+      }),
+      target_factory,
+    );
+
+    await expect(
+      service.replicate_all_owner_snapshots('t', 'owner-1', [stub.target]),
+    ).rejects.toThrow('validation blew up');
+
+    expect(stub.created()).toBe(1);
+    expect(stub.destroyed()).toBe(1);
+  });
+});

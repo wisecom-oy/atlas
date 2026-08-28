@@ -73,7 +73,7 @@ Because the same passphrase protects all copies, compromising the passphrase com
 
 ### DEK mismatch protection
 
-Before every replication, Atlas validates that source and target share the same encryption key. If you purge and re-initialize a tenant on primary (generating a new DEK), Atlas refuses to replicate to a target that still holds objects encrypted with the old key:
+Before replicating to a target, Atlas validates that source and target share the same encryption key. The check runs once per target per run, before the first snapshot is copied. If you purge and re-initialize a tenant on primary (generating a new DEK), Atlas refuses to replicate to a target that still holds objects encrypted with the old key:
 
 ```
 Error: Target has a different encryption key than the source.

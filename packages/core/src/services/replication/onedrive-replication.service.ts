@@ -29,6 +29,7 @@ import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 import {
   copy_onedrive_snapshot_between,
+  copy_onedrive_snapshot_into_context,
   copy_onedrive_snapshot_to_target,
 } from '@/services/replication/onedrive-snapshot-copier';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
@@ -95,15 +96,23 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
       for (const target of targets) {
         const target_ctx = await target.create_context(tenant_id);
         try {
+          // Once per target, not once per snapshot: whether the two buckets share a DEK does not
+          // change between snapshots, and each check is two scrypt unwraps (issue #206).
+          await this._validate_dek(
+            source_ctx.storage,
+            target_ctx.storage,
+            this._config.encryption_passphrase,
+            tenant_id,
+          );
           const missing = await diff_od_manifests(manifests, target_ctx, owner_id);
 
           for (const manifest of missing) {
-            const result = await copy_onedrive_snapshot_to_target(
+            const result = await copy_onedrive_snapshot_into_context(
               source_ctx,
-              target,
+              target_ctx,
               manifest,
               ancillary,
-              this.copy_deps(tenant_id),
+              target.target_id,
             );
             await save_replication_status(
               source_ctx,
