@@ -148,6 +148,22 @@ If Graph cannot return MIME for a particular item, Atlas stores that one message
 
 Each manifest entry records which format its object holds. Entries with `payload_format: "mime"` hold original bytes; entries with no `payload_format` field hold the legacy Graph JSON payload. Mixed snapshots are normal, and `save`, `read`, `restore`, and `verify` all handle both formats inside the same snapshot chain, so a fallback item needs no operator intervention.
 
+On that path attachments are separate objects again, and all three Graph attachment types are captured:
+
+| Graph type | What Atlas stores |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `fileAttachment` | The file bytes, inline when Graph includes them, otherwise fetched from `/$value` |
+| `itemAttachment` | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
+| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked |
+
+An attached message therefore exports as a `message/rfc822` part that mail clients open as mail, an invite as `.ics`, and a contact as `.vcf`. The content type is decided by the bytes that arrive rather than by the attachment's name, because Graph does not say which kind of item is attached and an invite mislabelled as mail opens as broken mail.
+
+A `referenceAttachment` points at a file in OneDrive or SharePoint. The link is part of the message and is preserved; the file itself belongs to those workloads and is covered by their own backups.
+
+::: warning Attachment types dropped before this version
+Earlier versions kept only `fileAttachment` and discarded the other two silently, with no warning and no manifest record, while still storing the message's `has_attachments` flag. Snapshots taken then can claim attachments whose content was never captured. This affected the legacy JSON path only, which is also the only path that existed before MIME storage, so snapshots predating MIME are the ones to treat with suspicion. An attachment type Atlas does not recognise is now recorded with its metadata and warned about, so a gap is auditable instead of invisible.
+:::
+
 ### Restore is reconstruction, and that is a deliberate choice
 
 Atlas does **not** import archived MIME back into Exchange. Live testing established why: Graph's MIME import path always marks the created message as a draft (`isDraft: true`), and that flag cannot be cleared -- neither an `X-Unsent: 0` header inside the MIME nor a `PR_MESSAGE_FLAGS` patch afterwards clears it. Restoring a mailbox that way would hand the user thousands of drafts instead of their mail.
