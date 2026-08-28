@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 export interface ProfileOptions {
@@ -21,13 +22,44 @@ export interface ProfileResult {
 export async function run_profiled(options: ProfileOptions): Promise<ProfileResult> {
   const { atlas_args, output_dir, use_0x } = options;
 
-  const cli_entry = resolve(process.cwd(), 'packages/cli/dist/cli.js');
+  const cli_entry = await resolve_cli_entry();
 
   if (use_0x) {
     return run_with_0x(cli_entry, atlas_args, output_dir);
   }
 
   return run_with_cpu_prof(cli_entry, atlas_args, output_dir);
+}
+
+/**
+ * Resolves the built CLI entry from the CLI package's own `bin` field.
+ *
+ * A hardcoded filename drifted once already: this looked for `dist/cli.js` while tsdown emits
+ * `dist/cli.mjs`, so every profiled run died in MODULE_NOT_FOUND and the tool then analysed the
+ * profile of that failed boot (issue #207). `bin` is what npm resolves when someone runs `atlas`,
+ * so following it cannot drift from the real entry again.
+ */
+async function resolve_cli_entry(): Promise<string> {
+  const manifest_path = resolve(process.cwd(), 'packages/cli/package.json');
+  // Repo-owned manifest rather than external input: its shape is whatever this repo commits.
+  const manifest = JSON.parse(await readFile(manifest_path, 'utf-8')) as {
+    bin?: Record<string, string>;
+  };
+
+  const relative_entry = manifest.bin?.['atlas'];
+  if (relative_entry === undefined) {
+    throw new Error(`No "bin.atlas" field in ${manifest_path}, so the CLI entry cannot be found.`);
+  }
+
+  const cli_entry = resolve(process.cwd(), 'packages/cli', relative_entry);
+  if (!existsSync(cli_entry)) {
+    throw new Error(
+      `CLI entry not found: ${cli_entry}. Run "pnpm run build" before profiling; ` +
+        'profiling a missing entry only measures the failed module load.',
+    );
+  }
+
+  return cli_entry;
 }
 
 async function run_with_cpu_prof(

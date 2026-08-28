@@ -2,8 +2,8 @@ name: E2E
 
 # Runs nightly in the background, and on manual dispatch. Nothing else.
 #
-# It deliberately does not run per push or per merge: a live-tenant suite costs up to
-# 30 minutes and real Graph quota, and running it on every branch push told us nothing
+# It deliberately does not run per push or per merge: a live-tenant suite costs tens of
+# minutes and real Graph quota, and running it on every branch push told us nothing
 # a nightly run does not. Dispatch it explicitly when a change touches backup, restore,
 # or storage behaviour and you want the answer before the next cron.
 #
@@ -37,7 +37,15 @@ jobs:
     runs-on: ubuntu-latest
     # No `environment:`: the E2E secrets are repository secrets, and an environment with approval
     # rules would leave scheduled and push-triggered runs waiting for a human.
-    timeout-minutes: 30
+    #
+    # 60 rather than 30 (issue #211). At 30 the run was cancelled mid-suite instead of failing,
+    # which costs more than the minutes: pytest never reaches its FAILURES section, so tests that
+    # already failed report no traceback, and everything ordered after the cancellation point never
+    # reports at all. Measured on a hosted runner: 13m50s for 50 tests before the drive suites grew,
+    # then over 30m with `test_20_onedrive` alone taking 26m16s. 60 is roughly double the worst
+    # observed run, so a genuine hang still terminates rather than hanging the nightly forever.
+    # The `atlas-e2e` concurrency group means a long run delays the next one rather than racing it.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -100,6 +108,13 @@ jobs:
         run: uv run python -m atlas_e2e.summary >> "$GITHUB_STEP_SUMMARY"
 
       # Belt and braces: pytest teardown already sweeps, but a crashed interpreter never gets there.
+      #
+      # E2E_ONEDRIVE_OWNER and E2E_SHAREPOINT_SITE are required here, not optional extras. sweep.py
+      # skips a drive when its identifier is unset (`if not configured: continue`), so without them
+      # this step swept the mailbox and silently left every fixture folder in OneDrive and
+      # SharePoint behind -- in exactly the crashed and cancelled runs it exists to clean up. Since
+      # `onedrive backup -o` backs up the owner's whole drive, the orphans made every later run
+      # slower until the backup blew the harness's 900s CLI timeout (issue #211).
       - name: Sweep leftovers
         if: always()
         working-directory: e2e
@@ -109,6 +124,8 @@ jobs:
           E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
           E2E_ENCRYPTION_PASSPHRASE: ${{ secrets.E2E_ENCRYPTION_PASSPHRASE }}
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
+          E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
+          E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
         run: uv run python -m atlas_e2e.sweep
 
       # Artifacts are public downloads: GitHub's log masking does not apply to a file in a zip. The

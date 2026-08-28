@@ -52,6 +52,21 @@ class Settings:
         """Atlas derives the bucket from the tenant id; the suite must not guess a different name."""
         return f"atlas-{self.tenant_id}"
 
+    @property
+    def configured_workloads(self) -> list[str]:
+        """Workloads this run actually backs up, in storage-prefix terms.
+
+        A workload whose identifier is unset is skipped by its own suite, so no later suite may
+        demand its objects. Shared so replication, per-workload deletion and the tenant purge all
+        assert against the same set instead of each hardcoding one prefix (issue #210).
+        """
+        workloads = ["outlook"]
+        if self.onedrive_owner:
+            workloads.append("onedrive")
+        if self.sharepoint_site:
+            workloads.append("sharepoint")
+        return workloads
+
     def cli_env(self) -> dict[str, str]:
         """ATLAS_* variables for a CLI subprocess. Env wins over the secure store, so no config file is needed."""
         return {

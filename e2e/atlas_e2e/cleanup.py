@@ -17,23 +17,45 @@ log = logging.getLogger(__name__)
 def sweep_drive(graph: Graph, drive_id: str, marker: str) -> list[str]:
     """Deletes marked fixture folders from a OneDrive or SharePoint drive.
 
-    File restores write back to the original `parent_path` with no `Restore-` root of their own, so
-    restored copies land inside the marked fixture folder and go with it. Foreign markers follow the
-    same staleness rule as the mailbox sweep.
+    Restored copies land inside the marked fixture folder they were backed up from, so they go with
+    it. Foreign markers follow the staleness rule, so a concurrent run's fixtures are never deleted
+    from under it.
+
+    Only names carrying the E2E marker are ever deleted, no matter which folder they were found in.
+    An earlier version of this function treated any unmarked item under the fixture root as debris,
+    on the theory that the folder was suite-owned; it deleted a tenant's real files. Cleanup must
+    never remove anything the suite did not create, so membership is decided by the marker alone.
     """
     removed: list[str] = []
-    for folder in drive.marked_root_folders(graph, drive_id, PREFIX):
-        name = str(folder.get("name", ""))
-        if marker not in name and not is_stale(parse_graph_time(folder.get("createdDateTime"))):
+    for item in drive.fixture_items(graph, drive_id, PREFIX):
+        name = str(item.get("name", ""))
+        if not is_marked(name):
+            continue
+        if marker not in name and not is_stale(parse_graph_time(item.get("createdDateTime"))):
             log.info("Leaving foreign, non-stale drive folder %s", name)
             continue
         try:
-            drive.delete_item(graph, drive_id, str(folder["id"]))
+            drive.delete_item(graph, drive_id, str(item["id"]))
             removed.append(name)
             log.info("Cleaned up drive folder %s", name)
         except GraphError as err:
             log.warning("Could not delete drive folder %s: %s", name, err)
     return removed
+
+
+def surviving_drive_artifacts(graph: Graph, drive_id: str, marker: str) -> list[str]:
+    """Names still carrying this run's marker after a sweep. Empty is the only acceptable result.
+
+    The sweep logs and continues on every failure so it cannot mask a test result, which also means
+    a leftover would otherwise be invisible. This is the check that makes it visible: a run that
+    cannot clean up after itself is how the tenant accumulated duplicates of its own fixtures.
+    """
+    try:
+        items = drive.fixture_items(graph, drive_id, PREFIX)
+    except GraphError as err:
+        log.warning("Could not verify drive cleanup: %s", err)
+        return []
+    return [str(i.get("name", "")) for i in items if marker in str(i.get("name", ""))]
 
 
 def sweep_mailbox(graph: Graph, mailbox: str, marker: str) -> list[str]:

@@ -12,12 +12,10 @@ import {
   DEK_VALIDATION_FN_TOKEN,
   STORAGE_TARGET_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
 import { rehydrate_od_manifests } from '@/services/replication/rehydration-od-manifests-runner';
 import {
-  build_replication_result,
   build_skip_result,
   merge_replication_results,
 } from '@/services/replication/replication-result-builder';
@@ -29,6 +27,12 @@ import {
 } from '@/services/replication/onedrive-replication-helpers';
 import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
+import {
+  copy_onedrive_snapshot_between,
+  copy_onedrive_snapshot_into_context,
+  copy_onedrive_snapshot_to_target,
+} from '@/services/replication/onedrive-snapshot-copier';
+import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
 
 @injectable()
 export class OneDriveReplicationService implements OneDriveReplicationUseCase {
@@ -56,12 +60,12 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
-        const result = await this.copy_to_target(
+        const result = await copy_onedrive_snapshot_to_target(
           source_ctx,
           target,
           manifest,
           ancillary,
-          tenant_id,
+          this.copy_deps(tenant_id),
         );
         await save_replication_status(
           source_ctx,
@@ -92,15 +96,23 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
       for (const target of targets) {
         const target_ctx = await target.create_context(tenant_id);
         try {
+          // Once per target, not once per snapshot: whether the two buckets share a DEK does not
+          // change between snapshots, and each check is two scrypt unwraps (issue #206).
+          await this._validate_dek(
+            source_ctx.storage,
+            target_ctx.storage,
+            this._config.encryption_passphrase,
+            tenant_id,
+          );
           const missing = await diff_od_manifests(manifests, target_ctx, owner_id);
 
           for (const manifest of missing) {
-            const result = await this.copy_to_target(
+            const result = await copy_onedrive_snapshot_into_context(
               source_ctx,
-              target,
+              target_ctx,
               manifest,
               ancillary,
-              tenant_id,
+              target.target_id,
             );
             await save_replication_status(
               source_ctx,
@@ -139,13 +151,13 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
       }
 
       const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
-      return this.copy_between(
+      return copy_onedrive_snapshot_between(
         source_ctx,
         primary_ctx,
         manifest,
         ancillary,
         source.target_id,
-        tenant_id,
+        this.copy_deps(tenant_id),
         true,
       );
     } finally {
@@ -218,55 +230,13 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     }
   }
 
-  private async copy_to_target(
-    source_ctx: TenantContext,
-    target: StorageTarget,
-    manifest: OneDriveSnapshotManifest,
-    ancillary_keys: string[],
-    tenant_id: string,
-  ): Promise<ReplicationResult> {
-    const start = Date.now();
-    const target_ctx = await target.create_context(tenant_id);
-    await this._validate_dek(
-      source_ctx.storage,
-      target_ctx.storage,
-      this._config.encryption_passphrase,
+  /** Deps every copy needs: this service's DEK validator, passphrase and tenant. */
+  private copy_deps(tenant_id: string): CopyDeps {
+    return {
+      validate_dek: this._validate_dek,
+      passphrase: this._config.encryption_passphrase,
       tenant_id,
-    );
-    const manifest_key = `${OD_MANIFEST_PREFIX}/${manifest.owner_id}/${manifest.snapshot_id}.json`;
-    const rep = await replicate_onedrive_snapshot(source_ctx, target_ctx, manifest, manifest_key, {
-      ancillary_keys,
-    });
-    return build_replication_result(
-      rep,
-      manifest.snapshot_id,
-      target.target_id,
-      Date.now() - start,
-    );
-  }
-
-  private async copy_between(
-    source_ctx: TenantContext,
-    target_ctx: TenantContext,
-    manifest: OneDriveSnapshotManifest,
-    ancillary_keys: string[],
-    target_id: string,
-    tenant_id: string,
-    is_rehydration = false,
-  ): Promise<ReplicationResult> {
-    const start = Date.now();
-    await this._validate_dek(
-      source_ctx.storage,
-      target_ctx.storage,
-      this._config.encryption_passphrase,
-      tenant_id,
-    );
-    const manifest_key = `${OD_MANIFEST_PREFIX}/${manifest.owner_id}/${manifest.snapshot_id}.json`;
-    const rep = await replicate_onedrive_snapshot(source_ctx, target_ctx, manifest, manifest_key, {
-      skip_marker: is_rehydration,
-      ancillary_keys,
-    });
-    return build_replication_result(rep, manifest.snapshot_id, target_id, Date.now() - start);
+    };
   }
 
   /** Rehydrates one owner's manifests, supplying this service's DEK validator and passphrase. */

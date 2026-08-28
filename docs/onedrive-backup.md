@@ -83,7 +83,7 @@ Implementation thresholds from `@wisecom/atlas-onedrive`:
 | **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                |
 | **≥ 512 MiB**                 | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
 
-Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file.
+Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file. Each range request is also aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. That budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB.
 
 ### Unicode Path Handling
 
@@ -107,6 +107,23 @@ Object IDs, mailbox addresses, and SharePoint site IDs are all case-insensitive 
 This matters most for deletion. Before 2.1.0-beta, `deleteOwnerData` given an uppercase object ID swept an empty prefix, reported the objects it deleted there, and left the real data untouched. That is an erasure that reported success while every byte stayed retrievable. Graph returns these identifiers lowercase, so the gap only opened for callers supplying their own: an operator pasting an object ID from a portal, or an SDK embedder holding one in application state.
 
 Graph **item** IDs (`file_id`, `item_id`) are genuinely case-sensitive and are never folded. `--file-filter` accepts them exactly as a listing prints them, and compares case-insensitively so a retyped ID still matches.
+
+## Scoping a backup to one folder
+
+`atlas onedrive backup` covers the owner's whole drive by default. `--folder` narrows it to one subtree:
+
+```bash
+atlas onedrive backup -o user@company.com --folder /Projects
+```
+
+This matters on large accounts. Because the default is the whole drive, a backup's runtime and cost scale with everything the user keeps in OneDrive, including content nobody intends to archive. Scoping to the folders that matter keeps a run proportional to the data you actually want.
+
+Graph's drive delta is drive-wide, so the scope is applied to the delta result rather than pushed into the query. The run still enumerates the whole drive, but nothing outside the folder is downloaded, hashed, version-synced or written, which is where the time and the Graph quota go.
+
+Two behaviours to know before scheduling scoped runs:
+
+- **Changing the scope forces a full re-crawl.** A delta link records how far the drive was consumed, not how far the folder was, so resuming one under a different scope would permanently skip changes the previous run filtered out. Switching between scoped and unscoped does the same. Runs that repeat the same scope stay incremental, and the scope in force is recorded in the delta cursor.
+- **A scoped snapshot holds only that folder.** Restoring it restores only those files. Scoped backups are not a cheaper substitute for a whole-drive backup unless the scope covers everything you need recovered.
 
 ## Failed Items and Delta Progress
 
@@ -142,6 +159,23 @@ Once the underlying problem clears, the next run picks the file up automatically
 ::: tip Reading the signal
 `UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human. Check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the drive keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
 :::
+
+### Content the service refuses to serve
+
+Malware-quarantined files are a separate case, and they are detected rather than retried. Atlas selects the Graph `malware` facet in its delta query, so a quarantined item is recognised before any download is attempted:
+
+```
+[!] Not backed up: infected.docx (01STBDHIPIY7N3OWY...) -- Quarantined by Microsoft 365 malware
+    policy: infected.docx (01STBDHIPIY7N3OWY...); PERMANENTLY SKIPPED by service policy, not
+    retried, first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+These records never consume the 5-attempt budget, because the budget exists for failures that might still succeed. A quarantine is a policy decision, and no number of retries changes it.
+
+Attempting the download is not merely wasteful, it is actively harmful. Graph refuses quarantined content by aborting the transfer rather than returning a clean 403, and an aborted transfer is indistinguishable from a network fault, so it engages the full Graph retry budget of 12 attempts over roughly 23 minutes. A single quarantined file could hold up an entire drive backup for that long, per run. Detecting the facet up front removes that stall.
+
+The file stays reported on every run until it is removed or cleaned in the source, and the run stays `UNHEALTHY`, so an operator can always answer which files are not in the backup and why.
 
 ## Snapshot Health Status
 
@@ -209,14 +243,17 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas onedrive restore`
 
-| Flag                       | Description                                          | Default           |
-| -------------------------- | ---------------------------------------------------- | ----------------- |
-| `-o, --owner <id>`         | User email or Entra object ID                        | Required          |
-| `-s, --snapshot <id>`      | Snapshot to restore from                             | Required          |
-| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner` |
-| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files         |
-| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`          |
-| `-t, --tenant <id>`        | Tenant identifier                                    | Config default    |
+| Flag                       | Description                                          | Default                    |
+| -------------------------- | ---------------------------------------------------- | -------------------------- |
+| `-o, --owner <id>`         | User email or Entra object ID                        | Required                   |
+| `-s, --snapshot <id>`      | Snapshot to restore from                             | Required                   |
+| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner`          |
+| `--destination <path>`     | Folder to restore under, created when missing        | `/Restore-<timestamp>`     |
+| `--in-place`               | Restore to the original paths                        | `false`                    |
+| `--name <filename>`        | Rename the restored file; single-file restores only  | Original name              |
+| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files                  |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`                   |
+| `-t, --tenant <id>`        | Tenant identifier                                    | Config default             |
 
 ### `atlas onedrive save`
 
@@ -255,16 +292,34 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 ## Restore
 
 ```bash
-# Restore a whole snapshot back to the same user
+# Restore a whole snapshot into a fresh Restore-<timestamp> folder
 atlas onedrive restore -o user@company.com -s od-snap-123
 
 # Restore into another user's OneDrive
 atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@company.com
 
-# Restore specific files only, replacing what is already there
+# Restore into a folder you name
+atlas onedrive restore -o user@company.com -s od-snap-123 --destination /DR-drill
+
+# Put files back exactly where they came from, mixed into live content
+atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
+
+# Restore one file under a new name
 atlas onedrive restore -o user@company.com -s od-snap-123 \
-  --file-filter "/Documents/report.docx" -c replace
+  --file-filter "/Documents/report.docx" --name report-2026-08.docx
 ```
+
+### Where restored files land
+
+A restore creates `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it. A file backed up from `/Projects/2026/Report.docx` restores to `/Restore-2026-08-27T10-15-30/Projects/2026/Report.docx`. The timestamp format matches the Outlook restore folder, so the two workloads read alike.
+
+This exists because the conflict policy is not a safety net. With the default `rename`, restoring a snapshot whose files still exist neither fails nor overwrites; it writes a suffixed copy next to every original. Repeated across a few DR rehearsals that leaves copies of the same file interleaved with real data, with nothing marking which is which. A restore root makes the result reviewable before it matters and reversible afterwards: delete the folder and the restore is undone.
+
+`--destination` replaces the generated root with one you name, created if missing. `--in-place` restores to the original paths, which was the behaviour before 4.0.0 and is now opt-in. `--conflict` keeps its meaning and applies inside whichever destination is chosen; under a fresh root there is normally nothing to collide with.
+
+`--name` renames a single restored file and is rejected when the restore resolves to more than one file, since renaming many files to one name would either collide or silently rename only the first. Pair it with `--file-filter`.
+
+Nesting the original structure under a restore root lengthens every path, and OneDrive enforces a path length limit. A file that exceeds it is reported as a skipped item with the reason and does not abort the run.
 
 Restored files are uploaded to the target user's primary drive. Folders are created as needed, and existing folders with the same name are reused rather than overwritten. Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on any transient Graph status: 429, 500, 502, 503, 504). A range PUT is addressed by its `Content-Range`, so a replayed chunk rewrites the same bytes rather than appending them twice.
 

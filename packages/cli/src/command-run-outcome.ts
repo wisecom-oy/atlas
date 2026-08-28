@@ -12,13 +12,20 @@ export interface RunOutcome {
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
   readonly interrupted?: boolean;
+  /**
+   * Items that decrypted cleanly but did not match the checksum their manifest
+   * records. A separate bucket because the item is still written, so the run
+   * reports no error and used to exit 0, while the output is no longer known to
+   * be the content that was backed up.
+   */
+  readonly integrity_failures?: readonly string[];
 }
 
 /**
  * Prints per-item errors/warnings on stderr and sets the partial exit code
  * when the run is incomplete. Shared by Outlook, OneDrive, and SharePoint
- * backup commands so all three domains report identically. Hard failures
- * throw and exit 1 upstream; this only handles the partial bucket.
+ * backup, save, and restore commands so all three domains report identically.
+ * Hard failures throw and exit 1 upstream; this only handles the partial bucket.
  */
 export function report_run_outcome(outcome: RunOutcome, item_noun: string): void {
   for (const warning of outcome.warnings) {
@@ -28,17 +35,26 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
     logger.error(`  ${item_noun} error: ${error}`);
   }
 
+  const integrity_failures = outcome.integrity_failures ?? [];
+  for (const failure of integrity_failures) {
+    logger.error(`  ${item_noun} integrity failure: ${failure}`);
+  }
+
   if (outcome.interrupted) {
     logger.warn('Run interrupted before all items were processed');
   }
 
-  if (outcome.errors.length > 0 || outcome.interrupted === true) {
-    const suffix = outcome.interrupted === true ? ' (interrupted)' : '';
-    logger.error(
-      `Backup incomplete: ${outcome.errors.length} ${item_noun} error(s)${suffix} -- exit ${EXIT_PARTIAL}`,
-    );
-    process.exitCode = EXIT_PARTIAL;
-  }
+  const incomplete =
+    outcome.errors.length > 0 || integrity_failures.length > 0 || outcome.interrupted === true;
+  if (!incomplete) return;
+
+  const suffix = outcome.interrupted === true ? ' (interrupted)' : '';
+  const counts = [
+    `${outcome.errors.length} ${item_noun} error(s)`,
+    ...(integrity_failures.length > 0 ? [`${integrity_failures.length} integrity failure(s)`] : []),
+  ].join(', ');
+  logger.error(`Run incomplete: ${counts}${suffix} -- exit ${EXIT_PARTIAL}`);
+  process.exitCode = EXIT_PARTIAL;
 }
 
 /**

@@ -1,5 +1,9 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { is_retryable_error, is_transient_error } from '@wisecom/atlas-m365-graph';
+import {
+  is_retryable_error,
+  is_transient_error,
+  parse_retry_after_ms,
+} from '@wisecom/atlas-m365-graph';
 
 /** Maximum bytes per HTTP Range chunk (4 MiB). */
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
@@ -123,11 +127,11 @@ async function download_single_chunk(
   item_id: string,
   total_bytes: number,
 ): Promise<Buffer> {
-  const timeout_ms = compute_chunk_timeout_ms(
-    expected_length < total_bytes ? total_bytes : expected_length,
-  );
+  // Scaled to this chunk, not to the file. Passing total_bytes here gave every
+  // non-final chunk a ceil(total_bytes / 256) ms budget, so one stalled CDN
+  // connection held a 1 GB backup for ~68 minutes before aborting (issue #198).
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout_ms);
+  let timer = setTimeout(() => controller.abort(), compute_chunk_timeout_ms(expected_length));
 
   try {
     const response = await fetch(url, {
@@ -136,7 +140,7 @@ async function download_single_chunk(
     });
 
     if (response.status === 429) {
-      const retry_after_ms = parse_retry_after_header(response.headers.get('Retry-After'));
+      const retry_after_ms = parse_retry_after_ms(response.headers.get('Retry-After'));
       throw new CdnHttpError(
         `HTTP 429 for chunk bytes=${range_start}-${range_end} of ${item_id}`,
         429,
@@ -149,6 +153,15 @@ async function download_single_chunk(
         `HTTP ${response.status} for chunk bytes=${range_start}-${range_end} of ${item_id}`,
         response.status,
       );
+    }
+
+    // A CDN that ignored the Range header answers 200 with the entire file, so
+    // the body about to be drained is total_bytes rather than one chunk. Only
+    // that case needs the whole-file budget, and by now it is known rather than
+    // assumed, so re-arm before reading instead of pre-paying on every chunk.
+    if (response.status === 200) {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), compute_chunk_timeout_ms(total_bytes));
     }
 
     const buf = Buffer.from(await response.arrayBuffer());
@@ -183,12 +196,6 @@ function is_cdn_retryable(err: unknown): boolean {
 function extract_cdn_retry_after_from_error(err: unknown): number | undefined {
   if (err instanceof CdnHttpError) return err.retry_after_ms;
   return undefined;
-}
-
-function parse_retry_after_header(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const seconds = parseInt(value, 10);
-  return isNaN(seconds) ? undefined : seconds * 1000;
 }
 
 function compute_retry_delay(attempt: number): number {

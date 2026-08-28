@@ -89,8 +89,9 @@ Chunked downloads retry each **4 MiB** range independently (5 attempts with expo
 SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting, and the CDN also returns transient gateway faults of its own. Atlas handles this with:
 
 - **Transient-status detection** on direct download URLs. `429`, `500`, `502`, `503`, and `504` are retried, with `Retry-After` header parsing that supports both delta-seconds and HTTP-date formats.
-- **Exponential backoff** when `Retry-After` is absent (base 1s, max 32s, with jitter).
+- **Exponential backoff** when `Retry-After` is absent or carries no usable wait (base 1s, max 32s, with jitter). A `Retry-After` in the past is treated as absent, since honouring it as "retry now" would remove the jitter that stops concurrent workers retrying in lockstep. A value further out than an hour is capped at an hour and treated as a server bug rather than an instruction.
 - **Graph content fallback.** If the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content`, which routes through the Graph gateway rather than the CDN.
+- **Stall timeout per chunk.** Each range request is aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. The budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB. If the CDN ignores the `Range` header and answers `200` with the whole file, the budget is re-sized to that body before it is read.
 
 ## Failed Items and Delta Progress
 
@@ -129,6 +130,23 @@ Once the underlying problem clears, the next run picks the file up automatically
 ::: tip Reading the signal
 `UNHEALTHY` with `will retry` is a warning: the backup is progressing, one file is behind. `PERMANENTLY SKIPPED after 5 attempts` means the file needs a human. Check its permissions, sensitivity label, or whether it is corrupt in the source. Either way the rest of the library keeps being protected, and the exit code stays non-zero so schedulers can alert on it.
 :::
+
+### Content the service refuses to serve
+
+Malware-quarantined files are a separate case, and they are detected rather than retried. Atlas selects the Graph `malware` facet in its delta query, so a quarantined item is recognised before any download is attempted:
+
+```
+[!] Not backed up: infected.docx (01STBDHIPIY7N3OWY...) -- Quarantined by Microsoft 365 malware
+    policy: infected.docx (01STBDHIPIY7N3OWY...); PERMANENTLY SKIPPED by service policy, not
+    retried, first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+These records never consume the 5-attempt budget, because the budget exists for failures that might still succeed. A quarantine is a policy decision, and no number of retries changes it.
+
+Attempting the download is not merely wasteful, it is actively harmful. Graph refuses quarantined content by aborting the transfer rather than returning a clean 403, and an aborted transfer is indistinguishable from a network fault, so it engages the full Graph retry budget of 12 attempts over roughly 23 minutes. A single quarantined file could hold up an entire library backup for that long, per run. Detecting the facet up front removes that stall.
+
+The file stays reported on every run until it is removed or cleaned in the source, and the run stays `UNHEALTHY`, so an operator can always answer which files are not in the backup and why.
 
 ## Snapshot Health Status
 
@@ -197,14 +215,17 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas sharepoint restore`
 
-| Flag                        | Description                                          | Default        |
-| --------------------------- | ---------------------------------------------------- | -------------- |
-| `--site <url-or-id>`        | SharePoint site URL or Graph site ID                 | Required       |
-| `-s, --snapshot <id>`       | SharePoint snapshot ID                               | Required       |
-| `--target-site <url-or-id>` | Restore to a different site                          | Original site  |
-| `--file-filter <paths...>`  | Only restore specific files (by ID or path)          | All files      |
-| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` | `rename`       |
-| `-t, --tenant <id>`         | Tenant identifier                                    | Config default |
+| Flag                        | Description                                          | Default                |
+| --------------------------- | ---------------------------------------------------- | ---------------------- |
+| `--site <url-or-id>`        | SharePoint site URL or Graph site ID                 | Required               |
+| `-s, --snapshot <id>`       | SharePoint snapshot ID                               | Required               |
+| `--target-site <url-or-id>` | Restore to a different site                          | Original site          |
+| `--destination <path>`      | Folder to restore under, created when missing        | `/Restore-<timestamp>` |
+| `--in-place`                | Restore to the original paths                        | `false`                |
+| `--name <filename>`         | Rename the restored file; single-file restores only   | Original name          |
+| `--file-filter <paths...>`  | Only restore specific files (by ID or path)          | All files              |
+| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` | `rename`               |
+| `-t, --tenant <id>`         | Tenant identifier                                    | Config default         |
 
 ### `atlas sharepoint save`
 
@@ -243,17 +264,33 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 ## Restore
 
 ```bash
-# Restore all files from a snapshot
+# Restore all files into a fresh Restore-<timestamp> folder in each library
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
 
 # Restore to a different site
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
   --target-site https://contoso.sharepoint.com/sites/Staging
 
+# Restore into a folder you name
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
+  --destination /DR-drill
+
+# Put files back exactly where they came from, mixed into live content
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
+  --in-place
+
 # Restore specific files only, replacing existing
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
   --file-filter /Documents/report.docx /Documents/budget.xlsx -c replace
 ```
+
+### Where restored files land
+
+A restore creates `Restore-<timestamp>` in each destination library and recreates the original folder structure beneath it, so a file backed up from `/Reports/2026` returns to `/Restore-2026-08-27T10-15-30/Reports/2026`. Deleting that one folder undoes the whole restore.
+
+Before 4.0.0 a restore wrote every file back over its original path. With the default `rename` conflict policy that neither failed nor overwrote; it left a suffixed copy beside each original, scattered through live library content with nothing marking which copy came from a backup. `--in-place` still does exactly that, but it now has to be asked for.
+
+`--destination` names the folder instead of generating one, and is created when missing. `--name` renames a single restored file and is rejected when more than one file matches, so pair it with `--file-filter`. Path length limits apply to the deeper nesting: a file that exceeds one is reported as a skipped item and does not abort the run.
 
 Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via the Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site, described in [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 

@@ -124,3 +124,35 @@ describe('describe_failed_items', () => {
     expect(describe_failed_items({})).toEqual([]);
   });
 });
+
+describe('policy-blocked items (issue #53)', () => {
+  const BLOCKED = { ...FAILURE, name: 'infected.docx', reason: 'quarantined', permanent: true };
+
+  it('marks the record permanent on the first failure', () => {
+    expect(record_item_failure({}, BLOCKED)['item-1']).toMatchObject({
+      attempts: 1,
+      permanent: true,
+    });
+  });
+
+  it('is never offered for retry, even on its first attempt', () => {
+    const ledger = record_item_failure({}, BLOCKED);
+
+    expect(ledger['item-1']!.attempts).toBe(1);
+    expect(retryable_items(ledger, 'drive-a')).toEqual([]);
+    expect(is_retry_exhausted(ledger['item-1']!)).toBe(true);
+  });
+
+  it('reports a policy refusal rather than a spent attempt budget', () => {
+    const [line] = describe_failed_items(record_item_failure({}, BLOCKED));
+
+    expect(line).toContain('infected.docx');
+    expect(line).toContain('service policy');
+    expect(line).not.toContain('will retry');
+    expect(line).not.toContain(`after 1 attempts`);
+  });
+
+  it('leaves transient failures retryable', () => {
+    expect(retryable_items(record_item_failure({}, FAILURE), 'drive-a')).toHaveLength(1);
+  });
+});

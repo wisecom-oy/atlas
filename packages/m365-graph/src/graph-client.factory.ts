@@ -4,8 +4,6 @@ import {
   Client,
   HTTPMessageHandler,
   RedirectHandler,
-  RetryHandler,
-  RetryHandlerOptions,
   RedirectHandlerOptions,
   TelemetryHandler,
   type Middleware,
@@ -25,10 +23,10 @@ const GRAPH_BASE_URL = 'https://graph.microsoft.com';
  *
  * The middleware chain is spelled out rather than derived from `authProvider`
  * so a cost middleware can sit immediately before the HTTP handler, where it
- * observes every request actually sent -- including each retry the RetryHandler
- * makes and each redirect the RedirectHandler follows, since both re-execute
- * the chain below them. It is otherwise the SDK's own default chain, in the
- * SDK's own order.
+ * observes every request actually sent, including each redirect the
+ * RedirectHandler follows, since it re-executes the chain below it. It is
+ * otherwise the SDK's default chain in the SDK's order, minus its RetryHandler:
+ * `with_graph_retry` owns retry policy for every call.
  *
  * Hardcodes the base URL to https://graph.microsoft.com to prevent
  * any downstream override to a non-TLS endpoint. Refuses to start
@@ -45,18 +43,26 @@ export function create_graph_client(config: GraphConfig): Client {
 }
 
 /**
- * The SDK's default handlers with cost accounting spliced in.
+ * The SDK's default handlers with cost accounting spliced in, and the SDK's own
+ * retry disabled.
  *
- * Position matters twice over. The cost middleware sits below RetryHandler and
- * RedirectHandler, both of which re-execute everything beneath them, so it sees
- * each attempt and each followed redirect rather than one logical call. It sits
- * above TelemetryHandler because the SDK requires telemetry to be the handler
- * immediately before the transport, so its usage flags cover the real request.
+ * `with_graph_retry` wraps every Graph call this client serves and is strictly
+ * more capable: it honours Retry-After, adds jitter, retries network faults the
+ * SDK handler ignores, and raises the global throttle fence. Leaving the SDK
+ * handler retrying as well multiplied the two budgets, so one logical call could
+ * reach ~52 HTTP attempts, every one of them counted against the throttling
+ * limits the backoff exists to respect. Retry lives in exactly one layer now,
+ * bounding a call at MAX_RETRIES + 1 attempts.
+ *
+ * Position still matters. The cost middleware sits below RedirectHandler, which
+ * re-executes everything beneath it, so it sees each followed redirect rather
+ * than one logical call. It sits above TelemetryHandler because the SDK requires
+ * telemetry to be the handler immediately before the transport, so its usage
+ * flags cover the real request.
  */
 function build_middleware_chain(auth_provider: TokenCredentialAuthenticationProvider): Middleware {
   const chain: Middleware[] = [
     new AuthenticationHandler(auth_provider),
-    new RetryHandler(new RetryHandlerOptions()),
     new RedirectHandler(new RedirectHandlerOptions()),
     new GraphCostMiddleware(),
     new TelemetryHandler(),

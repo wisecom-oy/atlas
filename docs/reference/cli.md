@@ -28,6 +28,18 @@ This matters beyond readability. Anything that post-processes the output, a log 
 
 Outlook mailbox backup, restore, and management commands. All mailbox operations live under this group; cross-cutting storage and replication commands remain at the root level.
 
+::: warning Scope flags: `-s` beats `-m`
+`restore`, `list` and `save` all select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox). When both are passed, `-s` wins, matching `atlas replicate`. A snapshot id names exactly one thing, so it is the narrower request, and Atlas never silently widens it.
+
+`list` and `save` warn that `-m` was ignored and carry on. `restore` refuses the pair outright and exits `1`, because `-m` there used to mean "restore this snapshot into that mailbox instead", so guessing would decide which mailbox receives the mail. Use `-T, --target` for that, which works in both modes:
+
+```bash
+atlas outlook restore -s <snapshot-id> -T other@company.com
+```
+
+`-T` never selects what to restore, only where it lands.
+:::
+
 ### `atlas outlook backup`
 
 Back up one mailbox from an M365 tenant to object storage, with a per-folder progress dashboard. The `-m` flag is required. To back up multiple mailboxes, enumerate them with `atlas outlook mailboxes` and loop in your scheduler (cron, systemd timer, CI); fan-out across mailboxes is scheduling and belongs to the caller.
@@ -60,6 +72,8 @@ Requesting retention is fail-closed: when the bucket has versioning or Object Lo
 `0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
 
 `restore` and `save` follow the same contract: a file they could not decrypt or write is counted as skipped, and any skipped file exits `2`. An export that produced an archive missing some of its files is not a success, and a cron job that only checks for `0` has to be able to see the difference.
+
+An **integrity failure** exits `2` as well. A message whose decrypted bytes do not match the checksum its manifest records is still written to the archive, but it is no longer known to be the content that was backed up, so the export is not a clean success. It is counted and reported separately from other per-item errors because the cause is different: the ciphertext decrypted correctly and the stored checksum disagrees with the result, which points at the manifest or at the object having been replaced rather than at a transport fault. Use `atlas outlook verify` to establish the scope before trusting the archive. Interrupting a `save` or `restore` with Ctrl+C also exits `2`, on the same reasoning as an interrupted backup.
 :::
 ::: details Page size tuning
 The `--page-size` flag controls how many messages are requested per Graph API delta page via the `Prefer: odata.maxpagesize` header. This is a _hint_: the server may return fewer items when response payloads are large (e.g. messages with heavy HTML bodies or many inline images). Lower values reduce memory pressure and allow partial progress to be saved more frequently during interrupts. Higher values reduce HTTP round-trips but increase per-page processing time. The default of 10 is a conservative starting point; increase if you have many small messages and want fewer round-trips.
@@ -137,11 +151,17 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date                |
 | `-t, --tenant <id>`         | Override tenant ID                                              |
 
-Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
+Exactly one of `--snapshot` or `--mailbox` is required; passing both exits `1`, as described under [`atlas outlook`](#atlas-outlook). `-T, --target` works in either mode. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
 Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path rather than imported as MIME. That is a deliberate choice: Graph's MIME import always marks the created message as a draft, and neither an `X-Unsent: 0` header nor a `PR_MESSAGE_FLAGS` patch clears the flag, so importing would hand the user thousands of drafts. The restored copy is therefore normal mail with its original timestamps, but it does not carry the original `Received:` chain. The archived object still does -- use [`atlas outlook save`](#atlas-outlook-save) when you need the original bytes.
+
+::: details `-f` and pre-2.1.0 MIME snapshots
+A folder filter matches on the `folder_id` recorded in the manifest. Snapshots written before Atlas stamped that field carry it on their Graph JSON entries, where it is recovered from the stored payload, but a MIME entry has nowhere to recover it from: RFC 822 does not record which folder a message sat in.
+
+Those entries are therefore skipped by `-f` and reported on stderr with a count. Restore or save the whole snapshot without `-f` to include them. Snapshots taken by any current version stamp `folder_id` on every entry and are unaffected.
+:::
 
 ### `atlas outlook list`
 
@@ -220,6 +240,8 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | `-o, --output <path>`       | Output file path (default: `Restore-<timestamp>.zip`)        |
 | `--skip-verify`             | Skip SHA-256 integrity checks (faster on low-power systems)  |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
+
+With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning; see [`atlas outlook`](#atlas-outlook). Earlier releases silently exported the whole mailbox instead.
 
 The zip archive mirrors the Outlook folder hierarchy:
 
@@ -362,7 +384,10 @@ A snapshot is a delta: its manifest lists only what changed in that run. `restor
 ```bash
 atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full
+atlas onedrive backup -o user@company.com --folder /Projects
 atlas onedrive restore -o user@company.com -s od-snap-1735689600000-a1b2c3
+atlas onedrive restore -o user@company.com -s od-snap-123 --destination /DR-drill
+atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
 atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@company.com
 atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
 atlas onedrive list-snapshots -o user@company.com
@@ -389,6 +414,7 @@ atlas onedrive delete -o user@company.com -y
 | ---------------------- | --------------------------------------------------------------------- |
 | `-o, --owner <id>`     | User email or Entra object ID (required)                              |
 | `--full`               | Force full crawl ignoring saved delta links                           |
+| `--folder <path>`      | Back up only this folder and its subfolders; see note below           |
 | `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below) |
 | `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
 | `-t, --tenant <id>`    | Override tenant ID from config                                        |
@@ -399,16 +425,29 @@ While the backup runs, a live dashboard shows one row per drive: delta fetch (`f
 Unlike Outlook (which stamps a per-object `retain_until` on each write), OneDrive and SharePoint apply immutability as **bucket default retention** (`PutObjectLockConfiguration`): every new object version (files, file versions, manifests, delta cursors) inherits the lock automatically, so no write path can bypass it. Two consequences: the setting **persists on the bucket** and covers all subsequent writes from any command, and the bucket must be lock-capable (created with Object Lock; see `atlas storage-check` and the migration runbook in the self-hosting docs) or the backup fails fast with `ObjectLockUnsupportedError`. Frequently-overwritten small objects (cursors, indexes) accumulate locked noncurrent versions until retention expires; the bucket housekeeping lifecycle rules clean them up afterwards.
 :::
 
+::: details How --folder interacts with delta state
+Graph's drive delta is drive-wide, so `--folder` filters the result rather than the query. The run still enumerates the whole drive, but only items inside the folder are downloaded, hashed, version-synced and written, which is where a drive backup spends its time.
+
+A saved delta link records how far the **drive** was consumed, not how far the folder was. Resuming one under a different scope would skip changes the previous run filtered out, so **changing `--folder` between runs forces a full re-crawl**, as does switching between a scoped and an unscoped backup. Repeated runs with the same value stay incremental. The scope in force is stored in the delta cursor, and the run logs the re-crawl when it detects a change.
+
+A snapshot taken with `--folder` contains only that folder's files. Restoring it restores only those files, so a scoped backup is not a substitute for a whole-drive one unless the scope covers everything you need.
+:::
+
 **`atlas onedrive restore`**
 
-| Option                     | Description                                                              |
-| -------------------------- | ------------------------------------------------------------------------ |
-| `-o, --owner <id>`         | User email or Entra object ID (required)                                 |
-| `-s, --snapshot <id>`      | Snapshot to restore from (required)                                      |
-| `--target-owner <id>`      | Restore to a different user's OneDrive (defaults to owner)               |
-| `--file-filter <paths...>` | Only restore specific files by ID or path                                |
-| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
-| `-t, --tenant <id>`        | Override tenant ID from config                                           |
+| Option                     | Description                                                                       |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `-o, --owner <id>`         | User email or Entra object ID (required)                                           |
+| `-s, --snapshot <id>`      | Snapshot to restore from (required)                                                |
+| `--target-owner <id>`      | Restore to a different user's OneDrive (defaults to owner)                         |
+| `--destination <path>`     | Folder to restore under, created when missing (default: `/Restore-<timestamp>`)    |
+| `--in-place`               | Restore to the original paths instead of a restore root                            |
+| `--name <filename>`        | Rename the restored file; rejected unless exactly one file matches                 |
+| `--file-filter <paths...>` | Only restore specific files by ID or path                                          |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)          |
+| `-t, --tenant <id>`        | Override tenant ID from config                                                     |
+
+A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-4.0.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
@@ -506,6 +545,7 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering 
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
+atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --destination /DR-drill
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
@@ -560,14 +600,22 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 
 **`atlas sharepoint restore`**
 
-| Option                      | Description                                                              |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)                          |
-| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                                        |
-| `--target-site <url-or-id>` | Restore to a different site (defaults to original)                       |
-| `--file-filter <paths...>`  | Only restore specific files (by ID or path)                              |
-| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`) |
-| `-t, --tenant <id>`         | Override tenant ID from config                                           |
+| Option                      | Description                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)                                |
+| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                                              |
+| `--target-site <url-or-id>` | Restore to a different site (defaults to original)                             |
+| `--destination <path>`      | Folder to restore under, created when missing (default: `/Restore-<timestamp>`) |
+| `--in-place`                | Restore to the original paths instead of a restore root                         |
+| `--name <filename>`         | Rename the restored file; rejected unless exactly one file matches             |
+| `--file-filter <paths...>`  | Only restore specific files (by ID or path)                                    |
+| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)       |
+| `-t, --tenant <id>`         | Override tenant ID from config                                                  |
+
+Restored files nest under `Restore-<timestamp>` in each destination library, with the original
+structure recreated beneath it. `--in-place` restores over the original paths, which was the
+behaviour before 4.0.0. See
+[Where restored files land](../sharepoint-backup.md#where-restored-files-land).
 
 With `--target-site`, each file goes to the target library whose name matches the
 one it was backed up from, or, when the restore comes from a single library,

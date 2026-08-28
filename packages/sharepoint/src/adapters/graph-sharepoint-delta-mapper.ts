@@ -17,6 +17,14 @@ export interface GraphDeltaDriveItem {
    * requested explicitly: `$select` strips it otherwise.
    */
   deleted?: { state?: string };
+  /**
+   * Non-null when Microsoft 365 has quarantined the item. Graph then refuses to
+   * serve its content, and the refusal surfaces as an aborted transfer rather
+   * than a clean 403, which `is_network_error` reads as retryable. Selecting the
+   * facet lets the pipeline skip the item instead of spending the full Graph
+   * retry budget on content that will never be served (issue #53).
+   */
+  malware?: Record<string, unknown>;
   '@removed'?: { reason: string };
   '@microsoft.graph.downloadUrl'?: string;
 }
@@ -54,6 +62,7 @@ export function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): Shar
     parent_path,
     size_bytes: raw.size ?? 0,
     deleted: is_deleted,
+    ...(raw.malware ? { quarantined: true } : {}),
     ...(raw.package ? { package_type: raw.package.type ?? 'unknown' } : {}),
     ...(raw.webUrl ? { web_url: raw.webUrl } : {}),
     ...(raw.eTag ? { etag: raw.eTag } : {}),

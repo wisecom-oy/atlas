@@ -24,7 +24,7 @@ import {
   SHAREPOINT_CONNECTOR_TOKEN,
   STATS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import { adapt_operation_options } from '@/operation-options';
+import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
 export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {
@@ -72,12 +72,16 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
       return await restore.restore_sharepoint(
         tenant_id,
         site_id,
-        adapt_operation_options(options)!,
+        adapt_required_operation_options(options, 'sharepoint.restore()'),
       );
     },
     async save(site_input, options) {
       const site_id = await resolve_site_id(site_input);
-      return await save.save_snapshot(tenant_id, site_id, adapt_operation_options(options)!);
+      return await save.save_snapshot(
+        tenant_id,
+        site_id,
+        adapt_required_operation_options(options, 'sharepoint.save()'),
+      );
     },
     async listSnapshots(site_input) {
       return await catalog.list_sharepoint_snapshots(tenant_id, await resolve_site_id(site_input));

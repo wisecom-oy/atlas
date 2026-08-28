@@ -7,6 +7,7 @@ import { CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import type { Manifest, AttachmentEntry } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
+import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook-scope';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -45,16 +46,20 @@ export async function execute_outlook_list(
 
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
 
-  if (options.snapshot) {
+  const scope = resolve_outlook_scope(options);
+  const conflict = describe_scope_conflict(scope);
+  if (conflict) logger.warn(conflict);
+
+  if (scope.mode === 'snapshot') {
     await print_snapshot_messages(
       catalog,
       tenant_id,
-      options.snapshot,
+      scope.snapshot,
       options.all,
       options.subjects,
     );
-  } else if (options.mailbox) {
-    await print_mailbox_snapshots(catalog, tenant_id, options.mailbox);
+  } else if (scope.mode === 'mailbox') {
+    await print_mailbox_snapshots(catalog, tenant_id, scope.mailbox);
   } else {
     await print_all_mailboxes(catalog, tenant_id);
   }

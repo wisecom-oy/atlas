@@ -9,6 +9,15 @@ export interface SharePointRestoreOptions extends OperationControlOptions {
   /** Only restore specific files (by file ID or full path). */
   readonly file_filter?: string[];
   readonly conflict_behavior?: SharePointRestoreConflictBehavior;
+  /**
+   * Folder to restore under, created when missing. Absent means a generated `Restore-{timestamp}`
+   * root in each destination library.
+   */
+  readonly destination?: string;
+  /** Restore to the original paths instead of nesting under a restore root. */
+  readonly in_place?: boolean;
+  /** Renames the restored file. Rejected unless the restore resolves to exactly one file. */
+  readonly rename_to?: string;
 }
 
 export interface SharePointRestoreResult {

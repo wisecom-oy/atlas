@@ -10,9 +10,12 @@ Run with `uv run python -m atlas_e2e.self_check`.
 from __future__ import annotations
 
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from atlas_e2e import cleanup, drive
 from atlas_e2e.atlas import Cli, Result
+from atlas_e2e.marker import PREFIX
 from atlas_e2e.config import Settings
 from atlas_e2e.scrub import scrub
 
@@ -108,11 +111,107 @@ def check_transcript_never_holds_output() -> None:
         assert "[exit 2]" in written, "the transcript lost the exit code"
 
 
+class _FakeGraph:
+    """Serves one page of children per path and records deletes. No transport, no tenant."""
+
+    def __init__(self, children_by_path: dict[str, list[dict[str, object]]]) -> None:
+        self._children_by_path = children_by_path
+        self.deleted: list[str] = []
+
+    def paged(self, url: str, **_params: object) -> list[dict[str, object]]:
+        return self._children_by_path.get(url, [])
+
+    def delete(self, url: str) -> None:
+        self.deleted.append(url.rsplit("/", 1)[-1])
+
+
+def _drive_item(name: str, item_id: str, age_hours: float = 0.0) -> dict[str, object]:
+    created = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    return {"id": item_id, "name": name, "createdDateTime": created.isoformat()}
+
+
+def _fake_drive(fixture_root: list[dict[str, object]], root: list[dict[str, object]]) -> _FakeGraph:
+    return _FakeGraph(
+        {
+            f"/drives/d1/root:/{drive.FIXTURE_ROOT}:/children": fixture_root,
+            "/drives/d1/root/children": root,
+        }
+    )
+
+
+_REAL_FILES = ("Contract.docx", "recovery-codes.txt", "Holiday.mp4")
+
+
+def check_cleanup_never_deletes_unmarked_items() -> None:
+    """The destructive boundary: cleanup may only delete what the suite named.
+
+    An earlier `sweep_drive` treated any unmarked item under the fixture root as debris, on the
+    theory that the folder was suite-owned. It deleted a tenant's real files. This runs before the
+    suite is allowed near a tenant, for the same reason the redaction checks do.
+
+    Discovery is stubbed out on purpose. `fixture_items` also filters by marker, and asserting
+    through it would let this pass while the deletion rule itself was unsafe. Each layer is checked
+    where it decides, so removing either one fails a check.
+    """
+    # Aged deliberately. For an unmarked item the staleness rule inverts: "old enough that no live
+    # run can own it" reads as permission to delete, so a real file became *more* deletable the
+    # longer it had existed. That is how the incident happened, and a fresh fixture would not
+    # reproduce it.
+    real = [_drive_item(name, f"id-{i}", age_hours=48) for i, name in enumerate(_REAL_FILES)]
+    graph = _fake_drive(fixture_root=[], root=[])
+    original = drive.fixture_items
+    drive.fixture_items = lambda *_args, **_kwargs: real  # type: ignore[assignment]
+    try:
+        removed = cleanup.sweep_drive(graph, "d1", f"{PREFIX}-run-1")  # type: ignore[arg-type]
+    finally:
+        drive.fixture_items = original  # type: ignore[assignment]
+
+    assert removed == [], f"cleanup deleted unmarked items: {removed}"
+    assert graph.deleted == [], f"cleanup issued deletes for unmarked items: {graph.deleted}"
+
+
+def check_fixture_discovery_only_returns_marked() -> None:
+    """Second layer: discovery must not hand cleanup anything unmarked in the first place."""
+    real = [_drive_item(name, f"id-{i}") for i, name in enumerate(_REAL_FILES)]
+    marked = _drive_item(f"{PREFIX}-run-1", "id-run")
+    graph = _fake_drive(fixture_root=[*real, marked], root=real)
+
+    found = drive.fixture_items(graph, "d1", PREFIX)  # type: ignore[arg-type]
+
+    assert [i["name"] for i in found] == [f"{PREFIX}-run-1"], f"discovery returned real files: {found}"
+
+
+def check_cleanup_still_removes_this_run() -> None:
+    """The other half: a guard that deletes nothing would pass the check above."""
+    this_run = f"{PREFIX}-run-1"
+    graph = _fake_drive(fixture_root=[_drive_item(this_run, "id-run")], root=[])
+
+    assert cleanup.sweep_drive(graph, "d1", this_run) == [this_run]  # type: ignore[arg-type]
+    assert graph.deleted == ["id-run"]
+
+
+def check_cleanup_spares_a_concurrent_run() -> None:
+    """A foreign marker is left until stale, so a live run is never swept from under."""
+    graph = _fake_drive(fixture_root=[_drive_item(f"{PREFIX}-run-2", "id-foreign")], root=[])
+
+    assert cleanup.sweep_drive(graph, "d1", f"{PREFIX}-run-1") == []  # type: ignore[arg-type]
+
+    stale = _fake_drive(
+        fixture_root=[_drive_item(f"{PREFIX}-run-2", "id-stale", age_hours=48)], root=[]
+    )
+    assert stale.deleted == []
+    assert cleanup.sweep_drive(stale, "d1", f"{PREFIX}-run-1") == [f"{PREFIX}-run-2"]  # type: ignore[arg-type]
+
+
 CHECKS = (
     check_settings_repr_hides_secrets,
     check_scrub_redacts_every_secret,
     check_result_streams_are_scrubbed,
     check_transcript_never_holds_output,
+    check_cleanup_never_deletes_unmarked_items,
+    check_fixture_discovery_only_returns_marked,
+    check_cleanup_still_removes_this_run,
+    check_cleanup_spares_a_concurrent_run,
 )
 
 
@@ -121,7 +220,7 @@ def main() -> None:
     for check in CHECKS:
         check()
         print(f"ok  {check.__name__}")
-    print(f"{len(CHECKS)} redaction check(s) passed.")
+    print(f"{len(CHECKS)} safety check(s) passed.")
 
 
 if __name__ == "__main__":

@@ -26,6 +26,11 @@ FIXTURE_BYTES = 4096
 # in an opt-in dispatch suite, not a nightly that pays real Graph quota for them.
 LARGE_FIXTURE_BYTES = 5 * 1024 * 1024
 
+# Every fixture the suite creates lives under one drive-root folder, so an operator has a single
+# place to look and a single thing to delete, and so a scoped backup (`--folder`) never has to
+# enumerate the account's real content. Nested per run: `E2E/atlas-e2e-<run-id>/...`.
+FIXTURE_ROOT = "E2E"
+
 
 @dataclass(frozen=True)
 class SeededFile:
@@ -78,11 +83,50 @@ def upload_file(graph: Graph, drive_id: str, folder: str, name: str, content: by
     )
 
 
+def fixture_folder(marker: str) -> str:
+    """This run's fixture folder, `E2E/<marker>`, relative to the drive root."""
+    return f"{FIXTURE_ROOT}/{marker}"
+
+
+def restore_destination(marker: str) -> str:
+    """Where this run sends restore output.
+
+    Issue #217 made a drive restore nest under a generated `Restore-<timestamp>` root at the drive
+    root. That is the right default for an operator, but it sits outside the marker namespace the
+    suite owns, and cleanup must never delete outside it, so the suite restores into its own fixture
+    folder instead and asserts the nesting there.
+    """
+    return f"/{fixture_folder(marker)}/restored"
+
+
+def restored_tree(marker: str) -> str:
+    """Restored files keep their original nesting beneath the destination."""
+    return f"{restore_destination(marker)}/{fixture_folder(marker)}"
+
+
+def ensure_fixture_folder(graph: Graph, drive_id: str, marker: str) -> None:
+    """Creates `E2E/<marker>`, and `E2E` itself when the drive has no fixture root yet.
+
+    Uploading by path only creates the immediate parent, so a two-level fixture path needs the
+    intermediate folder to exist. Both creates tolerate a folder that is already there.
+    """
+    for parent, name in (("root", FIXTURE_ROOT), (f"root:/{FIXTURE_ROOT}:", marker)):
+        try:
+            graph.post(
+                f"/drives/{drive_id}/{parent}/children",
+                {"name": name, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
+            )
+        except GraphError as err:
+            log.debug("Fixture folder %s already present or not creatable: %s", name, err)
+
+
 def seed_fixture_file(graph: Graph, drive_id: str, marker: str, versions: int = 1) -> SeededFile:
-    """Seeds `<marker>/<marker>-file.bin` with `versions` successive versions; returns the newest."""
+    """Seeds `E2E/<marker>/<marker>-file.bin` with `versions` successive versions; newest returned."""
+    ensure_fixture_folder(graph, drive_id, marker)
+    folder = fixture_folder(marker)
     seeded: SeededFile | None = None
     for _ in range(versions):
-        seeded = upload_file(graph, drive_id, marker, f"{marker}-file.bin", os.urandom(FIXTURE_BYTES))
+        seeded = upload_file(graph, drive_id, folder, f"{marker}-file.bin", os.urandom(FIXTURE_BYTES))
     assert seeded is not None
     return seeded
 
@@ -117,9 +161,10 @@ def upload_large_file(graph: Graph, drive_id: str, folder: str, name: str, conte
 
 
 def seed_large_fixture_file(graph: Graph, drive_id: str, marker: str) -> SeededFile:
-    """Seeds `<marker>/<marker>-large.bin` at 5 MB, above every 4 MB code path in backup and restore."""
+    """Seeds `E2E/<marker>/<marker>-large.bin` at 5 MB, above every 4 MB code path in the product."""
+    ensure_fixture_folder(graph, drive_id, marker)
     return upload_large_file(
-        graph, drive_id, marker, f"{marker}-large.bin", os.urandom(LARGE_FIXTURE_BYTES)
+        graph, drive_id, fixture_folder(marker), f"{marker}-large.bin", os.urandom(LARGE_FIXTURE_BYTES)
     )
 
 
@@ -164,7 +209,21 @@ def children(graph: Graph, drive_id: str, folder: str) -> list[dict[str, Any]]:
         return []
 
 
-def marked_root_folders(graph: Graph, drive_id: str, prefix: str) -> list[dict[str, Any]]:
-    """Root-level folders whose name carries an E2E marker; the cleanup target set."""
-    items = graph.paged(f"/drives/{drive_id}/root/children", **{"$select": "id,name,createdDateTime"})
-    return [i for i in items if str(i.get("name", "")).startswith(prefix)]
+def fixture_items(graph: Graph, drive_id: str, prefix: str) -> list[dict[str, Any]]:
+    """Marker-named folders cleanup may delete, from the fixture root and from the drive root.
+
+    Both locations are filtered by the marker prefix. Returning unfiltered children of the fixture
+    root once deleted a tenant's real files: the folder is suite-owned by convention only, and a
+    convention is not a safe basis for deletion. The drive root is still scanned because runs before
+    the fixture root existed seeded there, and because SharePoint libraries may hold that layout.
+    """
+    select = {"$select": "id,name,createdDateTime"}
+    marked: list[dict[str, Any]] = []
+    for path in (f"/drives/{drive_id}/root:/{FIXTURE_ROOT}:/children", f"/drives/{drive_id}/root/children"):
+        try:
+            marked.extend(
+                i for i in graph.paged(path, **select) if str(i.get("name", "")).startswith(prefix)
+            )
+        except GraphError as err:
+            log.debug("Could not list %s: %s", path, err)
+    return marked

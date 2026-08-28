@@ -25,6 +25,8 @@ import {
   type VersionStats,
 } from '@/services/onedrive-delta-item-processor';
 import { resolve_retry_items } from '@/services/onedrive-failed-item-retry';
+import { scoped_delta } from '@/services/onedrive-folder-scope';
+import { persist_scan_cursor } from '@/services/onedrive-scan-cursor-writer';
 import type { RunVersionCollector } from '@/services/onedrive-version-sync';
 import {
   make_item_progress_callback,
@@ -88,6 +90,7 @@ export async function scan_all_drives(
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   progress?: BackupProgressReporter,
   control: OperationControlOptions = {},
+  folder_scope?: string,
 ): Promise<DriveScanAccumulators> {
   // No index read here: version dedup rides on the delta cursor watermarks the
   // caller already loaded (issue #161).
@@ -118,7 +121,14 @@ export async function scan_all_drives(
         ? undefined
         : previous_cursor?.delta_link_by_drive[drive.drive_id];
       progress?.update_paging(index, 0, 0, 0);
-      const delta = await connector.fetch_delta(tenant_id, owner_id, drive.drive_id, prev_delta);
+      // Scoping filters the delta result rather than the query, because Graph's driveItem delta is
+      // drive-wide. Enumeration still pages the whole drive; nothing outside the scope is
+      // downloaded, hashed, version-synced or written, which is where the time goes.
+      const delta = scoped_delta(
+        await connector.fetch_delta(tenant_id, owner_id, drive.drive_id, prev_delta),
+        folder_scope,
+        tracking_state.previous_path_by_file_id,
+      );
       progress?.set_row_total?.(index, delta.items.length);
       totals.total += delta.items.length;
       progress?.mark_active(index);
@@ -162,15 +172,15 @@ export async function scan_all_drives(
       accumulate_drive_result(accumulators, delta_link_by_drive, drive, drive_result);
       accumulators.drives_scanned++;
 
-      // Saved even when items failed: the successful entries are real, and the
-      // ledger riding along is what keeps the failures from being forgotten.
-      await cursors.save(ctx, {
+      await persist_scan_cursor(
+        cursors,
+        ctx,
         owner_id,
         delta_link_by_drive,
-        ...tracking_state,
-        failed_items: accumulators.failed_items,
-        updated_at: new Date().toISOString(),
-      });
+        tracking_state,
+        accumulators.failed_items,
+        folder_scope,
+      );
       if (!drive_result.interrupted) {
         report_drive_success(
           progress,
@@ -244,11 +254,11 @@ export async function process_single_drive(
   on_item_processed?: (item: OneDriveDeltaItem) => void,
   control: OperationControlOptions = {},
 ): Promise<SingleDriveResult> {
+  const delta_item_ids = new Set(delta.items.map((item) => item.item_id));
   if (delta.reset_detected) {
-    clear_file_tracking_on_reset(state);
+    clear_file_tracking_on_reset(state, delta_item_ids);
   }
 
-  const delta_item_ids = new Set(delta.items.map((item) => item.item_id));
   const retry = await resolve_retry_items(
     connector,
     tenant_id,
@@ -311,6 +321,7 @@ export async function process_single_drive(
         drive_id: drive.drive_id,
         name: item.file_name,
         reason: outcome.error,
+        ...(outcome.permanent === true ? { permanent: true } : {}),
       });
       continue;
     }

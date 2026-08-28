@@ -32,6 +32,7 @@ export interface OneDriveTenantOptions {
 export interface OneDriveBackupOptions extends OneDriveTenantOptions {
   owner: string;
   full?: boolean;
+  folder?: string;
   retentionDays?: string;
   lockMode?: string;
 }
@@ -42,6 +43,9 @@ export interface OneDriveRestoreCommandOptions extends OneDriveTenantOptions {
   targetOwner?: string;
   fileFilter?: string[];
   conflict?: 'replace' | 'rename' | 'fail';
+  destination?: string;
+  inPlace?: boolean;
+  name?: string;
 }
 
 export interface OneDriveVerifyOptions extends OneDriveTenantOptions {
@@ -114,6 +118,7 @@ export async function execute_onedrive_backup(
 
   const result = await backup.backup_onedrive(tenant_id, owner.object_id, {
     force_full: options.full ?? false,
+    ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
     owner_email: owner.email,
     owner_display_name: owner.display_name,
     object_lock_request,
@@ -165,6 +170,9 @@ export async function execute_onedrive_restore(
     ...(target_owner ? { target_owner_id: target_owner.object_id } : {}),
     ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
     ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+    ...(options.destination ? { destination: options.destination } : {}),
+    ...(options.inPlace === true ? { in_place: true } : {}),
+    ...(options.name ? { rename_to: options.name } : {}),
   });
 
   await render_static_view(

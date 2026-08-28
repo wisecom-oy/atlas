@@ -40,6 +40,13 @@ Delta links are stored in the **encrypted manifest**, not in plaintext. They con
 
 The stale-delta safeguard exists to prevent a specific failure: an interrupted backup saving a delta link that skips all the messages it never actually stored.
 
+A full enumeration is scoped to the drive or library that triggered it. Delta
+links are per drive, so a site with several document libraries, or a user with
+more than one drive, keeps the valid links working while only the affected one
+rebaselines. Files in the rebaselining drive are recorded as `created` again,
+which is what a lost delta chain means; files elsewhere keep their history and a
+genuine edit there is still reported as `updated`.
+
 ## File version dedup (OneDrive and SharePoint)
 
 OneDrive and SharePoint backups capture more than the current copy of a file. For every file the delta stream reports as changed, Atlas also enumerates the file's **historical versions** through `GET /drives/{drive-id}/items/{item-id}/versions` and stores each one it has not captured before. The current version is skipped, because the manifest entry already covers it.
@@ -139,7 +146,7 @@ Microsoft Graph rate-limits requests to protect the service, and its front end r
 
 `500` and `502` are retried because Graph raises them for load and gateway faults that clear on their own; a single one mid-folder would otherwise fail that folder (Outlook) or discard the drive batch (OneDrive/SharePoint). `501` and every `4xx` are not retried, because repeating them returns the same answer.
 
-Backoff grows with each attempt and respects the server's `Retry-After` header when present. If all 12 retries are exhausted, the folder is marked failed and the backup continues with the remaining folders.
+Backoff grows with each attempt and respects the server's `Retry-After` header when present, in either form RFC 9110 allows: a number of seconds, or an HTTP-date to wait until. A header that is absent, unparseable, or already in the past falls back to the exponential schedule. If all 12 retries are exhausted, the folder is marked failed and the backup continues with the remaining folders.
 
 ## Interruption behavior
 

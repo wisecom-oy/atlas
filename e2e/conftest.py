@@ -119,7 +119,13 @@ def _teardown(
     for label, drive_id in _fixture_drives(graph, settings).items():
         try:
             removed = cleanup.sweep_drive(graph, drive_id, run_marker)
-            log.info("Teardown: removed %d %s folder(s)", len(removed), label)
+            log.info("Teardown: removed %d %s item(s)", len(removed), label)
+            # Logged, never raised: an exception here would replace the real test failure. Logged at
+            # error level so a run that could not clean up after itself is visible in the transcript
+            # rather than discovered later as accumulated fixtures in the tenant.
+            left = cleanup.surviving_drive_artifacts(graph, drive_id, run_marker)
+            if left:
+                log.error("Teardown: %s still holds this run's artifacts: %s", label, left)
         except Exception as err:  # noqa: BLE001 - same rule as above
             log.warning("Teardown: %s sweep failed: %s", label, err)
 

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from atlas_e2e import drive, storage
-from atlas_e2e.atlas import Cli
+from atlas_e2e.atlas import Cli, WHOLE_DRIVE_TIMEOUT
 from atlas_e2e.config import Settings
 
 STATE: dict[str, Any] = {}
@@ -42,14 +42,28 @@ def test_01_seed_a_file(graph: Any, settings: Settings, run_marker: str) -> None
     assert drive.file_sha256(graph, drive_id, STATE["large"].path) == STATE["large"].sha256
 
 
-def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any) -> None:
+def test_02_backup_writes_blobs_and_index(
+    cli: Cli, settings: Settings, s3: Any, run_marker: str
+) -> None:
     """Backs up the owner's drive and asserts blobs, a manifest, and a version index landed.
 
-    `onedrive backup` has no folder scope -- it syncs the whole drive -- so absolute object counts
-    include whatever else the owner has. Assertions here are existence-based, and the per-version
-    assertion below is a delta.
+    Scoped to this run's fixture folder with `--folder`. Without it the backup syncs the owner's
+    entire drive, so the suite's runtime and object counts depended on whatever else that account
+    happened to hold, and a drive with many items pushed the call past its timeout. Scoping keeps
+    the assertions about the fixtures and nothing else.
+
+    The timeout stays generous anyway: Graph's driveItem delta is drive-wide, so the enumeration
+    still pages the whole drive even though only the scoped items are downloaded.
     """
-    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner)
+    cli.ok(
+        "onedrive",
+        "backup",
+        "-o",
+        settings.onedrive_owner,
+        "--folder",
+        f"/{drive.fixture_folder(run_marker)}",
+        timeout=WHOLE_DRIVE_TIMEOUT,
+    )
 
     owner = _owner_segment(s3, settings.bucket)
     STATE["owner"] = owner
@@ -59,12 +73,15 @@ def test_02_backup_writes_blobs_and_index(cli: Cli, settings: Settings, s3: Any)
     STATE["snapshot"] = snapshots[0]
 
     assert storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"), "no file blob written"
-    assert f"onedrive/index/{owner}/files/{STATE['file'].item_id}.json" in storage.list_keys(
-        s3, settings.bucket, f"onedrive/index/{owner}/files/"
-    ), "the seeded file has no version index of its own"
-    assert f"onedrive/index/{owner}/files/{STATE['large'].item_id}.json" in storage.list_keys(
-        s3, settings.bucket, f"onedrive/index/{owner}/files/"
-    ), "the 5 MB file has no version index of its own"
+
+    # One version-index object per run, not per file: issue #161 retired the
+    # `index/<owner>/files/<item_id>.json` layout because Hetzner bills a 64 KB minimum per object.
+    # Reads still merge legacy per-file objects, but a fresh bucket has none, so the run shard is the
+    # only thing that can be asserted from key names here. Per-file visibility is covered by
+    # `list-versions` in the next test, which exercises the read path.
+    assert f"onedrive/index/{owner}/runs/{STATE['snapshot']}.json" in storage.list_keys(
+        s3, settings.bucket, f"onedrive/index/{owner}/runs/"
+    ), "the run wrote no version index shard"
 
 
 def test_03_a_new_version_is_stored_incrementally(
@@ -81,7 +98,17 @@ def test_03_a_new_version_is_stored_incrementally(
     before = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
 
     STATE["file"] = drive.seed_fixture_file(graph, STATE["drive_id"], run_marker)
-    cli.ok("onedrive", "backup", "-o", settings.onedrive_owner)
+    # Same scope as the initial run: a scope change would force a re-crawl instead of
+    # resuming the delta link, and this test is specifically about the incremental path.
+    cli.ok(
+        "onedrive",
+        "backup",
+        "-o",
+        settings.onedrive_owner,
+        "--folder",
+        f"/{drive.fixture_folder(run_marker)}",
+        timeout=WHOLE_DRIVE_TIMEOUT,
+    )
 
     after = set(storage.list_keys(s3, settings.bucket, f"onedrive/data/{owner}/"))
     assert len(after - before) == 1, f"expected one new version blob, got {len(after - before)}"
@@ -96,7 +123,15 @@ def test_03_a_new_version_is_stored_incrementally(
 
 def test_04_verify_passes(cli: Cli, settings: Settings) -> None:
     """Deep verification of the snapshot: blobs decrypt, hash, and match the index rows."""
-    cli.ok("onedrive", "verify", "-o", settings.onedrive_owner, "-s", STATE["snapshot"])
+    cli.ok(
+        "onedrive",
+        "verify",
+        "-o",
+        settings.onedrive_owner,
+        "-s",
+        STATE["snapshot"],
+        timeout=WHOLE_DRIVE_TIMEOUT,
+    )
 
 
 def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, run_marker: str) -> None:
@@ -115,6 +150,7 @@ def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
         STATE["snapshot"],
         "-O",
         str(archive),
+        timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
     assert archive.exists(), f"{archive} was not written"
@@ -127,12 +163,15 @@ def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, r
         assert zf.getinfo(large).file_size == drive.LARGE_FIXTURE_BYTES
 
 
-def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Settings) -> None:
-    """Deletes the file from OneDrive and restores it from the snapshot.
+def test_06_restore_recreates_a_deleted_file(
+    cli: Cli, graph: Any, settings: Settings, run_marker: str
+) -> None:
+    """Deletes the files from OneDrive and restores them under this run's destination.
 
-    `--conflict rename` is the default and is passed explicitly: OneDrive restore writes back to the
-    original `parent_path` with no `Restore-` root of its own, so an unexpected collision must never
-    overwrite live data.
+    Issue #217: a restore now nests under a root instead of writing back over live content. The
+    suite passes `--destination` rather than taking the default `Restore-<timestamp>` root, because
+    that default lands at the drive root, outside the marker namespace cleanup is allowed to touch.
+    `--conflict rename` is still passed explicitly: an unexpected collision must never overwrite.
     """
     for file in (STATE["file"], STATE["large"]):
         drive.delete_item(graph, STATE["drive_id"], file.item_id)
@@ -147,19 +186,30 @@ def test_06_restore_recreates_a_deleted_file(cli: Cli, graph: Any, settings: Set
         STATE["snapshot"],
         "-c",
         "rename",
+        "--destination",
+        drive.restore_destination(run_marker),
+        timeout=WHOLE_DRIVE_TIMEOUT,
     )
 
 
 def test_07_restored_bytes_match_the_seed(graph: Any, settings: Settings, run_marker: str) -> None:
     """Both restored files hash to their newest seeded version, read back through Graph."""
-    restored = drive.children(graph, STATE["drive_id"], run_marker)
-    assert restored, f"no files under /{run_marker} after restore"
+    tree = drive.restored_tree(run_marker)
+    restored = drive.children(graph, STATE["drive_id"], tree.lstrip("/"))
+    assert restored, f"no files under {tree} after restore"
 
     digests = {
-        drive.file_sha256(graph, STATE["drive_id"], f"/{run_marker}/{item['name']}") for item in restored
+        drive.file_sha256(graph, STATE["drive_id"], f"{tree}/{item['name']}") for item in restored
     }
     assert STATE["file"].sha256 in digests, "no restored file matches the seeded bytes"
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
+
+    # The point of the restore root: live content is left alone. These paths were deleted in
+    # test_06 and a pre-#217 restore would have put them back, mixed in with real files.
+    for file in (STATE["file"], STATE["large"]):
+        assert (
+            drive.file_sha256(graph, STATE["drive_id"], file.path) is None
+        ), f"restore wrote back to the original path {file.path}"
 
 
 def test_08_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:

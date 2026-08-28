@@ -36,6 +36,11 @@ import {
   restorable_entries,
 } from '@/services/sharepoint-manifest-chain';
 import { ensure_sharepoint_folder_path } from '@/services/sharepoint-restore-folder-path';
+import {
+  assert_renameable,
+  resolve_restore_root,
+  restore_parent_path,
+} from '@wisecom/atlas-core/services/shared/restore-destination';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
 
@@ -103,6 +108,8 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         restorable_entries(chain.entries),
         options.file_filter,
       );
+      assert_renameable(options.rename_to, restorable.length);
+      const restore_root = resolve_restore_root(options);
       const routing: EntryRouting = {
         cross_site,
         target_libraries,
@@ -135,6 +142,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
             entry,
             folder_ids,
             errors,
+            { root: restore_root, file_name: options.rename_to ?? entry.file_name },
           );
           if (outcome === 'restored') files_restored++;
           else files_skipped++;
@@ -222,20 +230,22 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     entry: SharePointManifestEntry,
     folder_ids: Map<string, string>,
     errors: string[],
+    placement: { readonly root: string; readonly file_name: string },
   ): Promise<'restored' | 'skipped'> {
+    const target_path = restore_parent_path(placement.root, entry.parent_path);
     try {
       const parent_id = await ensure_sharepoint_folder_path(
         this._connector,
         tenant_id,
         target_site,
         destination_drive_id,
-        entry.parent_path,
+        target_path,
         folder_ids,
       );
 
       if (parent_id === undefined) {
         errors.push(
-          `Could not create folder path: ${entry.parent_path} in drive ${destination_drive_id}`,
+          `Could not create folder path: ${target_path} in drive ${destination_drive_id}`,
         );
         return 'skipped';
       }
@@ -254,7 +264,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           target_site,
           destination_drive_id,
           parent_id,
-          entry.file_name,
+          placement.file_name,
           content,
           conflict,
         );
@@ -264,14 +274,14 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           target_site,
           destination_drive_id,
           parent_id,
-          entry.file_name,
+          placement.file_name,
           content,
           conflict,
         );
       }
 
       logger.info(
-        `Restored: ${entry.parent_path}/${entry.file_name} (drive: ${destination_drive_id})`,
+        `Restored: ${target_path}/${placement.file_name} (drive: ${destination_drive_id})`,
       );
       return 'restored';
     } catch (err) {

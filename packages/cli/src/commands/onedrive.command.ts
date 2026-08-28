@@ -47,6 +47,10 @@ function register_onedrive_backup(group: Command, get_container: ContainerFactor
     .description('Back up changed OneDrive files for one user')
     .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
     .option('--full', 'force full crawl ignoring saved delta state')
+    .option(
+      '--folder <path>',
+      'only back up this folder and its subfolders (e.g. /Projects); changing it forces a full crawl',
+    )
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option(
       '--retention-days <n>',
@@ -64,6 +68,12 @@ function register_onedrive_restore(group: Command, get_container: ContainerFacto
     .requiredOption('-s, --snapshot <id>', 'snapshot identifier')
     .option('--target-owner <id>', 'target user email or Entra object ID (defaults to owner)')
     .option('--file-filter <paths...>', 'only restore specific files (by ID or path)')
+    .option(
+      '--destination <path>',
+      'restore under this folder instead of a generated Restore-<timestamp> root',
+    )
+    .option('--in-place', 'restore to the original paths, mixing files into live content')
+    .option('--name <filename>', 'rename the restored file; requires a single-file restore')
     .addOption(
       new Option('-c, --conflict <mode>', 'file conflict policy (default: rename)').choices([
         'replace',

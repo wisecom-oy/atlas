@@ -33,6 +33,13 @@ export interface OneDriveBackupOptions extends OperationControlOptions {
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
   /**
+   * Restrict the backup to one folder and its descendants, e.g. `/Projects`.
+   * Absent backs up the whole drive. Changing the scope between runs forces a
+   * full re-crawl, because a delta link is drive-wide and cannot be resumed
+   * under a different filter.
+   */
+  readonly folder_scope?: string | undefined;
+  /**
    * Object Lock retention applied as the bucket's default retention before
    * the run: every new object version (files, versions, manifests, cursors)
    * inherits the lock. Persists on the bucket for subsequent writes.

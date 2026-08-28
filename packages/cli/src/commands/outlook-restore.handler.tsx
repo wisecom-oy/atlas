@@ -5,6 +5,8 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atlas-types';
 import { RESTORE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
+import { report_run_outcome } from '@/command-run-outcome';
+import { resolve_outlook_scope } from '@/commands/outlook-scope';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -23,16 +25,23 @@ export interface OutlookRestoreOptions {
   endDate?: string;
 }
 
-/** Validates that exactly one of --snapshot or --mailbox is provided. */
+/** Validates the scope flags, refusing the combinations that would restore to a guessed mailbox. */
 function validate_restore_options(options: OutlookRestoreOptions): void {
   if (!options.snapshot && !options.mailbox) {
     logger.error('Either --snapshot (-s) or --mailbox (-m) is required.');
     process.exit(1);
   }
-  if (options.snapshot && options.mailbox && !options.target) {
-    // When both -s and -m given, -m acts as target override (legacy behavior)
+  if (options.snapshot && options.mailbox) {
+    // Restore used to take -m here as a cross-mailbox target, which -T already means and which
+    // nothing documented. Guessing between "the snapshot's own mailbox" and "the one named by -m"
+    // decides which mailbox receives the mail, so this refuses instead (issue #201).
+    logger.error(
+      'Pass either --snapshot (-s) or --mailbox (-m), not both. ' +
+        'To restore a snapshot into a different mailbox, use --snapshot with --target (-T).',
+    );
+    process.exit(1);
   }
-  if ((options.startDate || options.endDate) && options.snapshot && !options.mailbox) {
+  if ((options.startDate || options.endDate) && options.snapshot) {
     logger.error('--start-date / --end-date can only be used with --mailbox (-m).');
     process.exit(1);
   }
@@ -65,16 +74,12 @@ export async function execute_outlook_restore(
     </Box>,
   );
 
-  if (options.snapshot && !options.mailbox) {
+  // validate_restore_options has already refused the ambiguous pair, so exactly one is set.
+  const scope = resolve_outlook_scope(options);
+  if (scope.mode === 'snapshot') {
     return execute_snapshot_restore(restore_service, tenant_id, options);
   }
-
-  if (options.mailbox && !options.snapshot) {
-    return execute_mailbox_restore(restore_service, tenant_id, options);
-  }
-
-  // Both -s and -m: legacy behavior where -m is target override
-  return execute_snapshot_restore(restore_service, tenant_id, options);
+  return execute_mailbox_restore(restore_service, tenant_id, options);
 }
 
 /** Snapshot-mode restore: restore from a single snapshot. */
@@ -86,13 +91,16 @@ async function execute_snapshot_restore(
   const items: KeyValueItem[] = [{ label: 'Snapshot', value: options.snapshot! }];
   if (options.folder) items.push({ label: 'Folder filter', value: options.folder });
   if (options.message) items.push({ label: 'Message', value: options.message });
-  if (options.mailbox) items.push({ label: 'Target mailbox', value: options.mailbox });
+  // -T is the documented way to redirect a restore. It used to be read only in mailbox mode, so
+  // `restore -s <id> -T other@example.com` silently restored to the original mailbox while the
+  // undocumented `-m` spelling worked (issue #201).
+  if (options.target) items.push({ label: 'Target mailbox', value: options.target });
   await render_static_view(<KeyValueList items={items} />);
 
   const restore_options: RestoreOptions = {
     ...(options.folder && { folder_name: options.folder }),
     ...(options.message && { message_ref: options.message }),
-    ...(options.mailbox && { target_mailbox: options.mailbox }),
+    ...(options.target && { target_mailbox: options.target }),
     create_progress: create_transfer_progress('restored'),
   };
 
@@ -132,7 +140,7 @@ async function execute_mailbox_restore(
 
 /** Prints a human-readable summary of the restore result. */
 async function report_restore_result(result: RestoreResult): Promise<void> {
-  if (result.error_count === 0) {
+  if (result.error_count === 0 && !result.interrupted) {
     const entries: SummaryEntry[] = [
       { label: 'messages restored', value: result.restored_count, color: 'green' },
     ];
@@ -148,7 +156,18 @@ async function report_restore_result(result: RestoreResult): Promise<void> {
     return;
   }
 
-  logger.warn(`Restored ${result.restored_count} messages with ${result.error_count} errors`);
-  await render_static_view(<ErrorList errors={result.errors} />);
-  process.exitCode = 1;
+  logger.warn(`Restored ${result.restored_count} messages`);
+  if (result.errors.length > 0) {
+    await render_static_view(<ErrorList errors={result.errors} />);
+  }
+  // Shared with the OneDrive and SharePoint handlers: a restore that dropped
+  // messages is partial (2), not a hard failure (1).
+  report_run_outcome(
+    {
+      errors: result.errors,
+      warnings: result.verification_warnings,
+      interrupted: result.interrupted,
+    },
+    'message',
+  );
 }

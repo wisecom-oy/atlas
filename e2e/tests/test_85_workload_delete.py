@@ -9,7 +9,11 @@ and it leaves the drive prefixes populated so `test_90_purge` still proves the c
 it claims to. The owner and site scopes are covered by the CLI unit suite, which can assert the
 use-case call without erasing a live tenant's backup.
 
-Runs after replication (`test_40`) because that suite reads the drive snapshots this one touches.
+Runs after replication (`test_40`), which destroys the primary bucket and rehydrates it from the
+replica. The drive snapshots asserted here are therefore the rehydrated copies, which makes this a
+stronger check than it looks: it only passes if the drives survived the whole replicate, purge and
+rehydrate loop. That is exactly what failed before issue #210, when `test_40` replicated the mailbox
+alone and the drives never came back.
 """
 
 from __future__ import annotations

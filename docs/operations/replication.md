@@ -47,6 +47,8 @@ Objects are always copied in this order:
 
 If replication crashes at any point, the target is left in a safe state: orphan data blobs exist (harmless, reclaimable), but no manifest ever references missing objects. Rerunning replication picks up where it left off.
 
+The same guarantee covers a run that completes with failures instead of crashing. If any object fails to copy, the manifest is not written at all, so the snapshot still counts as unreplicated and the next run retries it. This applies to Outlook, OneDrive and SharePoint alike. Whether a snapshot needs replicating is decided by manifest presence on the target, so a manifest written after a partial copy would make the failure permanent: the retry would report nothing to do while the missing objects stayed missing.
+
 ## Safety model
 
 ### Primary is authoritative
@@ -71,7 +73,7 @@ Because the same passphrase protects all copies, compromising the passphrase com
 
 ### DEK mismatch protection
 
-Before every replication, Atlas validates that source and target share the same encryption key. If you purge and re-initialize a tenant on primary (generating a new DEK), Atlas refuses to replicate to a target that still holds objects encrypted with the old key:
+Before replicating to a target, Atlas validates that source and target share the same encryption key. The check runs once per target per run, before the first snapshot is copied. If you purge and re-initialize a tenant on primary (generating a new DEK), Atlas refuses to replicate to a target that still holds objects encrypted with the old key:
 
 ```
 Error: Target has a different encryption key than the source.

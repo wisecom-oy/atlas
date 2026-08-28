@@ -156,6 +156,21 @@ Atlas does **not** import archived MIME back into Exchange. Live testing establi
 
 The archived object keeps full fidelity either way. When an operator needs the original bytes -- for a legal hold, a forensic review, or DKIM verification -- `atlas outlook save` is the path that delivers them, and it never touches the live mailbox.
 
+### Content Microsoft 365 refuses to release
+
+Some drive content cannot be archived at all, because the service will not serve it. Malware-quarantined files are the clear case: Microsoft blocks the download by policy, so no backup tool can capture the bytes.
+
+Atlas selects the Graph `malware` facet during delta enumeration and skips a quarantined item without attempting the download. The item is then recorded in the drive's failed-item ledger, reported on every run, and the run is marked `UNHEALTHY` with a non-zero exit code. An operator can always answer which files are absent from a backup and why, which is the property that matters for an audit.
+
+Two consequences worth stating plainly:
+
+- **The quarantined file is not in your backup.** Atlas reports it rather than silently omitting it, but a restore cannot produce a file the service never released. If the content matters, it has to be cleaned or released in Microsoft 365 first.
+- **Retrying is not a workaround.** A quarantine is a policy state, so quarantined items do not consume the 5-attempt retry budget that transient failures use. Attempting the download is worse than useless: Graph aborts the transfer instead of returning a clean 403, an aborted transfer is indistinguishable from a network fault, and the request therefore inherits the full Graph retry budget of 12 attempts across roughly 23 minutes. One quarantined file could stall a whole drive backup for that long on every run.
+
+::: warning Sensitivity labels are not captured
+Atlas does not currently capture Microsoft Purview sensitivity labels or IRM protection state for drive items. Labelled files whose content Graph does serve are backed up as ciphertext like any other file, but the label itself is not recorded, so a restored copy does not carry its original classification. Treat restored content as unclassified until it is relabelled. Capturing label metadata is tracked separately; it is a metered Graph surface and is deliberately out of scope for the quarantine handling described above.
+:::
+
 ## Integrity Validation
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
@@ -212,6 +227,12 @@ This means:
 - **One passphrase protects all copies.** Compromising the passphrase compromises data on every target.
 - **One DEK per tenant across all targets.** The wrapped DEK (`_meta/dek.enc`) is copied to each target on first replication.
 
+### Key material lifetime
+
+Opening a storage target derives an envelope key service from the passphrase and unwraps the tenant DEK, so every target a replication run touches holds key material in memory for as long as its context is open. Atlas closes each context as soon as the copy it was opened for finishes, on the failure path as well as the success path, which zeroes the passphrase buffer instead of leaving it for garbage collection.
+
+This bounds exposure to the duration of one snapshot copy rather than the whole run. It is defence in depth rather than a boundary: a process that can read Atlas's heap while a copy is in flight can read the key anyway, and Node offers no guarantee that a buffer is not copied elsewhere before it is zeroed. What it does remove is key material sitting in a long-lived process after the work that needed it is over.
+
 ### Access Isolation
 
 While encryption keys are shared, **S3 access credentials should be separate per target**. Use independent IAM principals for each storage endpoint:
@@ -225,6 +246,8 @@ If an attacker compromises one target's S3 credentials, they can read that targe
 ### DEK Mismatch Protection
 
 Atlas validates encryption key consistency before every replication and rehydration. If the primary tenant was purged and re-initialized (generating a new DEK), replication to a target with the old DEK is refused with an explicit error. This prevents a scenario where objects encrypted with different keys coexist on the same target, making older objects permanently undecryptable.
+
+The check runs once per target per run, before the first snapshot is copied, rather than once per snapshot. Whether two buckets share a DEK is a property of the pair, and each check unwraps both wrapped DEKs, which is two scrypt derivations at N=65536. A target that fails the check is refused before anything is written to it.
 
 ### Replica Marker
 

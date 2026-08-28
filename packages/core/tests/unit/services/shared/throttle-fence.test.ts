@@ -76,4 +76,36 @@ describe('ThrottleFence', () => {
     const spread = Math.max(...results) - Math.min(...results);
     expect(spread).toBeLessThan(50);
   });
+
+  /**
+   * Issue #196. An awaited promise is not a libuv handle, so if the only thing
+   * keeping the loop alive is this timer and it is unref'd, Node exits 0 with
+   * every caller still parked in wait(): a truncated backup that reports
+   * success. Verified out of band, before the fix, with a script that raised a
+   * fence, awaited wait() and exited at 0ms without ever resolving.
+   */
+  it('keeps the event loop alive while callers are parked', async () => {
+    const real_set_timeout = globalThis.setTimeout;
+    const unref_calls: number[] = [];
+
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      const timer = real_set_timeout(fn, ms);
+      const real_unref = timer.unref.bind(timer);
+      timer.unref = () => {
+        unref_calls.push(ms ?? 0);
+        return real_unref();
+      };
+      return timer;
+    }) as typeof globalThis.setTimeout;
+
+    try {
+      fence = new ThrottleFence();
+      fence.raise(0.05);
+      await fence.wait();
+    } finally {
+      globalThis.setTimeout = real_set_timeout;
+    }
+
+    expect(unref_calls).toEqual([]);
+  });
 });

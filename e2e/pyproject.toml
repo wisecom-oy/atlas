@@ -18,7 +18,9 @@ package = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # -p no:randomly: the lifecycle suites are ordered on purpose (seed before restore).
-addopts = "-ra --strict-markers --junitxml=report.xml"
+# --durations: a live-tenant run is dominated by a handful of tests, and finding which ones
+# previously meant reconstructing timings from log timestamps by hand (issue #211).
+addopts = "-ra --strict-markers --durations=15 --junitxml=report.xml"
 markers = [
 ]
 log_cli = true

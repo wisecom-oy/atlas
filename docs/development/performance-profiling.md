@@ -18,6 +18,8 @@ pnpm run perf:restore -- -s <snapshot-id> -m target@example.com
 pnpm run perf:analyze -- .perf-output/CPU.20260506.123456.12345.0.001.cpuprofile
 ```
 
+Profiling runs the built CLI, so `pnpm run build` has to have produced `packages/cli/dist/`. The profiler resolves that entry from the CLI package's own `bin` field rather than a hardcoded filename, and stops with a message naming the missing file if the build is absent, instead of profiling a failed module load.
+
 ## How It Works
 
 The profiler uses Node.js built-in V8 CPU profiling (`--cpu-prof`) to sample the call stack at 500-microsecond intervals while Atlas runs. After the process exits, the captured `.cpuprofile` is parsed into an aggregated report.
@@ -26,7 +28,7 @@ The profiler uses Node.js built-in V8 CPU profiling (`--cpu-prof`) to sample the
 atlas CLI process
     |
     v
-node --cpu-prof --cpu-prof-dir=.perf-output packages/cli/dist/cli.js backup ...
+node --cpu-prof --cpu-prof-dir=.perf-output packages/cli/dist/cli.mjs backup ...
     |
     v
 .perf-output/CPU.*.cpuprofile   (raw V8 profile)

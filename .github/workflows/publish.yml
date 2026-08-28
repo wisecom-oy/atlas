@@ -57,7 +57,40 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          if [ "$GITHUB_REF_TYPE" = tag ] || [ -n "$INPUT_VERSION" ]; then
+          # A tag ref is already the thing to publish.
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Manual dispatch. This is the repair path for the case where GitHub
+          # created no run for the push to main, so nothing tagged the release
+          # (issue #212). It used to assume the tag existed and hand `publish` a
+          # ref that did not, which failed inside actions/checkout with a bare
+          # git exit code and no mention of the tag.
+          if [ -n "$INPUT_VERSION" ]; then
+            if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+              echo "v$VERSION is already tagged; publishing that tag."
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            # Tag the dispatched ref, but only when its packages really say this
+            # version. A tag that disagrees with the packages is what hard rule 5
+            # forbids, and the automated path must not do what an operator is told
+            # not to do by hand.
+            PACKAGE_VERSION=$(node -p "require('./packages/sdk/package.json').version")
+            if [ "$PACKAGE_VERSION" != "$VERSION" ]; then
+              echo "::error::Cannot tag v$VERSION: $GITHUB_REF_NAME has packages at $PACKAGE_VERSION." \
+                "Dispatch against a ref whose packages match the requested version."
+              exit 1
+            fi
+
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a "v$VERSION" -m "Release v$VERSION"
+            git push origin "v$VERSION"
+            echo "Tagged v$VERSION on $GITHUB_REF_NAME."
             echo "publish=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi

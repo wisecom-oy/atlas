@@ -36,12 +36,31 @@ export interface DeltaItemOutcome {
   files_deduplicated: number;
   deleted_items: number;
   error?: string;
+  /** The error is a policy refusal, so retrying it on later runs is pointless. */
+  permanent?: boolean;
 }
 
-/** Clears file tracking maps when Graph signals a delta reset. */
-export function clear_file_tracking_on_reset(state: DriveTrackingState): void {
-  for (const [fid, kind] of Object.entries(state.previous_kind_by_file_id)) {
-    if (kind === 'file') {
+/**
+ * Forgets tracking for the files a reset re-enumerates, so they rebaseline as
+ * `created`.
+ *
+ * Scoped to the ids the resetting delta returned rather than the whole map. The
+ * maps are keyed by file id alone and shared by every drive an owner has, so
+ * clearing all of them let one drive's dead delta link wipe its siblings' path,
+ * name and etag records, and a genuine change elsewhere then looked like a first
+ * backup (issue #199). With `--folder` in play the delta is already scoped, so
+ * this also stops a reset from forgetting files outside the scope it never read.
+ *
+ * A reset delta is a full enumeration, so its ids are exactly the entries that
+ * need forgetting. That holds for cursors written before this fix too, which is
+ * why nothing has to be migrated.
+ */
+export function clear_file_tracking_on_reset(
+  state: DriveTrackingState,
+  reset_item_ids: Iterable<string>,
+): void {
+  for (const fid of reset_item_ids) {
+    if (state.previous_kind_by_file_id[fid] === 'file') {
       delete state.previous_path_by_file_id[fid];
       delete state.previous_name_by_file_id[fid];
       delete state.previous_etag_by_file_id[fid];
@@ -90,6 +109,20 @@ export async function process_delta_item(
       files_stored: 0,
       files_deduplicated: 0,
       deleted_items: 1,
+    };
+  }
+
+  // Quarantined content is never served, so attempting the download only burns
+  // the Graph retry budget: the refusal arrives as an aborted transfer, which
+  // `is_network_error` classifies as retryable, and a single blocked file can
+  // then hold a backup for the full ~23 minute budget (issue #53).
+  if (item.quarantined === true) {
+    return {
+      files_stored: 0,
+      files_deduplicated: 0,
+      deleted_items: 0,
+      error: `Quarantined by Microsoft 365 malware policy: ${item.file_name} (${item.item_id})`,
+      permanent: true,
     };
   }
 
