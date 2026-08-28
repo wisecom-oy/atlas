@@ -2,6 +2,8 @@ import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { UserIdentityResolver, ResolvedUserIdentity } from '@wisecom/atlas-types';
 import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+import { describe_graph_error, is_retryable_error } from '@/graph-error-helpers';
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
 @injectable()
@@ -24,7 +26,15 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
     };
   }
 
-  /** Graph-only resolver cannot do reverse lookups without an object ID query. Returns undefined. */
+  /**
+   * Reverse lookup of an Entra object ID, or undefined when Graph says there is no such user.
+   *
+   * Only a 404 means "no such object". A 5xx or a dropped socket means Graph could not answer, and
+   * collapsing that into the same undefined told callers a user does not exist because the service
+   * was briefly unavailable (issue #202). Those rethrow so the caller can retry or report. Anything
+   * else rethrows too: a 403 is a missing `User.Read.All` grant, which would otherwise degrade
+   * every identity lookup in the tenant to a silent nothing that looks exactly like a typo.
+   */
   async resolve_by_object_id(
     _tenant_id: string,
     object_id: string,
@@ -39,7 +49,11 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
         display_name: response.displayName ?? object_id,
         email: response.mail ?? response.userPrincipalName ?? '',
       };
-    } catch {
+    } catch (err) {
+      if (is_retryable_error(err)) throw err;
+      if ((err as Record<string, unknown>).statusCode !== 404) throw err;
+
+      logger.debug(`Graph has no user for object ID ${object_id}: ${describe_graph_error(err)}`);
       return undefined;
     }
   }
