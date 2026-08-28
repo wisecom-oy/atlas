@@ -26,13 +26,34 @@ program
 
     console.log('[atlas-perf] Starting profiled run...\n');
 
-    const result = await run_profiled({
-      atlas_args,
-      output_dir,
-      use_0x: opts.flamegraph,
-    });
+    let result;
+    try {
+      result = await run_profiled({
+        atlas_args,
+        output_dir,
+        use_0x: opts.flamegraph,
+      });
+    } catch (err) {
+      // Setup problems, a missing CLI build above all, are operator mistakes rather than crashes,
+      // so they get the message without a stack trace on top of it.
+      console.error(`[atlas-perf] ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+      return;
+    }
 
     console.log(`\n[atlas-perf] Process exited with code ${result.exit_code}`);
+
+    if (result.exit_code !== 0) {
+      // A profile of a failed run measures the failure. Reporting on it looked like a successful
+      // analysis and exited 0, which is how a broken CLI path went unnoticed (issue #207).
+      console.error(
+        '[atlas-perf] The profiled command failed, so there is nothing worth analysing. ' +
+          'Fix the command first, then re-run.',
+      );
+      process.exitCode = result.exit_code;
+      return;
+    }
+
     console.log(`[atlas-perf] CPU profile: ${result.cpuprofile_path}`);
     if (result.flamegraph_path) {
       console.log(`[atlas-perf] Flamegraph: ${result.flamegraph_path}`);
