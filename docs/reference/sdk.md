@@ -193,6 +193,22 @@ await atlas.onedrive.restore('owner-id', { snapshot_id, in_place: true }); // pr
 
 Deletion methods erase every version of the objects they match. `purgeTenantData()` sweeps the whole bucket, every workload and not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
 
+### Folder coverage
+
+`backup()` walks every mail folder at any depth, including Drafts, Outbox, Junk Email, and folders Exchange marks hidden. Pass `exclude_junk` to skip Junk Email and its subfolders:
+
+```typescript
+const result = await atlas.outlook.backup('user@company.com', { exclude_junk: true });
+
+for (const folder of result.summary.excluded_folders) {
+  console.log(`${folder.folder_path} not captured: ${folder.reason}`);
+}
+```
+
+`reason` is `'junk-excluded'` or `'hidden-system-folder'`. The same list is on the manifest as `excluded_folders`, so an embedder can answer "was this folder captured?" from a stored snapshot rather than from the options whoever ran the backup happened to pass. `MailFolder.is_hidden` marks folders Exchange hides.
+
+Drafts and Outbox are new in 4.1.0. Earlier versions skipped them, so the first backup after upgrading is larger for mailboxes holding unsent mail.
+
 ### Shared mailbox identity
 
 Three result types carry an optional `mailbox_purpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property. A value of `'shared'` identifies a shared mailbox:

@@ -19,7 +19,7 @@ export function build_interrupted_result(
   const snapshot = mark_snapshot_completed(pending, 0);
   return {
     snapshot,
-    manifest: build_manifest(owner_id, snapshot.id, [], {}, 0, undefined, undefined),
+    manifest: build_manifest(owner_id, snapshot.id, [], {}),
     mode: resolve_sync_mode(options.force_full, {}),
     interrupted: true,
     summary: {
@@ -33,6 +33,7 @@ export function build_interrupted_result(
       completed_folder_count: 0,
       total_folder_count: 0,
       elapsed_ms: 0,
+      excluded_folders: [],
     },
   };
 }

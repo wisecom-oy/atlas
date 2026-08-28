@@ -55,6 +55,7 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
     .requiredOption('-m, --mailbox <id>', 'mailbox to back up')
     .option('-f, --folder <name...>', 'specific folder(s) to back up (e.g. -f Inbox "Sent Items")')
     .option('--full', 'force a full backup, ignoring saved delta state from prior runs')
+    .option('--exclude-junk', 'skip the Junk Email folder (captured by default)')
     .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { RestoreConnector } from '@wisecom/atlas-types';
-import { ensure_subfolder } from '@/services/restore/folder-restore-planner';
+import type { MailboxConnector, RestoreConnector } from '@wisecom/atlas-types';
+import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
 
 function make_restore_connector(): RestoreConnector {
   let counter = 0;
@@ -96,5 +96,51 @@ describe('ensure_subfolder', () => {
     expect(vi.mocked(connector.create_mail_folder).mock.calls.map((c) => c[2])).toEqual([
       'Unknown',
     ]);
+  });
+});
+
+describe('build_folder_map', () => {
+  it('maps Drafts and Outbox, so their messages restore into the restore root', async () => {
+    // Restore recreates folders by path, so a folder missing from enumeration
+    // lands in "Unknown" instead of its own folder (issue #142).
+    const connector = {
+      list_mail_folders: vi.fn().mockResolvedValue([
+        { folder_id: 'f-inbox', display_name: 'Inbox', folder_path: 'Inbox', total_item_count: 1 },
+        {
+          folder_id: 'f-drafts',
+          display_name: 'Drafts',
+          folder_path: 'Drafts',
+          total_item_count: 1,
+        },
+        {
+          folder_id: 'f-outbox',
+          display_name: 'Outbox',
+          folder_path: 'Outbox',
+          total_item_count: 1,
+        },
+      ]),
+    } as unknown as MailboxConnector;
+
+    const map = await build_folder_map(connector, 't', 'user@test.com');
+
+    expect(map.get('f-drafts')).toBe('Drafts');
+    expect(map.get('f-outbox')).toBe('Outbox');
+  });
+
+  it('recreates a Drafts folder under the restore root', async () => {
+    const connector = make_restore_connector();
+    const folder_map = new Map([['f-drafts', 'Drafts']]);
+
+    await ensure_subfolder(
+      connector,
+      't',
+      'user@test.com',
+      'root',
+      'f-drafts',
+      folder_map,
+      new Map(),
+    );
+
+    expect(vi.mocked(connector.create_mail_folder).mock.calls.map((c) => c[2])).toEqual(['Drafts']);
   });
 });

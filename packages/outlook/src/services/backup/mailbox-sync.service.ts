@@ -11,7 +11,8 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
-import { apply_folder_filter } from '@/services/shared/folder-selector';
+import { resolve_backup_folders } from '@/services/shared/folder-selector';
+import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
 import {
   build_manifest,
   create_pending_snapshot,
@@ -36,19 +37,6 @@ import {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
-class NoopBackupProgressReporter implements BackupProgressReporter {
-  set_status(): void {}
-  mark_active(): void {}
-  update_active(): void {}
-  update_paging(): void {}
-  mark_done(): void {}
-  mark_all_pending_interrupted(): void {}
-  mark_error(): void {}
-  update_total(): void {}
-  finish(): void {}
-}
-
-const NOOP_BACKUP_PROGRESS_REPORTER = new NoopBackupProgressReporter();
 const always_false = (): boolean => false;
 
 @injectable()
@@ -90,16 +78,14 @@ export class MailboxSyncService implements BackupUseCase {
       const previous_entry_count = previous?.total_objects ?? 0;
       const mode = resolve_sync_mode(options.force_full, saved_links);
 
-      const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
-      const folder_selection = apply_folder_filter(all_folders, options.folder_filter);
+      const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
+        folder_filter: options.folder_filter,
+        exclude_junk: options.exclude_junk,
+      });
       const folders = folder_selection.folders;
       const warnings = [...folder_selection.warnings];
-      const progress =
-        options.progress ??
-        options.create_progress?.(
-          folders.map((f) => ({ name: f.folder_path, total_items: f.total_item_count })),
-        ) ??
-        NOOP_BACKUP_PROGRESS_REPORTER;
+      const excluded_folders = folder_selection.excluded;
+      const progress = resolve_progress_reporter(options, folders);
       const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
       emit_operation_progress(options, {
         operation: 'backup',
@@ -175,15 +161,12 @@ export class MailboxSyncService implements BackupUseCase {
       });
 
       const merged_links = { ...saved_links, ...new_delta_links };
-      const manifest = build_manifest(
-        owner_id,
-        snapshot.id,
-        all_entries,
-        merged_links,
-        previous_entry_count,
-        this.build_manifest_object_lock_policy(options),
+      const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
+        previous_total_objects: previous_entry_count,
+        object_lock: this.build_manifest_object_lock_policy(options),
         mailbox_purpose,
-      );
+        excluded_folders,
+      });
       await this._manifests.save(ctx, manifest);
       interrupted ||= should_interrupt();
       emit_operation_progress(options, {
@@ -211,6 +194,7 @@ export class MailboxSyncService implements BackupUseCase {
           completed_folder_count: Object.keys(new_delta_links).length,
           total_folder_count: folders.length,
           elapsed_ms: Date.now() - sync_start,
+          excluded_folders,
         },
       };
     } finally {

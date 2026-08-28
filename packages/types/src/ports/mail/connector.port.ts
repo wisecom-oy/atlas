@@ -8,6 +8,43 @@ export interface MailFolder {
   readonly folder_path: string;
   readonly parent_folder_id?: string | undefined;
   readonly total_item_count: number;
+  /**
+   * Exchange marks this folder hidden, so Outlook does not show it. Recorded
+   * because a restored tree should not silently promote a hidden folder into a
+   * visible one. Absent on manifests written before hidden folders were
+   * enumerated at all.
+   */
+  readonly is_hidden?: boolean;
+}
+
+/**
+ * Why a folder was left out of a backup.
+ *
+ * - `junk-excluded`: the operator asked for Junk Email to be skipped.
+ * - `hidden-system-folder`: an Exchange-hidden folder holding client state
+ *   rather than mail, such as `Conversation Action Settings`.
+ */
+export type FolderExclusionReason = 'junk-excluded' | 'hidden-system-folder';
+
+export interface ExcludedFolder {
+  /** Root-relative path, matching {@link MailFolder.folder_path}. */
+  readonly folder_path: string;
+  readonly reason: FolderExclusionReason;
+}
+
+export interface MailFolderListOptions {
+  /**
+   * Skip Junk Email and its subtree. Junk is backed up by default: it is
+   * evidence in a phishing or BEC investigation, and dropping it silently is
+   * how a backup product ends up unable to answer "was it captured?".
+   */
+  readonly exclude_junk?: boolean;
+  /**
+   * Called once per pruned folder. The manifest records these, so a gap in a
+   * backup is answerable from the backup itself rather than from the flags
+   * whoever ran it happened to pass.
+   */
+  readonly on_excluded?: (excluded: ExcludedFolder) => void;
 }
 
 export interface MailMessage {
@@ -63,7 +100,11 @@ export interface MailboxConnector {
   // ponytail: optional method — keeps ~10 existing MailboxConnector test literals compiling; make it required if a second caller ever needs it guaranteed
   get_mailbox_purpose?(tenant_id: string, owner_id: string): Promise<MailboxPurpose | undefined>;
 
-  list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]>;
+  list_mail_folders(
+    tenant_id: string,
+    owner_id: string,
+    options?: MailFolderListOptions,
+  ): Promise<MailFolder[]>;
 
   /**
    * Fetches messages changed since the previous delta link.

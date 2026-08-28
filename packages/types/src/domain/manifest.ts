@@ -1,3 +1,4 @@
+import type { ExcludedFolder } from '@/ports/mail/connector.port';
 /** Mailbox purpose from Graph mailboxSettings.userPurpose. 'shared' identifies shared mailboxes. */
 export type MailboxPurpose = 'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others';
 
@@ -37,6 +38,12 @@ export interface Manifest {
    */
   readonly id_format?: 'immutable' | undefined;
   readonly object_lock?: ManifestObjectLockPolicy;
+  /**
+   * Folders this run did not capture, with why. Absent means nothing was
+   * excluded, or the manifest predates the field; a backup should be able to
+   * answer "was folder X captured?" without knowing which flags were passed.
+   */
+  readonly excluded_folders?: ExcludedFolder[];
   readonly entries: ManifestEntry[];
 }
 
