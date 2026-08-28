@@ -73,6 +73,52 @@ describe('build_eml', () => {
     expect(text).not.toContain('Content-ID');
   });
 
+  it('embeds an attached message as a message/rfc822 part (issue #49)', () => {
+    const attached_mail = Buffer.from('From: sender@x.com\r\nSubject: FW: escalation\r\n\r\nbody');
+    const result = build_eml(minimal_message, [
+      {
+        name: 'FW escalation.eml',
+        content_type: 'message/rfc822',
+        content: attached_mail,
+        is_inline: false,
+      },
+    ]);
+
+    const text = result.toString('utf-8');
+    expect(text).toContain('message/rfc822');
+    expect(text).toContain('FW escalation.eml');
+    // The attached message's own bytes have to survive the export, or an
+    // attached email is a filename with nothing behind it.
+    expect(text).toContain(attached_mail.toString('base64'));
+  });
+
+  it('embeds a cloud link attachment as a uri-list part (issue #49)', () => {
+    const link = 'https://contoso.sharepoint.com/sites/fin/budget.xlsx';
+    const result = build_eml(minimal_message, [
+      {
+        name: 'budget.xlsx',
+        content_type: 'text/uri-list',
+        content: Buffer.from(`${link}\r\n`),
+        is_inline: false,
+      },
+    ]);
+
+    const text = result.toString('utf-8');
+    expect(text).toContain('text/uri-list');
+    expect(text).toContain(Buffer.from(`${link}\r\n`).toString('base64'));
+  });
+
+  it('embeds an attached calendar invite as a calendar part (issue #49)', () => {
+    const ical = Buffer.from('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Sync\r\n');
+    const result = build_eml(minimal_message, [
+      { name: 'Sync.ics', content_type: 'text/calendar', content: ical, is_inline: false },
+    ]);
+
+    const text = result.toString('utf-8');
+    expect(text).toContain('text/calendar');
+    expect(text).toContain('Sync.ics');
+  });
+
   it('handles message with no to-recipients gracefully', () => {
     const msg = {
       ...minimal_message,

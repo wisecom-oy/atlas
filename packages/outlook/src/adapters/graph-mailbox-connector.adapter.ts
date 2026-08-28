@@ -12,6 +12,7 @@ import type {
   DeltaPageCallback,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
 import {
   is_invalid_delta_error,
   rethrow_if_access_denied,
@@ -24,11 +25,7 @@ import type {
   GraphFolderRecord,
   GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
-import {
-  extract_user_ids,
-  map_file_attachments,
-  parse_mailbox_purpose,
-} from '@/adapters/graph-mailbox-response-mappers';
+import { extract_user_ids, parse_mailbox_purpose } from '@/adapters/graph-mailbox-response-mappers';
 import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
@@ -193,10 +190,14 @@ export class GraphMailboxConnector implements MailboxConnector {
   }
 
   /**
-   * Fetches file attachments for a message. Filters to fileAttachment type only,
-   * decodes contentBytes from base64. Attachments above the Graph inline limit
-   * (~3 MB) arrive without contentBytes and are downloaded individually via the
-   * /$value endpoint, which streams raw bytes with no size ceiling.
+   * Fetches a message's attachments, on the JSON fallback path only: a message
+   * stored as MIME already carries its attachments inside the message bytes.
+   *
+   * File attachments above the Graph inline limit (~3 MB) arrive without
+   * contentBytes, and item attachments never carry inline bytes at all, so both
+   * are fetched individually from `/$value`, which streams raw bytes with no
+   * size ceiling. Reference attachments are links with no content to fetch;
+   * Graph answers `405` for their `/$value`, so they are never downloaded.
    */
   async fetch_attachments(
     _tenant_id: string,
@@ -206,7 +207,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     try {
       const url = `/users/${owner_id}/messages/${message_id}/attachments`;
       const records = await this.collect_all_pages<GraphAttachmentRecord>(url);
-      const attachments = map_file_attachments(records);
+      const attachments = map_attachments(records);
 
       for (let i = 0; i < attachments.length; i++) {
         const att = attachments[i]!;
@@ -216,7 +217,7 @@ export class GraphMailboxConnector implements MailboxConnector {
           message_id,
           att.attachment_id,
         );
-        attachments[i] = { ...att, content };
+        attachments[i] = resolve_downloaded_attachment(att, content);
       }
       return attachments;
     } catch (err) {

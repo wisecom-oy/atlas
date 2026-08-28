@@ -34,6 +34,8 @@ export interface GraphAttachmentRecord {
   isInline?: boolean;
   contentBytes?: string;
   contentId?: string;
+  /** Present on referenceAttachment: the cloud location the link points at. */
+  sourceUrl?: string;
 }
 
 /** Extracts non-null user IDs from Graph user records. */
@@ -94,46 +96,4 @@ export function map_users_to_tenant_mailboxes(users: GraphUserRecord[]): TenantM
         ...(u.createdDateTime ? { created_at: new Date(u.createdDateTime) } : {}),
       };
     });
-}
-
-/**
- * Filters to fileAttachment and decodes base64 content. Records without
- * contentBytes (above the Graph inline limit) are returned with an empty
- * buffer; the connector downloads their binary separately via /$value.
- */
-export function map_file_attachments(records: GraphAttachmentRecord[]): MessageAttachment[] {
-  const results: MessageAttachment[] = [];
-
-  for (const r of records) {
-    if (r['@odata.type'] !== '#microsoft.graph.fileAttachment') continue;
-
-    if (!r.contentBytes) {
-      logger.debug(
-        `Attachment "${r.name ?? '?'}" (${r.size ?? 0} bytes) has no inline contentBytes -- ` +
-          `will download via /$value`,
-      );
-      results.push({
-        attachment_id: r.id ?? '',
-        name: r.name ?? '',
-        content_type: r.contentType ?? 'application/octet-stream',
-        size_bytes: r.size ?? 0,
-        is_inline: r.isInline === true,
-        content: Buffer.alloc(0),
-        content_id: r.contentId ?? '',
-      });
-      continue;
-    }
-
-    results.push({
-      attachment_id: r.id ?? '',
-      name: r.name ?? '',
-      content_type: r.contentType ?? 'application/octet-stream',
-      size_bytes: r.size ?? 0,
-      is_inline: r.isInline === true,
-      content: Buffer.from(r.contentBytes, 'base64'),
-      content_id: r.contentId ?? '',
-    });
-  }
-
-  return results;
 }
