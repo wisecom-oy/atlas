@@ -240,20 +240,37 @@ npm versions are immutable, so recovery is always forward, never a re-publish:
 3. **Wrong dist-tag:** correct it with `npm dist-tag add` rather than
    republishing.
 
-## If no workflow run appears at all
+## If no workflow run appears after the merge
 
-Distinct from a publish that ran and failed. Here GitHub created no run for the
-push, so nothing tagged anything and there is no failure to read. It happened on
-the v3.0.0 merge: `publish.yml` declares `on: push: branches: [main]`, the merge
-landed, and no run existed. Pushing the tag by hand produced no run either, even
-though the same file declares `on: push: tags: ['v*']`. `pull_request` and
-`workflow_dispatch` events fired normally throughout, which is what made the
-release recoverable.
+Distinct from a publish that ran and failed. Here there is no run to read, so
+there is nothing to diagnose yet.
 
-Recovery, in this order:
+**Wait and re-check before doing anything.** The v3.0.0 release looked like
+dropped events and was actually late ones. Push runs for that merge commit do
+exist, timestamped five and eight minutes after the merge, which is after the
+manual repair had already published. That is what produced the duplicate
+publish attempt:
+
+```
+16:51 workflow_dispatch  failure   <- repair attempt, no tag existed yet
+16:56 workflow_dispatch  success   <- repair after pushing the tag by hand
+16:59 push               failure   <- the merge event, arriving late: version already published
+17:02 push               success   <- the tag event, also late
+```
+
+For comparison, the v4.0.0 merge created its run seven seconds after the merge
+with byte-identical workflow config. Repository configuration was never the
+problem; event delivery was slow during a GitHub incident window.
+
+So give it several minutes and look again:
 
 ```bash
-gh run list --workflow publish.yml --limit 3        # confirm no run exists for the merge
+gh run list --workflow publish.yml --limit 5   # check twice, a few minutes apart
+```
+
+Only when a run genuinely never arrives, dispatch it:
+
+```bash
 gh workflow run publish.yml -f version=<version> --ref main
 gh run watch
 ```
