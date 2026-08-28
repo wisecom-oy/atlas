@@ -157,6 +157,12 @@ Restored messages retain their original received/sent timestamps, appear as rece
 
 Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path rather than imported as MIME. That is a deliberate choice: Graph's MIME import always marks the created message as a draft, and neither an `X-Unsent: 0` header nor a `PR_MESSAGE_FLAGS` patch clears the flag, so importing would hand the user thousands of drafts. The restored copy is therefore normal mail with its original timestamps, but it does not carry the original `Received:` chain. The archived object still does -- use [`atlas outlook save`](#atlas-outlook-save) when you need the original bytes.
 
+::: details `-f` and pre-2.1.0 MIME snapshots
+A folder filter matches on the `folder_id` recorded in the manifest. Snapshots written before Atlas stamped that field carry it on their Graph JSON entries, where it is recovered from the stored payload, but a MIME entry has nowhere to recover it from: RFC 822 does not record which folder a message sat in.
+
+Those entries are therefore skipped by `-f` and reported on stderr with a count. Restore or save the whole snapshot without `-f` to include them. Snapshots taken by any current version stamp `folder_id` on every entry and are unaffected.
+:::
+
 ### `atlas outlook list`
 
 Browse backed-up data at three zoom levels. Subjects are hidden by default for data protection. The mailbox overview includes a `Type` column sourced from each mailbox's newest manifest that recorded a purpose (`user`, `shared`, `room`, ...; `--` when never recorded).

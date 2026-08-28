@@ -230,7 +230,15 @@ async function resolve_source_folder_id(ctx: TenantContext, entry: ManifestEntry
   return extract_folder_id_from_json(await decrypt_and_parse_message(ctx, entry));
 }
 
-/** Backfills folder_id for legacy manifest entries by decrypting message JSON. */
+/**
+ * Backfills `folder_id` on legacy manifest entries so a folder filter can match them.
+ *
+ * MIME entries are left alone. They hold raw RFC 822 bytes, so decrypting one and parsing it as
+ * JSON throws, and because this runs before any per-entry error handling a single such entry took
+ * the whole restore or export with it (issue #205). RFC 822 records no folder, so there is nothing
+ * cheap to recover: they stay unresolved, and `filter_entries_by_folder_name` already drops entries
+ * without a `folder_id`.
+ */
 export async function backfill_missing_folder_ids(
   ctx: TenantContext,
   entries: ManifestEntry[],
@@ -238,11 +246,31 @@ export async function backfill_missing_folder_ids(
   const missing = entries.filter((e) => !e.folder_id);
   if (missing.length === 0) return;
 
-  logger.info(`Backfilling folder_id for ${missing.length} legacy entries...`);
-  for (const entry of missing) {
-    const json = await decrypt_and_parse_message(ctx, entry);
-    const fid = extract_folder_id_from_json(json);
-    (entry as { folder_id?: string }).folder_id = fid;
+  const json_entries = missing.filter((e) => e.payload_format !== 'mime');
+  const mime_count = missing.length - json_entries.length;
+  if (mime_count > 0) {
+    logger.warn(
+      `${mime_count} legacy MIME ${mime_count === 1 ? 'entry carries' : 'entries carry'} no ` +
+        'folder_id, so a folder filter cannot match them: RFC 822 does not record the source folder.',
+    );
+  }
+  if (json_entries.length === 0) return;
+
+  logger.info(`Backfilling folder_id for ${json_entries.length} legacy entries...`);
+  for (const entry of json_entries) {
+    // ManifestEntry types folder_id readonly and this backfill fills it in place, so the write
+    // needs a mutable view of that one field.
+    const writable: { folder_id?: string } = entry;
+    try {
+      const json = await decrypt_and_parse_message(ctx, entry);
+      writable.folder_id = extract_folder_id_from_json(json);
+    } catch (err) {
+      // One unreadable payload must not abort a run that can still handle every other entry.
+      logger.warn(
+        `Could not recover folder_id for ${entry.object_id}, excluding it from the folder ` +
+          `filter: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 }
 
