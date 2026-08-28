@@ -171,6 +171,37 @@ Two consequences worth stating plainly:
 Atlas does not currently capture Microsoft Purview sensitivity labels or IRM protection state for drive items. Labelled files whose content Graph does serve are backed up as ciphertext like any other file, but the label itself is not recorded, so a restored copy does not carry its original classification. Treat restored content as unclassified until it is relabelled. Capturing label metadata is tracked separately; it is a metered Graph surface and is deliberately out of scope for the quarantine handling described above.
 :::
 
+### In-Place Archive is out of scope
+
+Atlas backs up the **primary mailbox**. A mailbox with an **In-Place Archive** (also called Online Archive, or the archive mailbox) has a second, separate store, and none of it is backed up.
+
+This is not an implementation gap Atlas can close on the current API. Microsoft states it directly in the [Outlook mail API overview](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview?view=graph-rest-1.0):
+
+> The API does not support accessing in-place archive mailboxes, not on Exchange Online nor on Exchange Server.
+
+Every Atlas sync path is built on that API. `GET /users/{id}/mailFolders` and the per-folder `/messages/delta` calls only ever see the primary store, and no folder ID or query parameter reaches the archive.
+
+Do not confuse this with the **`Archive` well-known folder**, the one Outlook's one-click Archive button moves mail into. That folder lives in the primary mailbox and is backed up like any other folder.
+
+::: warning Retention policies move mail out of backup scope
+This matters most where it is least visible. A Microsoft 365 retention or MRM policy that auto-moves mail to the archive after a set age silently removes that mail from backup scope, and it removes the **oldest** mail first, which is usually the most compliance-relevant. Under an aggressive policy, most of a mailbox's history can sit unprotected.
+
+Worse, when a policy moves an already backed-up message, the folder delta reports it as removed from the primary mailbox. Depending on how you prune snapshots, that message can eventually age out of your backups while the only live copy sits in an archive Atlas cannot read.
+:::
+
+**How to tell which mailboxes are affected.** `atlas outlook mailboxes` shows an `Archive` column and warns for every affected mailbox by name:
+
+```
+[!] 2 mailbox(es) have an In-Place Archive (Online Archive), which Graph cannot read
+    and Atlas does not back up:
+      alice@contoso.com
+      bob@contoso.com
+```
+
+The signal is the `Has Archive` column of the [mailbox usage report](https://learn.microsoft.com/en-us/graph/api/reportroot-getmailboxusagedetail?view=graph-rest-1.0), which needs the optional `Reports.Read.All` application permission. Without that permission the column reads `--`, meaning **unknown**, never "no archive": Atlas will not report coverage it cannot confirm. No per-mailbox Graph property exposes archive state on either v1.0 or beta, so the tenant-wide report is the only source.
+
+**If archive content must be protected**, the mail has to leave the archive before Atlas can see it: adjust the retention policy so it stays in the primary mailbox, or move the content back. The Microsoft [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archive mailboxes, but on a different model (job-based FastTransfer export streams and a separate `MailboxImportExport.*` permission set) that is not a drop-in for per-folder delta sync.
+
 ## Integrity Validation
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
