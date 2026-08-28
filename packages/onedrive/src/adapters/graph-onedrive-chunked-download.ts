@@ -1,5 +1,9 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { is_retryable_error, is_transient_error } from '@wisecom/atlas-m365-graph';
+import {
+  is_retryable_error,
+  is_transient_error,
+  parse_retry_after_ms,
+} from '@wisecom/atlas-m365-graph';
 
 /** Maximum bytes per HTTP Range chunk (4 MiB). */
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
@@ -136,7 +140,7 @@ async function download_single_chunk(
     });
 
     if (response.status === 429) {
-      const retry_after_ms = parse_retry_after_header(response.headers.get('Retry-After'));
+      const retry_after_ms = parse_retry_after_ms(response.headers.get('Retry-After'));
       throw new CdnHttpError(
         `HTTP 429 for chunk bytes=${range_start}-${range_end} of ${item_id}`,
         429,
@@ -192,12 +196,6 @@ function is_cdn_retryable(err: unknown): boolean {
 function extract_cdn_retry_after_from_error(err: unknown): number | undefined {
   if (err instanceof CdnHttpError) return err.retry_after_ms;
   return undefined;
-}
-
-function parse_retry_after_header(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const seconds = parseInt(value, 10);
-  return isNaN(seconds) ? undefined : seconds * 1000;
 }
 
 function compute_retry_delay(attempt: number): number {

@@ -1,5 +1,6 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { get_active_fence } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { parse_retry_after_ms } from '@/graph-retry-after';
 
 /**
  * Statuses Graph recovers from on its own, per Microsoft's throttling and
@@ -219,10 +220,8 @@ function extract_retry_after(err: unknown): number | undefined {
   ];
   for (const headers of headers_sources) {
     if (!headers) continue;
-    const value = headers['retry-after'] ?? headers['Retry-After'];
-    if (!value) continue;
-    const seconds = parseInt(value, 10);
-    if (!isNaN(seconds)) return seconds * 1000;
+    const parsed = parse_retry_after_ms(headers['retry-after'] ?? headers['Retry-After']);
+    if (parsed !== undefined) return parsed;
   }
   return undefined;
 }

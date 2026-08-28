@@ -301,6 +301,29 @@ describe('with_graph_retry', () => {
     expect(calls).toBe(2);
   });
 
+  it('waits out an HTTP-date Retry-After instead of falling back to backoff (issue #203)', async () => {
+    let calls = 0;
+    // 120s out. Backoff for attempt 1 would be ~1s, so the two are impossible to confuse.
+    const retry_at = new Date(Date.now() + 120_000).toUTCString();
+    const fn = (): Promise<string> => {
+      calls++;
+      if (calls === 1) {
+        return Promise.reject({ statusCode: 429, headers: { 'retry-after': retry_at } });
+      }
+      return Promise.resolve('ok');
+    };
+
+    const promise = with_graph_retry(fn);
+
+    // Well past the exponential delay the header used to be replaced by, and still waiting.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    await expect(promise).resolves.toBe('ok');
+    expect(calls).toBe(2);
+  });
+
   it('times out a single hung attempt after options.timeout_ms and retries (issue #33)', async () => {
     let calls = 0;
     const fn = (): Promise<string> => {

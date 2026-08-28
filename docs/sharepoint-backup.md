@@ -89,7 +89,7 @@ Chunked downloads retry each **4 MiB** range independently (5 attempts with expo
 SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting, and the CDN also returns transient gateway faults of its own. Atlas handles this with:
 
 - **Transient-status detection** on direct download URLs. `429`, `500`, `502`, `503`, and `504` are retried, with `Retry-After` header parsing that supports both delta-seconds and HTTP-date formats.
-- **Exponential backoff** when `Retry-After` is absent (base 1s, max 32s, with jitter).
+- **Exponential backoff** when `Retry-After` is absent or carries no usable wait (base 1s, max 32s, with jitter). A `Retry-After` in the past is treated as absent, since honouring it as "retry now" would remove the jitter that stops concurrent workers retrying in lockstep. A value further out than an hour is capped at an hour and treated as a server bug rather than an instruction.
 - **Graph content fallback.** If the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content`, which routes through the Graph gateway rather than the CDN.
 - **Stall timeout per chunk.** Each range request is aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. The budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB. If the CDN ignores the `Range` header and answers `200` with the whole file, the budget is re-sized to that body before it is read.
 
