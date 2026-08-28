@@ -351,7 +351,7 @@ Archive     never backed up        -
 
 ### `atlas outlook mailboxes`
 
-List tenant mailboxes directly from Microsoft Graph (live data, not from the backup catalog). Shows email address, display name, Exchange Online license status, account status, mailbox type, creation date, and optionally mailbox size.
+List tenant mailboxes directly from Microsoft Graph (live data, not from the backup catalog). Shows email address, display name, Exchange Online license status, account status, mailbox type, creation date, and optionally mailbox size and In-Place Archive state.
 
 ```bash
 atlas outlook mailboxes
@@ -368,6 +368,14 @@ atlas outlook mailboxes -t <tenant-id>
 Mailbox size requires the `Reports.Read.All` Graph API permission. If the permission is not granted, the Size column is omitted without error.
 
 The `Type` column shows the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, `equipment`, ...). To keep discovery fast, it is only resolved for unlicensed mailboxes; `--` means the purpose was not resolved. Note that `--licensed-only` excludes shared mailboxes, which are typically unlicensed.
+:::
+
+::: warning An In-Place Archive is not backed up
+The `Archive` column comes from the same `Reports.Read.All` report and reports whether the mailbox has an **In-Place Archive** (Online Archive). Graph cannot read archive mailboxes at all, so that content is outside backup scope, and the command prints a warning naming every affected mailbox.
+
+`--` means **unknown**, not "no archive": either the permission is missing or the report omitted the column. Atlas does not report coverage it cannot confirm.
+
+This is not the `Archive` folder that Outlook's Archive button uses; that folder is in the primary mailbox and is backed up normally. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope).
 :::
 
 ## `atlas delete`

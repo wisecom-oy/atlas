@@ -148,6 +148,22 @@ If Graph cannot return MIME for a particular item, Atlas stores that one message
 
 Each manifest entry records which format its object holds. Entries with `payload_format: "mime"` hold original bytes; entries with no `payload_format` field hold the legacy Graph JSON payload. Mixed snapshots are normal, and `save`, `read`, `restore`, and `verify` all handle both formats inside the same snapshot chain, so a fallback item needs no operator intervention.
 
+On that path attachments are separate objects again, and all three Graph attachment types are captured:
+
+| Graph type | What Atlas stores |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `fileAttachment` | The file bytes, inline when Graph includes them, otherwise fetched from `/$value` |
+| `itemAttachment` | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
+| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked |
+
+An attached message therefore exports as a `message/rfc822` part that mail clients open as mail, an invite as `.ics`, and a contact as `.vcf`. The content type is decided by the bytes that arrive rather than by the attachment's name, because Graph does not say which kind of item is attached and an invite mislabelled as mail opens as broken mail.
+
+A `referenceAttachment` points at a file in OneDrive or SharePoint. The link is part of the message and is preserved; the file itself belongs to those workloads and is covered by their own backups.
+
+::: warning Attachment types dropped before this version
+Earlier versions kept only `fileAttachment` and discarded the other two silently, with no warning and no manifest record, while still storing the message's `has_attachments` flag. Snapshots taken then can claim attachments whose content was never captured. This affected the legacy JSON path only, which is also the only path that existed before MIME storage, so snapshots predating MIME are the ones to treat with suspicion. An attachment type Atlas does not recognise is now recorded with its metadata and warned about, so a gap is auditable instead of invisible.
+:::
+
 ### Restore is reconstruction, and that is a deliberate choice
 
 Atlas does **not** import archived MIME back into Exchange. Live testing established why: Graph's MIME import path always marks the created message as a draft (`isDraft: true`), and that flag cannot be cleared -- neither an `X-Unsent: 0` header inside the MIME nor a `PR_MESSAGE_FLAGS` patch afterwards clears it. Restoring a mailbox that way would hand the user thousands of drafts instead of their mail.
@@ -170,6 +186,37 @@ Two consequences worth stating plainly:
 ::: warning Sensitivity labels are not captured
 Atlas does not currently capture Microsoft Purview sensitivity labels or IRM protection state for drive items. Labelled files whose content Graph does serve are backed up as ciphertext like any other file, but the label itself is not recorded, so a restored copy does not carry its original classification. Treat restored content as unclassified until it is relabelled. Capturing label metadata is tracked separately; it is a metered Graph surface and is deliberately out of scope for the quarantine handling described above.
 :::
+
+### In-Place Archive is out of scope
+
+Atlas backs up the **primary mailbox**. A mailbox with an **In-Place Archive** (also called Online Archive, or the archive mailbox) has a second, separate store, and none of it is backed up.
+
+This is not an implementation gap Atlas can close on the current API. Microsoft states it directly in the [Outlook mail API overview](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview?view=graph-rest-1.0):
+
+> The API does not support accessing in-place archive mailboxes, not on Exchange Online nor on Exchange Server.
+
+Every Atlas sync path is built on that API. `GET /users/{id}/mailFolders` and the per-folder `/messages/delta` calls only ever see the primary store, and no folder ID or query parameter reaches the archive.
+
+Do not confuse this with the **`Archive` well-known folder**, the one Outlook's one-click Archive button moves mail into. That folder lives in the primary mailbox and is backed up like any other folder.
+
+::: warning Retention policies move mail out of backup scope
+This matters most where it is least visible. A Microsoft 365 retention or MRM policy that auto-moves mail to the archive after a set age silently removes that mail from backup scope, and it removes the **oldest** mail first, which is usually the most compliance-relevant. Under an aggressive policy, most of a mailbox's history can sit unprotected.
+
+Worse, when a policy moves an already backed-up message, the folder delta reports it as removed from the primary mailbox. Depending on how you prune snapshots, that message can eventually age out of your backups while the only live copy sits in an archive Atlas cannot read.
+:::
+
+**How to tell which mailboxes are affected.** `atlas outlook mailboxes` shows an `Archive` column and warns for every affected mailbox by name:
+
+```
+[!] 2 mailbox(es) have an In-Place Archive (Online Archive), which Graph cannot read
+    and Atlas does not back up:
+      alice@contoso.com
+      bob@contoso.com
+```
+
+The signal is the `Has Archive` column of the [mailbox usage report](https://learn.microsoft.com/en-us/graph/api/reportroot-getmailboxusagedetail?view=graph-rest-1.0), which needs the optional `Reports.Read.All` application permission. Without that permission the column reads `--`, meaning **unknown**, never "no archive": Atlas will not report coverage it cannot confirm. No per-mailbox Graph property exposes archive state on either v1.0 or beta, so the tenant-wide report is the only source.
+
+**If archive content must be protected**, the mail has to leave the archive before Atlas can see it: adjust the retention policy so it stays in the primary mailbox, or move the content back. The Microsoft [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archive mailboxes, but on a different model (job-based FastTransfer export streams and a separate `MailboxImportExport.*` permission set) that is not a drop-in for per-folder delta sync.
 
 ## Integrity Validation
 

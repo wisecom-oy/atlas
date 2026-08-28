@@ -224,6 +224,21 @@ const mailboxes = await atlas.outlook.listAvailableMailboxes();
 const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
 ```
 
+### In-Place Archive coverage
+
+`TenantMailbox.has_in_place_archive` (from `listAvailableMailboxes()`) reports whether a mailbox has an In-Place Archive (Online Archive). That store is **not backed up**: Graph cannot read archive mailboxes at all, so a successful backup of such a mailbox is not a backup of all its mail. See [In-Place Archive is out of scope](/security#in-place-archive-is-out-of-scope).
+
+The field is tri-state, and the third state matters:
+
+```typescript
+const mailboxes = await atlas.outlook.listAvailableMailboxes();
+
+const uncovered = mailboxes.filter((mb) => mb.has_in_place_archive === true);
+const unknown = mailboxes.filter((mb) => mb.has_in_place_archive === undefined);
+```
+
+`undefined` means unknown, not "no archive". The signal is the `Has Archive` column of the mailbox usage report, which needs the optional `Reports.Read.All` permission, so an embedder that treats absence as "covered" will report coverage Atlas never confirmed. No per-mailbox Graph property exposes archive state on v1.0 or beta.
+
 ### Identifier case
 
 Every method taking a mailbox address, an Entra object ID, or a SharePoint site ID lowercases it before it becomes a storage key segment, so two spellings of one identifier address one tree.

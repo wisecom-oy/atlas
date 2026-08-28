@@ -31,7 +31,11 @@ import {
   graph_sharepoint_upload_small_file,
   graph_sharepoint_upload_large_file,
 } from '@/adapters/graph-sharepoint-restore.adapter';
-import { stream_to_buffer } from '@/adapters/graph-sharepoint-stream-utils';
+import {
+  as_buffer_iterable,
+  open_version_content_stream,
+  stream_to_buffer,
+} from '@/adapters/graph-sharepoint-stream-utils';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 
 interface GraphSiteRecord {
@@ -244,19 +248,25 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     return all_versions.slice(1);
   }
 
-  /** Downloads a specific version's content with size-based timeout. */
+  /** Downloads a specific version's content with a timeout guard. */
   async download_file_version(
     drive_id: string,
     item_id: string,
     version_id: string,
   ): Promise<Buffer> {
-    const stream = await with_graph_retry(
-      () =>
-        this._client
-          .api(`/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`)
-          .getStream() as Promise<NodeJS.ReadableStream>,
-    );
+    const stream = await open_version_content_stream(this._client, drive_id, item_id, version_id);
     return await stream_to_buffer(stream, STREAM_TIMEOUT_MS);
+  }
+
+  /** Opens a version's content as a stream, for sizes not safe to buffer. */
+  async stream_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+  ): Promise<AsyncIterable<Buffer>> {
+    return as_buffer_iterable(
+      await open_version_content_stream(this._client, drive_id, item_id, version_id),
+    );
   }
 
   /** Creates a folder in a document library and returns its item ID. */

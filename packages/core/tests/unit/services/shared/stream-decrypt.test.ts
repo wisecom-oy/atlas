@@ -2,7 +2,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { Readable } from 'node:stream';
 import { describe, it, expect } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
-import { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
+import {
+  stream_decrypt_from_storage,
+  stream_sha256_from_storage,
+} from '@/services/shared/stream-decrypt';
 
 const KEY = randomBytes(32);
 
@@ -88,5 +91,38 @@ describe('stream_decrypt_from_storage', () => {
     const ctx = make_ctx(stored, 64 * 1024);
 
     await expect(stream_decrypt_from_storage(ctx, 'data/owner/tampered')).rejects.toThrow();
+  });
+});
+
+describe('stream_sha256_from_storage', () => {
+  it('matches the digest of the decrypted plaintext', async () => {
+    const plaintext = randomBytes(9 * 1024 * 1024);
+    const ctx = make_ctx(encrypt(plaintext), 64 * 1024);
+
+    await expect(stream_sha256_from_storage(ctx, 'data/owner/checksum')).resolves.toBe(
+      sha256(plaintext),
+    );
+  });
+
+  it('agrees with the buffering reader across different chunkings', async () => {
+    // Small payload with a tiny chunk size: the point is that chunk boundaries
+    // do not change the digest, and 7-byte chunks over megabytes is hundreds of
+    // thousands of iterations, which times out on a slow runner rather than
+    // testing anything further.
+    const stored = encrypt(randomBytes(64 * 1024));
+
+    const buffered = await stream_decrypt_from_storage(make_ctx(stored, 64 * 1024), 'k');
+    const streamed = await stream_sha256_from_storage(make_ctx(stored, 7), 'k');
+
+    expect(streamed).toBe(buffered.sha256_hex);
+  });
+
+  it('rejects when the ciphertext was tampered with', async () => {
+    const stored = encrypt(randomBytes(1024 * 1024));
+    stored[stored.length - 1] ^= 0xff;
+
+    await expect(
+      stream_sha256_from_storage(make_ctx(stored, 64 * 1024), 'data/owner/tampered'),
+    ).rejects.toThrow();
   });
 });

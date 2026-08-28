@@ -28,7 +28,7 @@ Recovery is only useful if it still works when the production environment cannot
 | **Snapshot replication** | Ciphertext copied as-is to a secondary S3 target | A second, independent copy for disaster recovery |
 | **Open implementation** | Apache-2.0, no proprietary archive format | The recovery path can be audited rather than assumed |
 
-Large files stream without touching disk: transfers at or above 512 MiB are downloaded, encrypted, and assembled into multipart uploads in bounded memory.
+Large files stream without touching disk: transfers at or above 64 MiB are downloaded, encrypted, and assembled into multipart uploads in bounded memory.
 
 ## Quick start
 
