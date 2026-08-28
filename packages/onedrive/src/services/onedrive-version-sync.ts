@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type {
   OneDriveConnector,
   OneDriveDeltaItem,
@@ -9,7 +8,11 @@ import type {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_content_gone_error } from '@wisecom/atlas-m365-graph';
-import { onedrive_data_key } from '@/services/onedrive-storage-keys';
+import {
+  store_version_content,
+  VersionDownloadError,
+} from '@/services/onedrive-version-content-store';
+import type { StoredVersionContent } from '@/services/onedrive-version-content-store';
 import {
   by_version_age,
   is_version_already_captured,
@@ -44,11 +47,6 @@ export interface RunVersionCollector {
   watermarks: Record<string, OneDriveVersionWatermark | string>;
   rows: Map<string, OneDriveFileVersionRecord[]>;
 }
-
-type VersionDownloadOutcome =
-  | { status: 'ok'; content: Buffer }
-  | { status: 'unavailable' }
-  | { status: 'failed'; reason: string };
 
 const EMPTY_OUTCOME: VersionSyncOutcome = {
   new_versions_stored: 0,
@@ -210,21 +208,26 @@ async function capture_version(
   ctx: TenantContext,
   version: OneDriveFileVersion,
 ): Promise<VersionCapture> {
-  const outcome = await download_version_classified(connector, item, version);
-  if (outcome.status === 'unavailable') return { kind: 'gone' };
-  if (outcome.status === 'failed') {
-    logger.warn(`Version ${version.version_id} of ${item.file_name}: ${outcome.reason}`);
+  let stored: StoredVersionContent;
+  try {
+    stored = await store_version_content(connector, item, owner_id, ctx, version);
+  } catch (err) {
+    if (!(err instanceof VersionDownloadError)) throw err;
+    if (is_content_gone_error(err.source)) {
+      logger.debug(
+        `Version ${version.version_id} of ${item.file_name} no longer available (expired)`,
+      );
+      return { kind: 'gone' };
+    }
+    logger.warn(
+      `Version ${version.version_id} of ${item.file_name}: ${describe_graph_error(err.source)}`,
+    );
     return { kind: 'failed' };
   }
 
-  const checksum = createHash('sha256').update(outcome.content).digest('hex');
-  const storage_key = onedrive_data_key(owner_id, checksum);
-  const deduplicated = await ctx.storage.exists(storage_key);
-  if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(outcome.content));
-
   return {
     kind: 'stored',
-    deduplicated,
+    deduplicated: stored.deduplicated,
     record: {
       snapshot_id,
       backup_at: new Date().toISOString(),
@@ -233,38 +236,10 @@ async function capture_version(
       parent_path: item.parent_path,
       version_id: version.version_id,
       size_bytes: version.size_bytes,
-      storage_key,
-      checksum,
+      storage_key: stored.storage_key,
+      checksum: stored.checksum,
       last_modified_at: version.last_modified_at,
       change_type: 'updated',
     },
   };
-}
-
-/**
- * Attempts to download a version, classifying the outcome:
- * - 404/410: version expired by retention policy (unavailable, expected)
- * - Other errors: unexpected failure worth reporting
- */
-async function download_version_classified(
-  connector: OneDriveConnector,
-  item: OneDriveDeltaItem,
-  version: OneDriveFileVersion,
-): Promise<VersionDownloadOutcome> {
-  try {
-    const content = await connector.download_file_version(
-      item.drive_id,
-      item.item_id,
-      version.version_id,
-    );
-    return { status: 'ok', content };
-  } catch (err) {
-    if (is_content_gone_error(err)) {
-      logger.debug(
-        `Version ${version.version_id} of ${item.file_name} no longer available (expired)`,
-      );
-      return { status: 'unavailable' };
-    }
-    return { status: 'failed', reason: describe_graph_error(err) };
-  }
 }

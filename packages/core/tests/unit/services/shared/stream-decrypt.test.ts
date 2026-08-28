@@ -2,7 +2,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:
 import { Readable } from 'node:stream';
 import { describe, it, expect } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
-import { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
+import {
+  stream_decrypt_from_storage,
+  stream_sha256_from_storage,
+} from '@/services/shared/stream-decrypt';
 
 const KEY = randomBytes(32);
 
@@ -88,5 +91,50 @@ describe('stream_decrypt_from_storage', () => {
     const ctx = make_ctx(stored, 64 * 1024);
 
     await expect(stream_decrypt_from_storage(ctx, 'data/owner/tampered')).rejects.toThrow();
+  });
+});
+
+describe('stream_sha256_from_storage', () => {
+  it('matches the digest of the decrypted plaintext', async () => {
+    const plaintext = randomBytes(9 * 1024 * 1024);
+    const ctx = make_ctx(encrypt(plaintext), 64 * 1024);
+
+    await expect(stream_sha256_from_storage(ctx, 'data/owner/checksum')).resolves.toBe(
+      sha256(plaintext),
+    );
+  });
+
+  it('agrees with the buffering reader on the same object', async () => {
+    const stored = encrypt(randomBytes(3 * 1024 * 1024));
+
+    const buffered = await stream_decrypt_from_storage(make_ctx(stored, 64 * 1024), 'k');
+    const streamed = await stream_sha256_from_storage(make_ctx(stored, 7), 'k');
+
+    expect(streamed).toBe(buffered.sha256_hex);
+  });
+
+  it('rejects when the ciphertext was tampered with', async () => {
+    const stored = encrypt(randomBytes(1024 * 1024));
+    stored[stored.length - 1] ^= 0xff;
+
+    await expect(
+      stream_sha256_from_storage(make_ctx(stored, 64 * 1024), 'data/owner/tampered'),
+    ).rejects.toThrow();
+  });
+
+  it('never holds the whole plaintext, unlike the buffering reader', async () => {
+    // 64 MB of plaintext through 64 KB chunks: the digest reader retains a
+    // chunk at a time, so peak retention is orders of magnitude below the
+    // object. Asserted on heap growth rather than a mock, because the point of
+    // issue #37 is allocation, which no call-count assertion can observe.
+    const plaintext = randomBytes(64 * 1024 * 1024);
+    const stored = encrypt(plaintext);
+
+    global.gc?.();
+    const before = process.memoryUsage().heapUsed;
+    await stream_sha256_from_storage(make_ctx(stored, 64 * 1024), 'k');
+    const growth = process.memoryUsage().heapUsed - before;
+
+    expect(growth).toBeLessThan(plaintext.length);
   });
 });
