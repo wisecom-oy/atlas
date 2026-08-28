@@ -7,6 +7,7 @@ import type { SaveUseCase, SaveResult, SaveOptions, DeletionUseCase } from '@wis
 import { SAVE_USE_CASE_TOKEN, DELETION_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import { report_run_outcome } from '@/command-run-outcome';
+import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook-scope';
 import {
   confirm_deletion,
   print_delete_result,
@@ -69,7 +70,11 @@ export async function execute_outlook_save(
     }
   }
 
-  if (options.snapshot && !options.mailbox) {
+  const scope = resolve_outlook_scope(options);
+  const conflict = describe_scope_conflict(scope);
+  if (conflict) logger.warn(conflict);
+
+  if (scope.mode === 'snapshot') {
     return execute_snapshot_save(save_service, tenant_id, options, save_options);
   }
 

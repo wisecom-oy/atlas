@@ -28,6 +28,18 @@ This matters beyond readability. Anything that post-processes the output, a log 
 
 Outlook mailbox backup, restore, and management commands. All mailbox operations live under this group; cross-cutting storage and replication commands remain at the root level.
 
+::: warning Scope flags: `-s` beats `-m`
+`restore`, `list` and `save` all select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox). When both are passed, `-s` wins, matching `atlas replicate`. A snapshot id names exactly one thing, so it is the narrower request, and Atlas never silently widens it.
+
+`list` and `save` warn that `-m` was ignored and carry on. `restore` refuses the pair outright and exits `1`, because `-m` there used to mean "restore this snapshot into that mailbox instead", so guessing would decide which mailbox receives the mail. Use `-T, --target` for that, which works in both modes:
+
+```bash
+atlas outlook restore -s <snapshot-id> -T other@company.com
+```
+
+`-T` never selects what to restore, only where it lands.
+:::
+
 ### `atlas outlook backup`
 
 Back up one mailbox from an M365 tenant to object storage, with a per-folder progress dashboard. The `-m` flag is required. To back up multiple mailboxes, enumerate them with `atlas outlook mailboxes` and loop in your scheduler (cron, systemd timer, CI); fan-out across mailboxes is scheduling and belongs to the caller.
@@ -139,7 +151,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date                |
 | `-t, --tenant <id>`         | Override tenant ID                                              |
 
-Either `--snapshot` or `--mailbox` is required. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
+Exactly one of `--snapshot` or `--mailbox` is required; passing both exits `1`, as described under [`atlas outlook`](#atlas-outlook). `-T, --target` works in either mode. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
@@ -222,6 +234,8 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | `-o, --output <path>`       | Output file path (default: `Restore-<timestamp>.zip`)        |
 | `--skip-verify`             | Skip SHA-256 integrity checks (faster on low-power systems)  |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
+
+With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning; see [`atlas outlook`](#atlas-outlook). Earlier releases silently exported the whole mailbox instead.
 
 The zip archive mirrors the Outlook folder hierarchy:
 
