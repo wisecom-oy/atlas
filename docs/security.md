@@ -227,6 +227,12 @@ This means:
 - **One passphrase protects all copies.** Compromising the passphrase compromises data on every target.
 - **One DEK per tenant across all targets.** The wrapped DEK (`_meta/dek.enc`) is copied to each target on first replication.
 
+### Key material lifetime
+
+Opening a storage target derives an envelope key service from the passphrase and unwraps the tenant DEK, so every target a replication run touches holds key material in memory for as long as its context is open. Atlas closes each context as soon as the copy it was opened for finishes, on the failure path as well as the success path, which zeroes the passphrase buffer instead of leaving it for garbage collection.
+
+This bounds exposure to the duration of one snapshot copy rather than the whole run. It is defence in depth rather than a boundary: a process that can read Atlas's heap while a copy is in flight can read the key anyway, and Node offers no guarantee that a buffer is not copied elsewhere before it is zeroed. What it does remove is key material sitting in a long-lived process after the work that needed it is over.
+
 ### Access Isolation
 
 While encryption keys are shared, **S3 access credentials should be separate per target**. Use independent IAM principals for each storage endpoint:
