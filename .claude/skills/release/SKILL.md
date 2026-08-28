@@ -144,6 +144,7 @@ correct it with `npm dist-tag add`, never by republishing.
 | `release-guard` fails on branch name   | Branch version disagrees with `packages/sdk/package.json` | `pnpm run release:version <branch version>`        |
 | `release-guard` fails on existing tag  | Version already released                                  | Pick a higher version                              |
 | Tag exists, `publish.yml` never ran    | Tag pushed by hand with `GITHUB_TOKEN`                    | `gh workflow run publish.yml -f version=<version>` |
+| No `publish.yml` run at all             | GitHub created no run for the push (issue #212)           | `gh workflow run publish.yml -f version=<version> --ref main`; it tags the ref when the tag is missing |
 | Publish failed on build, lint, or test | Broken release commit                                     | Delete the tag, fix via a PR into `dev`, cut again |
 | SDK published, CLI failed              | Partial publish; npm is immutable                         | Hotfix forward at the next patch version           |
 

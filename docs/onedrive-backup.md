@@ -315,7 +315,7 @@ A restore creates `/Restore-<timestamp>` at the target drive root and recreates 
 
 This exists because the conflict policy is not a safety net. With the default `rename`, restoring a snapshot whose files still exist neither fails nor overwrites; it writes a suffixed copy next to every original. Repeated across a few DR rehearsals that leaves copies of the same file interleaved with real data, with nothing marking which is which. A restore root makes the result reviewable before it matters and reversible afterwards: delete the folder and the restore is undone.
 
-`--destination` replaces the generated root with one you name, created if missing. `--in-place` restores to the original paths, which was the behaviour before 3.1.0 and is now opt-in. `--conflict` keeps its meaning and applies inside whichever destination is chosen; under a fresh root there is normally nothing to collide with.
+`--destination` replaces the generated root with one you name, created if missing. `--in-place` restores to the original paths, which was the behaviour before 4.0.0 and is now opt-in. `--conflict` keeps its meaning and applies inside whichever destination is chosen; under a fresh root there is normally nothing to collide with.
 
 `--name` renames a single restored file and is rejected when the restore resolves to more than one file, since renaming many files to one name would either collide or silently rename only the first. Pair it with `--file-filter`.
 

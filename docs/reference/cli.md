@@ -447,7 +447,7 @@ A snapshot taken with `--folder` contains only that folder's files. Restoring it
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)          |
 | `-t, --tenant <id>`        | Override tenant ID from config                                                     |
 
-A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-3.1.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
+A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-4.0.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
@@ -614,7 +614,7 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 
 Restored files nest under `Restore-<timestamp>` in each destination library, with the original
 structure recreated beneath it. `--in-place` restores over the original paths, which was the
-behaviour before 3.1.0. See
+behaviour before 4.0.0. See
 [Where restored files land](../sharepoint-backup.md#where-restored-files-land).
 
 With `--target-site`, each file goes to the target library whose name matches the
