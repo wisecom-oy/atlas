@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import {
@@ -162,14 +163,32 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     version_id: string,
     size_bytes?: number,
   ): Promise<Buffer> {
-    const stream = await with_graph_retry(
+    const stream = await this.open_version_stream(drive_id, item_id, version_id);
+    const timeout_ms = size_bytes ? compute_chunk_timeout_ms(size_bytes) : 120_000;
+    return await stream_to_buffer(stream, timeout_ms);
+  }
+
+  /** Opens a version's content as a stream, for sizes not safe to buffer. */
+  async stream_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+  ): Promise<AsyncIterable<Buffer>> {
+    const stream = await this.open_version_stream(drive_id, item_id, version_id);
+    return stream instanceof Readable ? stream : Readable.from(stream as AsyncIterable<Buffer>);
+  }
+
+  private async open_version_stream(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+  ): Promise<NodeJS.ReadableStream> {
+    return await with_graph_retry(
       () =>
         this._client
           .api(`/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`)
           .getStream() as Promise<NodeJS.ReadableStream>,
     );
-    const timeout_ms = size_bytes ? compute_chunk_timeout_ms(size_bytes) : 120_000;
-    return await stream_to_buffer(stream, timeout_ms);
   }
 
   async create_folder(

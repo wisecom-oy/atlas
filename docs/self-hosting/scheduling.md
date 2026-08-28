@@ -77,7 +77,7 @@ A nightly 2 AM run avoids competing with daytime internet usage and with Microso
 
 Atlas pulls **full message bodies and all attachments** from Microsoft 365 via the Graph API over HTTPS. For a mailbox with 10 GB of email and attachments, a full initial backup transfers approximately 10 GB over the internet. Delta (incremental) syncs after the first run only transfer new and changed messages, which is dramatically less, but that first run is a significant transfer.
 
-OneDrive and SharePoint follow the same pattern: the first backup of a large drive or document library transfers the full file content. Large files (512 MiB and above) stream through Atlas without buffering the entire file in memory, but network throughput still limits how quickly they complete.
+OneDrive and SharePoint follow the same pattern: the first backup of a large drive or document library transfers the full file content. Large files (64 MiB and above) stream through Atlas without buffering the entire file in memory, but network throughput still limits how quickly they complete.
 
 Tenant-wide Outlook backups multiply the requirement by the worker count (`-C 4` is the default). Four workers backing up four large mailboxes simultaneously can saturate a typical office internet connection.
 

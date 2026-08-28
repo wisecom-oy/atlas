@@ -1,10 +1,11 @@
+import { stream_sha256_from_storage } from '@wisecom/atlas-core/services/shared/stream-decrypt';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveFileVersionIndexRepository,
@@ -22,8 +23,6 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { load_onedrive_chain_entries } from '@/services/onedrive-manifest-chain';
-
-const HASH_CHUNK_SIZE = 64 * 1024 * 1024;
 
 /** Verifies OneDrive snapshot blobs against manifest checksums and index consistency. */
 @injectable()
@@ -155,9 +154,7 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
     if (!storage_key || !expected) return true;
     try {
       if (!(await ctx.storage.exists(storage_key))) return true;
-      const ciphertext = await ctx.storage.get(storage_key);
-      const plaintext = ctx.decrypt(ciphertext);
-      const actual = compute_sha256_chunked(plaintext);
+      const actual = await stream_sha256_from_storage(ctx, storage_key);
       return this.is_checksum_mismatch(actual, expected);
     } catch {
       return true;
@@ -170,12 +167,4 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
     const b = Buffer.from(expected_checksum, 'utf8');
     return !timingSafeEqual(a, b);
   }
-}
-
-function compute_sha256_chunked(data: Buffer): string {
-  const hash = createHash('sha256');
-  for (let offset = 0; offset < data.length; offset += HASH_CHUNK_SIZE) {
-    hash.update(data.subarray(offset, Math.min(offset + HASH_CHUNK_SIZE, data.length)));
-  }
-  return hash.digest('hex');
 }

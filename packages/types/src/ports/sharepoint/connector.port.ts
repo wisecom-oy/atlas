@@ -100,6 +100,18 @@ export interface SharePointSiteConnector {
   /** Downloads a specific historical version of a file. */
   download_file_version(drive_id: string, item_id: string, version_id: string): Promise<Buffer>;
 
+  /**
+   * Opens a specific historical version as a stream, for versions too large to
+   * hold in memory. Callers below the streaming threshold use
+   * {@link download_file_version} instead.
+   */
+  stream_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+    size_bytes?: number,
+  ): Promise<AsyncIterable<Buffer>>;
+
   /** Creates a folder in a document library. Returns the folder's item ID. */
   create_folder(
     tenant_id: string,

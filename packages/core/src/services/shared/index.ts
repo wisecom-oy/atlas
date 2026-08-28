@@ -17,6 +17,17 @@ export type { DriveChainEntry, DriveChainManifest } from '@/services/shared/driv
 export { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
 export type { StreamDecryptResult } from '@/services/shared/stream-decrypt';
 export {
+  safe_abort_multipart,
+  stream_encrypt_to_multipart,
+  stream_to_content_addressed_storage,
+} from '@/services/shared/stream-encrypt-upload';
+export type {
+  CompletedPart,
+  ContentAddressedStreamResult,
+  ContentAddressedStreamTarget,
+  StreamEncryptUploadResult,
+} from '@/services/shared/stream-encrypt-upload';
+export {
   build_object_lock_policy,
   build_object_lock_request,
   compute_retain_until_utc,

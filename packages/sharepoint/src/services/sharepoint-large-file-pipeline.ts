@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import type {
-  MultipartUploadHandle,
   SharePointSiteConnector,
   SharePointDeltaItem,
   StorageObjectLockPolicy,
@@ -9,18 +8,21 @@ import type {
 } from '@wisecom/atlas-types';
 import { fetch_file_chunks } from '@/services/sharepoint-large-file-chunk-download';
 import {
-  flush_pending_parts,
-  PART_SIZE,
-  safe_abort_multipart,
-} from '@/services/sharepoint-large-file-upload';
-import {
   sharepoint_data_key,
   sharepoint_staging_key,
   sharepoint_staging_prefix,
 } from '@/services/sharepoint-storage-keys';
 
-/** Files at or above this size use the chunked staging + multipart pipeline. */
-export const LARGE_FILE_THRESHOLD = 512 * 1024 * 1024;
+/**
+ * Files at or above this size use the chunked staging + multipart pipeline.
+ *
+ * The buffered path below this holds the plaintext and its ciphertext copy at
+ * once, so the threshold is the per-file memory ceiling doubled. 64 MB keeps
+ * document- and photo-sized content on the single-PUT path while capping that
+ * ceiling at ~128 MB; the streaming path costs a staging copy per file, which
+ * is why this is not lower still.
+ */
+export const LARGE_FILE_THRESHOLD = 64 * 1024 * 1024;
 
 export interface LargeFileResult {
   readonly checksum: string;
@@ -29,16 +31,10 @@ export interface LargeFileResult {
   readonly deduplicated: boolean;
 }
 
-interface StreamUploadResult {
-  readonly checksum: string;
-  readonly handle: MultipartUploadHandle;
-  readonly completed_parts: Array<{ ETag: string; PartNumber: number }>;
-}
-
 /**
- * Single-download, zero-disk pipeline for files >= 512 MiB.
- * Streams encrypted parts to an S3 staging key, then either aborts
- * (dedup) or copies to the canonical content-addressed key.
+ * Single-download, zero-disk pipeline for files at or above
+ * {@link LARGE_FILE_THRESHOLD}. Streams encrypted parts to an S3 staging key,
+ * then either aborts (dedup) or copies to the canonical content-addressed key.
  */
 export async function process_large_file(
   connector: SharePointSiteConnector,
@@ -58,41 +54,24 @@ export async function process_large_file(
     `Streaming large file ${item.file_name} (${format_bytes(item.size_bytes)}) via staging key...`,
   );
 
-  const { checksum, handle, completed_parts } = await stream_encrypt_upload(
-    download_url,
-    item,
-    staging_key,
+  const result = await stream_to_content_addressed_storage(
     ctx,
+    fetch_file_chunks(download_url, item.size_bytes, item.item_id),
+    {
+      staging_key,
+      staging_prefix: sharepoint_staging_prefix(site_id),
+      build_data_key: (checksum) => sharepoint_data_key(site_id, checksum),
+      ...(object_lock_policy && { object_lock_policy }),
+    },
   );
 
-  const canonical_key = sharepoint_data_key(site_id, checksum);
-  const exists = await ctx.storage.exists(canonical_key);
-
-  if (exists) {
-    await safe_abort_multipart(handle, sharepoint_staging_prefix(site_id), ctx);
+  if (result.deduplicated) {
     logger.info(`Deduplicated ${item.file_name} (already stored)`);
-    return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
+  } else {
+    logger.info(`Stored ${item.file_name} (${format_bytes(item.size_bytes)})`);
   }
 
-  await handle.complete(completed_parts);
-
-  // ponytail: the exists() check above races a concurrent writer, and the loser
-  // overwrites with identical bytes -- canonical_key IS the SHA-256 of the
-  // content, so the duplicate is benign. Conditional copy would make it atomic,
-  // but MinIO ignores IfNoneMatch on CopyObject, so guarding it here would only
-  // look safe. Revisit if a backend honours it.
-  try {
-    await ctx.storage.copy(staging_key, canonical_key, undefined, object_lock_policy);
-  } catch (err) {
-    logger.warn(`Copy staging->canonical failed, cleaning up: ${err}`);
-    await ctx.storage.delete(staging_key).catch(() => {});
-    throw err;
-  }
-
-  await ctx.storage.delete(staging_key).catch(() => {});
-
-  logger.info(`Stored ${item.file_name} (${format_bytes(item.size_bytes)})`);
-  return { checksum, storage_key: canonical_key, stored: true, deduplicated: false };
+  return result;
 }
 
 /** Removes leftover staging objects and incomplete multipart uploads. */
@@ -108,84 +87,6 @@ export async function cleanup_stale_staging(ctx: TenantContext, site_id: string)
   const aborted = await ctx.storage.abort_incomplete_uploads(prefix);
   if (aborted > 0) {
     logger.info(`Aborted ${aborted} incomplete staging upload(s)`);
-  }
-}
-
-async function stream_encrypt_upload(
-  download_url: string,
-  item: SharePointDeltaItem,
-  staging_key: string,
-  ctx: TenantContext,
-): Promise<StreamUploadResult> {
-  const { cipher, iv } = ctx.create_cipher();
-  const hash = createHash('sha256');
-  const handle = await ctx.storage.begin_multipart_upload(staging_key);
-
-  try {
-    const completed_parts: Array<{ ETag: string; PartNumber: number }> = [];
-    let part_number = 2;
-    const pending: Buffer[] = [];
-    let pending_bytes = 0;
-    let first_part_data: Buffer | null = null;
-
-    for await (const chunk of fetch_file_chunks(download_url, item.size_bytes, item.item_id)) {
-      hash.update(chunk);
-      const encrypted = cipher.update(chunk);
-      if (encrypted.length === 0) continue;
-
-      pending.push(encrypted);
-      pending_bytes += encrypted.length;
-
-      while (pending_bytes >= PART_SIZE) {
-        const flush_result = await flush_pending_parts(
-          pending,
-          pending_bytes,
-          first_part_data,
-          part_number,
-          completed_parts,
-          handle,
-        );
-        pending.length = 0;
-        pending.push(...flush_result.pending);
-        pending_bytes = flush_result.pending_bytes;
-        first_part_data = flush_result.first_part_data;
-        part_number = flush_result.part_number;
-      }
-    }
-
-    const final_block = cipher.final();
-    if (final_block.length > 0) {
-      pending.push(final_block);
-      pending_bytes += final_block.length;
-    }
-
-    if (!first_part_data) {
-      first_part_data = Buffer.concat(pending);
-      pending.length = 0;
-      pending_bytes = 0;
-    }
-
-    if (pending_bytes > 0) {
-      const last_part = Buffer.concat(pending);
-      const etag = await handle.upload_part(part_number, last_part);
-      completed_parts.push({ ETag: etag, PartNumber: part_number });
-    }
-
-    const auth_tag = cipher.getAuthTag();
-    const header_part = Buffer.concat([iv, auth_tag, first_part_data]);
-    const part1_etag = await handle.upload_part(1, header_part);
-    completed_parts.push({ ETag: part1_etag, PartNumber: 1 });
-
-    completed_parts.sort((a, b) => a.PartNumber - b.PartNumber);
-
-    return { checksum: hash.digest('hex'), handle, completed_parts };
-  } catch (err) {
-    await safe_abort_multipart(
-      handle,
-      staging_key.substring(0, staging_key.lastIndexOf('/') + 1),
-      ctx,
-    );
-    throw err;
   }
 }
 

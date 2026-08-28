@@ -50,8 +50,8 @@ Snapshot IDs are generated as `sp-snap-<milliseconds>-<6-hex>` (for example `sp-
 2. **Library discovery.** Atlas calls `GET /sites/{site_id}/drives?$filter=driveType eq 'documentLibrary'` to discover all document libraries within the site. Each library has its own delta cursor, allowing independent incremental tracking.
 3. **Delta sync.** For each document library, Atlas follows `GET /drives/{drive_id}/root/delta`, or the stored OData `deltaLink`, to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the library: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A library that fails outright, before any delta could be read, leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed library.
 4. **Content-addressed storage.** Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that site, the blob is deduplicated (no second upload).
-5. **Zero-disk streaming.** Files at or above **512 MiB** use a streaming pipeline: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `sharepoint/staging/`, then copied to the canonical `sharepoint/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part, on the order of **12 MiB** per large file rather than the full file size.
-6. **Version history.** After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content.
+5. **Zero-disk streaming.** Files at or above **64 MiB** use a streaming pipeline: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `sharepoint/staging/`, then copied to the canonical `sharepoint/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part, on the order of **12 MiB** per large file rather than the full file size.
+6. **Version history.** After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content, including the streaming threshold: a historical version at or above **64 MiB** streams rather than buffering. A version carries no size limit of its own, so a large file's history is otherwise the easiest way to exhaust the heap.
 7. **Encrypted manifests and sidecars.** Each backup run that records changes builds a snapshot manifest (entries, checksums, paths). Manifests, per-file version indexes, and delta cursor JSON are encrypted with the tenant DEK on `put`, consistent with the rest of Atlas.
 
 ### Storage Layout
@@ -79,8 +79,8 @@ Implementation thresholds from `@wisecom/atlas-sharepoint`:
 | Size                          | Strategy                                                                                                                                                                                       |
 | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **≤ 4 MiB**                   | Single read via pre-authenticated URL (with transient-status retry and Retry-After backoff) or Graph content fallback, encrypt, `put`                                                          |
-| **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                                      |
-| **≥ 512 MiB**                 | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
+| **> 4 MiB** and **< 64 MiB**  | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                                      |
+| **≥ 64 MiB**                  | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff), so a transient failure replays a single chunk instead of the whole file. A chunk is retried on the same statuses as any other Graph call (429, 500, 502, 503, and 504), because the CDN in front of Graph raises `500` and `502` under load. A `4xx` response fails the chunk immediately.
 
@@ -260,6 +260,8 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 | `--site <url-or-id>`  | SharePoint site URL or Graph site ID | Required       |
 | `-s, --snapshot <id>` | Snapshot ID to verify                | Required       |
 | `-t, --tenant <id>`   | Tenant identifier                    | Config default |
+
+Verification compares digests, not bytes, so each object is decrypted as a stream and hashed incrementally. Nothing is held whole, and a snapshot of multi-gigabyte files verifies in the same working set as a snapshot of small ones.
 
 ## Restore
 
