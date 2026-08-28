@@ -1,4 +1,5 @@
 export { create_graph_client, GRAPH_CLIENT_TOKEN } from './graph-client.factory';
+export { parse_retry_after_ms } from './graph-retry-after';
 export {
   is_invalid_delta_error,
   rethrow_if_access_denied,
