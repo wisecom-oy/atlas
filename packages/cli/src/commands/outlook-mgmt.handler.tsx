@@ -23,6 +23,9 @@ import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
 
+/** Archive-enabled mailboxes named individually before the warning summarises. */
+const ARCHIVE_WARNING_LIMIT = 10;
+
 export interface OutlookVerifyOptions {
   snapshot: string;
   mailbox: string;
@@ -217,6 +220,7 @@ async function print_status_result(result: MailboxStatusResult): Promise<void> {
 
 async function print_mailbox_table(mailboxes: TenantMailbox[]): Promise<void> {
   const has_sizes = mailboxes.some((m) => m.mailbox_size_bytes !== undefined);
+  const archive_known = mailboxes.some((m) => m.has_in_place_archive !== undefined);
 
   interface MailboxRow {
     mail: string;
@@ -225,6 +229,7 @@ async function print_mailbox_table(mailboxes: TenantMailbox[]): Promise<void> {
     status: string;
     type: string;
     size: string;
+    archive: string;
     created: string;
   }
   const columns: TableColumn<MailboxRow>[] = [
@@ -234,6 +239,9 @@ async function print_mailbox_table(mailboxes: TenantMailbox[]): Promise<void> {
     { key: 'status', header: 'Status' },
     { key: 'type', header: 'Type' },
     ...(has_sizes ? [{ key: 'size', header: 'Size' } satisfies TableColumn<MailboxRow>] : []),
+    ...(archive_known
+      ? [{ key: 'archive', header: 'Archive' } satisfies TableColumn<MailboxRow>]
+      : []),
     { key: 'created', header: 'Created' },
   ];
   const rows = mailboxes.map((m) => ({
@@ -243,7 +251,42 @@ async function print_mailbox_table(mailboxes: TenantMailbox[]): Promise<void> {
     status: m.exchange_plan_status ?? '--',
     type: m.mailbox_purpose ?? '--',
     size: m.mailbox_size_bytes === undefined ? '--' : format_bytes(m.mailbox_size_bytes, 2),
+    archive: format_in_place_archive(m.has_in_place_archive),
     created: m.created_at ? m.created_at.toISOString().slice(0, 10) : '--',
   }));
   await render_static_view(<DataTable columns={columns} rows={rows} />);
+  warn_about_in_place_archives(mailboxes);
+}
+
+/**
+ * Renders the tri-state archive cell.
+ *
+ * `--` is unknown, never "no": the signal comes from an optional usage report,
+ * and claiming a mailbox has no archive when Atlas could not check is the
+ * false reassurance this column exists to remove.
+ */
+export function format_in_place_archive(has_archive: boolean | undefined): string {
+  if (has_archive === undefined) return '--';
+  return has_archive ? 'Yes' : 'No';
+}
+
+/**
+ * Names mailboxes whose In-Place Archive sits outside backup scope.
+ *
+ * Graph cannot read archive mailboxes at all, so this is the only signal an
+ * operator gets that a backup of this mailbox is not a backup of all its mail.
+ */
+function warn_about_in_place_archives(mailboxes: TenantMailbox[]): void {
+  const archived = mailboxes.filter((m) => m.has_in_place_archive === true);
+  if (archived.length === 0) return;
+
+  logger.warn(
+    `${archived.length} mailbox(es) have an In-Place Archive (Online Archive), which Graph cannot read and Atlas does not back up:`,
+  );
+  for (const m of archived.slice(0, ARCHIVE_WARNING_LIMIT)) {
+    logger.warn(`  ${m.mail}`);
+  }
+  const hidden = archived.length - ARCHIVE_WARNING_LIMIT;
+  if (hidden > 0) logger.warn(`  ...and ${hidden} more`);
+  logger.info('Coverage detail: docs/security.md, "In-Place Archive is out of scope".');
 }

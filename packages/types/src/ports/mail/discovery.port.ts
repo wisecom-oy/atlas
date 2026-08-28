@@ -11,6 +11,16 @@ export interface TenantMailbox {
   readonly created_at?: Date;
   readonly mailbox_size_bytes?: number;
   readonly item_count?: number;
+  /**
+   * Whether the mailbox has an In-Place Archive (Online Archive) enabled, from
+   * the `Has Archive` column of the mailbox usage report.
+   *
+   * `undefined` means unknown, not absent: the report needs `Reports.Read.All`
+   * and the column is missing from some report revisions. Archive content is
+   * outside backup scope, so reporting "no archive" for a mailbox that has one
+   * is the failure worth avoiding.
+   */
+  readonly has_in_place_archive?: boolean;
 }
 
 export interface MailboxDiscoveryOptions {
