@@ -92,13 +92,22 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     return this._graph.resolve_by_object_id(tenant_id, object_id);
   }
 
+  /**
+   * Graph lookup that falls back to the cached registry, so a lookup still works while Graph is
+   * unreachable. The failure is logged rather than dropped: a silent swallow here looks identical
+   * to a user that genuinely does not exist (issue #202).
+   */
   private async try_graph_resolve(
     tenant_id: string,
     email: string,
   ): Promise<ResolvedUserIdentity | undefined> {
     try {
       return await this._graph.resolve_user(tenant_id, email);
-    } catch {
+    } catch (err) {
+      logger.debug(
+        `Graph could not resolve "${email}", falling back to the cached registry: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
       return undefined;
     }
   }
