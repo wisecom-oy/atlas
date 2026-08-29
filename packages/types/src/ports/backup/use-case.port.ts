@@ -2,6 +2,7 @@ import type { Manifest } from '@/domain/manifest';
 import type { Snapshot } from '@/domain/snapshot';
 import type { OperationCost } from '@/domain/graph-cost';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { ExcludedFolder } from '@/ports/mail/connector.port';
 
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
@@ -55,6 +56,12 @@ export interface SyncOptions extends OperationControlOptions {
   readonly should_force_stop?: (() => boolean) | undefined;
   readonly owner_email?: string | undefined;
   readonly owner_display_name?: string | undefined;
+  /**
+   * Skip Junk Email. Junk is captured by default: it is evidence during a
+   * phishing or BEC investigation, and a backup that drops it cannot answer
+   * whether a message ever arrived.
+   */
+  readonly exclude_junk?: boolean | undefined;
 }
 
 export interface BackupSyncSummary {
@@ -68,6 +75,8 @@ export interface BackupSyncSummary {
   readonly completed_folder_count: number;
   readonly total_folder_count: number;
   readonly elapsed_ms: number;
+  /** Folders this run did not capture, with why. */
+  readonly excluded_folders: ExcludedFolder[];
 }
 
 export interface SyncResult {

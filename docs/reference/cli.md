@@ -63,10 +63,35 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
 | `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
+| `--exclude-junk`         | Skip the Junk Email folder and its subfolders                             |
 
 `--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
 
 Requesting retention is fail-closed: when the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
+
+#### Which folders are backed up
+
+Every mail folder in the mailbox, at any nesting depth, including the ones Outlook treats as special:
+
+| Folder | Backed up | Note |
+| ------------------------------ | -------------- | ------------------------------------------------------------------------ |
+| Inbox, Sent Items, Deleted Items, Archive, and user folders | Yes | Including nested subfolders at any depth |
+| **Drafts** and **Outbox** | Yes | Unsent work exists nowhere else, so it is content like any other |
+| **Junk Email** | Yes | Opt out with `--exclude-junk`. Junk is evidence in a phishing or BEC case |
+| Hidden folders (`isHidden`) | Yes | Enumerated explicitly; Graph omits them unless asked |
+| Hidden Exchange system folders | No | A short deny-list of client-state folders such as `Conversation Action Settings`, matched only when Exchange also reports them hidden |
+| In-Place Archive mailbox | No | Graph cannot read it at all. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope) |
+
+Anything skipped is reported at the end of the run and recorded in the snapshot manifest with its reason, so "was folder X captured?" is answerable from the backup rather than from whoever ran it:
+
+```
+[!] 1 folder(s) not backed up:
+      Junk Email (skipped by --exclude-junk)
+```
+
+::: warning Drafts and Outbox are new in 4.1.0
+Earlier versions silently skipped Drafts and Outbox. New snapshots include them, which makes the first backup after upgrading larger than the previous one for mailboxes that hold unsent mail. Existing snapshots are unaffected; the content appears as those folders sync for the first time.
+:::
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
 `0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).

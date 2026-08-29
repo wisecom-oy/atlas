@@ -6,6 +6,7 @@ import type {
   MailboxConnector,
   MailboxPurpose,
   MailFolder,
+  MailFolderListOptions,
   MailMessage,
   MessageAttachment,
   DeltaSyncResult,
@@ -26,7 +27,7 @@ import type {
   GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
 import { extract_user_ids, parse_mailbox_purpose } from '@/adapters/graph-mailbox-response-mappers';
-import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
+import { list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
   DELTA_SELECT_FIELDS,
@@ -91,30 +92,23 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /**
-   * Lists every mail folder in the mailbox, at any nesting depth, excluding
-   * system folders (drafts, outbox, junk, recoverable items) and their subtrees.
-   */
-  async list_mail_folders(_tenant_id: string, owner_id: string): Promise<MailFolder[]> {
+  /** Lists every mail folder in the mailbox, at any nesting depth. */
+  async list_mail_folders(
+    _tenant_id: string,
+    owner_id: string,
+    options?: MailFolderListOptions,
+  ): Promise<MailFolder[]> {
     try {
-      // Per-page retry lives inside collect_all_pages; wrapping the whole
-      // enumeration would put every page under one 60s timeout.
-      return await enumerate_folder_tree((parent_folder_id) =>
-        this.collect_all_pages<GraphFolderRecord>(this.folder_url(owner_id, parent_folder_id)),
+      return await list_mail_folder_tree(
+        (url) => this.collect_all_pages<GraphFolderRecord>(url),
+        owner_id,
+        options,
       );
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
       throw err;
     }
-  }
-
-  /** Builds the folder-collection URL for the mailbox root or one parent folder. */
-  private folder_url(owner_id: string, parent_folder_id?: string): string {
-    const collection = parent_folder_id
-      ? `/users/${owner_id}/mailFolders/${parent_folder_id}/childFolders`
-      : `/users/${owner_id}/mailFolders`;
-    return `${collection}?$select=id,displayName,parentFolderId,totalItemCount,childFolderCount&$top=250`;
   }
 
   /**

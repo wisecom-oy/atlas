@@ -145,9 +145,32 @@ describe('MailboxSyncService', () => {
     expect(mock_factory.create).toHaveBeenCalledWith('tenant-x');
   });
 
-  it('lists mail folders from connector', async () => {
+  it('lists mail folders from connector, collecting what it excludes', async () => {
     await service.sync_mailbox('t', 'user@test.com');
-    expect(mock_connector.list_mail_folders).toHaveBeenCalledWith('t', 'user@test.com');
+    expect(mock_connector.list_mail_folders).toHaveBeenCalledWith(
+      't',
+      'user@test.com',
+      expect.objectContaining({ on_excluded: expect.any(Function) }),
+    );
+  });
+
+  it('records excluded folders in the manifest and the summary', async () => {
+    vi.mocked(mock_connector.list_mail_folders).mockImplementation(
+      async (_tenant_id, _owner_id, options) => {
+        options?.on_excluded?.({ folder_path: 'Junk Email', reason: 'junk-excluded' });
+        return [];
+      },
+    );
+
+    const result = await service.sync_mailbox('t', 'user@test.com', { exclude_junk: true });
+
+    expect(result.summary.excluded_folders).toEqual([
+      { folder_path: 'Junk Email', reason: 'junk-excluded' },
+    ]);
+    const [, manifest] = vi.mocked(mock_manifests.save).mock.calls[0]!;
+    expect(manifest.excluded_folders).toEqual([
+      { folder_path: 'Junk Email', reason: 'junk-excluded' },
+    ]);
   });
 
   it('records mailbox_purpose in the manifest when the connector reports it', async () => {

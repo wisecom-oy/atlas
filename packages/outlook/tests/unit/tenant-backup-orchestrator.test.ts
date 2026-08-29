@@ -28,6 +28,7 @@ function make_sync_result(mailbox_id: string): SyncResult {
     processed: 7,
     folder_errors: [],
     warnings: [],
+    excluded_folders: [],
     interrupted: false,
     completed_folder_count: 2,
     total_folder_count: 2,

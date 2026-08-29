@@ -23,6 +23,8 @@ export interface GraphFolderRecord {
   parentFolderId?: string;
   totalItemCount?: number;
   childFolderCount?: number;
+  /** Exchange hides the folder from Outlook; only returned with includeHiddenFolders. */
+  isHidden?: boolean;
 }
 
 export interface GraphAttachmentRecord {
