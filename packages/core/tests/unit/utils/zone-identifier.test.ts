@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir, platform } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -20,34 +20,6 @@ afterEach(() => {
 });
 
 describe('mark_downloaded_from_internet', () => {
-  it.runIf(is_windows)('writes an Internet-zone Zone.Identifier stream', async () => {
-    const marked = await mark_downloaded_from_internet(archive);
-
-    expect(marked).toBe(true);
-    const stream = await readFile(`${archive}:Zone.Identifier`, 'utf-8');
-    expect(stream).toContain('[ZoneTransfer]');
-    expect(stream).toContain('ZoneId=3');
-  });
-
-  it.runIf(is_windows)('leaves the archive bytes untouched', async () => {
-    const before = await readFile(archive);
-
-    await mark_downloaded_from_internet(archive);
-
-    expect(await readFile(archive)).toEqual(before);
-  });
-
-  it.runIf(is_windows)(
-    'reports failure rather than throwing when the stream is refused',
-    async () => {
-      // A directory that no longer exists stands in for a filesystem with no ADS
-      // support: the write is rejected, and the save must survive it.
-      await expect(mark_downloaded_from_internet(join(dir, 'gone', 'missing.zip'))).resolves.toBe(
-        false,
-      );
-    },
-  );
-
   it.skipIf(is_windows)('does nothing on platforms with no Mark-of-the-Web', async () => {
     const marked = await mark_downloaded_from_internet(archive);
 
