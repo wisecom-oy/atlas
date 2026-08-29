@@ -1,3 +1,4 @@
+import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { SaveResult } from '@wisecom/atlas-types';
@@ -91,6 +92,7 @@ export async function save_entries_to_archive(
   });
   await finalize_archive(archive);
   const total_bytes = await promise;
+  await mark_downloaded_from_internet(output_path);
 
   log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
 

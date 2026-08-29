@@ -64,6 +64,36 @@ jobs:
             packages/*/coverage/
           retention-days: 30
 
+  # The only Windows-specific code path in Atlas. Mark-of-the-Web is an NTFS
+  # alternate data stream, so no Linux runner can prove the write works and no
+  # unit test on macOS can either -- issue #220 was filed calling it unverifiable
+  # by CI. The stream write is an ordinary filesystem operation, so a Windows
+  # runner does prove that much. What it still cannot prove is the chain beyond
+  # the file: Explorer propagating the mark to extracted files, and Office
+  # opening them in Protected View. Those need a human on a desktop.
+  windows-motw:
+    name: Mark-of-the-Web (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Zone.Identifier stream is written on NTFS
+        run: pnpm --filter @wisecom/atlas-core exec vitest run tests/unit/utils/zone-identifier.test.ts
+
   release-guard:
     name: Release version guard
     runs-on: ubuntu-latest
