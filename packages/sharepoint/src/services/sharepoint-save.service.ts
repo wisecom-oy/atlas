@@ -1,3 +1,4 @@
+import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
@@ -97,6 +98,7 @@ export class SharePointSaveService implements SharePointSaveUseCase {
       });
       await finalize_file_archive(archive);
       const total_bytes = await promise;
+      await mark_downloaded_from_internet(output_path);
       const interrupted =
         files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
       emit_operation_progress(options, {

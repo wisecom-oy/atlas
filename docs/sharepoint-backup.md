@@ -229,6 +229,8 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas sharepoint save`
 
+On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `ZoneId=3`), so files extracted from it open in Protected View and their macros are blocked. Explorer propagates the mark to every extracted file; clear it with `Get-ChildItem -Recurse <dir> | Unblock-File` once you trust the content. Nothing is written on macOS or Linux, and an export to a filesystem without alternate data streams still succeeds with a warning. See [Exported archives and Mark-of-the-Web](./reference/cli.md#atlas-outlook-save).
+
 | Flag                       | Description                                  | Default        |
 | -------------------------- | -------------------------------------------- | -------------- |
 | `--site <url-or-id>`       | SharePoint site URL or Graph site ID         | Required       |

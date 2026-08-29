@@ -235,6 +235,18 @@ The formatted view is identical for both formats -- subject, from, to, cc, date,
 
 Export backed-up emails as standard `.eml` files (RFC 5322) in a compressed zip archive. Messages archived as MIME are written **byte-for-byte** from the stored object -- no re-encoding, so the exported file is the message Exchange received. Legacy entries stored as Graph JSON are reconstructed into `.eml` at export time, as they always were. Attachments are embedded as MIME parts in both cases. Every message and attachment is SHA-256 verified after decryption by default.
 
+::: warning Exported archives are marked as internet-sourced on Windows
+On Windows, Atlas stamps the archive with Mark-of-the-Web: a `Zone.Identifier` alternate data stream carrying `ZoneId=3` (Internet). The content came from a Microsoft 365 tenant over the network, and Atlas does not vet it, so an export must not be the step that strips a protection the same file would have had if it arrived by browser or mail attachment. Without the mark, Office opens recovered documents with macros enabled; with it, they open in [Protected View](https://learn.microsoft.com/en-us/microsoft-365-apps/security/internet-macros-blocked) and macros are blocked.
+
+**This propagates.** Windows Explorer and WinRAR copy the mark onto every extracted file (7-Zip only since 22.0, and not by default), so a 10,000-file recovery yields 10,000 files in Protected View and no macro-bearing workbook that runs. That is intended, and it is the behaviour operators notice first. When you have decided the content is trustworthy, clear it with PowerShell:
+
+```powershell
+Get-ChildItem -Recurse .\Restore-2026-03-10 | Unblock-File
+```
+
+Nothing is written on macOS or Linux, which have no equivalent. If the target filesystem cannot hold an alternate data stream (FAT32 or exFAT removable media, SMB to a non-NTFS server) the export still succeeds and logs a warning: a recovered archive is worth more than its mark.
+:::
+
 **Snapshot mode:**
 
 ```bash
