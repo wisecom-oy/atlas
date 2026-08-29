@@ -1,3 +1,4 @@
+import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
 import type { FailedItemLedger } from './failed-item';
 
 export type SharePointChangeType =
@@ -28,6 +29,12 @@ export interface SharePointManifestEntry {
   readonly checksum?: string;
   readonly etag?: string;
   readonly last_modified_at?: string;
+  /** Client-side timestamps, writable on restore unlike the service-side ones. */
+  readonly file_system_info?: DriveFileSystemInfo;
+  /** Graph `createdBy`; captured for audit. Restoring authorship needs migration-grade APIs. */
+  readonly created_by?: DriveItemIdentity;
+  /** Graph `lastModifiedBy`; captured for audit. */
+  readonly last_modified_by?: DriveItemIdentity;
   readonly backup_at: string;
   readonly change_type: SharePointChangeType;
 }
@@ -46,6 +53,8 @@ export interface SharePointFileVersionRecord {
   readonly checksum?: string;
   readonly etag?: string;
   readonly last_modified_at?: string;
+  /** Graph `driveItemVersion.lastModifiedBy`: who produced this version. */
+  readonly last_modified_by?: DriveItemIdentity;
   readonly change_type: SharePointChangeType;
 }
 

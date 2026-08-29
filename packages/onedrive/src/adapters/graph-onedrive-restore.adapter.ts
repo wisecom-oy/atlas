@@ -1,5 +1,11 @@
+import type { DriveFileSystemInfo } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { is_transient_error, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import {
+  build_upload_file_system_info,
+  is_transient_error,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const LARGE_UPLOAD_CHUNK = 10 * 1024 * 1024;
 const CHUNK_PUT_ATTEMPTS = 3;
@@ -125,7 +131,14 @@ export async function graph_onedrive_create_folder(
   }
 }
 
-/** Uploads file contents with a single PUT (small files). */
+/**
+ * Uploads file contents with a single PUT (small files).
+ *
+ * `PUT /content` carries bytes only, so original timestamps need a follow-up
+ * PATCH on the created item. The PATCH is best-effort: a restored file with
+ * the wrong timestamps is still a restored file, and failing the upload over
+ * metadata would trade content for provenance.
+ */
 export async function graph_onedrive_upload_small_file(
   client: Client,
   owner_id: string,
@@ -134,26 +147,57 @@ export async function graph_onedrive_upload_small_file(
   file_name: string,
   content: Buffer,
   conflict_behavior: string = 'rename',
+  file_system_info?: DriveFileSystemInfo,
 ): Promise<void> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
   const encoded_name = encodeURIComponent(file_name);
   // Encoded: an unescaped value could append a second conflictBehavior to the query.
   const conflict_qs = `@microsoft.graph.conflictBehavior=${encodeURIComponent(conflict_behavior)}`;
-  await with_graph_retry(
+  const uploaded = await with_graph_retry(
     () =>
       client
         .api(
           `/users/${owner_id}/drives/${drive_id}/${parent_ref}:/${encoded_name}:/content?${conflict_qs}`,
         )
         .header('Content-Type', 'application/octet-stream')
-        .put(content) as Promise<unknown>,
+        .put(content) as Promise<{ id?: string } | undefined>,
   );
+
+  await stamp_file_system_info(client, owner_id, drive_id, uploaded?.id, file_system_info);
+}
+
+/** Applies captured timestamps to an uploaded item, logging rather than failing. */
+async function stamp_file_system_info(
+  client: Client,
+  owner_id: string,
+  drive_id: string,
+  item_id: string | undefined,
+  file_system_info: DriveFileSystemInfo | undefined,
+): Promise<void> {
+  const body = build_upload_file_system_info(file_system_info);
+  if (!body || !item_id) return;
+
+  try {
+    await with_graph_retry(
+      () =>
+        client
+          .api(`/users/${owner_id}/drives/${drive_id}/items/${item_id}`)
+          .patch({ fileSystemInfo: body }) as Promise<unknown>,
+    );
+  } catch (err) {
+    logger.warn(
+      `Restored file kept restore-time timestamps: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**
  * Uploads via createUploadSession and chunked PUTs. Each chunk PUT is retried up to three times on
  * a transient Graph status (429, 500, 502, 503, 504) with Retry-After delays; on terminal failure
  * the upload session is cancelled with DELETE.
+ *
+ * The session accepts item metadata up front, so unlike the small-file path
+ * the original timestamps travel with the upload itself.
  */
 export async function graph_onedrive_upload_large_file(
   client: Client,
@@ -163,8 +207,10 @@ export async function graph_onedrive_upload_large_file(
   file_name: string,
   content: Buffer,
   conflict_behavior: string = 'rename',
+  file_system_info?: DriveFileSystemInfo,
 ): Promise<void> {
   const parent_ref = parent_id === 'root' ? 'root' : `items/${parent_id}`;
+  const file_system_body = build_upload_file_system_info(file_system_info);
   const session_response = await with_graph_retry(
     () =>
       client
@@ -172,7 +218,10 @@ export async function graph_onedrive_upload_large_file(
           `/users/${owner_id}/drives/${drive_id}/${parent_ref}:/${encodeURIComponent(file_name)}:/createUploadSession`,
         )
         .post({
-          item: { '@microsoft.graph.conflictBehavior': conflict_behavior },
+          item: {
+            '@microsoft.graph.conflictBehavior': conflict_behavior,
+            ...(file_system_body ? { fileSystemInfo: file_system_body } : {}),
+          },
         }) as Promise<{ uploadUrl?: string }>,
   );
   if (!session_response.uploadUrl) {

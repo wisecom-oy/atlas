@@ -1,3 +1,4 @@
+import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
 export interface OneDriveDrive {
   readonly drive_id: string;
   readonly drive_name: string;
@@ -17,6 +18,10 @@ export interface OneDriveDeltaItem {
   readonly size_bytes: number;
   readonly etag?: string;
   readonly last_modified_at?: string;
+  /** Client-side timestamps from the `fileSystemInfo` facet, writable on restore. */
+  readonly file_system_info?: DriveFileSystemInfo;
+  readonly created_by?: DriveItemIdentity;
+  readonly last_modified_by?: DriveItemIdentity;
   readonly deleted: boolean;
   /**
    * Graph reports a non-null `malware` facet for this item, so the service will
@@ -37,6 +42,8 @@ export interface OneDriveFileVersion {
   readonly version_id: string;
   readonly last_modified_at: string;
   readonly size_bytes: number;
+  /** Graph `driveItemVersion.lastModifiedBy`: who produced this version. */
+  readonly last_modified_by?: DriveItemIdentity;
 }
 
 export interface OneDriveConnector {
@@ -95,7 +102,13 @@ export interface OneDriveConnector {
     folder_name: string,
   ): Promise<string>;
 
-  /** Uploads a small file (< 4MB) to OneDrive. */
+  /**
+   * Uploads a small file (< 4MB) to OneDrive.
+   *
+   * `file_system_info` carries the timestamps the file had before it was
+   * backed up. Without it the service stamps the restore time, which destroys
+   * "when was this created" for every restored file.
+   */
   upload_small_file(
     tenant_id: string,
     owner_id: string,
@@ -104,6 +117,7 @@ export interface OneDriveConnector {
     file_name: string,
     content: Buffer,
     conflict_behavior?: string,
+    file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
 
   /** Uploads a large file via resumable upload session. */
@@ -115,5 +129,6 @@ export interface OneDriveConnector {
     file_name: string,
     content: Buffer,
     conflict_behavior?: string,
+    file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
 }

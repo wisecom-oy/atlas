@@ -110,8 +110,8 @@ The 10,000 req/10min budget is **per mailbox**, not per tenant, so N mailboxes c
 
 **Cost model: resource units (RU).** Each Graph request has a predetermined cost.
 
-:::: warning OneDrive support
-SharePoint/OneDrive backup is on the Atlas roadmap. The limits below are documented now so SaaS operators can design their scheduling logic in advance. Atlas does not currently emit any cost data for this pool.
+:::: warning OneDrive cost data
+OneDrive and SharePoint backup are implemented, but Atlas does not yet emit cost data for this pool: `graph_cost` is populated for Outlook operations only. The limits below are documented so operators can size drive schedules against a budget Atlas cannot currently measure for them.
 ::::
 
 ### Resource unit costs

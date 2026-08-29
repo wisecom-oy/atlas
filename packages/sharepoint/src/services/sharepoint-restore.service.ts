@@ -267,6 +267,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           placement.file_name,
           content,
           conflict,
+          entry.file_system_info,
         );
       } else {
         await this._connector.upload_large_file(
@@ -277,6 +278,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
           placement.file_name,
           content,
           conflict,
+          entry.file_system_info,
         );
       }
 
