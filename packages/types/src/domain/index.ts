@@ -69,3 +69,4 @@ export type {
   IdentityServiceLimits,
 } from './graph-service-limits';
 export { GRAPH_SERVICE_LIMITS } from './graph-service-limits-values';
+export type { DriveItemIdentity, DriveFileSystemInfo } from '@/domain/drive-item-metadata';

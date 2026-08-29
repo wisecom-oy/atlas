@@ -196,6 +196,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           placement.file_name,
           content,
           conflict,
+          entry.file_system_info,
         );
       } else {
         await this._connector.upload_large_file(
@@ -206,6 +207,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           placement.file_name,
           content,
           conflict,
+          entry.file_system_info,
         );
       }
 

@@ -265,6 +265,8 @@ Verification compares digests, not bytes, so each object is decrypted as a strea
 
 ## Restore
 
+Restored files keep their original created and modified timestamps, carried in the Graph `fileSystemInfo` facet. Authors and sharing permissions are not reconstructed: authors are recorded in the manifest for audit, and permissions are not captured at all. See [What a drive restore rebuilds, and what it cannot](./security.md#what-a-drive-restore-rebuilds-and-what-it-cannot).
+
 ```bash
 # Restore all files into a fresh Restore-<timestamp> folder in each library
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123

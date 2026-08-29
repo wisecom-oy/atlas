@@ -236,6 +236,9 @@ async function capture_version(
       parent_path: item.parent_path,
       version_id: version.version_id,
       size_bytes: version.size_bytes,
+      ...(version.last_modified_by !== undefined && {
+        last_modified_by: version.last_modified_by,
+      }),
       storage_key: stored.storage_key,
       checksum: stored.checksum,
       last_modified_at: version.last_modified_at,

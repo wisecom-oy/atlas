@@ -14,3 +14,11 @@ export {
 export { RateLimitedGraphConnector } from './rate-limited-graph-connector.adapter';
 export { bind_graph_client } from './container';
 export { GraphUserIdentityResolver } from './graph-user-identity-resolver.adapter';
+export {
+  build_upload_file_system_info,
+  map_graph_file_system_info,
+  map_graph_identity,
+} from './graph-drive-metadata';
+export type { GraphFileSystemInfo, GraphIdentitySet } from './graph-drive-metadata';
+export { list_drive_item_versions } from './graph-drive-version-listing';
+export type { DriveItemVersionRecord } from './graph-drive-version-listing';

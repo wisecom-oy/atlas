@@ -218,6 +218,38 @@ The signal is the `Has Archive` column of the [mailbox usage report](https://lea
 
 **If archive content must be protected**, the mail has to leave the archive before Atlas can see it: adjust the retention policy so it stays in the primary mailbox, or move the content back. The Microsoft [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archive mailboxes, but on a different model (job-based FastTransfer export streams and a separate `MailboxImportExport.*` permission set) that is not a drop-in for per-folder delta sync.
 
+### What a drive restore rebuilds, and what it cannot
+
+A restored file is the original bytes, verified against the manifest checksum. Everything else that defines a document in Microsoft 365 is a separate question, and the answers differ:
+
+| Property | Captured | Restored |
+| ------------------------------------------- | -------- | ---------------------------------------------------------- |
+| File content | Yes | Yes, byte-exact |
+| Original created and modified timestamps | Yes | Yes, through the `fileSystemInfo` facet |
+| `createdBy` / `lastModifiedBy` authors | Yes | No. Recorded for audit only |
+| Version authors | Yes | No. Recorded for audit only |
+| Sharing permissions and links | No | No |
+
+#### Timestamps: which ones travel
+
+Graph exposes two pairs of timestamps, and only one pair is writable. The `driveItem` values are what the service saw, so after a restore they read "now" and nothing can change that. The [`fileSystemInfo`](https://learn.microsoft.com/en-us/graph/api/resources/filesysteminfo) facet holds the client-reported values, it is writable on upload, and it is therefore what Atlas restores.
+
+Both are recorded: `last_modified_at` on a manifest entry is the service-side value, `file_system_info` is the client pair. Practically, a restored file carries its original dates in the facet while the service's own created/modified columns show the restore. That is the ceiling the API imposes, not a choice.
+
+The two upload paths reach it differently. A resumable upload session accepts item metadata up front, so the timestamps travel with the upload. A small-file `PUT /content` carries bytes only, so Atlas follows it with a `PATCH`. That patch is best-effort: if it fails, the file keeps restore-time timestamps and the run logs it, because a restored file with wrong dates beats no restored file.
+
+#### Authors are captured, not restored
+
+`createdBy` and `lastModifiedBy` are recorded on every manifest entry, and `lastModifiedBy` on every version row, so "who wrote this" is answerable from a backup years later. They are not reapplied on restore: Graph attributes an upload to the identity that performed it, and rewriting authorship needs migration-grade APIs that carry their own permission set. A restored file is authored by the Atlas application identity, and the manifest is where the original author lives.
+
+::: warning Sharing permissions are not captured
+Atlas does not capture per-item sharing permissions or links, so a restore does not reconstruct them. A restored library inherits the destination's defaults, which are usually broader than whatever curated sharing the original had. **Treat a restored library as unshared and re-apply access before handing it back to users.**
+
+This is a cost decision, and the numbers are the argument. Permission operations cost **5 resource units** each against the SharePoint/OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)), and that pool is tenant-wide, shared with every other app. Capturing permissions for every item in a 100,000-file drive is 500,000 RU; at the 1,250 RU/minute a tenant under 1,000 seats gets, that is roughly **6.7 hours of the tenant's entire drive quota spent on metadata**, versus a few thousand RU for the delta enumeration that finds the files in the first place. It would slow every other Atlas operation and every unrelated app in the tenant.
+
+The workable shape is narrower: Graph flags shared items with a `shared` facet, which costs nothing extra in the delta `$select`, so only genuinely shared items would need a call. That plus a restore-side design for re-applying access is tracked separately rather than bolted on here.
+:::
+
 ## Integrity Validation
 
 Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:

@@ -223,6 +223,24 @@ const unknown = mailboxes.filter((mb) => mb.has_in_place_archive === undefined);
 
 `undefined` means unknown, not "no archive". The signal is the `Has Archive` column of the mailbox usage report, which needs the optional `Reports.Read.All` permission, so an embedder that treats absence as "covered" will report coverage Atlas never confirmed. No per-mailbox Graph property exposes archive state on v1.0 or beta.
 
+### Drive item metadata
+
+Drive manifest entries carry the metadata a restore cannot rebuild from bytes alone:
+
+```typescript
+const snapshot = await atlas.onedrive.getSnapshotDetail('owner-id', { snapshot_id });
+
+for (const entry of snapshot.entries) {
+  entry.file_system_info?.created_at; // original client timestamp, restored
+  entry.created_by?.display_name; // author, recorded for audit only
+  entry.last_modified_by?.email;
+}
+```
+
+`file_system_info` holds the client-reported timestamps from the Graph `fileSystemInfo` facet, which is the pair Atlas reapplies on restore. `last_modified_at` remains the service-side value, which after a restore reflects the restore. Authors and version authors are captured but never reapplied, and sharing permissions are not captured. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+
+All four fields are absent on manifests written before 4.1.0.
+
 ### Identifier case
 
 Every method taking a mailbox address, an Entra object ID, or a SharePoint site ID lowercases it before it becomes a storage key segment, so two spellings of one identifier address one tree.

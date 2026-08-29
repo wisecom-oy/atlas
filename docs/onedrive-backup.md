@@ -293,6 +293,8 @@ Verification compares digests, not bytes, so each object is decrypted as a strea
 
 ## Restore
 
+Restored files keep their original created and modified timestamps, carried in the Graph `fileSystemInfo` facet. Authors and sharing permissions are not reconstructed: authors are recorded in the manifest for audit, and permissions are not captured at all. See [What a drive restore rebuilds, and what it cannot](./security.md#what-a-drive-restore-rebuilds-and-what-it-cannot).
+
 ```bash
 # Restore a whole snapshot into a fresh Restore-<timestamp> folder
 atlas onedrive restore -o user@company.com -s od-snap-123

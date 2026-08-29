@@ -109,6 +109,7 @@ describe('SharePointRestoreService cross-site routing', () => {
       'report.docx',
       CONTENT,
       'rename',
+      undefined,
     );
     // The source library must not be touched, by site or by drive.
     const [, site_arg, drive_arg] = vi.mocked(connector.upload_small_file).mock.calls[0]!;
@@ -278,6 +279,7 @@ describe('SharePointRestoreService cross-site routing', () => {
       'report.docx',
       CONTENT,
       'rename',
+      undefined,
     );
     // Same-site restore must not pay for a library lookup it cannot use.
     expect(connector.list_document_libraries).not.toHaveBeenCalled();

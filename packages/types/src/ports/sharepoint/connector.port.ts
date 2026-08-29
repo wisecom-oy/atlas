@@ -1,3 +1,4 @@
+import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
 export interface SharePointSite {
   readonly site_id: string;
   readonly site_url: string;
@@ -34,6 +35,10 @@ export interface SharePointDeltaItem {
   readonly size_bytes: number;
   readonly etag?: string;
   readonly last_modified_at?: string;
+  /** Client-side timestamps from the `fileSystemInfo` facet, writable on restore. */
+  readonly file_system_info?: DriveFileSystemInfo;
+  readonly created_by?: DriveItemIdentity;
+  readonly last_modified_by?: DriveItemIdentity;
   readonly deleted: boolean;
   /**
    * Graph reports a non-null `malware` facet for this item, so the service will
@@ -54,6 +59,8 @@ export interface SharePointFileVersion {
   readonly version_id: string;
   readonly last_modified_at: string;
   readonly size_bytes: number;
+  /** Graph `driveItemVersion.lastModifiedBy`: who produced this version. */
+  readonly last_modified_by?: DriveItemIdentity;
 }
 
 export interface SharePointSiteConnector {
@@ -130,6 +137,7 @@ export interface SharePointSiteConnector {
     file_name: string,
     content: Buffer,
     conflict_behavior?: string,
+    file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
 
   /** Uploads a large file via resumable upload session. */
@@ -141,5 +149,6 @@ export interface SharePointSiteConnector {
     file_name: string,
     content: Buffer,
     conflict_behavior?: string,
+    file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
 }
