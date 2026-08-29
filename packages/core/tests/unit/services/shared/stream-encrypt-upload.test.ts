@@ -20,7 +20,9 @@ interface Recorded {
  * A storage whose multipart handle keeps every uploaded part, so the assembled
  * layout can be asserted rather than inferred from call counts.
  */
-function make_ctx(options: { exists?: boolean; copy_fails?: boolean } = {}): Recorded {
+function make_ctx(
+  options: { exists?: boolean; copy_fails?: boolean; abort_fails?: boolean } = {},
+): Recorded {
   const parts = new Map<number, Buffer>();
   const ops: string[] = [];
   const completed: Array<Array<{ ETag: string; PartNumber: number }>> = [];
@@ -42,6 +44,7 @@ function make_ctx(options: { exists?: boolean; copy_fails?: boolean } = {}): Rec
           }),
           abort: vi.fn(async () => {
             ops.push('abort');
+            if (options.abort_fails === true) throw new Error('abort refused');
           }),
         };
       }),
@@ -53,7 +56,10 @@ function make_ctx(options: { exists?: boolean; copy_fails?: boolean } = {}): Rec
       delete: vi.fn(async (key: string) => {
         ops.push(`delete:${key}`);
       }),
-      abort_incomplete_uploads: vi.fn(async () => 0),
+      abort_incomplete_uploads: vi.fn(async (prefix: string) => {
+        ops.push(`abort_incomplete:${prefix}`);
+        return 0;
+      }),
     },
     create_cipher: () => {
       const iv = randomBytes(12);
@@ -131,6 +137,90 @@ describe('stream_encrypt_to_multipart', () => {
       expect(recorded.parts.get(part.PartNumber)!.length).toBeGreaterThanOrEqual(5 * 1024 * 1024);
     }
     expect(ordered.map((p) => p.PartNumber)).toEqual([1, 2, 3]);
+  });
+
+  it('produces no zero-length trailing part when the stream is an exact multiple', async () => {
+    // AES-GCM is a stream cipher, so ciphertext length equals plaintext length:
+    // an exact multiple of the part size leaves nothing pending at the end, and
+    // a zero-length part would be rejected by S3.
+    const recorded = make_ctx();
+
+    const result = await stream_encrypt_to_multipart(
+      recorded.ctx,
+      'staging/a',
+      chunks_of(PART_SIZE * 2, 1024 * 64),
+    );
+
+    expect(result.completed_parts.map((p) => p.PartNumber)).toEqual([1, 2]);
+    for (const [, data] of recorded.parts) {
+      expect(data.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('emits a short final part when the stream is one byte over a boundary', async () => {
+    const recorded = make_ctx();
+
+    const result = await stream_encrypt_to_multipart(
+      recorded.ctx,
+      'staging/a',
+      chunks_of(PART_SIZE * 2 + 1, 1024 * 64),
+    );
+
+    const ordered = [...result.completed_parts].sort((a, b) => a.PartNumber - b.PartNumber);
+    expect(ordered.map((p) => p.PartNumber)).toEqual([1, 2, 3]);
+    // Only the highest-numbered part may fall under the part size.
+    expect(recorded.parts.get(2)!.length).toBe(PART_SIZE);
+    expect(recorded.parts.get(3)!.length).toBe(1);
+  });
+
+  it('splits one oversized chunk into whole parts instead of a growing buffer', async () => {
+    // A single 3-part chunk must drain through the flush loop. If it flushed
+    // once per chunk the remainder would sit in memory, which is the failure
+    // the bounded pipeline exists to avoid.
+    const recorded = make_ctx();
+
+    async function* one_big_chunk(): AsyncGenerator<Buffer> {
+      yield Buffer.alloc(PART_SIZE * 3, 0xcd);
+    }
+
+    const result = await stream_encrypt_to_multipart(recorded.ctx, 'staging/a', one_big_chunk());
+
+    expect(result.completed_parts.map((p) => p.PartNumber).sort((a, b) => a - b)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(recorded.parts.get(2)!.length).toBe(PART_SIZE);
+    expect(recorded.parts.get(3)!.length).toBe(PART_SIZE);
+  });
+
+  it('hands the completed parts to complete in ascending order', async () => {
+    const recorded = make_ctx();
+
+    const result = await stream_encrypt_to_multipart(
+      recorded.ctx,
+      'staging/a',
+      chunks_of(PART_SIZE * 2 + 1024, 1024 * 64),
+    );
+    await recorded.ctx.storage.begin_multipart_upload('x');
+    const handle = await recorded.ctx.storage.begin_multipart_upload('y');
+    await handle.complete(result.completed_parts);
+
+    const assembled = recorded.completed.at(-1)!;
+    const numbers = assembled.map((p) => p.PartNumber);
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+  });
+
+  it('sweeps orphaned parts by prefix when the abort itself fails', async () => {
+    const recorded = make_ctx({ abort_fails: true });
+    async function* failing(): AsyncGenerator<Buffer> {
+      yield Buffer.alloc(1024, 1);
+      throw new Error('source died');
+    }
+
+    await expect(stream_encrypt_to_multipart(recorded.ctx, 'staging/a', failing())).rejects.toThrow(
+      'source died',
+    );
+    // Otherwise the tenant pays storage for parts nothing will ever complete.
+    expect(recorded.ops).toContain('abort_incomplete:staging/');
   });
 
   it('aborts the upload when the source fails mid-stream', async () => {
