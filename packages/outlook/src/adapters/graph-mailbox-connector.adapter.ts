@@ -27,7 +27,7 @@ import type {
   GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
 import { extract_user_ids, parse_mailbox_purpose } from '@/adapters/graph-mailbox-response-mappers';
-import { list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
+import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
   DELTA_SELECT_FIELDS,
@@ -103,6 +103,10 @@ export class GraphMailboxConnector implements MailboxConnector {
         (url) => this.collect_all_pages<GraphFolderRecord>(url),
         owner_id,
         options,
+        create_folder_reader(
+          (url) => with_graph_retry(() => this._client.api(url).get()),
+          owner_id,
+        ),
       );
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);

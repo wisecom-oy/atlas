@@ -218,6 +218,57 @@ The signal is the `Has Archive` column of the [mailbox usage report](https://lea
 
 **If archive content must be protected**, the mail has to leave the archive before Atlas can see it: adjust the retention policy so it stays in the primary mailbox, or move the content back. The Microsoft [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archive mailboxes, but on a different model (job-based FastTransfer export streams and a separate `MailboxImportExport.*` permission set) that is not a drop-in for per-folder delta sync.
 
+### Recoverable Items and legal hold
+
+`atlas outlook backup --include-recoverable-items` reads the Exchange
+Recoverable Items subtree, the "dumpster". It is off by default, and turning it
+on changes what a snapshot means legally as well as what it costs.
+
+**Why it exists.** A message that arrives and is hard-deleted between two
+backups appears in no delta page, so no ordinary Atlas run can see it. Its only
+copy is in `Deletions` or `Purges`, and when Exchange's retention window expires
+it is gone from the tenant and from every snapshot. Closing that window is the
+only way a backup can cover deletion that happens between runs.
+
+**What lands in the snapshot.** `Deletions`, `Purges`, `DiscoveryHolds` and
+`SubstrateHolds`, stored as MIME under the same AES-256-GCM encryption and the
+same content-addressed layout as ordinary mail. `Versions`, `Calendar Logging`
+and `Audits` are not captured, and each is reported by name at the end of the
+run. `Purges`, `DiscoveryHolds` and `SubstrateHolds` exist **only** because a
+litigation hold, an In-Place Hold, or a retention policy retained them.
+
+::: warning What this means for compliance
+Copying hold-retained mail into an Atlas snapshot puts a second copy of legally
+held content in your storage, outside the Microsoft 365 retention machinery that
+created it, and outside whatever hold released it there. Three consequences:
+
+- **The copy outlives the hold.** Releasing a litigation hold in Microsoft 365
+  does not touch an Atlas snapshot. Deleting the copy is your retention
+  schedule's job, and `atlas outlook delete` is what performs it.
+- **The copy is discoverable.** Content that exists in your bucket can be
+  compelled from your bucket, whether or not it still exists in the tenant.
+- **Object Lock makes it undeletable on purpose.** A snapshot written under
+  `--retention-days` cannot be deleted until retention expires, including by
+  you. Combining Object Lock with purged mail is a deliberate decision, not a
+  default.
+
+Whether that is protection or exposure is a question for whoever owns the
+retention policy. Atlas marks these entries in the manifest so the answer is
+always visible from the snapshot itself, rather than depending on which flags a
+past run happened to carry.
+:::
+
+**Restore is opt-in separately.** Marked entries are excluded from `restore` and
+`save` unless `--include-recoverable-items` is passed there too, so an ordinary
+recovery cannot resurrect deleted mail by accident. Graph offers no path back
+into Recoverable Items, so recovered items land in the normal restore folder as
+visible mail. Restoring a purged message therefore makes it live again, which is
+usually the intent and is occasionally the last thing you want.
+
+**Permissions are unchanged.** The subtree is read with the same `Mail.Read`
+that ordinary mail needs, so enabling this grants Atlas nothing new against the
+tenant.
+
 ### What a drive restore rebuilds, and what it cannot
 
 A restored file is the original bytes, verified against the manifest checksum. Everything else that defines a document in Microsoft 365 is a separate question, and the answers differ:

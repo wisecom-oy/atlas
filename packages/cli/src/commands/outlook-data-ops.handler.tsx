@@ -31,6 +31,7 @@ export interface OutlookSaveOptions {
   endDate?: string;
   output?: string;
   skipVerify?: boolean;
+  includeRecoverableItems?: boolean;
 }
 
 export interface OutlookDeleteOptions {
@@ -133,6 +134,7 @@ function build_save_options(options: OutlookSaveOptions): SaveOptions {
     ...(options.message && { message_ref: options.message }),
     ...(options.output && { output_path: options.output }),
     ...(options.skipVerify && { skip_integrity_check: true }),
+    ...(options.includeRecoverableItems && { include_recoverable_items: true }),
     ...(options.startDate && { start_date: parse_date(options.startDate, '--start-date') }),
     ...(options.endDate && { end_date: parse_date(options.endDate, '--end-date') }),
     create_progress: create_transfer_progress('saved'),
