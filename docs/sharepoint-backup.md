@@ -255,6 +255,41 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 | `-f, --file <ref>`   | File ID or path to look up           | Required       |
 | `-t, --tenant <id>`  | Tenant identifier                    | Config default |
 
+### `atlas sharepoint restore-version`
+
+| Flag                 | Description                                        | Default            |
+| -------------------- | -------------------------------------------------- | ------------------ |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID               | Required           |
+| `-f, --file <ref>`   | File ID or path; required with `--version`         | Optional           |
+| `--version <id>`     | Exact stored version to restore                    | Optional           |
+| `--before <iso>`     | Newest version at or before this instant, per file | Optional           |
+| `--path <prefix>`    | Limit a `--before` rollback to one folder          | Whole site         |
+| `--in-place`         | Upload over the original file                      | Off, writes a copy |
+| `-t, --tenant <id>`  | Tenant identifier                                  | Config default     |
+
+```bash
+atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering \
+  -f "/Shared Documents/report.docx"
+
+atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering \
+  -f "/Shared Documents/report.docx" --version 3.0
+
+atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering \
+  --before 2026-03-10T00:00:00Z --path "/Shared Documents/Projects" --in-place
+```
+
+Same guarantees as the OneDrive command, listed under
+[Rolling a file back to an earlier version](./onedrive-backup.md#rolling-a-file-back-to-an-earlier-version):
+bytes come from the verified snapshot, the default writes a `(restored ...)`
+copy rather than touching the live file, original modification times survive,
+and files with no pre-cutoff version are reported rather than skipped quietly.
+
+Versions return to the document library they were captured from, recorded per
+version in the index, so a site with several libraries needs no extra flag.
+Version restore has no cross-site form: a file restored into another site has
+no prior version chain to join. Use `atlas sharepoint restore --target-site`
+for that, which restores snapshot state rather than history.
+
 ### `atlas sharepoint verify`
 
 | Flag                  | Description                          | Default        |

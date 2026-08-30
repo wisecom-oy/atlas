@@ -10,6 +10,7 @@ import {
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
+  SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
@@ -22,6 +23,7 @@ import { SharePointSiteTreeBackupService } from '@/services/sharepoint-site-tree
 import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
 import { SharePointSaveService } from '@/services/sharepoint-save.service';
+import { SharePointVersionRestoreService } from '@/services/sharepoint-version-restore.service';
 import { SharePointCatalogService } from '@/services/sharepoint-catalog.service';
 import { SharePointStatusService } from '@/services/status/sharepoint-status.service';
 
@@ -58,5 +60,9 @@ export function bind_sharepoint(container: Container): void {
   container.bind(SHAREPOINT_RESTORE_USE_CASE_TOKEN).to(SharePointRestoreService).inSingletonScope();
   container.bind(SHAREPOINT_SAVE_USE_CASE_TOKEN).to(SharePointSaveService).inSingletonScope();
   container.bind(SHAREPOINT_CATALOG_USE_CASE_TOKEN).to(SharePointCatalogService).inSingletonScope();
+  container
+    .bind(SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN)
+    .to(SharePointVersionRestoreService)
+    .inSingletonScope();
   container.bind(SHAREPOINT_STATUS_USE_CASE_TOKEN).to(SharePointStatusService).inSingletonScope();
 }

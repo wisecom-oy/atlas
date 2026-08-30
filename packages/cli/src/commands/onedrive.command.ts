@@ -18,6 +18,10 @@ import {
   type OneDriveListVersionsOptions,
 } from '@/commands/onedrive-catalog-command.handlers';
 import {
+  execute_onedrive_restore_version,
+  type OneDriveRestoreVersionOptions,
+} from '@/commands/drive-version-restore.handlers';
+import {
   execute_onedrive_delete,
   execute_onedrive_status,
   type OneDriveDeleteOptions,
@@ -36,6 +40,7 @@ export function register_onedrive_command(program: Command, get_container: Conta
   register_onedrive_save(group, get_container);
   register_onedrive_list_snapshots(group, get_container);
   register_onedrive_list_versions(group, get_container);
+  register_onedrive_restore_version(group, get_container);
   register_onedrive_verify(group, get_container);
   register_onedrive_status(group, get_container);
   register_onedrive_delete(group, get_container);
@@ -122,6 +127,22 @@ function register_onedrive_list_versions(group: Command, get_container: Containe
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .action((options: OneDriveListVersionsOptions) =>
       execute_onedrive_list_versions(get_container(), options),
+    );
+}
+
+function register_onedrive_restore_version(group: Command, get_container: ContainerFactory): void {
+  group
+    .command('restore-version')
+    .description('Restore stored file versions back into OneDrive')
+    .requiredOption('-o, --owner <id>', 'user email or Entra object ID')
+    .option('-f, --file <ref>', 'file ID or path; required with --version')
+    .option('--version <id>', 'exact stored version to restore')
+    .option('--before <iso>', "restore each file's last version at or before this instant")
+    .option('--path <prefix>', 'limit a bulk rollback to this folder and below')
+    .option('--in-place', 'upload over the original file instead of writing a copy beside it')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: OneDriveRestoreVersionOptions) =>
+      execute_onedrive_restore_version(get_container(), options),
     );
 }
 

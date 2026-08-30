@@ -283,6 +283,18 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 | `-f, --file <ref>`  | File ID or path               | Required       |
 | `-t, --tenant <id>` | Tenant identifier             | Config default |
 
+### `atlas onedrive restore-version`
+
+| Flag                | Description                                        | Default        |
+| ------------------- | -------------------------------------------------- | -------------- |
+| `-o, --owner <id>`  | User email or Entra object ID                      | Required       |
+| `-f, --file <ref>`  | File ID or path; required with `--version`         | Optional       |
+| `--version <id>`    | Exact stored version to restore                    | Optional       |
+| `--before <iso>`    | Newest version at or before this instant, per file | Optional       |
+| `--path <prefix>`   | Limit a `--before` rollback to one folder          | Whole drive    |
+| `--in-place`        | Upload over the original file                      | Off, writes a copy |
+| `-t, --tenant <id>` | Tenant identifier                                  | Config default |
+
 ### `atlas onedrive verify`
 
 | Flag                  | Description                   | Default        |
@@ -314,6 +326,50 @@ atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
 atlas onedrive restore -o user@company.com -s od-snap-123 \
   --file-filter "/Documents/report.docx" --name report-2026-08.docx
 ```
+
+### Rolling a file back to an earlier version
+
+A snapshot restore recovers each file's state at that snapshot. A version
+restore recovers one point inside a single file's history, which is what a bad
+edit or a mass encrypt-and-sync event needs.
+
+```bash
+# See what exists first. The Version column is what --version takes.
+atlas onedrive list-versions -o user@company.com -f "/Documents/report.docx"
+
+# One file, one version, written beside the original.
+atlas onedrive restore-version -o user@company.com \
+  -f "/Documents/report.docx" --version 3.0
+
+# Roll a folder back to the state before an incident, over the live files.
+atlas onedrive restore-version -o user@company.com \
+  --before 2026-03-10T00:00:00Z --path /Projects --in-place
+```
+
+Guarantees, both for one file and for a bulk rollback:
+
+- **The bytes come from the Atlas snapshot**, decrypted and SHA-256 verified
+  against the manifest before anything is uploaded. A version whose checksum
+  fails is skipped and reported; it never reaches the drive.
+- **Nothing is destroyed.** The default writes
+  `report (restored 2026-03-01T08-15-00Z).docx` next to the original and leaves
+  the live file alone. `--in-place` uploads over the original path, and
+  Microsoft 365 records that as a new version while keeping the content it
+  replaced in the file's own history.
+- **Original timestamps survive.** The restored file carries the modification
+  time the version had, so a rolled-back document does not look like it was
+  authored during the incident.
+- **Files with no pre-cutoff version are named in the output** and counted as
+  skipped. That list is the remaining exposure: those files have no copy in the
+  backup from before the cutoff.
+- **Versions return to the drive they came from.** The version index records the
+  drive ID, so an owner with several drives needs no extra flag, and a version
+  is never restored into the wrong one.
+
+Version restore only applies in place, to the same tenant and the same drive.
+There is no cross-drive or cross-tenant form: a file restored elsewhere has no
+prior version chain to sit in. Use `atlas onedrive restore --target-owner` for
+that case, which restores snapshot state rather than history.
 
 ### Where restored files land
 

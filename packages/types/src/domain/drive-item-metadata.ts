@@ -32,3 +32,17 @@ export interface DriveFileSystemInfo {
   /** ISO 8601 UTC. Graph `fileSystemInfo.lastModifiedDateTime`. */
   readonly last_modified_at?: string;
 }
+
+/**
+ * The fields needed to fetch one stored blob back out of object storage.
+ *
+ * A manifest entry and a version index row both satisfy this. That is the
+ * point: restoring a historical version is the same operation as restoring a
+ * file, differing only in which bytes are named.
+ */
+export interface StoredBlobRef {
+  readonly storage_key?: string | undefined;
+  readonly checksum?: string | undefined;
+  readonly file_name: string;
+  readonly size_bytes: number;
+}

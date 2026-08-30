@@ -437,6 +437,9 @@ atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@c
 atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
 atlas onedrive list-snapshots -o user@company.com
 atlas onedrive list-versions -o user@company.com -f "Documents/report.docx"
+atlas onedrive restore-version -o user@company.com -f "Documents/report.docx" --version 3.0
+atlas onedrive restore-version -o user@company.com --before 2026-03-10T00:00:00Z
+atlas onedrive restore-version -o user@company.com --before 2026-03-10T00:00:00Z --path /Projects --in-place
 atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 atlas onedrive status -o user@company.com
 atlas onedrive delete -o user@company.com -s od-snap-123
@@ -449,6 +452,7 @@ atlas onedrive delete -o user@company.com -y
 | `restore`        | Restore files from a snapshot to the user's (or another user's) OneDrive |
 | `list-snapshots` | List snapshot IDs and timestamps for the owner                           |
 | `list-versions`  | List indexed versions for one file (`-f` file ID or path)                |
+| `restore-version`| Push stored file versions back into the drive, one file or a whole rollback |
 | `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows    |
 | `status`         | Report pending Graph changes per drive without backing up                |
 | `delete`         | Delete the owner's OneDrive backups, or a single snapshot                |
@@ -512,6 +516,53 @@ Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-fil
 | `-o, --owner <id>`  | User email or Entra object ID (required) |
 | `-f, --file <ref>`  | Graph file ID or drive path (required)   |
 | `-t, --tenant <id>` | Override tenant ID from config           |
+
+**`atlas onedrive restore-version`**
+
+Restores the version bytes Atlas holds. Use it to roll a file back past a bad
+edit, or a whole folder back past a mass encrypt-and-sync event.
+
+| Option              | Description                                                                  |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required)                                     |
+| `-f, --file <ref>`  | Graph file ID or drive path; required with `--version`                       |
+| `--version <id>`    | Exact stored version, as shown in the `Version` column of `list-versions`    |
+| `--before <iso>`    | Restore each file's newest version at or before this instant                  |
+| `--path <prefix>`   | Limit a `--before` rollback to this folder and below                         |
+| `--in-place`        | Upload over the original file instead of writing a copy beside it            |
+| `-t, --tenant <id>` | Override tenant ID from config                                               |
+
+Either `--file` with `--version`, or `--before`. `--version` alone is rejected
+because a version id is only unique within one file, and `--path` cannot be
+combined with `--file`, since a folder scope and a single file are two
+different requests.
+
+::: warning Nothing is overwritten unless you ask
+The default writes a sibling named `report (restored 2026-03-01T08-15-00Z).docx`
+and leaves the live file untouched, so a rollback can be inspected before it is
+adopted. `--in-place` uploads over the original path instead. Even then the
+previous content is not destroyed: Microsoft 365 records the upload as a new
+version and keeps the one it replaced in the file's own version history.
+:::
+
+Restored files keep the modification time the version had, not the time of the
+restore, so a rolled-back document does not look like it was authored during
+the incident.
+
+A file with no version stored at or before the cutoff is **reported, not
+skipped silently**, and counts toward the skipped total. Treat that list as the
+work still outstanding: those files have no pre-incident copy in the backup.
+
+::: details Why Atlas uploads its own bytes instead of calling Graph
+Microsoft Graph can promote a previous version in place with `restoreVersion`,
+and Atlas deliberately does not use it. That call only works on a version the
+service still holds, so it fails exactly when a backup is needed: history
+trimmed by a retention policy, the file deleted, or the library gone. Its result
+also cannot be checked against the manifest checksum. Atlas uploads the bytes
+it stored and verified, which is the only path that guarantees the content you
+get is the content the backup recorded. `list-versions` shows what is available
+to restore.
+:::
 
 **`atlas onedrive save`**
 
@@ -589,6 +640,8 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx
+atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx --version 3.0
+atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering --before 2026-03-10T00:00:00Z
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --destination /DR-drill
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
@@ -603,6 +656,7 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 | `backup`         | Incremental sync; use `--full` to ignore saved delta state            |
 | `list-snapshots` | List all SharePoint snapshots for a site                              |
 | `list-versions`  | List all backed-up versions for a specific file                       |
+| `restore-version`| Push stored file versions back into the library, one file or a whole rollback |
 | `restore`        | Restore files from a snapshot back to the site's document libraries   |
 | `save`           | Decrypt and save files from a snapshot to a local zip archive         |
 | `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
@@ -642,6 +696,23 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
 | `-f, --file <ref>`   | File ID or path to look up (required)           |
 | `-t, --tenant <id>`  | Override tenant ID from config                  |
+
+**`atlas sharepoint restore-version`**
+
+| Option               | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required)                           |
+| `-f, --file <ref>`   | File ID or path; required with `--version`                                |
+| `--version <id>`     | Exact stored version, as shown by `list-versions`                         |
+| `--before <iso>`     | Restore each file's newest version at or before this instant               |
+| `--path <prefix>`    | Limit a `--before` rollback to this folder and below                      |
+| `--in-place`         | Upload over the original file instead of writing a copy beside it         |
+| `-t, --tenant <id>`  | Override tenant ID from config                                            |
+
+Identical semantics to [`atlas onedrive restore-version`](#atlas-onedrive),
+including the copy-by-default placement and the reason Atlas uploads its own
+stored bytes rather than calling Graph's `restoreVersion`. Versions are restored
+into the document library they were captured from.
 
 **`atlas sharepoint restore`**
 
