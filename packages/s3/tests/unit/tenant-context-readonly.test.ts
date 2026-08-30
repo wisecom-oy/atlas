@@ -1,6 +1,6 @@
+import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
-import { reset_bucket_cache } from '@/adapters/s3-bucket-manager';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 
@@ -46,14 +46,15 @@ function stored_dek(): { objects: Map<string, Buffer>; plaintext: Buffer } {
 }
 
 describe('read-only tenant context (issue #93)', () => {
+  let buckets: BucketCache;
   beforeEach(() => {
-    reset_bucket_cache();
+    buckets = new BucketCache();
   });
 
   it('loads an existing tenant without CreateBucket, HeadBucket, or PutObject', async () => {
     const { objects } = stored_dek();
     const s3 = make_s3(objects);
-    const ctx = await new DefaultTenantContextFactory(s3 as never, CONFIG).create_readonly(
+    const ctx = await new DefaultTenantContextFactory(s3 as never, CONFIG, buckets).create_readonly(
       TENANT_ID,
     );
 
@@ -64,7 +65,7 @@ describe('read-only tenant context (issue #93)', () => {
 
   it('decrypts data encrypted with the tenant DEK', async () => {
     const { objects } = stored_dek();
-    const factory = new DefaultTenantContextFactory(make_s3(objects) as never, CONFIG);
+    const factory = new DefaultTenantContextFactory(make_s3(objects) as never, CONFIG, buckets);
     const ctx = await factory.create_readonly(TENANT_ID);
 
     expect(ctx.decrypt(ctx.encrypt(Buffer.from('payload'))).toString()).toBe('payload');
@@ -73,7 +74,7 @@ describe('read-only tenant context (issue #93)', () => {
 
   it('reports that no backups exist instead of generating a DEK', async () => {
     const s3 = make_s3(new Map());
-    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG);
+    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
 
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow(
       `No backups found for tenant ${TENANT_ID}`,
@@ -91,7 +92,7 @@ describe('read-only tenant context (issue #93)', () => {
         });
       }),
     };
-    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG);
+    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
 
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow(
       `No backups found for tenant ${TENANT_ID}`,
@@ -107,7 +108,7 @@ describe('read-only tenant context (issue #93)', () => {
         });
       }),
     };
-    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG);
+    const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
 
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow('signature');
   });

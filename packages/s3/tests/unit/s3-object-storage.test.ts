@@ -1,6 +1,6 @@
+import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
-import { reset_bucket_cache } from '@/adapters/s3-bucket-manager';
 import {
   ObjectLockUnsupportedError,
   ObjectLockVersioningDisabledError,
@@ -12,14 +12,15 @@ function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
 }
 
 describe('S3ObjectStorage', () => {
+  let buckets: BucketCache;
   let mock_s3: ReturnType<typeof make_mock_s3>;
   let storage: S3ObjectStorage;
   const bucket = 'test-bucket';
 
   beforeEach(() => {
     mock_s3 = make_mock_s3();
-    storage = new S3ObjectStorage(mock_s3 as never, bucket);
-    reset_bucket_cache();
+    storage = new S3ObjectStorage(mock_s3 as never, bucket, buckets);
+    buckets = new BucketCache();
   });
 
   describe('put', () => {

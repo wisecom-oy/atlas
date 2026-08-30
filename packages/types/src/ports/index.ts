@@ -105,6 +105,8 @@ export type {
 } from './replication/storage-target.port';
 export type { DekValidationFn } from './replication/dek-validation.port';
 
+export type { StorageDisposer } from './storage/storage-disposer.port';
+
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
 export type {
   OutlookApi,
@@ -240,6 +242,7 @@ export {
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
+  STORAGE_DISPOSER_TOKEN,
   SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from './tokens/outgoing.tokens';
 

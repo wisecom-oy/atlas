@@ -1,23 +1,25 @@
+import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { StorageCheckService } from '@/services/storage-check.service';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
-import { reset_bucket_cache } from '@/adapters/s3-bucket-manager';
 
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
   return { send: vi.fn() };
 }
 
 describe('StorageCheckService', () => {
+  let buckets: BucketCache;
   let mock_s3: ReturnType<typeof make_mock_s3>;
   let service: StorageCheckService;
 
   beforeEach(() => {
     mock_s3 = make_mock_s3();
-    reset_bucket_cache();
+    buckets = new BucketCache();
     const container = new Container();
     container.bind(S3_CLIENT_TOKEN).toConstantValue(mock_s3);
+    container.bind(BucketCache).toConstantValue(buckets);
     container.bind(StorageCheckService).toSelf();
     service = container.get(StorageCheckService);
   });

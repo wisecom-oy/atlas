@@ -37,6 +37,52 @@ All config is explicit. The SDK **does not read environment variables or config 
 
 The tenant is bound at creation time, so every method operates within that tenant scope. Methods use camelCase naming, are async, and return Promises.
 
+### Instance lifecycle
+
+An instance owns an S3 client with keep-alive socket pools and a cache of what
+it has already asked of the bucket. **Create one per tenant, dispose it when
+done.**
+
+```typescript
+const atlas = createAtlasInstance({ /* ...config... */ });
+try {
+  await atlas.outlook.backup('user@company.com');
+} finally {
+  await atlas.dispose();
+}
+```
+
+On Node 20 and later, `await using` does it for you:
+
+```typescript
+await using atlas = createAtlasInstance({ /* ...config... */ });
+await atlas.outlook.backup('user@company.com');
+// disposed at the end of the block, including on a throw
+```
+
+`dispose()` closes the S3 client's sockets, clears the instance's bucket cache,
+and drops the container's bindings. It is idempotent, so a `finally` block and
+an `await using` scope can both fire safely, and it never throws: a step that
+fails is logged and the remaining steps still run. The instance must not be used
+afterwards.
+
+A long-lived service that creates an instance per request and never disposes it
+accumulates socket pools for the lifetime of the process.
+
+::: warning Passphrases cannot be zeroed
+`dispose()` drops the instance's reference to your `encryptionPassphrase`, and
+`TenantContext.destroy()` already zeroes the derived key buffers. The passphrase
+*string* cannot be wiped: JavaScript strings are immutable, so the value stays
+in the heap until the garbage collector reclaims it, and no library can change
+that. Where that matters, keep the passphrase in a `Buffer` on your side and
+treat the process boundary, not `dispose()`, as the security boundary.
+:::
+
+Bucket caches are per instance. Two instances pointing at **different S3
+endpoints** with same-named buckets no longer answer each other's questions
+about whether a bucket exists or supports Object Lock, which before 4.1.0 could
+skip creating a bucket that was not there.
+
 ## Available Methods
 
 `createAtlasInstance` returns an `AtlasInstance` with three workload sub-APIs and cross-cutting tenant methods:
