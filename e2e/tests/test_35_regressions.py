@@ -19,7 +19,7 @@ import subprocess
 import uuid
 from typing import Any
 
-from atlas_e2e import storage
+from atlas_e2e import drive, storage
 from atlas_e2e.atlas import Cli
 from atlas_e2e.config import REPO_ROOT, Settings
 
@@ -50,7 +50,7 @@ def test_01_readonly_commands_provision_nothing(cli: Cli, s3: Any) -> None:
 
 
 def test_02_corrupt_ciphertext_is_reported_as_tampering(
-    cli: Cli, settings: Settings, s3: Any
+    cli: Cli, settings: Settings, s3: Any, run_marker: str
 ) -> None:
     """A blob that fails its AES-GCM tag check is classified as authentication failure (issue #76).
 
@@ -96,6 +96,12 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
             snapshots[0],
             "--conflict",
             "rename",
+            # A failing restore still creates its destination folders before the first decrypt
+            # fails, so this must stay inside the marker namespace cleanup owns. Taking the
+            # default `/Restore-<timestamp>` root left an empty tree at the drive root after
+            # every nightly run, which nothing was allowed to delete.
+            "--destination",
+            drive.restore_destination(run_marker),
         )
         assert result.code != 0, (
             f"restore of tampered ciphertext reported success\n{result.describe()}"
