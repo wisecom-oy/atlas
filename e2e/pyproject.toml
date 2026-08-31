@@ -10,6 +10,47 @@ dependencies = [
     "pytest>=8.3",
 ]
 
+# Lint and format come from `uvx ruff`, which needs no entry here. mypy resolves the
+# suite's own imports, so it has to run inside this environment.
+[dependency-groups]
+dev = ["mypy>=1.13"]
+
+
+[tool.ruff]
+line-length = 100
+exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S", "BLE", "PL", "RUF"]
+ignore = [
+  # Assertions are this suite's mechanism, in the helpers as much as in the tests:
+  # `self_check` is nothing but assertions, and the drive helpers assert invariants
+  # they would otherwise have to raise by hand.
+  "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Counts and small literals read better inline than behind a named constant.
+"tests/*" = ["PLR2004"]
+# Deliberate stand-in credentials. This module exists to prove the redaction boundary,
+# so it has to hold values shaped like the real thing; none of them is real.
+"atlas_e2e/self_check.py" = ["S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# The point of running a checker here at all: the suite already carried
+# `# type: ignore[...]` comments written for a checker nothing ran, one of them naming
+# an error code mypy does not report (issue #160).
+warn_unused_ignores = true
+exclude = ['^\.venv/']
+
+# boto3, botocore and msal ship neither stubs nor a py.typed marker. Scoped per module
+# rather than a global ignore_missing_imports, so a genuinely missing import in this
+# suite is still an error.
+[[tool.mypy.overrides]]
+module = ["boto3", "botocore.*", "msal"]
+ignore_missing_imports = true
 
 [tool.uv]
 # Helpers are imported from the working directory; there is nothing to build or install.
@@ -17,12 +58,11 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# -p no:randomly: the lifecycle suites are ordered on purpose (seed before restore).
+# Order matters (seed before restore) and is carried by the numeric filename prefixes
+# alone: no ordering plugin is installed, so nothing shuffles collection.
 # --durations: a live-tenant run is dominated by a handful of tests, and finding which ones
 # previously meant reconstructing timings from log timestamps by hand (issue #211).
 addopts = "-ra --strict-markers --durations=15 --junitxml=report.xml"
-markers = [
-]
 log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s %(levelname)s %(message)s"

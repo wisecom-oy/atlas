@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import httpx
 import msal
@@ -12,6 +13,9 @@ import msal
 from atlas_e2e.config import Settings
 
 log = logging.getLogger(__name__)
+
+"""Graph answers 4xx and 5xx with an error body; anything below 400 is a usable response."""
+HTTP_ERROR_FLOOR = 400
 
 BASE_URL = "https://graph.microsoft.com/v1.0"
 SCOPE = ["https://graph.microsoft.com/.default"]
@@ -56,7 +60,9 @@ class Graph:
                     authority=f"https://login.microsoftonline.com/{self._settings.tenant_id}",
                 )
             except ValueError as err:
-                raise GraphError(f"Authority discovery failed for the configured tenant: {err}") from err
+                raise GraphError(
+                    f"Authority discovery failed for the configured tenant: {err}"
+                ) from err
         return self._app
 
     def request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
@@ -71,14 +77,19 @@ class Graph:
             if response.status_code not in RETRY_STATUSES:
                 return response
             delay = float(response.headers.get("Retry-After", 2 * attempt))
-            log.info("Graph %s on %s %s; retrying in %.0fs", response.status_code, method, url, delay)
+            log.info(
+                "Graph %s on %s %s; retrying in %.0fs", response.status_code, method, url, delay
+            )
             time.sleep(delay)
         return response
 
     def call(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
-        """Issues a request and returns the JSON body, raising with the Graph error code on failure."""
+        """Issues a request and returns the JSON body.
+
+        Raises with the Graph error code on failure.
+        """
         response = self.request(method, url, **kwargs)
-        if response.status_code >= 400:
+        if response.status_code >= HTTP_ERROR_FLOOR:
             raise GraphError(f"{method} {url} -> {response.status_code} {_error_code(response)}")
         if not response.content:
             return {}

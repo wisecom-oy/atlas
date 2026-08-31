@@ -6,8 +6,8 @@ import logging
 
 from atlas_e2e import drive, probe
 from atlas_e2e.atlas import Cli
-from atlas_e2e.graph import Graph, GraphError
 from atlas_e2e.config import Settings
+from atlas_e2e.graph import Graph, GraphError
 from atlas_e2e.marker import PREFIX, is_marked, is_stale, parse_graph_time
 from atlas_e2e.scrub import scrub
 
@@ -95,7 +95,9 @@ def purge_bucket(cli: Cli, settings: Settings) -> None:
         log.warning("Purge exited %s: %s", result.code, scrub(result.out, settings).strip()[:400])
 
 
-def _delete_folder(graph: Graph, mailbox: str, folder_id: str, name: str, removed: list[str]) -> None:
+def _delete_folder(
+    graph: Graph, mailbox: str, folder_id: str, name: str, removed: list[str]
+) -> None:
     """Deletes one folder, recording it; a failure is logged, never raised out of teardown."""
     try:
         graph.delete(f"/users/{mailbox}/mailFolders/{folder_id}")

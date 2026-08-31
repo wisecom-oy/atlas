@@ -34,8 +34,12 @@ def create_folder(graph: Graph, mailbox: str, name: str, parent_id: str | None =
     return str(folder["id"])
 
 
-def create_message(graph: Graph, mailbox: str, folder_id: str, marker: str, index: int) -> SeededMessage:
-    """Creates a message with a random binary attachment; the attachment is the restore fidelity proof.
+def create_message(
+    graph: Graph, mailbox: str, folder_id: str, marker: str, index: int
+) -> SeededMessage:
+    """Creates a message with a random binary attachment.
+
+    The attachment is the restore fidelity proof.
 
     Message bodies are normalised by Exchange (text is wrapped in HTML), so a body hash would be
     fragile. Attachment bytes round-trip verbatim, so they carry the SHA-256 assertion, while the

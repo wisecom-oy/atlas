@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from atlas_e2e import drive, storage
-from atlas_e2e.atlas import Cli, WHOLE_DRIVE_TIMEOUT
+from atlas_e2e.atlas import WHOLE_DRIVE_TIMEOUT, Cli
 from atlas_e2e.config import Settings
 
 STATE: dict[str, Any] = {}
@@ -76,7 +76,8 @@ def test_02_backup_writes_blobs_and_index(
 
     # One version-index object per run, not per file: issue #161 retired the
     # `index/<owner>/files/<item_id>.json` layout because Hetzner bills a 64 KB minimum per object.
-    # Reads still merge legacy per-file objects, but a fresh bucket has none, so the run shard is the
+    # Reads still merge legacy per-file objects, but a fresh bucket has none, so the
+    # run shard is the
     # only thing that can be asserted from key names here. Per-file visibility is covered by
     # `list-versions` in the next test, which exercises the read path.
     assert f"onedrive/index/{owner}/runs/{STATE['snapshot']}.json" in storage.list_keys(
@@ -134,7 +135,9 @@ def test_04_verify_passes(cli: Cli, settings: Settings) -> None:
     )
 
 
-def test_05_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, run_marker: str) -> None:
+def test_05_save_exports_the_file(
+    cli: Cli, settings: Settings, exports: Path, run_marker: str
+) -> None:
     """`onedrive save` writes a zip that mirrors the drive hierarchy.
 
     Note the capital `-O` for output: `onedrive save` differs from `outlook save` here, and `-o` is
@@ -175,7 +178,9 @@ def test_06_restore_recreates_a_deleted_file(
     """
     for file in (STATE["file"], STATE["large"]):
         drive.delete_item(graph, STATE["drive_id"], file.item_id)
-        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
+        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, (
+            "file survived deletion"
+        )
 
     cli.ok(
         "onedrive",
@@ -207,9 +212,9 @@ def test_07_restored_bytes_match_the_seed(graph: Any, settings: Settings, run_ma
     # The point of the restore root: live content is left alone. These paths were deleted in
     # test_06 and a pre-#217 restore would have put them back, mixed in with real files.
     for file in (STATE["file"], STATE["large"]):
-        assert (
-            drive.file_sha256(graph, STATE["drive_id"], file.path) is None
-        ), f"restore wrote back to the original path {file.path}"
+        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, (
+            f"restore wrote back to the original path {file.path}"
+        )
 
 
 def test_08_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:

@@ -74,13 +74,19 @@ def snapshot_ids(s3: Any, bucket: str, owner_id: str, workload: str = "outlook")
     workload: Outlook uses `manifests/`, the file workloads nest under `<workload>/manifests/`.
     """
     prefix = MANIFEST_PREFIXES[workload] + f"{owner_id}/"
-    return [k[len(prefix) : -len(".json")] for k in list_keys(s3, bucket, prefix) if k.endswith(".json")]
+    return [
+        k[len(prefix) : -len(".json")] for k in list_keys(s3, bucket, prefix) if k.endswith(".json")
+    ]
 
 
 def retention(s3: Any, bucket: str, key: str) -> dict[str, Any] | None:
     """Object Lock retention on a key, or None when the object carries none."""
     try:
-        return s3.get_object_retention(Bucket=bucket, Key=key).get("Retention")
+        # boto3 is unstubbed, so the response is Any. Named here rather than returned
+        # straight out, so the declared return type is the one callers can rely on.
+        response: dict[str, Any] = s3.get_object_retention(Bucket=bucket, Key=key)
+        retention_block = response.get("Retention")
+        return retention_block if isinstance(retention_block, dict) else None
     except ClientError as err:
         code = err.response.get("Error", {}).get("Code", "")
         if code in {"NoSuchObjectLockConfiguration", "ObjectLockConfigurationNotFoundError"}:

@@ -175,6 +175,12 @@ push trigger only re-ran the identical commit a second time -- PR #126 produced 
 `Build, Lint & Test` rows for one change. The merged result is still covered,
 because `publish.yml` re-runs build, lint, and tests before anything reaches npm.
 
+It runs two jobs in parallel. `Build, Lint & Test` covers the TypeScript packages.
+`E2E suite lint, format & types` runs `ruff` and `mypy` over `e2e/`, holding the
+Python that drives the shipped CLI to the same standard as the TypeScript it drives.
+That job needs no secrets and no tenant, which is why static analysis of the suite
+gates every pull request while the suite itself stays nightly.
+
 `e2e.yml` no longer runs per push. It takes tens of minutes against a live tenant
 and gates nothing, so a nightly run is enough. Dispatch it explicitly when a change
 touches backup, restore, or storage behaviour and you want an answer sooner:

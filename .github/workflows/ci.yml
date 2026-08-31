@@ -65,6 +65,36 @@ jobs:
           retention-days: 30
 
 
+  e2e-python:
+    name: E2E suite lint, format & types
+    runs-on: ubuntu-latest
+    # Separate job, not a step in `quality`: this needs uv and Python rather than the
+    # Node toolchain, and it runs in parallel instead of lengthening that job. It gates
+    # the Python that drives the shipped CLI, held to the same standard as the
+    # TypeScript it drives (issue #160).
+    #
+    # No secrets and no tenant: this is static analysis only. The suite itself still
+    # runs nightly from e2e.yml.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Lint
+        working-directory: e2e
+        run: uvx ruff check .
+
+      - name: Format check
+        working-directory: e2e
+        run: uvx ruff format --check .
+
+      - name: Typecheck
+        working-directory: e2e
+        run: uv run --frozen mypy .
+
   release-guard:
     name: Release version guard
     runs-on: ubuntu-latest

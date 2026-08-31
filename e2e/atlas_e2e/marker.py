@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 PREFIX = "atlas-e2e"
 
@@ -33,8 +33,8 @@ def is_stale(created: datetime | None) -> bool:
     if created is None:
         return False
     if created.tzinfo is None:
-        created = created.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - created > STALE_AFTER
+        created = created.replace(tzinfo=UTC)
+    return datetime.now(UTC) - created > STALE_AFTER
 
 
 def parse_graph_time(value: str | None) -> datetime | None:

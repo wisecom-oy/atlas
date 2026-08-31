@@ -19,7 +19,8 @@ def main() -> int:
         print("E2E did not produce a report: the run failed before pytest started.")
         return 0
 
-    root = ElementTree.parse(REPORT).getroot()
+    # S314: report.xml is produced by this suite's own pytest run, not untrusted input.
+    root = ElementTree.parse(REPORT).getroot()  # noqa: S314
     per_suite: dict[str, dict[str, int]] = {}
     failures: list[str] = []
 
@@ -37,14 +38,17 @@ def main() -> int:
     }
 
     print("## E2E result\n")
-    print(f"**{totals['passed']} passed, {totals['failed']} failed, {totals['skipped']} skipped**\n")
+    print(
+        f"**{totals['passed']} passed, {totals['failed']} failed, {totals['skipped']} skipped**\n"
+    )
     print("| | Suite | Passed | Failed | Skipped |")
     print("| - | ----- | ------ | ------ | ------- |")
     for suite, counts in sorted(per_suite.items()):
         # A suite that ran nothing must not read as green: absent coverage is not a pass.
         verdict = "FAIL" if counts["failed"] else "PASS" if counts["passed"] else "SKIP"
         print(
-            f"| {verdict} | {suite} | {counts['passed']} | {counts['failed']} | {counts['skipped']} |"
+            f"| {verdict} | {suite} | {counts['passed']} "
+            f"| {counts['failed']} | {counts['skipped']} |"
         )
 
     # The table answers "is it broken"; these lines answer "where", without needing the log.

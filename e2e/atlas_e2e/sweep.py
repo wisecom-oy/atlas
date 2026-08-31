@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Callable
 
 from atlas_e2e import cleanup, config, drive, marker
 from atlas_e2e.atlas import Cli
@@ -38,10 +39,14 @@ def main() -> int:
         log.warning("Mailbox sweep failed: %s", err)
 
     survivors: list[str] = []
-    for label, resolve in (
+    resolvers: tuple[tuple[str, Callable[[], str]], ...] = (
         ("onedrive", lambda: drive.user_drive_id(graph, settings.onedrive_owner)),
-        ("sharepoint", lambda: drive.site_drive_id(graph, drive.site_id(graph, settings.sharepoint_site))),
-    ):
+        (
+            "sharepoint",
+            lambda: drive.site_drive_id(graph, drive.site_id(graph, settings.sharepoint_site)),
+        ),
+    )
+    for label, resolve in resolvers:
         configured = settings.onedrive_owner if label == "onedrive" else settings.sharepoint_site
         if not configured:
             continue
