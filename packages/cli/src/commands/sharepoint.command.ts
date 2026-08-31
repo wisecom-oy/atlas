@@ -18,6 +18,10 @@ import {
   register_sharepoint_list_versions,
 } from '@/commands/sharepoint-catalog.command';
 import {
+  execute_sharepoint_restore_version,
+  type SharePointRestoreVersionOptions,
+} from '@/commands/drive-version-restore.handlers';
+import {
   execute_sharepoint_delete,
   execute_sharepoint_status,
   type SharePointDeleteOptions,
@@ -37,12 +41,32 @@ export function register_sharepoint_command(
   register_sharepoint_list_sites(group, get_container);
   register_sharepoint_list_snapshots(group, get_container);
   register_sharepoint_list_versions(group, get_container);
+  register_sharepoint_restore_version(group, get_container);
   register_sharepoint_backup(group, get_container);
   register_sharepoint_restore(group, get_container);
   register_sharepoint_save(group, get_container);
   register_sharepoint_verify(group, get_container);
   register_sharepoint_status(group, get_container);
   register_sharepoint_delete(group, get_container);
+}
+
+function register_sharepoint_restore_version(
+  group: Command,
+  get_container: ContainerFactory,
+): void {
+  group
+    .command('restore-version')
+    .description('Restore stored file versions back into a SharePoint library')
+    .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID')
+    .option('-f, --file <ref>', 'file ID or path; required with --version')
+    .option('--version <id>', 'exact stored version to restore')
+    .option('--before <iso>', "restore each file's last version at or before this instant")
+    .option('--path <prefix>', 'limit a bulk rollback to this folder and below')
+    .option('--in-place', 'upload over the original file instead of writing a copy beside it')
+    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
+    .action((options: SharePointRestoreVersionOptions) =>
+      execute_sharepoint_restore_version(get_container(), options),
+    );
 }
 
 function register_sharepoint_list_sites(group: Command, get_container: ContainerFactory): void {

@@ -1,4 +1,8 @@
 import type {
+  DriveVersionRestoreOptions,
+  DriveVersionRestoreResult,
+} from '@/ports/drive/version-restore.port';
+import type {
   OneDriveBackupOptions,
   OneDriveBackupResult,
   OneDriveVerificationResult,
@@ -32,6 +36,11 @@ export type OneDriveSdkRestoreOptions = Omit<
   'on_progress' | 'should_interrupt'
 > &
   SdkOperationOptions;
+export type OneDriveSdkVersionRestoreOptions = Omit<
+  DriveVersionRestoreOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
 export type OneDriveSdkSaveOptions = Omit<FileSaveOptions, 'on_progress' | 'should_interrupt'> &
   SdkOperationOptions;
 
@@ -43,6 +52,11 @@ export interface OneDriveApi {
     options?: OneDriveSdkVerificationOptions,
   ): Promise<OneDriveVerificationResult>;
   restore(ownerId: string, options: OneDriveSdkRestoreOptions): Promise<OneDriveRestoreResult>;
+  /** Restores stored file version bytes back into OneDrive. */
+  restoreVersion(
+    ownerId: string,
+    options: OneDriveSdkVersionRestoreOptions,
+  ): Promise<DriveVersionRestoreResult>;
   save(ownerId: string, options: OneDriveSdkSaveOptions): Promise<FileSaveResult>;
   listSnapshots(ownerId: string): Promise<OneDriveSnapshotManifest[]>;
   listFileVersions(ownerId: string, fileRef: string): Promise<OneDriveFileVersionRecord[]>;

@@ -193,6 +193,58 @@ await atlas.onedrive.restore('owner-id', { snapshot_id, in_place: true }); // pr
 
 Deletion methods erase every version of the objects they match. `purgeTenantData()` sweeps the whole bucket, every workload and not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
 
+### Version restore
+
+`restoreVersion()` pushes the file version bytes Atlas holds back into a live
+drive or library. Available on both `atlas.onedrive` and `atlas.sharepoint`.
+
+```typescript
+// One exact version, listed first so you know what exists.
+const versions = await atlas.onedrive.listFileVersions('owner-id', '/Documents/report.docx');
+const result = await atlas.onedrive.restoreVersion('owner-id', {
+  file_ref: '/Documents/report.docx',
+  version_id: versions.at(-2)?.version_id,
+});
+
+// A rollback of one folder to the state before a known instant.
+await atlas.sharepoint.restoreVersion('site-id', {
+  before: new Date('2026-03-10T00:00:00Z'),
+  path_prefix: '/Shared Documents/Projects',
+  placement: 'in-place',
+});
+```
+
+| Option        | Description                                                                    |
+| ------------- | ------------------------------------------------------------------------------ |
+| `file_ref`    | Graph item ID, rooted path, or bare filename; required with `version_id`        |
+| `version_id`  | Exact stored version, from `listFileVersions()`                                 |
+| `before`      | `Date`; restores each file's newest version at or before this instant            |
+| `path_prefix` | Limits a `before` rollback to one folder and below                              |
+| `placement`   | `'copy'` (default) writes a sibling file; `'in-place'` uploads over the original |
+
+Pass either `file_ref` with `version_id`, or `before`. The result reports
+`files_restored`, `files_skipped`, the `placement` that was applied, and a
+`restored` array of `{ file_id, version_id, last_modified_at, size_bytes, restored_to }`.
+A file with no version stored at or before the cutoff appears in `errors` and
+counts as skipped, so a caller can tell a complete rollback from a partial one:
+
+```typescript
+if (result.files_skipped > 0) {
+  for (const reason of result.errors) console.warn(reason);
+}
+```
+
+Nothing is destroyed by either placement. `'copy'` never touches the live file.
+`'in-place'` uploads over it, and Microsoft 365 records that as a new version
+while keeping the content it replaced in the file's own version history.
+Restored files carry the modification time the version had, not the restore
+time.
+
+Atlas uploads its own checksum-verified bytes rather than calling Graph's
+`restoreVersion`, which only works on a version the service still holds and
+cannot be verified against the manifest. See
+[the CLI reference](/reference/cli#atlas-onedrive) for the full reasoning.
+
 ### Folder coverage
 
 `backup()` walks every mail folder at any depth, including Drafts, Outbox, Junk Email, and folders Exchange marks hidden. Pass `exclude_junk` to skip Junk Email and its subfolders:

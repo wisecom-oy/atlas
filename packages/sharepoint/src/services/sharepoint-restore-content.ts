@@ -11,7 +11,7 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { SharePointManifestEntry, TenantContext } from '@wisecom/atlas-types';
+import type { StoredBlobRef, TenantContext } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
 import {
@@ -31,7 +31,7 @@ export class SharePointDecryptAuthError extends Error {
 /** Returns the entry's verified plaintext, or undefined when it cannot be restored. */
 export async function download_and_decrypt(
   ctx: TenantContext,
-  entry: SharePointManifestEntry,
+  entry: StoredBlobRef,
 ): Promise<Buffer | undefined> {
   if (!entry.storage_key) return undefined;
 
@@ -42,7 +42,7 @@ export async function download_and_decrypt(
 
 async function stream_download_and_decrypt(
   ctx: TenantContext,
-  entry: SharePointManifestEntry,
+  entry: StoredBlobRef,
 ): Promise<Buffer | undefined> {
   try {
     const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key!);
@@ -63,7 +63,7 @@ async function stream_download_and_decrypt(
 
 async function buffered_download_and_decrypt(
   ctx: TenantContext,
-  entry: SharePointManifestEntry,
+  entry: StoredBlobRef,
 ): Promise<Buffer | undefined> {
   let encrypted: Buffer;
   try {

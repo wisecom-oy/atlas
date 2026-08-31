@@ -1,4 +1,8 @@
 import type {
+  DriveVersionRestoreOptions,
+  DriveVersionRestoreResult,
+} from '@/ports/drive/version-restore.port';
+import type {
   SharePointBackupOptions,
   SharePointBackupResult,
   SharePointVerificationResult,
@@ -36,6 +40,11 @@ export type SharePointSdkRestoreOptions = Omit<
   'on_progress' | 'should_interrupt'
 > &
   SdkOperationOptions;
+export type SharePointSdkVersionRestoreOptions = Omit<
+  DriveVersionRestoreOptions,
+  'on_progress' | 'should_interrupt'
+> &
+  SdkOperationOptions;
 export type SharePointSdkSaveOptions = Omit<FileSaveOptions, 'on_progress' | 'should_interrupt'> &
   SdkOperationOptions;
 
@@ -53,6 +62,11 @@ export interface SharePointApi {
     options?: SharePointSdkVerificationOptions,
   ): Promise<SharePointVerificationResult>;
   restore(siteId: string, options: SharePointSdkRestoreOptions): Promise<SharePointRestoreResult>;
+  /** Restores stored file version bytes back into a SharePoint library. */
+  restoreVersion(
+    siteId: string,
+    options: SharePointSdkVersionRestoreOptions,
+  ): Promise<DriveVersionRestoreResult>;
   save(siteId: string, options: SharePointSdkSaveOptions): Promise<FileSaveResult>;
   listSnapshots(siteId: string): Promise<SharePointSnapshotManifest[]>;
   listFileVersions(siteId: string, fileRef: string): Promise<SharePointFileVersionRecord[]>;
