@@ -4,6 +4,7 @@ import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { PreconditionFailedError } from '@/adapters/object-lock.errors';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
+import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type { AtlasConfig } from '@wisecom/atlas-core';
@@ -20,20 +21,21 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
   constructor(
     @inject(S3_CLIENT_TOKEN) private readonly _s3: S3Client,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
+    @inject(BucketCache) private readonly _buckets: BucketCache,
   ) {}
 
   /** Ensures the tenant bucket exists and returns raw storage (no DEK). */
   async create_storage_only(tenant_id: string): Promise<TenantStorageContext> {
     const bucket = tenant_bucket_name(tenant_id);
-    await ensure_bucket_exists(this._s3, bucket);
-    return { tenant_id, storage: new S3ObjectStorage(this._s3, bucket) };
+    await ensure_bucket_exists(this._s3, bucket, this._buckets);
+    return { tenant_id, storage: new S3ObjectStorage(this._s3, bucket, this._buckets) };
   }
 
   /** Initializes a tenant context with bucket, DEK, and crypto bindings. */
   async create(tenant_id: string): Promise<TenantContext> {
     const bucket = tenant_bucket_name(tenant_id);
-    await ensure_bucket_exists(this._s3, bucket);
-    const storage = new S3ObjectStorage(this._s3, bucket);
+    await ensure_bucket_exists(this._s3, bucket, this._buckets);
+    const storage = new S3ObjectStorage(this._s3, bucket, this._buckets);
 
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
     const dek = await this.load_or_create_dek(storage, key_service, tenant_id);
@@ -49,7 +51,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
    * `_meta/` write permission (issue #93).
    */
   async create_readonly(tenant_id: string): Promise<TenantContext> {
-    const storage = new S3ObjectStorage(this._s3, tenant_bucket_name(tenant_id));
+    const storage = new S3ObjectStorage(this._s3, tenant_bucket_name(tenant_id), this._buckets);
     const key_service = new EnvelopeKeyService(this._config.encryption_passphrase);
 
     let wrapped: Buffer;

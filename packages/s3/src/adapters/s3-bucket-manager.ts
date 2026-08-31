@@ -16,9 +16,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import { ObjectLockUnsupportedError } from '@/adapters/object-lock.errors';
-
-const _checked_buckets = new Set<string>();
-const _immutability_probe_cache = new Map<string, StorageImmutabilityProbeResult>();
+import type { BucketCache } from '@/adapters/bucket-cache';
 
 /**
  * Ensures a bucket exists, creating it if necessary.
@@ -34,9 +32,10 @@ const _immutability_probe_cache = new Map<string, StorageImmutabilityProbeResult
 export async function ensure_bucket_exists(
   client: S3Client,
   bucket: string,
+  cache: BucketCache,
   skip_cache = false,
 ): Promise<void> {
-  if (!skip_cache && _checked_buckets.has(bucket)) return;
+  if (!skip_cache && cache.is_bucket_checked(bucket)) return;
 
   const exists = await bucket_exists(client, bucket);
   if (!exists) {
@@ -44,7 +43,7 @@ export async function ensure_bucket_exists(
     await apply_default_lifecycle(client, bucket);
   }
 
-  _checked_buckets.add(bucket);
+  cache.mark_bucket_checked(bucket);
 }
 
 /**
@@ -148,20 +147,14 @@ function add_content_md5(command: PutBucketLifecycleConfigurationCommand): void 
   );
 }
 
-/** Clears the in-process bucket cache (useful for testing). */
-export function reset_bucket_cache(): void {
-  _checked_buckets.clear();
-  _immutability_probe_cache.clear();
-}
-
 /** Probes and memoizes immutability readiness for a bucket. */
 export async function probe_bucket_immutability(
   client: S3Client,
   bucket: string,
+  cache: BucketCache,
   request: StorageImmutabilityProbeRequest = {},
 ): Promise<StorageImmutabilityProbeResult> {
-  const cache_key = `${bucket}:${request.mode ?? 'NONE'}`;
-  const cached = _immutability_probe_cache.get(cache_key);
+  const cached = cache.get_immutability_probe(bucket, request.mode);
   if (cached) return cached;
 
   try {
@@ -175,7 +168,7 @@ export async function probe_bucket_immutability(
         object_lock_enabled: false,
         mode_supported: false,
       };
-      _immutability_probe_cache.set(cache_key, result);
+      cache.set_immutability_probe(bucket, request.mode, result);
       return result;
     }
     throw err;
@@ -193,7 +186,7 @@ export async function probe_bucket_immutability(
     object_lock_enabled,
     mode_supported,
   };
-  _immutability_probe_cache.set(cache_key, result);
+  cache.set_immutability_probe(bucket, request.mode, result);
   return result;
 }
 

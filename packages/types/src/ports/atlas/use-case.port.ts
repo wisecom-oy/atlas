@@ -29,7 +29,7 @@ export interface AtlasInstanceConfig {
   readonly logger?: LogSink;
 }
 
-export interface AtlasInstance {
+export interface AtlasInstance extends AsyncDisposable {
   readonly outlook: OutlookApi;
   readonly onedrive: OneDriveApi;
   readonly sharepoint: SharePointApi;
@@ -45,5 +45,14 @@ export interface AtlasInstance {
   /** Full tenant recovery across Outlook, OneDrive, and SharePoint, reported per workload. */
   rehydrateTenant(source: StorageTarget): Promise<TenantRehydrationResult>;
   getReplicationStatus(snapshotId?: string): Promise<ReplicationStatusRecord[]>;
+  /**
+   * Releases the instance: S3 socket pools, cached bucket state, container
+   * bindings. Idempotent. The instance must not be used afterwards.
+   *
+   * A service creating one instance per tenant otherwise accumulates keep-alive
+   * socket pools for the lifetime of the process (issue #42).
+   */
+  dispose(): Promise<void>;
+
   getReplicationStatusByOwner(mailboxId: string): Promise<ReplicationStatusRecord[]>;
 }

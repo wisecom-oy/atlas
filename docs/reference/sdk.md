@@ -94,6 +94,52 @@ relied on that output has to pass a `logger` to keep seeing it. The CLI is
 unaffected and its output is unchanged.
 :::
 
+### Instance lifecycle
+
+An instance owns an S3 client with keep-alive socket pools and a cache of what
+it has already asked of the bucket. **Create one per tenant, dispose it when
+done.**
+
+```typescript
+const atlas = createAtlasInstance({/* ...config... */});
+try {
+  await atlas.outlook.backup('user@company.com');
+} finally {
+  await atlas.dispose();
+}
+```
+
+On Node 20 and later, `await using` does it for you:
+
+```typescript
+await using atlas = createAtlasInstance({/* ...config... */});
+await atlas.outlook.backup('user@company.com');
+// disposed at the end of the block, including on a throw
+```
+
+`dispose()` closes the S3 client's sockets, clears the instance's bucket cache,
+and drops the container's bindings. It is idempotent, so a `finally` block and
+an `await using` scope can both fire safely, and it never throws: a step that
+fails is logged and the remaining steps still run. The instance must not be used
+afterwards.
+
+A long-lived service that creates an instance per request and never disposes it
+accumulates socket pools for the lifetime of the process.
+
+::: warning Passphrases cannot be zeroed
+`dispose()` drops the instance's reference to your `encryptionPassphrase`, and
+`TenantContext.destroy()` already zeroes the derived key buffers. The passphrase
+_string_ cannot be wiped: JavaScript strings are immutable, so the value stays
+in the heap until the garbage collector reclaims it, and no library can change
+that. Where that matters, keep the passphrase in a `Buffer` on your side and
+treat the process boundary, not `dispose()`, as the security boundary.
+:::
+
+Bucket caches are per instance. Two instances pointing at **different S3
+endpoints** with same-named buckets no longer answer each other's questions
+about whether a bucket exists or supports Object Lock, which before 4.1.0 could
+skip creating a bucket that was not there.
+
 ## Available Methods
 
 `createAtlasInstance` returns an `AtlasInstance` with three workload sub-APIs and cross-cutting tenant methods:
@@ -139,9 +185,9 @@ Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.out
 
 Drive methods take the same identifiers the CLI takes, and normalise them the same way.
 
-| Namespace          | Accepted                                                        | Normalisation                                                                  |
-| ------------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `atlas.onedrive.*` | An email or UPN, or an Entra object id                          | An argument containing `@` is resolved through Graph; anything else is used as is |
+| Namespace            | Accepted                                                          | Normalisation                                                                     |
+| -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `atlas.onedrive.*`   | An email or UPN, or an Entra object id                            | An argument containing `@` is resolved through Graph; anything else is used as is |
 | `atlas.sharepoint.*` | A site URL or hostname, or a composite `host,siteGuid,webGuid` id | An argument without commas is resolved through Graph; anything else is used as is |
 
 Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance, and `atlas.onedrive.backup` records the resolved email and display name with the snapshot, which is what makes owners readable in later listings. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
@@ -186,10 +232,10 @@ const result = await atlas.outlook.backup('user@company.com', {
 });
 ```
 
-| Signal           | Effect                                                                                                                                                    |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `signal`         | Finishes the page in flight, stores its attachments, and persists the delta link for every completed folder. The next run resumes from there.             |
-| `hardStopSignal` | Drops the page in flight and its pending attachments. The affected folder keeps its previous delta link and is re-enumerated on the next run.             |
+| Signal           | Effect                                                                                                                                        |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signal`         | Finishes the page in flight, stores its attachments, and persists the delta link for every completed folder. The next run resumes from there. |
+| `hardStopSignal` | Drops the page in flight and its pending attachments. The affected folder keeps its previous delta link and is re-enumerated on the next run. |
 
 Both return a result with `interrupted: true` rather than throwing, and both keep the snapshot manifest that was written for the work already done. `hardStopSignal` trades re-enumeration of one folder for a faster exit, so use it when a deadline matters more than the wasted work.
 
@@ -217,23 +263,23 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 
 ## Outlook API Reference
 
-| Method                                | CLI equivalent                 | Description                                                                                        |
-| ------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `backup(mailboxId, options?)`         | `atlas outlook backup -m`      | Backup a single mailbox                                                                            |
-| `verify(snapshotId, options?)`        | `atlas outlook verify`         | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
-| `restore(snapshotId, options?)`       | `atlas outlook restore -s`     | Restore from a snapshot                                                                            |
-| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m`     | Restore all snapshots for a mailbox                                                                |
-| `save(snapshotId, options?)`          | `atlas outlook save -s`        | Export snapshot as EML zip                                                                         |
-| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`        | Export all snapshots as EML zip                                                                    |
-| `listMailboxes()`                     | `atlas outlook list`           | List backed-up mailboxes                                                                           |
-| `listSnapshots(mailboxId)`            | `atlas outlook list -m`        | List snapshots for a mailbox                                                                       |
-| `readMessage(snapshotId, messageRef)` | `atlas outlook read`           | Read a single message                                                                              |
-| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`         | Fast delta peek (pending changes)                                                                  |
-| `listAvailableMailboxes(options?)`    | _(discovery)_                  | List all tenant mailboxes via Graph                                                                |
-| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`      | Delete all data for a mailbox                                                                      |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`      | Delete a single snapshot manifest                                                                  |
-| `purgeTenantData()`                   | `atlas delete --purge`         | Purge entire tenant bucket                                                                         |
-| `getMailboxStats(mailboxId)`          | `atlas stats -m`               | Mailbox-level statistics                                                                           |
+| Method                                | CLI equivalent             | Description                                                                                        |
+| ------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Backup a single mailbox                                                                            |
+| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
+| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                            |
+| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox                                                                |
+| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export snapshot as EML zip                                                                         |
+| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots as EML zip                                                                    |
+| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                           |
+| `listSnapshots(mailboxId)`            | `atlas outlook list -m`    | List snapshots for a mailbox                                                                       |
+| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read a single message                                                                              |
+| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Fast delta peek (pending changes)                                                                  |
+| `listAvailableMailboxes(options?)`    | _(discovery)_              | List all tenant mailboxes via Graph                                                                |
+| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                      |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete a single snapshot manifest                                                                  |
+| `purgeTenantData()`                   | `atlas delete --purge`     | Purge entire tenant bucket                                                                         |
+| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                           |
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
@@ -271,12 +317,12 @@ await atlas.sharepoint.restoreVersion('site-id', {
 });
 ```
 
-| Option        | Description                                                                    |
-| ------------- | ------------------------------------------------------------------------------ |
-| `file_ref`    | Graph item ID, rooted path, or bare filename; required with `version_id`        |
-| `version_id`  | Exact stored version, from `listFileVersions()`                                 |
+| Option        | Description                                                                      |
+| ------------- | -------------------------------------------------------------------------------- |
+| `file_ref`    | Graph item ID, rooted path, or bare filename; required with `version_id`         |
+| `version_id`  | Exact stored version, from `listFileVersions()`                                  |
 | `before`      | `Date`; restores each file's newest version at or before this instant            |
-| `path_prefix` | Limits a `before` rollback to one folder and below                              |
+| `path_prefix` | Limits a `before` rollback to one folder and below                               |
 | `placement`   | `'copy'` (default) writes a sibling file; `'in-place'` uploads over the original |
 
 Pass either `file_ref` with `version_id`, or `before`. The result reports
@@ -490,10 +536,10 @@ await atlas.onedrive.backup('owner-id', {
 });
 ```
 
-| Field            | Derived behavior                                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| Field            | Derived behavior                                                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `mode`           | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Defaults to `GOVERNANCE`. |
-| `retention_days` | Converted to an absolute `retain_until` timestamp in UTC at the moment the run starts.               |
+| `retention_days` | Converted to an absolute `retain_until` timestamp in UTC at the moment the run starts.                                        |
 
 Outlook applies the policy to each stored object; OneDrive and SharePoint set the bucket default retention so every new object version inherits it. Writes are fail-closed: when a lock policy is present and the bucket has versioning or Object Lock disabled, or does not support the requested mode, the write throws instead of storing unprotected data. Immutability is therefore never silently downgraded.
 

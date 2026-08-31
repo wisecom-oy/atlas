@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
+import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import type {
   StorageCheckRequest,
@@ -11,7 +12,10 @@ import type {
 
 @injectable()
 export class StorageCheckService implements StorageCheckUseCase {
-  constructor(@inject(S3_CLIENT_TOKEN) private readonly _s3: S3Client) {}
+  constructor(
+    @inject(S3_CLIENT_TOKEN) private readonly _s3: S3Client,
+    @inject(BucketCache) private readonly _buckets: BucketCache,
+  ) {}
 
   /** Checks bucket readiness for Object Lock policy before backup starts. */
   async check_storage(
@@ -22,7 +26,7 @@ export class StorageCheckService implements StorageCheckUseCase {
     const resolved_retain_until = request.retention_days
       ? compute_retain_until_utc(request.retention_days)
       : undefined;
-    const probe = await probe_bucket_immutability(this._s3, bucket, {
+    const probe = await probe_bucket_immutability(this._s3, bucket, this._buckets, {
       mode: request.mode,
       retain_until: resolved_retain_until,
     });
