@@ -45,8 +45,15 @@ export function add_eml_to_archive(
 ): Promise<void> {
   // Nested mail folders become nested zip directories; each level is sanitized
   // on its own so the separator survives while illegal characters do not.
+  //
+  // The file name is sanitized here too, not just by the caller. It derives from a
+  // message subject, which is chosen by whoever sent the mail, and an entry path like
+  // `../../../.ssh/authorized_keys` escapes the destination directory in any extractor
+  // that honours entry paths. Today's callers pass a name that is already safe, so this
+  // changes no existing archive; it means a future caller passing an item or attachment
+  // name cannot reintroduce the traversal (issue #258).
   const dir_path = folder_path.split('/').map(sanitize_path_segment).join('/');
-  const entry_path = `${dir_path}/${filename}`;
+  const entry_path = `${dir_path}/${sanitize_path_segment(filename)}`;
   return new Promise<void>((resolve, reject) => {
     const on_entry = (): void => {
       archive.removeListener('error', on_error);
