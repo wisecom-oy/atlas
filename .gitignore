@@ -27,5 +27,11 @@ e2e/logs/
 e2e/.sweep-home/
 __pycache__/
 
+# Agent skills: installed per clone with "npx skills add", roughly 117 MB of
+# indexes and per-platform binaries. skills-lock.json is committed on purpose:
+# it pins the source and content hash so every clone installs the same revision.
+.agents/skills/
+.claude/skills/msgraph
+
 # Staged at publish time by .github/workflows/publish.yml, never committed
 packages/*/LICENSE

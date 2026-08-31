@@ -87,6 +87,7 @@ export default defineConfig({
       {
         text: 'Development',
         items: [
+          { text: 'Microsoft Graph API Skill', link: '/development/msgraph-skill' },
           { text: 'Graph Request Tracing', link: '/development/graph-tap' },
           { text: 'Performance Profiling', link: '/development/performance-profiling' },
           { text: 'Release Process', link: '/development/releases' },
