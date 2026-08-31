@@ -1,7 +1,13 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import {
+  with_graph_retry,
+  classify_download_failure,
+  read_graph_error_code,
+  DownloadRefusedError,
+  MissingGraphPermissionsError,
+} from '@wisecom/atlas-m365-graph';
 import {
   CdnHttpError,
   CHUNK_DOWNLOAD_THRESHOLD,
@@ -60,7 +66,10 @@ export async function download_with_fallback(
   return await download_via_graph_content(client, item);
 }
 
-/** Attempts a CDN download, refreshing expired URLs once before falling back to Graph. */
+/**
+ * Attempts a CDN download, acting on the cause of a failure rather than assuming
+ * every 403 is a stale URL (issue #246). Kept identical to the OneDrive twin.
+ */
 async function attempt_download_with_refresh(
   client: Client,
   item: SharePointDeltaItem,
@@ -71,7 +80,28 @@ async function attempt_download_with_refresh(
   try {
     return await download_fn(download_url);
   } catch (err) {
-    if (is_expired_url_error(err)) {
+    const kind = classify_download_failure(err);
+
+    // A missing grant answers 403 on every item, so re-resolving and then spending a
+    // second /content retry budget per file only delays naming the real cause.
+    if (kind === 'missing_permission') {
+      throw new MissingGraphPermissionsError(
+        'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',
+      );
+    }
+
+    // The service will keep refusing this item, so it is recorded against the
+    // snapshot with the code that explains it, rather than retried.
+    if (kind === 'service_refused') {
+      throw new DownloadRefusedError(
+        `Microsoft 365 refused to release ${item.file_name} (${item.item_id}): ` +
+          `Graph returned 403 ${read_graph_error_code(err)}. This is a protection or ` +
+          `policy state on the item, not a transient failure.`,
+        read_graph_error_code(err),
+      );
+    }
+
+    if (kind === 'expired_url') {
       const refreshed_url = await resolve_download_url(client, item);
       if (refreshed_url) {
         try {
@@ -107,20 +137,29 @@ export async function download_via_graph_content(
   return await stream_to_buffer(stream, drain_timeout_ms);
 }
 
+/**
+ * True only for a stale pre-authenticated URL, which is the one 403 worth retrying.
+ *
+ * Delegates to the shared classifier so both drives cannot drift, and so a nullish
+ * rejection reason is classified instead of crashing the classifier (issue #263).
+ */
 export function is_expired_url_error(err: unknown): boolean {
-  if (err instanceof CdnHttpError) {
-    return err.status_code === 401 || err.status_code === 403;
-  }
-  const graph_status = (err as { statusCode?: number }).statusCode;
-  if (typeof graph_status === 'number') return graph_status === 401 || graph_status === 403;
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('Forbidden') || message.includes('Unauthorized');
+  return classify_download_failure(err) === 'expired_url';
 }
 
+/**
+ * Rethrows any Graph 403 as a missing grant.
+ *
+ * Deliberately broader than the download-path classification. Its callers are the
+ * enumeration paths in the connector, where a 403 has one plausible cause: there is
+ * no per-item protection state when listing a library. The finer split between a
+ * missing grant and a service refusal belongs to the download path, where both are
+ * reachable for the same item (issue #246).
+ */
 export function rethrow_if_access_denied(err: unknown): void {
-  const graph_err = err as Record<string, unknown>;
-  if (graph_err.statusCode !== 403) return;
-  throw new Error(
+  if (err === null || typeof err !== 'object') return;
+  if ((err as { statusCode?: unknown }).statusCode !== 403) return;
+  throw new MissingGraphPermissionsError(
     'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',
   );
 }

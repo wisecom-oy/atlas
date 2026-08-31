@@ -10,6 +10,7 @@ import {
   build_stored_entry,
 } from '@/services/onedrive-backup-builders';
 import { process_backup_file } from '@/services/onedrive-backup-file-processor';
+import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { classify_change_type } from '@/services/onedrive-change-classifier';
 import {
   collect_run_versions,
@@ -126,15 +127,9 @@ export async function process_delta_item(
     };
   }
 
-  const result = await process_backup_file(connector, item, owner_id, ctx);
-  if (!result) {
-    return {
-      files_stored: 0,
-      files_deduplicated: 0,
-      deleted_items: 0,
-      error: `Failed to process file ${item.file_name} (${item.item_id})`,
-    };
-  }
+  const download = await download_or_record_refusal(connector, item, owner_id, ctx);
+  if (download.outcome) return download.outcome;
+  const result = download.result;
 
   if (!result.deduplicated) {
     const version_result = await sync_file_versions(
@@ -159,4 +154,33 @@ export async function process_delta_item(
     files_deduplicated: result.deduplicated ? 1 : 0,
     deleted_items: 0,
   };
+}
+
+/**
+ * Downloads one item, converting a service refusal into a recorded outcome.
+ *
+ * A refusal is permanent for this item but not for the run, so it is recorded the
+ * way a quarantined item is. A missing grant is deliberately not caught: it applies
+ * to every item and must stop the run (issue #246).
+ */
+async function download_or_record_refusal(
+  connector: OneDriveConnector,
+  item: OneDriveDeltaItem,
+  owner_id: string,
+  ctx: TenantContext,
+): Promise<
+  | { outcome: DeltaItemOutcome; result?: undefined }
+  | { outcome?: undefined; result: NonNullable<Awaited<ReturnType<typeof process_backup_file>>> }
+> {
+  const empty = { files_stored: 0, files_deduplicated: 0, deleted_items: 0 };
+  try {
+    const result = await process_backup_file(connector, item, owner_id, ctx);
+    if (result) return { result };
+    return {
+      outcome: { ...empty, error: `Failed to process file ${item.file_name} (${item.item_id})` },
+    };
+  } catch (err) {
+    if (!is_download_refused(err)) throw err;
+    return { outcome: { ...empty, error: err.message, permanent: true } };
+  }
 }
