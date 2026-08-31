@@ -177,6 +177,30 @@ Attempting the download is not merely wasteful, it is actively harmful. Graph re
 
 The file stays reported on every run until it is removed or cleaned in the source, and the run stays `UNHEALTHY`, so an operator can always answer which files are not in the backup and why.
 
+### A 403 is acted on for the reason it was returned
+
+Three unrelated conditions answer `403` on the download path, and each now gets its own response instead of all three being read as an expired download URL.
+
+**A missing application permission stops the run.** The tenant has not granted the scope, so every item will answer the same way. Atlas fails immediately and names the grants to add, rather than re-resolving the URL and spending a second download budget per file before reporting a lost file:
+
+```
+Missing Microsoft Graph application permissions for OneDrive: Files.Read.All, Sites.Read.All.
+```
+
+**A protection or policy state is recorded against the item.** A sensitivity label, an IRM policy, or a retention rule can make the service refuse one file while the rest of the drive is readable. That is permanent for the item and not a problem with the run, so it is recorded the way a quarantined file is, with the Graph error code that explains it:
+
+```
+[!] Not backed up: Report.docx (01STBDHIPIY7N3OWY...) -- Microsoft 365 refused to release
+    Report.docx (01STBDHIPIY7N3OWY...): Graph returned 403 notAllowed. This is a protection or
+    policy state on the item, not a transient failure.; PERMANENTLY SKIPPED by service policy,
+    not retried, first failed 2026-08-11T07:58:43.224Z
+[x] Status: UNHEALTHY
+```
+
+**An expired pre-authenticated download URL is re-resolved and retried once**, which is the only one of the three where a retry is the right answer.
+
+An unrecognised `403` code is treated as a refusal of that one item rather than a reason to abort the whole backup, so a code Microsoft adds later costs one file and not a tenant run. Classification reads the HTTP status and the Graph error code only. It never matches on message text, because Microsoft documents `message` as subject to change and a substring test on `Forbidden` also matched wrapped storage and proxy errors that had nothing to do with the download.
+
 ## Snapshot Health Status
 
 Every backup prints a health status at the end:

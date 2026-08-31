@@ -1,3 +1,4 @@
+import { classify_download_failure } from '@wisecom/atlas-m365-graph';
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
@@ -42,9 +43,12 @@ vi.mock('@/adapters/graph-onedrive-connector-stream', () => ({
 }));
 
 // Retry policy is owned and tested elsewhere; here it must not multiply call counts.
-vi.mock('@wisecom/atlas-m365-graph', () => ({
-  with_graph_retry: (fn: () => unknown) => fn(),
-}));
+// Only the retry wrapper is stubbed, so it cannot multiply call counts. The download
+// classifier is real: it is the behaviour under test (issue #246).
+vi.mock('@wisecom/atlas-m365-graph', async (import_original) => {
+  const actual = await import_original<Record<string, unknown>>();
+  return { ...actual, with_graph_retry: (fn: () => unknown) => fn() };
+});
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: mocks.warn, debug: mocks.debug, info: vi.fn(), error: vi.fn() },
@@ -254,8 +258,24 @@ describe('OneDrive download helpers', () => {
       expect(is_expired_url_error(new CdnHttpError('other', status))).toBe(false);
     });
 
-    it.each([401, 403])('treats a Graph error with statusCode %i as an expired URL', (status) => {
-      expect(is_expired_url_error({ statusCode: status })).toBe(true);
+    // Split by #246: a CDN 401/403 is a stale URL, but a Graph 401 is a credential
+    // problem and a Graph 403 is either a missing grant or a service refusal. None of
+    // them is a URL worth re-resolving.
+    it.each([401, 403])(
+      'no longer treats a Graph error with statusCode %i as an expired URL',
+      (status) => {
+        expect(is_expired_url_error({ statusCode: status })).toBe(false);
+      },
+    );
+
+    it('classifies a Graph 401 separately from a Graph 403', () => {
+      expect(classify_download_failure({ statusCode: 401 })).toBe('unauthorized');
+      expect(classify_download_failure({ statusCode: 403, code: 'accessDenied' })).toBe(
+        'missing_permission',
+      );
+      expect(classify_download_failure({ statusCode: 403, code: 'notAllowed' })).toBe(
+        'service_refused',
+      );
     });
 
     it('does not treat a Graph error with another statusCode as an expired URL', () => {
@@ -265,10 +285,13 @@ describe('OneDrive download helpers', () => {
     // Substring classification: any wrapped error whose text happens to contain the
     // word is classified as an expired download URL, including a storage or proxy
     // error unrelated to the URL. Issue #246 removes or narrows this.
+    // Removed by #246. Microsoft's own error guidance is that `message` can change at
+    // any time and only `code` should be relied on, and the substring test also matched
+    // wrapped storage and proxy errors that had nothing to do with the download URL.
     it.each(['Forbidden', 'Unauthorized'])(
-      'classifies a message-only error containing %s as an expired URL (#246)',
+      'no longer classifies a message-only error containing %s as an expired URL',
       (word) => {
-        expect(is_expired_url_error(new Error(`S3 GetObject failed: ${word}`))).toBe(true);
+        expect(is_expired_url_error(new Error(`S3 GetObject failed: ${word}`))).toBe(false);
       },
     );
 
@@ -283,12 +306,11 @@ describe('OneDrive download helpers', () => {
     // issue. The classifier reads `.statusCode` off the raw value, so a rejection
     // carrying no reason (`Promise.reject()`) crashes the classifier instead of
     // being classified. Tracked in #263.
-    it.each([undefined, null])(
-      'currently throws a TypeError for %s rather than returning false',
-      (value) => {
-        expect(() => is_expired_url_error(value)).toThrow(TypeError);
-      },
-    );
+    // Was a TypeError before #246 replaced the raw property read (issue #263).
+    it.each([undefined, null])('classifies %s as unclassified instead of crashing', (value) => {
+      expect(is_expired_url_error(value)).toBe(false);
+      expect(classify_download_failure(value)).toBe('unclassified');
+    });
   });
 
   describe('rethrow_if_access_denied', () => {

@@ -5,6 +5,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import { download_with_retry } from '@/services/sharepoint-download-orchestrator';
 import {
   LARGE_FILE_THRESHOLD,
@@ -32,6 +33,9 @@ export async function process_backup_file(
     try {
       return await process_large_file(connector, item, site_id, ctx);
     } catch (err) {
+      // A missing grant or a service refusal is not a skip: it must reach the caller
+      // so the run can name the cause instead of reporting a lost file (issue #246).
+      if (is_unretryable_download_failure(err)) throw err;
       logger.warn(
         `Skipping large file ${item.item_id} (${item.file_name}): ${err instanceof Error ? err.message : String(err)}`,
       );

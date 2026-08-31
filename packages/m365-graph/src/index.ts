@@ -11,6 +11,16 @@ export {
   is_content_gone_error,
   with_graph_retry,
 } from './graph-error-helpers';
+export {
+  classify_download_failure,
+  read_graph_error_code,
+  is_download_refused,
+  is_missing_graph_permissions,
+  is_unretryable_download_failure,
+  DownloadRefusedError,
+  MissingGraphPermissionsError,
+} from './graph-download-classification';
+export type { DownloadFailureKind } from './graph-download-classification';
 export { RateLimitedGraphConnector } from './rate-limited-graph-connector.adapter';
 export { bind_graph_client } from './container';
 export { GraphUserIdentityResolver } from './graph-user-identity-resolver.adapter';
