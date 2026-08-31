@@ -79,11 +79,16 @@ export async function resolve_backup_folders(
   connector: MailboxConnector,
   tenant_id: string,
   owner_id: string,
-  options: { folder_filter?: string[] | undefined; exclude_junk?: boolean | undefined },
+  options: {
+    folder_filter?: string[] | undefined;
+    exclude_junk?: boolean | undefined;
+    include_recoverable_items?: boolean | undefined;
+  },
 ): Promise<ResolvedBackupFolders> {
   const excluded: ExcludedFolder[] = [];
   const all_folders = await connector.list_mail_folders(tenant_id, owner_id, {
     ...(options.exclude_junk === true ? { exclude_junk: true } : {}),
+    ...(options.include_recoverable_items === true ? { include_recoverable_items: true } : {}),
     on_excluded: (folder) => excluded.push(folder),
   });
 

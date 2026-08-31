@@ -20,6 +20,12 @@ export interface RestoreOptions extends OperationControlOptions {
   readonly folder_name?: string;
   readonly message_ref?: string;
   readonly target_mailbox?: string;
+  /**
+   * Also restore items captured from Recoverable Items. Off by default: an
+   * ordinary restore must not resurrect mail somebody deleted, or mail kept
+   * only because a hold retained it (issue #141).
+   */
+  readonly include_recoverable_items?: boolean;
   readonly start_date?: Date;
   readonly end_date?: Date;
   /** CLI presenter hook; when absent the service reports progress nowhere. */

@@ -22,6 +22,7 @@ import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
 import { create_disposer } from '@/instance-disposal';
+import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
@@ -38,11 +39,15 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
   );
   const tenant_factory = container.get<TenantContextFactory>(TENANT_CONTEXT_FACTORY_TOKEN);
   const dispose = create_disposer(container);
+  const sink = resolve_log_sink(config.logger);
+  const scoped = <T extends object>(api: T): T => scope_api_logging(api, tenant_id, sink);
 
-  return {
-    outlook: create_outlook_api(tenant_id, container),
-    onedrive: create_onedrive_api(tenant_id, container),
-    sharepoint: create_sharepoint_api(tenant_id, container),
+  // Typed explicitly: assigning to a `const` drops the contextual typing the
+  // return position used to give the object literal's method parameters.
+  const instance: Omit<AtlasInstance, typeof Symbol.asyncDispose> = scoped({
+    outlook: scoped(create_outlook_api(tenant_id, container)),
+    onedrive: scoped(create_onedrive_api(tenant_id, container)),
+    sharepoint: scoped(create_sharepoint_api(tenant_id, container)),
 
     async checkStorage(request) {
       return await storage_check.check_storage(tenant_id, request);
@@ -84,9 +89,14 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     },
 
     dispose,
-    // `await using atlas = createAtlasInstance(...)` on Node 20+.
-    [Symbol.asyncDispose]: dispose,
-  };
+  });
+
+  // Attached after `scoped()`, not inside it: that wrapper iterates
+  // Object.entries, which skips symbol keys, so an asyncDispose declared inside
+  // the literal would be dropped and `await using` would silently do nothing.
+  // Pointing at the scoped `dispose` also keeps both entry points identical,
+  // including where their teardown warnings are logged.
+  return { ...instance, [Symbol.asyncDispose]: instance.dispose };
 }
 
 function normalizeConfig(config: AtlasInstanceConfig): AtlasConfig {

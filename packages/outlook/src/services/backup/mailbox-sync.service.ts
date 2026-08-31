@@ -81,6 +81,7 @@ export class MailboxSyncService implements BackupUseCase {
       const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
         folder_filter: options.folder_filter,
         exclude_junk: options.exclude_junk,
+        include_recoverable_items: options.include_recoverable_items,
       });
       const folders = folder_selection.folders;
       const warnings = [...folder_selection.warnings];
@@ -253,7 +254,12 @@ export class MailboxSyncService implements BackupUseCase {
           : {}),
       });
       return {
-        entries: result.entries,
+        // Marked here rather than inside the executor: the folder knows where
+        // it came from, the message pipeline has no reason to.
+        entries:
+          folder.is_recoverable_items === true
+            ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
+            : result.entries,
         ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
         complete: result.complete,
         stored: result.stored,

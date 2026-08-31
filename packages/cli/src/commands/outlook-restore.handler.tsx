@@ -23,6 +23,7 @@ export interface OutlookRestoreOptions {
   message?: string;
   startDate?: string;
   endDate?: string;
+  includeRecoverableItems?: boolean;
 }
 
 /** Validates the scope flags, refusing the combinations that would restore to a guessed mailbox. */
@@ -128,6 +129,7 @@ async function execute_mailbox_restore(
 
   const restore_options: RestoreOptions = {
     ...(options.folder && { folder_name: options.folder }),
+    ...(options.includeRecoverableItems && { include_recoverable_items: true }),
     ...(start_date && { start_date }),
     ...(end_date && { end_date }),
     ...(options.target && { target_mailbox: options.target }),

@@ -108,6 +108,7 @@ export type { DekValidationFn } from './replication/dek-validation.port';
 export type { StorageDisposer } from './storage/storage-disposer.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
+export type { LogSink, LogFields } from './atlas/log-sink.port';
 export type {
   OutlookApi,
   OutlookBackupOptions,
@@ -120,6 +121,7 @@ export type {
   OneDriveSdkBackupOptions,
   OneDriveSdkVerificationOptions,
   OneDriveSdkRestoreOptions,
+  OneDriveSdkVersionRestoreOptions,
   OneDriveSdkSaveOptions,
 } from './atlas/onedrive-api.port';
 export type {
@@ -127,6 +129,7 @@ export type {
   SharePointSdkBackupOptions,
   SharePointSdkVerificationOptions,
   SharePointSdkRestoreOptions,
+  SharePointSdkVersionRestoreOptions,
   SharePointSdkSaveOptions,
 } from './atlas/sharepoint-api.port';
 export type {
@@ -181,6 +184,16 @@ export type {
   OneDriveRestoreOptions,
   OneDriveRestoreConflictBehavior,
 } from './onedrive/restore.port';
+
+export type { OneDriveVersionRestoreUseCase } from './onedrive/use-case.port';
+export type { SharePointVersionRestoreUseCase } from './sharepoint/use-case.port';
+
+export type {
+  DriveVersionPlacement,
+  DriveVersionRestoreOptions,
+  DriveRestoredVersion,
+  DriveVersionRestoreResult,
+} from './drive/version-restore.port';
 
 export type {
   SharePointSiteConnector,
@@ -260,6 +273,8 @@ export {
   REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
+  ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,

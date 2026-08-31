@@ -5,6 +5,7 @@ import type {
   OneDriveVerificationUseCase,
   OneDriveCatalogUseCase,
   OneDriveRestoreUseCase,
+  OneDriveVersionRestoreUseCase,
   OneDriveSaveUseCase,
   OneDriveDeletionUseCase,
   OneDriveReplicationUseCase,
@@ -18,6 +19,7 @@ import {
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+  ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
@@ -34,6 +36,9 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   );
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
+  const version_restore = container.get<OneDriveVersionRestoreUseCase>(
+    ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
+  );
   const restore = container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
   const save = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const deletion = container.get<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN);
@@ -84,6 +89,14 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
         tenant_id,
         owner_id,
         adapt_required_operation_options(options, 'onedrive.restore()'),
+      );
+    },
+    async restoreVersion(owner_input, options) {
+      const owner_id = await resolve_owner_id(owner_input);
+      return await version_restore.restore_onedrive_version(
+        tenant_id,
+        owner_id,
+        adapt_required_operation_options(options, 'onedrive.restoreVersion()'),
       );
     },
     async save(owner_input, options) {

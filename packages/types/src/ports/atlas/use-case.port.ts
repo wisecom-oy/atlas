@@ -1,3 +1,4 @@
+import type { LogSink } from '@/ports/atlas/log-sink.port';
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
 import type { BucketStats } from '@/domain/stats';
 import type {
@@ -21,6 +22,11 @@ export interface AtlasInstanceConfig {
   readonly s3SecretKey: string;
   readonly s3Region?: string;
   readonly encryptionPassphrase: string;
+  /**
+   * Where Atlas sends log output. Omitted means silent: an embedded Atlas
+   * writes nothing to the host's stdout unless the host asks for it (issue #41).
+   */
+  readonly logger?: LogSink;
 }
 
 export interface AtlasInstance extends AsyncDisposable {

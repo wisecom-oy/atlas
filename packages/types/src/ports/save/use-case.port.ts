@@ -8,6 +8,11 @@ export interface SaveOptions extends OperationControlOptions {
   readonly end_date?: Date;
   readonly output_path?: string;
   readonly skip_integrity_check?: boolean;
+  /**
+   * Also export items captured from Recoverable Items. Off by default, so an
+   * ordinary export does not hand out deleted or hold-retained mail (issue #141).
+   */
+  readonly include_recoverable_items?: boolean;
   /** CLI presenter hook; when absent the service reports progress nowhere. */
   readonly create_progress?: (
     folders: { name: string; total_items: number }[],

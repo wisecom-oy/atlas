@@ -28,3 +28,7 @@ export const ONEDRIVE_REPLICATION_USE_CASE_TOKEN = Symbol.for('OneDriveReplicati
 export const ONEDRIVE_STATUS_USE_CASE_TOKEN = Symbol.for('OneDriveStatusUseCase');
 export const SHAREPOINT_DELETION_USE_CASE_TOKEN = Symbol.for('SharePointDeletionUseCase');
 export const SHAREPOINT_STATUS_USE_CASE_TOKEN = Symbol.for('SharePointStatusUseCase');
+export const ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN = Symbol.for('OneDriveVersionRestoreUseCase');
+export const SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN = Symbol.for(
+  'SharePointVersionRestoreUseCase',
+);

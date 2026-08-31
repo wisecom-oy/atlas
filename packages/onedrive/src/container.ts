@@ -6,6 +6,7 @@ import {
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
+  ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   ONEDRIVE_RESTORE_USE_CASE_TOKEN,
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
@@ -19,6 +20,7 @@ import { S3OneDriveFileVersionIndexRepository } from '@/adapters/s3-onedrive-fil
 import { OneDriveBackupService } from '@/services/onedrive-backup.service';
 import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
 import { OneDriveSaveService } from '@/services/onedrive-save.service';
+import { OneDriveVersionRestoreService } from '@/services/onedrive-version-restore.service';
 import { OneDriveCatalogService } from '@/services/onedrive-catalog.service';
 import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
 import { OneDriveStatusService } from '@/services/status/onedrive-status.service';
@@ -46,6 +48,10 @@ export function bind_onedrive(container: Container): void {
     .inSingletonScope();
   container.bind(ONEDRIVE_BACKUP_USE_CASE_TOKEN).to(OneDriveBackupService).inSingletonScope();
   container.bind(ONEDRIVE_CATALOG_USE_CASE_TOKEN).to(OneDriveCatalogService).inSingletonScope();
+  container
+    .bind(ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN)
+    .to(OneDriveVersionRestoreService)
+    .inSingletonScope();
   container
     .bind(ONEDRIVE_VERIFICATION_USE_CASE_TOKEN)
     .to(OneDriveVerificationService)

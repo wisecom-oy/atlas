@@ -17,4 +17,10 @@ export { CONFIG_KEYS, find_config_key, mask_secret } from './config-keys';
 export type { ConfigKeySpec } from './config-keys';
 export { html_to_text } from './html-to-text';
 export { is_gcm_auth_failure } from './gcm-auth';
+export {
+  run_with_log_scope,
+  active_log_scope,
+  SILENT_LOG_SINK,
+  type LogScope,
+} from './log-context';
 export { mark_downloaded_from_internet } from './zone-identifier';

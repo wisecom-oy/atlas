@@ -11,6 +11,7 @@ import {
   filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
+import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
 import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
 import {
   restore_single_message,
@@ -181,11 +182,12 @@ export class RestoreService implements RestoreUseCase {
     tenant_id: string,
     options: RestoreOptions,
   ): Promise<ManifestEntry[]> {
+    const allowed = apply_recoverable_items_policy(entries, options.include_recoverable_items);
     if (options.folder_name) {
       const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(entries, options.folder_name, folder_map);
+      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
     }
-    return entries;
+    return allowed;
   }
 
   /** Loads and validates the manifest for a given snapshot. */
@@ -203,18 +205,26 @@ export class RestoreService implements RestoreUseCase {
     tenant_id: string,
     options: RestoreOptions,
   ): Promise<ManifestEntry[]> {
+    const allowed = apply_recoverable_items_policy(
+      manifest.entries,
+      options.include_recoverable_items,
+    );
+
     if (options.message_ref) {
+      // Indexes are 1-based over the manifest, so resolve against the full list
+      // and then apply the policy, or `-r 5` would silently mean a different
+      // message once anything is filtered out.
       const entry = this.resolve_single_entry(manifest, options.message_ref);
-      return entry ? [entry] : [];
+      return entry && allowed.includes(entry) ? [entry] : [];
     }
 
     if (options.folder_name) {
-      await backfill_missing_folder_ids(ctx, manifest.entries);
+      await backfill_missing_folder_ids(ctx, allowed);
       const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(manifest.entries, options.folder_name, folder_map);
+      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
     }
 
-    return manifest.entries;
+    return allowed;
   }
 
   /** Resolves a single entry by 1-based index or object_id. */

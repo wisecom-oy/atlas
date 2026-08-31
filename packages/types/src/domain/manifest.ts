@@ -81,4 +81,11 @@ export interface ManifestEntry {
    * payload to read `receivedDateTime` from.
    */
   readonly received_at?: string | undefined;
+  /**
+   * Captured from the Recoverable Items subtree rather than the visible
+   * mailbox. Marked on the entry, not inferred from the folder path, because a
+   * user folder can be named anything and this decides whether a restore
+   * writes the item back (issue #141).
+   */
+  readonly recoverable_items?: boolean | undefined;
 }

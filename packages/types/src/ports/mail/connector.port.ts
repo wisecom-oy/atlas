@@ -15,6 +15,13 @@ export interface MailFolder {
    * enumerated at all.
    */
   readonly is_hidden?: boolean;
+  /**
+   * This folder lives in the Exchange Recoverable Items subtree, so its items
+   * were deleted or are held rather than sitting in the visible mailbox. Kept
+   * on the folder and on every entry it produces, because a restore must not
+   * put deleted mail back by accident (issue #141).
+   */
+  readonly is_recoverable_items?: boolean;
 }
 
 /**
@@ -24,7 +31,13 @@ export interface MailFolder {
  * - `hidden-system-folder`: an Exchange-hidden folder holding client state
  *   rather than mail, such as `Conversation Action Settings`.
  */
-export type FolderExclusionReason = 'junk-excluded' | 'hidden-system-folder';
+export type FolderExclusionReason =
+  | 'junk-excluded'
+  | 'hidden-system-folder'
+  /** A Recoverable Items subfolder whose items are not mail: Versions, Calendar Logging, Audits. */
+  | 'recoverable-items-not-mail'
+  /** A Recoverable Items subfolder Atlas does not know, reported rather than guessed at. */
+  | 'recoverable-items-unrecognised';
 
 export interface ExcludedFolder {
   /** Root-relative path, matching {@link MailFolder.folder_path}. */
@@ -45,6 +58,13 @@ export interface MailFolderListOptions {
    * whoever ran it happened to pass.
    */
   readonly on_excluded?: (excluded: ExcludedFolder) => void;
+  /**
+   * Also enumerate the Recoverable Items subtree: hard-deleted mail and items
+   * kept only by a litigation hold or retention policy. Off by default, since
+   * on a mailbox under hold the dumpster can rival the mailbox in size and
+   * that cost should be a decision rather than a surprise.
+   */
+  readonly include_recoverable_items?: boolean;
 }
 
 export interface MailMessage {

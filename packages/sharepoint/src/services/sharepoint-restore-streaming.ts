@@ -1,4 +1,3 @@
-import type { SharePointManifestEntry } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export {
@@ -10,13 +9,13 @@ export {
 const STREAM_THRESHOLD_BYTES = 4 * 1024 * 1024;
 
 /** Checks whether a file should use stream-based restore. */
-export function should_stream_restore(entry: SharePointManifestEntry): boolean {
+export function should_stream_restore(entry: { size_bytes: number }): boolean {
   return entry.size_bytes > STREAM_THRESHOLD_BYTES;
 }
 
 /** Verifies the computed SHA-256 against the manifest entry. */
 export function verify_streaming_checksum(
-  entry: SharePointManifestEntry,
+  entry: { checksum?: string | undefined; file_name: string },
   sha256_hex: string,
 ): boolean {
   if (!entry.checksum) {
