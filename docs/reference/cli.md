@@ -941,7 +941,7 @@ atlas replicate --status -o user@company.com
 | `-o, --owner <email-or-id>` | Replicate all unreplicated snapshots for a OneDrive owner  |
 | `--target-endpoint <url>`   | Target S3 endpoint URL                                     |
 | `--target-access-key <key>` | Target S3 access key                                       |
-| `--target-secret-key <key>` | Target S3 secret key                                       |
+| `--target-secret-key <key>` | Target S3 secret key; `-` reads it from stdin              |
 | `--target-region <region>`  | Target S3 region (default: `us-east-1`)                    |
 | `--target-config <path>`    | Path to JSON file with target S3 credentials               |
 | `--status`                  | Show replication status instead of replicating             |
@@ -949,6 +949,19 @@ atlas replicate --status -o user@company.com
 
 ::: tip Target Config File
 The target config file is a JSON object with `s3_endpoint`, `s3_access_key`, `s3_secret_key`, and optionally `s3_region` and `target_id`. The encryption passphrase is shared from the main Atlas configuration.
+:::
+
+::: warning Keep the secret key out of argv
+A secret passed inline is written to the shell history file and is readable in the process table by any other local user for as long as the command runs, which for a replication run over a large tenant is not a short window. Pass `-` to read it from stdin instead:
+
+```bash
+atlas replicate -m user@company.com \
+  --target-endpoint http://offsite:9000 \
+  --target-access-key <key> \
+  --target-secret-key - < target-secret.txt
+```
+
+Trailing whitespace and the trailing newline are trimmed. If stdin is empty or unreadable the command fails and names the option, rather than authenticating with an empty secret. Only the secret key accepts `-`, because only one option per invocation can read stdin and the access key ID is not a secret. `--target-config` remains available and moves the secret to a file, but that file's permissions are yours to manage, so `-` is preferable when the secret comes from a secret manager or a pipe.
 :::
 
 ## `atlas rehydrate`
@@ -980,7 +993,7 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 | `--all`                     | Recover every workload: Outlook, OneDrive, and SharePoint    |
 | `--source-endpoint <url>`   | Source replica S3 endpoint URL                               |
 | `--source-access-key <key>` | Source replica S3 access key                                 |
-| `--source-secret-key <key>` | Source replica S3 secret key                                 |
+| `--source-secret-key <key>` | Source replica S3 secret key; `-` reads it from stdin         |
 | `--source-region <region>`  | Source replica S3 region (default: `us-east-1`)              |
 | `--source-config <path>`    | Path to JSON file with source S3 credentials                 |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
@@ -988,6 +1001,19 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. `-s/--snapshot` works for all three workloads: the snapshot id says which one it belongs to (`od-snap-*` OneDrive, `sp-snap-*` SharePoint, `snap-*` Outlook), and the owning owner or site is resolved from storage, so it does not have to be named again. Combining `--site` or `-o/--owner` with `-s/--snapshot` addresses the same single snapshot explicitly. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
 
 `-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only. Unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
+
+::: warning Keep the secret key out of argv
+`--source-secret-key` accepts `-`, which reads the value from stdin so it never reaches the shell history file or the process table:
+
+```bash
+atlas rehydrate --all \
+  --source-endpoint http://offsite:9000 \
+  --source-access-key <key> \
+  --source-secret-key - < source-secret.txt
+```
+
+Behaviour matches `atlas replicate`: trailing whitespace is trimmed, and empty or unreadable stdin fails with the option named instead of authenticating with an empty secret.
+:::
 
 ::: tip What `--all` covers
 `--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) present on the replica. The summary breaks the run down per workload, so a recovery that restored only part of the tenant is visible instead of hidden behind one aggregate status line:

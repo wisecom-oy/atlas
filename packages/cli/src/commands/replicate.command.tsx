@@ -26,6 +26,7 @@ import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
 import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
+import { resolve_secret_option } from '@/utils/secret-option';
 
 type ContainerFactory = () => Container;
 
@@ -61,7 +62,7 @@ export function register_replicate_command(
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--target-endpoint <url>', 'target S3 endpoint URL')
     .option('--target-access-key <key>', 'target S3 access key')
-    .option('--target-secret-key <key>', 'target S3 secret key')
+    .option('--target-secret-key <key>', 'target S3 secret key; "-" reads it from stdin')
     .option('--target-region <region>', 'target S3 region')
     .option('--target-config <path>', 'path to JSON file with target S3 credentials')
     .option('--status', 'show replication status instead of replicating')
@@ -184,7 +185,11 @@ function build_target(container: Container, options: ReplicateOptions): StorageT
     });
   }
 
-  if (!options.targetEndpoint || !options.targetAccessKey || !options.targetSecretKey) {
+  // Resolved before the presence check so `--target-secret-key -` with empty stdin reports
+  // that, rather than the misleading "credentials required" (issue #256).
+  const target_secret_key = resolve_secret_option(options.targetSecretKey, '--target-secret-key');
+
+  if (!options.targetEndpoint || !options.targetAccessKey || !target_secret_key) {
     throw new Error(
       'Target credentials required: provide --target-endpoint, --target-access-key, --target-secret-key ' +
         'or --target-config <path>',
@@ -194,7 +199,7 @@ function build_target(container: Container, options: ReplicateOptions): StorageT
   return create_storage_target({
     s3_endpoint: options.targetEndpoint,
     s3_access_key: options.targetAccessKey,
-    s3_secret_key: options.targetSecretKey,
+    s3_secret_key: target_secret_key,
     ...(options.targetRegion !== undefined ? { s3_region: options.targetRegion } : {}),
     encryption_passphrase: config.encryption_passphrase,
   });
