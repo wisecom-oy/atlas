@@ -91,6 +91,12 @@ jobs:
         id: suite
         working-directory: e2e
         env:
+          # Through `env`, never interpolated into `run:`. A dispatch input is attacker-controlled
+          # text, GitHub expands `${{ }}` before the shell parses the line, and this step holds
+          # every E2E secret, so an inline expansion is a command-injection path (issue #257).
+          # `${SUITE:+-k "$SUITE"}` omits `-k` entirely when the input is empty, which is what a
+          # scheduled run gets.
+          SUITE: ${{ inputs.suite }}
           E2E_TENANT_ID: ${{ secrets.E2E_TENANT_ID }}
           E2E_CLIENT_ID: ${{ secrets.E2E_CLIENT_ID }}
           E2E_CLIENT_SECRET: ${{ secrets.E2E_CLIENT_SECRET }}
@@ -98,7 +104,7 @@ jobs:
           E2E_MAILBOX: ${{ secrets.E2E_MAILBOX }}
           E2E_ONEDRIVE_OWNER: ${{ secrets.E2E_ONEDRIVE_OWNER }}
           E2E_SHAREPOINT_SITE: ${{ secrets.E2E_SHAREPOINT_SITE }}
-        run: uv run pytest ${{ inputs.suite && format('-k "{0}"', inputs.suite) || '' }}
+        run: uv run pytest ${SUITE:+-k "$SUITE"}
 
       # Status is readable from the run page itself, so a red badge can be triaged without
       # opening logs. The XML holds test names only -- no tenant data.
