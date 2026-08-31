@@ -6,12 +6,14 @@ import type {
   MailboxConnector,
   MailboxPurpose,
   MailFolder,
+  MailFolderListOptions,
   MailMessage,
   MessageAttachment,
   DeltaSyncResult,
   DeltaPageCallback,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
 import {
   is_invalid_delta_error,
   rethrow_if_access_denied,
@@ -24,12 +26,8 @@ import type {
   GraphFolderRecord,
   GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
-import {
-  extract_user_ids,
-  map_file_attachments,
-  parse_mailbox_purpose,
-} from '@/adapters/graph-mailbox-response-mappers';
-import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
+import { extract_user_ids, parse_mailbox_purpose } from '@/adapters/graph-mailbox-response-mappers';
+import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
   DELTA_SELECT_FIELDS,
@@ -94,30 +92,27 @@ export class GraphMailboxConnector implements MailboxConnector {
     }
   }
 
-  /**
-   * Lists every mail folder in the mailbox, at any nesting depth, excluding
-   * system folders (drafts, outbox, junk, recoverable items) and their subtrees.
-   */
-  async list_mail_folders(_tenant_id: string, owner_id: string): Promise<MailFolder[]> {
+  /** Lists every mail folder in the mailbox, at any nesting depth. */
+  async list_mail_folders(
+    _tenant_id: string,
+    owner_id: string,
+    options?: MailFolderListOptions,
+  ): Promise<MailFolder[]> {
     try {
-      // Per-page retry lives inside collect_all_pages; wrapping the whole
-      // enumeration would put every page under one 60s timeout.
-      return await enumerate_folder_tree((parent_folder_id) =>
-        this.collect_all_pages<GraphFolderRecord>(this.folder_url(owner_id, parent_folder_id)),
+      return await list_mail_folder_tree(
+        (url) => this.collect_all_pages<GraphFolderRecord>(url),
+        owner_id,
+        options,
+        create_folder_reader(
+          (url) => with_graph_retry(() => this._client.api(url).get()),
+          owner_id,
+        ),
       );
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
       throw err;
     }
-  }
-
-  /** Builds the folder-collection URL for the mailbox root or one parent folder. */
-  private folder_url(owner_id: string, parent_folder_id?: string): string {
-    const collection = parent_folder_id
-      ? `/users/${owner_id}/mailFolders/${parent_folder_id}/childFolders`
-      : `/users/${owner_id}/mailFolders`;
-    return `${collection}?$select=id,displayName,parentFolderId,totalItemCount,childFolderCount&$top=250`;
   }
 
   /**
@@ -193,10 +188,14 @@ export class GraphMailboxConnector implements MailboxConnector {
   }
 
   /**
-   * Fetches file attachments for a message. Filters to fileAttachment type only,
-   * decodes contentBytes from base64. Attachments above the Graph inline limit
-   * (~3 MB) arrive without contentBytes and are downloaded individually via the
-   * /$value endpoint, which streams raw bytes with no size ceiling.
+   * Fetches a message's attachments, on the JSON fallback path only: a message
+   * stored as MIME already carries its attachments inside the message bytes.
+   *
+   * File attachments above the Graph inline limit (~3 MB) arrive without
+   * contentBytes, and item attachments never carry inline bytes at all, so both
+   * are fetched individually from `/$value`, which streams raw bytes with no
+   * size ceiling. Reference attachments are links with no content to fetch;
+   * Graph answers `405` for their `/$value`, so they are never downloaded.
    */
   async fetch_attachments(
     _tenant_id: string,
@@ -206,7 +205,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     try {
       const url = `/users/${owner_id}/messages/${message_id}/attachments`;
       const records = await this.collect_all_pages<GraphAttachmentRecord>(url);
-      const attachments = map_file_attachments(records);
+      const attachments = map_attachments(records);
 
       for (let i = 0; i < attachments.length; i++) {
         const att = attachments[i]!;
@@ -216,7 +215,7 @@ export class GraphMailboxConnector implements MailboxConnector {
           message_id,
           att.attachment_id,
         );
-        attachments[i] = { ...att, content };
+        attachments[i] = resolve_downloaded_attachment(att, content);
       }
       return attachments;
     } catch (err) {

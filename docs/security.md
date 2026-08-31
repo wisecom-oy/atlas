@@ -148,6 +148,22 @@ If Graph cannot return MIME for a particular item, Atlas stores that one message
 
 Each manifest entry records which format its object holds. Entries with `payload_format: "mime"` hold original bytes; entries with no `payload_format` field hold the legacy Graph JSON payload. Mixed snapshots are normal, and `save`, `read`, `restore`, and `verify` all handle both formats inside the same snapshot chain, so a fallback item needs no operator intervention.
 
+On that path attachments are separate objects again, and all three Graph attachment types are captured:
+
+| Graph type | What Atlas stores |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `fileAttachment` | The file bytes, inline when Graph includes them, otherwise fetched from `/$value` |
+| `itemAttachment` | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
+| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked |
+
+An attached message therefore exports as a `message/rfc822` part that mail clients open as mail, an invite as `.ics`, and a contact as `.vcf`. The content type is decided by the bytes that arrive rather than by the attachment's name, because Graph does not say which kind of item is attached and an invite mislabelled as mail opens as broken mail.
+
+A `referenceAttachment` points at a file in OneDrive or SharePoint. The link is part of the message and is preserved; the file itself belongs to those workloads and is covered by their own backups.
+
+::: warning Attachment types dropped before this version
+Earlier versions kept only `fileAttachment` and discarded the other two silently, with no warning and no manifest record, while still storing the message's `has_attachments` flag. Snapshots taken then can claim attachments whose content was never captured. This affected the legacy JSON path only, which is also the only path that existed before MIME storage, so snapshots predating MIME are the ones to treat with suspicion. An attachment type Atlas does not recognise is now recorded with its metadata and warned about, so a gap is auditable instead of invisible.
+:::
+
 ### Restore is reconstruction, and that is a deliberate choice
 
 Atlas does **not** import archived MIME back into Exchange. Live testing established why: Graph's MIME import path always marks the created message as a draft (`isDraft: true`), and that flag cannot be cleared -- neither an `X-Unsent: 0` header inside the MIME nor a `PR_MESSAGE_FLAGS` patch afterwards clears it. Restoring a mailbox that way would hand the user thousands of drafts instead of their mail.
@@ -169,6 +185,120 @@ Two consequences worth stating plainly:
 
 ::: warning Sensitivity labels are not captured
 Atlas does not currently capture Microsoft Purview sensitivity labels or IRM protection state for drive items. Labelled files whose content Graph does serve are backed up as ciphertext like any other file, but the label itself is not recorded, so a restored copy does not carry its original classification. Treat restored content as unclassified until it is relabelled. Capturing label metadata is tracked separately; it is a metered Graph surface and is deliberately out of scope for the quarantine handling described above.
+:::
+
+### In-Place Archive is out of scope
+
+Atlas backs up the **primary mailbox**. A mailbox with an **In-Place Archive** (also called Online Archive, or the archive mailbox) has a second, separate store, and none of it is backed up.
+
+This is not an implementation gap Atlas can close on the current API. Microsoft states it directly in the [Outlook mail API overview](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview?view=graph-rest-1.0):
+
+> The API does not support accessing in-place archive mailboxes, not on Exchange Online nor on Exchange Server.
+
+Every Atlas sync path is built on that API. `GET /users/{id}/mailFolders` and the per-folder `/messages/delta` calls only ever see the primary store, and no folder ID or query parameter reaches the archive.
+
+Do not confuse this with the **`Archive` well-known folder**, the one Outlook's one-click Archive button moves mail into. That folder lives in the primary mailbox and is backed up like any other folder.
+
+::: warning Retention policies move mail out of backup scope
+This matters most where it is least visible. A Microsoft 365 retention or MRM policy that auto-moves mail to the archive after a set age silently removes that mail from backup scope, and it removes the **oldest** mail first, which is usually the most compliance-relevant. Under an aggressive policy, most of a mailbox's history can sit unprotected.
+
+Worse, when a policy moves an already backed-up message, the folder delta reports it as removed from the primary mailbox. Depending on how you prune snapshots, that message can eventually age out of your backups while the only live copy sits in an archive Atlas cannot read.
+:::
+
+**How to tell which mailboxes are affected.** `atlas outlook mailboxes` shows an `Archive` column and warns for every affected mailbox by name:
+
+```
+[!] 2 mailbox(es) have an In-Place Archive (Online Archive), which Graph cannot read
+    and Atlas does not back up:
+      alice@contoso.com
+      bob@contoso.com
+```
+
+The signal is the `Has Archive` column of the [mailbox usage report](https://learn.microsoft.com/en-us/graph/api/reportroot-getmailboxusagedetail?view=graph-rest-1.0), which needs the optional `Reports.Read.All` application permission. Without that permission the column reads `--`, meaning **unknown**, never "no archive": Atlas will not report coverage it cannot confirm. No per-mailbox Graph property exposes archive state on either v1.0 or beta, so the tenant-wide report is the only source.
+
+**If archive content must be protected**, the mail has to leave the archive before Atlas can see it: adjust the retention policy so it stays in the primary mailbox, or move the content back. The Microsoft [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archive mailboxes, but on a different model (job-based FastTransfer export streams and a separate `MailboxImportExport.*` permission set) that is not a drop-in for per-folder delta sync.
+
+### Recoverable Items and legal hold
+
+`atlas outlook backup --include-recoverable-items` reads the Exchange
+Recoverable Items subtree, the "dumpster". It is off by default, and turning it
+on changes what a snapshot means legally as well as what it costs.
+
+**Why it exists.** A message that arrives and is hard-deleted between two
+backups appears in no delta page, so no ordinary Atlas run can see it. Its only
+copy is in `Deletions` or `Purges`, and when Exchange's retention window expires
+it is gone from the tenant and from every snapshot. Closing that window is the
+only way a backup can cover deletion that happens between runs.
+
+**What lands in the snapshot.** `Deletions`, `Purges`, `DiscoveryHolds` and
+`SubstrateHolds`, stored as MIME under the same AES-256-GCM encryption and the
+same content-addressed layout as ordinary mail. `Versions`, `Calendar Logging`
+and `Audits` are not captured, and each is reported by name at the end of the
+run. `Purges`, `DiscoveryHolds` and `SubstrateHolds` exist **only** because a
+litigation hold, an In-Place Hold, or a retention policy retained them.
+
+::: warning What this means for compliance
+Copying hold-retained mail into an Atlas snapshot puts a second copy of legally
+held content in your storage, outside the Microsoft 365 retention machinery that
+created it, and outside whatever hold released it there. Three consequences:
+
+- **The copy outlives the hold.** Releasing a litigation hold in Microsoft 365
+  does not touch an Atlas snapshot. Deleting the copy is your retention
+  schedule's job, and `atlas outlook delete` is what performs it.
+- **The copy is discoverable.** Content that exists in your bucket can be
+  compelled from your bucket, whether or not it still exists in the tenant.
+- **Object Lock makes it undeletable on purpose.** A snapshot written under
+  `--retention-days` cannot be deleted until retention expires, including by
+  you. Combining Object Lock with purged mail is a deliberate decision, not a
+  default.
+
+Whether that is protection or exposure is a question for whoever owns the
+retention policy. Atlas marks these entries in the manifest so the answer is
+always visible from the snapshot itself, rather than depending on which flags a
+past run happened to carry.
+:::
+
+**Restore is opt-in separately.** Marked entries are excluded from `restore` and
+`save` unless `--include-recoverable-items` is passed there too, so an ordinary
+recovery cannot resurrect deleted mail by accident. Graph offers no path back
+into Recoverable Items, so recovered items land in the normal restore folder as
+visible mail. Restoring a purged message therefore makes it live again, which is
+usually the intent and is occasionally the last thing you want.
+
+**Permissions are unchanged.** The subtree is read with the same `Mail.Read`
+that ordinary mail needs, so enabling this grants Atlas nothing new against the
+tenant.
+
+### What a drive restore rebuilds, and what it cannot
+
+A restored file is the original bytes, verified against the manifest checksum. Everything else that defines a document in Microsoft 365 is a separate question, and the answers differ:
+
+| Property | Captured | Restored |
+| ------------------------------------------- | -------- | ---------------------------------------------------------- |
+| File content | Yes | Yes, byte-exact |
+| Original created and modified timestamps | Yes | Yes, through the `fileSystemInfo` facet |
+| `createdBy` / `lastModifiedBy` authors | Yes | No. Recorded for audit only |
+| Version authors | Yes | No. Recorded for audit only |
+| Sharing permissions and links | No | No |
+
+#### Timestamps: which ones travel
+
+Graph exposes two pairs of timestamps, and only one pair is writable. The `driveItem` values are what the service saw, so after a restore they read "now" and nothing can change that. The [`fileSystemInfo`](https://learn.microsoft.com/en-us/graph/api/resources/filesysteminfo) facet holds the client-reported values, it is writable on upload, and it is therefore what Atlas restores.
+
+Both are recorded: `last_modified_at` on a manifest entry is the service-side value, `file_system_info` is the client pair. Practically, a restored file carries its original dates in the facet while the service's own created/modified columns show the restore. That is the ceiling the API imposes, not a choice.
+
+The two upload paths reach it differently. A resumable upload session accepts item metadata up front, so the timestamps travel with the upload. A small-file `PUT /content` carries bytes only, so Atlas follows it with a `PATCH`. That patch is best-effort: if it fails, the file keeps restore-time timestamps and the run logs it, because a restored file with wrong dates beats no restored file.
+
+#### Authors are captured, not restored
+
+`createdBy` and `lastModifiedBy` are recorded on every manifest entry, and `lastModifiedBy` on every version row, so "who wrote this" is answerable from a backup years later. They are not reapplied on restore: Graph attributes an upload to the identity that performed it, and rewriting authorship needs migration-grade APIs that carry their own permission set. A restored file is authored by the Atlas application identity, and the manifest is where the original author lives.
+
+::: warning Sharing permissions are not captured
+Atlas does not capture per-item sharing permissions or links, so a restore does not reconstruct them. A restored library inherits the destination's defaults, which are usually broader than whatever curated sharing the original had. **Treat a restored library as unshared and re-apply access before handing it back to users.**
+
+This is a cost decision, and the numbers are the argument. Permission operations cost **5 resource units** each against the SharePoint/OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)), and that pool is tenant-wide, shared with every other app. Capturing permissions for every item in a 100,000-file drive is 500,000 RU; at the 1,250 RU/minute a tenant under 1,000 seats gets, that is roughly **6.7 hours of the tenant's entire drive quota spent on metadata**, versus a few thousand RU for the delta enumeration that finds the files in the first place. It would slow every other Atlas operation and every unrelated app in the tenant.
+
+The workable shape is narrower: Graph flags shared items with a `shared` facet, which costs nothing extra in the delta `$select`, so only genuinely shared items would need a call. That plus a restore-side design for re-applying access is tracked separately rather than bolted on here.
 :::
 
 ## Integrity Validation

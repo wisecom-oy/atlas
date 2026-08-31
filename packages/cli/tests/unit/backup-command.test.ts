@@ -19,6 +19,7 @@ function make_sync_result(overrides: Record<string, unknown> = {}): Record<strin
     summary: {
       folder_errors: [],
       warnings: [],
+      excluded_folders: [],
       interrupted: false,
       ...overrides,
     },

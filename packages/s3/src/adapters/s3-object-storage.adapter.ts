@@ -25,6 +25,8 @@ import {
   apply_bucket_default_retention,
   probe_bucket_immutability,
 } from '@/adapters/s3-bucket-manager';
+import type { BucketCache } from '@/adapters/bucket-cache';
+import { abort_incomplete_multipart_uploads } from '@/adapters/s3-multipart-cleanup';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
 import {
   ObjectLockModeRejectedError,
@@ -46,6 +48,7 @@ export class S3ObjectStorage implements ObjectStorage {
   constructor(
     private readonly _client: S3Client,
     private readonly _bucket: string,
+    private readonly _buckets: BucketCache,
   ) {}
 
   /** Uploads data with a Content-MD5 header for transport integrity verification. */
@@ -93,7 +96,7 @@ export class S3ObjectStorage implements ObjectStorage {
   async probe_immutability(
     request: StorageImmutabilityProbeRequest = {},
   ): Promise<StorageImmutabilityProbeResult> {
-    return probe_bucket_immutability(this._client, this._bucket, request);
+    return probe_bucket_immutability(this._client, this._bucket, this._buckets, request);
   }
 
   /** Downloads the full object and returns it as a Buffer. */
@@ -305,39 +308,7 @@ export class S3ObjectStorage implements ObjectStorage {
 
   /** Lists and aborts incomplete multipart uploads under {@link prefix}; returns count aborted. */
   async abort_incomplete_uploads(prefix: string): Promise<number> {
-    let aborted = 0;
-    let key_marker: string | undefined;
-    let upload_id_marker: string | undefined;
-
-    for (;;) {
-      const response = await this._client.send(
-        new ListMultipartUploadsCommand({
-          Bucket: this._bucket,
-          Prefix: prefix,
-          KeyMarker: key_marker,
-          UploadIdMarker: upload_id_marker,
-        }),
-      );
-
-      for (const upload of response.Uploads ?? []) {
-        if (upload.Key && upload.UploadId) {
-          await this._client.send(
-            new AbortMultipartUploadCommand({
-              Bucket: this._bucket,
-              Key: upload.Key,
-              UploadId: upload.UploadId,
-            }),
-          );
-          aborted += 1;
-        }
-      }
-
-      if (!response.IsTruncated) break;
-      key_marker = response.NextKeyMarker;
-      upload_id_marker = response.NextUploadIdMarker;
-    }
-
-    return aborted;
+    return abort_incomplete_multipart_uploads(this._client, this._bucket, prefix);
   }
 
   private async validate_immutability_policy(policy?: StorageObjectLockPolicy): Promise<void> {

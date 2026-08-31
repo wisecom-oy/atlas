@@ -51,33 +51,59 @@ describe('GraphMailboxConnector – fetch_attachments', () => {
     connector = create_connector(mock_client);
   });
 
-  it('returns only fileAttachment types with decoded content', async () => {
+  it('keeps all three attachment types, not only fileAttachment (issue #49)', async () => {
     const raw_bytes = Buffer.from('hello pdf');
-    const base64_content = raw_bytes.toString('base64');
+    const attached_mail = Buffer.from('From: a@b.com\r\nSubject: FW: escalation\r\n\r\nbody');
 
-    mock_client._chain.get.mockResolvedValueOnce({
-      value: [
-        {
-          '@odata.type': '#microsoft.graph.fileAttachment',
-          id: 'att-1',
-          name: 'report.pdf',
-          contentType: 'application/pdf',
-          size: 1024,
-          isInline: false,
-          contentBytes: base64_content,
-        },
-        { '@odata.type': '#microsoft.graph.referenceAttachment', id: 'att-ref', name: 'link.docx' },
-        { '@odata.type': '#microsoft.graph.itemAttachment', id: 'att-item', name: 'embedded' },
-      ],
-    });
+    mock_client._chain.get
+      .mockResolvedValueOnce({
+        value: [
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            id: 'att-1',
+            name: 'report.pdf',
+            contentType: 'application/pdf',
+            size: 1024,
+            isInline: false,
+            contentBytes: raw_bytes.toString('base64'),
+          },
+          {
+            '@odata.type': '#microsoft.graph.referenceAttachment',
+            id: 'att-ref',
+            name: 'link.docx',
+            sourceUrl: 'https://contoso.sharepoint.com/sites/x/link.docx',
+          },
+          { '@odata.type': '#microsoft.graph.itemAttachment', id: 'att-item', name: 'embedded' },
+        ],
+      })
+      // Only the item attachment needs a /$value fetch: the file attachment
+      // arrived inline, and a reference attachment has no bytes to fetch.
+      .mockResolvedValueOnce(
+        attached_mail.buffer.slice(
+          attached_mail.byteOffset,
+          attached_mail.byteOffset + attached_mail.byteLength,
+        ),
+      );
 
     const result = await connector.fetch_attachments('tenant-1', 'user-1', 'msg-1');
 
-    expect(result).toHaveLength(1);
-    expect(result[0]!.attachment_id).toBe('att-1');
-    expect(result[0]!.name).toBe('report.pdf');
-    expect(result[0]!.content).toEqual(raw_bytes);
-    expect(result[0]!.is_inline).toBe(false);
+    expect(result).toHaveLength(3);
+
+    const file = result.find((a) => a.attachment_id === 'att-1')!;
+    expect(file.name).toBe('report.pdf');
+    expect(file.content).toEqual(raw_bytes);
+    expect(file.is_inline).toBe(false);
+
+    const item = result.find((a) => a.attachment_id === 'att-item')!;
+    expect(item.content_type).toBe('message/rfc822');
+    expect(item.name).toBe('embedded.eml');
+    expect(item.content).toEqual(attached_mail);
+
+    const reference = result.find((a) => a.attachment_id === 'att-ref')!;
+    expect(reference.content_type).toBe('text/uri-list');
+    expect(reference.content.toString('utf-8')).toContain(
+      'https://contoso.sharepoint.com/sites/x/link.docx',
+    );
   });
 
   it('downloads content via /$value for attachments without contentBytes', async () => {

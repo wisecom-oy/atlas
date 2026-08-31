@@ -35,6 +35,7 @@ interface MailboxUsageRow {
   upn: string;
   storage_bytes: number;
   item_count: number;
+  has_archive?: boolean;
 }
 
 @injectable()
@@ -69,7 +70,12 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
         mailboxes = mailboxes.map((m) => {
           const row = usage.get(m.mail.toLowerCase());
           if (!row) return m;
-          return { ...m, mailbox_size_bytes: row.storage_bytes, item_count: row.item_count };
+          return {
+            ...m,
+            mailbox_size_bytes: row.storage_bytes,
+            item_count: row.item_count,
+            ...(row.has_archive === undefined ? {} : { has_in_place_archive: row.has_archive }),
+          };
         });
       }
 
@@ -161,6 +167,9 @@ export function parse_usage_csv(csv: string): Map<string, MailboxUsageRow> {
   const upn_idx = cols.indexOf('User Principal Name');
   const storage_idx = cols.indexOf('Storage Used (Byte)');
   const items_idx = cols.indexOf('Item Count');
+  // Documented on getMailboxUsageDetail, but absent from the example schema in
+  // the same reference page, so it is treated as optional rather than assumed.
+  const archive_idx = cols.indexOf('Has Archive');
 
   if (upn_idx < 0 || storage_idx < 0) return map;
 
@@ -171,14 +180,29 @@ export function parse_usage_csv(csv: string): Map<string, MailboxUsageRow> {
     const upn = fields[upn_idx]?.trim().toLowerCase();
     if (!upn) continue;
 
+    const has_archive = archive_idx >= 0 ? parse_csv_boolean(fields[archive_idx]) : undefined;
+
     map.set(upn, {
       upn,
       storage_bytes: parseInt(fields[storage_idx] ?? '0', 10) || 0,
       item_count: items_idx >= 0 ? parseInt(fields[items_idx] ?? '0', 10) || 0 : 0,
+      ...(has_archive === undefined ? {} : { has_archive }),
     });
   }
 
   return map;
+}
+
+/**
+ * Reads a usage-report boolean, returning undefined for a blank or unrecognised
+ * value so a parse miss cannot be mistaken for a definite "false".
+ */
+function parse_csv_boolean(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === undefined || normalized === '') return undefined;
+  if (['true', 'yes', '1'].includes(normalized)) return true;
+  if (['false', 'no', '0'].includes(normalized)) return false;
+  return undefined;
 }
 
 function split_csv_line(line: string): string[] {

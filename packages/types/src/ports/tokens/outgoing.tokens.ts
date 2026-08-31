@@ -23,3 +23,4 @@ export const SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(
 export const SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for(
   'SharePointDeltaCursorRepository',
 );
+export const STORAGE_DISPOSER_TOKEN = Symbol.for('StorageDisposer');

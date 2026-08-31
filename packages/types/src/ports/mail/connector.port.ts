@@ -8,6 +8,63 @@ export interface MailFolder {
   readonly folder_path: string;
   readonly parent_folder_id?: string | undefined;
   readonly total_item_count: number;
+  /**
+   * Exchange marks this folder hidden, so Outlook does not show it. Recorded
+   * because a restored tree should not silently promote a hidden folder into a
+   * visible one. Absent on manifests written before hidden folders were
+   * enumerated at all.
+   */
+  readonly is_hidden?: boolean;
+  /**
+   * This folder lives in the Exchange Recoverable Items subtree, so its items
+   * were deleted or are held rather than sitting in the visible mailbox. Kept
+   * on the folder and on every entry it produces, because a restore must not
+   * put deleted mail back by accident (issue #141).
+   */
+  readonly is_recoverable_items?: boolean;
+}
+
+/**
+ * Why a folder was left out of a backup.
+ *
+ * - `junk-excluded`: the operator asked for Junk Email to be skipped.
+ * - `hidden-system-folder`: an Exchange-hidden folder holding client state
+ *   rather than mail, such as `Conversation Action Settings`.
+ */
+export type FolderExclusionReason =
+  | 'junk-excluded'
+  | 'hidden-system-folder'
+  /** A Recoverable Items subfolder whose items are not mail: Versions, Calendar Logging, Audits. */
+  | 'recoverable-items-not-mail'
+  /** A Recoverable Items subfolder Atlas does not know, reported rather than guessed at. */
+  | 'recoverable-items-unrecognised';
+
+export interface ExcludedFolder {
+  /** Root-relative path, matching {@link MailFolder.folder_path}. */
+  readonly folder_path: string;
+  readonly reason: FolderExclusionReason;
+}
+
+export interface MailFolderListOptions {
+  /**
+   * Skip Junk Email and its subtree. Junk is backed up by default: it is
+   * evidence in a phishing or BEC investigation, and dropping it silently is
+   * how a backup product ends up unable to answer "was it captured?".
+   */
+  readonly exclude_junk?: boolean;
+  /**
+   * Called once per pruned folder. The manifest records these, so a gap in a
+   * backup is answerable from the backup itself rather than from the flags
+   * whoever ran it happened to pass.
+   */
+  readonly on_excluded?: (excluded: ExcludedFolder) => void;
+  /**
+   * Also enumerate the Recoverable Items subtree: hard-deleted mail and items
+   * kept only by a litigation hold or retention policy. Off by default, since
+   * on a mailbox under hold the dumpster can rival the mailbox in size and
+   * that cost should be a decision rather than a surprise.
+   */
+  readonly include_recoverable_items?: boolean;
 }
 
 export interface MailMessage {
@@ -63,7 +120,11 @@ export interface MailboxConnector {
   // ponytail: optional method — keeps ~10 existing MailboxConnector test literals compiling; make it required if a second caller ever needs it guaranteed
   get_mailbox_purpose?(tenant_id: string, owner_id: string): Promise<MailboxPurpose | undefined>;
 
-  list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]>;
+  list_mail_folders(
+    tenant_id: string,
+    owner_id: string,
+    options?: MailFolderListOptions,
+  ): Promise<MailFolder[]>;
 
   /**
    * Fetches messages changed since the previous delta link.

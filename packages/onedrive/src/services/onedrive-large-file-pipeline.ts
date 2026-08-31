@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { fetch_file_chunks } from '@/adapters/graph-onedrive-chunked-download';
 import {
   onedrive_data_key,
@@ -6,18 +5,24 @@ import {
   onedrive_staging_prefix,
 } from '@/services/onedrive-storage-keys';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import type {
-  MultipartUploadHandle,
   OneDriveConnector,
   OneDriveDeltaItem,
   StorageObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
 
-/** Files at or above this size use the chunked staging + multipart pipeline. */
-export const LARGE_FILE_THRESHOLD = 512 * 1024 * 1024;
-
-const PART_SIZE = 8 * 1024 * 1024;
+/**
+ * Files at or above this size use the chunked staging + multipart pipeline.
+ *
+ * The buffered path below this holds the plaintext and its ciphertext copy at
+ * once, so the threshold is the per-file memory ceiling doubled. 64 MB keeps
+ * document- and photo-sized content on the single-PUT path while capping that
+ * ceiling at ~128 MB; the streaming path costs a staging copy per file, which
+ * is why this is not lower still.
+ */
+export const LARGE_FILE_THRESHOLD = 64 * 1024 * 1024;
 
 export interface LargeFileResult {
   readonly checksum: string;
@@ -26,49 +31,10 @@ export interface LargeFileResult {
   readonly deduplicated: boolean;
 }
 
-interface StreamUploadResult {
-  readonly checksum: string;
-  readonly handle: MultipartUploadHandle;
-  readonly completed_parts: Array<{ ETag: string; PartNumber: number }>;
-}
-
-interface PendingPartState {
-  pending: Buffer[];
-  pending_bytes: number;
-  first_part_data: Buffer | null;
-  part_number: number;
-  completed_parts: Array<{ ETag: string; PartNumber: number }>;
-}
-
-/** Splits pending encrypted bytes into a full multipart upload part. */
-async function flush_pending_parts(
-  handle: MultipartUploadHandle,
-  state: PendingPartState,
-): Promise<void> {
-  const combined = Buffer.concat(state.pending);
-  state.pending.length = 0;
-  state.pending_bytes = 0;
-
-  const part_data = combined.subarray(0, PART_SIZE);
-  if (combined.length > PART_SIZE) {
-    const remainder = Buffer.from(combined.subarray(PART_SIZE));
-    state.pending.push(remainder);
-    state.pending_bytes = remainder.length;
-  }
-
-  if (!state.first_part_data) {
-    state.first_part_data = Buffer.from(part_data);
-  } else {
-    const etag = await handle.upload_part(state.part_number, Buffer.from(part_data));
-    state.completed_parts.push({ ETag: etag, PartNumber: state.part_number });
-    state.part_number++;
-  }
-}
-
 /**
- * Single-download, zero-disk pipeline for files >= 512 MB.
- * Streams encrypted parts to an S3 staging key, then either aborts
- * (dedup) or copies to the canonical content-addressed key.
+ * Single-download, zero-disk pipeline for files at or above
+ * {@link LARGE_FILE_THRESHOLD}. Streams encrypted parts to an S3 staging key,
+ * then either aborts (dedup) or copies to the canonical content-addressed key.
  */
 export async function process_large_file(
   connector: OneDriveConnector,
@@ -88,41 +54,24 @@ export async function process_large_file(
     `Streaming large file ${item.file_name} (${format_bytes(item.size_bytes)}) via staging key...`,
   );
 
-  const { checksum, handle, completed_parts } = await stream_encrypt_upload(
-    download_url,
-    item,
-    staging_key,
+  const result = await stream_to_content_addressed_storage(
     ctx,
+    fetch_file_chunks(download_url, item.size_bytes, item.item_id),
+    {
+      staging_key,
+      staging_prefix: onedrive_staging_prefix(owner_id),
+      build_data_key: (checksum) => onedrive_data_key(owner_id, checksum),
+      ...(object_lock_policy && { object_lock_policy }),
+    },
   );
 
-  const canonical_key = onedrive_data_key(owner_id, checksum);
-  const exists = await ctx.storage.exists(canonical_key);
-
-  if (exists) {
-    await safe_abort(handle, onedrive_staging_prefix(owner_id), ctx);
+  if (result.deduplicated) {
     logger.info(`Deduplicated ${item.file_name} (already stored)`);
-    return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
+  } else {
+    logger.info(`Stored ${item.file_name} (${format_bytes(item.size_bytes)})`);
   }
 
-  await handle.complete(completed_parts);
-
-  // ponytail: the exists() check above races a concurrent writer, and the loser
-  // overwrites with identical bytes -- canonical_key IS the SHA-256 of the
-  // content, so the duplicate is benign. Conditional copy would make it atomic,
-  // but MinIO ignores IfNoneMatch on CopyObject, so guarding it here would only
-  // look safe. Revisit if a backend honours it.
-  try {
-    await ctx.storage.copy(staging_key, canonical_key, undefined, object_lock_policy);
-  } catch (err) {
-    logger.warn(`Copy staging->canonical failed, cleaning up: ${err}`);
-    await ctx.storage.delete(staging_key).catch(() => {});
-    throw err;
-  }
-
-  await ctx.storage.delete(staging_key).catch(() => {});
-
-  logger.info(`Stored ${item.file_name} (${format_bytes(item.size_bytes)})`);
-  return { checksum, storage_key: canonical_key, stored: true, deduplicated: false };
+  return result;
 }
 
 /** Removes leftover staging objects and incomplete multipart uploads. */
@@ -138,83 +87,6 @@ export async function cleanup_stale_staging(ctx: TenantContext, owner_id: string
   const aborted = await ctx.storage.abort_incomplete_uploads(prefix);
   if (aborted > 0) {
     logger.info(`Aborted ${aborted} incomplete staging upload(s)`);
-  }
-}
-
-async function stream_encrypt_upload(
-  download_url: string,
-  item: OneDriveDeltaItem,
-  staging_key: string,
-  ctx: TenantContext,
-): Promise<StreamUploadResult> {
-  const { cipher, iv } = ctx.create_cipher();
-  const hash = createHash('sha256');
-  const handle = await ctx.storage.begin_multipart_upload(staging_key);
-
-  try {
-    const part_state: PendingPartState = {
-      pending: [],
-      pending_bytes: 0,
-      first_part_data: null,
-      part_number: 2,
-      completed_parts: [],
-    };
-
-    for await (const chunk of fetch_file_chunks(download_url, item.size_bytes, item.item_id)) {
-      hash.update(chunk);
-      const encrypted = cipher.update(chunk);
-      if (encrypted.length === 0) continue;
-
-      part_state.pending.push(encrypted);
-      part_state.pending_bytes += encrypted.length;
-
-      while (part_state.pending_bytes >= PART_SIZE) {
-        await flush_pending_parts(handle, part_state);
-      }
-    }
-
-    const final_block = cipher.final();
-    if (final_block.length > 0) {
-      part_state.pending.push(final_block);
-      part_state.pending_bytes += final_block.length;
-    }
-
-    if (!part_state.first_part_data) {
-      part_state.first_part_data = Buffer.concat(part_state.pending);
-      part_state.pending.length = 0;
-      part_state.pending_bytes = 0;
-    }
-
-    if (part_state.pending_bytes > 0) {
-      const last_part = Buffer.concat(part_state.pending);
-      const etag = await handle.upload_part(part_state.part_number, last_part);
-      part_state.completed_parts.push({ ETag: etag, PartNumber: part_state.part_number });
-    }
-
-    const auth_tag = cipher.getAuthTag();
-    const header_part = Buffer.concat([iv, auth_tag, part_state.first_part_data]);
-    const part1_etag = await handle.upload_part(1, header_part);
-    part_state.completed_parts.push({ ETag: part1_etag, PartNumber: 1 });
-
-    part_state.completed_parts.sort((a, b) => a.PartNumber - b.PartNumber);
-
-    return { checksum: hash.digest('hex'), handle, completed_parts: part_state.completed_parts };
-  } catch (err) {
-    await safe_abort(handle, staging_key.substring(0, staging_key.lastIndexOf('/') + 1), ctx);
-    throw err;
-  }
-}
-
-async function safe_abort(
-  handle: MultipartUploadHandle,
-  staging_prefix: string,
-  ctx: TenantContext,
-): Promise<void> {
-  try {
-    await handle.abort();
-  } catch (err) {
-    logger.warn(`Multipart abort failed, cleaning up orphaned parts: ${err}`);
-    await ctx.storage.abort_incomplete_uploads(staging_prefix).catch(() => {});
   }
 }
 

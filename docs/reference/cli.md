@@ -63,10 +63,84 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
 | `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
+| `--exclude-junk`         | Skip the Junk Email folder and its subfolders                             |
+| `--include-recoverable-items` | Also back up hard-deleted and hold-retained mail (see below)          |
 
 `--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
 
 Requesting retention is fail-closed: when the bucket has versioning or Object Lock disabled, or cannot honour the requested mode, the run aborts instead of writing unprotected data.
+
+#### Which folders are backed up
+
+Every mail folder in the mailbox, at any nesting depth, including the ones Outlook treats as special:
+
+| Folder | Backed up | Note |
+| ------------------------------ | -------------- | ------------------------------------------------------------------------ |
+| Inbox, Sent Items, Deleted Items, Archive, and user folders | Yes | Including nested subfolders at any depth |
+| **Drafts** and **Outbox** | Yes | Unsent work exists nowhere else, so it is content like any other |
+| **Junk Email** | Yes | Opt out with `--exclude-junk`. Junk is evidence in a phishing or BEC case |
+| Hidden folders (`isHidden`) | Yes | Enumerated explicitly; Graph omits them unless asked |
+| Hidden Exchange system folders | No | A short deny-list of client-state folders such as `Conversation Action Settings`, matched only when Exchange also reports them hidden |
+| In-Place Archive mailbox | No | Graph cannot read it at all. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope) |
+| **Recoverable Items** | Opt-in | `--include-recoverable-items`. Hard-deleted and hold-retained mail; see below |
+
+Anything skipped is reported at the end of the run and recorded in the snapshot manifest with its reason, so "was folder X captured?" is answerable from the backup rather than from whoever ran it:
+
+```
+[!] 1 folder(s) not backed up:
+      Junk Email (skipped by --exclude-junk)
+```
+
+::: warning Drafts and Outbox are new in 4.1.0
+Earlier versions silently skipped Drafts and Outbox. New snapshots include them, which makes the first backup after upgrading larger than the previous one for mailboxes that hold unsent mail. Existing snapshots are unaffected; the content appears as those folders sync for the first time.
+:::
+
+
+#### Recoverable Items, the Exchange dumpster
+
+A message that arrives and is hard-deleted between two backups never appears in
+any delta page, so Atlas never sees it. The tenant's only copy is in the
+Recoverable Items subtree, which an ordinary backup does not read: it is not a
+child of the mailbox root Graph enumerates. Once Exchange's retention window
+expires the item is gone from the tenant and from every snapshot.
+
+```bash
+atlas outlook backup -m user@company.com --include-recoverable-items
+```
+
+| Subfolder | Backed up | Contains |
+| ------------------ | --------- | ------------------------------------------------------------- |
+| `Deletions` | Yes | Items removed from Deleted Items, user-recoverable for 14 to 30 days |
+| `Purges` | Yes | Hard-deleted items retained only by litigation hold or single item recovery |
+| `DiscoveryHolds` | Yes | Hard-deleted items retained by an In-Place Hold or retention policy |
+| `SubstrateHolds` | Yes | Original copies of held Teams messages and modified held items |
+| `Versions` | No | Pre-modification copies whose item shape is not a message |
+| `Calendar Logging` | No | Calendar change audit trail |
+| `Audits` | No | Mailbox audit log entries |
+
+Everything not captured is reported at the end of the run with its reason, and a
+subfolder Atlas does not recognise is reported rather than guessed at, so a new
+Exchange subfolder produces a visible gap instead of a silent one.
+
+Off by default on purpose. On a mailbox under litigation hold the dumpster can
+rival the mailbox in size, and that cost should be a decision. With the flag off
+the request volume is identical to a run before this existed: locating the
+subtree costs one request, and it is only spent when the flag is set.
+
+::: warning Restoring purged mail is opt-in twice
+Entries captured this way are marked in the manifest, and `restore` and `save`
+**exclude them by default**. An ordinary restore must not resurrect mail
+somebody deleted, or mail that exists only because a hold retained it. Pass
+`--include-recoverable-items` to the restore or save command as well, including
+when naming a single message with `--message`.
+
+There is no path back into Recoverable Items itself: Graph offers none.
+Recovered items land in the normal restore folder, which is what recovering a
+deleted message means in practice.
+:::
+
+Storing purged mail has compliance consequences. See
+[Recoverable Items and legal hold](../security.md#recoverable-items-and-legal-hold).
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
 `0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
@@ -150,6 +224,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date                 |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date                |
 | `-t, --tenant <id>`         | Override tenant ID                                              |
+| `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
 
 Exactly one of `--snapshot` or `--mailbox` is required; passing both exits `1`, as described under [`atlas outlook`](#atlas-outlook). `-T, --target` works in either mode. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
@@ -210,6 +285,18 @@ The formatted view is identical for both formats -- subject, from, to, cc, date,
 
 Export backed-up emails as standard `.eml` files (RFC 5322) in a compressed zip archive. Messages archived as MIME are written **byte-for-byte** from the stored object -- no re-encoding, so the exported file is the message Exchange received. Legacy entries stored as Graph JSON are reconstructed into `.eml` at export time, as they always were. Attachments are embedded as MIME parts in both cases. Every message and attachment is SHA-256 verified after decryption by default.
 
+::: warning Exported archives are marked as internet-sourced on Windows
+On Windows, Atlas stamps the archive with Mark-of-the-Web: a `Zone.Identifier` alternate data stream carrying `ZoneId=3` (Internet). The content came from a Microsoft 365 tenant over the network, and Atlas does not vet it, so an export must not be the step that strips a protection the same file would have had if it arrived by browser or mail attachment. Without the mark, Office opens recovered documents with macros enabled; with it, they open in [Protected View](https://learn.microsoft.com/en-us/microsoft-365-apps/security/internet-macros-blocked) and macros are blocked.
+
+**This propagates.** Windows Explorer and WinRAR copy the mark onto every extracted file (7-Zip only since 22.0, and not by default), so a 10,000-file recovery yields 10,000 files in Protected View and no macro-bearing workbook that runs. That is intended, and it is the behaviour operators notice first. When you have decided the content is trustworthy, clear it with PowerShell:
+
+```powershell
+Get-ChildItem -Recurse .\Restore-2026-03-10 | Unblock-File
+```
+
+Nothing is written on macOS or Linux, which have no equivalent. If the target filesystem cannot hold an alternate data stream (FAT32 or exFAT removable media, SMB to a non-NTFS server) the export still succeeds and logs a warning: a recovered archive is worth more than its mark.
+:::
+
 **Snapshot mode:**
 
 ```bash
@@ -240,6 +327,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | `-o, --output <path>`       | Output file path (default: `Restore-<timestamp>.zip`)        |
 | `--skip-verify`             | Skip SHA-256 integrity checks (faster on low-power systems)  |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
+| `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
 
 With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning; see [`atlas outlook`](#atlas-outlook). Earlier releases silently exported the whole mailbox instead.
 
@@ -326,7 +414,7 @@ Archive     never backed up        -
 
 ### `atlas outlook mailboxes`
 
-List tenant mailboxes directly from Microsoft Graph (live data, not from the backup catalog). Shows email address, display name, Exchange Online license status, account status, mailbox type, creation date, and optionally mailbox size.
+List tenant mailboxes directly from Microsoft Graph (live data, not from the backup catalog). Shows email address, display name, Exchange Online license status, account status, mailbox type, creation date, and optionally mailbox size and In-Place Archive state.
 
 ```bash
 atlas outlook mailboxes
@@ -343,6 +431,14 @@ atlas outlook mailboxes -t <tenant-id>
 Mailbox size requires the `Reports.Read.All` Graph API permission. If the permission is not granted, the Size column is omitted without error.
 
 The `Type` column shows the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, `equipment`, ...). To keep discovery fast, it is only resolved for unlicensed mailboxes; `--` means the purpose was not resolved. Note that `--licensed-only` excludes shared mailboxes, which are typically unlicensed.
+:::
+
+::: warning An In-Place Archive is not backed up
+The `Archive` column comes from the same `Reports.Read.All` report and reports whether the mailbox has an **In-Place Archive** (Online Archive). Graph cannot read archive mailboxes at all, so that content is outside backup scope, and the command prints a warning naming every affected mailbox.
+
+`--` means **unknown**, not "no archive": either the permission is missing or the report omitted the column. Atlas does not report coverage it cannot confirm.
+
+This is not the `Archive` folder that Outlook's Archive button uses; that folder is in the primary mailbox and is backed up normally. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope).
 :::
 
 ## `atlas delete`
@@ -392,6 +488,9 @@ atlas onedrive restore -o user@company.com -s od-snap-123 --target-owner other@c
 atlas onedrive restore -o user@company.com -s od-snap-123 --conflict replace
 atlas onedrive list-snapshots -o user@company.com
 atlas onedrive list-versions -o user@company.com -f "Documents/report.docx"
+atlas onedrive restore-version -o user@company.com -f "Documents/report.docx" --version 3.0
+atlas onedrive restore-version -o user@company.com --before 2026-03-10T00:00:00Z
+atlas onedrive restore-version -o user@company.com --before 2026-03-10T00:00:00Z --path /Projects --in-place
 atlas onedrive verify -o user@company.com -s od-snap-1735689600000-a1b2c3
 atlas onedrive status -o user@company.com
 atlas onedrive delete -o user@company.com -s od-snap-123
@@ -404,6 +503,7 @@ atlas onedrive delete -o user@company.com -y
 | `restore`        | Restore files from a snapshot to the user's (or another user's) OneDrive |
 | `list-snapshots` | List snapshot IDs and timestamps for the owner                           |
 | `list-versions`  | List indexed versions for one file (`-f` file ID or path)                |
+| `restore-version`| Push stored file versions back into the drive, one file or a whole rollback |
 | `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows    |
 | `status`         | Report pending Graph changes per drive without backing up                |
 | `delete`         | Delete the owner's OneDrive backups, or a single snapshot                |
@@ -467,6 +567,53 @@ Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-fil
 | `-o, --owner <id>`  | User email or Entra object ID (required) |
 | `-f, --file <ref>`  | Graph file ID or drive path (required)   |
 | `-t, --tenant <id>` | Override tenant ID from config           |
+
+**`atlas onedrive restore-version`**
+
+Restores the version bytes Atlas holds. Use it to roll a file back past a bad
+edit, or a whole folder back past a mass encrypt-and-sync event.
+
+| Option              | Description                                                                  |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required)                                     |
+| `-f, --file <ref>`  | Graph file ID or drive path; required with `--version`                       |
+| `--version <id>`    | Exact stored version, as shown in the `Version` column of `list-versions`    |
+| `--before <iso>`    | Restore each file's newest version at or before this instant                  |
+| `--path <prefix>`   | Limit a `--before` rollback to this folder and below                         |
+| `--in-place`        | Upload over the original file instead of writing a copy beside it            |
+| `-t, --tenant <id>` | Override tenant ID from config                                               |
+
+Either `--file` with `--version`, or `--before`. `--version` alone is rejected
+because a version id is only unique within one file, and `--path` cannot be
+combined with `--file`, since a folder scope and a single file are two
+different requests.
+
+::: warning Nothing is overwritten unless you ask
+The default writes a sibling named `report (restored 2026-03-01T08-15-00Z).docx`
+and leaves the live file untouched, so a rollback can be inspected before it is
+adopted. `--in-place` uploads over the original path instead. Even then the
+previous content is not destroyed: Microsoft 365 records the upload as a new
+version and keeps the one it replaced in the file's own version history.
+:::
+
+Restored files keep the modification time the version had, not the time of the
+restore, so a rolled-back document does not look like it was authored during
+the incident.
+
+A file with no version stored at or before the cutoff is **reported, not
+skipped silently**, and counts toward the skipped total. Treat that list as the
+work still outstanding: those files have no pre-incident copy in the backup.
+
+::: details Why Atlas uploads its own bytes instead of calling Graph
+Microsoft Graph can promote a previous version in place with `restoreVersion`,
+and Atlas deliberately does not use it. That call only works on a version the
+service still holds, so it fails exactly when a backup is needed: history
+trimmed by a retention policy, the file deleted, or the library gone. Its result
+also cannot be checked against the manifest checksum. Atlas uploads the bytes
+it stored and verified, which is the only path that guarantees the content you
+get is the content the backup recorded. `list-versions` shows what is available
+to restore.
+:::
 
 **`atlas onedrive save`**
 
@@ -544,6 +691,8 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --full
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx
+atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering -f /Documents/report.docx --version 3.0
+atlas sharepoint restore-version --site https://contoso.sharepoint.com/sites/Engineering --before 2026-03-10T00:00:00Z
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
 atlas sharepoint restore --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --destination /DR-drill
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
@@ -558,6 +707,7 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 | `backup`         | Incremental sync; use `--full` to ignore saved delta state            |
 | `list-snapshots` | List all SharePoint snapshots for a site                              |
 | `list-versions`  | List all backed-up versions for a specific file                       |
+| `restore-version`| Push stored file versions back into the library, one file or a whole rollback |
 | `restore`        | Restore files from a snapshot back to the site's document libraries   |
 | `save`           | Decrypt and save files from a snapshot to a local zip archive         |
 | `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
@@ -597,6 +747,23 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
 | `-f, --file <ref>`   | File ID or path to look up (required)           |
 | `-t, --tenant <id>`  | Override tenant ID from config                  |
+
+**`atlas sharepoint restore-version`**
+
+| Option               | Description                                                               |
+| -------------------- | ------------------------------------------------------------------------- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required)                           |
+| `-f, --file <ref>`   | File ID or path; required with `--version`                                |
+| `--version <id>`     | Exact stored version, as shown by `list-versions`                         |
+| `--before <iso>`     | Restore each file's newest version at or before this instant               |
+| `--path <prefix>`    | Limit a `--before` rollback to this folder and below                      |
+| `--in-place`         | Upload over the original file instead of writing a copy beside it         |
+| `-t, --tenant <id>`  | Override tenant ID from config                                            |
+
+Identical semantics to [`atlas onedrive restore-version`](#atlas-onedrive),
+including the copy-by-default placement and the reason Atlas uploads its own
+stored bytes rather than calling Graph's `restoreVersion`. Versions are restored
+into the document library they were captured from.
 
 **`atlas sharepoint restore`**
 

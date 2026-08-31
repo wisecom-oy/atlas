@@ -1,6 +1,6 @@
+import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
-import { reset_bucket_cache } from '@/adapters/s3-bucket-manager';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 
 // Regression tests for issue #25: two processes bootstrapping the same fresh
@@ -56,20 +56,24 @@ function make_racing_s3(force_missing_heads: number) {
 
 const CONFIG = { encryption_passphrase: 'unit-test-passphrase-long' } as AtlasConfig;
 
-function make_factory(s3: { send: ReturnType<typeof vi.fn> }): DefaultTenantContextFactory {
-  return new DefaultTenantContextFactory(s3 as never, CONFIG);
+function make_factory(
+  s3: { send: ReturnType<typeof vi.fn> },
+  buckets: BucketCache,
+): DefaultTenantContextFactory {
+  return new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
 }
 
 describe('DEK bootstrap race (issue #25)', () => {
+  let buckets: BucketCache;
   beforeEach(() => {
-    reset_bucket_cache();
+    buckets = new BucketCache();
   });
 
   it('two concurrent bootstraps of a fresh tenant converge on one DEK', async () => {
     const s3 = make_racing_s3(2);
     const [ctx_a, ctx_b] = await Promise.all([
-      make_factory(s3).create('tenant-race'),
-      make_factory(s3).create('tenant-race'),
+      make_factory(s3, buckets).create('tenant-race'),
+      make_factory(s3, buckets).create('tenant-race'),
     ]);
 
     // exactly one wrapped DEK object exists
@@ -83,12 +87,12 @@ describe('DEK bootstrap race (issue #25)', () => {
 
   it('a later bootstrap loads the existing DEK instead of writing', async () => {
     const s3 = make_racing_s3(0);
-    const ctx_first = await make_factory(s3).create('tenant-1');
+    const ctx_first = await make_factory(s3, buckets).create('tenant-1');
     const put_calls_after_first = s3.send.mock.calls.filter(
       ([cmd]) => (cmd as CommandLike).constructor.name === 'PutObjectCommand',
     ).length;
 
-    const ctx_second = await make_factory(s3).create('tenant-1');
+    const ctx_second = await make_factory(s3, buckets).create('tenant-1');
 
     const put_calls_total = s3.send.mock.calls.filter(
       ([cmd]) => (cmd as CommandLike).constructor.name === 'PutObjectCommand',
@@ -101,7 +105,7 @@ describe('DEK bootstrap race (issue #25)', () => {
 
   it('every DEK write is create-only', async () => {
     const s3 = make_racing_s3(0);
-    await make_factory(s3).create('tenant-2');
+    await make_factory(s3, buckets).create('tenant-2');
 
     const dek_puts = s3.send.mock.calls.filter(([cmd]) => {
       const c = cmd as CommandLike;

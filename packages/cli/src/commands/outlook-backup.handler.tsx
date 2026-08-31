@@ -2,6 +2,7 @@ import { Box } from 'ink';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
+import type { ExcludedFolder } from '@wisecom/atlas-types';
 import type { BackupUseCase, SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
 import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { run_backup_with_cli_adapter } from '@/adapters/backup-operation.adapter';
@@ -21,6 +22,8 @@ export interface OutlookBackupOptions {
   pageSize?: string;
   retentionDays?: string;
   lockMode?: string;
+  excludeJunk?: boolean;
+  includeRecoverableItems?: boolean;
 }
 
 /** Resolves the tenant ID from CLI flag or config. */
@@ -41,6 +44,8 @@ function build_sync_options(options: OutlookBackupOptions): SyncOptions {
     page_size,
     object_lock_request,
     object_lock_policy,
+    exclude_junk: options.excludeJunk ?? false,
+    include_recoverable_items: options.includeRecoverableItems ?? false,
   };
 }
 
@@ -86,6 +91,7 @@ async function backup_single_mailbox(
       `${result.manifest.total_objects} objects, ` +
       format_bytes(result.manifest.total_size_bytes),
   );
+  report_excluded_folders(result.summary.excluded_folders);
   report_run_outcome(
     {
       errors: result.summary.folder_errors,
@@ -95,3 +101,31 @@ async function backup_single_mailbox(
     'folder',
   );
 }
+
+/**
+ * Lists folders the run did not capture.
+ *
+ * A backup that omits a folder should say so on the run that omitted it, not
+ * only in the manifest, or the operator learns about the gap from a failed
+ * restore instead.
+ */
+function report_excluded_folders(excluded: readonly ExcludedFolder[]): void {
+  if (excluded.length === 0) return;
+
+  logger.warn(`${excluded.length} folder(s) not backed up:`);
+  for (const folder of excluded.slice(0, EXCLUDED_FOLDER_REPORT_LIMIT)) {
+    logger.warn(`  ${folder.folder_path} (${EXCLUSION_REASONS[folder.reason]})`);
+  }
+  const hidden = excluded.length - EXCLUDED_FOLDER_REPORT_LIMIT;
+  if (hidden > 0) logger.warn(`  ...and ${hidden} more`);
+}
+
+/** Folders named individually before the summary collapses the rest. */
+const EXCLUDED_FOLDER_REPORT_LIMIT = 10;
+
+const EXCLUSION_REASONS: Record<ExcludedFolder['reason'], string> = {
+  'junk-excluded': 'skipped by --exclude-junk',
+  'recoverable-items-not-mail': 'Recoverable Items subfolder holding non-mail items',
+  'recoverable-items-unrecognised': 'unrecognised Recoverable Items subfolder, not captured',
+  'hidden-system-folder': 'hidden Exchange system folder, holds no mail',
+};

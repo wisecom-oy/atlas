@@ -1,3 +1,4 @@
+import { format_bytes } from '@/command-formatters';
 import type { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
 import type { OneDriveCatalogUseCase } from '@wisecom/atlas-types';
@@ -33,6 +34,9 @@ const snapshot_columns: TableColumn<SnapshotRow>[] = [
 ];
 
 interface FileVersionRow {
+  version: string;
+  modified: string;
+  size: string;
   backup_at: string;
   snapshot_id: string;
   change_type: string;
@@ -40,6 +44,11 @@ interface FileVersionRow {
 }
 
 const file_version_columns: TableColumn<FileVersionRow>[] = [
+  // Version and Modified come first: they are what `restore-version` consumes,
+  // and a listing that omits the id cannot be acted on.
+  { key: 'version', header: 'Version' },
+  { key: 'modified', header: 'Modified' },
+  { key: 'size', header: 'Size' },
   { key: 'backup_at', header: 'Backed up' },
   { key: 'snapshot_id', header: 'Snapshot' },
   { key: 'change_type', header: 'Change' },
@@ -87,6 +96,9 @@ export async function execute_onedrive_list_versions(
     return;
   }
   const rows: FileVersionRow[] = versions.map((ver) => ({
+    version: ver.version_id ?? '(current)',
+    modified: ver.last_modified_at ?? '-',
+    size: format_bytes(ver.size_bytes),
     backup_at: ver.backup_at,
     snapshot_id: ver.snapshot_id,
     change_type: ver.change_type,

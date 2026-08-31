@@ -49,6 +49,9 @@ export function build_deleted_entry(
     ...(item.web_url !== undefined && { web_url: item.web_url }),
     ...(item.last_modified_at !== undefined && { last_modified_at: item.last_modified_at }),
     ...(item.etag !== undefined && { etag: item.etag }),
+    ...(item.file_system_info !== undefined && { file_system_info: item.file_system_info }),
+    ...(item.created_by !== undefined && { created_by: item.created_by }),
+    ...(item.last_modified_by !== undefined && { last_modified_by: item.last_modified_by }),
   };
 }
 
@@ -73,6 +76,9 @@ export function build_stored_entry(
     ...(item.web_url !== undefined && { web_url: item.web_url }),
     ...(item.last_modified_at !== undefined && { last_modified_at: item.last_modified_at }),
     ...(item.etag !== undefined && { etag: item.etag }),
+    ...(item.file_system_info !== undefined && { file_system_info: item.file_system_info }),
+    ...(item.created_by !== undefined && { created_by: item.created_by }),
+    ...(item.last_modified_by !== undefined && { last_modified_by: item.last_modified_by }),
   };
 }
 

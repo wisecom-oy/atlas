@@ -21,16 +21,8 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import {
-  should_stream_restore,
-  stream_decrypt_from_storage,
-  verify_streaming_checksum,
-} from '@/services/onedrive-restore-streaming';
-import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
-import {
-  OneDriveDecryptAuthError,
-  plaintext_sha256_equals_expected,
-} from '@/services/onedrive-restore-integrity';
+import { download_and_decrypt_blob } from '@/services/onedrive-blob-restore';
+import { OneDriveDecryptAuthError } from '@/services/onedrive-restore-integrity';
 import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
 import {
   load_onedrive_chain_entries,
@@ -182,7 +174,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         return { restored: false, error: `Could not create folder path: ${target_path}` };
       }
 
-      const content = await this.download_and_decrypt(ctx, entry);
+      const content = await download_and_decrypt_blob(ctx, entry);
       if (!content) {
         return { restored: false };
       }
@@ -196,6 +188,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           placement.file_name,
           content,
           conflict,
+          entry.file_system_info,
         );
       } else {
         await this._connector.upload_large_file(
@@ -206,6 +199,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           placement.file_name,
           content,
           conflict,
+          entry.file_system_info,
         );
       }
 
@@ -220,80 +214,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return { restored: false, error: msg };
-    }
-  }
-
-  private async download_and_decrypt(
-    ctx: TenantContext,
-    entry: OneDriveManifestEntry,
-  ): Promise<Buffer | undefined> {
-    if (!entry.storage_key) return undefined;
-
-    if (should_stream_restore(entry)) {
-      return this.stream_download_and_decrypt(ctx, entry);
-    }
-
-    return this.buffered_download_and_decrypt(ctx, entry);
-  }
-
-  /** Streaming path: avoids holding the full ciphertext in memory for large files. */
-  private async stream_download_and_decrypt(
-    ctx: TenantContext,
-    entry: OneDriveManifestEntry,
-  ): Promise<Buffer | undefined> {
-    try {
-      const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key!);
-      if (!verify_streaming_checksum(entry, sha256_hex)) return undefined;
-      return content;
-    } catch (err) {
-      if (is_gcm_auth_failure(err)) {
-        throw new OneDriveDecryptAuthError(`AES-GCM authentication failed for ${entry.file_name}`, {
-          cause: err,
-        });
-      }
-      logger.warn(
-        `Streaming decrypt failed for ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
-  }
-
-  /** Buffered path: simple and safe for small files at or below SMALL_FILE_LIMIT. */
-  private async buffered_download_and_decrypt(
-    ctx: TenantContext,
-    entry: OneDriveManifestEntry,
-  ): Promise<Buffer | undefined> {
-    let encrypted: Buffer;
-    try {
-      encrypted = await ctx.storage.get(entry.storage_key!);
-    } catch (err) {
-      logger.warn(
-        `Missing or unreadable blob for ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
-    try {
-      const content = ctx.decrypt(encrypted);
-      const expected = entry.checksum;
-      if (!expected || !plaintext_sha256_equals_expected(content, expected)) {
-        logger.warn(
-          expected
-            ? `Checksum mismatch after decrypt for ${entry.file_name}; skipping restore`
-            : `Missing checksum for ${entry.file_name}; skipping restore`,
-        );
-        return undefined;
-      }
-      return content;
-    } catch (err) {
-      if (is_gcm_auth_failure(err)) {
-        throw new OneDriveDecryptAuthError(`AES-GCM authentication failed for ${entry.file_name}`, {
-          cause: err,
-        });
-      }
-      logger.warn(
-        `Failed to decrypt ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
     }
   }
 }

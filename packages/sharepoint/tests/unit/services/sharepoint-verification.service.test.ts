@@ -9,6 +9,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
 
 /** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
@@ -83,19 +84,20 @@ function make_index(file_id: string, has_snapshot: boolean): SharePointFileVersi
 
 function create_mocks() {
   const plaintext = Buffer.from('file-content');
-  const ciphertext = Buffer.from('encrypted-content');
+  const store = stub_encrypted_object_store();
+  const stored = store.encrypt(plaintext);
 
   const ctx: TenantContext = {
     storage: {
       exists: vi.fn().mockResolvedValue(true),
-      get: vi.fn().mockResolvedValue(ciphertext),
+      get_stream: vi.fn().mockImplementation(async () => store.stream(stored)),
       put: vi.fn(),
       delete: vi.fn(),
       list: vi.fn(),
       get_with_etag: vi.fn(),
     },
-    encrypt: vi.fn().mockReturnValue(ciphertext),
-    decrypt: vi.fn().mockReturnValue(plaintext),
+    encrypt: vi.fn().mockReturnValue(stored),
+    create_decipher: vi.fn().mockImplementation(store.create_decipher),
     create_cipher: vi.fn(),
     destroy: vi.fn(),
   } as unknown as TenantContext;
@@ -117,7 +119,7 @@ function create_mocks() {
     list_by_site: vi.fn().mockResolvedValue([]),
   } as unknown as SharePointFileVersionIndexRepository;
 
-  return { ctx, tenant_factory, manifests, indexes };
+  return { ctx, tenant_factory, manifests, indexes, store };
 }
 
 describe('SharePointVerificationService', () => {
@@ -132,6 +134,13 @@ describe('SharePointVerificationService', () => {
       mocks.indexes,
     );
   });
+
+  /** Replaces the bytes storage streams back for every object read. */
+  const serve_object = (stored: Buffer): void => {
+    vi.mocked(mocks.ctx.storage.get_stream as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => mocks.store.stream(stored),
+    );
+  };
 
   it('throws when no manifest is found', async () => {
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(undefined);
@@ -154,11 +163,11 @@ describe('SharePointVerificationService', () => {
     expect(result.index_issues).toHaveLength(0);
   });
 
-  it('reports blob mismatch when decrypted content has wrong checksum', async () => {
+  it('reports blob mismatch when the stored content has a different checksum', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
     vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
-    vi.mocked(mocks.ctx.decrypt).mockReturnValue(Buffer.from('tampered-content'));
+    serve_object(mocks.store.encrypt(Buffer.from('tampered-content')));
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -224,13 +233,13 @@ describe('SharePointVerificationService', () => {
     expect(result.failed_file_ids).toHaveLength(0);
   });
 
-  it('reports blob corrupt when decrypt throws', async () => {
+  it('reports blob corrupt when the stored ciphertext fails its auth tag', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
     vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
-    vi.mocked(mocks.ctx.decrypt).mockImplementation(() => {
-      throw new Error('decryption failed');
-    });
+    const corrupted = mocks.store.encrypt(Buffer.from('file-content'));
+    corrupted[corrupted.length - 1] ^= 0xff;
+    serve_object(corrupted);
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -260,9 +269,7 @@ describe('SharePointVerificationService', () => {
       make_index('file-good', true),
     ]);
 
-    vi.mocked(mocks.ctx.decrypt).mockImplementation((_ciphertext: Buffer) => {
-      return good_content;
-    });
+    serve_object(mocks.store.encrypt(good_content));
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -288,7 +295,7 @@ describe('SharePointVerificationService', () => {
     });
 
     expect(result).toMatchObject({ total_checked: 1, passed: 1, interrupted: true });
-    expect(mocks.ctx.storage.get).toHaveBeenCalledTimes(1);
+    expect(mocks.ctx.storage.get_stream).toHaveBeenCalledTimes(1);
     expect(on_progress).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'interrupted' }));
   });
 });

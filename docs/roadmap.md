@@ -43,7 +43,7 @@ See [`e2e/README.md`](https://github.com/wisecom-oy/atlas/blob/main/e2e/README.m
 
 Atlas moved beyond Outlook mailboxes to additional Microsoft 365 workloads, and the codebase was restructured for independent package releases.
 
-- **OneDrive backup**: incremental file backup via Graph delta queries, with zero-disk streaming for large files (512 MiB+), version history, and content-addressed deduplication under `onedrive/` storage prefixes.
+- **OneDrive backup**: incremental file backup via Graph delta queries, with zero-disk streaming for large files (64 MiB+), version history, and content-addressed deduplication under `onedrive/` storage prefixes.
 - **SharePoint backup**: site-targeted document library backup with per-library delta cursors, zero-disk streaming, and version history under `sharepoint/` storage prefixes.
 - **Namespaced CLI**: workload commands grouped under `atlas outlook`, `atlas onedrive`, and `atlas sharepoint`. Cross-cutting operations (`replicate`, `rehydrate`, `stats`, `storage-check`) remain at the root.
 - **Monorepo restructure**: split into dedicated packages (`@wisecom/atlas-cli`, `@wisecom/atlas-sdk`, shared domain and ports) with independent versioning and smaller install footprints.

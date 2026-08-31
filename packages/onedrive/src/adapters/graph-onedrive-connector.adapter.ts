@@ -1,11 +1,15 @@
+import { Readable } from 'node:stream';
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import {
+  list_drive_item_versions,
   GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import type {
+  DriveFileSystemInfo,
+  DriveItemIdentity,
   OneDriveConnector,
   OneDriveDeltaItem,
   OneDriveDeltaResult,
@@ -49,12 +53,6 @@ interface GraphDeltaDriveItem {
   folder?: Record<string, unknown>;
   '@removed'?: { reason: string };
   '@microsoft.graph.downloadUrl'?: string;
-}
-
-interface GraphVersionRecord {
-  id?: string;
-  lastModifiedDateTime?: string;
-  size?: number;
 }
 
 /** Microsoft Graph adapter for OneDrive delta sync and file download. */
@@ -121,38 +119,9 @@ export class GraphOneDriveConnector implements OneDriveConnector {
   }
 
   /** Lists historical versions of a file, following pagination. */
+  /** Lists historical versions of a file, following pagination. */
   async list_file_versions(drive_id: string, item_id: string): Promise<OneDriveFileVersion[]> {
-    const all_versions: OneDriveFileVersion[] = [];
-    let next_url: string | undefined;
-
-    let page = await with_graph_retry(
-      () =>
-        this._client
-          .api(`/drives/${drive_id}/items/${item_id}/versions`)
-          .select('id,lastModifiedDateTime,size')
-          .get() as Promise<GraphCollectionResponse<GraphVersionRecord>>,
-    );
-
-    while (true) {
-      const page_versions = (page.value ?? [])
-        .filter((v) => Boolean(v.id))
-        .map((v) => ({
-          version_id: v.id!,
-          last_modified_at: v.lastModifiedDateTime ?? '',
-          size_bytes: v.size ?? 0,
-        }));
-      all_versions.push(...page_versions);
-
-      next_url = page['@odata.nextLink'];
-      if (!next_url) break;
-      page = await with_graph_retry(
-        () =>
-          this._client.api(next_url!).get() as Promise<GraphCollectionResponse<GraphVersionRecord>>,
-      );
-    }
-
-    if (all_versions.length <= 1) return [];
-    return all_versions.slice(1);
+    return await list_drive_item_versions(this._client, drive_id, item_id);
   }
 
   /** Downloads a specific version's content with size-based timeout. */
@@ -162,14 +131,32 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     version_id: string,
     size_bytes?: number,
   ): Promise<Buffer> {
-    const stream = await with_graph_retry(
+    const stream = await this.open_version_stream(drive_id, item_id, version_id);
+    const timeout_ms = size_bytes ? compute_chunk_timeout_ms(size_bytes) : 120_000;
+    return await stream_to_buffer(stream, timeout_ms);
+  }
+
+  /** Opens a version's content as a stream, for sizes not safe to buffer. */
+  async stream_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+  ): Promise<AsyncIterable<Buffer>> {
+    const stream = await this.open_version_stream(drive_id, item_id, version_id);
+    return stream instanceof Readable ? stream : Readable.from(stream as AsyncIterable<Buffer>);
+  }
+
+  private async open_version_stream(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+  ): Promise<NodeJS.ReadableStream> {
+    return await with_graph_retry(
       () =>
         this._client
           .api(`/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`)
           .getStream() as Promise<NodeJS.ReadableStream>,
     );
-    const timeout_ms = size_bytes ? compute_chunk_timeout_ms(size_bytes) : 120_000;
-    return await stream_to_buffer(stream, timeout_ms);
   }
 
   async create_folder(
@@ -190,6 +177,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     file_name: string,
     content: Buffer,
     conflict_behavior?: string,
+    file_system_info?: DriveFileSystemInfo,
   ): Promise<void> {
     await graph_onedrive_upload_small_file(
       this._client,
@@ -199,6 +187,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       file_name,
       content,
       conflict_behavior,
+      file_system_info,
     );
   }
 
@@ -210,6 +199,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     file_name: string,
     content: Buffer,
     conflict_behavior?: string,
+    file_system_info?: DriveFileSystemInfo,
   ): Promise<void> {
     await graph_onedrive_upload_large_file(
       this._client,
@@ -219,6 +209,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       file_name,
       content,
       conflict_behavior,
+      file_system_info,
     );
   }
 

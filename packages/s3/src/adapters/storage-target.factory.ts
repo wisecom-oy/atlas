@@ -4,6 +4,7 @@ import type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
+import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
@@ -61,6 +62,11 @@ export class DefaultStorageTarget implements StorageTarget {
   private readonly _client: S3Client;
   private readonly _passphrase: string;
   private readonly _region: string;
+  /**
+   * Its own cache, not the instance's: a replication target is a different
+   * endpoint, and a same-named bucket there is a different bucket (issue #42).
+   */
+  private readonly _buckets = new BucketCache();
 
   constructor(config: StorageTargetConfig) {
     this.target_id = config.target_id ?? derive_target_id(config.s3_endpoint, config.s3_region);
@@ -87,9 +93,9 @@ export class DefaultStorageTarget implements StorageTarget {
    */
   async create_context(tenant_id: string): Promise<TenantContext> {
     const bucket = tenant_bucket_name(tenant_id);
-    await ensure_bucket_exists(this._client, bucket, true);
+    await ensure_bucket_exists(this._client, bucket, this._buckets, true);
 
-    const storage = new S3ObjectStorage(this._client, bucket);
+    const storage = new S3ObjectStorage(this._client, bucket, this._buckets);
     const has_dek = await storage.exists(DEK_META_KEY);
 
     if (has_dek) {

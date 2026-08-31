@@ -5,6 +5,10 @@ import type {
 import type { ObjectLockRequest } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
+import type {
+  DriveVersionRestoreOptions,
+  DriveVersionRestoreResult,
+} from '@/ports/drive/version-restore.port';
 
 export interface SharePointBackupSummary {
   readonly libraries_scanned: number;
@@ -99,4 +103,20 @@ export interface SharePointCatalogUseCase {
     site_id: string,
     file_ref: string,
   ): Promise<SharePointFileVersionRecord[]>;
+}
+
+export interface SharePointVersionRestoreUseCase {
+  /**
+   * Restores stored version bytes back into a SharePoint library.
+   *
+   * Reads the bytes Atlas holds rather than promoting a version in the
+   * service: after a mass encrypt-and-sync the live version history may be
+   * trimmed or gone, and only a checksum-verified copy proves the operator
+   * gets what the backup recorded.
+   */
+  restore_sharepoint_version(
+    tenant_id: string,
+    site_id: string,
+    options: DriveVersionRestoreOptions,
+  ): Promise<DriveVersionRestoreResult>;
 }

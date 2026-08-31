@@ -5,6 +5,7 @@ import type {
   SharePointCatalogUseCase,
   SharePointReplicationUseCase,
   SharePointRestoreUseCase,
+  SharePointVersionRestoreUseCase,
   SharePointSaveUseCase,
   SharePointVerificationUseCase,
   SharePointDeletionUseCase,
@@ -17,6 +18,7 @@ import {
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+  SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
@@ -36,6 +38,9 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
   );
   const replication = container.get<SharePointReplicationUseCase>(
     SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
+  );
+  const version_restore = container.get<SharePointVersionRestoreUseCase>(
+    SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   );
   const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
   const save = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
@@ -73,6 +78,14 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
         tenant_id,
         site_id,
         adapt_required_operation_options(options, 'sharepoint.restore()'),
+      );
+    },
+    async restoreVersion(site_input, options) {
+      const site_id = await resolve_site_id(site_input);
+      return await version_restore.restore_sharepoint_version(
+        tenant_id,
+        site_id,
+        adapt_required_operation_options(options, 'sharepoint.restoreVersion()'),
       );
     },
     async save(site_input, options) {

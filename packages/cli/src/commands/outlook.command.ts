@@ -55,6 +55,11 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
     .requiredOption('-m, --mailbox <id>', 'mailbox to back up')
     .option('-f, --folder <name...>', 'specific folder(s) to back up (e.g. -f Inbox "Sent Items")')
     .option('--full', 'force a full backup, ignoring saved delta state from prior runs')
+    .option('--exclude-junk', 'skip the Junk Email folder (captured by default)')
+    .option(
+      '--include-recoverable-items',
+      'also back up hard-deleted and hold-retained mail from Recoverable Items',
+    )
     .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
     .option('--retention-days <n>', 'apply object lock retention for N days')
     .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
@@ -87,6 +92,10 @@ function register_outlook_restore(group: Command, get_container: ContainerFactor
     .option('--message <ref>', 'restore a single message by # from atlas list, or full ID')
     .option('--start-date <YYYY-MM-DD>', 'include snapshots created on or after this date')
     .option('--end-date <YYYY-MM-DD>', 'include snapshots created on or before this date')
+    .option(
+      '--include-recoverable-items',
+      'include hard-deleted and hold-retained mail captured from Recoverable Items',
+    )
     .action((options: OutlookRestoreOptions) => execute_outlook_restore(get_container(), options));
 }
 
@@ -126,6 +135,10 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
     .option('--end-date <YYYY-MM-DD>', 'include snapshots created on or before this date')
     .option('-o, --output <path>', 'output zip file path (default: Restore-<timestamp>.zip)')
     .option('--skip-verify', 'skip SHA-256 integrity checks (faster on low-power systems)')
+    .option(
+      '--include-recoverable-items',
+      'include hard-deleted and hold-retained mail captured from Recoverable Items',
+    )
     .action((options: OutlookSaveOptions) => execute_outlook_save(get_container(), options));
 }
 

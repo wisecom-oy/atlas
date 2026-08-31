@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Snapshot } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 import type {
+  ExcludedFolder,
   MailboxPurpose,
   Manifest,
   ManifestEntry,
@@ -45,6 +46,15 @@ export function mark_snapshot_completed(snapshot: Snapshot, object_count: number
   };
 }
 
+/** Optional manifest facts that not every run has. */
+export interface ManifestBuildExtras {
+  readonly previous_total_objects?: number | undefined;
+  readonly object_lock?: ManifestObjectLockPolicy | undefined;
+  readonly mailbox_purpose?: MailboxPurpose | undefined;
+  /** Folders this run did not capture, with why. */
+  readonly excluded_folders?: ExcludedFolder[] | undefined;
+}
+
 /**
  * Assembles a complete manifest. When the current sync found no new entries,
  * carries forward the prior backup's total_objects so the stale-delta
@@ -56,9 +66,7 @@ export function build_manifest(
   snapshot_id: string,
   entries: ManifestEntry[],
   delta_links: Record<string, string>,
-  previous_total_objects = 0,
-  object_lock?: ManifestObjectLockPolicy,
-  mailbox_purpose?: MailboxPurpose,
+  extras: ManifestBuildExtras = {},
 ): Manifest {
   const total_size_bytes = entries.reduce((sum, e) => {
     const att_size = e.attachments?.reduce((a, att) => a + att.size_bytes, 0) ?? 0;
@@ -70,12 +78,15 @@ export function build_manifest(
     owner_id,
     snapshot_id,
     created_at: new Date(),
-    total_objects: Math.max(entries.length, previous_total_objects),
+    total_objects: Math.max(entries.length, extras.previous_total_objects ?? 0),
     total_size_bytes,
     delta_links,
     id_format: 'immutable',
-    ...(object_lock ? { object_lock } : {}),
-    ...(mailbox_purpose ? { mailbox_purpose } : {}),
+    ...(extras.object_lock ? { object_lock: extras.object_lock } : {}),
+    ...(extras.mailbox_purpose ? { mailbox_purpose: extras.mailbox_purpose } : {}),
+    ...(extras.excluded_folders && extras.excluded_folders.length > 0
+      ? { excluded_folders: extras.excluded_folders }
+      : {}),
     entries,
   };
 }

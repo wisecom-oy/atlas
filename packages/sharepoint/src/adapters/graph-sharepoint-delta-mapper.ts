@@ -1,3 +1,9 @@
+import {
+  map_graph_file_system_info,
+  map_graph_identity,
+  type GraphFileSystemInfo,
+  type GraphIdentitySet,
+} from '@wisecom/atlas-m365-graph';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 
 export interface GraphDeltaDriveItem {
@@ -7,6 +13,9 @@ export interface GraphDeltaDriveItem {
   webUrl?: string;
   eTag?: string;
   lastModifiedDateTime?: string;
+  fileSystemInfo?: GraphFileSystemInfo;
+  createdBy?: GraphIdentitySet;
+  lastModifiedBy?: GraphIdentitySet;
   parentReference?: { path?: string };
   file?: Record<string, unknown>;
   folder?: Record<string, unknown>;
@@ -67,6 +76,9 @@ export function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): Shar
     ...(raw.webUrl ? { web_url: raw.webUrl } : {}),
     ...(raw.eTag ? { etag: raw.eTag } : {}),
     ...(raw.lastModifiedDateTime ? { last_modified_at: raw.lastModifiedDateTime } : {}),
+    ...spread_optional('file_system_info', map_graph_file_system_info(raw.fileSystemInfo)),
+    ...spread_optional('created_by', map_graph_identity(raw.createdBy)),
+    ...spread_optional('last_modified_by', map_graph_identity(raw.lastModifiedBy)),
     ...(raw['@microsoft.graph.downloadUrl']
       ? { download_url: raw['@microsoft.graph.downloadUrl'] }
       : {}),
@@ -86,4 +98,9 @@ export function extract_parent_path(raw_path: string | undefined): string {
   if (marker_index < 0) return raw_path;
   const result = raw_path.slice(marker_index + marker.length);
   return result.length === 0 ? '/' : result;
+}
+
+/** Includes a key only when its value exists, for `exactOptionalPropertyTypes`. */
+function spread_optional<K extends string, V>(key: K, value: V | undefined): Record<K, V> | object {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
 }

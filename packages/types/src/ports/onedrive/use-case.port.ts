@@ -5,6 +5,10 @@ import type {
 import type { BackupProgressReporter, ObjectLockRequest } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
+import type {
+  DriveVersionRestoreOptions,
+  DriveVersionRestoreResult,
+} from '@/ports/drive/version-restore.port';
 
 export interface OneDriveBackupSummary {
   readonly drives_scanned: number;
@@ -64,6 +68,22 @@ export interface OneDriveCatalogUseCase {
     owner_id: string,
     file_ref: string,
   ): Promise<OneDriveFileVersionRecord[]>;
+}
+
+export interface OneDriveVersionRestoreUseCase {
+  /**
+   * Restores stored version bytes back into OneDrive.
+   *
+   * Reads the bytes Atlas holds rather than promoting a version in the
+   * service: after a mass encrypt-and-sync the live version history may be
+   * trimmed or gone, and only a checksum-verified copy proves the operator
+   * gets what the backup recorded.
+   */
+  restore_onedrive_version(
+    tenant_id: string,
+    owner_id: string,
+    options: DriveVersionRestoreOptions,
+  ): Promise<DriveVersionRestoreResult>;
 }
 
 export interface OneDriveBackupUseCase {

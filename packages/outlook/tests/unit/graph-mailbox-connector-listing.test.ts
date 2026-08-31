@@ -118,22 +118,21 @@ describe('GraphMailboxConnector - listing APIs', () => {
   });
 
   describe('list_mail_folders', () => {
-    it('returns folders excluding system folders', async () => {
+    it('returns every mail-bearing folder, including Drafts, Outbox and Junk', async () => {
       mock_client._chain.get.mockResolvedValueOnce({
         value: [
           { id: 'f-inbox', displayName: 'Inbox', parentFolderId: 'root', totalItemCount: 42 },
           { id: 'f-sent', displayName: 'Sent Items', parentFolderId: 'root', totalItemCount: 10 },
           { id: 'f-drafts', displayName: 'Drafts', parentFolderId: 'root', totalItemCount: 3 },
           { id: 'f-outbox', displayName: 'Outbox', parentFolderId: 'root', totalItemCount: 0 },
-          { id: 'f-junk', displayName: 'JunkEmail', parentFolderId: 'root', totalItemCount: 5 },
-          { id: 'f-recover', displayName: 'RecoverableItemsDeletions', totalItemCount: 1 },
+          { id: 'f-junk', displayName: 'Junk Email', parentFolderId: 'root', totalItemCount: 5 },
         ],
       });
 
       const result = await connector.list_mail_folders('tenant-1', 'user-1');
 
       const names = result.map((f) => f.display_name);
-      expect(names).toEqual(['Inbox', 'Sent Items']);
+      expect(names).toEqual(['Inbox', 'Sent Items', 'Drafts', 'Outbox', 'Junk Email']);
       expect(result[0]).toEqual({
         folder_id: 'f-inbox',
         display_name: 'Inbox',
@@ -206,15 +205,27 @@ describe('GraphMailboxConnector - listing APIs', () => {
       expect(mock_client.api).toHaveBeenCalledTimes(1);
     });
 
-    it('prunes the subtree of an excluded folder', async () => {
+    it('prunes the subtree of a folder the caller excluded', async () => {
       mock_client._chain.get.mockResolvedValueOnce({
-        value: [{ id: 'f-junk', displayName: 'JunkEmail', childFolderCount: 2 }],
+        value: [{ id: 'f-junk', displayName: 'Junk Email', childFolderCount: 2 }],
       });
 
-      const result = await connector.list_mail_folders('tenant-1', 'user-1');
+      const result = await connector.list_mail_folders('tenant-1', 'user-1', {
+        exclude_junk: true,
+      });
 
       expect(result).toEqual([]);
       expect(mock_client.api).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks Graph for hidden folders, which it omits by default', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({ value: [] });
+
+      await connector.list_mail_folders('tenant-1', 'user-1');
+
+      const url = mock_client.api.mock.calls[0]?.[0] as string;
+      expect(url).toContain('includeHiddenFolders=true');
+      expect(url).toContain('isHidden');
     });
   });
 });

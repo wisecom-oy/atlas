@@ -4,7 +4,7 @@
  */
 
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
-import type { MailFolder } from '@wisecom/atlas-types';
+import type { ExcludedFolder, MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 
 /**
  * True when `selector` selects `folder_path`.
@@ -58,4 +58,40 @@ export function apply_folder_filter(
     );
 
   return { folders: matched, warnings };
+}
+
+export interface ResolvedBackupFolders {
+  readonly folders: MailFolder[];
+  readonly warnings: string[];
+  /** Folders the connector pruned, for the manifest and the run summary. */
+  readonly excluded: ExcludedFolder[];
+}
+
+/**
+ * Lists the folders a backup should walk: everything the connector returns,
+ * narrowed by the operator's `--folder` selectors.
+ *
+ * Exclusions are collected here rather than inferred later, because only the
+ * enumerator knows what it pruned and why, and a manifest that records the gap
+ * is what makes "was folder X captured?" answerable from the backup itself.
+ */
+export async function resolve_backup_folders(
+  connector: MailboxConnector,
+  tenant_id: string,
+  owner_id: string,
+  options: {
+    folder_filter?: string[] | undefined;
+    exclude_junk?: boolean | undefined;
+    include_recoverable_items?: boolean | undefined;
+  },
+): Promise<ResolvedBackupFolders> {
+  const excluded: ExcludedFolder[] = [];
+  const all_folders = await connector.list_mail_folders(tenant_id, owner_id, {
+    ...(options.exclude_junk === true ? { exclude_junk: true } : {}),
+    ...(options.include_recoverable_items === true ? { include_recoverable_items: true } : {}),
+    on_excluded: (folder) => excluded.push(folder),
+  });
+
+  const selection = apply_folder_filter(all_folders, options.folder_filter);
+  return { folders: selection.folders, warnings: selection.warnings, excluded };
 }

@@ -51,8 +51,8 @@ New snapshot IDs are generated as `od-snap-<milliseconds>-<6-hex>` (for example 
 
 1. **Delta sync.** For each drive, Atlas calls `GET /users/{owner_id}/drives/{drive_id}/root/delta`, or follows the stored OData `deltaLink`, to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the drive: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A drive that fails outright, before any delta could be read, leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed drive, reducing the replay window if the process crashes mid-backup. Only changed, moved, renamed, or deleted file items are considered for the manifest.
 2. **Content-addressed storage.** Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that owner, the blob is deduplicated (no second upload).
-3. **Zero-disk streaming.** Files at or above **512 MiB** use `fetch_file_chunks`: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `onedrive/staging/`, then copied to the canonical `onedrive/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part, on the order of **12 MiB** per large file rather than the full file size.
-4. **Version history.** After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content.
+3. **Zero-disk streaming.** Files at or above **64 MiB** use `fetch_file_chunks`: 4 MiB download segments are encrypted and assembled into **8 MiB** S3 multipart parts, staged under `onedrive/staging/`, then copied to the canonical `onedrive/data/` key or aborted if the content hash already exists. Peak working set is dominated by one download buffer plus one upload part, on the order of **12 MiB** per large file rather than the full file size.
+4. **Version history.** After the current version is processed, Atlas calls `GET /drives/{drive_id}/items/{item_id}/versions` and stores any new historical versions the same way as live content, including the streaming threshold: a historical version at or above **64 MiB** streams rather than buffering. A version carries no size limit of its own, so a large file's history is otherwise the easiest way to exhaust the heap.
 5. **Encrypted manifests and sidecars.** Each backup run that records changes builds a snapshot manifest (entries, checksums, paths). Manifests, per-file version indexes, and delta cursor JSON are encrypted with the tenant DEK on `put`, consistent with the rest of Atlas.
 
 ### Storage Layout
@@ -80,8 +80,8 @@ Implementation thresholds from `@wisecom/atlas-onedrive`:
 | Size                          | Strategy                                                                                                                                                                 |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **≤ 4 MiB**                   | Single read of the file into memory (pre-authenticated URL or Graph content fallback when needed), encrypt, `put`                                                        |
-| **> 4 MiB** and **< 512 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                |
-| **≥ 512 MiB**                 | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
+| **> 4 MiB** and **< 64 MiB**  | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                |
+| **≥ 64 MiB**                  | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file. Each range request is also aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. That budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB.
 
@@ -257,6 +257,8 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas onedrive save`
 
+On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `ZoneId=3`), so files extracted from it open in Protected View and their macros are blocked. Explorer propagates the mark to every extracted file; clear it with `Get-ChildItem -Recurse <dir> | Unblock-File` once you trust the content. Nothing is written on macOS or Linux, and an export to a filesystem without alternate data streams still succeeds with a warning. See [Exported archives and Mark-of-the-Web](./reference/cli.md#atlas-outlook-save).
+
 | Flag                       | Description                              | Default        |
 | -------------------------- | ---------------------------------------- | -------------- |
 | `-o, --owner <id>`         | User email or Entra object ID            | Required       |
@@ -281,6 +283,18 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 | `-f, --file <ref>`  | File ID or path               | Required       |
 | `-t, --tenant <id>` | Tenant identifier             | Config default |
 
+### `atlas onedrive restore-version`
+
+| Flag                | Description                                        | Default        |
+| ------------------- | -------------------------------------------------- | -------------- |
+| `-o, --owner <id>`  | User email or Entra object ID                      | Required       |
+| `-f, --file <ref>`  | File ID or path; required with `--version`         | Optional       |
+| `--version <id>`    | Exact stored version to restore                    | Optional       |
+| `--before <iso>`    | Newest version at or before this instant, per file | Optional       |
+| `--path <prefix>`   | Limit a `--before` rollback to one folder          | Whole drive    |
+| `--in-place`        | Upload over the original file                      | Off, writes a copy |
+| `-t, --tenant <id>` | Tenant identifier                                  | Config default |
+
 ### `atlas onedrive verify`
 
 | Flag                  | Description                   | Default        |
@@ -289,7 +303,11 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 | `-s, --snapshot <id>` | Snapshot ID to verify         | Required       |
 | `-t, --tenant <id>`   | Tenant identifier             | Config default |
 
+Verification compares digests, not bytes, so each object is decrypted as a stream and hashed incrementally. Nothing is held whole, and a snapshot of multi-gigabyte files verifies in the same working set as a snapshot of small ones.
+
 ## Restore
+
+Restored files keep their original created and modified timestamps, carried in the Graph `fileSystemInfo` facet. Authors and sharing permissions are not reconstructed: authors are recorded in the manifest for audit, and permissions are not captured at all. See [What a drive restore rebuilds, and what it cannot](./security.md#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 ```bash
 # Restore a whole snapshot into a fresh Restore-<timestamp> folder
@@ -308,6 +326,50 @@ atlas onedrive restore -o user@company.com -s od-snap-123 --in-place
 atlas onedrive restore -o user@company.com -s od-snap-123 \
   --file-filter "/Documents/report.docx" --name report-2026-08.docx
 ```
+
+### Rolling a file back to an earlier version
+
+A snapshot restore recovers each file's state at that snapshot. A version
+restore recovers one point inside a single file's history, which is what a bad
+edit or a mass encrypt-and-sync event needs.
+
+```bash
+# See what exists first. The Version column is what --version takes.
+atlas onedrive list-versions -o user@company.com -f "/Documents/report.docx"
+
+# One file, one version, written beside the original.
+atlas onedrive restore-version -o user@company.com \
+  -f "/Documents/report.docx" --version 3.0
+
+# Roll a folder back to the state before an incident, over the live files.
+atlas onedrive restore-version -o user@company.com \
+  --before 2026-03-10T00:00:00Z --path /Projects --in-place
+```
+
+Guarantees, both for one file and for a bulk rollback:
+
+- **The bytes come from the Atlas snapshot**, decrypted and SHA-256 verified
+  against the manifest before anything is uploaded. A version whose checksum
+  fails is skipped and reported; it never reaches the drive.
+- **Nothing is destroyed.** The default writes
+  `report (restored 2026-03-01T08-15-00Z).docx` next to the original and leaves
+  the live file alone. `--in-place` uploads over the original path, and
+  Microsoft 365 records that as a new version while keeping the content it
+  replaced in the file's own history.
+- **Original timestamps survive.** The restored file carries the modification
+  time the version had, so a rolled-back document does not look like it was
+  authored during the incident.
+- **Files with no pre-cutoff version are named in the output** and counted as
+  skipped. That list is the remaining exposure: those files have no copy in the
+  backup from before the cutoff.
+- **Versions return to the drive they came from.** The version index records the
+  drive ID, so an owner with several drives needs no extra flag, and a version
+  is never restored into the wrong one.
+
+Version restore only applies in place, to the same tenant and the same drive.
+There is no cross-drive or cross-tenant form: a file restored elsewhere has no
+prior version chain to sit in. Use `atlas onedrive restore --target-owner` for
+that case, which restores snapshot state rather than history.
 
 ### Where restored files land
 
