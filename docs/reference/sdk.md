@@ -257,9 +257,40 @@ for (const folder of result.summary.excluded_folders) {
 }
 ```
 
-`reason` is `'junk-excluded'` or `'hidden-system-folder'`. The same list is on the manifest as `excluded_folders`, so an embedder can answer "was this folder captured?" from a stored snapshot rather than from the options whoever ran the backup happened to pass. `MailFolder.is_hidden` marks folders Exchange hides.
+`reason` is `'junk-excluded'`, `'hidden-system-folder'`,
+`'recoverable-items-not-mail'` or `'recoverable-items-unrecognised'`. The same
+list is on the manifest as `excluded_folders`, so an embedder can answer "was
+this folder captured?" from a stored snapshot rather than from the options
+whoever ran the backup happened to pass. `MailFolder.is_hidden` marks folders
+Exchange hides.
 
-Drafts and Outbox are new in 4.1.0. Earlier versions skipped them, so the first backup after upgrading is larger for mailboxes holding unsent mail.
+Drafts and Outbox are new in 4.1.0. Earlier versions skipped them, so the first
+backup after upgrading is larger for mailboxes holding unsent mail.
+
+#### Recoverable Items
+
+`include_recoverable_items` also captures hard-deleted and hold-retained mail
+from the Exchange dumpster, which no delta page ever reports. Off by default:
+
+```typescript
+await atlas.outlook.backup('user@company.com', { include_recoverable_items: true });
+```
+
+`Deletions`, `Purges`, `DiscoveryHolds` and `SubstrateHolds` are captured;
+`Versions`, `Calendar Logging` and `Audits` are reported through
+`excluded_folders` instead. Captured entries carry `recoverable_items: true` on
+the manifest entry, and `restore()` and `save()` drop them unless the same
+option is passed there:
+
+```typescript
+const restorable = manifest.entries.filter((entry) => entry.recoverable_items !== true);
+
+await atlas.outlook.restore('snapshot-id', { include_recoverable_items: true });
+```
+
+With the option off, request volume is identical to a run before it existed.
+Storing purged mail has compliance consequences: see
+[Recoverable Items and legal hold](/security#recoverable-items-and-legal-hold).
 
 ### Shared mailbox identity
 

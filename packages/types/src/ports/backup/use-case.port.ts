@@ -62,6 +62,12 @@ export interface SyncOptions extends OperationControlOptions {
    * whether a message ever arrived.
    */
   readonly exclude_junk?: boolean | undefined;
+  /**
+   * Also back up the Exchange Recoverable Items subtree: hard-deleted mail and
+   * items retained only by a litigation hold or retention policy. Off by
+   * default because on a mailbox under hold it can rival the mailbox in size.
+   */
+  readonly include_recoverable_items?: boolean | undefined;
 }
 
 export interface BackupSyncSummary {

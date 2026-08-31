@@ -23,6 +23,7 @@ export interface OutlookBackupOptions {
   retentionDays?: string;
   lockMode?: string;
   excludeJunk?: boolean;
+  includeRecoverableItems?: boolean;
 }
 
 /** Resolves the tenant ID from CLI flag or config. */
@@ -44,6 +45,7 @@ function build_sync_options(options: OutlookBackupOptions): SyncOptions {
     object_lock_request,
     object_lock_policy,
     exclude_junk: options.excludeJunk ?? false,
+    include_recoverable_items: options.includeRecoverableItems ?? false,
   };
 }
 
@@ -123,5 +125,7 @@ const EXCLUDED_FOLDER_REPORT_LIMIT = 10;
 
 const EXCLUSION_REASONS: Record<ExcludedFolder['reason'], string> = {
   'junk-excluded': 'skipped by --exclude-junk',
+  'recoverable-items-not-mail': 'Recoverable Items subfolder holding non-mail items',
+  'recoverable-items-unrecognised': 'unrecognised Recoverable Items subfolder, not captured',
   'hidden-system-folder': 'hidden Exchange system folder, holds no mail',
 };

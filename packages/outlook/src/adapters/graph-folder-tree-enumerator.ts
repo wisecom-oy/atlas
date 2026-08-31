@@ -57,12 +57,17 @@ export type FolderChildrenFetcher = (parent_folder_id?: string) => Promise<Graph
  * Only folders reporting `childFolderCount > 0` cost an extra request. A
  * pruned folder takes its whole subtree with it, and is reported through
  * `on_excluded` so the run can record what it did not capture.
+ *
+ * `root_path` prefixes every path produced, which the Recoverable Items walk
+ * uses to keep dumpster folders distinguishable from mailbox folders of the
+ * same name (issue #141).
  */
 export async function enumerate_folder_tree(
   fetch_children: FolderChildrenFetcher,
   options: MailFolderListOptions = {},
+  seed: { root_path?: readonly string[] } = {},
 ): Promise<MailFolder[]> {
-  return walk_folder_level(fetch_children, options, undefined, [], 0);
+  return walk_folder_level(fetch_children, options, undefined, seed.root_path ?? [], 0);
 }
 
 /** Recursively collects one folder level and the levels beneath it. */

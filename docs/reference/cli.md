@@ -64,6 +64,7 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
 | `-t, --tenant <id>`      | Override tenant ID from config                                            |
 | `--exclude-junk`         | Skip the Junk Email folder and its subfolders                             |
+| `--include-recoverable-items` | Also back up hard-deleted and hold-retained mail (see below)          |
 
 `--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
 
@@ -81,6 +82,7 @@ Every mail folder in the mailbox, at any nesting depth, including the ones Outlo
 | Hidden folders (`isHidden`) | Yes | Enumerated explicitly; Graph omits them unless asked |
 | Hidden Exchange system folders | No | A short deny-list of client-state folders such as `Conversation Action Settings`, matched only when Exchange also reports them hidden |
 | In-Place Archive mailbox | No | Graph cannot read it at all. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope) |
+| **Recoverable Items** | Opt-in | `--include-recoverable-items`. Hard-deleted and hold-retained mail; see below |
 
 Anything skipped is reported at the end of the run and recorded in the snapshot manifest with its reason, so "was folder X captured?" is answerable from the backup rather than from whoever ran it:
 
@@ -92,6 +94,53 @@ Anything skipped is reported at the end of the run and recorded in the snapshot 
 ::: warning Drafts and Outbox are new in 4.1.0
 Earlier versions silently skipped Drafts and Outbox. New snapshots include them, which makes the first backup after upgrading larger than the previous one for mailboxes that hold unsent mail. Existing snapshots are unaffected; the content appears as those folders sync for the first time.
 :::
+
+
+#### Recoverable Items, the Exchange dumpster
+
+A message that arrives and is hard-deleted between two backups never appears in
+any delta page, so Atlas never sees it. The tenant's only copy is in the
+Recoverable Items subtree, which an ordinary backup does not read: it is not a
+child of the mailbox root Graph enumerates. Once Exchange's retention window
+expires the item is gone from the tenant and from every snapshot.
+
+```bash
+atlas outlook backup -m user@company.com --include-recoverable-items
+```
+
+| Subfolder | Backed up | Contains |
+| ------------------ | --------- | ------------------------------------------------------------- |
+| `Deletions` | Yes | Items removed from Deleted Items, user-recoverable for 14 to 30 days |
+| `Purges` | Yes | Hard-deleted items retained only by litigation hold or single item recovery |
+| `DiscoveryHolds` | Yes | Hard-deleted items retained by an In-Place Hold or retention policy |
+| `SubstrateHolds` | Yes | Original copies of held Teams messages and modified held items |
+| `Versions` | No | Pre-modification copies whose item shape is not a message |
+| `Calendar Logging` | No | Calendar change audit trail |
+| `Audits` | No | Mailbox audit log entries |
+
+Everything not captured is reported at the end of the run with its reason, and a
+subfolder Atlas does not recognise is reported rather than guessed at, so a new
+Exchange subfolder produces a visible gap instead of a silent one.
+
+Off by default on purpose. On a mailbox under litigation hold the dumpster can
+rival the mailbox in size, and that cost should be a decision. With the flag off
+the request volume is identical to a run before this existed: locating the
+subtree costs one request, and it is only spent when the flag is set.
+
+::: warning Restoring purged mail is opt-in twice
+Entries captured this way are marked in the manifest, and `restore` and `save`
+**exclude them by default**. An ordinary restore must not resurrect mail
+somebody deleted, or mail that exists only because a hold retained it. Pass
+`--include-recoverable-items` to the restore or save command as well, including
+when naming a single message with `--message`.
+
+There is no path back into Recoverable Items itself: Graph offers none.
+Recovered items land in the normal restore folder, which is what recovering a
+deleted message means in practice.
+:::
+
+Storing purged mail has compliance consequences. See
+[Recoverable Items and legal hold](../security.md#recoverable-items-and-legal-hold).
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
 `0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
@@ -175,6 +224,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date                 |
 | `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date                |
 | `-t, --tenant <id>`         | Override tenant ID                                              |
+| `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
 
 Exactly one of `--snapshot` or `--mailbox` is required; passing both exits `1`, as described under [`atlas outlook`](#atlas-outlook). `-T, --target` works in either mode. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
@@ -277,6 +327,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | `-o, --output <path>`       | Output file path (default: `Restore-<timestamp>.zip`)        |
 | `--skip-verify`             | Skip SHA-256 integrity checks (faster on low-power systems)  |
 | `-t, --tenant <id>`         | Override tenant ID                                           |
+| `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
 
 With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning; see [`atlas outlook`](#atlas-outlook). Earlier releases silently exported the whole mailbox instead.
 
