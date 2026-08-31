@@ -106,6 +106,7 @@ export type {
 export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
+export type { LogSink, LogFields } from './atlas/log-sink.port';
 export type {
   OutlookApi,
   OutlookBackupOptions,

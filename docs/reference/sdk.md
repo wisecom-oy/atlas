@@ -37,6 +37,63 @@ All config is explicit. The SDK **does not read environment variables or config 
 
 The tenant is bound at creation time, so every method operates within that tenant scope. Methods use camelCase naming, are async, and return Promises.
 
+### Logging
+
+The SDK is **silent by default**: no Atlas output reaches the host's stdout or
+stderr. Pass a `logger` to receive it.
+
+```typescript
+import pino from 'pino';
+
+const log = pino();
+
+const atlas = createAtlasInstance({
+  /* ...credentials... */
+  logger: {
+    debug: (message, fields) => log.debug(fields, message),
+    info: (message, fields) => log.info(fields, message),
+    warn: (message, fields) => log.warn(fields, message),
+    error: (message, fields) => log.error(fields, message),
+  },
+});
+```
+
+The `LogSink` interface is those four methods and nothing else, so `pino`,
+`winston`, an OpenTelemetry exporter, or `console` all satisfy it with an
+adapter of a few lines.
+
+Every line carries `fields` identifying where it came from:
+
+```json
+{ "tenant_id": "00000000-0000-0000-0000-000000000000", "operation": "backup" }
+```
+
+`operation` is the SDK method that produced the line, so one process serving
+many tenants can attribute output without correlating by timestamp. The tag is
+applied per call, and concurrent operations on separate instances never share a
+sink.
+
+There is no `success` level: those lines arrive as `info`. Progress output is
+dropped rather than logged, because it is terminal cursor control rather than a
+record. Use the [progress events](#progress-and-cancellation) for that.
+
+`debug` is passed to the sink regardless of the `DEBUG` environment variable.
+The host asked for the lines, so the host's logger decides its own level.
+
+::: tip Logs are not the only channel
+Anything operationally significant is also in the typed result:
+`summary.warnings`, `summary.errors`, `summary.excluded_folders`,
+`integrity_failures`, and the failed-item ledger. Never parse log text to find
+out what a run did.
+:::
+
+::: warning Behaviour change in 4.1.0
+Earlier SDK versions wrote chalk-coloured `[*]`, `[!]` and `[x]` lines straight
+to the console, including raw ANSI cursor control on a TTY. An embedder that
+relied on that output has to pass a `logger` to keep seeing it. The CLI is
+unaffected and its output is unchanged.
+:::
+
 ## Available Methods
 
 `createAtlasInstance` returns an `AtlasInstance` with three workload sub-APIs and cross-cutting tenant methods:
