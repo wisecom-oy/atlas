@@ -27,9 +27,7 @@ from atlas_e2e.atlas import Cli
 from atlas_e2e.config import Settings
 
 
-def test_01_onedrive_snapshot_delete_keeps_the_blobs(
-    cli: Cli, settings: Settings, s3: Any
-) -> None:
+def test_01_onedrive_snapshot_delete_keeps_the_blobs(cli: Cli, settings: Settings, s3: Any) -> None:
     """`onedrive delete -o -s` drops one manifest, retains data objects, spares other workloads."""
     if not settings.onedrive_owner:
         pytest.skip("E2E_ONEDRIVE_OWNER not set")
@@ -90,5 +88,7 @@ def test_02_sharepoint_snapshot_delete_keeps_the_blobs(
 def _single_segment(s3: Any, bucket: str, prefix: str) -> str:
     """Reads the one owner or site segment Atlas wrote under a manifests prefix."""
     segments = {key.split("/")[2] for key in storage.list_keys(s3, bucket, prefix)}
-    assert len(segments) == 1, f"expected exactly one segment under {prefix}, found {sorted(segments)}"
+    assert len(segments) == 1, (
+        f"expected exactly one segment under {prefix}, found {sorted(segments)}"
+    )
     return segments.pop()

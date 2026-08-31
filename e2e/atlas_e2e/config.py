@@ -8,8 +8,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Secrets: supplied by the `e2e` GitHub environment. No defaults -- a missing one is an error.
-_SECRETS = ("E2E_TENANT_ID", "E2E_CLIENT_ID", "E2E_CLIENT_SECRET", "E2E_ENCRYPTION_PASSPHRASE", "E2E_MAILBOX")
+# Secrets: repository secrets in CI, a local `.env` or exported vars otherwise. No
+# defaults -- a missing one is an error.
+_SECRETS = (
+    "E2E_TENANT_ID",
+    "E2E_CLIENT_ID",
+    "E2E_CLIENT_SECRET",
+    "E2E_ENCRYPTION_PASSPHRASE",
+    "E2E_MAILBOX",
+)
 
 # MinIO runs in the runner and is thrown away with it, so its credentials are not secrets.
 _DEFAULTS = {
@@ -49,7 +56,7 @@ class Settings:
 
     @property
     def bucket(self) -> str:
-        """Atlas derives the bucket from the tenant id; the suite must not guess a different name."""
+        """Bucket as Atlas derives it from the tenant id; the suite must not guess."""
         return f"atlas-{self.tenant_id}"
 
     @property
@@ -68,7 +75,10 @@ class Settings:
         return workloads
 
     def cli_env(self) -> dict[str, str]:
-        """ATLAS_* variables for a CLI subprocess. Env wins over the secure store, so no config file is needed."""
+        """ATLAS_* variables for a CLI subprocess.
+
+        Env wins over the secure store, so no config file is needed.
+        """
         return {
             "ATLAS_TENANT_ID": self.tenant_id,
             "ATLAS_CLIENT_ID": self.client_id,
@@ -87,7 +97,7 @@ def load() -> Settings:
     if missing:
         raise RuntimeError(
             f"Missing required environment variable(s): {', '.join(missing)}. "
-            "See e2e/README.md; in CI these come from the `e2e` GitHub environment."
+            "See e2e/README.md; in CI these are repository secrets."
         )
 
     def value(name: str) -> str:
@@ -113,4 +123,3 @@ def load() -> Settings:
         onedrive_owner=os.environ.get("E2E_ONEDRIVE_OWNER", ""),
         sharepoint_site=os.environ.get("E2E_SHAREPOINT_SITE", ""),
     )
-

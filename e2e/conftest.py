@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
-from atlas_e2e import cleanup, config, drive, marker, scrub as scrub_module, storage
+from atlas_e2e import cleanup, config, drive, marker, storage
+from atlas_e2e import scrub as scrub_module
 from atlas_e2e.atlas import Cli
 from atlas_e2e.graph import Graph
 
@@ -38,7 +40,7 @@ def _scrub_every_log_record(settings: config.Settings) -> Iterator[None]:
     def scrubbed(record: logging.LogRecord) -> str:
         return scrub_module.scrub(original(record), settings)
 
-    logging.LogRecord.getMessage = scrubbed  # type: ignore[method-assign]
+    logging.LogRecord.getMessage = scrubbed  # type: ignore[assignment]
     try:
         yield
     finally:
@@ -100,9 +102,7 @@ def exports(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _teardown(
-    settings: config.Settings, cli: Cli, graph: Graph, run_marker: str
-) -> Iterator[None]:
+def _teardown(settings: config.Settings, cli: Cli, graph: Graph, run_marker: str) -> Iterator[None]:
     """Sweeps M365 fixtures and empties the tenant bucket after the session, pass or fail.
 
     Teardown never raises: an exception here would replace the real test failure with a cleanup
@@ -142,7 +142,9 @@ def _fixture_drives(graph: Graph, settings: config.Settings) -> dict[str, str]:
             log.warning("Teardown: could not resolve the OneDrive drive: %s", err)
     if settings.sharepoint_site:
         try:
-            drives["sharepoint"] = drive.site_drive_id(graph, drive.site_id(graph, settings.sharepoint_site))
+            drives["sharepoint"] = drive.site_drive_id(
+                graph, drive.site_id(graph, settings.sharepoint_site)
+            )
         except Exception as err:  # noqa: BLE001 - same rule as above
             log.warning("Teardown: could not resolve the SharePoint library: %s", err)
     return drives

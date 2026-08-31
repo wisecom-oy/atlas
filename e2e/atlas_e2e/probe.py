@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from atlas_e2e.graph import Graph
 
@@ -13,7 +14,9 @@ FOLDER_SELECT = "id,displayName,parentFolderId,totalItemCount"
 
 def top_level_folders(graph: Graph, mailbox: str) -> list[dict[str, Any]]:
     """Every folder directly under the mailbox root."""
-    return list(graph.paged(f"/users/{mailbox}/mailFolders", **{"$select": FOLDER_SELECT, "$top": 100}))
+    return list(
+        graph.paged(f"/users/{mailbox}/mailFolders", **{"$select": FOLDER_SELECT, "$top": 100})
+    )
 
 
 def child_folders(graph: Graph, mailbox: str, folder_id: str) -> list[dict[str, Any]]:
@@ -35,7 +38,9 @@ def walk_folders(graph: Graph, mailbox: str, folder_id: str) -> Iterator[dict[st
 
 def find_top_level_folder(graph: Graph, mailbox: str, name: str) -> dict[str, Any] | None:
     """Finds a top-level folder by exact display name."""
-    return next((f for f in top_level_folders(graph, mailbox) if f.get("displayName") == name), None)
+    return next(
+        (f for f in top_level_folders(graph, mailbox) if f.get("displayName") == name), None
+    )
 
 
 def messages_in(graph: Graph, mailbox: str, folder_id: str) -> list[dict[str, Any]]:
@@ -48,7 +53,9 @@ def messages_in(graph: Graph, mailbox: str, folder_id: str) -> list[dict[str, An
     )
 
 
-def find_message_in_tree(graph: Graph, mailbox: str, root_id: str, subject: str) -> dict[str, Any] | None:
+def find_message_in_tree(
+    graph: Graph, mailbox: str, root_id: str, subject: str
+) -> dict[str, Any] | None:
     """Finds a message by exact subject anywhere beneath a folder, root included."""
     for folder_id in [root_id, *(str(f["id"]) for f in walk_folders(graph, mailbox, root_id))]:
         for message in messages_in(graph, mailbox, folder_id):

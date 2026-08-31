@@ -10,13 +10,13 @@ Run with `uv run python -m atlas_e2e.self_check`.
 from __future__ import annotations
 
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from atlas_e2e import cleanup, drive
 from atlas_e2e.atlas import Cli, Result
-from atlas_e2e.marker import PREFIX
 from atlas_e2e.config import Settings
+from atlas_e2e.marker import PREFIX
 from atlas_e2e.scrub import scrub
 
 # Recognisable stand-ins, none of them a real value. Each is long enough to pass the eight-character
@@ -103,7 +103,7 @@ def check_transcript_never_holds_output() -> None:
         cli = Cli(_FAKE, root / "home", transcript)
         noisy = Result(argv=("status",), code=2, stdout="Report.docx stored", stderr="John Doe")
 
-        cli._record(noisy)  # noqa: SLF001 - the guarantee under test is internal
+        cli._record(noisy)
 
         written = transcript.read_text(encoding="utf-8")
         assert "Report.docx" not in written, "a file name reached the transcript"
@@ -126,7 +126,7 @@ class _FakeGraph:
 
 
 def _drive_item(name: str, item_id: str, age_hours: float = 0.0) -> dict[str, object]:
-    created = datetime.now(timezone.utc) - timedelta(hours=age_hours)
+    created = datetime.now(UTC) - timedelta(hours=age_hours)
     return {"id": item_id, "name": name, "createdDateTime": created.isoformat()}
 
 
@@ -160,11 +160,11 @@ def check_cleanup_never_deletes_unmarked_items() -> None:
     real = [_drive_item(name, f"id-{i}", age_hours=48) for i, name in enumerate(_REAL_FILES)]
     graph = _fake_drive(fixture_root=[], root=[])
     original = drive.fixture_items
-    drive.fixture_items = lambda *_args, **_kwargs: real  # type: ignore[assignment]
+    drive.fixture_items = lambda *_args, **_kwargs: real
     try:
         removed = cleanup.sweep_drive(graph, "d1", f"{PREFIX}-run-1")  # type: ignore[arg-type]
     finally:
-        drive.fixture_items = original  # type: ignore[assignment]
+        drive.fixture_items = original
 
     assert removed == [], f"cleanup deleted unmarked items: {removed}"
     assert graph.deleted == [], f"cleanup issued deletes for unmarked items: {graph.deleted}"
@@ -178,7 +178,9 @@ def check_fixture_discovery_only_returns_marked() -> None:
 
     found = drive.fixture_items(graph, "d1", PREFIX)  # type: ignore[arg-type]
 
-    assert [i["name"] for i in found] == [f"{PREFIX}-run-1"], f"discovery returned real files: {found}"
+    assert [i["name"] for i in found] == [f"{PREFIX}-run-1"], (
+        f"discovery returned real files: {found}"
+    )
 
 
 def check_cleanup_still_removes_this_run() -> None:

@@ -59,7 +59,9 @@ def test_03_backup_by_url_writes_objects(cli: Cli, settings: Settings, s3: Any) 
     assert len(snapshots) == 1, f"expected one SharePoint snapshot, found {snapshots}"
     STATE["snapshot"] = snapshots[0]
 
-    assert storage.list_keys(s3, settings.bucket, f"sharepoint/data/{site}/"), "no file blob written"
+    assert storage.list_keys(s3, settings.bucket, f"sharepoint/data/{site}/"), (
+        "no file blob written"
+    )
 
 
 def test_04_every_site_form_addresses_one_tree(cli: Cli, settings: Settings, s3: Any) -> None:
@@ -77,8 +79,12 @@ def test_04_every_site_form_addresses_one_tree(cli: Cli, settings: Settings, s3:
     for form in forms:
         cli.ok("sharepoint", "list-snapshots", "--site", form)
 
-    prefixes = {key.split("/")[2] for key in storage.list_keys(s3, settings.bucket, "sharepoint/manifests/")}
-    assert prefixes == {STATE["site"]}, f"site forms produced more than one tree: {sorted(prefixes)}"
+    prefixes = {
+        key.split("/")[2] for key in storage.list_keys(s3, settings.bucket, "sharepoint/manifests/")
+    }
+    assert prefixes == {STATE["site"]}, (
+        f"site forms produced more than one tree: {sorted(prefixes)}"
+    )
     assert storage.snapshot_ids(s3, settings.bucket, STATE["site"], "sharepoint") == before
 
 
@@ -87,7 +93,9 @@ def test_05_verify_passes(cli: Cli, settings: Settings) -> None:
     cli.ok("sharepoint", "verify", "--site", settings.sharepoint_site, "-s", STATE["snapshot"])
 
 
-def test_06_save_exports_the_file(cli: Cli, settings: Settings, exports: Path, run_marker: str) -> None:
+def test_06_save_exports_the_file(
+    cli: Cli, settings: Settings, exports: Path, run_marker: str
+) -> None:
     """`sharepoint save` writes a zip mirroring the library hierarchy."""
     archive = exports / f"{run_marker}-sharepoint.zip"
     cli.ok(
@@ -121,7 +129,9 @@ def test_07_restore_recreates_a_deleted_file(
     """
     for file in (STATE["file"], STATE["large"]):
         drive.delete_item(graph, STATE["drive_id"], file.item_id)
-        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, "file survived deletion"
+        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, (
+            "file survived deletion"
+        )
 
     cli.ok(
         "sharepoint",
@@ -150,9 +160,9 @@ def test_08_restored_bytes_match_the_seed(graph: Any, run_marker: str) -> None:
     assert STATE["large"].sha256 in digests, "no restored file matches the 5 MB seeded bytes"
 
     for file in (STATE["file"], STATE["large"]):
-        assert (
-            drive.file_sha256(graph, STATE["drive_id"], file.path) is None
-        ), f"restore wrote back to the original path {file.path}"
+        assert drive.file_sha256(graph, STATE["drive_id"], file.path) is None, (
+            f"restore wrote back to the original path {file.path}"
+        )
 
 
 def test_09_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> None:
@@ -163,7 +173,7 @@ def test_09_status_reports_the_stored_snapshot(cli: Cli, settings: Settings) -> 
 
 
 def _site_segment(s3: Any, bucket: str) -> str:
-    """Reads the site segment Atlas used, rather than assuming how the composite id was normalised."""
+    """Reads the site segment Atlas used, not how the composite id was normalised."""
     keys = storage.list_keys(s3, bucket, "sharepoint/manifests/")
     sites = {key.split("/")[2] for key in keys}
     assert len(sites) == 1, f"expected exactly one backed-up site, found {sorted(sites)}"

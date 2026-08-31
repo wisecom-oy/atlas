@@ -8,7 +8,7 @@ the MinIO volumes afterwards, so the write protection never has to hold past the
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from atlas_e2e import storage
@@ -50,8 +50,8 @@ def test_02_retention_is_present_on_the_object(settings: Settings, s3: Any) -> N
     assert retention["Mode"].lower() == "governance", retention
     retain_until = retention["RetainUntilDate"]
     if retain_until.tzinfo is None:
-        retain_until = retain_until.replace(tzinfo=timezone.utc)
-    assert retain_until > datetime.now(timezone.utc), f"retention already expired: {retain_until}"
+        retain_until = retain_until.replace(tzinfo=UTC)
+    assert retain_until > datetime.now(UTC), f"retention already expired: {retain_until}"
 
 
 def test_03_storage_check_still_reports_lock_capable(cli: Cli, settings: Settings) -> None:
