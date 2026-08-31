@@ -205,6 +205,37 @@ def check_cleanup_spares_a_concurrent_run() -> None:
     assert cleanup.sweep_drive(stale, "d1", f"{PREFIX}-run-1") == [f"{PREFIX}-run-2"]  # type: ignore[arg-type]
 
 
+def _fake_drive_with_restore_root(inner: list[dict[str, object]]) -> _FakeGraph:
+    return _FakeGraph(
+        {
+            f"/drives/d1/root:/{drive.FIXTURE_ROOT}:/children": [],
+            "/drives/d1/root/children": [_drive_item("Restore-2026-01-01T00-00-00", "id-root")],
+            f"/drives/d1/root:/Restore-2026-01-01T00-00-00/{drive.FIXTURE_ROOT}:/children": inner,
+        }
+    )
+
+
+def check_cleanup_removes_a_default_restore_root() -> None:
+    """A restore that took the default destination must not survive teardown.
+
+    `Restore-{timestamp}` at the drive root carries no marker, so the marker-name sweep never saw
+    it and every nightly run left an empty tree in the tenant's OneDrive.
+    """
+    this_run = f"{PREFIX}-run-1"
+    graph = _fake_drive_with_restore_root([_drive_item(this_run, "id-marked")])
+
+    assert cleanup.sweep_drive(graph, "d1", this_run) == ["Restore-2026-01-01T00-00-00"]  # type: ignore[arg-type]
+    assert graph.deleted == ["id-root"]
+
+
+def check_cleanup_spares_an_operator_restore_root() -> None:
+    """A `Restore-*` folder with no marked descendant is the operator's, and stays."""
+    graph = _fake_drive_with_restore_root([_drive_item("Contract.docx", "id-real")])
+
+    assert cleanup.sweep_drive(graph, "d1", f"{PREFIX}-run-1") == []  # type: ignore[arg-type]
+    assert graph.deleted == []
+
+
 CHECKS = (
     check_settings_repr_hides_secrets,
     check_scrub_redacts_every_secret,
@@ -214,6 +245,8 @@ CHECKS = (
     check_fixture_discovery_only_returns_marked,
     check_cleanup_still_removes_this_run,
     check_cleanup_spares_a_concurrent_run,
+    check_cleanup_removes_a_default_restore_root,
+    check_cleanup_spares_an_operator_restore_root,
 )
 
 

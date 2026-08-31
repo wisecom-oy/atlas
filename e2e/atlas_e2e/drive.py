@@ -240,3 +240,27 @@ def fixture_items(graph: Graph, drive_id: str, prefix: str) -> list[dict[str, An
         except GraphError as err:
             log.debug("Could not list %s: %s", path, err)
     return marked
+
+
+def restore_roots_containing(graph: Graph, drive_id: str, marker: str) -> list[dict[str, Any]]:
+    """Drive-root `Restore-*` folders holding this run's fixture tree.
+
+    A restore that takes the default destination writes `/Restore-<timestamp>/E2E/<marker>/...` at
+    the drive root, outside the marker namespace `fixture_items` scans, so nothing deleted it and
+    every nightly run left an empty tree behind. The root carries no marker of ours, so ownership is
+    decided by a marked child, never by the name alone: an operator's own restore must survive.
+    """
+    roots: list[dict[str, Any]] = []
+    try:
+        top = list(graph.paged(f"/drives/{drive_id}/root/children", **{"$select": "id,name"}))
+    except GraphError as err:
+        log.debug("Could not list drive root: %s", err)
+        return roots
+    for item in top:
+        name = str(item.get("name", ""))
+        if not name.startswith("Restore-"):
+            continue
+        inner = children(graph, drive_id, f"{name}/{FIXTURE_ROOT}")
+        if any(marker in str(c.get("name", "")) for c in inner):
+            roots.append(item)
+    return roots
