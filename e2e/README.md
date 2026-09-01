@@ -70,3 +70,29 @@ uv run pytest -k outlook              # one suite
 The app registration needs admin-consented application permissions; preflight (`-k preflight`)
 probes each one and names the missing grant. The list lives in
 [`docs/azure-ad-setup.md`](../docs/azure-ad-setup.md).
+
+## Lint, format and types
+
+```bash
+cd e2e
+uvx ruff check .          # lint
+uvx ruff format .         # format, or --check to only report
+uv run mypy .             # types, strict
+```
+
+CI runs the same three as the `E2E suite lint, format & types` job, with `--check` on the
+formatter. They need no secrets and no tenant, so the gate runs on every pull request while the
+suite itself stays nightly.
+
+Config lives in `pyproject.toml`. Two things worth knowing before adding a suppression:
+
+- `S101` (assert) is off for the whole suite, because assertions are its mechanism rather than an
+  exception. `PLR2004` is off under `tests/`, where a small literal reads better than a named
+  constant, and `S106` is off in `self_check.py`, which has to hold values shaped like credentials
+  to prove the redaction boundary.
+- `warn_unused_ignores` is on. A `# type: ignore[...]` that stops being needed becomes an error,
+  which is what turned up the ones written against a checker that never ran (issue #160). Name the
+  narrowest code, never a bare `# type: ignore`.
+
+`ruff format` owns line breaks at 100 columns, matching Prettier's `printWidth` on the TypeScript
+side. Do not hand-wrap around it.

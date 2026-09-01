@@ -58,7 +58,6 @@ def test_storage_helpers_read_snapshot_ids(settings: Settings, s3: Any, run_mark
         s3.delete_object(Bucket=settings.bucket, Key=key)
 
 
-
 def test_graph_token_is_issued(graph: Graph) -> None:
     """App-only credentials are accepted by the tenant."""
     assert graph.token()
@@ -124,7 +123,7 @@ def test_tenant_bucket_is_local_only(settings: Settings, s3: Any) -> None:
 
 
 def _require(graph: Graph, path: str, permission: str, **params: Any) -> None:
-    """Asserts a Graph endpoint is reachable, naming the permission that is missing when it is not."""
+    """Asserts a Graph endpoint is reachable, naming the permission when it is not."""
     try:
         graph.get(path, **params)
     except GraphError as err:

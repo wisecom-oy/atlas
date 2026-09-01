@@ -1,5 +1,5 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { is_retryable_error } from '@wisecom/atlas-m365-graph';
+import { is_retryable_error, is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import type { OneDriveConnector, OneDriveDeltaItem } from '@wisecom/atlas-types';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -15,6 +15,10 @@ export interface DownloadRetryOptions {
  * Wraps a connector download call in a file-level retry loop.
  * Returns undefined when all attempts are exhausted, allowing
  * the caller to skip the file without throwing.
+ *
+ * A missing grant and a service refusal are the exceptions: both are rethrown so
+ * the caller can name the cause. Swallowing them here is what turned one missing
+ * permission into a per-file retry storm reported as a skipped file (issue #246).
  */
 export async function download_with_retry(
   connector: OneDriveConnector,
@@ -29,6 +33,8 @@ export async function download_with_retry(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       const is_last = attempt === max_attempts;
+
+      if (is_unretryable_download_failure(err)) throw err;
 
       if (is_last || !is_retryable_error(err)) {
         logger.warn(

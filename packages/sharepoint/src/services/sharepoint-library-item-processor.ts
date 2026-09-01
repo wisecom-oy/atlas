@@ -17,6 +17,7 @@ import {
   build_stored_entry,
 } from '@/services/sharepoint-backup-builders';
 import { process_backup_file } from '@/services/sharepoint-backup-file-processor';
+import { is_download_refused } from '@wisecom/atlas-m365-graph';
 import { classify_change_type } from '@/services/sharepoint-change-classifier';
 import {
   collect_run_versions,
@@ -110,17 +111,8 @@ export async function process_delta_item(
     return;
   }
 
-  const result = await process_backup_file(connector, item, site_id, ctx);
-  if (!result) {
-    library_state.failed_item_ids.add(item.item_id);
-    library_state.failed_items = record_item_failure(library_state.failed_items, {
-      item_id: item.item_id,
-      drive_id: item.drive_id,
-      name: item.file_name,
-      reason: 'file content could not be downloaded',
-    });
-    return;
-  }
+  const result = await download_or_record_refusal(connector, item, site_id, ctx, library_state);
+  if (!result) return;
 
   if (result.deduplicated) library_state.library_files_deduplicated++;
   if (result.stored) library_state.library_files_stored++;
@@ -249,4 +241,40 @@ function forget_item_tracking(tracking: FileTrackingState, item_id: string): voi
   delete tracking.previous_path_by_file_id[item_id];
   delete tracking.previous_name_by_file_id[item_id];
   delete tracking.previous_etag_by_file_id[item_id];
+}
+
+/**
+ * Downloads one item, recording a service refusal against it and returning
+ * undefined when there is nothing to store.
+ *
+ * A refusal is permanent for this item but not for the run, so it is recorded the
+ * way a quarantined item is. A missing grant is deliberately not caught: it applies
+ * to every item and must stop the run (issue #246). Mirrors the OneDrive twin.
+ */
+async function download_or_record_refusal(
+  connector: SharePointSiteConnector,
+  item: SharePointDeltaItem,
+  site_id: string,
+  ctx: TenantContext,
+  library_state: LibraryProcessingState,
+): Promise<Awaited<ReturnType<typeof process_backup_file>>> {
+  const record = (reason: string, permanent?: boolean): undefined => {
+    library_state.failed_item_ids.add(item.item_id);
+    library_state.failed_items = record_item_failure(library_state.failed_items, {
+      item_id: item.item_id,
+      drive_id: item.drive_id,
+      name: item.file_name,
+      reason,
+      ...(permanent === true ? { permanent: true } : {}),
+    });
+    return undefined;
+  };
+
+  try {
+    const result = await process_backup_file(connector, item, site_id, ctx);
+    return result ?? record('file content could not be downloaded');
+  } catch (err) {
+    if (!is_download_refused(err)) throw err;
+    return record(err.message, true);
+  }
 }

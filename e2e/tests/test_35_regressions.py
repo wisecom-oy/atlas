@@ -19,7 +19,7 @@ import subprocess
 import uuid
 from typing import Any
 
-from atlas_e2e import storage
+from atlas_e2e import drive, storage
 from atlas_e2e.atlas import Cli
 from atlas_e2e.config import REPO_ROOT, Settings
 
@@ -50,7 +50,7 @@ def test_01_readonly_commands_provision_nothing(cli: Cli, s3: Any) -> None:
 
 
 def test_02_corrupt_ciphertext_is_reported_as_tampering(
-    cli: Cli, settings: Settings, s3: Any
+    cli: Cli, settings: Settings, s3: Any, run_marker: str
 ) -> None:
     """A blob that fails its AES-GCM tag check is classified as authentication failure (issue #76).
 
@@ -64,7 +64,9 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
     a unit test: producing a genuine per-prefix S3 denial needs a scoped MinIO user that only exists
     to be denied, and a fabricated credential failure is exactly what a mock is for.
     """
-    owners = {k.split("/")[2] for k in storage.list_keys(s3, settings.bucket, "onedrive/manifests/")}
+    owners = {
+        k.split("/")[2] for k in storage.list_keys(s3, settings.bucket, "onedrive/manifests/")
+    }
     assert len(owners) == 1, f"expected one backed-up OneDrive owner, found {sorted(owners)}"
     owner = owners.pop()
     snapshots = storage.snapshot_ids(s3, settings.bucket, owner, "onedrive")
@@ -76,7 +78,9 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
     # Flip one bit inside every blob's ciphertext body, past the [IV][tag] envelope header, so each
     # blob stays structurally valid and fails at the tag check rather than at parsing. Corrupting
     # all of them removes the question of which blob the chosen snapshot references.
-    originals = {key: s3.get_object(Bucket=settings.bucket, Key=key)["Body"].read() for key in blobs}
+    originals = {
+        key: s3.get_object(Bucket=settings.bucket, Key=key)["Body"].read() for key in blobs
+    }
     for key, original in originals.items():
         corrupted = bytearray(original)
         corrupted[-1] ^= 0x01
@@ -92,8 +96,16 @@ def test_02_corrupt_ciphertext_is_reported_as_tampering(
             snapshots[0],
             "--conflict",
             "rename",
+            # A failing restore still creates its destination folders before the first decrypt
+            # fails, so this must stay inside the marker namespace cleanup owns. Taking the
+            # default `/Restore-<timestamp>` root left an empty tree at the drive root after
+            # every nightly run, which nothing was allowed to delete.
+            "--destination",
+            drive.restore_destination(run_marker),
         )
-        assert result.code != 0, f"restore of tampered ciphertext reported success\n{result.describe()}"
+        assert result.code != 0, (
+            f"restore of tampered ciphertext reported success\n{result.describe()}"
+        )
         lower = result.out.lower()
         assert "authentication failed" in lower, result.describe()
         # The distinction that matters to an operator: this must not read as a transient or
@@ -108,15 +120,18 @@ def test_03_sdk_lists_the_snapshots_the_cli_wrote(settings: Settings, s3: Any) -
     """The published SDK bundle sees exactly the snapshots in the bucket.
 
     The CLI and the SDK are separately published artifacts over one core. This imports
-    `packages/sdk/dist/index.mjs` -- the file that goes to npm -- so a bundle that cannot resolve its
+    `packages/sdk/dist/index.mjs` -- the file that goes to npm -- so a bundle that
+    cannot resolve its
     own dependencies fails here rather than in an integrator's issue.
     """
     owner = _sole_owner(s3, settings)
     expected = set(storage.snapshot_ids(s3, settings.bucket, owner))
     assert expected, "no Outlook snapshot in the bucket for the SDK to read"
 
-    proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        ["node", str(REPO_ROOT / "e2e" / "sdk_smoke.mjs")],
+    # S603/S607: fixed argv, no shell, and `node` is resolved from PATH on purpose.
+    proc = subprocess.run(  # noqa: S603
+        ["node", str(REPO_ROOT / "e2e" / "sdk_smoke.mjs")],  # noqa: S607
+        check=False,  # the assertions below read returncode and stderr
         capture_output=True,
         text=True,
         timeout=300,

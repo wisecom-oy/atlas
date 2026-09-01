@@ -22,8 +22,9 @@ DEFAULT_TIMEOUT = 900
 #
 # ponytail: a flat 30 minutes per whole-drive call, not a size-derived budget. The ceiling is the
 # 60-minute job timeout in e2e.yml, so this cannot grow much further. The real fixes are a folder or
-# filter scope on `onedrive backup`, or a test account whose drive holds only the fixtures; until one
-# of those exists, a drive that outgrows this will fail here with a clear timeout rather than silently
+# filter scope on `onedrive backup`, or a test account whose drive holds only the
+# fixtures; until one of those exists, a drive that outgrows this will fail here
+# with a clear timeout rather than silently
 # eating the whole job budget.
 WHOLE_DRIVE_TIMEOUT = 1800
 
@@ -91,8 +92,11 @@ class Cli:
             **self._settings.cli_env(),
         }
         log.info("atlas %s", " ".join(display_argv))
-        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            ["node", str(self._settings.cli), *argv],
+        # S603/S607: fixed argv, no shell, and `node` is resolved from PATH on purpose so the
+        # suite runs against whatever Node the workflow selected.
+        proc = subprocess.run(  # noqa: S603
+            ["node", str(self._settings.cli), *argv],  # noqa: S607
+            check=False,  # the caller inspects returncode; a raise here would lose stdout
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -124,7 +128,10 @@ class Cli:
             handle.write(scrub(entry, self._settings))
 
     def ok(self, *args: str, timeout: int = DEFAULT_TIMEOUT) -> Result:
-        """Runs and asserts a clean exit. Exit 2 (partial) is a failure: the suite seeded every item."""
+        """Runs and asserts a clean exit.
+
+        Exit 2 (partial) is a failure: the suite seeded every item.
+        """
         result = self.run(*args, timeout=timeout)
         assert result.code == 0, result.describe()
         return result

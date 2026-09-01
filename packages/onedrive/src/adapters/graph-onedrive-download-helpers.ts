@@ -1,6 +1,5 @@
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import {
-  CdnHttpError,
   CHUNK_DOWNLOAD_THRESHOLD,
   compute_chunk_timeout_ms,
   download_file_chunked,
@@ -12,7 +11,14 @@ import {
 } from '@/adapters/graph-onedrive-connector-stream';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import type { DownloadFailureKind } from '@wisecom/atlas-m365-graph';
+import {
+  with_graph_retry,
+  classify_download_failure,
+  read_graph_error_code,
+  DownloadRefusedError,
+  MissingGraphPermissionsError,
+} from '@wisecom/atlas-m365-graph';
 
 interface GraphDriveItemDownload {
   '@microsoft.graph.downloadUrl'?: string;
@@ -33,7 +39,38 @@ export async function resolve_download_url(
   return response['@microsoft.graph.downloadUrl'];
 }
 
-/** Runs a download attempt with expired-URL refresh and Graph content fallback. */
+/**
+ * Throws for the two 403 causes that neither a URL refresh nor the `/content`
+ * fallback can resolve, so the caller stops instead of spending a second retry
+ * budget on a refusal (issue #246).
+ */
+function rethrow_if_unrecoverable(
+  kind: DownloadFailureKind,
+  err: unknown,
+  item: OneDriveDeltaItem,
+): void {
+  // A missing grant answers 403 on every item, so the run must stop and name it.
+  if (kind === 'missing_permission') {
+    throw_missing_permissions('read');
+  }
+
+  // The service will keep refusing this item, so it is recorded against the
+  // snapshot with the code that explains it, rather than retried.
+  if (kind === 'service_refused') {
+    const code = read_graph_error_code(err);
+    throw new DownloadRefusedError(
+      `Microsoft 365 refused to release ${item.file_name} (${item.item_id}): ` +
+        `Graph returned 403 ${code}. This is a protection or policy state on the ` +
+        `item, not a transient failure.`,
+      code,
+    );
+  }
+}
+
+/**
+ * Runs a download attempt, acting on the cause of a failure rather than assuming
+ * every 403 is a stale URL (issue #246).
+ */
 async function attempt_download_with_refresh(
   client: Client,
   item: OneDriveDeltaItem,
@@ -48,7 +85,10 @@ async function attempt_download_with_refresh(
   try {
     return await download_fn(download_url);
   } catch (err) {
-    if (is_expired_url_error(err)) {
+    const kind = classify_download_failure(err);
+    rethrow_if_unrecoverable(kind, err, item);
+
+    if (kind === 'expired_url') {
       const refreshed_url = await resolve_download_url(client, item);
       if (refreshed_url) {
         try {
@@ -110,19 +150,28 @@ export async function download_via_graph_content(
   return await stream_to_buffer(stream, drain_timeout_ms);
 }
 
+/**
+ * True only for a stale pre-authenticated URL, which is the one 403 worth retrying.
+ *
+ * Delegates to the shared classifier so both drives cannot drift, and so a nullish
+ * rejection reason is classified instead of crashing the classifier (issue #263).
+ */
 export function is_expired_url_error(err: unknown): boolean {
-  if (err instanceof CdnHttpError) {
-    return err.status_code === 401 || err.status_code === 403;
-  }
-  const graph_status = (err as { statusCode?: number }).statusCode;
-  if (typeof graph_status === 'number') return graph_status === 401 || graph_status === 403;
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('Forbidden') || message.includes('Unauthorized');
+  return classify_download_failure(err) === 'expired_url';
 }
 
+/**
+ * Rethrows any Graph 403 as a missing grant.
+ *
+ * Deliberately broader than the download-path classification. Its callers are the
+ * enumeration paths (`list_drives`, `fetch_delta`), where a 403 has one plausible
+ * cause: there is no per-item protection state when listing a drive. The finer
+ * split between a missing grant and a service refusal belongs to the download
+ * path, where both are reachable for the same item (issue #246).
+ */
 export function rethrow_if_access_denied(err: unknown): void {
-  const graph_err = err as Record<string, unknown>;
-  if (graph_err.statusCode !== 403) return;
+  if (err === null || typeof err !== 'object') return;
+  if ((err as { statusCode?: unknown }).statusCode !== 403) return;
   throw_missing_permissions('read');
 }
 
@@ -130,5 +179,7 @@ export function throw_missing_permissions(context: 'read' | 'write' = 'read'): n
   const read_perms = 'Files.Read.All, Sites.Read.All';
   const write_perms = 'Files.ReadWrite.All, Sites.Read.All';
   const perms = context === 'write' ? write_perms : read_perms;
-  throw new Error(`Missing Microsoft Graph application permissions for OneDrive: ${perms}.`);
+  throw new MissingGraphPermissionsError(
+    `Missing Microsoft Graph application permissions for OneDrive: ${perms}.`,
+  );
 }

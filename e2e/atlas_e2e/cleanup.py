@@ -6,8 +6,8 @@ import logging
 
 from atlas_e2e import drive, probe
 from atlas_e2e.atlas import Cli
-from atlas_e2e.graph import Graph, GraphError
 from atlas_e2e.config import Settings
+from atlas_e2e.graph import Graph, GraphError
 from atlas_e2e.marker import PREFIX, is_marked, is_stale, parse_graph_time
 from atlas_e2e.scrub import scrub
 
@@ -34,13 +34,25 @@ def sweep_drive(graph: Graph, drive_id: str, marker: str) -> list[str]:
         if marker not in name and not is_stale(parse_graph_time(item.get("createdDateTime"))):
             log.info("Leaving foreign, non-stale drive folder %s", name)
             continue
-        try:
-            drive.delete_item(graph, drive_id, str(item["id"]))
-            removed.append(name)
-            log.info("Cleaned up drive folder %s", name)
-        except GraphError as err:
-            log.warning("Could not delete drive folder %s: %s", name, err)
+        _delete_drive_item(graph, drive_id, str(item["id"]), name, removed)
+
+    # A restore that took the default destination nests under `Restore-{timestamp}` at the drive
+    # root, which carries no marker, so it is identified by holding a marked descendant instead.
+    for root in drive.restore_roots_containing(graph, drive_id, marker):
+        _delete_drive_item(graph, drive_id, str(root["id"]), str(root.get("name", "")), removed)
     return removed
+
+
+def _delete_drive_item(
+    graph: Graph, drive_id: str, item_id: str, name: str, removed: list[str]
+) -> None:
+    """Deletes one drive item, recording it; a failure is logged, never raised out of teardown."""
+    try:
+        drive.delete_item(graph, drive_id, item_id)
+        removed.append(name)
+        log.info("Cleaned up drive folder %s", name)
+    except GraphError as err:
+        log.warning("Could not delete drive folder %s: %s", name, err)
 
 
 def surviving_drive_artifacts(graph: Graph, drive_id: str, marker: str) -> list[str]:
@@ -55,7 +67,11 @@ def surviving_drive_artifacts(graph: Graph, drive_id: str, marker: str) -> list[
     except GraphError as err:
         log.warning("Could not verify drive cleanup: %s", err)
         return []
-    return [str(i.get("name", "")) for i in items if marker in str(i.get("name", ""))]
+    leftovers = [str(i.get("name", "")) for i in items if marker in str(i.get("name", ""))]
+    leftovers.extend(
+        str(r.get("name", "")) for r in drive.restore_roots_containing(graph, drive_id, marker)
+    )
+    return leftovers
 
 
 def sweep_mailbox(graph: Graph, mailbox: str, marker: str) -> list[str]:
@@ -95,7 +111,9 @@ def purge_bucket(cli: Cli, settings: Settings) -> None:
         log.warning("Purge exited %s: %s", result.code, scrub(result.out, settings).strip()[:400])
 
 
-def _delete_folder(graph: Graph, mailbox: str, folder_id: str, name: str, removed: list[str]) -> None:
+def _delete_folder(
+    graph: Graph, mailbox: str, folder_id: str, name: str, removed: list[str]
+) -> None:
     """Deletes one folder, recording it; a failure is logged, never raised out of teardown."""
     try:
         graph.delete(f"/users/{mailbox}/mailFolders/{folder_id}")

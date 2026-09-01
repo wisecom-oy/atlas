@@ -2,7 +2,8 @@
 
 Two audiences, one rule. GitHub masks registered secrets in *workflow logs*, but only the exact
 values it was given: a tenant id also appears as `contoso-my.sharepoint.com`, a mailbox also
-appears as `/personal/john_doe_example_com`, and neither is masked. Artifacts get no masking at all --
+appears as `/personal/john_doe_example_com`, and neither is masked. Artifacts get no
+masking at all --
 they are raw files in a public repository.
 
 So everything passes through here, in two deliberately overlapping layers:
@@ -24,14 +25,18 @@ import re
 
 from atlas_e2e.config import Settings
 
-_GUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+_GUID = re.compile(
+    r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
+)
 _BEARER = re.compile(r"(?i)\b(bearer\s+)[A-Za-z0-9._~+/-]{20,}=*")
 # Signed SharePoint download token: a bearer credential with site, user and scope claims.
 _TEMPAUTH = re.compile(r"(?i)([?&](?:tempauth|access_token|guestaccesstoken)=)[^&\s]+")
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 # Any tenant host, with or without a scheme: the CLI accepts `hostname:/sites/name`, and OneDrive
 # personal sites live on `<tenant>-my.sharepoint.com`. The hostname alone names the tenant.
-_SHAREPOINT_HOST = re.compile(r"(?i)\b(?:https?://)?[A-Za-z0-9-]+\.sharepoint\.com(?:[:/][^\s\"']*)?")
+_SHAREPOINT_HOST = re.compile(
+    r"(?i)\b(?:https?://)?[A-Za-z0-9-]+\.sharepoint\.com(?:[:/][^\s\"']*)?"
+)
 # Graph drive ids (`b!<base64>`) embed the site and web GUIDs.
 _DRIVE_ID = re.compile(r"\bb![A-Za-z0-9_-]{20,}")
 
@@ -49,6 +54,10 @@ def scrub(text: str, settings: Settings) -> str:
     text = _DRIVE_ID.sub("<drive-id>", text)
     text = _EMAIL.sub("<upn>", text)
     return _GUID.sub("<guid>", text)
+
+
+# Short values would match half the log: a two-character id would redact every "id".
+MIN_LITERAL_LENGTH = 8
 
 
 def _literals(settings: Settings) -> list[tuple[str, str]]:
@@ -71,6 +80,10 @@ def _literals(settings: Settings) -> list[tuple[str, str]]:
 
     # Short values would redact inside unrelated words; every real secret here is far longer.
     return sorted(
-        ((value, placeholder) for value, placeholder in literals.items() if value and len(value) >= 8),
+        (
+            (value, placeholder)
+            for value, placeholder in literals.items()
+            if value and len(value) >= MIN_LITERAL_LENGTH
+        ),
         key=lambda pair: -len(pair[0]),
     )

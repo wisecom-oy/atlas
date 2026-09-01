@@ -30,7 +30,9 @@ def test_01_seed_folder_and_message(graph: Graph, settings: Settings, run_marker
     assert probe.find_message_in_tree(graph, settings.mailbox, folder_id, message.subject)
 
 
-def test_02_initial_backup_writes_objects(cli: Cli, settings: Settings, s3: Any, run_marker: str) -> None:
+def test_02_initial_backup_writes_objects(
+    cli: Cli, settings: Settings, s3: Any, run_marker: str
+) -> None:
     """Backs up only the fixture folder and asserts real objects landed in the bucket.
 
     `-f <marker>` is mandatory: a bare backup would enumerate every mailbox in the tenant.
@@ -87,13 +89,17 @@ def test_06_incremental_backup_adds_only_the_new_message(
     owner = STATE["owner"]
     before = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
 
-    STATE["second"] = seed.create_message(graph, settings.mailbox, STATE["folder_id"], run_marker, 2)
+    STATE["second"] = seed.create_message(
+        graph, settings.mailbox, STATE["folder_id"], run_marker, 2
+    )
 
     result = cli.ok("outlook", "backup", "-m", settings.mailbox, "-f", run_marker)
     assert "Resuming incremental sync" in result.out, result.describe()
 
     after = set(storage.list_keys(s3, settings.bucket, f"data/{owner}/"))
-    assert len(after - before) == 1, f"expected exactly one new message blob, got {len(after - before)}"
+    assert len(after - before) == 1, (
+        f"expected exactly one new message blob, got {len(after - before)}"
+    )
     assert before <= after, "an incremental run must not remove existing blobs"
 
     snapshots = storage.snapshot_ids(s3, settings.bucket, owner)
@@ -110,7 +116,10 @@ def test_07_restore_recreates_a_deleted_message(
     """
     message = STATE["first"]
     probe.delete_message(graph, settings.mailbox, message.message_id)
-    assert probe.find_message_in_tree(graph, settings.mailbox, STATE["folder_id"], message.subject) is None
+    assert (
+        probe.find_message_in_tree(graph, settings.mailbox, STATE["folder_id"], message.subject)
+        is None
+    )
 
     cli.ok("outlook", "restore", "-s", STATE["snapshot"])
 
@@ -132,18 +141,24 @@ def test_08_restored_attachment_is_byte_identical(graph: Graph, settings: Settin
     body = str(restored.get("body", {}).get("content", ""))
     assert message.sentinel in body, "restored body lost its sentinel"
 
-    digest = probe.attachment_sha256(graph, settings.mailbox, str(restored["id"]), message.attachment_name)
-    assert digest == message.attachment_sha256, "restored attachment does not match the seeded bytes"
+    digest = probe.attachment_sha256(
+        graph, settings.mailbox, str(restored["id"]), message.attachment_name
+    )
+    assert digest == message.attachment_sha256, (
+        "restored attachment does not match the seeded bytes"
+    )
 
 
-def test_09_status_reports_the_backed_up_folder(cli: Cli, settings: Settings, run_marker: str) -> None:
+def test_09_status_reports_the_backed_up_folder(
+    cli: Cli, settings: Settings, run_marker: str
+) -> None:
     """`outlook status` peeks at delta state for the mailbox and names the fixture folder."""
     result = cli.ok("outlook", "status", "-m", settings.mailbox)
     assert run_marker in result.out, result.describe()
 
 
 def _owner_id(s3: Any, bucket: str) -> str:
-    """Reads the owner segment Atlas used from the manifest keys rather than assuming a normalisation."""
+    """Reads the owner segment Atlas used, rather than assuming a normalisation."""
     owners = {key.split("/")[1] for key in storage.list_keys(s3, bucket, "manifests/")}
     assert len(owners) == 1, f"expected exactly one backed-up owner, found {sorted(owners)}"
     return owners.pop()

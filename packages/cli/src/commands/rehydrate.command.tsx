@@ -28,6 +28,7 @@ import { format_bytes } from '@/command-formatters';
 import { logger, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-core';
 import type { UserIdentityResolver } from '@wisecom/atlas-types';
 import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
+import { resolve_secret_option } from '@/utils/secret-option';
 
 /**
  * Resolves an owner for recovery without touching primary storage.
@@ -81,7 +82,7 @@ export function register_rehydrate_command(
     .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--source-endpoint <url>', 'source replica S3 endpoint URL')
     .option('--source-access-key <key>', 'source replica S3 access key')
-    .option('--source-secret-key <key>', 'source replica S3 secret key')
+    .option('--source-secret-key <key>', 'source replica S3 secret key; "-" reads it from stdin')
     .option('--source-region <region>', 'source replica S3 region')
     .option('--source-config <path>', 'path to JSON file with source S3 credentials')
     .action((options: RehydrateOptions) => execute_rehydrate(get_container(), options));
@@ -205,7 +206,11 @@ function build_source(container: Container, options: RehydrateOptions): StorageT
     });
   }
 
-  if (!options.sourceEndpoint || !options.sourceAccessKey || !options.sourceSecretKey) {
+  // Resolved before the presence check so `--source-secret-key -` with empty stdin reports
+  // that, rather than the misleading "credentials required" (issue #256).
+  const source_secret_key = resolve_secret_option(options.sourceSecretKey, '--source-secret-key');
+
+  if (!options.sourceEndpoint || !options.sourceAccessKey || !source_secret_key) {
     throw new Error(
       'Source credentials required: provide --source-endpoint, --source-access-key, --source-secret-key ' +
         'or --source-config <path>',
@@ -215,7 +220,7 @@ function build_source(container: Container, options: RehydrateOptions): StorageT
   return create_storage_target({
     s3_endpoint: options.sourceEndpoint,
     s3_access_key: options.sourceAccessKey,
-    s3_secret_key: options.sourceSecretKey,
+    s3_secret_key: source_secret_key,
     ...(options.sourceRegion !== undefined ? { s3_region: options.sourceRegion } : {}),
     encryption_passphrase: config.encryption_passphrase,
   });

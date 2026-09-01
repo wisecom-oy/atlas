@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from atlas_e2e.graph import Graph, GraphError
+from atlas_e2e.graph import HTTP_ERROR_FLOOR, Graph, GraphError
 
 log = logging.getLogger(__name__)
 
@@ -121,17 +121,21 @@ def ensure_fixture_folder(graph: Graph, drive_id: str, marker: str) -> None:
 
 
 def seed_fixture_file(graph: Graph, drive_id: str, marker: str, versions: int = 1) -> SeededFile:
-    """Seeds `E2E/<marker>/<marker>-file.bin` with `versions` successive versions; newest returned."""
+    """Seeds `E2E/<marker>/<marker>-file.bin` with `versions` versions; newest returned."""
     ensure_fixture_folder(graph, drive_id, marker)
     folder = fixture_folder(marker)
     seeded: SeededFile | None = None
     for _ in range(versions):
-        seeded = upload_file(graph, drive_id, folder, f"{marker}-file.bin", os.urandom(FIXTURE_BYTES))
+        seeded = upload_file(
+            graph, drive_id, folder, f"{marker}-file.bin", os.urandom(FIXTURE_BYTES)
+        )
     assert seeded is not None
     return seeded
 
 
-def upload_large_file(graph: Graph, drive_id: str, folder: str, name: str, content: bytes) -> SeededFile:
+def upload_large_file(
+    graph: Graph, drive_id: str, folder: str, name: str, content: bytes
+) -> SeededFile:
     """Uploads a file above Graph's 4 MB simple-upload cap through an upload session.
 
     Any fixture that crosses the product's 4 MB thresholds also crosses Graph's own, so
@@ -161,10 +165,14 @@ def upload_large_file(graph: Graph, drive_id: str, folder: str, name: str, conte
 
 
 def seed_large_fixture_file(graph: Graph, drive_id: str, marker: str) -> SeededFile:
-    """Seeds `E2E/<marker>/<marker>-large.bin` at 5 MB, above every 4 MB code path in the product."""
+    """Seeds `E2E/<marker>/<marker>-large.bin` at 5 MB, above every 4 MB code path."""
     ensure_fixture_folder(graph, drive_id, marker)
     return upload_large_file(
-        graph, drive_id, fixture_folder(marker), f"{marker}-large.bin", os.urandom(LARGE_FIXTURE_BYTES)
+        graph,
+        drive_id,
+        fixture_folder(marker),
+        f"{marker}-large.bin",
+        os.urandom(LARGE_FIXTURE_BYTES),
     )
 
 
@@ -180,7 +188,7 @@ def read_file(graph: Graph, drive_id: str, path: str) -> bytes | None:
     item is a few hundred bytes.
     """
     response = graph.request("GET", f"/drives/{drive_id}/root:{path}")
-    if response.status_code >= 400:
+    if response.status_code >= HTTP_ERROR_FLOOR:
         log.info("Drive item %s unavailable: HTTP %s", path, response.status_code)
         return None
     url = response.json().get("@microsoft.graph.downloadUrl")
@@ -204,7 +212,9 @@ def delete_item(graph: Graph, drive_id: str, item_id: str) -> None:
 def children(graph: Graph, drive_id: str, folder: str) -> list[dict[str, Any]]:
     """Direct children of a drive folder; empty when the folder does not exist."""
     try:
-        return list(graph.paged(f"/drives/{drive_id}/root:/{folder}:/children", **{"$select": "id,name"}))
+        return list(
+            graph.paged(f"/drives/{drive_id}/root:/{folder}:/children", **{"$select": "id,name"})
+        )
     except Exception:  # noqa: BLE001 - absent folder is a normal outcome for a probe
         return []
 
@@ -219,7 +229,10 @@ def fixture_items(graph: Graph, drive_id: str, prefix: str) -> list[dict[str, An
     """
     select = {"$select": "id,name,createdDateTime"}
     marked: list[dict[str, Any]] = []
-    for path in (f"/drives/{drive_id}/root:/{FIXTURE_ROOT}:/children", f"/drives/{drive_id}/root/children"):
+    for path in (
+        f"/drives/{drive_id}/root:/{FIXTURE_ROOT}:/children",
+        f"/drives/{drive_id}/root/children",
+    ):
         try:
             marked.extend(
                 i for i in graph.paged(path, **select) if str(i.get("name", "")).startswith(prefix)
@@ -227,3 +240,27 @@ def fixture_items(graph: Graph, drive_id: str, prefix: str) -> list[dict[str, An
         except GraphError as err:
             log.debug("Could not list %s: %s", path, err)
     return marked
+
+
+def restore_roots_containing(graph: Graph, drive_id: str, marker: str) -> list[dict[str, Any]]:
+    """Drive-root `Restore-*` folders holding this run's fixture tree.
+
+    A restore that takes the default destination writes `/Restore-<timestamp>/E2E/<marker>/...` at
+    the drive root, outside the marker namespace `fixture_items` scans, so nothing deleted it and
+    every nightly run left an empty tree behind. The root carries no marker of ours, so ownership is
+    decided by a marked child, never by the name alone: an operator's own restore must survive.
+    """
+    roots: list[dict[str, Any]] = []
+    try:
+        top = list(graph.paged(f"/drives/{drive_id}/root/children", **{"$select": "id,name"}))
+    except GraphError as err:
+        log.debug("Could not list drive root: %s", err)
+        return roots
+    for item in top:
+        name = str(item.get("name", ""))
+        if not name.startswith("Restore-"):
+            continue
+        inner = children(graph, drive_id, f"{name}/{FIXTURE_ROOT}")
+        if any(marker in str(c.get("name", "")) for c in inner):
+            roots.append(item)
+    return roots
