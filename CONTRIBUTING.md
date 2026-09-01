@@ -80,9 +80,12 @@ label it before it is merged.
 - **`## Changes`**: concrete bullets, one per thing you changed.
 - **`## Checklist`**: tick what you actually ran.
 
-Extra sections below those are welcome, and a larger PR usually wants one for
-evidence or for the option it did not take. Delete the template's HTML comments
-and placeholder bullets rather than leaving them in.
+`Summary` and `Changes` are the enforced minimum, and a PR is blocked without
+them. The `Checklist` is for you, so nothing fails a PR that drops it, but a
+reviewer reads a ticked box as a command you ran. Extra sections below those are
+welcome, and a larger PR usually wants one for evidence or for the option it did
+not take. Delete every one of the template's HTML comments, including the one
+above `## Summary`, along with its placeholder bullets.
 
 Write it in the first person and keep it factual. Claim only what you ran, name
 what you did not verify, and follow the same prose rules as the docs: no em
