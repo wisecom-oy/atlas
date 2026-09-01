@@ -1,6 +1,6 @@
 # Getting Started
 
-Install the CLI, point it at storage and a tenant, run a backup. Node.js 22 or later is required.
+Install the CLI, point it at storage and a tenant, run a backup. Node.js 22.8 or later is required.
 
 ## Installation
 

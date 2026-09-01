@@ -8,7 +8,7 @@
  * tracking already carries per-operation state (`graph-request-context.ts`).
  *
  * No scope active means no host has asked for anything, which is the CLI: the
- * logger keeps writing chalk lines to the console exactly as before.
+ * logger keeps writing coloured lines to the console exactly as before.
  *
  * @see issue #41
  */
