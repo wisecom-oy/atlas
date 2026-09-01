@@ -14,9 +14,10 @@ const sonarjs_code_smell_rules = {
 };
 
 /**
- * Structural conventions from `.claude/CLAUDE.md` that are not covered by the
- * filename, naming, or file-length rules. Staged as `warn` until the existing
- * hits are fixed, then promoted to `error`.
+ * Structural conventions from `.claude/CLAUDE.md` that nothing checked before.
+ * Folder naming is an error because the tree is already clean. The
+ * relative-import and function-length rules are warnings until their existing
+ * hits are fixed, then they are promoted to errors too.
  */
 const structural_convention_rules = {
   'no-restricted-imports': [
