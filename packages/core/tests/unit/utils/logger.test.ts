@@ -1,97 +1,114 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { logger } from '../../../src/utils/logger';
-describe('logger', () => {
-  describe('piped output (non-TTY)', () => {
-    let originalStdoutWrite: typeof process.stdout.write;
-    let originalStderrWrite: typeof process.stderr.write;
-    let stdoutOutput: string = '';
-    let stderrOutput: string = '';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { logger } from '@/utils/logger';
 
+const ANSI = /\x1b\[/;
+
+/** Colour env vars `styleText` reads, which turbo and CI both set. */
+const COLOUR_ENV = ['FORCE_COLOR', 'NO_COLOR', 'NODE_DISABLE_COLORS'] as const;
+
+describe('logger colour handling', () => {
+  let stdout: string[];
+  let stderr: string[];
+
+  let colour_env: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    colour_env = Object.fromEntries(COLOUR_ENV.map((key) => [key, process.env[key]]));
+
+    const to_stdout = (...args: unknown[]): void => {
+      stdout.push(args.join(' '));
+    };
+    const to_stderr = (...args: unknown[]): void => {
+      stderr.push(args.join(' '));
+    };
+
+    vi.spyOn(console, 'log').mockImplementation(to_stdout);
+    vi.spyOn(console, 'debug').mockImplementation(to_stdout);
+    vi.spyOn(console, 'warn').mockImplementation(to_stderr);
+    vi.spyOn(console, 'error').mockImplementation(to_stderr);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const [key, value] of Object.entries(colour_env)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    delete process.env['DEBUG'];
+  });
+
+  // Vitest pipes stdout and stderr, so this is the redirected-output case: it
+  // pins the contract that a redirected log file gets plain text and the same
+  // visible glyphs as before. It cannot isolate a dropped `stream` option,
+  // because `styleText` defaults that option to `process.stdout`, which is also
+  // piped here. The `out`/`err` helpers in logger.ts are what make omitting the
+  // stream unrepresentable.
+  describe('piped output', () => {
     beforeEach(() => {
-      stdoutOutput = '';
-      stderrOutput = '';
-
-      // Mock process.stdout and process.stderr for non-TTY
-      originalStdoutWrite = process.stdout.write;
-      originalStderrWrite = process.stderr.write;
-
-      // Simulate piped output by setting isTTY to false and capturing writes
-      Object.defineProperty(process.stdout, 'isTTY', {
-        writable: true,
-        configurable: true,
-        value: false,
-      });
-      Object.defineProperty(process.stderr, 'isTTY', {
-        writable: true,
-        configurable: true,
-        value: false,
-      });
-
-      process.stdout.write = ((text: string) => {
-        stdoutOutput += text;
-        return true;
-      }) as any;
-
-      process.stderr.write = ((text: string) => {
-        stderrOutput += text;
-        return true;
-      }) as any;
-
-      // Mock console methods
-      vi.spyOn(console, 'log').mockImplementation((args: any) => {
-        if (typeof args === 'string') {
-          stdoutOutput += args;
-        }
-      });
-      vi.spyOn(console, 'warn').mockImplementation((args: any) => {
-        if (typeof args === 'string') {
-          stderrOutput += args;
-        }
-      });
-      vi.spyOn(console, 'error').mockImplementation((args: any) => {
-        if (typeof args === 'string') {
-          stderrOutput += args;
-        }
-      });
-      vi.spyOn(console, 'debug').mockImplementation((args: any) => {
-        if (typeof args === 'string') {
-          stdoutOutput += args;
-        }
-      });
+      // Turbo sets NO_COLOR. Clearing it leaves the non-TTY stream as the only
+      // reason colour is dropped, so these assertions describe piping.
+      delete process.env['NO_COLOR'];
+      delete process.env['NODE_DISABLE_COLORS'];
     });
 
-    afterEach(() => {
-      process.stdout.write = originalStdoutWrite;
-      process.stderr.write = originalStderrWrite;
-      vi.restoreAllMocks();
+    it('emits no ANSI on any level', () => {
+      process.env['DEBUG'] = '1';
+
+      logger.info('info line');
+      logger.success('success line');
+      logger.warn('warn line');
+      logger.error('error line');
+      logger.debug('debug line');
+      logger.banner('Atlas');
+
+      expect(stdout.join('\n')).not.toMatch(ANSI);
+      expect(stderr.join('\n')).not.toMatch(ANSI);
     });
 
-    it('logs without ANSI codes when piped', () => {
-      logger.info('test message');
-      expect(console.log).toHaveBeenCalled();
+    it('keeps the visible text intact', () => {
+      logger.info('hello');
+      logger.success('done');
+      logger.warn('careful');
+      logger.error('broken');
 
-      // Verify no ANSI escape sequences in the logged content
-      const logCall = vi.mocked(console.log).mock.calls[0];
-      const loggedText = logCall.join('');
-      expect(loggedText).not.toMatch(/\x1b\[/);
+      expect(stdout).toEqual(['[*] hello', '[+] done']);
+      expect(stderr).toEqual(['[!] careful', '[x] broken']);
     });
 
-    it('respects NO_COLOR environment variable', () => {
-      const originalNoColor = process.env['NO_COLOR'];
-      process.env['NO_COLOR'] = '1';
+    it('renders the banner rule to match the text width', () => {
+      logger.banner('Atlas');
+      expect(stdout).toEqual(['-----------', '-- Atlas --', '-----------']);
+    });
+  });
 
-      try {
-        logger.info('test message');
-        const logCall = vi.mocked(console.log).mock.calls[0];
-        const loggedText = logCall.join('');
-        expect(loggedText).not.toMatch(/\x1b\[/);
-      } finally {
-        if (originalNoColor === undefined) {
-          delete process.env['NO_COLOR'];
-        } else {
-          process.env['NO_COLOR'] = originalNoColor;
-        }
-      }
+  // Positive control. Without this, the assertions above would still pass if
+  // the swap had disabled colour everywhere.
+  describe('forced colour', () => {
+    beforeEach(() => {
+      // FORCE_COLOR overrides NO_COLOR but warns when both are set, so clear it.
+      delete process.env['NO_COLOR'];
+      delete process.env['NODE_DISABLE_COLORS'];
+      process.env['FORCE_COLOR'] = '1';
+    });
+
+    it('colours stdout levels', () => {
+      logger.info('info line');
+      logger.success('success line');
+      expect(stdout.join('\n')).toMatch(ANSI);
+    });
+
+    it('colours stderr levels', () => {
+      logger.warn('warn line');
+      logger.error('error line');
+      expect(stderr.join('\n')).toMatch(ANSI);
+    });
+
+    it('applies both bold and white to the banner text', () => {
+      logger.banner('Atlas');
+      expect(stdout.join('\n')).toContain('\x1b[1m');
+      expect(stdout.join('\n')).toContain('\x1b[37m');
     });
   });
 });

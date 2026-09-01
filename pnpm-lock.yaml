@@ -156,9 +156,6 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
-      chalk:
-        specifier: ^5.6.2
-        version: 5.6.2
       dotenv:
         specifier: ^17.3.1
         version: 17.4.2
@@ -280,9 +277,6 @@ importers:
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
-      chalk:
-        specifier: ^5.6.2
-        version: 5.6.2
       dotenv:
         specifier: ^17.3.1
         version: 17.4.2
