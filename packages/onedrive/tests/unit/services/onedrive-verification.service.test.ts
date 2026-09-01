@@ -10,7 +10,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
-import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
+import { OneDriveVerificationService } from '@/services/verification/verification.service';
 
 /** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
 type Overrides<T> = { [K in keyof T]?: T[K] | undefined };

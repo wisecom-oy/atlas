@@ -14,8 +14,8 @@ import {
   process_delta_item,
   type DriveTrackingState,
   type VersionStats,
-} from '@/services/onedrive-delta-item-processor';
-import type { RunVersionCollector } from '@/services/onedrive-version-sync';
+} from '@/services/backup/delta-item-processor';
+import type { RunVersionCollector } from '@/services/versioning/version-sync';
 
 function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaItem {
   return {

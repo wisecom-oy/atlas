@@ -6,7 +6,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { SharePointStatusService } from '@/services/status/sharepoint-status.service';
+import { SharePointStatusService } from '@/services/status/status.service';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID =

@@ -11,8 +11,8 @@ import {
   sharepoint_index_prefix,
   sharepoint_run_index_key,
   validate_key_segment,
-} from '@/services/sharepoint-storage-keys';
-import { later_watermark } from '@/services/sharepoint-version-watermark';
+} from '@/services/shared/storage-keys';
+import { later_watermark } from '@/services/versioning/version-watermark';
 
 /** Payload of one run's version index object. */
 interface RunIndexPayload {

@@ -8,7 +8,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { SharePointCatalogService } from '@/services/sharepoint-catalog.service';
+import { SharePointCatalogService } from '@/services/catalog/catalog.service';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID = 'site-abc';

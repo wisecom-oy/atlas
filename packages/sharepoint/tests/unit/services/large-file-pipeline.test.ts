@@ -8,10 +8,10 @@ import type {
 } from '@wisecom/atlas-types';
 
 const chunk_mocks = vi.hoisted(() => ({ fetch_file_chunks: vi.fn() }));
-vi.mock('@/services/sharepoint-large-file-chunk-download', () => chunk_mocks);
+vi.mock('@/services/backup/large-file-chunk-download', () => chunk_mocks);
 
 const { cleanup_stale_staging, process_large_file } =
-  await import('@/services/sharepoint-large-file-pipeline');
+  await import('@/services/backup/large-file-pipeline');
 
 const KEY = randomBytes(32);
 const SITE = 'site-1';

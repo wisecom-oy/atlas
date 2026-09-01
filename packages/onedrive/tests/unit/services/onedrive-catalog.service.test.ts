@@ -7,7 +7,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OneDriveCatalogService } from '@/services/onedrive-catalog.service';
+import { OneDriveCatalogService } from '@/services/catalog/catalog.service';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = 'owner-abc';

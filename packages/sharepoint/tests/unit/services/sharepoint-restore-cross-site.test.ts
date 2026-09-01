@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
-import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
+import { SharePointRestoreService } from '@/services/restore/restore.service';
 import {
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
@@ -16,7 +16,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 
-vi.mock('@/services/sharepoint-restore-streaming', () => ({
+vi.mock('@/services/restore/restore-streaming', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
   stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),

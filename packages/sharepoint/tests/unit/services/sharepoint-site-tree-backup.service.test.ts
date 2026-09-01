@@ -6,7 +6,7 @@ import type {
   SharePointSite,
   SharePointSiteConnector,
 } from '@wisecom/atlas-types';
-import { SharePointSiteTreeBackupService } from '@/services/sharepoint-site-tree-backup.service';
+import { SharePointSiteTreeBackupService } from '@/services/backup/site-tree-backup.service';
 
 function site(id: string): SharePointSite {
   return { site_id: id, site_url: `https://contoso.sharepoint.com/sites/${id}`, display_name: id };

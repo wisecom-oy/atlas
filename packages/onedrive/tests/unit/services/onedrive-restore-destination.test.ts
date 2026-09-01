@@ -15,7 +15,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
+import { OneDriveRestoreService } from '@/services/restore/restore.service';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');

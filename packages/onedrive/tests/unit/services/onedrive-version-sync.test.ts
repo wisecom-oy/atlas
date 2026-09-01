@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@wisecom/atlas-types';
-import { sync_file_versions } from '@/services/onedrive-version-sync';
+import { sync_file_versions } from '@/services/versioning/version-sync';
 
 function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaItem {
   return {

@@ -7,12 +7,12 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { SharePointBackupService } from '@/services/sharepoint-backup.service';
-import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
-import { SharePointSaveService } from '@/services/sharepoint-save.service';
-import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
+import { SharePointBackupService } from '@/services/backup/backup.service';
+import { SharePointRestoreService } from '@/services/restore/restore.service';
+import { SharePointSaveService } from '@/services/save/save.service';
+import { SharePointVerificationService } from '@/services/verification/verification.service';
 
-vi.mock('@/services/sharepoint-restore-streaming', () => ({
+vi.mock('@/services/restore/restore-streaming', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
   stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),

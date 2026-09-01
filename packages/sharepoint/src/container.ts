@@ -18,14 +18,14 @@ import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.
 import { S3SharePointManifestRepository } from '@/adapters/s3-sharepoint-manifest-repository.adapter';
 import { S3SharePointDeltaCursorRepository } from '@/adapters/s3-sharepoint-delta-cursor-repository.adapter';
 import { S3SharePointFileVersionIndexRepository } from '@/adapters/s3-sharepoint-file-version-index-repository.adapter';
-import { SharePointBackupService } from '@/services/sharepoint-backup.service';
-import { SharePointSiteTreeBackupService } from '@/services/sharepoint-site-tree-backup.service';
-import { SharePointVerificationService } from '@/services/sharepoint-verification.service';
-import { SharePointRestoreService } from '@/services/sharepoint-restore.service';
-import { SharePointSaveService } from '@/services/sharepoint-save.service';
-import { SharePointVersionRestoreService } from '@/services/sharepoint-version-restore.service';
-import { SharePointCatalogService } from '@/services/sharepoint-catalog.service';
-import { SharePointStatusService } from '@/services/status/sharepoint-status.service';
+import { SharePointBackupService } from '@/services/backup/backup.service';
+import { SharePointSiteTreeBackupService } from '@/services/backup/site-tree-backup.service';
+import { SharePointVerificationService } from '@/services/verification/verification.service';
+import { SharePointRestoreService } from '@/services/restore/restore.service';
+import { SharePointSaveService } from '@/services/save/save.service';
+import { SharePointVersionRestoreService } from '@/services/restore/version-restore.service';
+import { SharePointCatalogService } from '@/services/catalog/catalog.service';
+import { SharePointStatusService } from '@/services/status/status.service';
 
 /** Registers SharePoint-specific DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_sharepoint(container: Container): void {

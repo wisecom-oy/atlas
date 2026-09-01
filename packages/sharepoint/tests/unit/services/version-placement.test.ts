@@ -4,7 +4,7 @@ import type { SharePointFileVersionRecord } from '@wisecom/atlas-types';
 import {
   build_restored_file_name,
   split_parent_path,
-} from '@/services/sharepoint-version-placement';
+} from '@/services/versioning/version-placement';
 
 function version(
   overrides: Overrides<SharePointFileVersionRecord> = {},

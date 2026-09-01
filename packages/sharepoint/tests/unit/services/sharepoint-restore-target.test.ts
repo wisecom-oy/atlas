@@ -3,7 +3,7 @@ import type { SharePointDocumentLibrary } from '@wisecom/atlas-types';
 import {
   describe_unresolved_destination,
   resolve_destination_library,
-} from '@/services/sharepoint-restore-target';
+} from '@/services/restore/restore-target';
 
 function lib(drive_id: string, drive_name: string): SharePointDocumentLibrary {
   return { drive_id, drive_name };

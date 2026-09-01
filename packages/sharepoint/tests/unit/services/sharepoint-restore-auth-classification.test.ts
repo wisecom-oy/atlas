@@ -4,7 +4,7 @@ import type { SharePointManifestEntry, TenantContext } from '@wisecom/atlas-type
 import {
   download_and_decrypt,
   SharePointDecryptAuthError,
-} from '@/services/sharepoint-restore-content';
+} from '@/services/restore/restore-content';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },

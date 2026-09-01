@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { clear_file_tracking_on_reset } from '@/services/sharepoint-backup-library-processor';
-import type { FileTrackingState } from '@/services/sharepoint-library-item-processor';
-import { classify_change_type } from '@/services/sharepoint-change-classifier';
+import { clear_file_tracking_on_reset } from '@/services/backup/backup-library-processor';
+import type { FileTrackingState } from '@/services/backup/library-item-processor';
+import { classify_change_type } from '@/services/backup/change-classifier';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 
 /**

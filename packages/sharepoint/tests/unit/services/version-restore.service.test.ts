@@ -10,7 +10,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
-import { SharePointVersionRestoreService } from '@/services/sharepoint-version-restore.service';
+import { SharePointVersionRestoreService } from '@/services/restore/version-restore.service';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID =

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import type { OneDriveFileVersionRecord } from '@wisecom/atlas-types';
-import { build_restored_file_name, split_parent_path } from '@/services/onedrive-version-placement';
+import {
+  build_restored_file_name,
+  split_parent_path,
+} from '@/services/versioning/version-placement';
 
 function version(overrides: Overrides<OneDriveFileVersionRecord> = {}): OneDriveFileVersionRecord {
   return apply_overrides<OneDriveFileVersionRecord>(

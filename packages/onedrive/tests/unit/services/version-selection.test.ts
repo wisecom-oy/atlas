@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import type { OneDriveFileVersionIndex, OneDriveFileVersionRecord } from '@wisecom/atlas-types';
-import { select_versions_to_restore } from '@/services/onedrive-version-selection';
+import { select_versions_to_restore } from '@/services/versioning/version-selection';
 
 const OWNER = 'owner-1';
 const ATTACK = new Date('2026-03-10T00:00:00Z');

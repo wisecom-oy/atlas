@@ -7,8 +7,8 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
-import { resolve_retry_items } from '@/services/onedrive-failed-item-retry';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { resolve_retry_items } from '@/services/backup/failed-item-retry';
 
 // Issue #34: one persistently failing file must not freeze a drive's delta
 // cursor. The run keeps its successful entries, advances the delta link, and

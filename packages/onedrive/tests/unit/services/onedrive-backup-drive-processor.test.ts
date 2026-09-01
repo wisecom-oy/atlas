@@ -6,12 +6,12 @@ import type {
   OneDriveDrive,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { process_delta_item } from '@/services/onedrive-delta-item-processor';
-import { scan_all_drives } from '@/services/onedrive-backup-drive-processor';
-import type { RunVersionCollector } from '@/services/onedrive-version-sync';
+import { process_delta_item } from '@/services/backup/delta-item-processor';
+import { scan_all_drives } from '@/services/backup/backup-drive-processor';
+import type { RunVersionCollector } from '@/services/versioning/version-sync';
 
 const EMPTY_VERSIONS: RunVersionCollector = { watermarks: {}, rows: new Map() };
-vi.mock('@/services/onedrive-delta-item-processor', () => ({
+vi.mock('@/services/backup/delta-item-processor', () => ({
   clear_file_tracking_on_reset: vi.fn(),
   process_delta_item: vi.fn(),
 }));

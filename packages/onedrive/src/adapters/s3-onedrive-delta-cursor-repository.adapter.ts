@@ -4,7 +4,7 @@ import type {
   OneDriveDeltaCursorRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { onedrive_delta_cursor_key } from '@/services/onedrive-storage-keys';
+import { onedrive_delta_cursor_key } from '@/services/shared/storage-keys';
 
 /** Persists the delta sync cursor (delta links + change tracking state) in S3. */
 @injectable()

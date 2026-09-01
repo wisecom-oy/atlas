@@ -7,8 +7,8 @@ import type {
   SharePointFileVersion,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { LARGE_FILE_THRESHOLD } from '@/services/sharepoint-large-file-pipeline';
-import { sync_file_versions } from '@/services/sharepoint-version-sync';
+import { LARGE_FILE_THRESHOLD } from '@/services/backup/large-file-pipeline';
+import { sync_file_versions } from '@/services/versioning/version-sync';
 
 const KEY = randomBytes(32);
 

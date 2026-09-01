@@ -13,8 +13,8 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { is_within_folder_scope, normalize_folder_scope } from '@/services/onedrive-folder-scope';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { is_within_folder_scope, normalize_folder_scope } from '@/services/backup/folder-scope';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 const DRIVE_ID = 'd1';
 const OWNER_ID = 'owner-1';

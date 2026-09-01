@@ -4,7 +4,7 @@ import {
   graph_onedrive_upload_large_file,
   graph_onedrive_upload_small_file,
 } from '@/adapters/graph-onedrive-restore.adapter';
-import { build_stored_entry } from '@/services/onedrive-backup-builders';
+import { build_stored_entry } from '@/services/backup/backup-builders';
 
 const FILE_SYSTEM_INFO = {
   createdDateTime: '2019-03-04T10:00:00Z',

@@ -19,8 +19,8 @@ import {
   type FileTrackingState,
   type LibraryProcessingState,
   type VersionStatsState,
-} from '@/services/sharepoint-library-item-processor';
-import type { RunVersionCollector } from '@/services/sharepoint-version-sync';
+} from '@/services/backup/library-item-processor';
+import type { RunVersionCollector } from '@/services/versioning/version-sync';
 
 function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDeltaItem {
   return {

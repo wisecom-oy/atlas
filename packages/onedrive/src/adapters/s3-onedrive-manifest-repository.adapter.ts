@@ -8,7 +8,7 @@ import {
   onedrive_manifest_key,
   onedrive_manifest_prefix,
   onedrive_manifest_root_prefix,
-} from '@/services/onedrive-storage-keys';
+} from '@/services/shared/storage-keys';
 
 class InvalidOneDriveManifestDateError extends Error {
   constructor(readonly storage_key: string) {
