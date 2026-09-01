@@ -78,13 +78,20 @@ Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint
 | Rule                                                 | Enforced by                            |
 | ---------------------------------------------------- | -------------------------------------- |
 | `kebab-case` file names                              | `eslint-plugin-check-file`             |
+| `kebab-case` folder names                            | `eslint-plugin-check-file`             |
 | `snake_case` variables, parameters, properties       | `@typescript-eslint/naming-convention` |
 | `PascalCase` types, classes, interfaces              | `@typescript-eslint/naming-convention` |
 | `UPPER_CASE` enum members                            | `@typescript-eslint/naming-convention` |
 | Max 300 effective lines per file                     | `max-lines` ESLint rule                |
+| Max 80 effective lines per function (warning)        | `max-lines-per-function` ESLint rule   |
 | Single quotes, trailing commas, 100-char print width | Prettier                               |
-| `@/` path aliases (no relative imports)              | `tsconfig.json` paths                  |
+| `@/` path aliases, no relative imports (warning)     | `no-restricted-imports` ESLint rule    |
 | JSDoc on all exported functions                      | Convention                             |
+
+Two rules are staged as warnings because the codebase still has existing hits:
+194 relative imports and 16 oversized functions. They move to errors once those
+are cleared, so a new violation shows up in the lint output of the PR that
+introduces it rather than being silently accepted.
 
 **SDK exception:** Files under `src/sdk.ts`, `src/ports/atlas/`, and `src/adapters/sdk/` use standard ES6 `camelCase` naming to provide a familiar interface for external consumers. This is configured as an ESLint override.
 
