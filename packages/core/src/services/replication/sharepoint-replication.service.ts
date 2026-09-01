@@ -6,7 +6,6 @@ import {
   copy_drive_snapshot_into_context,
   copy_drive_snapshot_to_target,
 } from '@/services/replication/drive-snapshot-copier';
-import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
 import type {
   SharePointManifestRepository,
@@ -24,20 +23,20 @@ import {
 } from '@wisecom/atlas-types';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
-import {
-  rehydrate_manifests,
-  type RehydrationPlan,
-} from '@/services/replication/rehydration-manifests-runner';
+import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
+import { build_drive_rehydration_plan } from '@/services/replication/drive-rehydration-plan';
 import {
   build_skip_result,
   merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
+import { create_primary_target } from '@/services/replication/primary-target-factory';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 
 import {
   to_drive_status_record,
   collect_drive_ancillary_keys,
+  group_manifests_by_owner,
   diff_drive_manifests,
 } from '@/services/replication/drive-replication-result';
 import {
@@ -168,14 +167,15 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     site_id = normalize_owner_id(site_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const manifest = await this.require_sharepoint_manifest_from_ctx(
+      const manifest = await this.require_sharepoint_manifest(
         source_ctx,
         site_id,
         snapshot_id,
+        'source',
       );
       const manifest_key = drive_manifest_key(SHAREPOINT_REPLICATION, manifest);
 
@@ -211,7 +211,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     site_id = normalize_owner_id(site_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
@@ -241,17 +241,12 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
 
   /** DR: recover every SharePoint site's snapshots from a replica. */
   async rehydrate_all_sites(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
       const all = await this._sharepoint_manifests.list_all_manifests(source_ctx);
-      const by_site = new Map<string, SharePointSnapshotManifest[]>();
-      for (const manifest of all) {
-        const bucket = by_site.get(manifest.site_id);
-        if (bucket) bucket.push(manifest);
-        else by_site.set(manifest.site_id, [manifest]);
-      }
+      const by_site = group_manifests_by_owner(SHAREPOINT_REPLICATION, all);
 
       const results: ReplicationResult[] = [];
       for (const [site_id, manifests] of by_site) {
@@ -297,14 +292,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     source: StorageTarget,
     tenant_id: string,
   ): Promise<ReplicationResult> {
-    const plan: RehydrationPlan<SharePointSnapshotManifest> = {
-      manifest_key: (manifest) => drive_manifest_key(SHAREPOINT_REPLICATION, manifest),
-      replicate: (source_context, primary, manifest, manifest_key) =>
-        replicate_drive_snapshot_objects(source_context, primary, manifest, manifest_key, {
-          skip_marker: true,
-          ancillary_keys,
-        }),
-    };
+    const plan = build_drive_rehydration_plan(SHAREPOINT_REPLICATION, ancillary_keys);
     return rehydrate_manifests(
       source_ctx,
       primary_ctx,
@@ -317,38 +305,25 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     );
   }
 
+  /** Loads a SharePoint manifest, naming the replica in the error when the lookup ran there. */
   private async require_sharepoint_manifest(
     ctx: TenantContext,
     site_id: string,
     snapshot_id: string,
+    location?: 'source',
   ): Promise<SharePointSnapshotManifest> {
-    const m = await this._sharepoint_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
-    if (!m)
-      throw new Error(`No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id}`);
-    return m;
-  }
-
-  private async require_sharepoint_manifest_from_ctx(
-    ctx: TenantContext,
-    site_id: string,
-    snapshot_id: string,
-  ): Promise<SharePointSnapshotManifest> {
-    const m = await this._sharepoint_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
-    if (!m) {
+    const manifest = await this._sharepoint_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
+    if (!manifest) {
+      const where = location === 'source' ? ' on source' : '';
       throw new Error(
-        `No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id} on source`,
+        `No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id}${where}`,
       );
     }
-    return m;
+    return manifest;
   }
 
-  private create_primary_target(): StorageTarget {
-    return this._target_factory({
-      s3_endpoint: this._config.s3_endpoint,
-      s3_access_key: this._config.s3_access_key,
-      s3_secret_key: this._config.s3_secret_key,
-      s3_region: this._config.s3_region,
-      encryption_passphrase: this._config.encryption_passphrase,
-    });
+  /** The primary bucket as a storage target. */
+  private primary_target(): StorageTarget {
+    return create_primary_target(this._target_factory, this._config);
   }
 }

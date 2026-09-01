@@ -69,3 +69,18 @@ export async function diff_drive_manifests<TManifest extends DriveManifestShape>
   );
   return source.filter((m) => !ids.has(m.snapshot_id));
 }
+
+/** Buckets manifests by their owning segment, so each owner is rehydrated as one unit. */
+export function group_manifests_by_owner<TManifest>(
+  descriptor: DriveReplicationDescriptor<TManifest>,
+  manifests: TManifest[],
+): Map<string, TManifest[]> {
+  const by_owner = new Map<string, TManifest[]>();
+  for (const manifest of manifests) {
+    const owner_id = descriptor.owner_id_of(manifest);
+    const bucket = by_owner.get(owner_id);
+    if (bucket) bucket.push(manifest);
+    else by_owner.set(owner_id, [manifest]);
+  }
+  return by_owner;
+}
