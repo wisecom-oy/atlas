@@ -22,7 +22,8 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { load_sharepoint_chain_entries } from '@/services/shared/manifest-chain';
+import { sharepoint_manifest_lookup } from '@/services/shared/manifest-lookup';
+import { load_drive_chain_entries } from '@wisecom/atlas-drive/shared/manifest-chain';
 
 /** Verifies SharePoint snapshot blobs against manifest checksums and index consistency. */
 @injectable()
@@ -59,8 +60,8 @@ export class SharePointVerificationService implements SharePointVerificationUseC
       // The chain, not the single manifest: a snapshot inherits every file that last changed in an
       // earlier run, and verifying only the target would report those as checked when they were
       // never looked at (issue #173).
-      const { manifest, entries } = await load_sharepoint_chain_entries(
-        this._manifests,
+      const { manifest, entries } = await load_drive_chain_entries(
+        sharepoint_manifest_lookup(this._manifests),
         ctx,
         site_id,
         snapshot_id,

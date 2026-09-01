@@ -1,6 +1,6 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_retryable_error, is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
-import type { SharePointSiteConnector, SharePointDeltaItem } from '@wisecom/atlas-types';
+import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 2_000;
@@ -21,8 +21,8 @@ export interface DownloadRetryOptions {
  * permission into a per-file retry storm reported as a skipped file (issue #246).
  */
 export async function download_with_retry(
-  connector: SharePointSiteConnector,
-  item: SharePointDeltaItem,
+  connector: DriveContentConnector,
+  item: DriveDeltaItem,
   options: DownloadRetryOptions = {},
 ): Promise<Buffer | undefined> {
   const max_attempts = options.max_attempts ?? DEFAULT_MAX_ATTEMPTS;
@@ -38,7 +38,7 @@ export async function download_with_retry(
 
       if (is_last || !is_retryable_error(err)) {
         logger.warn(
-          `Skipping SharePoint file ${item.item_id} (${item.file_name}) ` +
+          `Skipping drive file ${item.item_id} (${item.file_name}) ` +
             `after ${attempt} attempt(s): ${reason}`,
         );
         return undefined;

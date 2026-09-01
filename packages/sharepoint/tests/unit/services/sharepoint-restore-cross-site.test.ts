@@ -16,7 +16,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 
-vi.mock('@/services/restore/restore-streaming', () => ({
+vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
   stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),

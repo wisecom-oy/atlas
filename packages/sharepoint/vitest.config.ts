@@ -41,6 +41,8 @@ function atlas_workspace_at_alias(): Plugin {
   };
 }
 
+const drive_src = resolve(root_dir, '../drive/src');
+
 export default defineConfig({
   plugins: [atlas_workspace_at_alias()],
   resolve: {
@@ -51,6 +53,8 @@ export default defineConfig({
       { find: '@wisecom/atlas-core', replacement: resolve(core_src, 'index.ts') },
       { find: /^@wisecom\/atlas-m365-graph\/(.+)$/, replacement: `${m365_src}/$1` },
       { find: '@wisecom/atlas-m365-graph', replacement: resolve(m365_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-drive\/(.+)$/, replacement: `${drive_src}/$1` },
+      { find: '@wisecom/atlas-drive', replacement: resolve(drive_src, 'index.ts') },
     ],
   },
   test: {

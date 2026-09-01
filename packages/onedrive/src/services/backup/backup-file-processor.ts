@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
-import { download_with_retry } from '@/services/backup/download-orchestrator';
+import { download_with_retry } from '@wisecom/atlas-drive/backup/download-retry';
 import { LARGE_FILE_THRESHOLD, process_large_file } from '@/services/backup/large-file-pipeline';
 import { onedrive_data_key } from '@/services/shared/storage-keys';
 

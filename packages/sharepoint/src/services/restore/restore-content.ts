@@ -18,7 +18,7 @@ import {
   should_stream_restore,
   stream_decrypt_from_storage,
   verify_streaming_checksum,
-} from '@/services/restore/restore-streaming';
+} from '@wisecom/atlas-drive/restore/streaming-restore';
 
 /** Thrown when ciphertext decrypts with AES-GCM but fails the authentication tag check. */
 export class SharePointDecryptAuthError extends Error {
