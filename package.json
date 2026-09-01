@@ -25,25 +25,25 @@
     "prepare": "husky"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=22.22.2"
   },
   "devDependencies": {
-    "@types/archiver": "^7.0.0",
-    "@types/node": "^25.9.5",
+    "@types/archiver": "^8.0.0",
+    "@types/node": "^22.20.1",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-check-file": "^3.3.2",
     "eslint-plugin-sonarjs": "^4.2.0",
     "husky": "^9.1.7",
-    "lint-staged": "^16.4.0",
+    "lint-staged": "^17.4.1",
     "prettier": "^3.9.6",
     "tsc-alias": "^1.9.2",
     "tsdown": "^0.22.14",
     "turbo": "^2.10.12",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.68.0",
-    "typescript-language-server": "^5.3.0",
+    "typescript-language-server": "^6.0.0",
     "vitepress": "^1.6.4",
     "vitest": "^4.1.11"
   },
