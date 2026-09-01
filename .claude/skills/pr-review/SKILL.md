@@ -11,9 +11,10 @@ when_to_use: >-
 
 # Pull Requests and CodeRabbit Reviews
 
-The rule: **a PR targets `dev`, carries a release-notes label, and is not done
-until every review finding is either fixed or answered.** Never merge unless the
-user asked you to.
+The rule: **a normal PR targets `dev`, carries a release-notes label, and is
+not done until every review finding is either fixed or answered.** Release and
+hotfix PRs target `main` and follow the `release` skill instead. Never merge
+unless the user asked you to.
 
 ## Opening the PR
 
@@ -24,7 +25,7 @@ user asked you to.
 3. Open the PR against `dev` with a label:
 
 ```bash
-gh pr create --base dev --label bug --title "<title>" --body-file <path>
+gh pr create --base dev --label <label> --title "<title>" --body-file <path>
 ```
 
 | Label           | Use                                  |
@@ -54,7 +55,7 @@ push. Release PRs (`chore(release):` titles) are skipped on purpose.
 Wait for the walkthrough comment before triaging, then pull the inline findings:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/<N>/comments \
+gh api --paginate repos/{owner}/{repo}/pulls/<N>/comments \
   --jq '.[] | {id, path, line, body}'
 ```
 
@@ -85,16 +86,18 @@ plain, no attribution).
 Fetch unresolved threads and resolve them once handled:
 
 ```bash
-gh api graphql -f query='
-query($pr: Int!) {
-  repository(owner: "{owner}", name: "{repo}") {
+gh api graphql --paginate -f query='
+query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
     pullRequest(number: $pr) {
-      reviewThreads(first: 50) {
+      reviewThreads(first: 50, after: $endCursor) {
         nodes { id isResolved comments(first: 1) { nodes { body } } }
+        pageInfo { hasNextPage endCursor }
       }
     }
   }
-}' -f pr=<N> --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'
+}' -F owner=<owner> -F name=<repo> -F pr=<N> \
+  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not)'
 
 gh api graphql -f query='
 mutation($id: ID!) {
