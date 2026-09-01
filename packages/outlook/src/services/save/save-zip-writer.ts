@@ -1,18 +1,18 @@
 import { createWriteStream } from 'node:fs';
-import archiver from 'archiver';
+import { ZipArchive, type Archiver } from 'archiver';
 
 export interface SaveArchive {
-  readonly archive: archiver.Archiver;
+  readonly archive: ArchiveWriter;
   readonly promise: Promise<number>;
 }
 
 /** The archiver instance EML entries are appended to. */
-export type ArchiveWriter = archiver.Archiver;
+export type ArchiveWriter = Archiver;
 
 /** Creates a zip archive with maximum compression, streaming to the output path. */
 export function create_save_archive(output_path: string): SaveArchive {
   const output = createWriteStream(output_path);
-  const archive = archiver('zip', { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
 
   const promise = new Promise<number>((resolve, reject) => {
     output.on('close', () => resolve(archive.pointer()));
