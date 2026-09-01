@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  auto_review:
+    # main is the default branch and always reviewed; dev is where all work lands.
+    base_branches:
+      - dev
+    # Release and hotfix PRs into main are titled "chore(release): <version>"
+    # (see .claude/skills/release). Skipping them means no reviews on main.
+    ignore_title_keywords:
+      - "chore(release):"
+  path_filters:
+    - "!pnpm-lock.yaml"
