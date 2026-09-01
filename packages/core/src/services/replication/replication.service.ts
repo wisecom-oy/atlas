@@ -44,6 +44,7 @@ import {
   require_outlook_manifest,
   list_mailbox_manifests,
   diff_outlook_manifests,
+  OUTLOOK_REHYDRATION,
 } from '@/services/replication/outlook-manifest-handler';
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import {
@@ -52,6 +53,7 @@ import {
   merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
+import { create_primary_target } from '@/services/replication/primary-target-factory';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 
 @injectable()
@@ -133,7 +135,7 @@ export class ReplicationService implements ReplicationUseCase {
     snapshot_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
@@ -175,7 +177,7 @@ export class ReplicationService implements ReplicationUseCase {
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     owner_id = normalize_owner_id(owner_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
@@ -188,6 +190,7 @@ export class ReplicationService implements ReplicationUseCase {
         tenant_id,
         this._validate_dek,
         this._config.encryption_passphrase,
+        OUTLOOK_REHYDRATION,
       );
     } finally {
       source_ctx.destroy();
@@ -230,7 +233,7 @@ export class ReplicationService implements ReplicationUseCase {
     tenant_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
@@ -243,6 +246,7 @@ export class ReplicationService implements ReplicationUseCase {
         tenant_id,
         this._validate_dek,
         this._config.encryption_passphrase,
+        OUTLOOK_REHYDRATION,
       );
     } finally {
       source_ctx.destroy();
@@ -316,13 +320,8 @@ export class ReplicationService implements ReplicationUseCase {
     };
   }
 
-  private create_primary_target(): StorageTarget {
-    return this._target_factory({
-      s3_endpoint: this._config.s3_endpoint,
-      s3_access_key: this._config.s3_access_key,
-      s3_secret_key: this._config.s3_secret_key,
-      s3_region: this._config.s3_region,
-      encryption_passphrase: this._config.encryption_passphrase,
-    });
+  /** The primary bucket as a storage target. */
+  private primary_target(): StorageTarget {
+    return create_primary_target(this._target_factory, this._config);
   }
 }

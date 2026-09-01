@@ -1,6 +1,16 @@
 import type { Manifest, ManifestRepository, TenantContext } from '@wisecom/atlas-types';
+import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
+import type { RehydrationPlan } from '@/services/replication/rehydration-manifests-runner';
 
 export const OUTLOOK_MANIFEST_PREFIX = 'manifests';
+
+/** How the Outlook workload plugs into the shared rehydration runner. */
+export const OUTLOOK_REHYDRATION: RehydrationPlan<Manifest> = {
+  manifest_key: (manifest) =>
+    `${OUTLOOK_MANIFEST_PREFIX}/${manifest.owner_id}/${manifest.snapshot_id}.json`,
+  replicate: (source_ctx, primary_ctx, manifest) =>
+    replicate_snapshot_to_target(source_ctx, primary_ctx, manifest, { skip_marker: true }),
+};
 
 /** Loads an Outlook manifest by snapshot ID, throwing a located error when it is absent. */
 export async function require_outlook_manifest(

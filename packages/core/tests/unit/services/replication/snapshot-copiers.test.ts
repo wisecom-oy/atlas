@@ -6,15 +6,14 @@ import {
   copy_outlook_snapshot_to_target,
 } from '@/services/replication/outlook-snapshot-copier';
 import {
-  copy_onedrive_snapshot_between,
-  copy_onedrive_snapshot_into_context,
-  copy_onedrive_snapshot_to_target,
-} from '@/services/replication/onedrive-snapshot-copier';
+  copy_drive_snapshot_between,
+  copy_drive_snapshot_into_context,
+  copy_drive_snapshot_to_target,
+} from '@/services/replication/drive-snapshot-copier';
 import {
-  copy_sharepoint_snapshot_between,
-  copy_sharepoint_snapshot_into_context,
-  copy_sharepoint_snapshot_to_target,
-} from '@/services/replication/sharepoint-snapshot-copier';
+  ONEDRIVE_REPLICATION,
+  SHAREPOINT_REPLICATION,
+} from '@/services/replication/drive-replication-descriptor';
 import { stub_storage_target } from '@wisecom/atlas-types/testing/stub-storage-target';
 
 /**
@@ -36,16 +35,12 @@ const tally = {
 vi.mock('@/services/replication/snapshot-replicator', () => ({
   replicate_snapshot_to_target: vi.fn(async () => tally),
 }));
-vi.mock('@/services/replication/onedrive-snapshot-replicator', () => ({
-  replicate_onedrive_snapshot: vi.fn(async () => tally),
-}));
-vi.mock('@/services/replication/sharepoint-snapshot-replicator', () => ({
-  replicate_sharepoint_snapshot: vi.fn(async () => tally),
+vi.mock('@/services/replication/drive-snapshot-replicator', () => ({
+  replicate_drive_snapshot_objects: vi.fn(async () => tally),
 }));
 
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
-import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
-import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
+import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
 
 const source_ctx = { tenant_id: 't', storage: {} } as unknown as TenantContext;
 
@@ -61,8 +56,8 @@ function open_ctx(): { ctx: TenantContext; destroyed: () => number } {
   return { ctx, destroyed: () => destroyed };
 }
 
-const od_manifest = { snapshot_id: 'snap-1', owner_id: 'owner-1' } as never;
-const sp_manifest = { snapshot_id: 'snap-1', site_id: 'site-1' } as never;
+const onedrive_manifest = { snapshot_id: 'snap-1', owner_id: 'owner-1' } as never;
+const sharepoint_manifest = { snapshot_id: 'snap-1', site_id: 'site-1' } as never;
 const outlook_manifest = { snapshot_id: 'snap-1', mailbox_id: 'mbx-1' } as never;
 
 function make_deps(validate_dek = vi.fn(async () => undefined)): CopyDeps & {
@@ -90,15 +85,24 @@ const workloads = [
   },
   {
     name: 'onedrive',
-    manifest: od_manifest,
-    replicate: vi.mocked(replicate_onedrive_snapshot),
+    manifest: onedrive_manifest,
+    descriptor: ONEDRIVE_REPLICATION,
+    replicate: vi.mocked(replicate_drive_snapshot_objects),
     to_target: (target: never, deps: CopyDeps) =>
-      copy_onedrive_snapshot_to_target(source_ctx, target, od_manifest, [], deps),
+      copy_drive_snapshot_to_target(
+        ONEDRIVE_REPLICATION,
+        source_ctx,
+        target,
+        onedrive_manifest,
+        [],
+        deps,
+      ),
     between: (target_ctx: TenantContext, deps: CopyDeps, is_rehydration?: boolean) =>
-      copy_onedrive_snapshot_between(
+      copy_drive_snapshot_between(
+        ONEDRIVE_REPLICATION,
         source_ctx,
         target_ctx,
-        od_manifest,
+        onedrive_manifest,
         [],
         'replica',
         deps,
@@ -107,15 +111,24 @@ const workloads = [
   },
   {
     name: 'sharepoint',
-    manifest: sp_manifest,
-    replicate: vi.mocked(replicate_sharepoint_snapshot),
+    manifest: sharepoint_manifest,
+    descriptor: SHAREPOINT_REPLICATION,
+    replicate: vi.mocked(replicate_drive_snapshot_objects),
     to_target: (target: never, deps: CopyDeps) =>
-      copy_sharepoint_snapshot_to_target(source_ctx, target, sp_manifest, [], deps),
+      copy_drive_snapshot_to_target(
+        SHAREPOINT_REPLICATION,
+        source_ctx,
+        target,
+        sharepoint_manifest,
+        [],
+        deps,
+      ),
     between: (target_ctx: TenantContext, deps: CopyDeps, is_rehydration?: boolean) =>
-      copy_sharepoint_snapshot_between(
+      copy_drive_snapshot_between(
+        SHAREPOINT_REPLICATION,
         source_ctx,
         target_ctx,
-        sp_manifest,
+        sharepoint_manifest,
         [],
         'replica',
         deps,
@@ -192,18 +205,30 @@ describe.each(workloads)('$name snapshot copier', (w) => {
 
 describe('drive into_context', () => {
   beforeEach(() => {
-    vi.mocked(replicate_onedrive_snapshot).mockClear();
-    vi.mocked(replicate_sharepoint_snapshot).mockClear();
+    vi.mocked(replicate_drive_snapshot_objects).mockClear();
   });
 
   it('copies without validating, because the loop validated once per target', async () => {
     const target = open_ctx();
 
-    await copy_onedrive_snapshot_into_context(source_ctx, target.ctx, od_manifest, [], 'replica');
-    await copy_sharepoint_snapshot_into_context(source_ctx, target.ctx, sp_manifest, [], 'replica');
+    await copy_drive_snapshot_into_context(
+      ONEDRIVE_REPLICATION,
+      source_ctx,
+      target.ctx,
+      onedrive_manifest,
+      [],
+      'replica',
+    );
+    await copy_drive_snapshot_into_context(
+      SHAREPOINT_REPLICATION,
+      source_ctx,
+      target.ctx,
+      sharepoint_manifest,
+      [],
+      'replica',
+    );
 
-    expect(replicate_onedrive_snapshot).toHaveBeenCalledTimes(1);
-    expect(replicate_sharepoint_snapshot).toHaveBeenCalledTimes(1);
+    expect(replicate_drive_snapshot_objects).toHaveBeenCalledTimes(2);
     expect(target.destroyed()).toBe(0);
   });
 });

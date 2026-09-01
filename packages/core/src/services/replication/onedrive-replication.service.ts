@@ -14,24 +14,30 @@ import {
 } from '@wisecom/atlas-types';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
-import { rehydrate_od_manifests } from '@/services/replication/rehydration-od-manifests-runner';
+import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
+import { build_drive_rehydration_plan } from '@/services/replication/drive-rehydration-plan';
 import {
   build_skip_result,
   merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import {
-  OD_MANIFEST_PREFIX,
-  to_onedrive_status_record,
-  collect_od_ancillary_keys,
-  diff_od_manifests,
-} from '@/services/replication/onedrive-replication-result';
+  to_drive_status_record,
+  collect_drive_ancillary_keys,
+  group_manifests_by_owner,
+  diff_drive_manifests,
+} from '@/services/replication/drive-replication-result';
+import {
+  ONEDRIVE_REPLICATION,
+  drive_manifest_key,
+} from '@/services/replication/drive-replication-descriptor';
 import type { AtlasConfig } from '@/utils/config';
+import { create_primary_target } from '@/services/replication/primary-target-factory';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 import {
-  copy_onedrive_snapshot_between,
-  copy_onedrive_snapshot_into_context,
-  copy_onedrive_snapshot_to_target,
-} from '@/services/replication/onedrive-snapshot-copier';
+  copy_drive_snapshot_between,
+  copy_drive_snapshot_into_context,
+  copy_drive_snapshot_to_target,
+} from '@/services/replication/drive-snapshot-copier';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
 
 @injectable()
@@ -39,7 +45,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
-    private readonly _od_manifests: OneDriveManifestRepository,
+    private readonly _onedrive_manifests: OneDriveManifestRepository,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
     @inject(DEK_VALIDATION_FN_TOKEN) private readonly _validate_dek: DekValidationFn,
     @inject(STORAGE_TARGET_FACTORY_TOKEN) private readonly _target_factory: StorageTargetFactory,
@@ -56,11 +62,16 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
-      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+      const ancillary = await collect_drive_ancillary_keys(
+        ONEDRIVE_REPLICATION,
+        source_ctx,
+        owner_id,
+      );
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
-        const result = await copy_onedrive_snapshot_to_target(
+        const result = await copy_drive_snapshot_to_target(
+          ONEDRIVE_REPLICATION,
           source_ctx,
           target,
           manifest,
@@ -69,7 +80,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
         );
         await save_replication_status(
           source_ctx,
-          to_onedrive_status_record(result, target, manifest),
+          to_drive_status_record(ONEDRIVE_REPLICATION, result, target, manifest),
         );
         results.push(result);
       }
@@ -89,8 +100,15 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     owner_id = normalize_owner_id(owner_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
-      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+      const manifests = await this._onedrive_manifests.list_snapshots_by_owner(
+        source_ctx,
+        owner_id,
+      );
+      const ancillary = await collect_drive_ancillary_keys(
+        ONEDRIVE_REPLICATION,
+        source_ctx,
+        owner_id,
+      );
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
@@ -104,10 +122,16 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
             this._config.encryption_passphrase,
             tenant_id,
           );
-          const missing = await diff_od_manifests(manifests, target_ctx, owner_id);
+          const missing = await diff_drive_manifests(
+            ONEDRIVE_REPLICATION,
+            manifests,
+            target_ctx,
+            owner_id,
+          );
 
           for (const manifest of missing) {
-            const result = await copy_onedrive_snapshot_into_context(
+            const result = await copy_drive_snapshot_into_context(
+              ONEDRIVE_REPLICATION,
               source_ctx,
               target_ctx,
               manifest,
@@ -116,7 +140,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
             );
             await save_replication_status(
               source_ctx,
-              to_onedrive_status_record(result, target, manifest),
+              to_drive_status_record(ONEDRIVE_REPLICATION, result, target, manifest),
             );
             results.push(result);
           }
@@ -139,19 +163,24 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     owner_id = normalize_owner_id(owner_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
       const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
-      const manifest_key = `${OD_MANIFEST_PREFIX}/${owner_id}/${snapshot_id}.json`;
+      const manifest_key = drive_manifest_key(ONEDRIVE_REPLICATION, manifest);
 
       if (await primary_ctx.storage.exists(manifest_key)) {
         return build_skip_result(snapshot_id, source.target_id, manifest.entries.length);
       }
 
-      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
-      return copy_onedrive_snapshot_between(
+      const ancillary = await collect_drive_ancillary_keys(
+        ONEDRIVE_REPLICATION,
+        source_ctx,
+        owner_id,
+      );
+      return copy_drive_snapshot_between(
+        ONEDRIVE_REPLICATION,
         source_ctx,
         primary_ctx,
         manifest,
@@ -173,12 +202,19 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     owner_id = normalize_owner_id(owner_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const manifests = await this._od_manifests.list_snapshots_by_owner(source_ctx, owner_id);
-      const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+      const manifests = await this._onedrive_manifests.list_snapshots_by_owner(
+        source_ctx,
+        owner_id,
+      );
+      const ancillary = await collect_drive_ancillary_keys(
+        ONEDRIVE_REPLICATION,
+        source_ctx,
+        owner_id,
+      );
 
       return this.rehydrate_owner_manifests(
         source_ctx,
@@ -196,21 +232,20 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
 
   /** DR: recover every OneDrive owner's snapshots from a replica. */
   async rehydrate_all_owners(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const all = await this._od_manifests.list_all_manifests(source_ctx);
-      const by_owner = new Map<string, OneDriveSnapshotManifest[]>();
-      for (const manifest of all) {
-        const bucket = by_owner.get(manifest.owner_id);
-        if (bucket) bucket.push(manifest);
-        else by_owner.set(manifest.owner_id, [manifest]);
-      }
+      const all = await this._onedrive_manifests.list_all_manifests(source_ctx);
+      const by_owner = group_manifests_by_owner(ONEDRIVE_REPLICATION, all);
 
       const results: ReplicationResult[] = [];
       for (const [owner_id, manifests] of by_owner) {
-        const ancillary = await collect_od_ancillary_keys(source_ctx, owner_id);
+        const ancillary = await collect_drive_ancillary_keys(
+          ONEDRIVE_REPLICATION,
+          source_ctx,
+          owner_id,
+        );
         results.push(
           await this.rehydrate_owner_manifests(
             source_ctx,
@@ -248,15 +283,16 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     source: StorageTarget,
     tenant_id: string,
   ): Promise<ReplicationResult> {
-    return rehydrate_od_manifests(
+    const plan = build_drive_rehydration_plan(ONEDRIVE_REPLICATION, ancillary_keys);
+    return rehydrate_manifests(
       source_ctx,
       primary_ctx,
       manifests,
-      ancillary_keys,
       source,
       tenant_id,
       this._validate_dek,
       this._config.encryption_passphrase,
+      plan,
     );
   }
 
@@ -265,20 +301,15 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     owner_id: string,
     snapshot_id: string,
   ): Promise<OneDriveSnapshotManifest> {
-    const m = await this._od_manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
+    const m = await this._onedrive_manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
     if (!m) {
       throw new Error(`No OneDrive manifest found for owner ${owner_id}, snapshot ${snapshot_id}`);
     }
     return m;
   }
 
-  private create_primary_target(): StorageTarget {
-    return this._target_factory({
-      s3_endpoint: this._config.s3_endpoint,
-      s3_access_key: this._config.s3_access_key,
-      s3_secret_key: this._config.s3_secret_key,
-      s3_region: this._config.s3_region,
-      encryption_passphrase: this._config.encryption_passphrase,
-    });
+  /** The primary bucket as a storage target. */
+  private primary_target(): StorageTarget {
+    return create_primary_target(this._target_factory, this._config);
   }
 }
