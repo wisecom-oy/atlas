@@ -40,9 +40,11 @@ wrong section. Mirror the sections of `.github/PULL_REQUEST_TEMPLATE.md`
 template. Use `--body-file`, not `--body`, so formatting survives. Link issues
 with `Closes #123`.
 
-The PR is a permanent public artifact: no secrets, no tenant data, no personal
-or internal system detail. The substitution table in the `write-issue` skill
-applies here unchanged.
+The PR is a permanent public artifact: never put anything confidential in the title or body:
+no secrets, no tenant data, no personal or internal system detail. The
+substitution table in the `write-issue` skill applies here unchanged. Write the
+body per the `write-comment` skill: first person, plain, no attribution to any
+assistant or model.
 
 ## Handling CodeRabbit's review
 
