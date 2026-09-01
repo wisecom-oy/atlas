@@ -1,15 +1,18 @@
 import { createWriteStream } from 'node:fs';
-import archiver from 'archiver';
+import { ZipArchive, type Archiver } from 'archiver';
+
+/** The archiver instance file entries are appended to. */
+export type FileArchiveWriter = Archiver;
 
 export interface FileArchive {
-  readonly archive: archiver.Archiver;
+  readonly archive: FileArchiveWriter;
   readonly promise: Promise<number>;
 }
 
 /** Creates a zip archive writing to the given file path. Returns the archiver and a promise that resolves with total bytes written. */
 export function create_file_archive(output_path: string): FileArchive {
   const output = createWriteStream(output_path);
-  const archive = archiver('zip', { zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 6 } });
 
   const promise = new Promise<number>((resolve, reject) => {
     output.on('close', () => resolve(archive.pointer()));
@@ -22,7 +25,7 @@ export function create_file_archive(output_path: string): FileArchive {
 
 /** Adds a file to the archive under the given folder path. */
 export async function add_file_to_archive(
-  archive: archiver.Archiver,
+  archive: FileArchiveWriter,
   folder_path: string,
   file_name: string,
   content: Buffer,
@@ -34,6 +37,6 @@ export async function add_file_to_archive(
 }
 
 /** Finalizes the archive (must be called after all files are added). */
-export async function finalize_file_archive(archive: archiver.Archiver): Promise<void> {
+export async function finalize_file_archive(archive: FileArchiveWriter): Promise<void> {
   await archive.finalize();
 }
