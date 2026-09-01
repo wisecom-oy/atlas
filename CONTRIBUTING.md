@@ -71,6 +71,29 @@ Release notes are generated from PR labels (`enhancement`, `bug`,
 `documentation`, `security`). An unlabelled PR shows up under "Other changes", so
 label it before it is merged.
 
+### Write the PR description
+
+`.github/PULL_REQUEST_TEMPLATE.md` is the shape of every PR body:
+
+- **`## Summary`**: what the PR does and why, in plain sentences. Link the
+  issue it fixes with `Closes #N`.
+- **`## Changes`**: concrete bullets, one per thing you changed.
+- **`## Checklist`**: tick what you actually ran.
+
+Extra sections below those are welcome, and a larger PR usually wants one for
+evidence or for the option it did not take. Delete the template's HTML comments
+and placeholder bullets rather than leaving them in.
+
+Write it in the first person and keep it factual. Claim only what you ran, name
+what you did not verify, and follow the same prose rules as the docs: no em
+dashes, no `--` inside a phrase, no padding. The `write-comment` skill in
+`.claude/skills/` covers the voice in detail and applies to PR bodies too.
+
+This section and the `write-comment` skill are the baseline. The
+`Changes explained` pre-merge check in `.coderabbit.yaml` restates it, so when
+the convention changes here, update the check to match rather than the other way
+around.
+
 ## Code conventions
 
 Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint.config.js` is the source of truth.

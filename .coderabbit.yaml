@@ -26,14 +26,26 @@ reviews:
             documentation, or security.
           - Does not change the version field in any packages/*/package.json.
           - Stays a single concern; fail if it mixes unrelated changes.
-          - Adds or updates unit tests under tests/unit/ for changed behavior.
+          - Adds or updates unit tests under tests/unit/ for changed runtime
+            behavior. A PR that only touches docs, lint or build config, CI
+            workflows, or .claude/ has no runtime behavior to test, so the
+            missing tests are not a failure.
       - name: Changes explained
         mode: error
         instructions: |
-          Pass only if the PR body explains what changed and why:
-          - The Summary section states what the PR does in plain sentences.
-            Fail on an empty summary or leftover template placeholder text.
-          - The Changes section lists concrete bullets of what changed.
-            Fail on empty bullets or leftover HTML comments.
+          The baseline is the "Write the PR description" section of
+          CONTRIBUTING.md, the .claude/skills/write-comment skill, and
+          .github/PULL_REQUEST_TEMPLATE.md. This check only restates them, so
+          judge the body against those and nothing stricter.
+          Pass only if:
+          - A "## Summary" section states what the PR does and why in plain
+            sentences. Fail on an empty summary or leftover template
+            placeholder text.
+          - A "## Changes" section lists concrete bullets of what changed.
+            Fail on empty bullets or leftover template HTML comments.
           - Related issues are linked with "Closes #N" when the PR fixes a
             reported issue.
+          Extra sections beyond the template, for example evidence,
+          verification, or a rejected alternative, are expected on larger PRs.
+          Do not fail a body for having them, for section order, or for a
+          missing Checklist section.
