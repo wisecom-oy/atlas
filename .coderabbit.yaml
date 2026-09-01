@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  # Required so error-mode pre-merge checks actually block merging.
+  request_changes_workflow: true
+  auto_review:
+    # main is the default branch and always reviewed; dev is where all work lands.
+    base_branches:
+      - dev
+    # Release and hotfix PRs into main are titled "chore(release): <version>"
+    # (see .claude/skills/release). Skipping them means no reviews on main.
+    ignore_title_keywords:
+      - "chore(release):"
+  path_filters:
+    - "!pnpm-lock.yaml"
+  pre_merge_checks:
+    custom_checks:
+      - name: Contributing guide compliance
+        mode: error
+        instructions: |
+          Pass only if the PR follows CONTRIBUTING.md:
+          - Targets dev. Fail if it targets main, unless this is a release or
+            hotfix PR titled "chore(release): <version>".
+          - Carries exactly one release-notes label: enhancement, bug,
+            documentation, or security.
+          - Does not change the version field in any packages/*/package.json.
+          - Stays a single concern; fail if it mixes unrelated changes.
+          - Adds or updates unit tests under tests/unit/ for changed behavior.
+      - name: Changes explained
+        mode: error
+        instructions: |
+          Pass only if the PR body explains what changed and why:
+          - The Summary section states what the PR does in plain sentences.
+            Fail on an empty summary or leftover template placeholder text.
+          - The Changes section lists concrete bullets of what changed.
+            Fail on empty bullets or leftover HTML comments.
+          - Related issues are linked with "Closes #N" when the PR fixes a
+            reported issue.
