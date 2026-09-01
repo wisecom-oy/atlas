@@ -22,7 +22,7 @@ import {
   STORAGE_TARGET_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
-import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
 import {
   build_skip_result,
@@ -36,7 +36,7 @@ import {
   to_sharepoint_status_record,
   collect_sp_ancillary_keys,
   diff_sp_manifests,
-} from '@/services/replication/sharepoint-replication-helpers';
+} from '@/services/replication/sharepoint-replication-result';
 
 @injectable()
 export class SharePointReplicationService implements SharePointReplicationUseCase {

@@ -20,7 +20,7 @@ import type { AtlasConfig } from '@/utils/config';
 
 import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
 import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
-vi.mock('@/services/replication/rehydration-dek-helper', () => ({
+vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn().mockResolvedValue(undefined),
 }));
 

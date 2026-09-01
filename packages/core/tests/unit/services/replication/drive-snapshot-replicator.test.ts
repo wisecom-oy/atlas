@@ -18,8 +18,8 @@ import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-ten
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
 import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
-import { diff_od_manifests } from '@/services/replication/onedrive-replication-helpers';
-import { diff_sp_manifests } from '@/services/replication/sharepoint-replication-helpers';
+import { diff_od_manifests } from '@/services/replication/onedrive-replication-result';
+import { diff_sp_manifests } from '@/services/replication/sharepoint-replication-result';
 
 const OD_MANIFEST_KEY = 'onedrive/manifests/owner-1/snapshot-1.json';
 const SP_MANIFEST_KEY = 'sharepoint/manifests/site-1/snapshot-1.json';

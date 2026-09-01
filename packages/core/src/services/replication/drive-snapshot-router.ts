@@ -5,8 +5,8 @@ import type {
   StorageTarget,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { OD_MANIFEST_PREFIX } from '@/services/replication/onedrive-replication-helpers';
-import { SP_MANIFEST_PREFIX } from '@/services/replication/sharepoint-replication-helpers';
+import { OD_MANIFEST_PREFIX } from '@/services/replication/onedrive-replication-result';
+import { SP_MANIFEST_PREFIX } from '@/services/replication/sharepoint-replication-result';
 
 /**
  * Snapshot ids are self-describing: `od-snap-*` for OneDrive, `sp-snap-*` for SharePoint,

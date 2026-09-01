@@ -28,7 +28,7 @@ import {
   download_with_fallback,
   resolve_download_url as resolve_download_url_helper,
   rethrow_if_access_denied,
-} from '@/adapters/graph-sharepoint-download-helpers';
+} from '@/adapters/graph-sharepoint-download-executor';
 import {
   graph_sharepoint_create_folder,
   graph_sharepoint_upload_small_file,

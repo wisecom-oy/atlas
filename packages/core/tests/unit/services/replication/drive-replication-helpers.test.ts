@@ -7,11 +7,11 @@ import type {
 import {
   collect_od_ancillary_keys,
   diff_od_manifests,
-} from '@/services/replication/onedrive-replication-helpers';
+} from '@/services/replication/onedrive-replication-result';
 import {
   collect_sp_ancillary_keys,
   diff_sp_manifests,
-} from '@/services/replication/sharepoint-replication-helpers';
+} from '@/services/replication/sharepoint-replication-result';
 
 /**
  * Issue #191: both drive helper files sat at 10% branch coverage, so the "cursor exists" and

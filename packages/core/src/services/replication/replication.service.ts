@@ -44,8 +44,8 @@ import {
   require_outlook_manifest,
   list_mailbox_manifests,
   diff_outlook_manifests,
-} from '@/services/replication/outlook-replication-helpers';
-import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+} from '@/services/replication/outlook-manifest-handler';
+import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import {
   build_skip_result,
   to_status_record,

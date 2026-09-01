@@ -17,7 +17,7 @@ import { stub_storage_target } from '@wisecom/atlas-types/testing/stub-storage-t
  * rehydration makes before it copies anything: is the source DEK on the primary, does the snapshot
  * already exist here, and does the snapshot exist on the replica at all.
  */
-vi.mock('@/services/replication/rehydration-dek-helper', () => ({
+vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn(async () => undefined),
   DekOverwriteRefusedError: class extends Error {},
 }));
@@ -32,7 +32,7 @@ vi.mock('@/services/replication/sharepoint-snapshot-copier', () => ({
   copy_sharepoint_snapshot_into_context: vi.fn(),
 }));
 
-import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import { copy_onedrive_snapshot_between } from '@/services/replication/onedrive-snapshot-copier';
 import { copy_sharepoint_snapshot_between } from '@/services/replication/sharepoint-snapshot-copier';
 

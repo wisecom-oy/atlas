@@ -10,7 +10,7 @@ import {
   is_expired_url_error,
   rethrow_if_access_denied,
   throw_missing_permissions,
-} from '@/adapters/graph-onedrive-download-helpers';
+} from '@/adapters/graph-onedrive-download-executor';
 
 /**
  * Pins the current behaviour of the OneDrive download helpers (issue #247). It does

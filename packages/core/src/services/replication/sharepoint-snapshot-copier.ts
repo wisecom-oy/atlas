@@ -6,7 +6,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
 import { build_replication_result } from '@/services/replication/replication-result-builder';
-import { SP_MANIFEST_PREFIX } from '@/services/replication/sharepoint-replication-helpers';
+import { SP_MANIFEST_PREFIX } from '@/services/replication/sharepoint-replication-result';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
 
 function manifest_key_for(manifest: SharePointSnapshotManifest): string {
