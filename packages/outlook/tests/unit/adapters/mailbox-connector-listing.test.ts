@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
-import type { MockClient } from './graph-mailbox-connector.harness';
-import { create_mock_client, create_connector } from './graph-mailbox-connector.harness';
+import type { MockClient } from './mailbox-connector.fixtures';
+import { create_mock_client, create_connector } from './mailbox-connector.fixtures';
 
 describe('GraphMailboxConnector - listing APIs', () => {
   let mock_client: MockClient;

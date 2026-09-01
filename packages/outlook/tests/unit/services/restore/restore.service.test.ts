@@ -19,7 +19,7 @@ import {
   make_restore_entry as make_entry,
   make_restore_manifest as make_manifest,
   make_stored_message,
-} from '@/../tests/unit/restore-service-test-fixtures';
+} from './restore.service.fixtures';
 
 describe('RestoreService', () => {
   let container: Container;
