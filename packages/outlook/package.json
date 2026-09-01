@@ -21,13 +21,13 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@wisecom/atlas-types": "workspace:*",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@wisecom/atlas-core": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",
-    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@wisecom/atlas-types": "workspace:*",
     "archiver": "^7.0.1",
     "inversify": "^7.11.0",
-    "mailparser": "^3.9.15",
+    "mailparser": "^3.9.17",
     "mimetext": "^3.0.28",
     "reflect-metadata": "^0.2.2"
   },
