@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   clear_file_tracking_on_reset,
   type DriveTrackingState,
-} from '@/services/onedrive-delta-item-processor';
-import { classify_change_type } from '@/services/onedrive-change-classifier';
+} from '@/services/backup/delta-item-processor';
+import { classify_change_type } from '@/services/backup/change-classifier';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 
 /**

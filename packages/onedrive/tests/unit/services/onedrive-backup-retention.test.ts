@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 
 // Issue #29: OneDrive backups must honour object lock via bucket default

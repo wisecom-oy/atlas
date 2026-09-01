@@ -8,7 +8,7 @@ import {
   sharepoint_manifest_key,
   sharepoint_manifest_prefix,
   sharepoint_manifest_root_prefix,
-} from '@/services/sharepoint-storage-keys';
+} from '@/services/shared/storage-keys';
 
 class InvalidSharePointManifestDateError extends Error {
   constructor(readonly storage_key: string) {

@@ -17,13 +17,13 @@ import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adap
 import { S3OneDriveManifestRepository } from '@/adapters/s3-onedrive-manifest-repository.adapter';
 import { S3OneDriveDeltaCursorRepository } from '@/adapters/s3-onedrive-delta-cursor-repository.adapter';
 import { S3OneDriveFileVersionIndexRepository } from '@/adapters/s3-onedrive-file-version-index-repository.adapter';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
-import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
-import { OneDriveSaveService } from '@/services/onedrive-save.service';
-import { OneDriveVersionRestoreService } from '@/services/onedrive-version-restore.service';
-import { OneDriveCatalogService } from '@/services/onedrive-catalog.service';
-import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
-import { OneDriveStatusService } from '@/services/status/onedrive-status.service';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { OneDriveSaveService } from '@/services/save/save.service';
+import { OneDriveVersionRestoreService } from '@/services/restore/version-restore.service';
+import { OneDriveCatalogService } from '@/services/catalog/catalog.service';
+import { OneDriveVerificationService } from '@/services/verification/verification.service';
+import { OneDriveStatusService } from '@/services/status/status.service';
 
 /** Registers OneDrive-specific DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_onedrive(container: Container): void {

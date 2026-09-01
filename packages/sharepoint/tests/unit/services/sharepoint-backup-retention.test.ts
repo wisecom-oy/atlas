@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
-import { SharePointBackupService } from '@/services/sharepoint-backup.service';
+import { SharePointBackupService } from '@/services/backup/backup.service';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 
 // Issue #29: SharePoint backups must honour object lock via bucket default

@@ -9,7 +9,7 @@ import {
   process_delta_item,
   type FileTrackingState,
   type LibraryProcessingState,
-} from '@/services/sharepoint-library-item-processor';
+} from '@/services/backup/library-item-processor';
 
 // Issue #139: removals arrive with the `deleted` facet, no name, and no download
 // URL. They must produce a deleted entry, skip the download, and clear any

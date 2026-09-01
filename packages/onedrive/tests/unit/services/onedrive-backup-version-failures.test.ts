@@ -5,7 +5,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 // Issue #92: version downloads that fail for an unexpected reason left history
 // out of the snapshot while the run reported HEALTHY and exited 0.

@@ -5,7 +5,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 // Issue #52: a OneNote notebook root arrives as a folder carrying the `package`
 // facet and its sections arrive as ordinary files. Nothing downloads from the

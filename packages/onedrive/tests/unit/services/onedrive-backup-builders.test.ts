@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
-import type { VersionSyncResult } from '@/services/onedrive-version-sync';
+import type { VersionSyncResult } from '@/services/versioning/version-sync';
 import {
   build_deleted_entry,
   build_stored_entry,
   build_snapshot_manifest,
   build_empty_result,
   accumulate_version_stats,
-} from '@/services/onedrive-backup-builders';
+} from '@/services/backup/backup-builders';
 
 function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaItem {
   return {

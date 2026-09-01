@@ -9,7 +9,7 @@ import {
   sharepoint_staging_prefix,
   sharepoint_delta_cursor_key,
   validate_key_segment,
-} from '@/services/sharepoint-storage-keys';
+} from '@/services/shared/storage-keys';
 
 describe('validate_key_segment', () => {
   it('rejects empty string', () => {

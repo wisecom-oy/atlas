@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
-import { SharePointSaveService } from '@/services/sharepoint-save.service';
+import { SharePointSaveService } from '@/services/save/save.service';
 import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -41,7 +41,7 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   };
 });
 
-vi.mock('@/services/sharepoint-restore-streaming', () => ({
+vi.mock('@/services/restore/restore-streaming', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
   stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),

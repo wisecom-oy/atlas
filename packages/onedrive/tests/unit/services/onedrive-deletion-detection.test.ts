@@ -4,8 +4,8 @@ import {
   process_delta_item,
   type DriveTrackingState,
   type VersionStats,
-} from '@/services/onedrive-delta-item-processor';
-import type { RunVersionCollector } from '@/services/onedrive-version-sync';
+} from '@/services/backup/delta-item-processor';
+import type { RunVersionCollector } from '@/services/versioning/version-sync';
 
 // Issue #139: a removed item arrives with no name and no download URL. It must
 // become a deleted manifest entry, never a download attempt, and never a

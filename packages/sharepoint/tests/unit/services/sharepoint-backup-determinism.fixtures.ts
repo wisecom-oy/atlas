@@ -9,7 +9,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { SharePointBackupService } from '@/services/sharepoint-backup.service';
+import { SharePointBackupService } from '@/services/backup/backup.service';
 
 export function make_file_item(
   id: string,

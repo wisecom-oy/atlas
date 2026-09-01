@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { OneDriveManifestEntry } from '@wisecom/atlas-types';
-import { filter_onedrive_entries } from '@/services/onedrive-entry-filter';
+import { filter_onedrive_entries } from '@/services/shared/entry-filter';
 
 const ITEM_ID = '01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3';
 

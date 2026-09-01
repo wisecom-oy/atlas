@@ -10,7 +10,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
-import { OneDriveVersionRestoreService } from '@/services/onedrive-version-restore.service';
+import { OneDriveVersionRestoreService } from '@/services/restore/version-restore.service';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';

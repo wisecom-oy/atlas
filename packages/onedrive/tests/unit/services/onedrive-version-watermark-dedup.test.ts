@@ -5,7 +5,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 // Issue #161: version dedup used to preload the whole version index on every
 // run, which is one GET per backup ever taken for the owner. It now rides on

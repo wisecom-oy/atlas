@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetch_file_chunks } from '@/services/sharepoint-large-file-chunk-download';
+import { fetch_file_chunks } from '@/services/backup/large-file-chunk-download';
 
 // The OneDrive twin of this file has had tests since issue #36; this one had
 // none. Divergent coverage between the two drive pipelines is what let the

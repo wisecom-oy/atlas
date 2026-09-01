@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { SharePointManifestEntry } from '@wisecom/atlas-types';
-import { filter_sharepoint_entries } from '@/services/sharepoint-entry-filter';
+import { filter_sharepoint_entries } from '@/services/shared/entry-filter';
 
 const ITEM_ID = '01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3';
 

@@ -13,7 +13,7 @@ import {
   onedrive_staging_key,
   onedrive_staging_prefix,
   onedrive_delta_cursor_key,
-} from '@/services/onedrive-storage-keys';
+} from '@/services/shared/storage-keys';
 
 const LOWER = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
 const UPPER = LOWER.toUpperCase();

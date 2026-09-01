@@ -11,7 +11,7 @@ const chunk_mocks = vi.hoisted(() => ({ fetch_file_chunks: vi.fn() }));
 vi.mock('@/adapters/graph-onedrive-chunked-download', () => chunk_mocks);
 
 const { cleanup_stale_staging, process_large_file } =
-  await import('@/services/onedrive-large-file-pipeline');
+  await import('@/services/backup/large-file-pipeline');
 
 const KEY = randomBytes(32);
 const OWNER = 'owner-1';

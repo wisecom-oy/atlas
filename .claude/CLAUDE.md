@@ -125,6 +125,9 @@ src/
 - Keep `src/services/` organized by deterministic capability subfolders; avoid root-level sprawl.
 - Do not use ambiguous `*.helper.ts` names in services. Use behavior-revealing names (e.g. `folder-sync-executor.ts`, `restore-message-transformer.ts`).
 - Keep root public exports core-only; do not re-export infrastructure adapters from `src/index.ts`.
+- Workload packages lay their services out by capability, the same way in every package: `services/backup`, `services/restore`, `services/save`, `services/verification`, `services/catalog`, `services/versioning`, `services/status`, `services/shared`. The folder carries the context, so the filename never repeats the package name (`services/backup/backup.service.ts`, not `services/onedrive-backup.service.ts`).
+- A `services/index.ts` barrel is the package's cross-package surface: the service classes other packages resolve from the container, plus the few helpers another package actually imports. Anything used only inside its own package is reached by path and never widened into the barrel. `packages/outlook` exports `parse_mime_message` because the CLI renders MIME; `packages/onedrive` exported storage-key and download helpers that nothing outside the package ever imported, which is the pattern to avoid.
+- `core`, `types`, and the other private workspace packages keep the `./*` wildcard in their export map. They are never published, so the wildcard exposes nothing outside this repository, and the 200-odd deep imports into `@wisecom/atlas-core/services/...` are the normal way to reach them. Dropping the wildcard would rewrite every one of those imports and buy no encapsulation, so the root `index.ts` stays a convenience entry point rather than a gate.
 - All injectable classes use `@injectable()` and `@inject()` decorators.
 
 ## Testing

@@ -4,7 +4,7 @@ import type {
   SharePointDeltaItem,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { sync_file_versions } from '@/services/sharepoint-version-sync';
+import { sync_file_versions } from '@/services/versioning/version-sync';
 
 function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDeltaItem {
   return {
