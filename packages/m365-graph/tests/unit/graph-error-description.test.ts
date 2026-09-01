@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describe_graph_error, is_content_gone_error } from '@/graph-error-helpers';
+import { describe_graph_error, is_content_gone_error } from '@/graph-request-error-handler';
 
 // Issue #92: Graph SDK errors routinely carry an empty `message` with the
 // actionable part in `statusCode`/`code`, which produced blank log lines like

@@ -1,6 +1,6 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { DriveItemIdentity } from '@wisecom/atlas-types';
-import { with_graph_retry } from '@/graph-error-helpers';
+import { with_graph_retry } from '@/graph-request-error-handler';
 import { map_graph_identity, type GraphIdentitySet } from '@/graph-drive-metadata';
 
 const VERSION_SELECT = 'id,lastModifiedDateTime,size,lastModifiedBy';

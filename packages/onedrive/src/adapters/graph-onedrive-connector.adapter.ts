@@ -28,7 +28,7 @@ import {
   resolve_download_url,
   rethrow_if_access_denied,
   throw_missing_permissions,
-} from '@/adapters/graph-onedrive-download-helpers';
+} from '@/adapters/graph-onedrive-download-executor';
 import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 import { logger } from '@wisecom/atlas-core/utils/logger';

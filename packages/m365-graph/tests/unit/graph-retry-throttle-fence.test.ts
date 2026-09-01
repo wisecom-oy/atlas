@@ -11,7 +11,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
 import { run_with_throttle_fence } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { with_graph_retry } from '@/graph-error-helpers';
+import { with_graph_retry } from '@/graph-request-error-handler';
 
 /** Retry budget in `with_graph_retry`: 12 retries after the first attempt. */
 const MAX_ATTEMPTS = 13;

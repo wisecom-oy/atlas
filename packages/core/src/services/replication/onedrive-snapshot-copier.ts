@@ -6,7 +6,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
 import { build_replication_result } from '@/services/replication/replication-result-builder';
-import { OD_MANIFEST_PREFIX } from '@/services/replication/onedrive-replication-helpers';
+import { OD_MANIFEST_PREFIX } from '@/services/replication/onedrive-replication-result';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
 
 function manifest_key_for(manifest: OneDriveSnapshotManifest): string {

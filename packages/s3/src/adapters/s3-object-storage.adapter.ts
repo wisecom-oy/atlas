@@ -38,7 +38,7 @@ import {
   build_s3_copy_source,
   is_backend_mode_rejection,
   is_precondition_failed,
-} from '@/adapters/s3-error-helpers';
+} from '@/adapters/s3-error-classifier';
 
 /**
  * S3-backed ObjectStorage scoped to a single bucket.

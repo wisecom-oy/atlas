@@ -13,7 +13,7 @@ import {
   STORAGE_TARGET_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
-import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
+import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import { rehydrate_od_manifests } from '@/services/replication/rehydration-od-manifests-runner';
 import {
   build_skip_result,
@@ -24,7 +24,7 @@ import {
   to_onedrive_status_record,
   collect_od_ancillary_keys,
   diff_od_manifests,
-} from '@/services/replication/onedrive-replication-helpers';
+} from '@/services/replication/onedrive-replication-result';
 import type { AtlasConfig } from '@/utils/config';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 import {

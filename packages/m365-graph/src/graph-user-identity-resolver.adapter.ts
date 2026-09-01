@@ -3,7 +3,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import type { UserIdentityResolver, ResolvedUserIdentity } from '@wisecom/atlas-types';
 import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { describe_graph_error, is_retryable_error } from '@/graph-error-helpers';
+import { describe_graph_error, is_retryable_error } from '@/graph-request-error-handler';
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
 @injectable()

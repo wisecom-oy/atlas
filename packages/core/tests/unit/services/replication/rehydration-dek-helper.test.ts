@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   ensure_source_dek_on_primary,
   DekOverwriteRefusedError,
-} from '@/services/replication/rehydration-dek-helper';
+} from '@/services/replication/dek-rehydration-validator';
 import type { ObjectStorage, StorageTarget } from '@wisecom/atlas-types';
 import {
   stub_storage_target,

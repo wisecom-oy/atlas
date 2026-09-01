@@ -16,7 +16,7 @@ import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import type { AtlasConfig } from '@/utils/config';
 
-vi.mock('@/services/replication/rehydration-dek-helper', () => ({
+vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn().mockResolvedValue(undefined),
 }));
 

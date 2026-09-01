@@ -10,7 +10,7 @@ export {
   describe_graph_error,
   is_content_gone_error,
   with_graph_retry,
-} from './graph-error-helpers';
+} from './graph-request-error-handler';
 export {
   classify_download_failure,
   read_graph_error_code,

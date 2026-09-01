@@ -7,7 +7,7 @@ import {
   is_network_error,
   is_retryable_error,
   with_graph_retry,
-} from '@/graph-error-helpers';
+} from '@/graph-request-error-handler';
 
 describe('rethrow_if_mailbox_not_licensed', () => {
   it('throws with actionable message when error code is MailboxNotEnabledForRESTAPI', () => {
