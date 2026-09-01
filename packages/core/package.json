@@ -34,7 +34,7 @@
     "archiver": "^7.0.1",
     "dotenv": "^17.4.2",
     "htmlparser2": "^12.0.0",
-    "inversify": "^7.11.0",
+    "inversify": "^8.2.3",
     "reflect-metadata": "^0.2.2"
   }
 }

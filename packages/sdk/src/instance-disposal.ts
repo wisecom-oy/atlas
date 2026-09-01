@@ -28,7 +28,11 @@ export function create_disposer(container: Container): () => Promise<void> {
       await container.get<StorageDisposer>(STORAGE_DISPOSER_TOKEN)();
     }, 'storage');
 
-    await release(() => container.unbindAll(), 'container bindings');
+    // inversify 8 made the unprefixed names synchronous: unbindAll() now
+    // returns void. unbindAllAsync() is the v7 contract, and it is what this
+    // teardown wants, so any async onDeactivation or preDestroy handler added
+    // later is still awaited rather than silently skipped (issue #42).
+    await release(() => container.unbindAllAsync(), 'container bindings');
   };
 }
 

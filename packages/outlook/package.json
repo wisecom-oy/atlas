@@ -26,7 +26,7 @@
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@wisecom/atlas-types": "workspace:*",
     "archiver": "^7.0.1",
-    "inversify": "^7.11.0",
+    "inversify": "^8.2.3",
     "mailparser": "^3.9.17",
     "mimetext": "^3.0.28",
     "reflect-metadata": "^0.2.2"
