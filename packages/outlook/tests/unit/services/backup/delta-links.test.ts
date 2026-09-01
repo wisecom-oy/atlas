@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Manifest, ManifestRepository } from '@wisecom/atlas-types';
-import { create_mailbox_sync_harness } from './mailbox-sync-test-fixtures';
-import type { MailboxSyncHarness } from './mailbox-sync-test-fixtures';
+import { create_mailbox_sync_harness } from './mailbox-sync.fixtures';
+import type { MailboxSyncHarness } from './mailbox-sync.fixtures';
 
 function legacy_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {

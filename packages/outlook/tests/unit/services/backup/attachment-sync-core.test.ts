@@ -1,11 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
-import {
-  create_mailbox_sync_harness,
-  make_delta,
-  make_message,
-} from './mailbox-sync-test-fixtures';
+import { create_mailbox_sync_harness, make_delta, make_message } from './mailbox-sync.fixtures';
 
 describe('MailboxSyncService - attachment backup (core)', () => {
   let mock_connector: MailboxConnector;
