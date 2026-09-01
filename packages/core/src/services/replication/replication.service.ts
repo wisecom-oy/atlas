@@ -44,6 +44,7 @@ import {
   require_outlook_manifest,
   list_mailbox_manifests,
   diff_outlook_manifests,
+  OUTLOOK_REHYDRATION,
 } from '@/services/replication/outlook-manifest-handler';
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
 import {
@@ -188,6 +189,7 @@ export class ReplicationService implements ReplicationUseCase {
         tenant_id,
         this._validate_dek,
         this._config.encryption_passphrase,
+        OUTLOOK_REHYDRATION,
       );
     } finally {
       source_ctx.destroy();
@@ -243,6 +245,7 @@ export class ReplicationService implements ReplicationUseCase {
         tenant_id,
         this._validate_dek,
         this._config.encryption_passphrase,
+        OUTLOOK_REHYDRATION,
       );
     } finally {
       source_ctx.destroy();

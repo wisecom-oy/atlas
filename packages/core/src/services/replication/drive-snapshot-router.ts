@@ -5,16 +5,18 @@ import type {
   StorageTarget,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { OD_MANIFEST_PREFIX } from '@/services/replication/onedrive-replication-result';
-import { SP_MANIFEST_PREFIX } from '@/services/replication/sharepoint-replication-result';
+import {
+  ONEDRIVE_REPLICATION,
+  SHAREPOINT_REPLICATION,
+} from '@/services/replication/drive-replication-descriptor';
 
 /**
  * Snapshot ids are self-describing: `od-snap-*` for OneDrive, `sp-snap-*` for SharePoint,
  * `snap-*` for Outlook. The workload comes from the id; only the owning segment has to be
  * looked up, because the drive replication use cases are addressed by owner or site.
  */
-const OD_SNAPSHOT_PREFIX = 'od-snap-';
-const SP_SNAPSHOT_PREFIX = 'sp-snap-';
+const ONEDRIVE_SNAPSHOT_ID_PREFIX = 'od-snap-';
+const SHAREPOINT_SNAPSHOT_ID_PREFIX = 'sp-snap-';
 
 interface DriveSnapshotLocation {
   readonly workload: 'onedrive' | 'sharepoint';
@@ -24,7 +26,10 @@ interface DriveSnapshotLocation {
 
 /** True when the id belongs to a drive workload rather than Outlook. */
 export function is_drive_snapshot_id(snapshot_id: string): boolean {
-  return snapshot_id.startsWith(OD_SNAPSHOT_PREFIX) || snapshot_id.startsWith(SP_SNAPSHOT_PREFIX);
+  return (
+    snapshot_id.startsWith(ONEDRIVE_SNAPSHOT_ID_PREFIX) ||
+    snapshot_id.startsWith(SHAREPOINT_SNAPSHOT_ID_PREFIX)
+  );
 }
 
 /**
@@ -36,14 +41,17 @@ export async function locate_drive_snapshot(
   ctx: TenantContext,
   snapshot_id: string,
 ): Promise<DriveSnapshotLocation | undefined> {
-  const workload = snapshot_id.startsWith(OD_SNAPSHOT_PREFIX)
+  const workload = snapshot_id.startsWith(ONEDRIVE_SNAPSHOT_ID_PREFIX)
     ? 'onedrive'
-    : snapshot_id.startsWith(SP_SNAPSHOT_PREFIX)
+    : snapshot_id.startsWith(SHAREPOINT_SNAPSHOT_ID_PREFIX)
       ? 'sharepoint'
       : undefined;
   if (workload === undefined) return undefined;
 
-  const root = workload === 'onedrive' ? OD_MANIFEST_PREFIX : SP_MANIFEST_PREFIX;
+  const root =
+    workload === 'onedrive'
+      ? ONEDRIVE_REPLICATION.manifest_prefix
+      : SHAREPOINT_REPLICATION.manifest_prefix;
   const keys = await ctx.storage.list(`${root}/`);
   const match = keys.find((key) => key.endsWith(`/${snapshot_id}.json`));
   if (match === undefined) return undefined;

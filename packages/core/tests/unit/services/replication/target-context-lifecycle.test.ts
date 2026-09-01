@@ -23,19 +23,8 @@ import type {
  * Counting creates against destroys is the only way to see this from the
  * outside, since a leaked context changes no output.
  */
-vi.mock('@/services/replication/onedrive-snapshot-replicator', () => ({
-  replicate_onedrive_snapshot: vi.fn(async () => ({
-    objects_copied: 1,
-    bytes_copied: 10,
-    objects_skipped: 0,
-    objects_failed: 0,
-    manifests_copied: 1,
-    errors: [],
-  })),
-}));
-
-vi.mock('@/services/replication/sharepoint-snapshot-replicator', () => ({
-  replicate_sharepoint_snapshot: vi.fn(async () => ({
+vi.mock('@/services/replication/drive-snapshot-replicator', () => ({
+  replicate_drive_snapshot_objects: vi.fn(async () => ({
     objects_copied: 1,
     bytes_copied: 10,
     objects_skipped: 0,
@@ -69,11 +58,11 @@ function make_source_context(): { ctx: TenantContext; destroyed: () => number } 
   return { ctx, destroyed: () => destroyed };
 }
 
-function od_manifest(snapshot_id: string): OneDriveSnapshotManifest {
+function onedrive_manifest(snapshot_id: string): OneDriveSnapshotManifest {
   return { snapshot_id, owner_id: 'owner-1', sealed: true } as unknown as OneDriveSnapshotManifest;
 }
 
-function sp_manifest(snapshot_id: string): SharePointSnapshotManifest {
+function sharepoint_manifest(snapshot_id: string): SharePointSnapshotManifest {
   return { snapshot_id, site_id: 'site-1', sealed: true } as unknown as SharePointSnapshotManifest;
 }
 
@@ -106,7 +95,7 @@ describe('drive replication target context lifecycle', () => {
 
     it('destroys the target context after a successful copy', async () => {
       const stub = stub_storage_target();
-      const service = make_service([od_manifest('od-1')]);
+      const service = make_service([onedrive_manifest('od-1')]);
 
       await service.replicate_owner('t', 'owner-1', 'od-1', [stub.target]);
 
@@ -117,7 +106,7 @@ describe('drive replication target context lifecycle', () => {
     it('destroys the target context when DEK validation throws', async () => {
       const stub = stub_storage_target();
       const repo = {
-        find_by_snapshot: vi.fn(async () => od_manifest('od-1')),
+        find_by_snapshot: vi.fn(async () => onedrive_manifest('od-1')),
       } as unknown as OneDriveManifestRepository;
       const service = new OneDriveReplicationService(
         tenant_factory,
@@ -140,7 +129,7 @@ describe('drive replication target context lifecycle', () => {
     it('balances creates and destroys across several snapshots and targets', async () => {
       const a = stub_storage_target({ target_id: 'a' });
       const b = stub_storage_target({ target_id: 'b' });
-      const service = make_service([od_manifest('od-1'), od_manifest('od-2')]);
+      const service = make_service([onedrive_manifest('od-1'), onedrive_manifest('od-2')]);
 
       await service.replicate_all_owner_snapshots('t', 'owner-1', [a.target, b.target]);
 
@@ -168,7 +157,7 @@ describe('drive replication target context lifecycle', () => {
 
     it('destroys the target context after a successful copy', async () => {
       const stub = stub_storage_target();
-      const service = make_service([sp_manifest('sp-1')]);
+      const service = make_service([sharepoint_manifest('sp-1')]);
 
       await service.replicate_site('t', 'site-1', 'sp-1', [stub.target]);
 
@@ -179,7 +168,7 @@ describe('drive replication target context lifecycle', () => {
     it('destroys the target context when DEK validation throws', async () => {
       const stub = stub_storage_target();
       const repo = {
-        find_by_snapshot: vi.fn(async () => sp_manifest('sp-1')),
+        find_by_snapshot: vi.fn(async () => sharepoint_manifest('sp-1')),
       } as unknown as SharePointManifestRepository;
       const service = new SharePointReplicationService(
         tenant_factory,
@@ -202,7 +191,7 @@ describe('drive replication target context lifecycle', () => {
     it('balances creates and destroys across several snapshots and targets', async () => {
       const a = stub_storage_target({ target_id: 'a' });
       const b = stub_storage_target({ target_id: 'b' });
-      const service = make_service([sp_manifest('sp-1'), sp_manifest('sp-2')]);
+      const service = make_service([sharepoint_manifest('sp-1'), sharepoint_manifest('sp-2')]);
 
       await service.replicate_all_site_snapshots('t', 'site-1', [a.target, b.target]);
 
@@ -232,7 +221,11 @@ describe('drive replication context reuse', () => {
 
   it('opens one OneDrive target context per target, not per snapshot', async () => {
     const stub = stub_storage_target();
-    const manifests = [od_manifest('od-1'), od_manifest('od-2'), od_manifest('od-3')];
+    const manifests = [
+      onedrive_manifest('od-1'),
+      onedrive_manifest('od-2'),
+      onedrive_manifest('od-3'),
+    ];
     const repo = {
       list_snapshots_by_owner: vi.fn(async () => manifests),
     } as unknown as OneDriveManifestRepository;
@@ -254,7 +247,11 @@ describe('drive replication context reuse', () => {
 
   it('opens one SharePoint target context per target, not per snapshot', async () => {
     const stub = stub_storage_target();
-    const manifests = [sp_manifest('sp-1'), sp_manifest('sp-2'), sp_manifest('sp-3')];
+    const manifests = [
+      sharepoint_manifest('sp-1'),
+      sharepoint_manifest('sp-2'),
+      sharepoint_manifest('sp-3'),
+    ];
     const repo = {
       list_snapshots_by_site: vi.fn(async () => manifests),
     } as unknown as SharePointManifestRepository;
@@ -278,7 +275,10 @@ describe('drive replication context reuse', () => {
     const a = stub_storage_target({ target_id: 'a' });
     const b = stub_storage_target({ target_id: 'b' });
     const repo = {
-      list_snapshots_by_owner: vi.fn(async () => [od_manifest('od-1'), od_manifest('od-2')]),
+      list_snapshots_by_owner: vi.fn(async () => [
+        onedrive_manifest('od-1'),
+        onedrive_manifest('od-2'),
+      ]),
     } as unknown as OneDriveManifestRepository;
     const validate_dek = vi.fn(async () => undefined);
     const service = new OneDriveReplicationService(
@@ -320,7 +320,10 @@ describe('drive replication context reuse', () => {
   it('destroys the reused context exactly once when a copy fails mid-loop', async () => {
     const stub = stub_storage_target();
     const repo = {
-      list_snapshots_by_owner: vi.fn(async () => [od_manifest('od-1'), od_manifest('od-2')]),
+      list_snapshots_by_owner: vi.fn(async () => [
+        onedrive_manifest('od-1'),
+        onedrive_manifest('od-2'),
+      ]),
     } as unknown as OneDriveManifestRepository;
     const service = new OneDriveReplicationService(
       tenant_factory,
