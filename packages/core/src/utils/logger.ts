@@ -1,4 +1,4 @@
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 import { active_log_scope } from './log-context';
 
 /**
@@ -13,7 +13,7 @@ export const logger = {
   info(message: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.info(message, scope.fields);
-    console.log(chalk.blue('[*]'), message);
+    console.log(styleText('blue', '[*]', { stream: process.stdout }), message);
   },
 
   success(message: string): void {
@@ -21,19 +21,19 @@ export const logger = {
     // A sink has no notion of success; it is an info line that the terminal
     // happens to render in green.
     if (scope) return scope.sink.info(message, scope.fields);
-    console.log(chalk.green('[+]'), message);
+    console.log(styleText('green', '[+]', { stream: process.stdout }), message);
   },
 
   warn(message: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.warn(message, scope.fields);
-    console.warn(chalk.yellow('[!]'), message);
+    console.warn(styleText('yellow', '[!]', { stream: process.stderr }), message);
   },
 
   error(message: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.error(message, scope.fields);
-    console.error(chalk.red('[x]'), message);
+    console.error(styleText('red', '[x]', { stream: process.stderr }), message);
   },
 
   debug(message: string): void {
@@ -42,16 +42,25 @@ export const logger = {
     // lines from a host that asked for them.
     if (scope) return scope.sink.debug(message, scope.fields);
     if (process.env['DEBUG']) {
-      console.debug(chalk.gray('[.]'), chalk.gray(message));
+      console.debug(
+        styleText('gray', '[.]', { stream: process.stdout }),
+        styleText('gray', message, { stream: process.stdout }),
+      );
     }
   },
 
   banner(text: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.info(text, scope.fields);
-    const rule = chalk.cyan('---' + '-'.repeat(text.length) + '---');
+    const rule = styleText('cyan', '---' + '-'.repeat(text.length) + '---', {
+      stream: process.stdout,
+    });
     console.log(rule);
-    console.log(chalk.cyan('-- ') + chalk.bold.white(text) + chalk.cyan(' --'));
+    console.log(
+      styleText('cyan', '-- ', { stream: process.stdout }) +
+        styleText(['bold', 'white'], text, { stream: process.stdout }) +
+        styleText('cyan', ' --', { stream: process.stdout }),
+    );
     console.log(rule);
   },
 

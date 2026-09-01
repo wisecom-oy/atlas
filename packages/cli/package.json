@@ -70,6 +70,6 @@
     "ink-testing-library": "^4.0.0"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.8.0"
   }
 }
