@@ -76,7 +76,13 @@ describe('download_file_chunked', () => {
     // Two requests, not one per chunk: the Range probe, then one streamed download. Asking per
     // chunk fetched the whole file every time, so a 1 GiB item moved 256 GiB.
     expect(fetch_mock).toHaveBeenCalledTimes(2);
-    expect((fetch_mock.mock.calls[1] as unknown[])[1]).toBeUndefined();
+    // The streamed request carries no Range header, only the stall-abort signal.
+    const streamed_init = (fetch_mock.mock.calls[1] as unknown[])[1] as {
+      headers?: Record<string, string>;
+      signal?: AbortSignal;
+    };
+    expect(streamed_init.headers).toBeUndefined();
+    expect(streamed_init.signal).toBeInstanceOf(AbortSignal);
     expect(body.length).toBe(whole.length);
     expect(createHash('sha256').update(body).digest('hex')).toBe(
       createHash('sha256').update(whole).digest('hex'),

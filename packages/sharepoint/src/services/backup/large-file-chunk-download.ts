@@ -7,6 +7,11 @@ const CHUNK_BASE_DELAY_MS = 1_000;
 const CHUNK_MAX_DELAY_MS = 30_000;
 const MIN_THROUGHPUT_BYTES_PER_MS = 256;
 
+/** Milliseconds a single 4 MiB read may stall before the transfer is abandoned. */
+function chunk_stall_timeout_ms(): number {
+  return Math.max(30_000, Math.ceil(CHUNK_SIZE_BYTES / MIN_THROUGHPUT_BYTES_PER_MS));
+}
+
 /**
  * Raised when the server answers a Range request with the whole file.
  *
@@ -53,7 +58,12 @@ export async function* fetch_file_chunks(
         `Range requests are ignored for ${item_id} (HTTP 200 with the full body); ` +
           `falling back to one streamed download`,
       );
-      yield* stream_whole_file_in_chunks(download_url, item_id, CHUNK_SIZE_BYTES);
+      yield* stream_whole_file_in_chunks(download_url, item_id, {
+        chunk_size_bytes: CHUNK_SIZE_BYTES,
+        // Same per-chunk budget the Range path uses, applied between reads rather than to the
+        // whole transfer, so a stalled body is cut off but a slow one is not.
+        stall_timeout_ms: chunk_stall_timeout_ms(),
+      });
       return;
     }
   }

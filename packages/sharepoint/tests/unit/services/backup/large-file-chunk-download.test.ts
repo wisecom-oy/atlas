@@ -127,7 +127,13 @@ describe('fetch_file_chunks', () => {
     // Two requests, not one per chunk: the Range probe, then one streamed download. Fetching
     // per chunk cost the whole file every time, so a 1 GiB item moved 256 GiB.
     expect(fetch_mock).toHaveBeenCalledTimes(2);
-    expect((fetch_mock.mock.calls[1] as unknown[])[1]).toBeUndefined();
+    // The streamed request carries no Range header, only the stall-abort signal.
+    const streamed_init = (fetch_mock.mock.calls[1] as unknown[])[1] as {
+      headers?: Record<string, string>;
+      signal?: AbortSignal;
+    };
+    expect(streamed_init.headers).toBeUndefined();
+    expect(streamed_init.signal).toBeInstanceOf(AbortSignal);
     // Compared by digest, not by `toEqual`: a deep equality over 4 MiB of bytes takes seconds.
     const rebuilt = Buffer.concat(parts);
     expect(rebuilt.length).toBe(whole.length);

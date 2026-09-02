@@ -72,7 +72,12 @@ export async function* fetch_file_chunks(
         `Range requests are ignored for ${item_id} (HTTP 200 with the full body); ` +
           `falling back to one streamed download`,
       );
-      yield* stream_whole_file_in_chunks(download_url, item_id, CHUNK_SIZE_BYTES);
+      yield* stream_whole_file_in_chunks(download_url, item_id, {
+        chunk_size_bytes: CHUNK_SIZE_BYTES,
+        // Same per-chunk budget the Range path uses, applied between reads rather than to the
+        // whole transfer, so a stalled body is cut off but a slow one is not (issue #198).
+        stall_timeout_ms: compute_chunk_timeout_ms(CHUNK_SIZE_BYTES),
+      });
       return;
     }
   }
