@@ -1,5 +1,21 @@
-import chalk from 'chalk';
+import { styleText } from 'node:util';
 import { active_log_scope } from './log-context';
+
+type StyleFormat = Parameters<typeof styleText>[0];
+
+/**
+ * Styles text for stdout, dropping colour when stdout is not a TTY.
+ *
+ * The `stream` option is the whole point: without it `styleText` emits escapes
+ * unconditionally and ANSI ends up in redirected logs. Binding it here means a
+ * call site cannot forget it.
+ */
+const out = (format: StyleFormat, text: string): string =>
+  styleText(format, text, { stream: process.stdout });
+
+/** Styles text for stderr, dropping colour when stderr is not a TTY. */
+const err = (format: StyleFormat, text: string): string =>
+  styleText(format, text, { stream: process.stderr });
 
 /**
  * Atlas log output.
@@ -13,7 +29,7 @@ export const logger = {
   info(message: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.info(message, scope.fields);
-    console.log(chalk.blue('[*]'), message);
+    console.log(out('blue', '[*]'), message);
   },
 
   success(message: string): void {
@@ -21,19 +37,19 @@ export const logger = {
     // A sink has no notion of success; it is an info line that the terminal
     // happens to render in green.
     if (scope) return scope.sink.info(message, scope.fields);
-    console.log(chalk.green('[+]'), message);
+    console.log(out('green', '[+]'), message);
   },
 
   warn(message: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.warn(message, scope.fields);
-    console.warn(chalk.yellow('[!]'), message);
+    console.warn(err('yellow', '[!]'), message);
   },
 
   error(message: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.error(message, scope.fields);
-    console.error(chalk.red('[x]'), message);
+    console.error(err('red', '[x]'), message);
   },
 
   debug(message: string): void {
@@ -42,16 +58,16 @@ export const logger = {
     // lines from a host that asked for them.
     if (scope) return scope.sink.debug(message, scope.fields);
     if (process.env['DEBUG']) {
-      console.debug(chalk.gray('[.]'), chalk.gray(message));
+      console.debug(out('gray', '[.]'), out('gray', message));
     }
   },
 
   banner(text: string): void {
     const scope = active_log_scope();
     if (scope) return scope.sink.info(text, scope.fields);
-    const rule = chalk.cyan('---' + '-'.repeat(text.length) + '---');
+    const rule = out('cyan', '---' + '-'.repeat(text.length) + '---');
     console.log(rule);
-    console.log(chalk.cyan('-- ') + chalk.bold.white(text) + chalk.cyan(' --'));
+    console.log(out('cyan', '-- ') + out(['bold', 'white'], text) + out('cyan', ' --'));
     console.log(rule);
   },
 

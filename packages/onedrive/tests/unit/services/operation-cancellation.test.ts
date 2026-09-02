@@ -9,10 +9,10 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OneDriveBackupService } from '@/services/onedrive-backup.service';
-import { OneDriveRestoreService } from '@/services/onedrive-restore.service';
-import { OneDriveSaveService } from '@/services/onedrive-save.service';
-import { OneDriveVerificationService } from '@/services/onedrive-verification.service';
+import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { OneDriveSaveService } from '@/services/save/save.service';
+import { OneDriveVerificationService } from '@/services/verification/verification.service';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');

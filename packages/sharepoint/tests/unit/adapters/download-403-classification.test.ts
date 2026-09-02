@@ -31,7 +31,7 @@ vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: mocks.warn, debug: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
-const { download_with_fallback } = await import('@/adapters/graph-sharepoint-download-helpers');
+const { download_with_fallback } = await import('@/adapters/graph-sharepoint-download-executor');
 
 const STALE_URL = 'https://cdn.example.invalid/stale';
 const CONTENT_BODY = Buffer.from('graph-content');

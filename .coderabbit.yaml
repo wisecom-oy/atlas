@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  # Required so error-mode pre-merge checks actually block merging.
+  request_changes_workflow: true
+  auto_review:
+    # main is the default branch and always reviewed; dev is where all work lands.
+    base_branches:
+      - dev
+    # Release and hotfix PRs into main are titled "chore(release): <version>"
+    # (see .claude/skills/release). Skipping them means no reviews on main.
+    ignore_title_keywords:
+      - "chore(release):"
+  path_filters:
+    - "!pnpm-lock.yaml"
+  pre_merge_checks:
+    custom_checks:
+      - name: Contributing guide compliance
+        mode: error
+        instructions: |
+          Pass only if the PR follows CONTRIBUTING.md:
+          - Targets dev. Fail if it targets main, unless this is a release or
+            hotfix PR titled "chore(release): <version>".
+          - Carries exactly one release-notes label: enhancement, bug,
+            documentation, or security.
+          - Does not change the version field in any packages/*/package.json.
+          - Stays a single concern; fail if it mixes unrelated changes.
+          - Adds or updates unit tests under tests/unit/ for changed runtime
+            behavior. A PR that only touches documentation, non-runtime
+            configuration, CI workflows, or .claude/ has no runtime behavior to
+            test, so the missing tests are not a failure.
+      - name: Changes explained
+        mode: error
+        instructions: |
+          The baseline is the "Write the PR description" section of
+          CONTRIBUTING.md, the .claude/skills/write-comment skill, and
+          .github/PULL_REQUEST_TEMPLATE.md. This check only restates them:
+          Summary and Changes are the enforced minimum, judged against those
+          three sources and nothing stricter.
+          Pass only if:
+          - A "## Summary" section states what the PR does and why in plain
+            sentences. Fail on an empty summary or leftover template
+            placeholder text.
+          - A "## Changes" section lists concrete bullets of what changed.
+            Fail on empty bullets.
+          - No leftover template HTML comment survives anywhere in the body,
+            including the one above "## Summary" in the template.
+          - Related issues are linked with "Closes #N" when the PR fixes a
+            reported issue.
+          Extra sections beyond the template, for example evidence,
+          verification, or a rejected alternative, are expected on larger PRs.
+          Do not fail a body for having them, for section order, or for a
+          missing Checklist section: the Checklist is for the author and this
+          check does not gate on it.

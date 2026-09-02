@@ -9,6 +9,7 @@ const types_src = resolve(root_dir, '../types/src');
 const core_src = resolve(root_dir, '../core/src');
 const m365_src = resolve(root_dir, '../m365-graph/src');
 const sharepoint_src = resolve(root_dir, 'src');
+const drive_src = resolve(root_dir, '../drive/src');
 
 function try_resolve_ts(base: string): string | null {
   if (existsSync(`${base}.ts`)) return `${base}.ts`;
@@ -30,6 +31,7 @@ function atlas_workspace_at_alias(): Plugin {
         { prefix: '/packages/core/', root: core_src },
         { prefix: '/packages/m365-graph/', root: m365_src },
         { prefix: '/packages/types/', root: types_src },
+        { prefix: '/packages/drive/', root: drive_src },
       ];
       for (const { prefix, root } of roots) {
         if (importer.includes(prefix)) {
@@ -51,6 +53,8 @@ export default defineConfig({
       { find: '@wisecom/atlas-core', replacement: resolve(core_src, 'index.ts') },
       { find: /^@wisecom\/atlas-m365-graph\/(.+)$/, replacement: `${m365_src}/$1` },
       { find: '@wisecom/atlas-m365-graph', replacement: resolve(m365_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-drive\/(.+)$/, replacement: `${drive_src}/$1` },
+      { find: '@wisecom/atlas-drive', replacement: resolve(drive_src, 'index.ts') },
     ],
   },
   test: {

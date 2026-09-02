@@ -4,8 +4,7 @@ import type {
   SharePointSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
-import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
+import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
 
 /**
  * Issue #191: the drive replicators had almost no unit coverage while their Outlook twin was near
@@ -66,7 +65,7 @@ function make_pair(data_keys: string[], target_has: string[] = [], fail_put_on?:
   };
 }
 
-function od_manifest(storage_keys: string[]): OneDriveSnapshotManifest {
+function onedrive_manifest(storage_keys: string[]): OneDriveSnapshotManifest {
   return {
     snapshot_id: 'snap-1',
     owner_id: 'scope-1',
@@ -74,7 +73,7 @@ function od_manifest(storage_keys: string[]): OneDriveSnapshotManifest {
   } as unknown as OneDriveSnapshotManifest;
 }
 
-function sp_manifest(storage_keys: string[]): SharePointSnapshotManifest {
+function sharepoint_manifest(storage_keys: string[]): SharePointSnapshotManifest {
   return {
     snapshot_id: 'snap-1',
     site_id: 'scope-1',
@@ -96,8 +95,16 @@ type Replicate = (
 }>;
 
 const workloads: [string, Replicate, (keys: string[]) => never][] = [
-  ['onedrive', replicate_onedrive_snapshot as Replicate, od_manifest as (k: string[]) => never],
-  ['sharepoint', replicate_sharepoint_snapshot as Replicate, sp_manifest as (k: string[]) => never],
+  [
+    'onedrive',
+    replicate_drive_snapshot_objects as Replicate,
+    onedrive_manifest as (k: string[]) => never,
+  ],
+  [
+    'sharepoint',
+    replicate_drive_snapshot_objects as Replicate,
+    sharepoint_manifest as (k: string[]) => never,
+  ],
 ];
 
 describe.each(workloads)('replicate_%s_snapshot', (_name, replicate, manifest_of) => {

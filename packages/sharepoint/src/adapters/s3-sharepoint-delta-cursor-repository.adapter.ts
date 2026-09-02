@@ -4,7 +4,7 @@ import type {
   SharePointDeltaCursorRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { sharepoint_delta_cursor_key } from '@/services/sharepoint-storage-keys';
+import { sharepoint_delta_cursor_key } from '@/services/shared/storage-keys';
 
 /** Persists the delta sync cursor (delta links + change tracking state) in S3. */
 @injectable()

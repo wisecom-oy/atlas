@@ -55,7 +55,7 @@ wrong from memory:
 - **Required headers.** `ConsistencyLevel: eventual` is mandatory for `$count` and
   `$search` on directory objects and is a common omission.
 - **Throttling semantics.** `references/docs/throttling.md` documents `Retry-After` and
-  backoff, which is the contract `with_graph_retry` and `graph-error-helpers.ts` implement.
+  backoff, which is the contract `with_graph_retry` and `graph-request-error-handler.ts` implement.
 
 ## Verify the API version before copying anything into `src`
 

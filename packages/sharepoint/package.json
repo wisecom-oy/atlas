@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-sharepoint",
-  "version": "4.2.0",
+  "version": "4.3.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -21,11 +21,12 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@wisecom/atlas-types": "workspace:*",
-    "@wisecom/atlas-core": "workspace:*",
-    "@wisecom/atlas-m365-graph": "workspace:*",
     "@microsoft/microsoft-graph-client": "^3.0.7",
-    "inversify": "^7.11.0",
+    "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-drive": "workspace:*",
+    "@wisecom/atlas-m365-graph": "workspace:*",
+    "@wisecom/atlas-types": "workspace:*",
+    "inversify": "^8.2.3",
     "reflect-metadata": "^0.2.2"
   }
 }

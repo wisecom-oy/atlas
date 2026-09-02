@@ -131,6 +131,29 @@ machine-written one, because nobody can tell which parts to trust.
 - Match the surrounding thread. A one-line question gets a one-line answer, not
   a report.
 
+## Pull request descriptions
+
+A PR body is a comment with a fixed skeleton. Everything above applies, plus
+the sections from `.github/PULL_REQUEST_TEMPLATE.md`:
+
+- `## Summary`: what the PR does and why, in plain sentences, with `Closes #N`
+  for the issue it fixes.
+- `## Changes`: concrete bullets, one per thing changed.
+- `## Checklist`: ticked only for what was actually run.
+
+`Summary` and `Changes` are what the `Changes explained` pre-merge check
+enforces, spelled exactly as the template spells them. The `Checklist` is not
+gated, so a body without it still passes, but a ticked box is a claim that the
+command ran and the rule against unearned claims applies to it. Extra sections
+under those are fine, and a long PR usually needs one for evidence or for the
+option not taken, though they never replace `Summary` and `Changes`. Delete
+every template HTML comment, including the one above `## Summary`, along with
+the placeholder bullets: a leftover comment fails the check, and an empty
+section reads as a PR nobody bothered to describe.
+
+`CONTRIBUTING.md` carries the same rule for human contributors. Keep the two in
+sync when either changes.
+
 ## Never
 
 - Anything covered by **This Is a Public Repository** in `.claude/CLAUDE.md`:

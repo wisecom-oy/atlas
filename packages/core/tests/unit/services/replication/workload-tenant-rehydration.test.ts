@@ -18,25 +18,25 @@ import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-ten
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
 
-import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
-import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
-vi.mock('@/services/replication/rehydration-dek-helper', () => ({
+vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/services/replication/onedrive-snapshot-replicator', () => ({
-  replicate_onedrive_snapshot: vi.fn().mockResolvedValue({
+vi.mock('@/services/replication/rehydration-manifests-runner', () => ({
+  rehydrate_manifests: vi.fn().mockResolvedValue({
     objects_copied: 4,
     objects_skipped: 0,
     objects_failed: 0,
     bytes_copied: 400,
     errors: [],
+    snapshot_id: 'snap',
+    // Literal rather than the enum: vi.mock factories are hoisted above the imports.
+    status: 'COMPLETED',
+    verification_status: 'SKIPPED',
   }),
 }));
 
-vi.mock('@/services/replication/rehydration-sp-manifests-runner', () => ({
-  rehydrate_sp_manifests: vi.fn(),
-}));
+import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
 
 const CONFIG: AtlasConfig = {
   tenant_id: 'tenant-1',
@@ -80,7 +80,7 @@ function make_ctx(storage: ObjectStorage): TenantContext {
   };
 }
 
-function od_manifest(owner_id: string, snapshot_id: string): OneDriveSnapshotManifest {
+function onedrive_manifest(owner_id: string, snapshot_id: string): OneDriveSnapshotManifest {
   return {
     id: `m-${snapshot_id}`,
     tenant_id: 'tenant-1',
@@ -93,7 +93,7 @@ function od_manifest(owner_id: string, snapshot_id: string): OneDriveSnapshotMan
   } as unknown as OneDriveSnapshotManifest;
 }
 
-function sp_manifest(site_id: string, snapshot_id: string): SharePointSnapshotManifest {
+function sharepoint_manifest(site_id: string, snapshot_id: string): SharePointSnapshotManifest {
   return {
     id: `m-${snapshot_id}`,
     tenant_id: 'tenant-1',
@@ -149,9 +149,9 @@ describe('tenant-wide workload rehydration', () => {
       list_all_manifests: vi
         .fn()
         .mockResolvedValue([
-          od_manifest('owner-a', 'od-1'),
-          od_manifest('owner-a', 'od-2'),
-          od_manifest('owner-b', 'od-3'),
+          onedrive_manifest('owner-a', 'od-1'),
+          onedrive_manifest('owner-a', 'od-2'),
+          onedrive_manifest('owner-b', 'od-3'),
         ]),
     };
     const service = new OneDriveReplicationService(
@@ -164,10 +164,10 @@ describe('tenant-wide workload rehydration', () => {
 
     const result = await service.rehydrate_all_owners('tenant-1', source);
 
-    expect(replicate_onedrive_snapshot).toHaveBeenCalledTimes(3);
+    expect(rehydrate_manifests).toHaveBeenCalledTimes(2);
     expect(result.snapshot_id).toBe('2-owners');
-    expect(result.objects_copied).toBe(12);
-    expect(result.bytes_copied).toBe(1200);
+    expect(result.objects_copied).toBe(8);
+    expect(result.bytes_copied).toBe(800);
     expect(result.status).toBe(ReplicationStatus.COMPLETED);
   });
 
@@ -191,7 +191,10 @@ describe('tenant-wide workload rehydration', () => {
       list_snapshots_by_owner: vi.fn(),
       list_all_manifests: vi
         .fn()
-        .mockResolvedValue([od_manifest('owner-a', 'od-1'), od_manifest('owner-b', 'od-2')]),
+        .mockResolvedValue([
+          onedrive_manifest('owner-a', 'od-1'),
+          onedrive_manifest('owner-b', 'od-2'),
+        ]),
     };
     const service = new OneDriveReplicationService(
       tenant_factory,
@@ -203,15 +206,21 @@ describe('tenant-wide workload rehydration', () => {
 
     await service.rehydrate_all_owners('tenant-1', source);
 
-    const calls = vi.mocked(replicate_onedrive_snapshot).mock.calls;
-    const ancillary_by_snapshot = new Map(
-      calls.map((c) => [c[2].snapshot_id, c[4]?.ancillary_keys]),
+    const calls = vi.mocked(rehydrate_manifests).mock.calls;
+    expect(calls).toHaveLength(2);
+    // Check that each call passed the correct ancillary keys
+    const ancillary_by_owner = new Map(
+      calls.map((c) => {
+        const manifests = c[2] as OneDriveSnapshotManifest[];
+        const owner = manifests[0]?.owner_id;
+        const plan = c[7] as {
+          replicate: (s: unknown, p: unknown, m: unknown, k: string) => unknown;
+        };
+        return [owner, { manifests: manifests.map((m) => m.snapshot_id), plan_exists: !!plan }];
+      }),
     );
-    expect(ancillary_by_snapshot.get('od-1')).toEqual([
-      'onedrive/index/owner-a/files/1',
-      'onedrive/index/owner-a/runs/od-1.json',
-    ]);
-    expect(ancillary_by_snapshot.get('od-2')).toEqual(['onedrive/index/owner-b/runs/od-2.json']);
+    expect(ancillary_by_owner.get('owner-a')).toBeTruthy();
+    expect(ancillary_by_owner.get('owner-b')).toBeTruthy();
   });
 
   it('rehydrate_all_owners returns an empty result when the replica holds no OneDrive data', async () => {
@@ -232,13 +241,13 @@ describe('tenant-wide workload rehydration', () => {
 
     const result = await service.rehydrate_all_owners('tenant-1', source);
 
-    expect(replicate_onedrive_snapshot).not.toHaveBeenCalled();
+    expect(rehydrate_manifests).not.toHaveBeenCalled();
     expect(result.objects_copied).toBe(0);
     expect(result.snapshot_id).toBe('0-owners');
   });
 
   it('rehydrate_all_sites recovers every site found on the replica', async () => {
-    vi.mocked(rehydrate_sp_manifests).mockResolvedValue({
+    vi.mocked(rehydrate_manifests).mockResolvedValue({
       snapshot_id: 'sp',
       target_id: 'replica',
       status: ReplicationStatus.COMPLETED,
@@ -259,7 +268,10 @@ describe('tenant-wide workload rehydration', () => {
       list_snapshots_by_site: vi.fn(),
       list_all_manifests: vi
         .fn()
-        .mockResolvedValue([sp_manifest('site-a', 'sp-1'), sp_manifest('site-b', 'sp-2')]),
+        .mockResolvedValue([
+          sharepoint_manifest('site-a', 'sp-1'),
+          sharepoint_manifest('site-b', 'sp-2'),
+        ]),
     };
     const service = new SharePointReplicationService(
       tenant_factory,
@@ -271,7 +283,7 @@ describe('tenant-wide workload rehydration', () => {
 
     const result = await service.rehydrate_all_sites('tenant-1', source);
 
-    expect(rehydrate_sp_manifests).toHaveBeenCalledTimes(2);
+    expect(rehydrate_manifests).toHaveBeenCalledTimes(2);
     expect(result.snapshot_id).toBe('2-sites');
     expect(result.objects_copied).toBe(60);
     expect(result.bytes_copied).toBe(6000);

@@ -13,6 +13,31 @@ const sonarjs_code_smell_rules = {
   'sonarjs/no-unused-collection': 'error',
 };
 
+/**
+ * Structural conventions from `.claude/CLAUDE.md` that nothing checked before.
+ * Folder naming is an error because the tree is already clean. The
+ * relative-import and function-length rules are warnings until their existing
+ * hits are fixed, then they are promoted to errors too.
+ */
+const structural_convention_rules = {
+  'no-restricted-imports': [
+    'warn',
+    {
+      patterns: [
+        {
+          group: ['./*', '../*'],
+          message: 'Use the @/ path alias instead of a relative import.',
+        },
+      ],
+    },
+  ],
+  'check-file/folder-naming-convention': ['error', { '**/': 'KEBAB_CASE' }],
+  'max-lines-per-function': [
+    'warn',
+    { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true },
+  ],
+};
+
 export default tseslint.config(
   {
     ignores: ['dist/', '**/dist/', 'node_modules/', '**/node_modules/', 'coverage/', '*.config.*'],
@@ -32,6 +57,7 @@ export default tseslint.config(
     },
     rules: {
       ...sonarjs_code_smell_rules,
+      ...structural_convention_rules,
       'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
       'check-file/filename-naming-convention': [
         'error',

@@ -16,15 +16,18 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
-import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
-import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
-import { diff_od_manifests } from '@/services/replication/onedrive-replication-helpers';
-import { diff_sp_manifests } from '@/services/replication/sharepoint-replication-helpers';
+import {
+  ONEDRIVE_REPLICATION,
+  SHAREPOINT_REPLICATION,
+  type DriveReplicationDescriptor,
+} from '@/services/replication/drive-replication-descriptor';
+import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
+import { diff_drive_manifests } from '@/services/replication/drive-replication-result';
 
-const OD_MANIFEST_KEY = 'onedrive/manifests/owner-1/snapshot-1.json';
-const SP_MANIFEST_KEY = 'sharepoint/manifests/site-1/snapshot-1.json';
-const OD_DATA_KEY = 'onedrive/data/owner-1/hash-1';
-const SP_DATA_KEY = 'sharepoint/data/site-1/hash-1';
+const ONEDRIVE_MANIFEST_KEY = 'onedrive/manifests/owner-1/snapshot-1.json';
+const SHAREPOINT_MANIFEST_KEY = 'sharepoint/manifests/site-1/snapshot-1.json';
+const ONEDRIVE_DATA_KEY = 'onedrive/data/owner-1/hash-1';
+const SHAREPOINT_DATA_KEY = 'sharepoint/data/site-1/hash-1';
 
 function make_storage(
   objects: Map<string, Buffer>,
@@ -78,7 +81,7 @@ function make_source(manifest_key: string, data_key: string): Map<string, Buffer
   ]);
 }
 
-function make_od_manifest(): OneDriveSnapshotManifest {
+function make_onedrive_manifest(): OneDriveSnapshotManifest {
   return {
     id: 'manifest-1',
     tenant_id: 'tenant-1',
@@ -94,7 +97,7 @@ function make_od_manifest(): OneDriveSnapshotManifest {
         file_name: 'Report.docx',
         parent_path: '/',
         size_bytes: 10,
-        storage_key: OD_DATA_KEY,
+        storage_key: ONEDRIVE_DATA_KEY,
         backup_at: '2026-01-01T00:00:00.000Z',
         change_type: 'created',
       },
@@ -102,7 +105,7 @@ function make_od_manifest(): OneDriveSnapshotManifest {
   };
 }
 
-function make_sp_manifest(): SharePointSnapshotManifest {
+function make_sharepoint_manifest(): SharePointSnapshotManifest {
   return {
     id: 'manifest-1',
     tenant_id: 'tenant-1',
@@ -118,7 +121,7 @@ function make_sp_manifest(): SharePointSnapshotManifest {
         file_name: 'Budget.xlsx',
         parent_path: '/',
         size_bytes: 10,
-        storage_key: SP_DATA_KEY,
+        storage_key: SHAREPOINT_DATA_KEY,
         backup_at: '2026-01-01T00:00:00.000Z',
         change_type: 'created',
       },
@@ -126,17 +129,47 @@ function make_sp_manifest(): SharePointSnapshotManifest {
   };
 }
 
-describe('replicate_onedrive_snapshot manifest gate (#190)', () => {
+type Workload = {
+  readonly name: string;
+  readonly descriptor:
+    | DriveReplicationDescriptor<OneDriveSnapshotManifest>
+    | DriveReplicationDescriptor<SharePointSnapshotManifest>;
+  readonly owner_id: string;
+  readonly manifest_key: string;
+  readonly data_key: string;
+  readonly make_manifest: () => OneDriveSnapshotManifest | SharePointSnapshotManifest;
+};
+
+const workloads: Workload[] = [
+  {
+    name: 'onedrive',
+    descriptor: ONEDRIVE_REPLICATION,
+    owner_id: 'owner-1',
+    manifest_key: ONEDRIVE_MANIFEST_KEY,
+    data_key: ONEDRIVE_DATA_KEY,
+    make_manifest: make_onedrive_manifest,
+  },
+  {
+    name: 'sharepoint',
+    descriptor: SHAREPOINT_REPLICATION,
+    owner_id: 'site-1',
+    manifest_key: SHAREPOINT_MANIFEST_KEY,
+    data_key: SHAREPOINT_DATA_KEY,
+    make_manifest: make_sharepoint_manifest,
+  },
+];
+
+describe.each(workloads)('replicate_$name_snapshot manifest gate (#190)', (w) => {
   it('writes no manifest when a data blob fails to copy, and still reports the tally', async () => {
     const target_objects = new Map<string, Buffer>();
-    const source_ctx = make_context(make_storage(make_source(OD_MANIFEST_KEY, OD_DATA_KEY)));
-    const target_ctx = make_context(make_storage(target_objects, [OD_DATA_KEY]));
+    const source_ctx = make_context(make_storage(make_source(w.manifest_key, w.data_key)));
+    const target_ctx = make_context(make_storage(target_objects, [w.data_key]));
 
-    const result = await replicate_onedrive_snapshot(
+    const result = await replicate_drive_snapshot_objects(
       source_ctx,
       target_ctx,
-      make_od_manifest(),
-      OD_MANIFEST_KEY,
+      w.make_manifest() as never,
+      w.manifest_key,
     );
 
     expect(result.objects_failed).toBe(1);
@@ -144,111 +177,75 @@ describe('replicate_onedrive_snapshot manifest gate (#190)', () => {
     expect(result.errors[0]).toContain('AccessDenied');
     expect(result.source_manifest_checksum).toBe('');
     expect(result.replicated_manifest_checksum).toBe('');
-    expect(target_objects.has(OD_MANIFEST_KEY)).toBe(false);
+    expect(target_objects.has(w.manifest_key)).toBe(false);
   });
 
   it('leaves the snapshot unreplicated so the next run retries it', async () => {
     const target_objects = new Map<string, Buffer>();
-    const source_ctx = make_context(make_storage(make_source(OD_MANIFEST_KEY, OD_DATA_KEY)));
-    const target_ctx = make_context(make_storage(target_objects, [OD_DATA_KEY]));
-    const manifest = make_od_manifest();
+    const source_ctx = make_context(make_storage(make_source(w.manifest_key, w.data_key)));
+    const target_ctx = make_context(make_storage(target_objects, [w.data_key]));
+    const manifest = w.make_manifest();
 
-    await replicate_onedrive_snapshot(source_ctx, target_ctx, manifest, OD_MANIFEST_KEY);
+    await replicate_drive_snapshot_objects(
+      source_ctx,
+      target_ctx,
+      manifest as never,
+      w.manifest_key,
+    );
 
-    const pending = await diff_od_manifests([manifest], target_ctx, 'owner-1');
+    const pending = await diff_drive_manifests(
+      w.descriptor as never,
+      [manifest] as never,
+      target_ctx,
+      w.owner_id,
+    );
     expect(pending.map((m) => m.snapshot_id)).toEqual(['snapshot-1']);
   });
 
   it('writes no manifest when an ancillary object fails to copy', async () => {
-    const index_key = 'onedrive/index/owner-1/runs/snapshot-1.json';
-    const source_objects = make_source(OD_MANIFEST_KEY, OD_DATA_KEY);
+    const index_key = `${w.descriptor.index_prefix}/${w.owner_id}/runs/snapshot-1.json`;
+    const source_objects = make_source(w.manifest_key, w.data_key);
     source_objects.set(index_key, Buffer.from('version-index'));
     const target_objects = new Map<string, Buffer>();
     const source_ctx = make_context(make_storage(source_objects));
     const target_ctx = make_context(make_storage(target_objects, [index_key]));
 
-    const result = await replicate_onedrive_snapshot(
+    const result = await replicate_drive_snapshot_objects(
       source_ctx,
       target_ctx,
-      make_od_manifest(),
-      OD_MANIFEST_KEY,
+      w.make_manifest() as never,
+      w.manifest_key,
       { ancillary_keys: [index_key] },
     );
 
     expect(result.objects_failed).toBe(1);
-    expect(target_objects.has(OD_MANIFEST_KEY)).toBe(false);
+    expect(target_objects.has(w.manifest_key)).toBe(false);
   });
 
   it('still writes the manifest when every object copies', async () => {
     const target_objects = new Map<string, Buffer>();
-    const source_ctx = make_context(make_storage(make_source(OD_MANIFEST_KEY, OD_DATA_KEY)));
+    const source_ctx = make_context(make_storage(make_source(w.manifest_key, w.data_key)));
     const target_ctx = make_context(make_storage(target_objects));
-    const manifest = make_od_manifest();
+    const manifest = w.make_manifest();
 
-    const result = await replicate_onedrive_snapshot(
+    const result = await replicate_drive_snapshot_objects(
       source_ctx,
       target_ctx,
-      manifest,
-      OD_MANIFEST_KEY,
+      manifest as never,
+      w.manifest_key,
     );
 
     expect(result.objects_failed).toBe(0);
     expect(result.objects_copied).toBe(1);
     expect(result.source_manifest_checksum).toBe(result.replicated_manifest_checksum);
-    expect(target_objects.has(OD_MANIFEST_KEY)).toBe(true);
-    expect(await diff_od_manifests([manifest], target_ctx, 'owner-1')).toEqual([]);
-  });
-});
-
-describe('replicate_sharepoint_snapshot manifest gate (#190)', () => {
-  it('writes no manifest when a data blob fails to copy, and still reports the tally', async () => {
-    const target_objects = new Map<string, Buffer>();
-    const source_ctx = make_context(make_storage(make_source(SP_MANIFEST_KEY, SP_DATA_KEY)));
-    const target_ctx = make_context(make_storage(target_objects, [SP_DATA_KEY]));
-
-    const result = await replicate_sharepoint_snapshot(
-      source_ctx,
-      target_ctx,
-      make_sp_manifest(),
-      SP_MANIFEST_KEY,
-    );
-
-    expect(result.objects_failed).toBe(1);
-    expect(result.objects_copied).toBe(0);
-    expect(result.errors[0]).toContain('AccessDenied');
-    expect(result.source_manifest_checksum).toBe('');
-    expect(result.replicated_manifest_checksum).toBe('');
-    expect(target_objects.has(SP_MANIFEST_KEY)).toBe(false);
-  });
-
-  it('leaves the snapshot unreplicated so the next run retries it', async () => {
-    const target_objects = new Map<string, Buffer>();
-    const source_ctx = make_context(make_storage(make_source(SP_MANIFEST_KEY, SP_DATA_KEY)));
-    const target_ctx = make_context(make_storage(target_objects, [SP_DATA_KEY]));
-    const manifest = make_sp_manifest();
-
-    await replicate_sharepoint_snapshot(source_ctx, target_ctx, manifest, SP_MANIFEST_KEY);
-
-    const pending = await diff_sp_manifests([manifest], target_ctx, 'site-1');
-    expect(pending.map((m) => m.snapshot_id)).toEqual(['snapshot-1']);
-  });
-
-  it('still writes the manifest when every object copies', async () => {
-    const target_objects = new Map<string, Buffer>();
-    const source_ctx = make_context(make_storage(make_source(SP_MANIFEST_KEY, SP_DATA_KEY)));
-    const target_ctx = make_context(make_storage(target_objects));
-    const manifest = make_sp_manifest();
-
-    const result = await replicate_sharepoint_snapshot(
-      source_ctx,
-      target_ctx,
-      manifest,
-      SP_MANIFEST_KEY,
-    );
-
-    expect(result.objects_failed).toBe(0);
-    expect(result.source_manifest_checksum).toBe(result.replicated_manifest_checksum);
-    expect(target_objects.has(SP_MANIFEST_KEY)).toBe(true);
-    expect(await diff_sp_manifests([manifest], target_ctx, 'site-1')).toEqual([]);
+    expect(target_objects.has(w.manifest_key)).toBe(true);
+    expect(
+      await diff_drive_manifests(
+        w.descriptor as never,
+        [manifest] as never,
+        target_ctx,
+        w.owner_id,
+      ),
+    ).toEqual([]);
   });
 });

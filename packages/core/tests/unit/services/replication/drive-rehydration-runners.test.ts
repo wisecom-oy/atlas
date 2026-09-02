@@ -4,19 +4,27 @@ import type {
   SharePointSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { rehydrate_od_manifests } from '@/services/replication/rehydration-od-manifests-runner';
-import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
-import { replicate_onedrive_snapshot } from '@/services/replication/onedrive-snapshot-replicator';
-import { replicate_sharepoint_snapshot } from '@/services/replication/sharepoint-snapshot-replicator';
+import {
+  ONEDRIVE_REPLICATION,
+  SHAREPOINT_REPLICATION,
+  drive_manifest_key,
+  type DriveReplicationDescriptor,
+} from '@/services/replication/drive-replication-descriptor';
+import {
+  rehydrate_manifests,
+  type RehydrationPlan,
+} from '@/services/replication/rehydration-manifests-runner';
+import {
+  replicate_drive_snapshot_objects,
+  type DriveReplicationTally,
+} from '@/services/replication/drive-snapshot-replicator';
 
 /**
  * Issue #191. These two runners are the same code apart from the scope field, yet the OneDrive one
  * sat at 91% coverage and the SharePoint one at 4%, because the suite that exercises the OneDrive
- * path mocks `rehydrate_sp_manifests` outright. Driving both through one table is the point: an
+ * path mocks `rehydrate_manifests` outright. Driving both through one table is the point: an
  * asymmetry between them now fails a test.
  */
-const OD_PREFIX = 'onedrive/manifests';
-const SP_PREFIX = 'sharepoint/manifests';
 
 function make_ctx(existing: string[]): TenantContext {
   return {
@@ -35,29 +43,28 @@ const tally = {
   replicated_manifest_checksum: 'a',
 };
 
-vi.mock('@/services/replication/onedrive-snapshot-replicator', () => ({
-  replicate_onedrive_snapshot: vi.fn(async () => tally),
+vi.mock('@/services/replication/drive-snapshot-replicator', () => ({
+  replicate_drive_snapshot_objects: vi.fn(async () => tally),
 }));
-vi.mock('@/services/replication/sharepoint-snapshot-replicator', () => ({
-  replicate_sharepoint_snapshot: vi.fn(async () => tally),
-}));
-const mocked_od = vi.mocked(replicate_onedrive_snapshot);
-const mocked_sp = vi.mocked(replicate_sharepoint_snapshot);
+const mocked_replicator = vi.mocked(replicate_drive_snapshot_objects);
+type Workload = {
+  readonly name: string;
+  readonly descriptor:
+    | DriveReplicationDescriptor<OneDriveSnapshotManifest>
+    | DriveReplicationDescriptor<SharePointSnapshotManifest>;
+  readonly manifest: (snapshot_id: string) => OneDriveSnapshotManifest | SharePointSnapshotManifest;
+};
 
-const workloads = [
+const workloads: Workload[] = [
   {
     name: 'onedrive',
-    run: rehydrate_od_manifests,
-    replicate: mocked_od,
-    key_of: (id: string) => `${OD_PREFIX}/owner-1/${id}.json`,
+    descriptor: ONEDRIVE_REPLICATION,
     manifest: (snapshot_id: string) =>
       ({ snapshot_id, owner_id: 'owner-1' }) as OneDriveSnapshotManifest,
   },
   {
     name: 'sharepoint',
-    run: rehydrate_sp_manifests,
-    replicate: mocked_sp,
-    key_of: (id: string) => `${SP_PREFIX}/site-1/${id}.json`,
+    descriptor: SHAREPOINT_REPLICATION,
     manifest: (snapshot_id: string) =>
       ({ snapshot_id, site_id: 'site-1' }) as SharePointSnapshotManifest,
   },
@@ -65,99 +72,80 @@ const workloads = [
 
 describe.each(workloads)('rehydrate_$name_manifests', (w) => {
   const source = { target_id: 'replica' } as never;
-  const run = w.run as (
-    source_ctx: TenantContext,
-    primary_ctx: TenantContext,
-    manifests: never[],
-    ancillary_keys: string[],
-    source: never,
-    tenant_id: string,
-    validate_dek: unknown,
-    passphrase: string,
-  ) => Promise<{ snapshot_id: string; objects_copied: number; objects_skipped: number }>;
 
   beforeEach(() => {
-    mocked_od.mockClear();
-    mocked_sp.mockClear();
+    mocked_replicator.mockClear();
   });
+
+  function make_plan(): RehydrationPlan<OneDriveSnapshotManifest | SharePointSnapshotManifest> {
+    return {
+      manifest_key: (manifest) => drive_manifest_key(w.descriptor as never, manifest as never),
+      replicate: (source_ctx, primary_ctx, manifest) =>
+        mocked_replicator(
+          source_ctx,
+          primary_ctx,
+          manifest as never,
+          drive_manifest_key(w.descriptor as never, manifest as never),
+        ),
+    };
+  }
 
   it('validates the DEK pair before reading any object', async () => {
     const order: string[] = [];
     const validate_dek = vi.fn(async () => {
       order.push('validate');
     });
-    w.replicate.mockImplementation(async () => {
+    mocked_replicator.mockImplementation(async () => {
       order.push('replicate');
       return tally as never;
     });
 
-    await run(
+    await rehydrate_manifests(
       make_ctx([]),
       make_ctx([]),
       [w.manifest('snap-1') as never],
-      [],
       source,
       'tenant-1',
       validate_dek,
       'passphrase',
+      make_plan(),
     );
 
     expect(order).toEqual(['validate', 'replicate']);
   });
 
   it('skips a manifest already present on the primary without copying it', async () => {
-    w.replicate.mockImplementation(async () => tally as never);
+    mocked_replicator.mockImplementation(async () => tally as never);
 
-    const result = await run(
+    const key = drive_manifest_key(w.descriptor as never, w.manifest('snap-1') as never);
+    const result = await rehydrate_manifests(
       make_ctx([]),
-      make_ctx([w.key_of('snap-1')]),
+      make_ctx([key]),
       [w.manifest('snap-1') as never],
-      [],
       source,
       'tenant-1',
       vi.fn(async () => undefined),
       'passphrase',
+      make_plan(),
     );
 
-    expect(w.replicate).not.toHaveBeenCalled();
+    expect(mocked_replicator).not.toHaveBeenCalled();
     expect(result.objects_skipped).toBe(1);
     expect(result.objects_copied).toBe(0);
   });
 
-  it('suppresses the replica marker, since recovered data is not a replica of itself', async () => {
-    w.replicate.mockImplementation(async () => tally as never);
-
-    await run(
-      make_ctx([]),
-      make_ctx([]),
-      [w.manifest('snap-1') as never],
-      ['drive/index/scope/runs/r1.json'],
-      source,
-      'tenant-1',
-      vi.fn(async () => undefined),
-      'passphrase',
-    );
-
-    const options = w.replicate.mock.calls[0]?.[4] as {
-      skip_marker?: boolean;
-      ancillary_keys?: string[];
-    };
-    expect(options.skip_marker).toBe(true);
-    expect(options.ancillary_keys).toEqual(['drive/index/scope/runs/r1.json']);
-  });
-
   it('aggregates the tallies across several snapshots', async () => {
-    w.replicate.mockImplementation(async () => tally as never);
+    mocked_replicator.mockImplementation(async () => tally as never);
 
-    const result = await run(
+    const result = await rehydrate_manifests(
       make_ctx([]),
       make_ctx([]),
       [w.manifest('snap-1') as never, w.manifest('snap-2') as never],
-      [],
       source,
       'tenant-1',
       vi.fn(async () => undefined),
       'passphrase',
+      make_plan(),
     );
 
     expect(result.objects_copied).toBe(4);
@@ -165,34 +153,35 @@ describe.each(workloads)('rehydrate_$name_manifests', (w) => {
   });
 
   it('labels a single-snapshot run with its snapshot id', async () => {
-    w.replicate.mockImplementation(async () => tally as never);
+    mocked_replicator.mockImplementation(async () => tally as never);
 
-    const result = await run(
+    const result = await rehydrate_manifests(
       make_ctx([]),
       make_ctx([]),
       [w.manifest('snap-1') as never],
-      [],
       source,
       'tenant-1',
       vi.fn(async () => undefined),
       'passphrase',
+      make_plan(),
     );
 
     expect(result.snapshot_id).toBe('snap-1');
   });
 
   it('labels a multi-snapshot run with the count it actually copied', async () => {
-    w.replicate.mockImplementation(async () => tally as never);
+    mocked_replicator.mockImplementation(async () => tally as never);
 
-    const result = await run(
+    const key = drive_manifest_key(w.descriptor as never, w.manifest('snap-2') as never);
+    const result = await rehydrate_manifests(
       make_ctx([]),
-      make_ctx([w.key_of('snap-2')]),
+      make_ctx([key]),
       [w.manifest('snap-1') as never, w.manifest('snap-2') as never],
-      [],
       source,
       'tenant-1',
       vi.fn(async () => undefined),
       'passphrase',
+      make_plan(),
     );
 
     // snap-2 was already there, so one snapshot was copied out of two requested.
@@ -205,15 +194,15 @@ describe.each(workloads)('rehydrate_$name_manifests', (w) => {
     });
 
     await expect(
-      run(
+      rehydrate_manifests(
         make_ctx([]),
         make_ctx([]),
         [w.manifest('snap-1') as never],
-        [],
         source,
         'tenant-1',
         validate_dek,
         'passphrase',
+        make_plan(),
       ),
     ).rejects.toThrow('DEK mismatch');
   });

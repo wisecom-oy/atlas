@@ -2,10 +2,10 @@ import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import {
-  copy_sharepoint_snapshot_between,
-  copy_sharepoint_snapshot_into_context,
-  copy_sharepoint_snapshot_to_target,
-} from '@/services/replication/sharepoint-snapshot-copier';
+  copy_drive_snapshot_between,
+  copy_drive_snapshot_into_context,
+  copy_drive_snapshot_to_target,
+} from '@/services/replication/drive-snapshot-copier';
 import type { CopyDeps } from '@/services/replication/outlook-snapshot-copier';
 import type {
   SharePointManifestRepository,
@@ -22,28 +22,34 @@ import {
   STORAGE_TARGET_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { save_replication_status } from '@/services/replication/replication-status-repository';
-import { ensure_source_dek_on_primary } from '@/services/replication/rehydration-dek-helper';
-import { rehydrate_sp_manifests } from '@/services/replication/rehydration-sp-manifests-runner';
+import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
+import { rehydrate_manifests } from '@/services/replication/rehydration-manifests-runner';
+import { build_drive_rehydration_plan } from '@/services/replication/drive-rehydration-plan';
 import {
   build_skip_result,
   merge_replication_results,
 } from '@/services/replication/replication-result-builder';
 import type { AtlasConfig } from '@/utils/config';
+import { create_primary_target } from '@/services/replication/primary-target-factory';
 import { ATLAS_CONFIG_TOKEN } from '@/utils/config';
 
 import {
-  SP_MANIFEST_PREFIX,
-  to_sharepoint_status_record,
-  collect_sp_ancillary_keys,
-  diff_sp_manifests,
-} from '@/services/replication/sharepoint-replication-helpers';
+  to_drive_status_record,
+  collect_drive_ancillary_keys,
+  group_manifests_by_owner,
+  diff_drive_manifests,
+} from '@/services/replication/drive-replication-result';
+import {
+  SHAREPOINT_REPLICATION,
+  drive_manifest_key,
+} from '@/services/replication/drive-replication-descriptor';
 
 @injectable()
 export class SharePointReplicationService implements SharePointReplicationUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
-    private readonly _sp_manifests: SharePointManifestRepository,
+    private readonly _sharepoint_manifests: SharePointManifestRepository,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
     @inject(DEK_VALIDATION_FN_TOKEN) private readonly _validate_dek: DekValidationFn,
     @inject(STORAGE_TARGET_FACTORY_TOKEN) private readonly _target_factory: StorageTargetFactory,
@@ -59,12 +65,17 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     site_id = normalize_owner_id(site_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this.require_sp_manifest(source_ctx, site_id, snapshot_id);
-      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+      const manifest = await this.require_sharepoint_manifest(source_ctx, site_id, snapshot_id);
+      const ancillary = await collect_drive_ancillary_keys(
+        SHAREPOINT_REPLICATION,
+        source_ctx,
+        site_id,
+      );
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
-        const result = await copy_sharepoint_snapshot_to_target(
+        const result = await copy_drive_snapshot_to_target(
+          SHAREPOINT_REPLICATION,
           source_ctx,
           target,
           manifest,
@@ -73,7 +84,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
         );
         await save_replication_status(
           source_ctx,
-          to_sharepoint_status_record(result, target, manifest),
+          to_drive_status_record(SHAREPOINT_REPLICATION, result, target, manifest),
         );
         results.push(result);
       }
@@ -93,8 +104,15 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     site_id = normalize_owner_id(site_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
-      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+      const manifests = await this._sharepoint_manifests.list_snapshots_by_site(
+        source_ctx,
+        site_id,
+      );
+      const ancillary = await collect_drive_ancillary_keys(
+        SHAREPOINT_REPLICATION,
+        source_ctx,
+        site_id,
+      );
       const results: ReplicationResult[] = [];
 
       for (const target of targets) {
@@ -108,10 +126,16 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
             this._config.encryption_passphrase,
             tenant_id,
           );
-          const missing = await diff_sp_manifests(manifests, target_ctx, site_id);
+          const missing = await diff_drive_manifests(
+            SHAREPOINT_REPLICATION,
+            manifests,
+            target_ctx,
+            site_id,
+          );
 
           for (const manifest of missing) {
-            const result = await copy_sharepoint_snapshot_into_context(
+            const result = await copy_drive_snapshot_into_context(
+              SHAREPOINT_REPLICATION,
               source_ctx,
               target_ctx,
               manifest,
@@ -120,7 +144,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
             );
             await save_replication_status(
               source_ctx,
-              to_sharepoint_status_record(result, target, manifest),
+              to_drive_status_record(SHAREPOINT_REPLICATION, result, target, manifest),
             );
             results.push(result);
           }
@@ -143,19 +167,29 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     site_id = normalize_owner_id(site_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const manifest = await this.require_sp_manifest_from_ctx(source_ctx, site_id, snapshot_id);
-      const manifest_key = `${SP_MANIFEST_PREFIX}/${site_id}/${snapshot_id}.json`;
+      const manifest = await this.require_sharepoint_manifest(
+        source_ctx,
+        site_id,
+        snapshot_id,
+        'source',
+      );
+      const manifest_key = drive_manifest_key(SHAREPOINT_REPLICATION, manifest);
 
       if (await primary_ctx.storage.exists(manifest_key)) {
         return build_skip_result(snapshot_id, source.target_id, manifest.entries.length);
       }
 
-      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
-      return copy_sharepoint_snapshot_between(
+      const ancillary = await collect_drive_ancillary_keys(
+        SHAREPOINT_REPLICATION,
+        source_ctx,
+        site_id,
+      );
+      return copy_drive_snapshot_between(
+        SHAREPOINT_REPLICATION,
         source_ctx,
         primary_ctx,
         manifest,
@@ -177,22 +211,27 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     source: StorageTarget,
   ): Promise<ReplicationResult> {
     site_id = normalize_owner_id(site_id);
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const manifests = await this._sp_manifests.list_snapshots_by_site(source_ctx, site_id);
-      const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+      const manifests = await this._sharepoint_manifests.list_snapshots_by_site(
+        source_ctx,
+        site_id,
+      );
+      const ancillary = await collect_drive_ancillary_keys(
+        SHAREPOINT_REPLICATION,
+        source_ctx,
+        site_id,
+      );
 
-      return rehydrate_sp_manifests(
+      return this.rehydrate_site_manifests(
         source_ctx,
         primary_ctx,
         manifests,
         ancillary,
         source,
         tenant_id,
-        this._validate_dek,
-        this._config.encryption_passphrase,
       );
     } finally {
       source_ctx.destroy();
@@ -202,31 +241,28 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
 
   /** DR: recover every SharePoint site's snapshots from a replica. */
   async rehydrate_all_sites(tenant_id: string, source: StorageTarget): Promise<ReplicationResult> {
-    await ensure_source_dek_on_primary(this.create_primary_target(), source, tenant_id);
+    await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
     try {
-      const all = await this._sp_manifests.list_all_manifests(source_ctx);
-      const by_site = new Map<string, SharePointSnapshotManifest[]>();
-      for (const manifest of all) {
-        const bucket = by_site.get(manifest.site_id);
-        if (bucket) bucket.push(manifest);
-        else by_site.set(manifest.site_id, [manifest]);
-      }
+      const all = await this._sharepoint_manifests.list_all_manifests(source_ctx);
+      const by_site = group_manifests_by_owner(SHAREPOINT_REPLICATION, all);
 
       const results: ReplicationResult[] = [];
       for (const [site_id, manifests] of by_site) {
-        const ancillary = await collect_sp_ancillary_keys(source_ctx, site_id);
+        const ancillary = await collect_drive_ancillary_keys(
+          SHAREPOINT_REPLICATION,
+          source_ctx,
+          site_id,
+        );
         results.push(
-          await rehydrate_sp_manifests(
+          await this.rehydrate_site_manifests(
             source_ctx,
             primary_ctx,
             manifests,
             ancillary,
             source,
             tenant_id,
-            this._validate_dek,
-            this._config.encryption_passphrase,
           ),
         );
       }
@@ -247,38 +283,47 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     };
   }
 
-  private async require_sp_manifest(
-    ctx: TenantContext,
-    site_id: string,
-    snapshot_id: string,
-  ): Promise<SharePointSnapshotManifest> {
-    const m = await this._sp_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
-    if (!m)
-      throw new Error(`No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id}`);
-    return m;
+  /** Rehydrates one site's manifests, supplying this service's DEK validator and passphrase. */
+  private rehydrate_site_manifests(
+    source_ctx: TenantContext,
+    primary_ctx: TenantContext,
+    manifests: SharePointSnapshotManifest[],
+    ancillary_keys: string[],
+    source: StorageTarget,
+    tenant_id: string,
+  ): Promise<ReplicationResult> {
+    const plan = build_drive_rehydration_plan(SHAREPOINT_REPLICATION, ancillary_keys);
+    return rehydrate_manifests(
+      source_ctx,
+      primary_ctx,
+      manifests,
+      source,
+      tenant_id,
+      this._validate_dek,
+      this._config.encryption_passphrase,
+      plan,
+    );
   }
 
-  private async require_sp_manifest_from_ctx(
+  /** Loads a SharePoint manifest, naming the replica in the error when the lookup ran there. */
+  private async require_sharepoint_manifest(
     ctx: TenantContext,
     site_id: string,
     snapshot_id: string,
+    location?: 'source',
   ): Promise<SharePointSnapshotManifest> {
-    const m = await this._sp_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
-    if (!m) {
+    const manifest = await this._sharepoint_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
+    if (!manifest) {
+      const where = location === 'source' ? ' on source' : '';
       throw new Error(
-        `No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id} on source`,
+        `No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id}${where}`,
       );
     }
-    return m;
+    return manifest;
   }
 
-  private create_primary_target(): StorageTarget {
-    return this._target_factory({
-      s3_endpoint: this._config.s3_endpoint,
-      s3_access_key: this._config.s3_access_key,
-      s3_secret_key: this._config.s3_secret_key,
-      s3_region: this._config.s3_region,
-      encryption_passphrase: this._config.encryption_passphrase,
-    });
+  /** The primary bucket as a storage target. */
+  private primary_target(): StorageTarget {
+    return create_primary_target(this._target_factory, this._config);
   }
 }

@@ -16,12 +16,12 @@ import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import type { AtlasConfig } from '@/utils/config';
 
-vi.mock('@/services/replication/rehydration-dek-helper', () => ({
+vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn().mockResolvedValue(undefined),
 }));
 
-const OD_SNAPSHOT = 'od-snap-1735689600000-a1b2c3';
-const SP_SNAPSHOT = 'sp-snap-1735689600000-d4e5f6';
+const ONEDRIVE_SNAPSHOT = 'od-snap-1735689600000-a1b2c3';
+const SHAREPOINT_SNAPSHOT = 'sp-snap-1735689600000-d4e5f6';
 
 function make_result(snapshot_id: string): ReplicationResult {
   return {
@@ -69,8 +69,8 @@ function make_storage(keys: string[]): ObjectStorage {
 
 /** Manifest keys as the drive backup paths write them, one per workload. */
 const STORED_KEYS = [
-  `onedrive/manifests/owner-object-id/${OD_SNAPSHOT}.json`,
-  `sharepoint/manifests/contoso.sharepoint.com,site-guid,web-guid/${SP_SNAPSHOT}.json`,
+  `onedrive/manifests/owner-object-id/${ONEDRIVE_SNAPSHOT}.json`,
+  `sharepoint/manifests/contoso.sharepoint.com,site-guid,web-guid/${SHAREPOINT_SNAPSHOT}.json`,
   'manifests/mailbox-1/snap-1735689600000-999999.json',
 ];
 
@@ -114,16 +114,16 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
     };
 
     onedrive = {
-      replicate_owner: vi.fn().mockResolvedValue([make_result(OD_SNAPSHOT)]),
+      replicate_owner: vi.fn().mockResolvedValue([make_result(ONEDRIVE_SNAPSHOT)]),
       replicate_all_owner_snapshots: vi.fn(),
-      rehydrate_owner_snapshot: vi.fn().mockResolvedValue(make_result(OD_SNAPSHOT)),
+      rehydrate_owner_snapshot: vi.fn().mockResolvedValue(make_result(ONEDRIVE_SNAPSHOT)),
       rehydrate_owner: vi.fn(),
       rehydrate_all_owners: vi.fn(),
     };
     sharepoint = {
-      replicate_site: vi.fn().mockResolvedValue([make_result(SP_SNAPSHOT)]),
+      replicate_site: vi.fn().mockResolvedValue([make_result(SHAREPOINT_SNAPSHOT)]),
       replicate_all_site_snapshots: vi.fn(),
-      rehydrate_site_snapshot: vi.fn().mockResolvedValue(make_result(SP_SNAPSHOT)),
+      rehydrate_site_snapshot: vi.fn().mockResolvedValue(make_result(SHAREPOINT_SNAPSHOT)),
       rehydrate_site: vi.fn(),
       rehydrate_all_sites: vi.fn(),
     };
@@ -140,13 +140,13 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
   });
 
   it('replicates a OneDrive snapshot through the OneDrive service, resolving the owner from storage', async () => {
-    const results = await service.replicate_snapshot('tenant-1', OD_SNAPSHOT, [target]);
+    const results = await service.replicate_snapshot('tenant-1', ONEDRIVE_SNAPSHOT, [target]);
 
-    expect(results).toEqual([make_result(OD_SNAPSHOT)]);
+    expect(results).toEqual([make_result(ONEDRIVE_SNAPSHOT)]);
     expect(onedrive.replicate_owner).toHaveBeenCalledWith(
       'tenant-1',
       'owner-object-id',
-      OD_SNAPSHOT,
+      ONEDRIVE_SNAPSHOT,
       [target],
     );
     // The Outlook path must not be consulted: it would report the snapshot as nonexistent.
@@ -154,33 +154,33 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
   });
 
   it('replicates a SharePoint snapshot through the SharePoint service, keeping the composite site id intact', async () => {
-    const results = await service.replicate_snapshot('tenant-1', SP_SNAPSHOT, [target]);
+    const results = await service.replicate_snapshot('tenant-1', SHAREPOINT_SNAPSHOT, [target]);
 
-    expect(results).toEqual([make_result(SP_SNAPSHOT)]);
+    expect(results).toEqual([make_result(SHAREPOINT_SNAPSHOT)]);
     expect(sharepoint.replicate_site).toHaveBeenCalledWith(
       'tenant-1',
       'contoso.sharepoint.com,site-guid,web-guid',
-      SP_SNAPSHOT,
+      SHAREPOINT_SNAPSHOT,
       [target],
     );
   });
 
   it('rehydrates drive snapshots through their own workload service', async () => {
-    const od = await service.rehydrate_snapshot('tenant-1', OD_SNAPSHOT, target);
-    const sp = await service.rehydrate_snapshot('tenant-1', SP_SNAPSHOT, target);
+    const od = await service.rehydrate_snapshot('tenant-1', ONEDRIVE_SNAPSHOT, target);
+    const sp = await service.rehydrate_snapshot('tenant-1', SHAREPOINT_SNAPSHOT, target);
 
-    expect(od).toEqual(make_result(OD_SNAPSHOT));
-    expect(sp).toEqual(make_result(SP_SNAPSHOT));
+    expect(od).toEqual(make_result(ONEDRIVE_SNAPSHOT));
+    expect(sp).toEqual(make_result(SHAREPOINT_SNAPSHOT));
     expect(onedrive.rehydrate_owner_snapshot).toHaveBeenCalledWith(
       'tenant-1',
       'owner-object-id',
-      OD_SNAPSHOT,
+      ONEDRIVE_SNAPSHOT,
       target,
     );
     expect(sharepoint.rehydrate_site_snapshot).toHaveBeenCalledWith(
       'tenant-1',
       'contoso.sharepoint.com,site-guid,web-guid',
-      SP_SNAPSHOT,
+      SHAREPOINT_SNAPSHOT,
       target,
     );
   });
@@ -218,7 +218,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
     );
 
     await expect(
-      service_without_data.replicate_snapshot('tenant-1', OD_SNAPSHOT, [target]),
+      service_without_data.replicate_snapshot('tenant-1', ONEDRIVE_SNAPSHOT, [target]),
     ).rejects.toThrow('No manifest found');
     expect(onedrive.replicate_owner).not.toHaveBeenCalled();
   });

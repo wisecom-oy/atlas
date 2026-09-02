@@ -13,7 +13,7 @@ import {
   download_via_graph_content,
   is_expired_url_error,
   rethrow_if_access_denied,
-} from '@/adapters/graph-sharepoint-download-helpers';
+} from '@/adapters/graph-sharepoint-download-executor';
 
 /**
  * Pins the current behaviour of the SharePoint download helpers (issue #247).
