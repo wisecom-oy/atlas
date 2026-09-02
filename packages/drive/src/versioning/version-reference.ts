@@ -8,7 +8,12 @@ export function resolve_file_id(
 ): string | undefined {
   const trimmed = file_ref.trim();
   if (!looks_like_path(trimmed)) {
-    if (indexes.some((idx) => idx.file_id === trimmed)) return trimmed;
+    // Case-insensitively, and the stored spelling is what comes back: Graph item ids carry
+    // uppercase and an operator may type them in any case, which is what #75 fixed for
+    // `--file-filter`. Version references were left comparing exactly.
+    const wanted_id = trimmed.toLowerCase();
+    const by_id = indexes.find((idx) => idx.file_id.toLowerCase() === wanted_id);
+    if (by_id) return by_id.file_id;
     return match_by_file_name(indexes, trimmed);
   }
   return match_by_path(indexes, normalize_path_ref(trimmed));
@@ -50,10 +55,13 @@ function match_by_file_name(
   indexes: readonly DriveFileVersionIndexView[],
   file_name: string,
 ): string | undefined {
+  const wanted = file_name.normalize('NFC').toLowerCase();
   const matches = new Map<string, string>();
   for (const idx of indexes) {
     for (const v of idx.versions) {
-      if (v.file_name === file_name) matches.set(idx.file_id, version_logical_path(v));
+      if (v.file_name.normalize('NFC').toLowerCase() === wanted) {
+        matches.set(idx.file_id, version_logical_path(v));
+      }
     }
   }
   if (matches.size > 1) {
@@ -70,11 +78,11 @@ function looks_like_path(ref: string): boolean {
   return ref.includes('/') || ref.includes('\\');
 }
 
-/** NFC-normalized path string comparable to stored manifest/index paths. */
+/** NFC-normalized, lower-cased path comparable to stored manifest and index paths. */
 function normalize_path_ref(raw: string): string {
   const unified = raw.replace(/\\/g, '/').trim();
   const with_slash = unified.startsWith('/') ? unified : `/${unified}`;
-  return with_slash.normalize('NFC');
+  return with_slash.normalize('NFC').toLowerCase();
 }
 
 /** Rooted logical path of one version record, e.g. `/Documents/Report.docx`. */

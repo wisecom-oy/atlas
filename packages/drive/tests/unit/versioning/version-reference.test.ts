@@ -45,6 +45,26 @@ describe('resolve_file_id', () => {
     expect(resolve_file_id([nested], 'file-a')).toBe('file-a');
   });
 
+  it('resolves a file id typed in any case and returns the stored spelling', () => {
+    const upper = index('01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3', [
+      version('Report.docx', '/Documents'),
+    ]);
+
+    // Graph item ids carry uppercase; #75 made `--file-filter` case-insensitive for the same
+    // reason, and a version reference takes the same identifiers.
+    expect(resolve_file_id([upper], '01urrjbn4naektkqyt7bbjabarsnlva5h3')).toBe(
+      '01URRJBN4NAEKTKQYT7BBJABARSNLVA5H3',
+    );
+  });
+
+  it('resolves a path typed in any case', () => {
+    expect(resolve_file_id([nested], '/documents/REPORT.docx')).toBe('file-a');
+  });
+
+  it('resolves a bare name typed in any case', () => {
+    expect(resolve_file_id([nested], 'REPORT.DOCX')).toBe('file-a');
+  });
+
   it('resolves a rooted path', () => {
     expect(resolve_file_id([nested], '/Documents/Report.docx')).toBe('file-a');
   });
