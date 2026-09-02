@@ -55,7 +55,7 @@ real input:
 The workflow then:
 
 1. Branches `release/v<version>` from `dev` (or `hotfix/v<version>` from `main`).
-2. Runs `pnpm run release:version <version>`, bumping all nine workspace
+2. Runs `pnpm run release:version <version>`, bumping all ten workspace
    packages in lockstep. Internal dependencies are `workspace:*`, so pnpm
    rewrites them to the exact version at publish time -- there is nothing else to
    edit.
@@ -199,20 +199,26 @@ gh run list --workflow e2e.yml --limit 3
 
 ## Branch protection
 
-`main` is governed by a repository **ruleset** (not classic branch protection --
-`/branches/main/protection` returns 404, the rules live under
-`/repos/:owner/:repo/rulesets`). The settings interact with the automation in ways
-that are not obvious:
+`main` is governed by two mechanisms at once, which is the part that misleads.
+Most rules live in a repository **ruleset** under
+`/repos/:owner/:repo/rulesets`, and `/branches/main/protection` returns nothing
+useful for them. Signed commits are the exception: that requirement sits in
+classic branch protection and is only visible at
+`/branches/main/protection/required_signatures`, which reports `enabled: true`
+for `main` and `false` for `dev`. Reading only the ruleset makes signing look
+optional. The settings interact with the automation in ways that are not
+obvious:
 
-| Rule                       | State | Reason                                                                                               |
-| -------------------------- | ----- | ---------------------------------------------------------------------------------------------------- |
-| Require a pull request     | On    | Blocks a direct push of a version bump, which would publish to npm with no review                    |
-| Required approvals         | 0     | GitHub forbids self-approval; any higher number makes release PRs unmergeable for a solo maintainer  |
-| Require code owner review  | Off   | No `CODEOWNERS` file exists, and one naming the sole maintainer recreates the self-approval deadlock |
-| Restrict deletions         | On    | Deleting `main` would orphan every published tag                                                     |
-| Block force pushes         | On    | A force push can strand a published tag on an orphaned commit                                        |
-| **Require linear history** | Off   | Release tags sit on PR merge commits; requiring linear history would break the release path          |
-| Require signed commits     | Off   | Optional -- the release commit is API-created and signed, so enabling it would not break the flow    |
+| Rule                                    | State | Reason                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Require a pull request                  | On    | Blocks a direct push of a version bump, which would publish to npm with no review                                                                                                                                                                                                                                                                        |
+| Required approvals                      | 0     | GitHub forbids self-approval; any higher number makes release PRs unmergeable for a solo maintainer                                                                                                                                                                                                                                                      |
+| Require code owner review               | Off   | No `CODEOWNERS` file exists, and one naming the sole maintainer recreates the self-approval deadlock                                                                                                                                                                                                                                                     |
+| Restrict deletions                      | On    | Deleting `main` would orphan every published tag                                                                                                                                                                                                                                                                                                         |
+| Block force pushes                      | On    | A force push can strand a published tag on an orphaned commit                                                                                                                                                                                                                                                                                            |
+| **Require linear history**              | Off   | Release tags sit on PR merge commits; requiring linear history would break the release path                                                                                                                                                                                                                                                              |
+| Require signed commits                  | On    | Enforced by classic branch protection, not by the ruleset, so it does not appear in `/rulesets`. This is why `release-start.yml` creates the bump through the GraphQL commit API: a runner-side `git commit` is unsigned and lands an unmergeable release PR                                                                                             |
+| Extra approval for unattributed changes | On    | The one rule that does bite. The release commit is created through the GraphQL commit API so it is signed, which also means it is attributed to the workflow rather than to a person, so this rule demands an approving review that the PR author cannot give. Every release PR needs either a second person's approval or `gh pr merge --merge --admin` |
 
 Tag rulesets are deliberately **not** configured: a `v*` rule can block
 `github-actions[bot]` from pushing the release tag, which stops every publish
@@ -229,7 +235,7 @@ pnpm run release:version 2.2.0   # explicit version
 pnpm run release:version patch   # 2.2.0 -> 2.2.1
 ```
 
-This edits all nine `packages/*/package.json` files and nothing else -- no git
+This edits all ten `packages/*/package.json` files and nothing else -- no git
 tag, no commit. Prefer the **Start release** workflow; use this only when working
 offline or repairing a botched bump.
 
