@@ -23,7 +23,7 @@ operational procedure.
 
 1. **Never bump a version outside a release or hotfix PR.** The bump _is_ the
    release trigger. A bump merged in an ordinary PR publishes to npm on arrival.
-2. **Never hand-edit the nine `packages/*/package.json` versions.** Use
+2. **Never hand-edit the ten `packages/*/package.json` versions.** Use
    `pnpm run release:version <version>`. They move in lockstep; a partial bump
    fails the publish workflow's tag/version check.
 3. **Never delete a tag whose npm publish already succeeded.** npm versions are
@@ -74,7 +74,7 @@ gh workflow run release-start.yml -f version=2.2.0 -f from=dev
 gh run watch
 ```
 
-It creates `release/v<version>`, bumps all nine packages, commits
+It creates `release/v<version>`, bumps all ten packages, commits
 `chore(release): <version>`, and prints a prefilled compare link in the run
 summary. The organisation forbids GitHub Actions from creating pull requests, so
 open the release PR from that link:
@@ -94,7 +94,21 @@ Before merging:
   everything in the release: CLI flags, SDK methods, config variables, and
   security changes all have documentation in place.
 
-Merging the PR is the release. Then watch the pipeline:
+Merging the PR is the release, and expect to need `--admin` for it:
+
+```bash
+gh pr merge <n> --merge --admin
+```
+
+The `main` ruleset sets `require_extra_approval_for_unattributed_changes`, and
+the release commit is authored by the workflow rather than by a person, so the
+rule demands an approving review. The person who opened the release PR cannot
+supply it: GitHub refuses to let an author approve their own pull request. Every
+release therefore either takes a second person's approval or an admin merge, and
+admin is what the releases so far have used. Do not work around it by committing
+the bump by hand, which produces an unsigned commit and an unmergeable PR.
+
+Then watch the pipeline:
 
 ```bash
 gh run watch                                    # publish.yml: plan, publish, sync-dev
@@ -138,24 +152,26 @@ correct it with `npm dist-tag add`, never by republishing.
 
 ## When a release did not happen
 
-| Symptom                                | Cause                                                     | Fix                                                |
-| -------------------------------------- | --------------------------------------------------------- | -------------------------------------------------- |
-| Merged to `main`, no tag               | Version was already tagged -- no bump in the merge        | Cut a real release with a higher version           |
-| `release-guard` fails on branch name   | Branch version disagrees with `packages/sdk/package.json` | `pnpm run release:version <branch version>`        |
-| `release-guard` fails on existing tag  | Version already released                                  | Pick a higher version                              |
-| Tag exists, `publish.yml` never ran    | Tag pushed by hand with `GITHUB_TOKEN`                    | `gh workflow run publish.yml -f version=<version>` |
-| No `publish.yml` run after the merge    | Event delivery is late, not dropped (issue #212)          | Wait a few minutes and re-check; only then `gh workflow run publish.yml -f version=<version> --ref main`, which tags the ref when the tag is missing |
-| Publish failed on build, lint, or test | Broken release commit                                     | Delete the tag, fix via a PR into `dev`, cut again |
-| SDK published, CLI failed              | Partial publish; npm is immutable                         | Hotfix forward at the next patch version           |
+| Symptom                                | Cause                                                     | Fix                                                                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Merged to `main`, no tag               | Version was already tagged -- no bump in the merge        | Cut a real release with a higher version                                                                                                             |
+| `release-guard` fails on branch name   | Branch version disagrees with `packages/sdk/package.json` | `pnpm run release:version <branch version>`                                                                                                          |
+| `release-guard` fails on existing tag  | Version already released                                  | Pick a higher version                                                                                                                                |
+| Tag exists, `publish.yml` never ran    | Tag pushed by hand with `GITHUB_TOKEN`                    | `gh workflow run publish.yml -f version=<version>`                                                                                                   |
+| No `publish.yml` run after the merge   | Event delivery is late, not dropped (issue #212)          | Wait a few minutes and re-check; only then `gh workflow run publish.yml -f version=<version> --ref main`, which tags the ref when the tag is missing |
+| Publish failed on build, lint, or test | Broken release commit                                     | Delete the tag, fix via a PR into `dev`, cut again                                                                                                   |
+| SDK published, CLI failed              | Partial publish; npm is immutable                         | Hotfix forward at the next patch version                                                                                                             |
 
 ## Repairing a botched bump
 
 ```bash
-pnpm run release:version 2.2.0        # explicit version, all nine packages
+pnpm run release:version 2.2.0        # explicit version, all ten packages
 pnpm run release:version patch        # or a keyword
-git diff --stat                       # expect exactly 9 package.json files
+git diff --stat                       # expect exactly 10 package.json files
 ```
 
-Nine files and nothing else. Internal dependencies are `workspace:*` and are
-rewritten by pnpm at publish time, so they never need editing. If the diff shows
-a different count, stop -- a package was added or the filter is wrong.
+Ten files and nothing else, one per workspace package. Internal dependencies are
+`workspace:*` and are rewritten by pnpm at publish time, so they never need
+editing. If the diff shows a different count, stop and check whether a package
+was added or the filter is wrong: the count is `ls -d packages/*/ | wc -l`, and
+it went from nine to ten when `packages/drive` arrived in v4.3.0.
