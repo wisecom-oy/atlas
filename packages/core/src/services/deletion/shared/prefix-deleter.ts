@@ -8,6 +8,7 @@
  * back to plain keys only for backends that do not enumerate versions.
  */
 
+import { ObjectLockRetainedError } from '@wisecom/atlas-types';
 import type { DeletionResult, StorageObjectVersion } from '@wisecom/atlas-types';
 
 /** The slice of ObjectStorage that erasure needs. */
@@ -127,7 +128,10 @@ async function delete_one(
     else await storage.delete_version(entry.key, version_id);
     count(summary, entry, 'deleted');
   } catch (err) {
-    count(summary, entry, is_object_lock_delete_error(err) ? 'retained' : 'failed');
+    // The storage adapter names a retention refusal for us: a bare `AccessDenied` from a missing
+    // IAM permission must not be filed as "retained, deletable once retention expires", because
+    // on an erasure report a false all-clear costs the erasure (issue #40).
+    count(summary, entry, err instanceof ObjectLockRetainedError ? 'retained' : 'failed');
   }
 }
 
@@ -146,27 +150,6 @@ function count(
 
   const kind = is_manifest_key(entry.key) ? 'manifests' : 'objects';
   summary[`${outcome}_${kind}` as keyof MutableResult]++;
-}
-
-/**
- * True only for errors that name Object Lock as the reason a delete was refused.
- *
- * Backends word it differently -- MinIO raises `InvalidRequest` "Object is WORM
- * protected and cannot be overwritten", AWS raises `AccessDenied` "Access Denied
- * because object protected by object lock" -- but both name the mechanism. A
- * bare `AccessDenied` from a missing IAM permission does not, and must not be
- * filed as "retained, deletable once retention expires". On an erasure report a
- * false alarm costs an investigation; a false all-clear costs the erasure.
- */
-function is_object_lock_delete_error(err: unknown): boolean {
-  const message = err instanceof Error ? `${err.name} ${err.message}`.toLowerCase() : '';
-  return (
-    message.includes('object lock') ||
-    message.includes('objectlock') ||
-    message.includes('worm protected') ||
-    message.includes('retention') ||
-    message.includes('legal hold')
-  );
 }
 
 function empty_summary(): MutableResult {

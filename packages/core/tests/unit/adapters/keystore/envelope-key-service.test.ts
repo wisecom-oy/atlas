@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { WrongPassphraseError } from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { KDF_SCRYPT } from '@/adapters/keystore/kdf-strategy';
 import { DEK_BLOB_VERSION, parse_dek_blob } from '@/adapters/keystore/dek-blob-codec';
@@ -102,7 +103,28 @@ describe('EnvelopeKeyService', () => {
       const dek = svc_a.generate_dek();
 
       const wrapped = svc_a.wrap_dek(dek, tenant_id);
-      expect(() => svc_b.unwrap_dek(wrapped, tenant_id)).toThrow();
+      expect(() => svc_b.unwrap_dek(wrapped, tenant_id)).toThrow(WrongPassphraseError);
+    });
+
+    it('names the passphrase rather than surfacing the raw GCM failure (issue #40)', () => {
+      const svc_a = new EnvelopeKeyService(passphrase);
+      const svc_b = new EnvelopeKeyService('other-passphrase');
+      const wrapped = svc_a.wrap_dek(svc_a.generate_dek(), tenant_id);
+
+      const failure = (() => {
+        try {
+          svc_b.unwrap_dek(wrapped, tenant_id);
+          return undefined;
+        } catch (err) {
+          return err as WrongPassphraseError;
+        }
+      })();
+
+      // "Unsupported state or unable to authenticate data" reads like a corrupt backup, which
+      // sent operators looking for data loss when they had mistyped a passphrase.
+      expect(failure?.code).toBe('ATLAS_WRONG_PASSPHRASE');
+      expect(failure?.message).toContain('passphrase');
+      expect((failure?.cause as Error).message).toMatch(/authenticate|unsupported state/i);
     });
 
     it('throws on unknown KDF id in blob', () => {
@@ -119,6 +141,8 @@ describe('EnvelopeKeyService', () => {
 
       const { header } = parse_dek_blob(wrapped);
       header.kdf_params[0] ^= 0x01;
+      // Not a WrongPassphraseError: flipping a KDF parameter breaks key derivation itself, which
+      // fails before any ciphertext is read.
       expect(() => svc.unwrap_dek(wrapped, tenant_id)).toThrow();
     });
 
@@ -127,7 +151,9 @@ describe('EnvelopeKeyService', () => {
       const dek = svc.generate_dek();
       const wrapped = svc.wrap_dek(dek, 'tenant-a');
 
-      expect(() => svc.unwrap_dek(wrapped, 'tenant-b')).toThrow();
+      // Same class as a wrong passphrase: from the crypto's point of view a wrong tenant is a
+      // wrong key, and the remediation an operator has is to check both.
+      expect(() => svc.unwrap_dek(wrapped, 'tenant-b')).toThrow(WrongPassphraseError);
     });
   });
 
