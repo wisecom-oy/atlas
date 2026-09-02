@@ -76,49 +76,60 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
     const output_path =
       options.output_path ?? build_default_output_path(workload, options.snapshot_id);
     const skip_integrity = options.skip_integrity_check ?? false;
-    const { archive, promise } = create_file_archive(output_path);
+    const { archive, promise, publish, abort } = create_file_archive(output_path);
 
-    const integrity_failures: string[] = [];
-    const { files_saved, files_skipped, errors } = await save_entries_to_archive(
-      workload,
-      ctx,
-      archive,
-      restorable,
-      skip_integrity,
-      integrity_failures,
-      options,
-    );
+    try {
+      const integrity_failures: string[] = [];
+      const { files_saved, files_skipped, errors } = await save_entries_to_archive(
+        workload,
+        ctx,
+        archive,
+        restorable,
+        skip_integrity,
+        integrity_failures,
+        options,
+      );
 
-    emit_operation_progress(options, {
-      operation: 'save',
-      workload,
-      phase: 'finalizing',
-      processed: files_saved + files_skipped,
-      total: restorable.length,
-    });
-    await finalize_file_archive(archive);
-    const total_bytes = await promise;
-    await mark_downloaded_from_internet(output_path);
-    const interrupted =
-      files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
-    emit_operation_progress(options, {
-      operation: 'save',
-      workload,
-      phase: interrupted ? 'interrupted' : 'completed',
-      processed: files_saved + files_skipped,
-      total: restorable.length,
-    });
+      emit_operation_progress(options, {
+        operation: 'save',
+        workload,
+        phase: 'finalizing',
+        processed: files_saved + files_skipped,
+        total: restorable.length,
+      });
+      await finalize_file_archive(archive);
+      const total_bytes = await promise;
+      // Only now does anything appear at the output path, so a failure above cannot leave a
+      // truncated zip there and cannot destroy a file that was already sitting on it.
+      await publish();
+      await mark_downloaded_from_internet(output_path);
+      const interrupted =
+        files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
+      emit_operation_progress(options, {
+        operation: 'save',
+        workload,
+        phase: interrupted ? 'interrupted' : 'completed',
+        processed: files_saved + files_skipped,
+        total: restorable.length,
+      });
 
-    return {
-      snapshot_id: options.snapshot_id,
-      files_saved,
-      files_skipped,
-      errors,
-      integrity_failures,
-      output_path,
-      total_bytes,
-      interrupted,
-    };
+      return {
+        snapshot_id: options.snapshot_id,
+        files_saved,
+        files_skipped,
+        errors,
+        integrity_failures,
+        output_path,
+        total_bytes,
+        interrupted,
+      };
+    } catch (err) {
+      // Anything between opening the archive and publishing it can throw: the entry loop, the
+      // finalize, the byte count, the move itself. None of them may leave a partial file behind
+      // (issue #307).
+      await abort();
+      throw err;
+    }
   } finally {
     ctx.destroy();
   }

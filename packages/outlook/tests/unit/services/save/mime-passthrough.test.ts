@@ -14,7 +14,12 @@ interface AppendedEml {
 const { appended } = vi.hoisted(() => ({ appended: [] as AppendedEml[] }));
 
 vi.mock('@/services/save/save-zip-writer', () => ({
-  create_save_archive: vi.fn(() => ({ archive: {}, promise: Promise.resolve(2048) })),
+  create_save_archive: vi.fn(() => ({
+    archive: {},
+    promise: Promise.resolve(2048),
+    publish: (): Promise<void> => Promise.resolve(),
+    abort: (): Promise<void> => Promise.resolve(),
+  })),
   add_eml_to_archive: vi.fn(
     (_archive: unknown, folder: string, filename: string, content: Buffer) => {
       appended.push({ folder, filename, content });
