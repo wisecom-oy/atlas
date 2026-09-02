@@ -82,14 +82,23 @@ describe('S3OneDriveDeltaCursorRepository', () => {
   });
 
   it('reads an undecryptable cursor as absent rather than throwing', async () => {
-    const { ctx } = make_ctx(
-      { [CURSOR_KEY]: make_cursor() },
-      {
-        [CURSOR_KEY]: new Error('unable to authenticate data'),
-      },
-    );
+    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor() });
+    // The object reads back fine and fails to decrypt, which is the case a wrong or rotated key
+    // produces. Failing the read instead would exercise the storage path, not this one.
+    (ctx as unknown as { decrypt: () => Buffer }).decrypt = () => {
+      throw new Error('unable to authenticate data');
+    };
 
     // A full re-enumeration is recoverable; a crash on every run is not.
+    await expect(repo.load(ctx, OWNER)).resolves.toBeUndefined();
+  });
+
+  it('reads a cursor whose object cannot be fetched as absent rather than throwing', async () => {
+    const { ctx } = make_ctx(
+      { [CURSOR_KEY]: make_cursor() },
+      { [CURSOR_KEY]: new Error('connection reset') },
+    );
+
     await expect(repo.load(ctx, OWNER)).resolves.toBeUndefined();
   });
 
