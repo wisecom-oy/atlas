@@ -6,7 +6,7 @@ import {
   make_file_indexes,
   make_file_item,
   make_service,
-} from './sharepoint-backup-determinism.fixtures';
+} from '../backup/backup-determinism.fixtures';
 
 // Issue #161: version dedup used to preload the whole version index on every
 // run, which is one GET per backup ever taken for the site. It now rides on

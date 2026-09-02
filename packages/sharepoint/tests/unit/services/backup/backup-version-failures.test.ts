@@ -7,7 +7,7 @@ import {
   make_file_item,
   make_manifests,
   make_service,
-} from './sharepoint-backup-determinism.fixtures';
+} from './backup-determinism.fixtures';
 
 // Issue #92: version downloads that fail for an unexpected reason left history
 // out of the snapshot while the run reported HEALTHY and exited 0.
