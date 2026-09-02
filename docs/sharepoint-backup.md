@@ -6,14 +6,14 @@ Backup is site-targeted: one run processes every document library in a single Sh
 
 ## What Gets Backed Up
 
-| Item                          | Coverage                                                                                                    |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Files in every document library | Current content, SHA-256 content-addressed and deduplicated per site                                      |
-| File version history          | Every new historical version Graph returns for an item                                                      |
-| Library and folder paths      | Recorded on the manifest entry, one delta cursor per library                                                |
-| OneNote notebooks             | Section files and table of contents, stored as ordinary files (see [OneNote Notebooks](#onenote-notebooks)) |
-| Subsites                      | Only with `--include-subsites`, which produces one snapshot per subsite                                     |
-| Moves, renames, and deletions | Recorded as manifest changes on the next delta sync                                                         |
+| Item                            | Coverage                                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Files in every document library | Current content, SHA-256 content-addressed and deduplicated per site                                        |
+| File version history            | Every new historical version Graph returns for an item                                                      |
+| Library and folder paths        | Recorded on the manifest entry, one delta cursor per library                                                |
+| OneNote notebooks               | Section files and table of contents, stored as ordinary files (see [OneNote Notebooks](#onenote-notebooks)) |
+| Subsites                        | Only with `--include-subsites`, which produces one snapshot per subsite                                     |
+| Moves, renames, and deletions   | Recorded as manifest changes on the next delta sync                                                         |
 
 ## Prerequisites
 
@@ -76,11 +76,11 @@ Ciphertext is stored at the key name shown above. There is no separate `.enc` fi
 
 Implementation thresholds from `@wisecom/atlas-sharepoint`:
 
-| Size                          | Strategy                                                                                                                                                                                       |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **≤ 4 MiB**                   | Single read via pre-authenticated URL (with transient-status retry and Retry-After backoff) or Graph content fallback, encrypt, `put`                                                          |
-| **> 4 MiB** and **< 64 MiB**  | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                                      |
-| **≥ 64 MiB**                  | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
+| Size                         | Strategy                                                                                                                                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **≤ 4 MiB**                  | Single read via pre-authenticated URL (with transient-status retry and Retry-After backoff) or Graph content fallback, encrypt, `put`                                                          |
+| **> 4 MiB** and **< 64 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                                      |
+| **≥ 64 MiB**                 | Streaming pipeline: chunk download into streaming encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `sharepoint/data/{site_id}/{sha256}` |
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff), so a transient failure replays a single chunk instead of the whole file. A chunk is retried on the same statuses as any other Graph call (429, 500, 502, 503, and 504), because the CDN in front of Graph raises `500` and `502` under load. A `4xx` response fails the chunk immediately.
 
@@ -187,11 +187,11 @@ Versions the service reports as gone (`404` or `410`, content purged by the site
 
 A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:
 
-| Item                        | Facets                               | Backed up                                                                                                                     |
+| Item                        | Facets                               | Backed up                                                                                                                       |
 | --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | Notebook root (e.g. `Test`) | `folder` + `package`                 | Treated as a folder. `GET /items/{id}/content` returns **404**, because the root has no content of its own and nothing to store |
-| `<Section>.one`             | `file`, MIME `application/msonenote` | Yes, byte-for-byte, like any other file                                                                                       |
-| `Open Notebook.onetoc2`     | `file`                               | Yes, byte-for-byte                                                                                                            |
+| `<Section>.one`             | `file`, MIME `application/msonenote` | Yes, byte-for-byte, like any other file                                                                                         |
+| `Open Notebook.onetoc2`     | `file`                               | Yes, byte-for-byte                                                                                                              |
 
 Notebook **content is covered by backups today**: each section file is content-addressed, encrypted, and stored under the notebook's folder path. What the run additionally reports is the notebook itself, because file counters alone cannot answer "did the notebook come through whole?":
 
@@ -246,7 +246,7 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 | `--target-site <url-or-id>` | Restore to a different site                          | Original site          |
 | `--destination <path>`      | Folder to restore under, created when missing        | `/Restore-<timestamp>` |
 | `--in-place`                | Restore to the original paths                        | `false`                |
-| `--name <filename>`         | Rename the restored file; single-file restores only   | Original name          |
+| `--name <filename>`         | Rename the restored file; single-file restores only  | Original name          |
 | `--file-filter <paths...>`  | Only restore specific files (by ID or path)          | All files              |
 | `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` | `rename`               |
 | `-t, --tenant <id>`         | Tenant identifier                                    | Config default         |
@@ -255,14 +255,14 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `ZoneId=3`), so files extracted from it open in Protected View and their macros are blocked. Explorer propagates the mark to every extracted file; clear it with `Get-ChildItem -Recurse <dir> | Unblock-File` once you trust the content. Nothing is written on macOS or Linux, and an export to a filesystem without alternate data streams still succeeds with a warning. See [Exported archives and Mark-of-the-Web](./reference/cli.md#atlas-outlook-save).
 
-| Flag                       | Description                                  | Default        |
-| -------------------------- | -------------------------------------------- | -------------- |
-| `--site <url-or-id>`       | SharePoint site URL or Graph site ID         | Required       |
-| `-s, --snapshot <id>`      | Snapshot ID to save from                     | Required       |
-| `--file-filter <paths...>` | Only save specific files (by ID or path)     | All files      |
-| `-O, --output <path>`      | Output zip file path                         | Auto-generated |
-| `--skip-verify`            | Skip SHA-256 integrity checks                | `false`        |
-| `-t, --tenant <id>`        | Tenant identifier                            | Config default |
+| Flag                       | Description                              | Default        |
+| -------------------------- | ---------------------------------------- | -------------- |
+| `--site <url-or-id>`       | SharePoint site URL or Graph site ID     | Required       |
+| `-s, --snapshot <id>`      | Snapshot ID to save from                 | Required       |
+| `--file-filter <paths...>` | Only save specific files (by ID or path) | All files      |
+| `-O, --output <path>`      | Output zip file path                     | Auto-generated |
+| `--skip-verify`            | Skip SHA-256 integrity checks            | `false`        |
+| `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
 ### `atlas sharepoint list-snapshots`
 
@@ -362,7 +362,7 @@ Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them
 Files with `change_type: 'deleted'` or a missing `storage_key` are skipped. Checksum verification runs before upload, and corrupted blobs are skipped with a warning.
 
 | Size        | Strategy                                                                                                               |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **≤ 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content`                                |
 | **> 4 MiB** | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429, 500, 502, 503, 504) |
 
@@ -434,15 +434,15 @@ for (const lib of status.libraries) {
 
 `checkStatus` returns a `SharePointStatusResult`:
 
-| Field                   | Type                        | Description                                                           |
-| ----------------------- | --------------------------- | --------------------------------------------------------------------- |
-| `site_id`               | `string`                    | The Graph site ID                                                     |
-| `last_backup_at`        | `Date \| undefined`         | Timestamp of the most recent snapshot                                 |
-| `last_snapshot_id`      | `string \| undefined`       | ID of the most recent snapshot                                        |
-| `total_libraries`       | `number`                    | Number of document libraries discovered                               |
-| `libraries`             | `SharePointLibraryStatus[]` | Per-library backup status                                             |
-| `is_up_to_date`         | `boolean`                   | `true` if all libraries have been backed up with zero pending changes |
-| `total_pending_changes` | `number`                    | Sum of pending changes across all libraries                           |
+| Field                   | Type                        | Description                                                                                                                                                                                                                                        |
+| ----------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `site_id`               | `string`                    | The Graph site ID                                                                                                                                                                                                                                  |
+| `last_backup_at`        | `Date \| undefined`         | Timestamp of the most recent snapshot                                                                                                                                                                                                              |
+| `last_snapshot_id`      | `string \| undefined`       | ID of the most recent snapshot                                                                                                                                                                                                                     |
+| `total_libraries`       | `number`                    | Number of document libraries discovered                                                                                                                                                                                                            |
+| `libraries`             | `SharePointLibraryStatus[]` | Per-library backup status                                                                                                                                                                                                                          |
+| `is_up_to_date`         | `boolean`                   | `true` only when every library reports itself up to date. A library that has never been backed up, or whose delta peek failed, makes this `false` even though it contributes zero pending changes: a peek that could not run is unknown, not clean |
+| `total_pending_changes` | `number`                    | Sum of pending changes across all libraries                                                                                                                                                                                                        |
 
 ## Deletion
 

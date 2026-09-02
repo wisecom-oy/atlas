@@ -171,18 +171,33 @@ describe('OneDriveStatusService', () => {
     });
   });
 
-  it('currently rolls a failed peek up as up to date, which is wrong', async () => {
+  it('does not report the owner as up to date when a peek failed (issue #298)', async () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1') as never);
     vi.mocked(mocks.connector.fetch_delta).mockRejectedValue(new Error('throttled'));
 
     const result = await check();
 
-    // Pins today's behaviour, it is not an endorsement. The roll-up is
-    // `total_pending === 0 && every(has_backup)`, which ignores each drive's
-    // own `is_up_to_date`, so a throttled peek counts as clean. Expected to
-    // flip to false when that is fixed; see the follow-up issue.
+    // The roll-up reads each drive's own flag. A throttled peek reports zero pending and
+    // `has_backup: true`, so the old `total_pending === 0 && every(has_backup)` called it clean.
     expect(result.drives[0]?.is_up_to_date).toBe(false);
-    expect(result.is_up_to_date).toBe(true);
+    expect(result.is_up_to_date).toBe(false);
+  });
+
+  it('does not report the owner as up to date when one drive of several failed', async () => {
+    vi.mocked(mocks.connector.list_drives).mockResolvedValue([
+      { drive_id: 'drive-1', drive_name: 'OneDrive' },
+      { drive_id: 'drive-2', drive_name: 'Second' },
+    ]);
+    vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1', 'drive-2') as never);
+    vi.mocked(mocks.connector.fetch_delta)
+      .mockRejectedValueOnce(new Error('throttled'))
+      .mockResolvedValueOnce({ items: [], delta_link: 'b' } as never);
+
+    const result = await check();
+
+    // The clean second drive must not mask the first: total pending is still zero here.
+    expect(result.total_pending_changes).toBe(0);
+    expect(result.is_up_to_date).toBe(false);
   });
 
   it('does not fail the whole check when one drive of several fails to peek', async () => {
