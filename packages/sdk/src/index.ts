@@ -1,5 +1,11 @@
 export * from '@wisecom/atlas-types';
 export type { StorageTargetSdkConfig } from '@wisecom/atlas-s3';
+export {
+  ObjectLockVersioningDisabledError,
+  ObjectLockUnsupportedError,
+  ObjectLockModeRejectedError,
+  PreconditionFailedError,
+} from '@wisecom/atlas-s3';
 export { createAtlasInstance } from './atlas-instance.adapter';
 export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
 export { get_graph_cost as getGraphCost } from '@wisecom/atlas-core/services/shared/graph-request-context';

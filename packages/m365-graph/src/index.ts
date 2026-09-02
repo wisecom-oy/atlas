@@ -2,8 +2,6 @@ export { create_graph_client, GRAPH_CLIENT_TOKEN } from './graph-client.factory'
 export { parse_retry_after_ms } from './graph-retry-after';
 export {
   is_invalid_delta_error,
-  rethrow_if_access_denied,
-  rethrow_if_mailbox_not_licensed,
   is_transient_error,
   is_network_error,
   is_retryable_error,
@@ -11,6 +9,10 @@ export {
   is_content_gone_error,
   with_graph_retry,
 } from './graph-request-error-handler';
+export {
+  rethrow_if_access_denied,
+  rethrow_if_mailbox_not_licensed,
+} from './graph-permission-errors';
 export {
   classify_download_failure,
   read_graph_error_code,

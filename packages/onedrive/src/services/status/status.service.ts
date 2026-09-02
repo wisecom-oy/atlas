@@ -1,3 +1,6 @@
+// Deliberately not shared with the SharePoint copy (#306): 71 differing lines of 247. Both
+// peek at delta state, but over drives against libraries, with different discovery calls and
+// different result shapes exposed through the ports.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
@@ -56,7 +59,10 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
         last_snapshot_id: previous?.snapshot_id,
         total_drives: all_drives.length,
         drives: drive_statuses,
-        is_up_to_date: total_pending === 0 && drive_statuses.every((d) => d.has_backup),
+        // Every drive's own flag, not the pending total: a drive with no saved delta link and a
+        // drive whose peek threw both report `pending_changes: 0`, and the second also reports
+        // `has_backup: true`, so a Graph error used to read as a clean "up to date" (issue #298).
+        is_up_to_date: drive_statuses.every((d) => d.is_up_to_date),
         total_pending_changes: total_pending,
       };
     } finally {

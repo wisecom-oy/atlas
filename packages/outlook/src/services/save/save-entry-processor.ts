@@ -30,83 +30,93 @@ export async function save_entries_to_archive(
   is_interrupted: () => boolean,
   control: OperationControlOptions,
 ): Promise<Omit<SaveResult, 'snapshot_id'> & { processed: number }> {
-  const { archive, promise } = create_save_archive(output_path);
+  const { archive, promise, publish, abort } = create_save_archive(output_path);
 
-  let global_saved = 0;
-  let global_att = 0;
-  let global_errors = 0;
-  let global_processed = 0;
-  const all_errors: string[] = [];
-  const integrity_failures: string[] = [];
-  let interrupted = false;
-  const should_interrupt = (): boolean => {
-    interrupted ||= is_interrupted();
-    return interrupted;
-  };
-  const start = Date.now();
-  const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
+  try {
+    let global_saved = 0;
+    let global_att = 0;
+    let global_errors = 0;
+    let global_processed = 0;
+    const all_errors: string[] = [];
+    const integrity_failures: string[] = [];
+    let interrupted = false;
+    const should_interrupt = (): boolean => {
+      interrupted ||= is_interrupted();
+      return interrupted;
+    };
+    const start = Date.now();
+    const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
 
-  let folder_index = 0;
-  for (const [fid, folder_items] of groups) {
-    if (should_interrupt()) break;
-    dashboard.mark_active(folder_index);
+    let folder_index = 0;
+    for (const [fid, folder_items] of groups) {
+      if (should_interrupt()) break;
+      dashboard.mark_active(folder_index);
 
-    const folder_name = folder_map.get(fid) ?? 'Unknown';
-    const used_names = new Set<string>();
+      const folder_name = folder_map.get(fid) ?? 'Unknown';
+      const used_names = new Set<string>();
 
-    const folder_result = await process_folder_entries(
-      ctx,
-      folder_items,
-      folder_name,
-      folder_index,
-      skip_integrity,
-      archive,
-      used_names,
-      groups,
-      global_total,
-      start,
-      dashboard,
-      should_interrupt,
-      { all_errors, integrity_failures },
-      control,
-    );
+      const folder_result = await process_folder_entries(
+        ctx,
+        folder_items,
+        folder_name,
+        folder_index,
+        skip_integrity,
+        archive,
+        used_names,
+        groups,
+        global_total,
+        start,
+        dashboard,
+        should_interrupt,
+        { all_errors, integrity_failures },
+        control,
+      );
 
-    global_errors += folder_result.error_count;
-    if (!should_interrupt()) {
-      dashboard.mark_done(folder_index, folder_result.folder_saved, folder_result.folder_att);
+      global_errors += folder_result.error_count;
+      if (!should_interrupt()) {
+        dashboard.mark_done(folder_index, folder_result.folder_saved, folder_result.folder_att);
+      }
+
+      global_saved += folder_result.folder_saved;
+      global_att += folder_result.folder_att;
+      global_processed += folder_result.folder_processed;
+      folder_index++;
     }
 
-    global_saved += folder_result.folder_saved;
-    global_att += folder_result.folder_att;
-    global_processed += folder_result.folder_processed;
-    folder_index++;
+    dashboard.show_finalizing();
+    emit_operation_progress(control, {
+      operation: 'save',
+      workload: 'outlook',
+      phase: 'finalizing',
+      processed: global_processed,
+      total: global_total,
+    });
+    await finalize_archive(archive);
+    const total_bytes = await promise;
+    // Only now does anything appear at the output path, so a failure above cannot leave a
+    // truncated zip there and cannot destroy a file that was already sitting on it.
+    await publish();
+    await mark_downloaded_from_internet(output_path);
+
+    log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
+
+    return {
+      saved_count: global_saved,
+      attachment_count: global_att,
+      error_count: global_errors,
+      errors: all_errors,
+      output_path,
+      total_bytes,
+      integrity_failures,
+      processed: global_processed,
+      interrupted: should_interrupt(),
+    };
+  } catch (err) {
+    // Anything between opening the archive and publishing it can throw. None of it may leave a
+    // partial file behind (issue #307).
+    await abort();
+    throw err;
   }
-
-  dashboard.show_finalizing();
-  emit_operation_progress(control, {
-    operation: 'save',
-    workload: 'outlook',
-    phase: 'finalizing',
-    processed: global_processed,
-    total: global_total,
-  });
-  await finalize_archive(archive);
-  const total_bytes = await promise;
-  await mark_downloaded_from_internet(output_path);
-
-  log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
-
-  return {
-    saved_count: global_saved,
-    attachment_count: global_att,
-    error_count: global_errors,
-    errors: all_errors,
-    output_path,
-    total_bytes,
-    integrity_failures,
-    processed: global_processed,
-    interrupted: should_interrupt(),
-  };
 }
 
 interface FolderEntryCounters {

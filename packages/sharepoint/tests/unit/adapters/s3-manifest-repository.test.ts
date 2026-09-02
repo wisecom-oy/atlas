@@ -136,6 +136,12 @@ describe('S3SharePointManifestRepository', () => {
       {
         'sharepoint/manifests/site-1/snap-1.json': make_manifest('snap-1', '2026-03-01T00:00:00Z'),
         'sharepoint/manifests/site-1/snap-corrupt.json': 'not-json',
+        // Listed so the injected get() failure below is actually reached: list() is derived
+        // from the stored keys, so a key present only in get_error is never read.
+        'sharepoint/manifests/site-1/snap-unreadable.json': make_manifest(
+          'snap-unreadable',
+          '2026-03-02T00:00:00Z',
+        ),
       },
       { 'sharepoint/manifests/site-1/snap-unreadable.json': new Error('decrypt failed') },
     );

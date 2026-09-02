@@ -1,3 +1,6 @@
+// Deliberately not shared with the OneDrive copy (#306): 68 differing lines of 432. The
+// manifests they build differ in their identity fields and in what each provider records per
+// entry, so the shared version would be generic over almost every line.
 import type {
   SharePointBackupResult,
   SharePointChangeType,

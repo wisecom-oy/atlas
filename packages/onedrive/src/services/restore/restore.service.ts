@@ -1,3 +1,6 @@
+// Deliberately not shared with the SharePoint copy (#306): 194 differing lines of 496. The
+// restore target differs in kind, an owner's drive against a resolved site and library, and
+// so does the conflict handling around the restore root.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
@@ -35,6 +38,7 @@ import {
   resolve_restore_root,
   restore_parent_path,
 } from '@wisecom/atlas-core/services/shared/restore-destination';
+import { count_created_folders } from '@wisecom/atlas-drive/restore/folder-path';
 import { ensure_onedrive_folder_path } from '@/services/restore/restore-folder-path';
 
 const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
@@ -84,7 +88,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       assert_renameable(options.rename_to, restorable.length);
       const restore_root = resolve_restore_root(options);
       const folder_ids = new Map<string, string>();
-      folder_ids.set('/', 'root');
 
       let files_restored = 0;
       let files_skipped = 0;
@@ -126,7 +129,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         });
       }
 
-      const folders_created = Math.max(0, folder_ids.size - 1);
+      const folders_created = count_created_folders(folder_ids);
       const interrupted = finish_operation_progress(
         options,
         'restore',

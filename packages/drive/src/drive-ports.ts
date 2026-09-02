@@ -1,4 +1,5 @@
 import type {
+  OneDriveChangeType,
   OneDriveDeltaItem,
   OneDriveFileVersion,
   OneDriveFileVersionIndex,
@@ -15,6 +16,7 @@ import type {
  * day a provider's shape diverges the callers in that package stop compiling instead of drifting
  * quietly. Aliasing beats re-declaring here: a hand-copied interface would drift in silence.
  */
+export type DriveChangeType = OneDriveChangeType;
 export type DriveDeltaItem = OneDriveDeltaItem;
 export type DriveFileVersion = OneDriveFileVersion;
 export type DriveFileVersionRecord = OneDriveFileVersionRecord;

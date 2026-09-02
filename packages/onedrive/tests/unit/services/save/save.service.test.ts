@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import { Container } from 'inversify';
 import 'reflect-metadata';
+import {
+  create_file_archive,
+  finalize_file_archive,
+} from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
 import { OneDriveSaveService } from '@/services/save/save.service';
 import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
@@ -14,17 +19,6 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 
-/** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
-type Overrides<T> = { [K in keyof T]?: T[K] | undefined };
-
-function apply_overrides<T extends object>(base: T, overrides: Overrides<T>): T {
-  const merged: Record<string, unknown> = { ...base, ...overrides };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete merged[key];
-  }
-  return merged as T;
-}
-
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   const mock_archive = {
     append: vi.fn(),
@@ -35,6 +29,8 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
     create_file_archive: vi.fn().mockReturnValue({
       archive: mock_archive,
       promise: Promise.resolve(4096),
+      publish: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
     }),
     add_file_to_archive: vi.fn().mockResolvedValue(undefined),
     finalize_file_archive: vi.fn().mockResolvedValue(undefined),
@@ -136,6 +132,25 @@ describe('OneDriveSaveService', () => {
       expect(result.files_skipped).toBe(0);
       expect(result.errors).toHaveLength(0);
       expect(result.output_path).toBe('/tmp/test-save.zip');
+    });
+
+    // #307: a failure between opening the archive and finalizing it used to leave a truncated
+    // zip at the output path, which is indistinguishable from a finished export.
+    it('aborts the archive when finalizing fails, and rethrows', async () => {
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(make_manifest([make_entry()]));
+      vi.mocked(finalize_file_archive).mockRejectedValueOnce(new Error('disk full'));
+
+      await expect(
+        service.save_snapshot('test-tenant', 'owner-1', {
+          snapshot_id: 'od-snap-1',
+          output_path: '/tmp/test-save.zip',
+        }),
+      ).rejects.toThrow('disk full');
+
+      const created = vi.mocked(create_file_archive).mock.results.at(-1)?.value as {
+        abort: () => Promise<void>;
+      };
+      expect(created.abort).toHaveBeenCalledTimes(1);
     });
 
     // #173: a delta snapshot lists only what changed, so an export that reads one manifest loses

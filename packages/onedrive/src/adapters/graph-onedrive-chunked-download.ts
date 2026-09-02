@@ -1,9 +1,23 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { stream_whole_file_in_chunks } from '@wisecom/atlas-drive/backup/whole-file-stream';
 import {
   is_retryable_error,
   is_transient_error,
   parse_retry_after_ms,
 } from '@wisecom/atlas-m365-graph';
+
+/**
+ * Raised when the server answers a Range request with the whole file.
+ *
+ * It is a property of the server, not of the chunk, so the caller stops asking for ranges
+ * entirely rather than re-discovering it once per chunk (issue #301).
+ */
+class RangeIgnoredError extends Error {
+  constructor() {
+    super('Range header ignored');
+    this.name = 'RangeIgnoredError';
+  }
+}
 
 /** Maximum bytes per HTTP Range chunk (4 MiB). */
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
@@ -37,16 +51,35 @@ export async function* fetch_file_chunks(
     const range_end = Math.min(range_start + CHUNK_SIZE_BYTES - 1, total_bytes - 1);
     const expected_length = range_end - range_start + 1;
 
-    yield await download_chunk_with_retry(
-      download_url,
-      range_start,
-      range_end,
-      expected_length,
-      item_id,
-      i + 1,
-      chunk_count,
-      total_bytes,
-    );
+    try {
+      yield await download_chunk_with_retry(
+        download_url,
+        range_start,
+        range_end,
+        expected_length,
+        item_id,
+        i + 1,
+        chunk_count,
+        total_bytes,
+        chunk_count > 1,
+      );
+    } catch (err) {
+      if (!(err instanceof RangeIgnoredError)) throw err;
+      // Every remaining chunk would fetch and discard the same whole file: a 1 GiB item costs
+      // 256 GiB transferred to produce 1 GiB. One streamed pass delivers the rest, and the
+      // chunks already yielded are re-read from the start, which is the price of finding out.
+      logger.warn(
+        `Range requests are ignored for ${item_id} (HTTP 200 with the full body); ` +
+          `falling back to one streamed download`,
+      );
+      yield* stream_whole_file_in_chunks(download_url, item_id, {
+        chunk_size_bytes: CHUNK_SIZE_BYTES,
+        // Same per-chunk budget the Range path uses, applied between reads rather than to the
+        // whole transfer, so a stalled body is cut off but a slow one is not (issue #198).
+        stall_timeout_ms: compute_chunk_timeout_ms(CHUNK_SIZE_BYTES),
+      });
+      return;
+    }
   }
 }
 
@@ -76,6 +109,7 @@ async function download_chunk_with_retry(
   chunk_index: number,
   total_chunks: number,
   total_bytes: number,
+  report_ignored_range: boolean,
 ): Promise<Buffer> {
   for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
     try {
@@ -86,8 +120,11 @@ async function download_chunk_with_retry(
         expected_length,
         item_id,
         total_bytes,
+        report_ignored_range,
       );
     } catch (err) {
+      // Not retryable and not a failure: the caller switches strategy on it.
+      if (err instanceof RangeIgnoredError) throw err;
       if (!is_cdn_retryable(err) || attempt === MAX_CHUNK_RETRIES) {
         throw new Error(
           `Failed chunk ${chunk_index}/${total_chunks} of ${item_id} ` +
@@ -126,6 +163,7 @@ async function download_single_chunk(
   expected_length: number,
   item_id: string,
   total_bytes: number,
+  report_ignored_range: boolean,
 ): Promise<Buffer> {
   // Scaled to this chunk, not to the file. Passing total_bytes here gave every
   // non-final chunk a ceil(total_bytes / 256) ms budget, so one stalled CDN
@@ -159,6 +197,12 @@ async function download_single_chunk(
     // the body about to be drained is total_bytes rather than one chunk. Only
     // that case needs the whole-file budget, and by now it is known rather than
     // assumed, so re-arm before reading instead of pre-paying on every chunk.
+    if (response.status === 200 && report_ignored_range) {
+      // Drop the body unread: buffering a whole file per chunk is the cost this avoids.
+      await response.body?.cancel();
+      throw new RangeIgnoredError();
+    }
+
     if (response.status === 200) {
       clearTimeout(timer);
       timer = setTimeout(() => controller.abort(), compute_chunk_timeout_ms(total_bytes));
@@ -167,10 +211,7 @@ async function download_single_chunk(
     const buf = Buffer.from(await response.arrayBuffer());
 
     if (response.status === 200) {
-      logger.warn(
-        `CDN returned HTTP 200 instead of 206 for Range request on ${item_id} — ` +
-          `server ignored Range header, slicing ${buf.length} bytes to expected range`,
-      );
+      // A single-chunk item legitimately comes back whole, so the slice is a no-op there.
       if (buf.length < range_end + 1) {
         throw new CdnHttpError(
           `CDN returned 200 with ${buf.length} bytes but range_end is ${range_end} for ${item_id}`,

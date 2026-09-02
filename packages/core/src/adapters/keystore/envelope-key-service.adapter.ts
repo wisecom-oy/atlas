@@ -5,6 +5,7 @@ import {
   type CipherGCM,
   type DecipherGCM,
 } from 'node:crypto';
+import { WrongPassphraseError } from '@wisecom/atlas-types';
 import { DEFAULT_KDF_STRATEGY, KDF_STRATEGIES } from '@/adapters/keystore/kdf-strategy';
 import { parse_dek_blob, build_header_bytes } from '@/adapters/keystore/dek-blob-codec';
 import type { DekBlobHeader } from '@/adapters/keystore/dek-blob-codec';
@@ -94,7 +95,20 @@ export class EnvelopeKeyService {
       throw new Error(`Unknown KDF id in wrapped DEK: ${header.kdf_id}`);
     }
     const kek = strategy.derive_kek(this._passphrase_buf, header.kdf_params, tenant_id);
-    return aes_gcm_decrypt(encrypted_dek, kek, header_bytes);
+    try {
+      return aes_gcm_decrypt(encrypted_dek, kek, header_bytes);
+    } catch (err) {
+      // GCM reports a wrong key and a corrupted blob as the same authentication failure, and the
+      // raw Node message ("Unsupported state or unable to authenticate data") reads like data
+      // loss. A wrong passphrase is by far the likelier cause and the only one the operator can
+      // act on, so it is named first and the original error is kept as `cause` (issue #40).
+      throw new WrongPassphraseError(
+        'Could not unwrap the data key: the passphrase does not match the one this backup was ' +
+          'written with, or the wrapped key is damaged. Check ATLAS_ENCRYPTION_PASSPHRASE ' +
+          'against the tenant this snapshot belongs to.',
+        { cause: err },
+      );
+    }
   }
 }
 
