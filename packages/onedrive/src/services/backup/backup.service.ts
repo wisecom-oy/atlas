@@ -1,3 +1,7 @@
+// Deliberately not shared with the SharePoint copy (#306): 306 differing lines of 604. OneDrive
+// enumerates an owner's drives and carries a folder scope and a per-drive delta cursor;
+// SharePoint walks a site tree, then libraries within it, and has no folder scope. Unifying
+// them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { randomBytes } from 'node:crypto';
 import {

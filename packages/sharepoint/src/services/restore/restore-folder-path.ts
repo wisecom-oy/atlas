@@ -1,3 +1,6 @@
+// Deliberately not shared with the OneDrive copy (#306): 28 differing lines of 106. The memo
+// keys differ, `drive_id:path` here against path alone there, which is a behavioural
+// difference rather than a naming one and is tracked separately.
 import type { SharePointSiteConnector } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 

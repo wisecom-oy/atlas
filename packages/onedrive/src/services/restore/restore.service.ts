@@ -1,3 +1,6 @@
+// Deliberately not shared with the SharePoint copy (#306): 194 differing lines of 496. The
+// restore target differs in kind, an owner's drive against a resolved site and library, and
+// so does the conflict handling around the restore root.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,

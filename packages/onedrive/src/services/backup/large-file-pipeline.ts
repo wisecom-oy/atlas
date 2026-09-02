@@ -1,32 +1,24 @@
-import { fetch_file_chunks } from '@/adapters/graph-onedrive-chunked-download';
+import type { StorageObjectLockPolicy, TenantContext } from '@wisecom/atlas-types';
+import type { OneDriveConnector, OneDriveDeltaItem } from '@wisecom/atlas-types';
 import {
-  onedrive_data_key,
-  onedrive_staging_key,
-  onedrive_staging_prefix,
-} from '@/services/shared/storage-keys';
-import { logger } from '@wisecom/atlas-core/utils/logger';
-import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
-import type {
-  OneDriveConnector,
-  OneDriveDeltaItem,
-  StorageObjectLockPolicy,
-  TenantContext,
-} from '@wisecom/atlas-types';
+  cleanup_stale_drive_staging,
+  process_large_drive_file,
+  type DriveLargeFileDeps,
+  type LargeFileResult,
+} from '@wisecom/atlas-drive/backup/large-file-pipeline';
+import { fetch_file_chunks } from '@/adapters/graph-onedrive-chunked-download';
+import { ONEDRIVE_KEYS } from '@/services/shared/storage-keys';
 
 export { LARGE_FILE_THRESHOLD } from '@wisecom/atlas-drive/backup/large-file-threshold';
+export type { LargeFileResult } from '@wisecom/atlas-drive/backup/large-file-pipeline';
 
-export interface LargeFileResult {
-  readonly checksum: string;
-  readonly storage_key: string;
-  readonly stored: boolean;
-  readonly deduplicated: boolean;
-}
+/** OneDrive's half of the shared large-file pipeline: its key layout and its chunk fetcher. */
+export const ONEDRIVE_LARGE_FILE_DEPS: DriveLargeFileDeps = {
+  keys: ONEDRIVE_KEYS,
+  fetch_chunks: fetch_file_chunks,
+};
 
-/**
- * Single-download, zero-disk pipeline for files at or above
- * {@link LARGE_FILE_THRESHOLD}. Streams encrypted parts to an S3 staging key,
- * then either aborts (dedup) or copies to the canonical content-addressed key.
- */
+/** Streams a large file to storage through a staging key, deduplicating by content hash. */
 export async function process_large_file(
   connector: OneDriveConnector,
   item: OneDriveDeltaItem,
@@ -34,56 +26,17 @@ export async function process_large_file(
   ctx: TenantContext,
   object_lock_policy?: StorageObjectLockPolicy,
 ): Promise<LargeFileResult> {
-  const download_url = item.download_url ?? (await connector.resolve_download_url(item));
-  if (!download_url) {
-    throw new Error(`Could not resolve download URL for large file ${item.item_id}`);
-  }
-
-  const staging_key = onedrive_staging_key(owner_id, item.item_id);
-
-  logger.info(
-    `Streaming large file ${item.file_name} (${format_bytes(item.size_bytes)}) via staging key...`,
-  );
-
-  const result = await stream_to_content_addressed_storage(
+  return process_large_drive_file(
+    ONEDRIVE_LARGE_FILE_DEPS,
+    connector,
+    item,
+    owner_id,
     ctx,
-    fetch_file_chunks(download_url, item.size_bytes, item.item_id),
-    {
-      staging_key,
-      staging_prefix: onedrive_staging_prefix(owner_id),
-      build_data_key: (checksum) => onedrive_data_key(owner_id, checksum),
-      ...(object_lock_policy && { object_lock_policy }),
-    },
+    object_lock_policy,
   );
-
-  if (result.deduplicated) {
-    logger.info(`Deduplicated ${item.file_name} (already stored)`);
-  } else {
-    logger.info(`Stored ${item.file_name} (${format_bytes(item.size_bytes)})`);
-  }
-
-  return result;
 }
 
 /** Removes leftover staging objects and incomplete multipart uploads. */
 export async function cleanup_stale_staging(ctx: TenantContext, owner_id: string): Promise<void> {
-  const prefix = onedrive_staging_prefix(owner_id);
-
-  const stale_keys = await ctx.storage.list(prefix);
-  for (const key of stale_keys) {
-    logger.info(`Cleaning up stale staging object: ${key}`);
-    await ctx.storage.delete(key).catch(() => {});
-  }
-
-  const aborted = await ctx.storage.abort_incomplete_uploads(prefix);
-  if (aborted > 0) {
-    logger.info(`Aborted ${aborted} incomplete staging upload(s)`);
-  }
-}
-
-function format_bytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  return cleanup_stale_drive_staging(ONEDRIVE_KEYS, ctx, owner_id);
 }
