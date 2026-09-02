@@ -1,8 +1,8 @@
-import type { OneDriveFileVersionIndex, OneDriveFileVersionRecord } from '@wisecom/atlas-types';
+import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 
 /** Maps a CLI file reference (Graph item id or rooted path) to a file id, if known. */
 export function resolve_file_id(
-  indexes: OneDriveFileVersionIndex[],
+  indexes: readonly DriveFileVersionIndexView[],
   file_ref: string,
 ): string | undefined {
   const trimmed = file_ref.trim();
@@ -20,11 +20,11 @@ export function resolve_file_id(
 }
 
 /**
- * Matches a bare filename against every indexed version of the owner's files.
+ * Matches a bare filename against every indexed version of the owning segment's files.
  * Throws with the candidate paths when the name maps to more than one file.
  */
 function match_by_file_name(
-  indexes: OneDriveFileVersionIndex[],
+  indexes: readonly DriveFileVersionIndexView[],
   file_name: string,
 ): string | undefined {
   const matches = new Map<string, string>();
@@ -54,7 +54,7 @@ function normalize_path_ref(raw: string): string {
   return with_slash.normalize('NFC');
 }
 
-export function version_logical_path(v: OneDriveFileVersionRecord): string {
+export function version_logical_path(v: DriveFileVersionRecord): string {
   const base = v.parent_path.replace(/\/+$/, '') || '';
   if (base === '' || base === '/') return `/${v.file_name}`;
   return `${base}/${v.file_name}`;

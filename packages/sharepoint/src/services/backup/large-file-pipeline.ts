@@ -13,16 +13,7 @@ import {
   sharepoint_staging_prefix,
 } from '@/services/shared/storage-keys';
 
-/**
- * Files at or above this size use the chunked staging + multipart pipeline.
- *
- * The buffered path below this holds the plaintext and its ciphertext copy at
- * once, so the threshold is the per-file memory ceiling doubled. 64 MB keeps
- * document- and photo-sized content on the single-PUT path while capping that
- * ceiling at ~128 MB; the streaming path costs a staging copy per file, which
- * is why this is not lower still.
- */
-export const LARGE_FILE_THRESHOLD = 64 * 1024 * 1024;
+export { LARGE_FILE_THRESHOLD } from '@wisecom/atlas-drive/backup/large-file-threshold';
 
 export interface LargeFileResult {
   readonly checksum: string;

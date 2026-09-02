@@ -1,13 +1,10 @@
-import type {
-  DriveVersionRestoreOptions,
-  OneDriveFileVersionIndex,
-  OneDriveFileVersionRecord,
-} from '@wisecom/atlas-types';
-import { resolve_file_id, version_logical_path } from '@/services/versioning/version-reference';
+import type { DriveVersionRestoreOptions } from '@wisecom/atlas-types';
+import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
+import { resolve_file_id, version_logical_path } from '@/versioning/version-reference';
 
 export interface SelectedVersion {
   readonly file_id: string;
-  readonly version: OneDriveFileVersionRecord;
+  readonly version: DriveFileVersionRecord;
   /** Original rooted path of the file, e.g. `/Documents/Report.docx`. */
   readonly original_path: string;
 }
@@ -26,24 +23,24 @@ export interface VersionSelection {
  * A rollback is expressed in service time ("before the attack"), so service
  * time is what the cutoff compares against wherever it exists.
  */
-function version_instant(version: OneDriveFileVersionRecord): string {
+function version_instant(version: DriveFileVersionRecord): string {
   return version.last_modified_at ?? version.backup_at;
 }
 
 /** A version is restorable only when its bytes were stored and can be verified. */
-function has_restorable_blob(version: OneDriveFileVersionRecord): boolean {
+function has_restorable_blob(version: DriveFileVersionRecord): boolean {
   return Boolean(version.storage_key) && Boolean(version.checksum);
 }
 
 /**
- * Picks which stored versions to push back, from the owner's whole version index.
+ * Picks which stored versions to push back, from the owning segment's whole version index.
  *
  * Three modes, all resolved here so the service stays orchestration only:
  * one exact version, the newest version of one file before a cutoff, or the
  * newest version of every file in scope before a cutoff.
  */
 export function select_versions_to_restore(
-  indexes: OneDriveFileVersionIndex[],
+  indexes: readonly DriveFileVersionIndexView[],
   options: DriveVersionRestoreOptions,
 ): VersionSelection {
   if (options.file_ref === undefined && options.before === undefined) {
@@ -58,7 +55,7 @@ export function select_versions_to_restore(
 
 /** Single-file mode: an exact `version_id`, or the newest version before a cutoff. */
 function select_for_one_file(
-  indexes: OneDriveFileVersionIndex[],
+  indexes: readonly DriveFileVersionIndexView[],
   options: DriveVersionRestoreOptions,
 ): VersionSelection {
   const file_ref = options.file_ref!;
@@ -108,7 +105,7 @@ function select_for_one_file(
 
 /** Bulk mode: the newest pre-cutoff version of every file under the path scope. */
 function select_before_cutoff(
-  indexes: OneDriveFileVersionIndex[],
+  indexes: readonly DriveFileVersionIndexView[],
   options: DriveVersionRestoreOptions,
 ): VersionSelection {
   const cutoff = options.before!;
@@ -141,11 +138,11 @@ function select_before_cutoff(
 
 /** Newest restorable version at or before the cutoff, or undefined when none is. */
 function newest_before(
-  versions: readonly OneDriveFileVersionRecord[],
+  versions: readonly DriveFileVersionRecord[],
   cutoff: Date,
-): OneDriveFileVersionRecord | undefined {
+): DriveFileVersionRecord | undefined {
   const limit = cutoff.getTime();
-  let best: OneDriveFileVersionRecord | undefined;
+  let best: DriveFileVersionRecord | undefined;
   let best_time = -Infinity;
   for (const version of versions) {
     if (!has_restorable_blob(version)) continue;

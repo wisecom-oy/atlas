@@ -12,7 +12,7 @@ import {
   onedrive_run_index_key,
   validate_key_segment,
 } from '@/services/shared/storage-keys';
-import { later_watermark } from '@/services/versioning/version-watermark';
+import { later_watermark } from '@wisecom/atlas-drive/versioning/version-watermark';
 
 /** Payload of one run's version index object. */
 interface RunIndexPayload {

@@ -1,4 +1,5 @@
-import type { DriveVersionPlacement, SharePointFileVersionRecord } from '@wisecom/atlas-types';
+import type { DriveVersionPlacement } from '@wisecom/atlas-types';
+import type { DriveFileVersionRecord } from '@/drive-ports';
 
 /** Splits a rooted file path into its parent path and file name. */
 export function split_parent_path(path: string): { parent_path: string; file_name: string } {
@@ -16,7 +17,7 @@ export function split_parent_path(path: string): { parent_path: string; file_nam
  * original in a sorted listing and states which point in time it came from.
  */
 export function build_restored_file_name(
-  version: SharePointFileVersionRecord,
+  version: DriveFileVersionRecord,
   placement: DriveVersionPlacement,
 ): string {
   if (placement === 'in-place') return version.file_name;
@@ -31,10 +32,10 @@ export function build_restored_file_name(
 /**
  * Filename-safe instant for the restored copy, in UTC.
  *
- * Colons are legal in OneDrive but break the file on export to Windows, and
+ * Colons are legal in a Graph drive but break the file on export to Windows, and
  * Atlas exports archives, so they never enter a name it creates.
  */
-function restored_stamp(version: SharePointFileVersionRecord): string {
+function restored_stamp(version: DriveFileVersionRecord): string {
   const raw = version.last_modified_at ?? version.backup_at;
   const parsed = new Date(raw);
   const iso = Number.isNaN(parsed.getTime()) ? raw : parsed.toISOString();

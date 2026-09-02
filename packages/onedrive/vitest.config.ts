@@ -9,6 +9,7 @@ const types_src = resolve(root_dir, '../types/src');
 const core_src = resolve(root_dir, '../core/src');
 const m365_src = resolve(root_dir, '../m365-graph/src');
 const onedrive_src = resolve(root_dir, 'src');
+const drive_src = resolve(root_dir, '../drive/src');
 
 function try_resolve_ts(base: string): string | null {
   if (existsSync(`${base}.ts`)) return `${base}.ts`;
@@ -30,6 +31,7 @@ function atlas_workspace_at_alias(): Plugin {
         { prefix: '/packages/core/', root: core_src },
         { prefix: '/packages/m365-graph/', root: m365_src },
         { prefix: '/packages/types/', root: types_src },
+        { prefix: '/packages/drive/', root: drive_src },
       ];
       for (const { prefix, root } of roots) {
         if (importer.includes(prefix)) {
@@ -40,8 +42,6 @@ function atlas_workspace_at_alias(): Plugin {
     },
   };
 }
-
-const drive_src = resolve(root_dir, '../drive/src');
 
 export default defineConfig({
   plugins: [atlas_workspace_at_alias()],

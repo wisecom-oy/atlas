@@ -1,112 +1,59 @@
-import { randomBytes } from 'node:crypto';
-import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { build_drive_storage_keys } from '@wisecom/atlas-drive/shared/storage-keys';
+
+/** SharePoint's key layout, for shared drive code that takes the whole layout as one argument. */
+export const SHAREPOINT_KEYS = build_drive_storage_keys('sharepoint', (value) =>
+  // A URL here means a caller skipped site resolution (issue #90); say so
+  // instead of blaming the key, which sends the operator to the wrong layer.
+  /^https?:\/\//i.test(value)
+    ? ' -- expected a resolved SharePoint site id (hostname,siteGuid,webGuid), got a URL'
+    : '',
+);
+const keys = SHAREPOINT_KEYS;
 
 /** Prefix for content-addressed SharePoint file blobs. */
-export const SHAREPOINT_DATA_PREFIX = 'sharepoint/data';
+export const SHAREPOINT_DATA_PREFIX = keys.data_prefix;
 
 /** Prefix for multipart staging objects before deduplication copy. */
-export const SHAREPOINT_STAGING_PREFIX = 'sharepoint/staging';
+export const SHAREPOINT_STAGING_PREFIX = keys.staging_prefix;
 
 /** Prefix for snapshot manifest JSON objects. */
-export const SHAREPOINT_MANIFEST_PREFIX = 'sharepoint/manifests';
+export const SHAREPOINT_MANIFEST_PREFIX = keys.manifest_prefix;
 
 /** Prefix for version index objects (one per backup run, plus legacy per-file objects). */
-export const SHAREPOINT_INDEX_PREFIX = 'sharepoint/index';
+export const SHAREPOINT_INDEX_PREFIX = keys.index_prefix;
 
 /** Prefix for SharePoint sync metadata (e.g. delta cursors). */
-export const SHAREPOINT_META_PREFIX = 'sharepoint/_meta';
-
-/**
- * Validates a site segment and returns it in the one case every path agrees on.
- * Services normalize on entry; this is the backstop that keeps a path which
- * forgets from writing a second prefix for the same site (issue #38).
- */
-function site_segment(site_id: string): string {
-  validate_key_segment(site_id);
-  return normalize_owner_id(site_id);
-}
+export const SHAREPOINT_META_PREFIX = keys.meta_prefix;
 
 /** Ensures a single path segment is safe for S3-style keys (no traversal or extra slashes). */
-export function validate_key_segment(value: string): void {
-  if (value === '' || value === '.' || value === '..') {
-    throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}`);
-  }
-  for (let i = 0; i < value.length; i++) {
-    const ch = value.charCodeAt(i);
-    if (ch === 47 || ch === 92 || ch === 0) {
-      // A URL here means a caller skipped site resolution (issue #90); say so
-      // instead of blaming the key, which sends the operator to the wrong layer.
-      const hint = /^https?:\/\//i.test(value)
-        ? ' -- expected a resolved SharePoint site id (hostname,siteGuid,webGuid), got a URL'
-        : '';
-      throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}${hint}`);
-    }
-  }
-}
+export const validate_key_segment = keys.validate_key_segment;
 
 /** Builds the content-addressed key for a stored file blob. */
-export function sharepoint_data_key(site_id: string, checksum: string): string {
-  const site = site_segment(site_id);
-  validate_key_segment(checksum);
-  return `${SHAREPOINT_DATA_PREFIX}/${site}/${checksum}`;
-}
+export const sharepoint_data_key = keys.data_key;
 
 /** Builds the key for a snapshot manifest. */
-export function sharepoint_manifest_key(site_id: string, snapshot_id: string): string {
-  const site = site_segment(site_id);
-  validate_key_segment(snapshot_id);
-  return `${SHAREPOINT_MANIFEST_PREFIX}/${site}/${snapshot_id}.json`;
-}
+export const sharepoint_manifest_key = keys.manifest_key;
 
 /** Builds the prefix for listing all manifests of a site. */
-export function sharepoint_manifest_prefix(site_id: string): string {
-  const site = site_segment(site_id);
-  return `${SHAREPOINT_MANIFEST_PREFIX}/${site}/`;
-}
+export const sharepoint_manifest_prefix = keys.manifest_prefix_for;
 
 /** Returns the root prefix for all SharePoint manifests. */
-export function sharepoint_manifest_root_prefix(): string {
-  return `${SHAREPOINT_MANIFEST_PREFIX}/`;
-}
+export const sharepoint_manifest_root_prefix = keys.manifest_root_prefix;
 
 /** Builds the key for one backup run's version index object (issue #161). */
-export function sharepoint_run_index_key(site_id: string, snapshot_id: string): string {
-  const site = site_segment(site_id);
-  validate_key_segment(snapshot_id);
-  return `${SHAREPOINT_INDEX_PREFIX}/${site}/runs/${snapshot_id}.json`;
-}
+export const sharepoint_run_index_key = keys.run_index_key;
 
-/**
- * Prefix listing every version index object of a site. Covers both the
- * per-run objects and the legacy per-file objects written before issue #161,
- * so reads keep seeing history recorded by older Atlas versions.
- */
-export function sharepoint_index_prefix(site_id: string): string {
-  const site = site_segment(site_id);
-  return `${SHAREPOINT_INDEX_PREFIX}/${site}/`;
-}
+/** Prefix listing every version index object of a site, per-run and legacy per-file alike. */
+export const sharepoint_index_prefix = keys.index_prefix_for;
 
 /** Returns the root prefix for all SharePoint version index objects. */
-export function sharepoint_index_root_prefix(): string {
-  return `${SHAREPOINT_INDEX_PREFIX}/`;
-}
+export const sharepoint_index_root_prefix = keys.index_root_prefix;
 
 /** Builds a unique staging key for multipart upload of a file. */
-export function sharepoint_staging_key(site_id: string, item_id: string): string {
-  const site = site_segment(site_id);
-  validate_key_segment(item_id);
-  const suffix = randomBytes(4).toString('hex');
-  return `${SHAREPOINT_STAGING_PREFIX}/${site}/${item_id}-${suffix}`;
-}
+export const sharepoint_staging_key = keys.staging_key;
 
 /** Builds the prefix for listing staging objects. */
-export function sharepoint_staging_prefix(site_id: string): string {
-  const site = site_segment(site_id);
-  return `${SHAREPOINT_STAGING_PREFIX}/${site}/`;
-}
+export const sharepoint_staging_prefix = keys.staging_prefix_for;
 
 /** Builds the key for the delta cursor state. */
-export function sharepoint_delta_cursor_key(site_id: string): string {
-  const site = site_segment(site_id);
-  return `${SHAREPOINT_META_PREFIX}/${site}/delta.json`;
-}
+export const sharepoint_delta_cursor_key = keys.delta_cursor_key;

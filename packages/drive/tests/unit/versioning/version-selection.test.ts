@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
-import type { OneDriveFileVersionIndex, OneDriveFileVersionRecord } from '@wisecom/atlas-types';
-import { select_versions_to_restore } from '@/services/versioning/version-selection';
+import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
+import { select_versions_to_restore } from '@/versioning/version-selection';
 
-const OWNER = 'owner-1';
 const ATTACK = new Date('2026-03-10T00:00:00Z');
 
-function version(overrides: Overrides<OneDriveFileVersionRecord> = {}): OneDriveFileVersionRecord {
-  return apply_overrides<OneDriveFileVersionRecord>(
+function version(overrides: Overrides<DriveFileVersionRecord> = {}): DriveFileVersionRecord {
+  return apply_overrides<DriveFileVersionRecord>(
     {
       snapshot_id: 'snap-1',
       backup_at: '2026-03-01T00:00:00.000Z',
@@ -20,13 +19,13 @@ function version(overrides: Overrides<OneDriveFileVersionRecord> = {}): OneDrive
       change_type: 'updated',
       last_modified_at: '2026-03-01T00:00:00.000Z',
       version_id: '1.0',
-    } as OneDriveFileVersionRecord,
+    } as DriveFileVersionRecord,
     overrides,
   );
 }
 
-function index(file_id: string, versions: OneDriveFileVersionRecord[]): OneDriveFileVersionIndex {
-  return { file_id, owner_id: OWNER, versions };
+function index(file_id: string, versions: DriveFileVersionRecord[]): DriveFileVersionIndexView {
+  return { file_id, versions };
 }
 
 describe('select_versions_to_restore', () => {
