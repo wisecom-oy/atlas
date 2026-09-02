@@ -54,17 +54,17 @@ atlas outlook backup -m user@company.com --retention-days 365 --lock-mode compli
 atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 ```
 
-| Option                   | Description                                                               |
-| ------------------------ | ------------------------------------------------------------------------- |
-| `-m, --mailbox <id>`     | Mailbox to back up (required)                                             |
-| `-f, --folder <name...>` | Filter to specific folder(s) by name or path (see below)                  |
-| `--full`                 | Ignore saved delta links, run full enumeration                            |
-| `-P, --page-size <n>`    | Graph API page size per delta request (1--100, default 10)                |
-| `--retention-days <n>`   | Apply Object Lock retention for `n` days                                  |
-| `--lock-mode <mode>`     | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
-| `-t, --tenant <id>`      | Override tenant ID from config                                            |
-| `--exclude-junk`         | Skip the Junk Email folder and its subfolders                             |
-| `--include-recoverable-items` | Also back up hard-deleted and hold-retained mail (see below)          |
+| Option                        | Description                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `-m, --mailbox <id>`          | Mailbox to back up (required)                                                |
+| `-f, --folder <name...>`      | Filter to specific folder(s) by name or path (see below)                     |
+| `--full`                      | Ignore saved delta links, run full enumeration                               |
+| `-P, --page-size <n>`         | Graph API page size per delta request (1--100, default 10)                   |
+| `--retention-days <n>`        | Apply Object Lock retention for `n` days                                     |
+| `--lock-mode <mode>`          | Object Lock mode (`governance` or `compliance`); requires `--retention-days` |
+| `-t, --tenant <id>`           | Override tenant ID from config                                               |
+| `--exclude-junk`              | Skip the Junk Email folder and its subfolders                                |
+| `--include-recoverable-items` | Also back up hard-deleted and hold-retained mail (see below)                 |
 
 `--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
 
@@ -74,15 +74,15 @@ Requesting retention is fail-closed: when the bucket has versioning or Object Lo
 
 Every mail folder in the mailbox, at any nesting depth, including the ones Outlook treats as special:
 
-| Folder | Backed up | Note |
-| ------------------------------ | -------------- | ------------------------------------------------------------------------ |
-| Inbox, Sent Items, Deleted Items, Archive, and user folders | Yes | Including nested subfolders at any depth |
-| **Drafts** and **Outbox** | Yes | Unsent work exists nowhere else, so it is content like any other |
-| **Junk Email** | Yes | Opt out with `--exclude-junk`. Junk is evidence in a phishing or BEC case |
-| Hidden folders (`isHidden`) | Yes | Enumerated explicitly; Graph omits them unless asked |
-| Hidden Exchange system folders | No | A short deny-list of client-state folders such as `Conversation Action Settings`, matched only when Exchange also reports them hidden |
-| In-Place Archive mailbox | No | Graph cannot read it at all. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope) |
-| **Recoverable Items** | Opt-in | `--include-recoverable-items`. Hard-deleted and hold-retained mail; see below |
+| Folder                                                      | Backed up | Note                                                                                                                                  |
+| ----------------------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Inbox, Sent Items, Deleted Items, Archive, and user folders | Yes       | Including nested subfolders at any depth                                                                                              |
+| **Drafts** and **Outbox**                                   | Yes       | Unsent work exists nowhere else, so it is content like any other                                                                      |
+| **Junk Email**                                              | Yes       | Opt out with `--exclude-junk`. Junk is evidence in a phishing or BEC case                                                             |
+| Hidden folders (`isHidden`)                                 | Yes       | Enumerated explicitly; Graph omits them unless asked                                                                                  |
+| Hidden Exchange system folders                              | No        | A short deny-list of client-state folders such as `Conversation Action Settings`, matched only when Exchange also reports them hidden |
+| In-Place Archive mailbox                                    | No        | Graph cannot read it at all. See [In-Place Archive is out of scope](../security.md#in-place-archive-is-out-of-scope)                  |
+| **Recoverable Items**                                       | Opt-in    | `--include-recoverable-items`. Hard-deleted and hold-retained mail; see below                                                         |
 
 Anything skipped is reported at the end of the run and recorded in the snapshot manifest with its reason, so "was folder X captured?" is answerable from the backup rather than from whoever ran it:
 
@@ -94,7 +94,6 @@ Anything skipped is reported at the end of the run and recorded in the snapshot 
 ::: warning Drafts and Outbox are new in 4.1.0
 Earlier versions silently skipped Drafts and Outbox. New snapshots include them, which makes the first backup after upgrading larger than the previous one for mailboxes that hold unsent mail. Existing snapshots are unaffected; the content appears as those folders sync for the first time.
 :::
-
 
 #### Recoverable Items, the Exchange dumpster
 
@@ -108,15 +107,15 @@ expires the item is gone from the tenant and from every snapshot.
 atlas outlook backup -m user@company.com --include-recoverable-items
 ```
 
-| Subfolder | Backed up | Contains |
-| ------------------ | --------- | ------------------------------------------------------------- |
-| `Deletions` | Yes | Items removed from Deleted Items, user-recoverable for 14 to 30 days |
-| `Purges` | Yes | Hard-deleted items retained only by litigation hold or single item recovery |
-| `DiscoveryHolds` | Yes | Hard-deleted items retained by an In-Place Hold or retention policy |
-| `SubstrateHolds` | Yes | Original copies of held Teams messages and modified held items |
-| `Versions` | No | Pre-modification copies whose item shape is not a message |
-| `Calendar Logging` | No | Calendar change audit trail |
-| `Audits` | No | Mailbox audit log entries |
+| Subfolder          | Backed up | Contains                                                                    |
+| ------------------ | --------- | --------------------------------------------------------------------------- |
+| `Deletions`        | Yes       | Items removed from Deleted Items, user-recoverable for 14 to 30 days        |
+| `Purges`           | Yes       | Hard-deleted items retained only by litigation hold or single item recovery |
+| `DiscoveryHolds`   | Yes       | Hard-deleted items retained by an In-Place Hold or retention policy         |
+| `SubstrateHolds`   | Yes       | Original copies of held Teams messages and modified held items              |
+| `Versions`         | No        | Pre-modification copies whose item shape is not a message                   |
+| `Calendar Logging` | No        | Calendar change audit trail                                                 |
+| `Audits`           | No        | Mailbox audit log entries                                                   |
 
 Everything not captured is reported at the end of the run with its reason, and a
 subfolder Atlas does not recognise is reported rather than guessed at, so a new
@@ -175,11 +174,11 @@ atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
 atlas outlook verify -m user@company.com -s <snapshot-id> --fast
 ```
 
-| Option                  | Description                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `-m, --mailbox <email>` | Mailbox that owns the snapshot (required)                                                   |
-| `-s, --snapshot <id>`   | Snapshot identifier to verify (required)                                                    |
-| `-t, --tenant <id>`     | Override tenant ID from config                                                              |
+| Option                  | Description                                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------------------- |
+| `-m, --mailbox <email>` | Mailbox that owns the snapshot (required)                                                      |
+| `-s, --snapshot <id>`   | Snapshot identifier to verify (required)                                                       |
+| `-t, --tenant <id>`     | Override tenant ID from config                                                                 |
 | `--fast`                | Existence-only checks (`HeadObject` per referenced key), with no download, decrypt, or hashing |
 
 ::: details What exactly is verified?
@@ -214,16 +213,16 @@ atlas outlook restore -m user@company.com -T other@company.com
 atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 ```
 
-| Option                      | Description                                                     |
-| --------------------------- | --------------------------------------------------------------- |
-| `-s, --snapshot <id>`       | Restore from a specific snapshot                                |
-| `-m, --mailbox <email>`     | Restore from all snapshots for this mailbox                     |
-| `-T, --target <email>`      | Target mailbox for cross-mailbox restore (defaults to source)   |
-| `-f, --folder <name>`       | Restore only messages from this folder or its subfolders        |
-| `--message <ref>`           | Restore a single message by `#` index from `atlas outlook list` |
-| `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date                 |
-| `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date                |
-| `-t, --tenant <id>`         | Override tenant ID                                              |
+| Option                        | Description                                                           |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `-s, --snapshot <id>`         | Restore from a specific snapshot                                      |
+| `-m, --mailbox <email>`       | Restore from all snapshots for this mailbox                           |
+| `-T, --target <email>`        | Target mailbox for cross-mailbox restore (defaults to source)         |
+| `-f, --folder <name>`         | Restore only messages from this folder or its subfolders              |
+| `--message <ref>`             | Restore a single message by `#` index from `atlas outlook list`       |
+| `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                       |
+| `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                      |
+| `-t, --tenant <id>`           | Override tenant ID                                                    |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
 
 Exactly one of `--snapshot` or `--mailbox` is required; passing both exits `1`, as described under [`atlas outlook`](#atlas-outlook). `-T, --target` works in either mode. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
@@ -268,12 +267,12 @@ atlas outlook read -s <snapshot-id> --message 34 --raw
 atlas outlook read -s <snapshot-id> --message 34 --raw > message.eml
 ```
 
-| Option                | Description                                                        |
-| --------------------- | ------------------------------------------------------------------ |
-| `-s, --snapshot <id>` | Snapshot containing the message                                    |
-| `--message <ref>`     | Message `#` from `atlas outlook list`, or full Graph message ID    |
+| Option                | Description                                                           |
+| --------------------- | --------------------------------------------------------------------- |
+| `-s, --snapshot <id>` | Snapshot containing the message                                       |
+| `--message <ref>`     | Message `#` from `atlas outlook list`, or full Graph message ID       |
 | `--raw`               | Output the stored object verbatim instead of formatted headers + body |
-| `-t, --tenant <id>`   | Override tenant ID                                                 |
+| `-t, --tenant <id>`   | Override tenant ID                                                    |
 
 What `--raw` prints depends on the format of the stored object. For a message archived as RFC 5322 MIME -- the default for snapshots taken by this version -- Atlas writes the decrypted MIME bytes to stdout verbatim: no banner, no colour, no added trailing newline. Redirecting that output produces a valid `.eml` file with its original `Received:` chain, `Authentication-Results`, and any S/MIME payload intact, which is what you want when handing a single message to an investigator or verifying a DKIM signature by hand.
 
@@ -316,17 +315,17 @@ atlas outlook save -m user@company.com --start-date 2026-01-01
 atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-06-30
 ```
 
-| Option                      | Description                                                  |
-| --------------------------- | ------------------------------------------------------------ |
-| `-s, --snapshot <id>`       | Save from a specific snapshot                                |
-| `-m, --mailbox <email>`     | Save from all snapshots for this mailbox                     |
-| `-f, --folder <name>`       | Save only messages from this folder or its subfolders        |
-| `--message <ref>`           | Save a single message by `#` index from `atlas outlook list` |
-| `--start-date <YYYY-MM-DD>` | Include snapshots created on or after this date              |
-| `--end-date <YYYY-MM-DD>`   | Include snapshots created on or before this date             |
-| `-o, --output <path>`       | Output file path (default: `Restore-<timestamp>.zip`)        |
-| `--skip-verify`             | Skip SHA-256 integrity checks (faster on low-power systems)  |
-| `-t, --tenant <id>`         | Override tenant ID                                           |
+| Option                        | Description                                                           |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `-s, --snapshot <id>`         | Save from a specific snapshot                                         |
+| `-m, --mailbox <email>`       | Save from all snapshots for this mailbox                              |
+| `-f, --folder <name>`         | Save only messages from this folder or its subfolders                 |
+| `--message <ref>`             | Save a single message by `#` index from `atlas outlook list`          |
+| `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                       |
+| `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                      |
+| `-o, --output <path>`         | Output file path (default: `Restore-<timestamp>.zip`)                 |
+| `--skip-verify`               | Skip SHA-256 integrity checks (faster on low-power systems)           |
+| `-t, --tenant <id>`           | Override tenant ID                                                    |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
 
 With both `-s` and `-m`, the named snapshot is exported and `-m` is ignored with a warning; see [`atlas outlook`](#atlas-outlook). Earlier releases silently exported the whole mailbox instead.
@@ -497,27 +496,27 @@ atlas onedrive delete -o user@company.com -s od-snap-123
 atlas onedrive delete -o user@company.com -y
 ```
 
-| Option           | Description                                                              |
-| ---------------- | ------------------------------------------------------------------------ |
-| `backup`         | Incremental sync; use `--full` to ignore saved delta state               |
-| `restore`        | Restore files from a snapshot to the user's (or another user's) OneDrive |
-| `list-snapshots` | List snapshot IDs and timestamps for the owner                           |
-| `list-versions`  | List indexed versions for one file (`-f` file ID or path)                |
-| `restore-version`| Push stored file versions back into the drive, one file or a whole rollback |
-| `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows    |
-| `status`         | Report pending Graph changes per drive without backing up                |
-| `delete`         | Delete the owner's OneDrive backups, or a single snapshot                |
+| Option            | Description                                                                 |
+| ----------------- | --------------------------------------------------------------------------- |
+| `backup`          | Incremental sync; use `--full` to ignore saved delta state                  |
+| `restore`         | Restore files from a snapshot to the user's (or another user's) OneDrive    |
+| `list-snapshots`  | List snapshot IDs and timestamps for the owner                              |
+| `list-versions`   | List indexed versions for one file (`-f` file ID or path)                   |
+| `restore-version` | Push stored file versions back into the drive, one file or a whole rollback |
+| `verify`          | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows       |
+| `status`          | Report pending Graph changes per drive without backing up                   |
+| `delete`          | Delete the owner's OneDrive backups, or a single snapshot                   |
 
 **`atlas onedrive backup`**
 
-| Option                 | Description                                                           |
-| ---------------------- | --------------------------------------------------------------------- |
-| `-o, --owner <id>`     | User email or Entra object ID (required)                              |
-| `--full`               | Force full crawl ignoring saved delta links                           |
-| `--folder <path>`      | Back up only this folder and its subfolders; see note below           |
-| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below) |
+| Option                 | Description                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `-o, --owner <id>`     | User email or Entra object ID (required)                                                           |
+| `--full`               | Force full crawl ignoring saved delta links                                                        |
+| `--folder <path>`      | Back up only this folder and its subfolders; see note below                                        |
+| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see note below)                              |
 | `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
-| `-t, --tenant <id>`    | Override tenant ID from config                                        |
+| `-t, --tenant <id>`    | Override tenant ID from config                                                                     |
 
 While the backup runs, a live dashboard shows one row per drive: delta fetch (`fetching changes...`), then per-item progress with rate and ETA, finishing as `[ok]` with stored/dedup/version counts or `[==] up to date` when an incremental delta has no changes. Non-interactive runs (cron/CI) print one plain log line per finished drive instead. Service messages (version syncs, warnings) print above the live region.
 
@@ -535,17 +534,17 @@ A snapshot taken with `--folder` contains only that folder's files. Restoring it
 
 **`atlas onedrive restore`**
 
-| Option                     | Description                                                                       |
-| -------------------------- | --------------------------------------------------------------------------------- |
-| `-o, --owner <id>`         | User email or Entra object ID (required)                                           |
-| `-s, --snapshot <id>`      | Snapshot to restore from (required)                                                |
-| `--target-owner <id>`      | Restore to a different user's OneDrive (defaults to owner)                         |
-| `--destination <path>`     | Folder to restore under, created when missing (default: `/Restore-<timestamp>`)    |
-| `--in-place`               | Restore to the original paths instead of a restore root                            |
-| `--name <filename>`        | Rename the restored file; rejected unless exactly one file matches                 |
-| `--file-filter <paths...>` | Only restore specific files by ID or path                                          |
-| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)          |
-| `-t, --tenant <id>`        | Override tenant ID from config                                                     |
+| Option                     | Description                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| `-o, --owner <id>`         | User email or Entra object ID (required)                                        |
+| `-s, --snapshot <id>`      | Snapshot to restore from (required)                                             |
+| `--target-owner <id>`      | Restore to a different user's OneDrive (defaults to owner)                      |
+| `--destination <path>`     | Folder to restore under, created when missing (default: `/Restore-<timestamp>`) |
+| `--in-place`               | Restore to the original paths instead of a restore root                         |
+| `--name <filename>`        | Rename the restored file; rejected unless exactly one file matches              |
+| `--file-filter <paths...>` | Only restore specific files by ID or path                                       |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)        |
+| `-t, --tenant <id>`        | Override tenant ID from config                                                  |
 
 A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-4.0.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
@@ -573,15 +572,15 @@ Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-fil
 Restores the version bytes Atlas holds. Use it to roll a file back past a bad
 edit, or a whole folder back past a mass encrypt-and-sync event.
 
-| Option              | Description                                                                  |
-| ------------------- | ---------------------------------------------------------------------------- |
-| `-o, --owner <id>`  | User email or Entra object ID (required)                                     |
-| `-f, --file <ref>`  | Graph file ID or drive path; required with `--version`                       |
-| `--version <id>`    | Exact stored version, as shown in the `Version` column of `list-versions`    |
-| `--before <iso>`    | Restore each file's newest version at or before this instant                  |
-| `--path <prefix>`   | Limit a `--before` rollback to this folder and below                         |
-| `--in-place`        | Upload over the original file instead of writing a copy beside it            |
-| `-t, --tenant <id>` | Override tenant ID from config                                               |
+| Option              | Description                                                               |
+| ------------------- | ------------------------------------------------------------------------- |
+| `-o, --owner <id>`  | User email or Entra object ID (required)                                  |
+| `-f, --file <ref>`  | Graph file ID or drive path; required with `--version`                    |
+| `--version <id>`    | Exact stored version, as shown in the `Version` column of `list-versions` |
+| `--before <iso>`    | Restore each file's newest version at or before this instant              |
+| `--path <prefix>`   | Limit a `--before` rollback to this folder and below                      |
+| `--in-place`        | Upload over the original file instead of writing a copy beside it         |
+| `-t, --tenant <id>` | Override tenant ID from config                                            |
 
 Either `--file` with `--version`, or `--before`. `--version` alone is rejected
 because a version id is only unique within one file, and `--path` cannot be
@@ -618,6 +617,8 @@ to restore.
 **`atlas onedrive save`**
 
 Save decrypted files from a OneDrive snapshot to a local zip archive. The archive preserves the original folder structure. Each file is SHA-256 verified after decryption by default.
+
+A save that fails before the archive is finalised leaves no file behind: the stream is destroyed and the partial zip is removed, because a truncated archive is indistinguishable from a finished one. An output path that already held a file is never deleted, so pointing `-O` at an existing file and having the run fail leaves that file untouched.
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-1735689600000-a1b2c3
@@ -669,12 +670,12 @@ Reports pending Graph changes per drive by replaying the saved delta links from 
 
 Deletes the owner's OneDrive backups behind the same confirmation prompt as the Outlook delete. Without `-s` it sweeps the owner's `manifests`, `data`, `index`, `_meta` and `staging` prefixes, staging included so an interrupted large-file upload does not leave file content parked in the bucket. With `-s` only that snapshot's manifest is removed; the content-addressed blobs stay, because other snapshots may reference them.
 
-| Option                | Description                                          |
-| --------------------- | ---------------------------------------------------- |
-| `-o, --owner <id>`    | User email or Entra object ID (required)             |
-| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup    |
-| `-y, --yes`           | Skip confirmation prompt                             |
-| `-t, --tenant <id>`   | Override tenant ID from config                       |
+| Option                | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `-o, --owner <id>`    | User email or Entra object ID (required)          |
+| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
+| `-y, --yes`           | Skip confirmation prompt                          |
+| `-t, --tenant <id>`   | Override tenant ID from config                    |
 
 ::: tip Permissions
 Application permissions `Files.Read.All` and `User.Read.All` are required for backup and read operations; `Files.ReadWrite.All` is additionally required for restore. See Details and storage layout are documented on the [OneDrive Backup](/onedrive-backup) page.
@@ -702,28 +703,28 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering -y
 ```
 
-| Subcommand       | Description                                                           |
-| ---------------- | --------------------------------------------------------------------- |
-| `backup`         | Incremental sync; use `--full` to ignore saved delta state            |
-| `list-snapshots` | List all SharePoint snapshots for a site                              |
-| `list-versions`  | List all backed-up versions for a specific file                       |
-| `restore-version`| Push stored file versions back into the library, one file or a whole rollback |
-| `restore`        | Restore files from a snapshot back to the site's document libraries   |
-| `save`           | Decrypt and save files from a snapshot to a local zip archive         |
-| `verify`         | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows |
-| `status`         | Report pending Graph changes per document library without backing up  |
-| `delete`         | Delete the site's SharePoint backups, or a single snapshot            |
+| Subcommand        | Description                                                                   |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `backup`          | Incremental sync; use `--full` to ignore saved delta state                    |
+| `list-snapshots`  | List all SharePoint snapshots for a site                                      |
+| `list-versions`   | List all backed-up versions for a specific file                               |
+| `restore-version` | Push stored file versions back into the library, one file or a whole rollback |
+| `restore`         | Restore files from a snapshot back to the site's document libraries           |
+| `save`            | Decrypt and save files from a snapshot to a local zip archive                 |
+| `verify`          | Decrypt manifests/blobs for a snapshot and check SHA-256 + index rows         |
+| `status`          | Report pending Graph changes per document library without backing up          |
+| `delete`          | Delete the site's SharePoint backups, or a single snapshot                    |
 
 **`atlas sharepoint backup`**
 
-| Option                 | Description                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| `--site <url-or-id>`   | SharePoint site URL or Graph site ID (required)                                   |
-| `--full`               | Force full crawl ignoring saved delta links                                       |
-| `--include-subsites`   | Also back up every subsite beneath the site, one snapshot per subsite             |
-| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive) |
+| Option                 | Description                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `--site <url-or-id>`   | SharePoint site URL or Graph site ID (required)                                                    |
+| `--full`               | Force full crawl ignoring saved delta links                                                        |
+| `--include-subsites`   | Also back up every subsite beneath the site, one snapshot per subsite                              |
+| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive)                  |
 | `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`, default `governance`); requires `--retention-days` |
-| `-t, --tenant <id>`    | Override tenant ID from config                                                    |
+| `-t, --tenant <id>`    | Override tenant ID from config                                                                     |
 
 :::: tip Subsites are separate sites
 `GET /sites/{site-id}/sites` returns only a site's _direct_ subsites, so Atlas walks the tree explicitly. By default a backup covers the named site alone and emits one warning per uncovered subsite. Classic site collections with nested subsite trees would otherwise look fully protected while entire subsites sat outside the backup.
@@ -750,15 +751,15 @@ Graph returns only the subsites the application can read. A subsite that cannot 
 
 **`atlas sharepoint restore-version`**
 
-| Option               | Description                                                               |
-| -------------------- | ------------------------------------------------------------------------- |
-| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required)                           |
-| `-f, --file <ref>`   | File ID or path; required with `--version`                                |
-| `--version <id>`     | Exact stored version, as shown by `list-versions`                         |
-| `--before <iso>`     | Restore each file's newest version at or before this instant               |
-| `--path <prefix>`    | Limit a `--before` rollback to this folder and below                      |
-| `--in-place`         | Upload over the original file instead of writing a copy beside it         |
-| `-t, --tenant <id>`  | Override tenant ID from config                                            |
+| Option               | Description                                                       |
+| -------------------- | ----------------------------------------------------------------- |
+| `--site <url-or-id>` | SharePoint site URL or Graph site ID (required)                   |
+| `-f, --file <ref>`   | File ID or path; required with `--version`                        |
+| `--version <id>`     | Exact stored version, as shown by `list-versions`                 |
+| `--before <iso>`     | Restore each file's newest version at or before this instant      |
+| `--path <prefix>`    | Limit a `--before` rollback to this folder and below              |
+| `--in-place`         | Upload over the original file instead of writing a copy beside it |
+| `-t, --tenant <id>`  | Override tenant ID from config                                    |
 
 Identical semantics to [`atlas onedrive restore-version`](#atlas-onedrive),
 including the copy-by-default placement and the reason Atlas uploads its own
@@ -767,16 +768,16 @@ into the document library they were captured from.
 
 **`atlas sharepoint restore`**
 
-| Option                      | Description                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------ |
-| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)                                |
-| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                                              |
-| `--target-site <url-or-id>` | Restore to a different site (defaults to original)                             |
+| Option                      | Description                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `--site <url-or-id>`        | SharePoint site URL or Graph site ID (required)                                 |
+| `-s, --snapshot <id>`       | SharePoint snapshot ID (required)                                               |
+| `--target-site <url-or-id>` | Restore to a different site (defaults to original)                              |
 | `--destination <path>`      | Folder to restore under, created when missing (default: `/Restore-<timestamp>`) |
 | `--in-place`                | Restore to the original paths instead of a restore root                         |
-| `--name <filename>`         | Rename the restored file; rejected unless exactly one file matches             |
-| `--file-filter <paths...>`  | Only restore specific files (by ID or path)                                    |
-| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)       |
+| `--name <filename>`         | Rename the restored file; rejected unless exactly one file matches              |
+| `--file-filter <paths...>`  | Only restore specific files (by ID or path)                                     |
+| `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)        |
 | `-t, --tenant <id>`         | Override tenant ID from config                                                  |
 
 Restored files nest under `Restore-<timestamp>` in each destination library, with the original
@@ -993,7 +994,7 @@ atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-con
 | `--all`                     | Recover every workload: Outlook, OneDrive, and SharePoint    |
 | `--source-endpoint <url>`   | Source replica S3 endpoint URL                               |
 | `--source-access-key <key>` | Source replica S3 access key                                 |
-| `--source-secret-key <key>` | Source replica S3 secret key; `-` reads it from stdin         |
+| `--source-secret-key <key>` | Source replica S3 secret key; `-` reads it from stdin        |
 | `--source-region <region>`  | Source replica S3 region (default: `us-east-1`)              |
 | `--source-config <path>`    | Path to JSON file with source S3 credentials                 |
 | `-t, --tenant <id>`         | Override tenant ID                                           |

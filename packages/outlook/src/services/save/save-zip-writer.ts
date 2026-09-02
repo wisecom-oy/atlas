@@ -1,9 +1,20 @@
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, existsSync, type WriteStream } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { ZipArchive, type Archiver } from 'archiver';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface SaveArchive {
   readonly archive: ArchiveWriter;
   readonly promise: Promise<number>;
+  /**
+   * Destroys the stream and removes the partial file, for a run that failed before finalizing.
+   *
+   * A truncated zip left at the output path is indistinguishable from a complete one, which is
+   * worse than no file at all when the reason an operator ran a save is that they need the bytes
+   * (issue #307). A path that already held a file is never removed: the caller may have been
+   * handed the path of something unrelated.
+   */
+  abort(): Promise<void>;
 }
 
 /** The archiver instance EML entries are appended to. */
@@ -11,6 +22,7 @@ export type ArchiveWriter = Archiver;
 
 /** Creates a zip archive with maximum compression, streaming to the output path. */
 export function create_save_archive(output_path: string): SaveArchive {
+  const pre_existing = existsSync(output_path);
   const output = createWriteStream(output_path);
   const archive = new ZipArchive({ zlib: { level: 9 } });
 
@@ -19,9 +31,38 @@ export function create_save_archive(output_path: string): SaveArchive {
     archive.on('error', reject);
     output.on('error', reject);
   });
+  // Attach a handler now, so an error raised while entries are still being appended is not an
+  // unhandled rejection. Awaiting `promise` later still sees the rejection.
+  promise.catch(() => undefined);
 
   archive.pipe(output);
-  return { archive, promise };
+  return {
+    archive,
+    promise,
+    abort: () => abort_save_archive(archive, output, output_path, pre_existing),
+  };
+}
+
+async function abort_save_archive(
+  archive: ArchiveWriter,
+  output: WriteStream,
+  output_path: string,
+  pre_existing: boolean,
+): Promise<void> {
+  try {
+    archive.abort();
+  } catch {
+    // Already destroyed or never started; the stream teardown below is what matters.
+  }
+  output.destroy();
+  if (pre_existing) return;
+  try {
+    await rm(output_path, { force: true });
+  } catch (err) {
+    logger.warn(
+      `Could not remove the partial archive at ${output_path}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 /**
