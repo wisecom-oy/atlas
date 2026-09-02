@@ -79,3 +79,19 @@ describe('rethrow_if_access_denied', () => {
     expect(() => rethrow_if_access_denied(err)).not.toThrow();
   });
 });
+
+describe('non-object throwables', () => {
+  // Both helpers run inside `catch` blocks and must fall through for anything they do not
+  // recognise. A rejected promise can carry `null`, and reading a field off it would replace the
+  // real failure with a TypeError.
+  it.each([[null], [undefined], ['a string'], [42]])('falls through for %s', (value) => {
+    expect(() => rethrow_if_access_denied(value)).not.toThrow();
+    expect(() => rethrow_if_mailbox_not_licensed(value)).not.toThrow();
+  });
+
+  it('still recognises the licensing failure in a bare string', () => {
+    expect(() => rethrow_if_mailbox_not_licensed('MailboxNotEnabledForRESTAPI')).toThrow(
+      MailboxNotLicensedError,
+    );
+  });
+});

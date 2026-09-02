@@ -36,7 +36,7 @@ export class ObjectLockModeRejectedError extends ConfigError {
 export class PreconditionFailedError extends StorageError {
   constructor(key: string) {
     super(
-      `Conditional write failed for key ${key} -- precondition not met (412 Precondition Failed)`,
+      `Conditional write failed for key ${key} — precondition not met (412 Precondition Failed)`,
     );
   }
 }

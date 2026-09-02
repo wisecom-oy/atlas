@@ -10,7 +10,7 @@ import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
  * actionable guidance about which API permissions to grant.
  */
 export function rethrow_if_access_denied(err: unknown): void {
-  const graph_err = err as Record<string, unknown>;
+  const graph_err = as_error_fields(err);
   if (graph_err.statusCode !== 403) return;
 
   const required = [
@@ -37,7 +37,7 @@ export function rethrow_if_access_denied(err: unknown): void {
  * actionable guidance about reassigning an Exchange Online license.
  */
 export function rethrow_if_mailbox_not_licensed(err: unknown): void {
-  const graph_err = err as Record<string, unknown>;
+  const graph_err = as_error_fields(err);
   const code = String(graph_err.code ?? '');
   const message = err instanceof Error ? err.message : String(err);
 
@@ -55,4 +55,15 @@ export function rethrow_if_mailbox_not_licensed(err: unknown): void {
       { cause: err },
     );
   }
+}
+
+/**
+ * Reads a thrown value as a bag of fields.
+ *
+ * `unknown` is not `object`: a rejected promise can carry `null`, and asserting the type only
+ * silences the compiler. Both helpers are called from `catch` blocks that must fall through for
+ * an unrelated failure, so a `TypeError` here would replace the real error with a bug.
+ */
+function as_error_fields(err: unknown): Record<string, unknown> {
+  return typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : {};
 }
