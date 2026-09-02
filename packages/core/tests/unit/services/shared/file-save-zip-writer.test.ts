@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,37 +22,67 @@ afterEach(async () => {
 describe('create_file_archive', () => {
   it('writes an archive and reports the byte count', async () => {
     const output_path = join(dir, 'out.zip');
-    const { archive, promise } = create_file_archive(output_path);
+    const { archive, promise, publish } = create_file_archive(output_path);
 
     await add_file_to_archive(archive, '/Documents', 'report.txt', Buffer.from('hello'));
     await finalize_file_archive(archive);
+    const total_bytes = await promise;
+    await publish();
 
-    expect(await promise).toBeGreaterThan(0);
+    expect(total_bytes).toBeGreaterThan(0);
     expect(existsSync(output_path)).toBe(true);
   });
 
-  it('removes the partial file it created when the run aborts (issue #307)', async () => {
+  it('writes nothing to the output path before it is published (issue #307)', async () => {
+    const output_path = join(dir, 'out.zip');
+    const { archive } = create_file_archive(output_path);
+
+    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+
+    // Entries land in a sibling temporary file, so a truncated zip can never be mistaken for a
+    // finished export at the path an operator was given. The temp file itself is not asserted:
+    // the stream opens lazily, so its appearance is a race, while the output path staying empty
+    // is the guarantee.
+    expect(existsSync(output_path)).toBe(false);
+    expect(readdirSync(dir).filter((name) => name === 'out.zip')).toEqual([]);
+  });
+
+  it('leaves no temporary file behind when the run aborts', async () => {
     const output_path = join(dir, 'partial.zip');
     const { archive, abort } = create_file_archive(output_path);
     await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
 
-    // A truncated zip is indistinguishable from a complete one, so a failed save must leave
-    // nothing behind rather than something that looks like an export.
     await abort();
 
     expect(existsSync(output_path)).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('keeps a file that already existed at the output path', async () => {
+  it('leaves the bytes of a pre-existing output file untouched when the run aborts', async () => {
     const output_path = join(dir, 'existing.zip');
     writeFileSync(output_path, 'someone else data');
 
-    const { abort } = create_file_archive(output_path);
+    const { archive, abort } = create_file_archive(output_path);
+    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
     await abort();
 
-    // The caller may have been handed the path of something unrelated; deleting it would be
-    // destroying data the save was never asked to touch.
-    expect(existsSync(output_path)).toBe(true);
+    // Not just present: unchanged. Opening the output path for writing truncated it before
+    // anything was written, so checking existence alone hid the loss.
+    expect(readFileSync(output_path, 'utf-8')).toBe('someone else data');
+  });
+
+  it('replaces a pre-existing output file only on a successful publish', async () => {
+    const output_path = join(dir, 'existing.zip');
+    writeFileSync(output_path, 'someone else data');
+
+    const { archive, promise, publish } = create_file_archive(output_path);
+    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    await finalize_file_archive(archive);
+    await promise;
+    await publish();
+
+    expect(readFileSync(output_path, 'utf-8')).not.toBe('someone else data');
+    expect(readdirSync(dir)).toEqual(['existing.zip']);
   });
 
   it('does not raise when the archive is aborted twice', async () => {

@@ -35,6 +35,8 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
     create_file_archive: vi.fn().mockReturnValue({
       archive: mock_archive,
       promise: Promise.resolve(8192),
+      publish: vi.fn().mockResolvedValue(undefined),
+      abort: vi.fn().mockResolvedValue(undefined),
     }),
     add_file_to_archive: vi.fn().mockResolvedValue(undefined),
     finalize_file_archive: vi.fn().mockResolvedValue(undefined),

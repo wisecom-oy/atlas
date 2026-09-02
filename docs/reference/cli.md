@@ -618,7 +618,7 @@ to restore.
 
 Save decrypted files from a OneDrive snapshot to a local zip archive. The archive preserves the original folder structure. Each file is SHA-256 verified after decryption by default.
 
-A save that fails before the archive is finalised leaves no file behind: the stream is destroyed and the partial zip is removed, because a truncated archive is indistinguishable from a finished one. An output path that already held a file is never deleted, so pointing `-O` at an existing file and having the run fail leaves that file untouched.
+The archive is written to a temporary file next to the output path and moved onto it only once it is complete, so a save that fails leaves nothing behind: a truncated archive is indistinguishable from a finished one. It also means a file already sitting at the output path is not touched until a successful run replaces it, so pointing `-O` at an existing file and having the run fail leaves that file exactly as it was.
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-1735689600000-a1b2c3

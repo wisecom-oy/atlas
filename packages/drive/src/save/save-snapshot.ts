@@ -76,7 +76,7 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
     const output_path =
       options.output_path ?? build_default_output_path(workload, options.snapshot_id);
     const skip_integrity = options.skip_integrity_check ?? false;
-    const { archive, promise, abort } = create_file_archive(output_path);
+    const { archive, promise, publish, abort } = create_file_archive(output_path);
 
     try {
       const integrity_failures: string[] = [];
@@ -99,6 +99,9 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
       });
       await finalize_file_archive(archive);
       const total_bytes = await promise;
+      // Only now does anything appear at the output path, so a failure above cannot leave a
+      // truncated zip there and cannot destroy a file that was already sitting on it.
+      await publish();
       await mark_downloaded_from_internet(output_path);
       const interrupted =
         files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
@@ -121,9 +124,9 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
         interrupted,
       };
     } catch (err) {
-      // Anything between opening the archive and finalizing it can throw: the entry loop, the
-      // finalize, the size promise, the zone marking. None of them may leave a truncated zip
-      // sitting at the output path (issue #307).
+      // Anything between opening the archive and publishing it can throw: the entry loop, the
+      // finalize, the byte count, the move itself. None of them may leave a partial file behind
+      // (issue #307).
       await abort();
       throw err;
     }

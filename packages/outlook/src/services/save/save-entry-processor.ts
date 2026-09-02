@@ -30,7 +30,7 @@ export async function save_entries_to_archive(
   is_interrupted: () => boolean,
   control: OperationControlOptions,
 ): Promise<Omit<SaveResult, 'snapshot_id'> & { processed: number }> {
-  const { archive, promise, abort } = create_save_archive(output_path);
+  const { archive, promise, publish, abort } = create_save_archive(output_path);
 
   try {
     let global_saved = 0;
@@ -93,6 +93,9 @@ export async function save_entries_to_archive(
     });
     await finalize_archive(archive);
     const total_bytes = await promise;
+    // Only now does anything appear at the output path, so a failure above cannot leave a
+    // truncated zip there and cannot destroy a file that was already sitting on it.
+    await publish();
     await mark_downloaded_from_internet(output_path);
 
     log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
@@ -109,8 +112,8 @@ export async function save_entries_to_archive(
       interrupted: should_interrupt(),
     };
   } catch (err) {
-    // Anything between opening the archive and finalizing it can throw. None of it may leave
-    // a truncated zip sitting at the output path (issue #307).
+    // Anything between opening the archive and publishing it can throw. None of it may leave a
+    // partial file behind (issue #307).
     await abort();
     throw err;
   }
