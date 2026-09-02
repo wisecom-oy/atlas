@@ -176,18 +176,33 @@ describe('SharePointStatusService', () => {
     });
   });
 
-  it('currently rolls a failed peek up as up to date, which is wrong', async () => {
+  it('does not report the site as up to date when a peek failed (issue #298)', async () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1') as never);
     vi.mocked(mocks.connector.fetch_delta).mockRejectedValue(new Error('throttled'));
 
     const result = await check();
 
-    // Pins today's behaviour, it is not an endorsement. The roll-up is
-    // `total_pending === 0 && every(has_backup)`, which ignores each library's
-    // own `is_up_to_date`, so a throttled peek counts as clean. Expected to
-    // flip to false when that is fixed; see the follow-up issue.
+    // The roll-up reads each library's own flag. A throttled peek reports zero pending and
+    // `has_backup: true`, so the old `total_pending === 0 && every(has_backup)` called it clean.
     expect(result.libraries[0]?.is_up_to_date).toBe(false);
-    expect(result.is_up_to_date).toBe(true);
+    expect(result.is_up_to_date).toBe(false);
+  });
+
+  it('does not report the site as up to date when one library of several failed', async () => {
+    vi.mocked(mocks.connector.list_document_libraries).mockResolvedValue([
+      { drive_id: 'library-1', drive_name: 'Documents' },
+      { drive_id: 'library-2', drive_name: 'Shared Documents' },
+    ]);
+    vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1', 'library-2') as never);
+    vi.mocked(mocks.connector.fetch_delta)
+      .mockRejectedValueOnce(new Error('throttled'))
+      .mockResolvedValueOnce({ items: [], delta_link: 'b' } as never);
+
+    const result = await check();
+
+    // The clean second library must not mask the first: total pending is still zero here.
+    expect(result.total_pending_changes).toBe(0);
+    expect(result.is_up_to_date).toBe(false);
   });
 
   it('does not fail the whole check when one library of several fails to peek', async () => {

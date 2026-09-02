@@ -59,7 +59,10 @@ export class SharePointStatusService implements SharePointStatusUseCase {
         last_snapshot_id: previous_manifest?.snapshot_id,
         total_libraries: all_libraries.length,
         libraries: library_statuses,
-        is_up_to_date: total_pending === 0 && library_statuses.every((lib) => lib.has_backup),
+        // Every library's own flag, not the pending total: a library with no saved delta link and
+        // a library whose peek threw both report `pending_changes: 0`, and the second also reports
+        // `has_backup: true`, so a Graph error used to read as a clean "up to date" (issue #298).
+        is_up_to_date: library_statuses.every((lib) => lib.is_up_to_date),
         total_pending_changes: total_pending,
       };
     } finally {

@@ -6,13 +6,13 @@ Backup is user-targeted: one run processes every drive belonging to a single use
 
 ## What Gets Backed Up
 
-| Item                         | Coverage                                                                                                    |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Files in the user's drives   | Current content, SHA-256 content-addressed and deduplicated per owner                                       |
-| File version history         | Every new historical version Graph returns for an item                                                      |
-| Folder paths                 | Recorded on the manifest entry and normalized to Unicode NFC                                                |
-| OneNote notebooks            | Section files and table of contents, stored as ordinary files (see [OneNote Notebooks](#onenote-notebooks)) |
-| Moves, renames, and deletions | Recorded as manifest changes on the next delta sync                                                        |
+| Item                          | Coverage                                                                                                    |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Files in the user's drives    | Current content, SHA-256 content-addressed and deduplicated per owner                                       |
+| File version history          | Every new historical version Graph returns for an item                                                      |
+| Folder paths                  | Recorded on the manifest entry and normalized to Unicode NFC                                                |
+| OneNote notebooks             | Section files and table of contents, stored as ordinary files (see [OneNote Notebooks](#onenote-notebooks)) |
+| Moves, renames, and deletions | Recorded as manifest changes on the next delta sync                                                         |
 
 ## Prerequisites
 
@@ -77,11 +77,11 @@ Ciphertext is stored at the key name shown above. There is no separate `.enc` fi
 
 Implementation thresholds from `@wisecom/atlas-onedrive`:
 
-| Size                          | Strategy                                                                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **≤ 4 MiB**                   | Single read of the file into memory (pre-authenticated URL or Graph content fallback when needed), encrypt, `put`                                                        |
-| **> 4 MiB** and **< 64 MiB**  | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                |
-| **≥ 64 MiB**                  | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
+| Size                         | Strategy                                                                                                                                                                 |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **≤ 4 MiB**                  | Single read of the file into memory (pre-authenticated URL or Graph content fallback when needed), encrypt, `put`                                                        |
+| **> 4 MiB** and **< 64 MiB** | Range-based chunked download (`CHUNK_SIZE_BYTES` = 4 MiB), encrypt, `put`                                                                                                |
+| **≥ 64 MiB**                 | `process_large_file`: stream encrypt into multipart upload on staging, complete or abort after dedup check, then server-side copy to `onedrive/data/{owner_id}/{sha256}` |
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file. Each range request is also aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. That budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB.
 
@@ -216,11 +216,11 @@ Versions the service reports as gone (`404` or `410`, content purged by the site
 
 A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:
 
-| Item                        | Facets                               | Backed up                                                                                                                     |
+| Item                        | Facets                               | Backed up                                                                                                                       |
 | --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | Notebook root (e.g. `Test`) | `folder` + `package`                 | Treated as a folder. `GET /items/{id}/content` returns **404**, because the root has no content of its own and nothing to store |
-| `<Section>.one`             | `file`, MIME `application/msonenote` | Yes, byte-for-byte, like any other file                                                                                       |
-| `Open Notebook.onetoc2`     | `file`                               | Yes, byte-for-byte                                                                                                            |
+| `<Section>.one`             | `file`, MIME `application/msonenote` | Yes, byte-for-byte, like any other file                                                                                         |
+| `Open Notebook.onetoc2`     | `file`                               | Yes, byte-for-byte                                                                                                              |
 
 Notebook **content is covered by backups today**: each section file is content-addressed, encrypted, and stored under the notebook's folder path. What the run additionally reports is the notebook itself, because file counters alone cannot answer "did the notebook come through whole?":
 
@@ -267,17 +267,17 @@ That warning exists because partial capture is the dangerous case: a `.onetoc2` 
 
 ### `atlas onedrive restore`
 
-| Flag                       | Description                                          | Default                    |
-| -------------------------- | ---------------------------------------------------- | -------------------------- |
-| `-o, --owner <id>`         | User email or Entra object ID                        | Required                   |
-| `-s, --snapshot <id>`      | Snapshot to restore from                             | Required                   |
-| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner`          |
-| `--destination <path>`     | Folder to restore under, created when missing        | `/Restore-<timestamp>`     |
-| `--in-place`               | Restore to the original paths                        | `false`                    |
-| `--name <filename>`        | Rename the restored file; single-file restores only  | Original name              |
-| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files                  |
-| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`                   |
-| `-t, --tenant <id>`        | Tenant identifier                                    | Config default             |
+| Flag                       | Description                                          | Default                |
+| -------------------------- | ---------------------------------------------------- | ---------------------- |
+| `-o, --owner <id>`         | User email or Entra object ID                        | Required               |
+| `-s, --snapshot <id>`      | Snapshot to restore from                             | Required               |
+| `--target-owner <id>`      | Restore to a different user's OneDrive               | Same as `--owner`      |
+| `--destination <path>`     | Folder to restore under, created when missing        | `/Restore-<timestamp>` |
+| `--in-place`               | Restore to the original paths                        | `false`                |
+| `--name <filename>`        | Rename the restored file; single-file restores only  | Original name          |
+| `--file-filter <paths...>` | Only restore specific files (by ID or path)          | All files              |
+| `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` | `rename`               |
+| `-t, --tenant <id>`        | Tenant identifier                                    | Config default         |
 
 ### `atlas onedrive save`
 
@@ -309,15 +309,15 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 
 ### `atlas onedrive restore-version`
 
-| Flag                | Description                                        | Default        |
-| ------------------- | -------------------------------------------------- | -------------- |
-| `-o, --owner <id>`  | User email or Entra object ID                      | Required       |
-| `-f, --file <ref>`  | File ID or path; required with `--version`         | Optional       |
-| `--version <id>`    | Exact stored version to restore                    | Optional       |
-| `--before <iso>`    | Newest version at or before this instant, per file | Optional       |
-| `--path <prefix>`   | Limit a `--before` rollback to one folder          | Whole drive    |
+| Flag                | Description                                        | Default            |
+| ------------------- | -------------------------------------------------- | ------------------ |
+| `-o, --owner <id>`  | User email or Entra object ID                      | Required           |
+| `-f, --file <ref>`  | File ID or path; required with `--version`         | Optional           |
+| `--version <id>`    | Exact stored version to restore                    | Optional           |
+| `--before <iso>`    | Newest version at or before this instant, per file | Optional           |
+| `--path <prefix>`   | Limit a `--before` rollback to one folder          | Whole drive        |
 | `--in-place`        | Upload over the original file                      | Off, writes a copy |
-| `-t, --tenant <id>` | Tenant identifier                                  | Config default |
+| `-t, --tenant <id>` | Tenant identifier                                  | Config default     |
 
 ### `atlas onedrive verify`
 
@@ -413,11 +413,11 @@ Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is 
 
 **Conflict behavior** controls what happens when a file already exists at the target path:
 
-| Mode                | Behavior                                                                              |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `rename` (default)  | Appends a numeric suffix, so user edits made after a previous restore are not overwritten |
-| `replace`           | Overwrites the existing file                                                            |
-| `fail`              | Skips the file and logs an error                                                        |
+| Mode               | Behavior                                                                                  |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| `rename` (default) | Appends a numeric suffix, so user edits made after a previous restore are not overwritten |
+| `replace`          | Overwrites the existing file                                                              |
+| `fail`             | Skips the file and logs an error                                                          |
 
 ### Saving to a local archive
 
@@ -459,15 +459,15 @@ for (const drive of status.drives) {
 
 `checkStatus` returns an `OneDriveStatusResult`:
 
-| Field                   | Type                    | Description                                                        |
-| ----------------------- | ----------------------- | ------------------------------------------------------------------ |
-| `owner_id`              | `string`                | The user's Entra object ID                                         |
-| `last_backup_at`        | `Date \| undefined`     | Timestamp of the most recent snapshot                              |
-| `last_snapshot_id`      | `string \| undefined`   | ID of the most recent snapshot                                     |
-| `total_drives`          | `number`                | Number of drives discovered                                        |
-| `drives`                | `OneDriveDriveStatus[]` | Per-drive backup status                                            |
-| `is_up_to_date`         | `boolean`               | `true` if all drives have been backed up with zero pending changes |
-| `total_pending_changes` | `number`                | Sum of pending changes across all drives                           |
+| Field                   | Type                    | Description                                                                                                                                                                                                                                    |
+| ----------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner_id`              | `string`                | The user's Entra object ID                                                                                                                                                                                                                     |
+| `last_backup_at`        | `Date \| undefined`     | Timestamp of the most recent snapshot                                                                                                                                                                                                          |
+| `last_snapshot_id`      | `string \| undefined`   | ID of the most recent snapshot                                                                                                                                                                                                                 |
+| `total_drives`          | `number`                | Number of drives discovered                                                                                                                                                                                                                    |
+| `drives`                | `OneDriveDriveStatus[]` | Per-drive backup status                                                                                                                                                                                                                        |
+| `is_up_to_date`         | `boolean`               | `true` only when every drive reports itself up to date. A drive that has never been backed up, or whose delta peek failed, makes this `false` even though it contributes zero pending changes: a peek that could not run is unknown, not clean |
+| `total_pending_changes` | `number`                | Sum of pending changes across all drives                                                                                                                                                                                                       |
 
 ## Deletion
 
