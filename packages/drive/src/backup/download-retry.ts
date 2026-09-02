@@ -1,6 +1,7 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_retryable_error, is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
+import { format_bytes } from '@/shared/format-bytes';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 2_000;
@@ -60,13 +61,6 @@ function compute_file_retry_delay(attempt: number): number {
   const base = BASE_DELAY_MS * 2 ** (attempt - 1);
   const jitter = Math.random() * BASE_DELAY_MS;
   return Math.min(base + jitter, MAX_DELAY_MS);
-}
-
-function format_bytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 function sleep(ms: number): Promise<void> {

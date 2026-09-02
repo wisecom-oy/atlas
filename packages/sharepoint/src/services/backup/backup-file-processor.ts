@@ -1,23 +1,15 @@
-import { createHash } from 'node:crypto';
 import type {
-  SharePointSiteConnector,
   SharePointDeltaItem,
+  SharePointSiteConnector,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
-import { is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
-import { download_with_retry } from '@wisecom/atlas-drive/backup/download-retry';
-import { LARGE_FILE_THRESHOLD, process_large_file } from '@/services/backup/large-file-pipeline';
-import { sharepoint_data_key } from '@/services/shared/storage-keys';
+import {
+  process_drive_backup_file,
+  type FileProcessResult,
+} from '@wisecom/atlas-drive/backup/file-processor';
+import { SHAREPOINT_LARGE_FILE_DEPS } from '@/services/backup/large-file-pipeline';
 
-const HASH_CHUNK_SIZE = 64 * 1024 * 1024;
-
-export interface FileProcessResult {
-  storage_key: string;
-  checksum: string;
-  stored: boolean;
-  deduplicated: boolean;
-}
+export type { FileProcessResult } from '@wisecom/atlas-drive/backup/file-processor';
 
 /** Downloads or deduplicates a single delta file item. */
 export async function process_backup_file(
@@ -26,33 +18,7 @@ export async function process_backup_file(
   site_id: string,
   ctx: TenantContext,
 ): Promise<FileProcessResult | undefined> {
-  if (item.size_bytes >= LARGE_FILE_THRESHOLD) {
-    try {
-      return await process_large_file(connector, item, site_id, ctx);
-    } catch (err) {
-      // A missing grant or a service refusal is not a skip: it must reach the caller
-      // so the run can name the cause instead of reporting a lost file (issue #246).
-      if (is_unretryable_download_failure(err)) throw err;
-      logger.warn(
-        `Skipping large file ${item.item_id} (${item.file_name}): ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return undefined;
-    }
-  }
-
-  const raw_body = await download_with_retry(connector, item);
-  if (!raw_body) return undefined;
-
-  const checksum = compute_sha256_chunked(raw_body);
-  const storage_key = sharepoint_data_key(site_id, checksum);
-  const exists = await ctx.storage.exists(storage_key);
-
-  if (!exists) {
-    await ctx.storage.put(storage_key, ctx.encrypt(raw_body));
-    return { storage_key, checksum, stored: true, deduplicated: false };
-  }
-
-  return { storage_key, checksum, stored: false, deduplicated: true };
+  return process_drive_backup_file(SHAREPOINT_LARGE_FILE_DEPS, connector, item, site_id, ctx);
 }
 
 /** @throws Error when no document libraries are returned (likely missing Graph permissions). */
@@ -61,13 +27,4 @@ export function ensure_libraries_discovered(library_count: number): void {
   throw new Error(
     'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',
   );
-}
-
-/** Computes SHA-256 in chunks to avoid ERR_OUT_OF_RANGE on buffers > 2 GB. */
-function compute_sha256_chunked(data: Buffer): string {
-  const hash = createHash('sha256');
-  for (let offset = 0; offset < data.length; offset += HASH_CHUNK_SIZE) {
-    hash.update(data.subarray(offset, Math.min(offset + HASH_CHUNK_SIZE, data.length)));
-  }
-  return hash.digest('hex');
 }

@@ -1,3 +1,6 @@
+// Deliberately not shared with the SharePoint copy (#306): 71 differing lines of 247. Both
+// peek at delta state, but over drives against libraries, with different discovery calls and
+// different result shapes exposed through the ports.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
