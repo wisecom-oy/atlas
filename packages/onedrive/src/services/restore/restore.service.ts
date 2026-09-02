@@ -23,8 +23,12 @@ import {
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
 import { OneDriveDecryptAuthError } from '@/services/restore/restore-integrity';
-import { filter_onedrive_entries } from '@/services/shared/entry-filter';
-import { load_onedrive_chain_entries, restorable_entries } from '@/services/shared/manifest-chain';
+import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
+import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
+import {
+  load_drive_chain_entries,
+  restorable_entries,
+} from '@wisecom/atlas-drive/shared/manifest-chain';
 import { empty_restore_result } from '@/services/restore/restore-result';
 import {
   assert_renameable,
@@ -57,8 +61,8 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const chain = await load_onedrive_chain_entries(
-        this._manifests,
+      const chain = await load_drive_chain_entries(
+        onedrive_manifest_lookup(this._manifests),
         ctx,
         owner_id,
         options.snapshot_id,
@@ -73,7 +77,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const drive_id = primary_drive.drive_id;
 
       const conflict = options.conflict_behavior ?? 'rename';
-      const restorable = filter_onedrive_entries(
+      const restorable = filter_drive_entries(
         restorable_entries(chain.entries),
         options.file_filter,
       );

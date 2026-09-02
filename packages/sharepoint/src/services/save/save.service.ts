@@ -30,12 +30,13 @@ import {
   should_stream_restore,
   stream_decrypt_from_storage,
   verify_streaming_checksum,
-} from '@/services/restore/restore-streaming';
-import { filter_sharepoint_entries } from '@/services/shared/entry-filter';
+} from '@wisecom/atlas-drive/restore/streaming-restore';
+import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
+import { sharepoint_manifest_lookup } from '@/services/shared/manifest-lookup';
 import {
-  load_sharepoint_chain_entries,
+  load_drive_chain_entries,
   restorable_entries,
-} from '@/services/shared/manifest-chain';
+} from '@wisecom/atlas-drive/shared/manifest-chain';
 
 @injectable()
 export class SharePointSaveService implements SharePointSaveUseCase {
@@ -58,13 +59,13 @@ export class SharePointSaveService implements SharePointSaveUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const chain = await load_sharepoint_chain_entries(
-        this._manifests,
+      const chain = await load_drive_chain_entries(
+        sharepoint_manifest_lookup(this._manifests),
         ctx,
         site_id,
         options.snapshot_id,
       );
-      const restorable = filter_sharepoint_entries(
+      const restorable = filter_drive_entries(
         restorable_entries(chain.entries),
         options.file_filter,
       );

@@ -1,10 +1,10 @@
-import type { OneDriveManifestEntry } from '@wisecom/atlas-types';
+import type { DriveManifestEntry } from '@/drive-ports';
 
 /** Filters manifest entries by file ID or full path, case-insensitively. */
-export function filter_onedrive_entries(
-  entries: readonly OneDriveManifestEntry[],
+export function filter_drive_entries(
+  entries: readonly DriveManifestEntry[],
   file_filter?: string[],
-): OneDriveManifestEntry[] {
+): DriveManifestEntry[] {
   if (!file_filter || file_filter.length === 0) return [...entries];
   const selected = new Set(file_filter.map((value) => value.toLowerCase()));
   return entries.filter(

@@ -23,6 +23,7 @@
   "dependencies": {
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-drive": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@wisecom/atlas-types": "workspace:*",
     "inversify": "^8.2.3",

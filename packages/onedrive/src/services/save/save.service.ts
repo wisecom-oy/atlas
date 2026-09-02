@@ -30,9 +30,13 @@ import {
   should_stream_restore,
   stream_decrypt_from_storage,
   verify_streaming_checksum,
-} from '@/services/restore/restore-streaming';
-import { filter_onedrive_entries } from '@/services/shared/entry-filter';
-import { load_onedrive_chain_entries, restorable_entries } from '@/services/shared/manifest-chain';
+} from '@wisecom/atlas-drive/restore/streaming-restore';
+import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
+import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
+import {
+  load_drive_chain_entries,
+  restorable_entries,
+} from '@wisecom/atlas-drive/shared/manifest-chain';
 
 @injectable()
 export class OneDriveSaveService implements OneDriveSaveUseCase {
@@ -55,13 +59,13 @@ export class OneDriveSaveService implements OneDriveSaveUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const chain = await load_onedrive_chain_entries(
-        this._manifests,
+      const chain = await load_drive_chain_entries(
+        onedrive_manifest_lookup(this._manifests),
         ctx,
         owner_id,
         options.snapshot_id,
       );
-      const restorable = filter_onedrive_entries(
+      const restorable = filter_drive_entries(
         restorable_entries(chain.entries),
         options.file_filter,
       );

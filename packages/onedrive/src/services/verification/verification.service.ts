@@ -22,7 +22,8 @@ import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { load_onedrive_chain_entries } from '@/services/shared/manifest-chain';
+import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
+import { load_drive_chain_entries } from '@wisecom/atlas-drive/shared/manifest-chain';
 
 /** Verifies OneDrive snapshot blobs against manifest checksums and index consistency. */
 @injectable()
@@ -59,8 +60,8 @@ export class OneDriveVerificationService implements OneDriveVerificationUseCase 
       // The chain, not the single manifest: a snapshot inherits every file that last changed in an
       // earlier run, and verifying only the target would report those as checked when they were
       // never looked at (issue #173).
-      const { manifest, entries } = await load_onedrive_chain_entries(
-        this._manifests,
+      const { manifest, entries } = await load_drive_chain_entries(
+        onedrive_manifest_lookup(this._manifests),
         ctx,
         owner_id,
         snapshot_id,

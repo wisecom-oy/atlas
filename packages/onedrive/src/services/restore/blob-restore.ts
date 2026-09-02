@@ -5,7 +5,7 @@ import {
   should_stream_restore,
   stream_decrypt_from_storage,
   verify_streaming_checksum,
-} from '@/services/restore/restore-streaming';
+} from '@wisecom/atlas-drive/restore/streaming-restore';
 import {
   OneDriveDecryptAuthError,
   plaintext_sha256_equals_expected,
