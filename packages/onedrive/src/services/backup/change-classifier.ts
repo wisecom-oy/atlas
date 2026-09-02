@@ -26,6 +26,13 @@ export function classify_change_type(
   const previously_known = Boolean(previous_path || previous_name || previous_etag);
 
   if (!previously_known) return 'created';
+  // Relocation before content: an item that moved and changed in the same delta window carries
+  // both signals, and the ETag branch used to answer first, erasing the move from the change
+  // record (issue #297). The new content blob makes the update self-evident; the old location
+  // is only recorded here. Content is downloaded either way, so the label is all that moves.
+  if (path_changed && name_changed) return 'moved_and_renamed';
+  if (path_changed) return 'moved';
+  if (name_changed) return 'renamed';
   if (etag_changed || etag_presence_changed || both_etags_missing) {
     if (both_etags_missing) {
       logger.warn(
@@ -34,8 +41,5 @@ export function classify_change_type(
     }
     return 'updated';
   }
-  if (path_changed && name_changed) return 'moved_and_renamed';
-  if (path_changed) return 'moved';
-  if (name_changed) return 'renamed';
   return undefined;
 }

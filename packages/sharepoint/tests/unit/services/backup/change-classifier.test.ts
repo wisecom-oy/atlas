@@ -74,6 +74,47 @@ describe('classify_change_type', () => {
     ).toBe('moved_and_renamed');
   });
 
+  it('returns "moved" when the item moved and its content changed in one delta (issue #297)', () => {
+    const item = make_item({ parent_path: '/Archive', etag: '"e2"' });
+    // The new content blob records the update; nothing but this label records the old location.
+    expect(
+      classify_change_type(
+        item,
+        { 'item-1': '/Documents' },
+        { 'item-1': 'report.docx' },
+        { 'item-1': '"e1"' },
+      ),
+    ).toBe('moved');
+  });
+
+  it('returns "moved_and_renamed" when path, name and content all changed', () => {
+    const item = make_item({
+      parent_path: '/Archive',
+      file_name: 'report-v2.docx',
+      etag: '"e2"',
+    });
+    expect(
+      classify_change_type(
+        item,
+        { 'item-1': '/Documents' },
+        { 'item-1': 'report.docx' },
+        { 'item-1': '"e1"' },
+      ),
+    ).toBe('moved_and_renamed');
+  });
+
+  it('returns "renamed" when the name and the content changed together', () => {
+    const item = make_item({ file_name: 'report-v2.docx', etag: '"e2"' });
+    expect(
+      classify_change_type(
+        item,
+        { 'item-1': '/Documents' },
+        { 'item-1': 'report.docx' },
+        { 'item-1': '"e1"' },
+      ),
+    ).toBe('renamed');
+  });
+
   it('returns undefined when nothing changed', () => {
     const item = make_item({ etag: '"same"' });
     expect(
