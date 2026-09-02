@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import { classify_change_type } from '@/services/backup/change-classifier';
 
@@ -74,6 +75,47 @@ describe('classify_change_type', () => {
     ).toBe('moved_and_renamed');
   });
 
+  it('returns "moved" when the item moved and its content changed in one delta (issue #297)', () => {
+    const item = make_item({ parent_path: '/Archive', etag: '"e2"' });
+    // The new content blob records the update; nothing but this label records the old location.
+    expect(
+      classify_change_type(
+        item,
+        { 'item-1': '/Documents' },
+        { 'item-1': 'report.docx' },
+        { 'item-1': '"e1"' },
+      ),
+    ).toBe('moved');
+  });
+
+  it('returns "moved_and_renamed" when path, name and content all changed', () => {
+    const item = make_item({
+      parent_path: '/Archive',
+      file_name: 'report-v2.docx',
+      etag: '"e2"',
+    });
+    expect(
+      classify_change_type(
+        item,
+        { 'item-1': '/Documents' },
+        { 'item-1': 'report.docx' },
+        { 'item-1': '"e1"' },
+      ),
+    ).toBe('moved_and_renamed');
+  });
+
+  it('returns "renamed" when the name and the content changed together', () => {
+    const item = make_item({ file_name: 'report-v2.docx', etag: '"e2"' });
+    expect(
+      classify_change_type(
+        item,
+        { 'item-1': '/Documents' },
+        { 'item-1': 'report.docx' },
+        { 'item-1': '"e1"' },
+      ),
+    ).toBe('renamed');
+  });
+
   it('returns undefined when nothing changed', () => {
     const item = make_item({ etag: '"same"' });
     expect(
@@ -108,5 +150,22 @@ describe('classify_change_type', () => {
   it('returns "updated" when both prior and current etag are missing but item is known', () => {
     const item = make_item();
     expect(classify_change_type(item, { 'item-1': '/Documents' }, {}, {})).toBe('updated');
+  });
+
+  it('warns about the missing etags but still reports the move (issue #297)', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const item = make_item({ parent_path: '/Archive' });
+
+    // No etag on either side: the move is certain, a content change alongside it is invisible.
+    expect(
+      classify_change_type(item, { 'item-1': '/Documents' }, { 'item-1': 'report.docx' }, {}),
+    ).toBe('moved');
+    // The whole line, not a substring: a message change should show up here as a diff.
+    expect(warn).toHaveBeenCalledWith(
+      'SharePoint delta item item-1: missing etag on prior and current snapshot; ' +
+        'a content change cannot be detected',
+    );
+
+    warn.mockRestore();
   });
 });
