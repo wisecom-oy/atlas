@@ -4,6 +4,7 @@
  * claim otherwise.
  */
 import { describe, it, expect, vi } from 'vitest';
+import { ObjectLockRetainedError } from '@wisecom/atlas-types';
 import { delete_scopes, type DeletionStorage } from '@/services/deletion/shared/prefix-deleter';
 
 interface StubOptions {
@@ -127,19 +128,10 @@ describe('delete_scopes', () => {
       return await delete_scopes(storage, ['data/u/']);
     }
 
-    it('reports MinIO WORM protection as retained', async () => {
-      const result = await delete_failing_with(
-        new Error('InvalidRequest: Object is WORM protected and cannot be overwritten'),
-      );
-
-      expect(result.retained_objects).toBe(1);
-      expect(result.failed_objects).toBe(0);
-    });
-
-    it('reports AWS Object Lock protection as retained', async () => {
-      const result = await delete_failing_with(
-        new Error('AccessDenied: Access Denied because object protected by object lock'),
-      );
+    it('reports a retention refusal as retained', async () => {
+      // The storage adapter names the refusal; the wording heuristic that recognises MinIO's
+      // WORM message and AWS's object-lock message lives there and is tested there (issue #40).
+      const result = await delete_failing_with(new ObjectLockRetainedError('data/u/blob'));
 
       expect(result.retained_objects).toBe(1);
       expect(result.failed_objects).toBe(0);

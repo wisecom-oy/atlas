@@ -1,5 +1,6 @@
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ObjectLockRetainedError } from '@wisecom/atlas-types';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import {
   ObjectLockUnsupportedError,
@@ -162,6 +163,48 @@ describe('S3ObjectStorage', () => {
       const cmd = mock_s3.send.mock.calls[0][0];
       expect(cmd.input.Bucket).toBe(bucket);
       expect(cmd.input.Key).toBe('key');
+    });
+
+    // Issue #40: callers used to grep the message themselves. The wording heuristic belongs to
+    // the layer that speaks S3, and only retention may be reported as retained: filing an IAM
+    // gap that way tells an operator an erasure is on track when it is not.
+    it.each([
+      ['InvalidRequest: Object is WORM protected and cannot be overwritten'],
+      ['AccessDenied: Access Denied because object protected by object lock'],
+      ['AccessDenied: Object Lock retention in effect'],
+      ['InvalidRequest: a legal hold is in place'],
+    ])('raises ObjectLockRetainedError for %s', async (message) => {
+      mock_s3.send.mockRejectedValueOnce(new Error(message));
+
+      await expect(storage.delete('key')).rejects.toBeInstanceOf(ObjectLockRetainedError);
+    });
+
+    it('leaves a bare permission denial as it is, never as retained', async () => {
+      mock_s3.send.mockRejectedValueOnce(new Error('AccessDenied: Access Denied'));
+
+      const failure = await storage.delete('key').catch((err: unknown) => err);
+      expect(failure).not.toBeInstanceOf(ObjectLockRetainedError);
+      expect((failure as Error).message).toContain('Access Denied');
+    });
+
+    it('carries the original error as the cause of a retention refusal', async () => {
+      const raw = new Error('AccessDenied: Access Denied because object protected by object lock');
+      mock_s3.send.mockRejectedValueOnce(raw);
+
+      const failure = (await storage.delete('key').catch((err: unknown) => err)) as Error;
+      expect(failure.cause).toBe(raw);
+    });
+  });
+
+  describe('delete_version', () => {
+    it('raises ObjectLockRetainedError when a version is under retention', async () => {
+      mock_s3.send.mockRejectedValueOnce(
+        new Error('AccessDenied: Object Lock retention in effect'),
+      );
+
+      await expect(storage.delete_version('key', 'v1')).rejects.toBeInstanceOf(
+        ObjectLockRetainedError,
+      );
     });
   });
 

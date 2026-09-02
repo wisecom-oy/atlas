@@ -799,6 +799,46 @@ Because the Outlook pool limit is per-mailbox, each mailbox's cooldown is indepe
 
 For OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant instead. Aggregate `resource_units` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resource_units_per_minute['<tier>']` before scheduling the next OneDrive job.
 
+## Errors
+
+Every failure Atlas raises on purpose is an `AtlasError` with a stable `code`. Branch on the class or on the code, never on the message: message wording changes between releases and is written for the operator reading a terminal, not for a caller.
+
+```typescript
+import { MailboxNotLicensedError, WrongPassphraseError, AtlasError } from '@wisecom/atlas-sdk';
+
+try {
+  await atlas.outlook.backup('user@company.com');
+} catch (err) {
+  if (err instanceof MailboxNotLicensedError) {
+    await reassign_license('user@company.com'); // retryable once a license is back
+  } else if (err instanceof WrongPassphraseError) {
+    throw err; // never retry: the data is fine, the key is wrong
+  } else if (err instanceof AtlasError) {
+    logger.error({ code: err.code, cause: err.cause }, 'Atlas backup failed');
+  }
+}
+```
+
+| Class                               | `code`                       | Meaning                                                                         |
+| ----------------------------------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `AtlasError`                        | any of the below             | Base class; catch this to separate deliberate failures from bugs                |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call for lack of permission or admin consent       |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph will not serve the mailbox                 |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site or object does not exist                         |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Service throttled the call and the retry budget was spent; see `retry_after_ms` |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                                    |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold; `key` names it                       |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason that is not permission, retention or absence        |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase or tenant is missing or unusable              |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested but bucket versioning is off                             |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested but the bucket has no Object Lock                        |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | Backend rejected the requested retention mode                                   |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | Conditional write lost a race (HTTP 412)                                        |
+
+Every error carries the underlying failure as `cause`, so the Graph or AWS SDK error is still available for logging without being what you branch on.
+
+`WrongPassphraseError` deserves a note. AES-GCM cannot tell a wrong key from damaged ciphertext: both are one authentication failure. Atlas names the passphrase because that is the likelier cause and the only one an operator can act on, and keeps the raw crypto error as `cause`. If the passphrase is definitely correct for that tenant, treat it as a possible integrity problem and run `atlas verify` against the snapshot.
+
 ## Exports
 
 `@wisecom/atlas-sdk` re-exports all domain types, port interfaces, and result types, so everything below is available from a single `@wisecom/atlas-sdk` import.
@@ -814,6 +854,7 @@ For OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant instead. 
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`
+- Error classes: `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError` (see [Errors](#errors))
 
 **Graph cost types:**
 

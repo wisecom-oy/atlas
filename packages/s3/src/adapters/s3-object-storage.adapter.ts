@@ -12,6 +12,7 @@ import {
   AbortMultipartUploadCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
+import { ObjectLockRetainedError } from '@wisecom/atlas-types';
 import type {
   ObjectStorage,
   ObjectStorageEtagResult,
@@ -28,6 +29,7 @@ import {
 import type { BucketCache } from '@/adapters/bucket-cache';
 import { abort_incomplete_multipart_uploads } from '@/adapters/s3-multipart-cleanup';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
+import { is_object_lock_refusal } from '@/adapters/s3-error-classifier';
 import {
   ObjectLockModeRejectedError,
   ObjectLockUnsupportedError,
@@ -135,16 +137,28 @@ export class S3ObjectStorage implements ObjectStorage {
     return { data, etag };
   }
 
-  /** Removes a single object. */
+  /** Removes a single object. @throws ObjectLockRetainedError when retention refuses the delete. */
   async delete(key: string): Promise<void> {
-    await this._client.send(new DeleteObjectCommand({ Bucket: this._bucket, Key: key }));
+    try {
+      await this._client.send(new DeleteObjectCommand({ Bucket: this._bucket, Key: key }));
+    } catch (err) {
+      throw as_delete_failure(key, err);
+    }
   }
 
-  /** Removes a specific object version (or delete marker) by version id. */
+  /**
+   * Removes a specific object version (or delete marker) by version id.
+   *
+   * @throws ObjectLockRetainedError when retention or a legal hold refuses the delete.
+   */
   async delete_version(key: string, version_id: string): Promise<void> {
-    await this._client.send(
-      new DeleteObjectCommand({ Bucket: this._bucket, Key: key, VersionId: version_id }),
-    );
+    try {
+      await this._client.send(
+        new DeleteObjectCommand({ Bucket: this._bucket, Key: key, VersionId: version_id }),
+      );
+    } catch (err) {
+      throw as_delete_failure(key, err);
+    }
   }
 
   /** Returns true if the object exists (HEAD request). */
@@ -319,4 +333,13 @@ export class S3ObjectStorage implements ObjectStorage {
     if (!probe.mode_supported)
       throw new ObjectLockModeRejectedError(this._bucket, policy.mode ?? 'UNKNOWN');
   }
+}
+
+/**
+ * Names a refused delete for what it is. Retention and legal holds are an expected outcome a
+ * caller reports as retained; anything else is a failure it must not file as recoverable.
+ */
+function as_delete_failure(key: string, err: unknown): Error {
+  if (is_object_lock_refusal(err)) return new ObjectLockRetainedError(key, { cause: err });
+  return err instanceof Error ? err : new Error(String(err));
 }

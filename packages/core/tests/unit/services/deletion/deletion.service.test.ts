@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ObjectLockRetainedError } from '@wisecom/atlas-types';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { DeletionService } from '@/services/deletion/deletion.service';
@@ -229,7 +230,7 @@ describe('DeletionService', () => {
         'manifests/u@t.com/snap-42.json',
       ]);
       vi.mocked(mock_context.storage.delete).mockRejectedValueOnce(
-        new Error('AccessDenied: Object Lock retention in effect'),
+        new ObjectLockRetainedError('manifests/snap-1.json'),
       );
 
       const result = await service.delete_snapshot('t', 'snap-42');
@@ -278,7 +279,7 @@ describe('DeletionService', () => {
     it('holds the DEK back until the data it protects is gone', async () => {
       vi.mocked(mock_context.storage.list).mockResolvedValueOnce(['onedrive/data/u/locked']);
       vi.mocked(mock_context.storage.delete).mockRejectedValueOnce(
-        new Error('InvalidRequest: Object is WORM protected and cannot be overwritten'),
+        new ObjectLockRetainedError('data/u/blob'),
       );
 
       const result = await service.purge_tenant('t');
