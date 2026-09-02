@@ -2,6 +2,10 @@ export * from '@/drive-ports';
 export { download_with_retry, type DownloadRetryOptions } from '@/backup/download-retry';
 export { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
 export {
+  stream_whole_file_in_chunks,
+  type WholeFileStreamOptions,
+} from '@/backup/whole-file-stream';
+export {
   should_stream_restore,
   verify_streaming_checksum,
   stream_decrypt_from_storage,
