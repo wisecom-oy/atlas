@@ -57,6 +57,7 @@ export {
   list_drive_file_versions,
   type DriveCatalogDeps,
 } from '@/catalog/catalog-queries';
+export { ensure_drive_folder_path, type DriveFolderCreator } from '@/restore/folder-path';
 export {
   restore_drive_version,
   type DriveUploadConnector,

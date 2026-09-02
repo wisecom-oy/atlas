@@ -39,6 +39,7 @@ import {
   load_drive_chain_entries,
   restorable_entries,
 } from '@wisecom/atlas-drive/shared/manifest-chain';
+import { count_created_folders } from '@wisecom/atlas-drive/restore/folder-path';
 import { ensure_sharepoint_folder_path } from '@/services/restore/restore-folder-path';
 import {
   assert_renameable,
@@ -161,7 +162,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         });
       }
 
-      const folders_created = folder_ids.size;
+      const folders_created = count_created_folders(folder_ids);
       const interrupted = finish_operation_progress(
         options,
         'restore',

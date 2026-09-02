@@ -109,8 +109,9 @@ export async function restore_drive_version(
 
     // The version row records the drive it came from, so a version restore needs no drive lookup
     // and stays correct for an owning segment with several drives, where "the first drive" would
-    // be a guess.
-    const folder_ids_by_drive = new Map<string, Map<string, string>>();
+    // be a guess. One memo for all of them: `ensure_folder_path` keys it by `drive_id:path`, so
+    // two drives holding the same path cannot collide in it (issue #316).
+    const folder_ids = new Map<string, string>();
     const restored: DriveRestoredVersion[] = [];
     const errors: string[] = [...selection.skipped];
     let files_skipped = selection.skipped.length;
@@ -130,7 +131,7 @@ export async function restore_drive_version(
         tenant_id,
         owner_id,
         ctx,
-        folder_ids_by_drive,
+        folder_ids,
         candidate,
         placement,
       );
@@ -179,7 +180,7 @@ async function restore_one_version(
   tenant_id: string,
   owner_id: string,
   ctx: TenantContext,
-  folder_ids_by_drive: Map<string, Map<string, string>>,
+  folder_ids: Map<string, string>,
   candidate: SelectedVersion,
   placement: DriveVersionPlacement,
 ): Promise<{ restored?: DriveRestoredVersion; error?: string }> {
@@ -189,14 +190,6 @@ async function restore_one_version(
     const content = await deps.download_blob(ctx, version);
     if (!content) {
       return { error: `${original_path}: stored version could not be read or verified` };
-    }
-
-    // Folder ids are cached per drive: the same path exists in more than one drive of the same
-    // owning segment and means a different folder in each.
-    let folder_ids = folder_ids_by_drive.get(drive_id);
-    if (!folder_ids) {
-      folder_ids = new Map<string, string>([['/', 'root']]);
-      folder_ids_by_drive.set(drive_id, folder_ids);
     }
 
     const { parent_path } = split_parent_path(original_path);
