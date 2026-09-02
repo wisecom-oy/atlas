@@ -160,7 +160,11 @@ describe('classify_change_type', () => {
     expect(
       classify_change_type(item, { 'item-1': '/Documents' }, { 'item-1': 'report.docx' }, {}),
     ).toBe('moved');
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('missing etag'));
+    // The whole line, not a substring: a message change should show up here as a diff.
+    expect(warn).toHaveBeenCalledWith(
+      'SharePoint delta item item-1: missing etag on prior and current snapshot; ' +
+        'a content change cannot be detected',
+    );
 
     warn.mockRestore();
   });

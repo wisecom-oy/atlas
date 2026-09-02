@@ -79,7 +79,11 @@ describe('classify_change_type', () => {
 
     // No etag on either side: the move is certain, a content change alongside it is invisible.
     expect(classify_change_type(item, PREVIOUS_PATH, PREVIOUS_NAME, {})).toBe('moved');
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('missing etag'));
+    // The whole line, not a substring: a message change should show up here as a diff.
+    expect(warn).toHaveBeenCalledWith(
+      'OneDrive delta item item-1: missing etag on prior and current snapshot; ' +
+        'a content change cannot be detected',
+    );
 
     warn.mockRestore();
   });
