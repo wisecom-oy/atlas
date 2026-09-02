@@ -1,107 +1,53 @@
-import { randomBytes } from 'node:crypto';
-import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { build_drive_storage_keys } from '@wisecom/atlas-drive/shared/storage-keys';
+
+/** OneDrive's key layout, for shared drive code that takes the whole layout as one argument. */
+export const ONEDRIVE_KEYS = build_drive_storage_keys('onedrive');
+const keys = ONEDRIVE_KEYS;
 
 /** Prefix for content-addressed OneDrive file blobs. */
-export const ONEDRIVE_DATA_PREFIX = 'onedrive/data';
+export const ONEDRIVE_DATA_PREFIX = keys.data_prefix;
 
 /** Prefix for multipart staging objects before deduplication copy. */
-export const ONEDRIVE_STAGING_PREFIX = 'onedrive/staging';
+export const ONEDRIVE_STAGING_PREFIX = keys.staging_prefix;
 
 /** Prefix for snapshot manifest JSON objects. */
-export const ONEDRIVE_MANIFEST_PREFIX = 'onedrive/manifests';
+export const ONEDRIVE_MANIFEST_PREFIX = keys.manifest_prefix;
 
 /** Prefix for version index objects (one per backup run, plus legacy per-file objects). */
-export const ONEDRIVE_INDEX_PREFIX = 'onedrive/index';
+export const ONEDRIVE_INDEX_PREFIX = keys.index_prefix;
 
 /** Prefix for OneDrive sync metadata (e.g. delta cursors). */
-export const ONEDRIVE_META_PREFIX = 'onedrive/_meta';
-
-/**
- * Validates an owner segment and returns it in the one case every path agrees
- * on. Services normalize on entry; this is the backstop that keeps a path which
- * forgets from writing a second prefix for the same owner (issue #38).
- */
-function owner_segment(owner_id: string): string {
-  validate_key_segment(owner_id);
-  return normalize_owner_id(owner_id);
-}
+export const ONEDRIVE_META_PREFIX = keys.meta_prefix;
 
 /** Ensures a single path segment is safe for S3-style keys (no traversal or extra slashes). */
-export function validate_key_segment(value: string): void {
-  if (value === '' || value === '.' || value === '..') {
-    throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}`);
-  }
-  for (let i = 0; i < value.length; i++) {
-    const ch = value.charCodeAt(i);
-    if (ch === 47 || ch === 92 || ch === 0) {
-      throw new Error(`Invalid storage key segment: ${JSON.stringify(value)}`);
-    }
-  }
-}
+export const validate_key_segment = keys.validate_key_segment;
 
 /** Builds the content-addressed key for a stored file blob. */
-export function onedrive_data_key(owner_id: string, checksum: string): string {
-  const owner = owner_segment(owner_id);
-  validate_key_segment(checksum);
-  return `${ONEDRIVE_DATA_PREFIX}/${owner}/${checksum}`;
-}
+export const onedrive_data_key = keys.data_key;
 
 /** Builds the key for a snapshot manifest. */
-export function onedrive_manifest_key(owner_id: string, snapshot_id: string): string {
-  const owner = owner_segment(owner_id);
-  validate_key_segment(snapshot_id);
-  return `${ONEDRIVE_MANIFEST_PREFIX}/${owner}/${snapshot_id}.json`;
-}
+export const onedrive_manifest_key = keys.manifest_key;
 
 /** Builds the prefix for listing all manifests of an owner. */
-export function onedrive_manifest_prefix(owner_id: string): string {
-  const owner = owner_segment(owner_id);
-  return `${ONEDRIVE_MANIFEST_PREFIX}/${owner}/`;
-}
+export const onedrive_manifest_prefix = keys.manifest_prefix_for;
 
 /** Returns the root prefix for all OneDrive manifests. */
-export function onedrive_manifest_root_prefix(): string {
-  return `${ONEDRIVE_MANIFEST_PREFIX}/`;
-}
+export const onedrive_manifest_root_prefix = keys.manifest_root_prefix;
 
 /** Builds the key for one backup run's version index object (issue #161). */
-export function onedrive_run_index_key(owner_id: string, snapshot_id: string): string {
-  const owner = owner_segment(owner_id);
-  validate_key_segment(snapshot_id);
-  return `${ONEDRIVE_INDEX_PREFIX}/${owner}/runs/${snapshot_id}.json`;
-}
+export const onedrive_run_index_key = keys.run_index_key;
 
-/**
- * Prefix listing every version index object of an owner. Covers both the
- * per-run objects and the legacy per-file objects written before issue #161,
- * so reads keep seeing history recorded by older Atlas versions.
- */
-export function onedrive_index_prefix(owner_id: string): string {
-  const owner = owner_segment(owner_id);
-  return `${ONEDRIVE_INDEX_PREFIX}/${owner}/`;
-}
+/** Prefix listing every version index object of an owner, per-run and legacy per-file alike. */
+export const onedrive_index_prefix = keys.index_prefix_for;
 
 /** Returns the root prefix for all OneDrive version index objects. */
-export function onedrive_index_root_prefix(): string {
-  return `${ONEDRIVE_INDEX_PREFIX}/`;
-}
+export const onedrive_index_root_prefix = keys.index_root_prefix;
 
 /** Builds a unique staging key for multipart upload of a file. */
-export function onedrive_staging_key(owner_id: string, item_id: string): string {
-  const owner = owner_segment(owner_id);
-  validate_key_segment(item_id);
-  const suffix = randomBytes(4).toString('hex');
-  return `${ONEDRIVE_STAGING_PREFIX}/${owner}/${item_id}-${suffix}`;
-}
+export const onedrive_staging_key = keys.staging_key;
 
 /** Builds the prefix for listing staging objects. */
-export function onedrive_staging_prefix(owner_id: string): string {
-  const owner = owner_segment(owner_id);
-  return `${ONEDRIVE_STAGING_PREFIX}/${owner}/`;
-}
+export const onedrive_staging_prefix = keys.staging_prefix_for;
 
 /** Builds the key for the delta cursor state. */
-export function onedrive_delta_cursor_key(owner_id: string): string {
-  const owner = owner_segment(owner_id);
-  return `${ONEDRIVE_META_PREFIX}/${owner}/delta.json`;
-}
+export const onedrive_delta_cursor_key = keys.delta_cursor_key;

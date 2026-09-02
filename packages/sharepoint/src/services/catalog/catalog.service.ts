@@ -1,5 +1,3 @@
-import { resolve_file_id } from '@/services/versioning/version-reference';
-import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointCatalogUseCase,
@@ -14,6 +12,11 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
+import {
+  list_drive_file_versions,
+  list_drive_snapshots,
+  type DriveCatalogDeps,
+} from '@wisecom/atlas-drive/catalog/catalog-queries';
 
 /** Lists SharePoint snapshots and per-file version history from manifest and index repositories. */
 @injectable()
@@ -31,13 +34,7 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
     tenant_id: string,
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]> {
-    site_id = normalize_owner_id(site_id);
-    const ctx = await this._tenant_factory.create_readonly(tenant_id);
-    try {
-      return await this._manifests.list_snapshots_by_site(ctx, site_id);
-    } finally {
-      ctx.destroy();
-    }
+    return list_drive_snapshots(this.catalog_deps(), tenant_id, site_id);
   }
 
   /** Resolves `file_ref` to a Graph file id (or path) and returns stored version rows. */
@@ -46,18 +43,20 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
     site_id: string,
     file_ref: string,
   ): Promise<SharePointFileVersionRecord[]> {
-    site_id = normalize_owner_id(site_id);
-    const ctx = await this._tenant_factory.create_readonly(tenant_id);
-    try {
-      // One index scan serves both the reference lookup and the listing: the
-      // index is spread over per-run objects, so a per-file lookup would
-      // rescan the whole site prefix (issue #161).
-      const indexes = await this._indexes.list_by_site(ctx, site_id);
-      const file_id = resolve_file_id(indexes, file_ref);
-      if (!file_id) return [];
-      return indexes.find((idx) => idx.file_id === file_id)?.versions ?? [];
-    } finally {
-      ctx.destroy();
-    }
+    const versions = await list_drive_file_versions(
+      this.catalog_deps(),
+      tenant_id,
+      site_id,
+      file_ref,
+    );
+    return [...versions];
+  }
+
+  private catalog_deps(): DriveCatalogDeps<SharePointSnapshotManifest> {
+    return {
+      tenant_factory: this._tenant_factory,
+      list_snapshots: (ctx, site_id) => this._manifests.list_snapshots_by_site(ctx, site_id),
+      list_indexes: (ctx, site_id) => this._indexes.list_by_site(ctx, site_id),
+    };
   }
 }

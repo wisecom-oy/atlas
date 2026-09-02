@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
-import type { SharePointFileVersionRecord } from '@wisecom/atlas-types';
-import {
-  build_restored_file_name,
-  split_parent_path,
-} from '@/services/versioning/version-placement';
+import type { DriveFileVersionRecord } from '@/drive-ports';
+import { build_restored_file_name, split_parent_path } from '@/versioning/version-placement';
 
-function version(
-  overrides: Overrides<SharePointFileVersionRecord> = {},
-): SharePointFileVersionRecord {
-  return apply_overrides<SharePointFileVersionRecord>(
+function version(overrides: Overrides<DriveFileVersionRecord> = {}): DriveFileVersionRecord {
+  return apply_overrides<DriveFileVersionRecord>(
     {
       snapshot_id: 'snap-1',
       backup_at: '2026-03-02T09:30:00.000Z',
@@ -19,7 +14,7 @@ function version(
       size_bytes: 10,
       change_type: 'updated',
       last_modified_at: '2026-03-01T08:15:00.000Z',
-    } as SharePointFileVersionRecord,
+    } as DriveFileVersionRecord,
     overrides,
   );
 }
@@ -32,7 +27,7 @@ describe('split_parent_path', () => {
     });
   });
 
-  it('treats a file at the library root as living in the root folder', () => {
+  it('treats a file at the drive root as living in the root folder', () => {
     expect(split_parent_path('/Report.docx')).toEqual({
       parent_path: '/',
       file_name: 'Report.docx',

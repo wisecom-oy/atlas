@@ -1,17 +1,9 @@
 import { createHash } from 'node:crypto';
-import type {
-  OneDriveConnector,
-  OneDriveDeltaItem,
-  OneDriveFileVersion,
-  TenantContext,
-} from '@wisecom/atlas-types';
+import type { TenantContext } from '@wisecom/atlas-types';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
-import { LARGE_FILE_THRESHOLD } from '@/services/backup/large-file-pipeline';
-import {
-  onedrive_data_key,
-  onedrive_staging_key,
-  onedrive_staging_prefix,
-} from '@/services/shared/storage-keys';
+import { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
+import type { DriveContentConnector, DriveDeltaItem, DriveFileVersion } from '@/drive-ports';
+import type { DriveStorageKeys } from '@/shared/storage-keys';
 
 export interface StoredVersionContent {
   readonly checksum: string;
@@ -22,9 +14,9 @@ export interface StoredVersionContent {
 /**
  * Wraps a failure that came from Graph rather than from object storage.
  *
- * The distinction is load-bearing: a Graph failure is classified (an expired
- * version is expected, anything else blocks the watermark so the next run
- * retries), whereas a storage failure must keep propagating as it always has.
+ * The distinction is load-bearing: a Graph failure is classified (an expired version is expected,
+ * anything else blocks the watermark so the next run retries), whereas a storage failure must keep
+ * propagating as it always has.
  */
 export class VersionDownloadError extends Error {
   constructor(readonly source: unknown) {
@@ -36,39 +28,41 @@ export class VersionDownloadError extends Error {
 /**
  * Stores one historical version's content, content-addressed.
  *
- * Versions at or above {@link LARGE_FILE_THRESHOLD} are streamed through a
- * staging key so the bytes are never held whole; smaller ones take the single
- * PUT. A version has no size ceiling of its own, so without the streamed path
- * a large file's history is the easiest way to exhaust the heap.
+ * Versions at or above {@link LARGE_FILE_THRESHOLD} are streamed through a staging key so the
+ * bytes are never held whole; smaller ones take the single PUT. A version has no size ceiling of
+ * its own, so without the streamed path a large file's history is the easiest way to exhaust the
+ * heap.
  *
  * @throws VersionDownloadError when the bytes could not be read from Graph.
  */
 export async function store_version_content(
-  connector: OneDriveConnector,
-  item: OneDriveDeltaItem,
+  keys: DriveStorageKeys,
+  connector: DriveContentConnector,
+  item: DriveDeltaItem,
   owner_id: string,
   ctx: TenantContext,
-  version: OneDriveFileVersion,
+  version: DriveFileVersion,
 ): Promise<StoredVersionContent> {
   if (version.size_bytes >= LARGE_FILE_THRESHOLD) {
-    return await store_streamed(connector, item, owner_id, ctx, version);
+    return await store_streamed(keys, connector, item, owner_id, ctx, version);
   }
-  return await store_buffered(connector, item, owner_id, ctx, version);
+  return await store_buffered(keys, connector, item, owner_id, ctx, version);
 }
 
 async function store_streamed(
-  connector: OneDriveConnector,
-  item: OneDriveDeltaItem,
+  keys: DriveStorageKeys,
+  connector: DriveContentConnector,
+  item: DriveDeltaItem,
   owner_id: string,
   ctx: TenantContext,
-  version: OneDriveFileVersion,
+  version: DriveFileVersion,
 ): Promise<StoredVersionContent> {
   const chunks = await open_version_stream(connector, item, version);
 
   const result = await stream_to_content_addressed_storage(ctx, tag_source_errors(chunks), {
-    staging_key: onedrive_staging_key(owner_id, item.item_id),
-    staging_prefix: onedrive_staging_prefix(owner_id),
-    build_data_key: (checksum) => onedrive_data_key(owner_id, checksum),
+    staging_key: keys.staging_key(owner_id, item.item_id),
+    staging_prefix: keys.staging_prefix_for(owner_id),
+    build_data_key: (checksum) => keys.data_key(owner_id, checksum),
   });
 
   return {
@@ -79,11 +73,12 @@ async function store_streamed(
 }
 
 async function store_buffered(
-  connector: OneDriveConnector,
-  item: OneDriveDeltaItem,
+  keys: DriveStorageKeys,
+  connector: DriveContentConnector,
+  item: DriveDeltaItem,
   owner_id: string,
   ctx: TenantContext,
-  version: OneDriveFileVersion,
+  version: DriveFileVersion,
 ): Promise<StoredVersionContent> {
   let content: Buffer;
   try {
@@ -97,7 +92,7 @@ async function store_buffered(
   }
 
   const checksum = createHash('sha256').update(content).digest('hex');
-  const storage_key = onedrive_data_key(owner_id, checksum);
+  const storage_key = keys.data_key(owner_id, checksum);
   const deduplicated = await ctx.storage.exists(storage_key);
   if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(content));
 
@@ -105,9 +100,9 @@ async function store_buffered(
 }
 
 async function open_version_stream(
-  connector: OneDriveConnector,
-  item: OneDriveDeltaItem,
-  version: OneDriveFileVersion,
+  connector: DriveContentConnector,
+  item: DriveDeltaItem,
+  version: DriveFileVersion,
 ): Promise<AsyncIterable<Buffer>> {
   try {
     return await connector.stream_file_version(

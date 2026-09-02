@@ -1,4 +1,4 @@
-import type { SharePointVersionWatermark } from '@wisecom/atlas-types';
+import type { DriveVersionWatermark } from '@/drive-ports';
 
 /**
  * Version dedup watermarks (issue #161).
@@ -28,7 +28,7 @@ export function version_timestamp_ms(value: string | undefined): number | undefi
 export function is_version_already_captured(
   version_id: string,
   version_last_modified_at: string | undefined,
-  watermark: SharePointVersionWatermark | string | undefined,
+  watermark: DriveVersionWatermark | string | undefined,
 ): boolean {
   const mark = version_timestamp_ms(
     typeof watermark === 'string' ? watermark : watermark?.last_modified_at,
@@ -42,10 +42,10 @@ export function is_version_already_captured(
 
 /** Advances an exact watermark, treating an unusable timestamp as no advance. */
 export function later_watermark(
-  current: SharePointVersionWatermark | string | undefined,
+  current: DriveVersionWatermark | string | undefined,
   candidate_at: string | undefined,
   candidate_version_id: string,
-): SharePointVersionWatermark | string | undefined {
+): DriveVersionWatermark | string | undefined {
   const next = version_timestamp_ms(candidate_at);
   if (next === undefined || candidate_at === undefined) return current;
   const now = version_timestamp_ms(
