@@ -7,7 +7,7 @@ import {
   make_file_item,
   make_manifests,
   make_service,
-} from './sharepoint-backup-determinism.fixtures';
+} from './backup-determinism.fixtures';
 
 const NOTEBOOK_PATH = '/Docs/Team Notebook';
 

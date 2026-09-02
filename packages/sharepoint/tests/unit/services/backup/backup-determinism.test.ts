@@ -12,7 +12,7 @@ import {
   make_file_item,
   make_manifests,
   make_service,
-} from './sharepoint-backup-determinism.fixtures';
+} from './backup-determinism.fixtures';
 
 describe('SharePoint backup determinism — error isolation', () => {
   let connector: SharePointSiteConnector;

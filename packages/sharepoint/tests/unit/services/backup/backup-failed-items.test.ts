@@ -15,7 +15,7 @@ import {
   make_file_item,
   make_manifests,
   make_service,
-} from './sharepoint-backup-determinism.fixtures';
+} from './backup-determinism.fixtures';
 
 function make_delta(items: SharePointDeltaItem[], delta_link: string) {
   return vi.fn().mockResolvedValue({
