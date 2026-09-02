@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type {
   OneDriveFileVersionIndex,
@@ -11,17 +12,6 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
-
-/** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
-type Overrides<T> = { [K in keyof T]?: T[K] | undefined };
-
-function apply_overrides<T extends object>(base: T, overrides: Overrides<T>): T {
-  const merged: Record<string, unknown> = { ...base, ...overrides };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete merged[key];
-  }
-  return merged as T;
-}
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';

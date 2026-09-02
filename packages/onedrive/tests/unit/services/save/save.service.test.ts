@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { OneDriveSaveService } from '@/services/save/save.service';
@@ -13,17 +14,6 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-
-/** Fixture overrides may blank an optional field; an explicit `undefined` drops the key. */
-type Overrides<T> = { [K in keyof T]?: T[K] | undefined };
-
-function apply_overrides<T extends object>(base: T, overrides: Overrides<T>): T {
-  const merged: Record<string, unknown> = { ...base, ...overrides };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value === undefined) delete merged[key];
-  }
-  return merged as T;
-}
 
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   const mock_archive = {
