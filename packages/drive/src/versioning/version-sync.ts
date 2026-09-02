@@ -48,13 +48,16 @@ export interface RunVersionCollector {
   rows: Map<string, DriveFileVersionRecord[]>;
 }
 
-const EMPTY_OUTCOME: VersionSyncOutcome = {
-  new_versions_stored: 0,
-  versions_deduplicated: 0,
-  versions_unavailable: 0,
-  versions_failed: 0,
-  records: [],
-};
+/** A fresh outcome per call: `records` is a mutable array and must not be shared between files. */
+function empty_outcome(): VersionSyncOutcome {
+  return {
+    new_versions_stored: 0,
+    versions_deduplicated: 0,
+    versions_unavailable: 0,
+    versions_failed: 0,
+    records: [],
+  };
+}
 
 /**
  * Records what one file's sync captured: the index rows for this run, and the advanced watermark.
@@ -101,7 +104,7 @@ export async function sync_file_versions(
   watermark: DriveVersionWatermark | string | undefined,
 ): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
-  if (versions.length === 0) return EMPTY_OUTCOME;
+  if (versions.length === 0) return empty_outcome();
 
   const outcome = await capture_new_versions(
     keys,
