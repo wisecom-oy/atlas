@@ -1,4 +1,5 @@
 import type { DriveManifestEntry } from '@/drive-ports';
+import { join_drive_path } from '@/shared/logical-path';
 
 /** Filters manifest entries by file ID or full path, case-insensitively. */
 export function filter_drive_entries(
@@ -10,6 +11,6 @@ export function filter_drive_entries(
   return entries.filter(
     (entry) =>
       selected.has(entry.file_id.toLowerCase()) ||
-      selected.has(`${entry.parent_path}/${entry.file_name}`.toLowerCase()),
+      selected.has(join_drive_path(entry.parent_path, entry.file_name).toLowerCase()),
   );
 }

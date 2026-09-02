@@ -1,4 +1,5 @@
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
+import { join_drive_path } from '@/shared/logical-path';
 
 /** Maps a CLI file reference (Graph item id or rooted path) to a file id, if known. */
 export function resolve_file_id(
@@ -10,13 +11,35 @@ export function resolve_file_id(
     if (indexes.some((idx) => idx.file_id === trimmed)) return trimmed;
     return match_by_file_name(indexes, trimmed);
   }
-  const want = normalize_path_ref(trimmed);
+  return match_by_path(indexes, normalize_path_ref(trimmed));
+}
+
+/**
+ * Matches a rooted path against every indexed version, and raises when it maps to more than one
+ * file, the same way a bare name does (issue #300).
+ *
+ * One path can belong to two file ids: the path is reconstructed per version record, so a file
+ * deleted and recreated at the same path, or a path reused after a move, leaves two drive items
+ * behind it. Returning whichever the iteration reached first restored a version of an
+ * arbitrarily chosen file.
+ */
+function match_by_path(
+  indexes: readonly DriveFileVersionIndexView[],
+  want: string,
+): string | undefined {
+  const matches = new Set<string>();
   for (const idx of indexes) {
     for (const v of idx.versions) {
-      if (normalize_path_ref(version_logical_path(v)) === want) return idx.file_id;
+      if (normalize_path_ref(version_logical_path(v)) === want) matches.add(idx.file_id);
     }
   }
-  return undefined;
+  if (matches.size > 1) {
+    const ids = [...matches].sort().join(', ');
+    throw new Error(
+      `'${want}' matches ${matches.size} files: ${ids}. ` + 'Pass the file id of the one you mean.',
+    );
+  }
+  return [...matches][0];
 }
 
 /**
@@ -54,8 +77,7 @@ function normalize_path_ref(raw: string): string {
   return with_slash.normalize('NFC');
 }
 
+/** Rooted logical path of one version record, e.g. `/Documents/Report.docx`. */
 export function version_logical_path(v: DriveFileVersionRecord): string {
-  const base = v.parent_path.replace(/\/+$/, '') || '';
-  if (base === '' || base === '/') return `/${v.file_name}`;
-  return `${base}/${v.file_name}`;
+  return join_drive_path(v.parent_path, v.file_name);
 }

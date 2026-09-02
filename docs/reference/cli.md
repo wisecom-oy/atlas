@@ -551,6 +551,8 @@ A drive restore nests under `/Restore-<timestamp>` at the target drive root and 
 
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
+A `--file-filter` path is the rooted path shown in a listing, and a file at the drive or library root is written the way you would expect: `/Report.docx`, not `//Report.docx`. Version commands take the same path forms, and when one path belongs to two different drive items, which happens after a file is deleted and recreated at the same path, the command names both file IDs and stops rather than picking one.
+
 `--site` accepts the same three forms on **every** command that takes it, including `replicate` and `rehydrate`: a browser URL (`https://contoso.sharepoint.com/sites/Engineering`), the Graph short form (`contoso.sharepoint.com:/sites/Engineering`), or a composite site ID (`contoso.sharepoint.com,<siteGuid>,<webGuid>`). URLs and short forms are resolved through Graph before any storage key is built; a composite ID is passed through untouched, so disaster recovery with `rehydrate` still works when Graph is unreachable.
 
 **`atlas onedrive list-snapshots`**

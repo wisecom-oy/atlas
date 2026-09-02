@@ -19,7 +19,16 @@ const ENTRY = {
   storage_key: 'onedrive/data/o/abc',
 } as DriveManifestEntry;
 
-describe('OneDrive file_filter', () => {
+const ROOT_ENTRY = {
+  file_id: '01ROOTIDROOTIDROOTID',
+  file_name: 'Report.docx',
+  // Graph reports `/` both when it omits the parent reference and when the path ends at `root:`.
+  parent_path: '/',
+  change_type: 'created',
+  storage_key: 'onedrive/data/o/def',
+} as DriveManifestEntry;
+
+describe('drive file_filter', () => {
   it('matches an item id pasted verbatim from a listing', () => {
     expect(filter_drive_entries([ENTRY], [ITEM_ID])).toHaveLength(1);
   });
@@ -38,5 +47,13 @@ describe('OneDrive file_filter', () => {
 
   it('returns everything when no filter is given', () => {
     expect(filter_drive_entries([ENTRY], [])).toHaveLength(1);
+  });
+
+  it('matches a file at the drive root by the path an operator would type (issue #299)', () => {
+    expect(filter_drive_entries([ROOT_ENTRY], ['/Report.docx'])).toHaveLength(1);
+  });
+
+  it('does not match a root-level file by the doubled-slash path it used to build', () => {
+    expect(filter_drive_entries([ROOT_ENTRY], ['//Report.docx'])).toHaveLength(0);
   });
 });
