@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import { classify_change_type } from '@/services/backup/change-classifier';
 
@@ -70,5 +71,16 @@ describe('classify_change_type', () => {
   it('returns "updated" when the etag disappears', () => {
     const item = make_item();
     expect(classify_change_type(item, PREVIOUS_PATH, PREVIOUS_NAME, PREVIOUS_ETAG)).toBe('updated');
+  });
+
+  it('warns about the missing etags but still reports the move (issue #297)', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const item = make_item({ parent_path: '/Archive' });
+
+    // No etag on either side: the move is certain, a content change alongside it is invisible.
+    expect(classify_change_type(item, PREVIOUS_PATH, PREVIOUS_NAME, {})).toBe('moved');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('missing etag'));
+
+    warn.mockRestore();
   });
 });

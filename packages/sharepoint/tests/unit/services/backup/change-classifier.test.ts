@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import { classify_change_type } from '@/services/backup/change-classifier';
 
@@ -149,5 +150,18 @@ describe('classify_change_type', () => {
   it('returns "updated" when both prior and current etag are missing but item is known', () => {
     const item = make_item();
     expect(classify_change_type(item, { 'item-1': '/Documents' }, {}, {})).toBe('updated');
+  });
+
+  it('warns about the missing etags but still reports the move (issue #297)', () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const item = make_item({ parent_path: '/Archive' });
+
+    // No etag on either side: the move is certain, a content change alongside it is invisible.
+    expect(
+      classify_change_type(item, { 'item-1': '/Documents' }, { 'item-1': 'report.docx' }, {}),
+    ).toBe('moved');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('missing etag'));
+
+    warn.mockRestore();
   });
 });
