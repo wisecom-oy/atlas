@@ -8,6 +8,7 @@ export {
   type StreamDecryptResult,
 } from '@/restore/streaming-restore';
 export { filter_drive_entries } from '@/shared/entry-filter';
+export { join_drive_path } from '@/shared/logical-path';
 export {
   load_drive_chain_entries,
   restorable_entries,
