@@ -155,7 +155,9 @@ export async function restore_drive_version(
       workload,
       restored.length + files_skipped,
       selection.selected.length + selection.skipped.length,
-      restored.length + files_skipped < selection.selected.length,
+      // Against the same total reported above: `files_skipped` starts at the pre-skipped count,
+      // so comparing it with `selected.length` alone under-reports an early stop.
+      restored.length + files_skipped < selection.selected.length + selection.skipped.length,
     );
 
     return {
