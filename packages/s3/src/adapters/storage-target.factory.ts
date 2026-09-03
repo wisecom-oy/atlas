@@ -25,10 +25,14 @@ function derive_target_id(endpoint: string, region?: string): string {
   return createHash('sha256').update(raw).digest('hex').slice(0, 16);
 }
 
-function normalize_target_config(
-  config: StorageTargetSdkConfig | StorageTargetConfig,
-): StorageTargetConfig {
-  if ('s3_endpoint' in config) return config;
+/**
+ * Maps the public camelCase config to the internal shape.
+ *
+ * Only the camelCase form is accepted. Taking both was the dual vocabulary v5.0.0 removes: the
+ * SDK's documented convention is camelCase, and a factory that quietly accepted the internal
+ * spelling made the internal one look public (issue #45).
+ */
+function normalize_target_config(config: StorageTargetSdkConfig): StorageTargetConfig {
   let result: StorageTargetConfig = {
     s3_endpoint: config.s3Endpoint,
     s3_access_key: config.s3AccessKey,
@@ -44,10 +48,8 @@ function normalize_target_config(
   return result;
 }
 
-/** Creates a lightweight storage-only target for replication. Accepts both camelCase (SDK) and snake_case (internal) config. */
-export function create_storage_target(
-  config: StorageTargetSdkConfig | StorageTargetConfig,
-): StorageTarget {
+/** Creates a lightweight storage-only target for replication from camelCase config. */
+export function create_storage_target(config: StorageTargetSdkConfig): StorageTarget {
   return new DefaultStorageTarget(normalize_target_config(config));
 }
 

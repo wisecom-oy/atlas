@@ -197,12 +197,12 @@ function build_source(container: Container, options: RehydrateOptions): StorageT
     const target_id = file.target_id;
     const s3_region = file.s3_region;
     return create_storage_target({
-      ...(typeof target_id === 'string' ? { target_id } : {}),
-      s3_endpoint,
-      s3_access_key,
-      s3_secret_key,
-      ...(typeof s3_region === 'string' ? { s3_region } : {}),
-      encryption_passphrase: config.encryption_passphrase,
+      ...(typeof target_id === 'string' ? { targetId: target_id } : {}),
+      s3Endpoint: s3_endpoint,
+      s3AccessKey: s3_access_key,
+      s3SecretKey: s3_secret_key,
+      ...(typeof s3_region === 'string' ? { s3Region: s3_region } : {}),
+      encryptionPassphrase: config.encryption_passphrase,
     });
   }
 
@@ -218,11 +218,11 @@ function build_source(container: Container, options: RehydrateOptions): StorageT
   }
 
   return create_storage_target({
-    s3_endpoint: options.sourceEndpoint,
-    s3_access_key: options.sourceAccessKey,
-    s3_secret_key: source_secret_key,
-    ...(options.sourceRegion !== undefined ? { s3_region: options.sourceRegion } : {}),
-    encryption_passphrase: config.encryption_passphrase,
+    s3Endpoint: options.sourceEndpoint,
+    s3AccessKey: options.sourceAccessKey,
+    s3SecretKey: source_secret_key,
+    ...(options.sourceRegion !== undefined ? { s3Region: options.sourceRegion } : {}),
+    encryptionPassphrase: config.encryption_passphrase,
   });
 }
 

@@ -167,10 +167,10 @@ SharePoint proactively returns `RateLimit-Limit`, `RateLimit-Remaining`, and `Ra
 
 ### Throttle responses
 
-| Response                    | Meaning                                              |
-| --------------------------- | ---------------------------------------------------- |
-| `429 Too Many Requests`     | App exceeded the rate limit. Includes `Retry-After`. |
-| `503 Service Unavailable`   | Service-level load spike. Includes `Retry-After`.    |
+| Response                  | Meaning                                              |
+| ------------------------- | ---------------------------------------------------- |
+| `429 Too Many Requests`   | App exceeded the rate limit. Includes `Retry-After`. |
+| `503 Service Unavailable` | Service-level load spike. Includes `Retry-After`.    |
 
 Throttled requests still count toward limits. Persistent offenders may be blocked completely (503 indefinitely, with notification via the Office 365 Message Center).
 

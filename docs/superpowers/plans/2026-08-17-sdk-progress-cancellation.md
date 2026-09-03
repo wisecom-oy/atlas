@@ -13,6 +13,7 @@
 ### Task 1: Public contracts and SDK option adaptation
 
 **Files:**
+
 - Create: `packages/types/src/ports/atlas/progress-event.port.ts`
 - Modify: `packages/types/src/ports/index.ts`
 - Modify: `packages/types/src/ports/atlas/outlook-api.port.ts`
@@ -124,6 +125,7 @@ git commit -m "feat(sdk): add progress and cancellation contracts"
 ### Task 2: Outlook and shared verification progress/cancellation
 
 **Files:**
+
 - Create: `packages/core/src/services/shared/operation-progress.ts`
 - Modify: `packages/core/src/services/verification/verification.service.ts`
 - Modify: `packages/outlook/src/services/backup/mailbox-sync.service.ts`
@@ -210,6 +212,7 @@ git commit -m "feat(outlook): report progress and graceful cancellation"
 ### Task 3: OneDrive progress, cancellation, and cursor safety
 
 **Files:**
+
 - Modify: `packages/onedrive/src/services/onedrive-backup.service.ts`
 - Modify: `packages/onedrive/src/services/onedrive-backup-drive-processor.ts`
 - Modify: `packages/onedrive/src/services/onedrive-backup-builders.ts`
@@ -273,6 +276,7 @@ git commit -m "feat(onedrive): add progress and safe cancellation"
 ### Task 4: SharePoint progress, cancellation, and cursor safety
 
 **Files:**
+
 - Modify: `packages/sharepoint/src/services/sharepoint-backup.service.ts`
 - Modify: `packages/sharepoint/src/services/sharepoint-backup-library-processor.ts`
 - Modify: `packages/sharepoint/src/services/sharepoint-restore.service.ts`
@@ -322,6 +326,7 @@ git commit -m "feat(sharepoint): add progress and safe cancellation"
 ### Task 5: SDK documentation, regression checks, and live E2E
 
 **Files:**
+
 - Modify: `docs/reference/sdk.md`
 - Test: all workspace suites
 

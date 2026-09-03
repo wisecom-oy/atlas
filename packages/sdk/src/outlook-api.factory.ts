@@ -24,6 +24,7 @@ import {
 } from '@wisecom/atlas-types';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options } from '@/operation-options';
+import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
 import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/object-lock-policy';
 import type { OutlookBackupOptions } from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
 import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
@@ -45,65 +46,71 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       const [result, cost_result] = await run_with_cost_tracking(() =>
         backup.sync_mailbox(tenant_id, mailbox_id, adapt_backup_options(options)),
       );
-      return { ...result, graph_cost: cost_result };
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async verify(snapshot_id, options) {
-      return await verification.verify_snapshot_integrity(
-        tenant_id,
-        snapshot_id,
-        adapt_operation_options(options),
+      return camelize(
+        await verification.verify_snapshot_integrity(
+          tenant_id,
+          snapshot_id,
+          adapt_operation_options(options),
+        ),
       );
     },
     async restore(snapshot_id, options) {
       const [result, cost_result] = await run_with_cost_tracking(() =>
         restore.restore_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
       );
-      return { ...result, graph_cost: cost_result };
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async restoreMailbox(mailbox_id, options) {
       const [result, cost_result] = await run_with_cost_tracking(() =>
         restore.restore_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
       );
-      return { ...result, graph_cost: cost_result };
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async save(snapshot_id, options) {
-      return await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options));
+      return camelize(
+        await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
+      );
     },
     async saveMailbox(mailbox_id, options) {
-      return await save.save_mailbox(tenant_id, mailbox_id, adapt_operation_options(options));
+      return camelize(
+        await save.save_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
+      );
     },
     async listMailboxes() {
-      return await catalog.list_mailboxes(tenant_id);
+      return camelize(await catalog.list_mailboxes(tenant_id));
     },
     async listSnapshots(mailbox_id) {
-      return await catalog.list_snapshots(tenant_id, mailbox_id);
+      return camelize(await catalog.list_snapshots(tenant_id, mailbox_id));
     },
     async getSnapshotDetail(snapshot_id) {
-      return await catalog.get_snapshot_detail(tenant_id, snapshot_id);
+      return camelize(await catalog.get_snapshot_detail(tenant_id, snapshot_id));
     },
     async readMessage(snapshot_id, message_ref) {
-      return await catalog.read_message(tenant_id, snapshot_id, message_ref);
+      return camelize(await catalog.read_message(tenant_id, snapshot_id, message_ref));
     },
     async deleteMailboxData(mailbox_id) {
-      return await deletion.delete_mailbox_data(tenant_id, mailbox_id);
+      return camelize(await deletion.delete_mailbox_data(tenant_id, mailbox_id));
     },
     async deleteSnapshot(snapshot_id) {
-      return await deletion.delete_snapshot(tenant_id, snapshot_id);
+      return camelize(await deletion.delete_snapshot(tenant_id, snapshot_id));
     },
     async purgeTenantData() {
-      return await deletion.purge_tenant(tenant_id);
+      return camelize(await deletion.purge_tenant(tenant_id));
     },
     async getMailboxStats(mailbox_id) {
-      return await stats.get_mailbox_stats(tenant_id, mailbox_id);
+      return camelize(await stats.get_mailbox_stats(tenant_id, mailbox_id));
     },
     async checkMailboxStatus(mailbox_id) {
       const [result, cost_result] = await run_with_cost_tracking(() =>
         status.check_mailbox_status(tenant_id, mailbox_id),
       );
-      return { ...result, graph_cost: cost_result };
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async listAvailableMailboxes(options) {
-      return await discovery.list_tenant_mailboxes(tenant_id, options);
+      return camelize(await discovery.list_tenant_mailboxes(tenant_id, snakeize(options)));
     },
   };
 }

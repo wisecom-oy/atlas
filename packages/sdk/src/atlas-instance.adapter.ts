@@ -1,3 +1,4 @@
+import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
 import { create_container_from_config } from '@/container';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import type {
@@ -50,42 +51,42 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     sharepoint: scoped(create_sharepoint_api(tenant_id, container)),
 
     async checkStorage(request) {
-      return await storage_check.check_storage(tenant_id, request);
+      return camelize(await storage_check.check_storage(tenant_id, snakeize(request)));
     },
     async getBucketStats() {
-      return await stats.get_bucket_stats(tenant_id);
+      return camelize(await stats.get_bucket_stats(tenant_id));
     },
     async resolveUser(email) {
-      return await identity_resolver.resolve_user(tenant_id, email);
+      return camelize(await identity_resolver.resolve_user(tenant_id, email));
     },
     async listUsers() {
       const ctx = await tenant_factory.create(tenant_id);
       try {
-        return await identity_registry.load(ctx);
+        return camelize(await identity_registry.load(ctx));
       } finally {
         ctx.destroy();
       }
     },
     async replicateSnapshot(snapshot_id, targets) {
-      return await replication.replicate_snapshot(tenant_id, snapshot_id, targets);
+      return camelize(await replication.replicate_snapshot(tenant_id, snapshot_id, targets));
     },
     async replicateMailbox(mailbox_id, targets) {
-      return await replication.replicate_mailbox(tenant_id, mailbox_id, targets);
+      return camelize(await replication.replicate_mailbox(tenant_id, mailbox_id, targets));
     },
     async rehydrateSnapshot(snapshot_id, source) {
-      return await replication.rehydrate_snapshot(tenant_id, snapshot_id, source);
+      return camelize(await replication.rehydrate_snapshot(tenant_id, snapshot_id, source));
     },
     async rehydrateMailbox(mailbox_id, source) {
-      return await replication.rehydrate_mailbox(tenant_id, mailbox_id, source);
+      return camelize(await replication.rehydrate_mailbox(tenant_id, mailbox_id, source));
     },
     async rehydrateTenant(source) {
-      return await replication.rehydrate_tenant(tenant_id, source);
+      return camelize(await replication.rehydrate_tenant(tenant_id, source));
     },
     async getReplicationStatus(snapshot_id) {
-      return await replication.get_replication_status(tenant_id, snapshot_id);
+      return camelize(await replication.get_replication_status(tenant_id, snapshot_id));
     },
     async getReplicationStatusByOwner(owner_id) {
-      return await replication.get_replication_status_by_owner(tenant_id, owner_id);
+      return camelize(await replication.get_replication_status_by_owner(tenant_id, owner_id));
     },
 
     dispose,

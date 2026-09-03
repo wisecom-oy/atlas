@@ -25,11 +25,11 @@ every clone installs the same revision.
 
 ## What it answers
 
-| Command | Use it for |
-|---|---|
-| `sample-search` | Curated task-to-query samples. Highest quality, try first. |
+| Command           | Use it for                                                                                                             |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `sample-search`   | Curated task-to-query samples. Highest quality, try first.                                                             |
 | `api-docs-search` | Permissions, query parameters, required headers, and which properties need `$select` for a known endpoint or resource. |
-| `openapi-search` | The full 27,700-endpoint catalog, when the path cannot be found any other way. |
+| `openapi-search`  | The full 27,700-endpoint catalog, when the path cannot be found any other way.                                         |
 
 Run them through the launcher, which picks the right prebuilt binary for the platform:
 

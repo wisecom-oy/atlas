@@ -36,14 +36,14 @@ Replication is **idempotent**. Running it again for the same snapshot skips ever
 
 Objects are always copied in this order:
 
-| Step | Object                                       | Notes                                                       |
-| ---- | -------------------------------------------- | ----------------------------------------------------------- |
-| 1    | DEK validation                               | Verifies source and target share the same encryption key    |
-| 2    | `_meta/dek.enc`                              | Copied to target if not already present                     |
-| 3    | `_meta/replica.marker`                       | Written on target (skipped during rehydration to primary)   |
-| 4    | Data and attachment objects                  | Copied in manifest order, skipping objects already on target |
-| 5    | Ancillary objects (OneDrive and SharePoint)  | File version indexes and delta cursors                      |
-| 6    | Manifest file                                | **Always last**                                             |
+| Step | Object                                      | Notes                                                        |
+| ---- | ------------------------------------------- | ------------------------------------------------------------ |
+| 1    | DEK validation                              | Verifies source and target share the same encryption key     |
+| 2    | `_meta/dek.enc`                             | Copied to target if not already present                      |
+| 3    | `_meta/replica.marker`                      | Written on target (skipped during rehydration to primary)    |
+| 4    | Data and attachment objects                 | Copied in manifest order, skipping objects already on target |
+| 5    | Ancillary objects (OneDrive and SharePoint) | File version indexes and delta cursors                       |
+| 6    | Manifest file                               | **Always last**                                              |
 
 If replication crashes at any point, the target is left in a safe state: orphan data blobs exist (harmless, reclaimable), but no manifest ever references missing objects. Rerunning replication picks up where it left off.
 
