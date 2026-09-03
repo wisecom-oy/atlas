@@ -35,7 +35,11 @@ const atlas = createAtlasInstance({
 
 All config is explicit. The SDK **does not read environment variables or config files**, a deliberate security choice for multi-tenant environments: no credentials picked up from a stale `.env` file, no environment variables inherited from a different tenant. Every value is passed at construction time.
 
-The tenant is bound at creation time, so every method operates within that tenant scope. Methods use camelCase naming, are async, and return Promises.
+The tenant is bound at creation time, so every method operates within that tenant scope. Methods are async and return Promises.
+
+Everything on the public surface is camelCase: methods, config, option fields and result fields alike. Before v5.0.0 the methods were camelCase and every option and result field was snake_case, because the internal model leaked through as the public API. Atlas is still snake_case internally, and the conversion happens at the SDK boundary, so `atlas.outlook.backup(id, { forceFull: true })` returns `{ summary: { attachmentsStored } }` and never a mixture of the two. See [Migrating to v5](/migration/v5) for the full list of renamed fields.
+
+Two kinds of key stay verbatim, because they are data rather than field names: the keys of a map Atlas did not choose (`deltaLinks` keyed by Graph folder id, `requestsByType` keyed by request label, `byService` keyed by pool name), and the raw Graph payload in `readMessage().message`, which has to keep matching what Graph returned and what the stored blob contains.
 
 ### Logging
 
@@ -65,7 +69,7 @@ adapter of a few lines.
 Every line carries `fields` identifying where it came from:
 
 ```json
-{ "tenant_id": "00000000-0000-0000-0000-000000000000", "operation": "backup" }
+{ "tenantId": "00000000-0000-0000-0000-000000000000", "operation": "backup" }
 ```
 
 `operation` is the SDK method that produced the line, so one process serving
@@ -82,8 +86,8 @@ The host asked for the lines, so the host's logger decides its own level.
 
 ::: tip Logs are not the only channel
 Anything operationally significant is also in the typed result:
-`summary.warnings`, `summary.errors`, `summary.excluded_folders`,
-`integrity_failures`, and the failed-item ledger. Never parse log text to find
+`summary.warnings`, `summary.errors`, `summary.excludedFolders`,
+`integrityFailures`, and the failed-item ledger. Never parse log text to find
 out what a run did.
 :::
 
@@ -146,15 +150,15 @@ skip creating a bucket that was not there.
 
 ```typescript
 // --- Outlook (mailboxes) ---
-const result = await atlas.outlook.backup('user@company.com', { force_full: true });
+const result = await atlas.outlook.backup('user@company.com', { forceFull: true });
 const mailboxes = await atlas.outlook.listMailboxes();
 const snapshots = await atlas.outlook.listSnapshots('user@company.com');
 const verification = await atlas.outlook.verify('snapshot-id');
-const restore = await atlas.outlook.restore('snapshot-id', { folder_name: 'Inbox' });
+const restore = await atlas.outlook.restore('snapshot-id', { folderName: 'Inbox' });
 const fullRestore = await atlas.outlook.restoreMailbox('user@company.com');
 const save = await atlas.outlook.save('snapshot-id', {
-  folder_name: 'Inbox',
-  output_path: 'backup.zip',
+  folderName: 'Inbox',
+  outputPath: 'backup.zip',
 });
 const message = await atlas.outlook.readMessage('snapshot-id', '42');
 const status = await atlas.outlook.checkMailboxStatus('user@company.com');
@@ -168,13 +172,13 @@ const odStats = await atlas.onedrive.getStats('john.doe@example.com'); // omit t
 // --- SharePoint (site: URL or composite site id; one result per backed-up site) ---
 const site = 'https://contoso.sharepoint.com/sites/Example';
 const [sp] = await atlas.sharepoint.backup(site);
-const tree = await atlas.sharepoint.backup(site, { include_subsites: true });
+const tree = await atlas.sharepoint.backup(site, { includeSubsites: true });
 await atlas.sharepoint.verify(site, 'sp-snap-123');
 const sites = await atlas.sharepoint.listSites();
 const spStats = await atlas.sharepoint.getStats(site); // omit the site for every site
 
 // --- Cross-cutting (tenant scope) ---
-const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 });
+const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retentionDays: 30 });
 const stats = await atlas.getBucketStats();
 await atlas.replicateSnapshot('snapshot-id', [offsite]);
 ```
@@ -283,18 +287,18 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
-The drive restore methods take `destination`, `in_place` and `rename_to` alongside `conflict_behavior`. As of 4.0.0 they default to a generated `Restore-<timestamp>` root rather than writing back over the original paths, so an embedder that relied on the old behaviour has to pass `in_place: true`:
+The drive restore methods take `destination`, `inPlace` and `renameTo` alongside `conflictBehavior`. As of 4.0.0 they default to a generated `Restore-<timestamp>` root rather than writing back over the original paths, so an embedder that relied on the old behaviour has to pass `inPlace: true`:
 
 ```typescript
-const snapshot_id = 'od-snap-123';
-await atlas.onedrive.restore('owner-id', { snapshot_id }); // /Restore-2026-08-27T10-15-30/...
-await atlas.onedrive.restore('owner-id', { snapshot_id, destination: '/DR-drill' });
-await atlas.onedrive.restore('owner-id', { snapshot_id, in_place: true }); // pre-4.0.0 behaviour
+const snapshotId = 'od-snap-123';
+await atlas.onedrive.restore('owner-id', { snapshotId }); // /Restore-2026-08-27T10-15-30/...
+await atlas.onedrive.restore('owner-id', { snapshotId, destination: '/DR-drill' });
+await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true }); // pre-4.0.0 behaviour
 ```
 
-`restore` and `save` on both drive workloads require an options object containing `snapshot_id`. TypeScript enforces that at compile time; a JavaScript caller that omits it now gets a `TypeError` naming the method, for example `onedrive.restore() requires an options object with a snapshot_id`, instead of a crash from inside the service about an internal property. `verify` continues to accept options optionally.
+`restore` and `save` on both drive workloads require an options object containing `snapshotId`. TypeScript enforces that at compile time; a JavaScript caller that omits it now gets a `TypeError` naming the method, for example `onedrive.restore() requires an options object with a snapshotId`, instead of a crash from inside the service about an internal property. `verify` continues to accept options optionally.
 
-Deletion methods erase every version of the objects they match. `purgeTenantData()` sweeps the whole bucket, every workload and not only Outlook. The returned `DeletionResult` separates `retained_*` (blocked by Object Lock, deletable once retention expires) from `failed_*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
+Deletion methods erase every version of the objects they match. `purgeTenantData()` sweeps the whole bucket, every workload and not only Outlook. The returned `DeletionResult` separates `retained*` (blocked by Object Lock, deletable once retention expires) from `failed*` (everything else, which will not clear on its own). See [Erasure](/security#erasure).
 
 ### Version restore
 
@@ -304,35 +308,38 @@ drive or library. Available on both `atlas.onedrive` and `atlas.sharepoint`.
 ```typescript
 // One exact version, listed first so you know what exists.
 const versions = await atlas.onedrive.listFileVersions('owner-id', '/Documents/report.docx');
+const previous = versions.at(-2);
+if (!previous) throw new Error('No older version is stored for this file');
+
 const result = await atlas.onedrive.restoreVersion('owner-id', {
-  file_ref: '/Documents/report.docx',
-  version_id: versions.at(-2)?.version_id,
+  fileRef: '/Documents/report.docx',
+  versionId: previous.versionId,
 });
 
 // A rollback of one folder to the state before a known instant.
 await atlas.sharepoint.restoreVersion('site-id', {
   before: new Date('2026-03-10T00:00:00Z'),
-  path_prefix: '/Shared Documents/Projects',
+  pathPrefix: '/Shared Documents/Projects',
   placement: 'in-place',
 });
 ```
 
-| Option        | Description                                                                      |
-| ------------- | -------------------------------------------------------------------------------- |
-| `file_ref`    | Graph item ID, rooted path, or bare filename; required with `version_id`         |
-| `version_id`  | Exact stored version, from `listFileVersions()`                                  |
-| `before`      | `Date`; restores each file's newest version at or before this instant            |
-| `path_prefix` | Limits a `before` rollback to one folder and below                               |
-| `placement`   | `'copy'` (default) writes a sibling file; `'in-place'` uploads over the original |
+| Option       | Description                                                                      |
+| ------------ | -------------------------------------------------------------------------------- |
+| `fileRef`    | Graph item ID, rooted path, or bare filename; required with `versionId`          |
+| `versionId`  | Exact stored version, from `listFileVersions()`                                  |
+| `before`     | `Date`; restores each file's newest version at or before this instant            |
+| `pathPrefix` | Limits a `before` rollback to one folder and below                               |
+| `placement`  | `'copy'` (default) writes a sibling file; `'in-place'` uploads over the original |
 
-Pass either `file_ref` with `version_id`, or `before`. The result reports
-`files_restored`, `files_skipped`, the `placement` that was applied, and a
-`restored` array of `{ file_id, version_id, last_modified_at, size_bytes, restored_to }`.
+Pass either `fileRef` with `versionId`, or `before`. The result reports
+`filesRestored`, `filesSkipped`, the `placement` that was applied, and a
+`restored` array of `{ fileId, versionId, lastModifiedAt, sizeBytes, restoredTo }`.
 A file with no version stored at or before the cutoff appears in `errors` and
 counts as skipped, so a caller can tell a complete rollback from a partial one:
 
 ```typescript
-if (result.files_skipped > 0) {
+if (result.filesSkipped > 0) {
   for (const reason of result.errors) console.warn(reason);
 }
 ```
@@ -350,21 +357,21 @@ cannot be verified against the manifest. See
 
 ### Folder coverage
 
-`backup()` walks every mail folder at any depth, including Drafts, Outbox, Junk Email, and folders Exchange marks hidden. Pass `exclude_junk` to skip Junk Email and its subfolders:
+`backup()` walks every mail folder at any depth, including Drafts, Outbox, Junk Email, and folders Exchange marks hidden. Pass `excludeJunk` to skip Junk Email and its subfolders:
 
 ```typescript
-const result = await atlas.outlook.backup('user@company.com', { exclude_junk: true });
+const result = await atlas.outlook.backup('user@company.com', { excludeJunk: true });
 
-for (const folder of result.summary.excluded_folders) {
-  console.log(`${folder.folder_path} not captured: ${folder.reason}`);
+for (const folder of result.summary.excludedFolders) {
+  console.log(`${folder.folderPath} not captured: ${folder.reason}`);
 }
 ```
 
 `reason` is `'junk-excluded'`, `'hidden-system-folder'`,
 `'recoverable-items-not-mail'` or `'recoverable-items-unrecognised'`. The same
-list is on the manifest as `excluded_folders`, so an embedder can answer "was
+list is on the manifest as `excludedFolders`, so an embedder can answer "was
 this folder captured?" from a stored snapshot rather than from the options
-whoever ran the backup happened to pass. `MailFolder.is_hidden` marks folders
+whoever ran the backup happened to pass. `MailFolder.isHidden` marks folders
 Exchange hides.
 
 Drafts and Outbox are new in 4.1.0. Earlier versions skipped them, so the first
@@ -372,23 +379,23 @@ backup after upgrading is larger for mailboxes holding unsent mail.
 
 #### Recoverable Items
 
-`include_recoverable_items` also captures hard-deleted and hold-retained mail
+`includeRecoverableItems` also captures hard-deleted and hold-retained mail
 from the Exchange dumpster, which no delta page ever reports. Off by default:
 
 ```typescript
-await atlas.outlook.backup('user@company.com', { include_recoverable_items: true });
+await atlas.outlook.backup('user@company.com', { includeRecoverableItems: true });
 ```
 
 `Deletions`, `Purges`, `DiscoveryHolds` and `SubstrateHolds` are captured;
 `Versions`, `Calendar Logging` and `Audits` are reported through
-`excluded_folders` instead. Captured entries carry `recoverable_items: true` on
+`excludedFolders` instead. Captured entries carry `recoverableItems: true` on
 the manifest entry, and `restore()` and `save()` drop them unless the same
 option is passed there:
 
 ```typescript
-const restorable = manifest.entries.filter((entry) => entry.recoverable_items !== true);
+const restorable = manifest.entries.filter((entry) => entry.recoverableItems !== true);
 
-await atlas.outlook.restore('snapshot-id', { include_recoverable_items: true });
+await atlas.outlook.restore('snapshot-id', { includeRecoverableItems: true });
 ```
 
 With the option off, request volume is identical to a run before it existed.
@@ -397,30 +404,30 @@ Storing purged mail has compliance consequences: see
 
 ### Shared mailbox identity
 
-Three result types carry an optional `mailbox_purpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property. A value of `'shared'` identifies a shared mailbox:
+Three result types carry an optional `mailboxPurpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property. A value of `'shared'` identifies a shared mailbox:
 
-- `TenantMailbox.mailbox_purpose` (from `listAvailableMailboxes()`; resolved only for unlicensed mailboxes during discovery)
-- `MailboxSummary.mailbox_purpose` (from `listMailboxes()`; taken from the newest manifest that recorded one, so a transient lookup failure in the latest backup does not blank the field)
-- `Manifest.mailbox_purpose` (from `backup()`, `listSnapshots()`, `getSnapshotDetail()`; recorded at backup time)
+- `TenantMailbox.mailboxPurpose` (from `listAvailableMailboxes()`; resolved only for unlicensed mailboxes during discovery)
+- `MailboxSummary.mailboxPurpose` (from `listMailboxes()`; taken from the newest manifest that recorded one, so a transient lookup failure in the latest backup does not blank the field)
+- `Manifest.mailboxPurpose` (from `backup()`, `listSnapshots()`, `getSnapshotDetail()`; recorded at backup time)
 
 The field is absent when the purpose was never resolved (pre-feature manifests, lookup failures):
 
 ```typescript
 const mailboxes = await atlas.outlook.listAvailableMailboxes();
-const shared = mailboxes.filter((mb) => mb.mailbox_purpose === 'shared');
+const shared = mailboxes.filter((mb) => mb.mailboxPurpose === 'shared');
 ```
 
 ### In-Place Archive coverage
 
-`TenantMailbox.has_in_place_archive` (from `listAvailableMailboxes()`) reports whether a mailbox has an In-Place Archive (Online Archive). That store is **not backed up**: Graph cannot read archive mailboxes at all, so a successful backup of such a mailbox is not a backup of all its mail. See [In-Place Archive is out of scope](/security#in-place-archive-is-out-of-scope).
+`TenantMailbox.hasInPlaceArchive` (from `listAvailableMailboxes()`) reports whether a mailbox has an In-Place Archive (Online Archive). That store is **not backed up**: Graph cannot read archive mailboxes at all, so a successful backup of such a mailbox is not a backup of all its mail. See [In-Place Archive is out of scope](/security#in-place-archive-is-out-of-scope).
 
 The field is tri-state, and the third state matters:
 
 ```typescript
 const mailboxes = await atlas.outlook.listAvailableMailboxes();
 
-const uncovered = mailboxes.filter((mb) => mb.has_in_place_archive === true);
-const unknown = mailboxes.filter((mb) => mb.has_in_place_archive === undefined);
+const uncovered = mailboxes.filter((mb) => mb.hasInPlaceArchive === true);
+const unknown = mailboxes.filter((mb) => mb.hasInPlaceArchive === undefined);
 ```
 
 `undefined` means unknown, not "no archive". The signal is the `Has Archive` column of the mailbox usage report, which needs the optional `Reports.Read.All` permission, so an embedder that treats absence as "covered" will report coverage Atlas never confirmed. No per-mailbox Graph property exposes archive state on v1.0 or beta.
@@ -430,16 +437,16 @@ const unknown = mailboxes.filter((mb) => mb.has_in_place_archive === undefined);
 Drive manifest entries carry the metadata a restore cannot rebuild from bytes alone:
 
 ```typescript
-const snapshot = await atlas.onedrive.getSnapshotDetail('owner-id', { snapshot_id });
+const snapshot = await atlas.onedrive.getSnapshotDetail('owner-id', { snapshotId });
 
 for (const entry of snapshot.entries) {
-  entry.file_system_info?.created_at; // original client timestamp, restored
-  entry.created_by?.display_name; // author, recorded for audit only
-  entry.last_modified_by?.email;
+  entry.fileSystemInfo?.createdAt; // original client timestamp, restored
+  entry.createdBy?.displayName; // author, recorded for audit only
+  entry.lastModifiedBy?.email;
 }
 ```
 
-`file_system_info` holds the client-reported timestamps from the Graph `fileSystemInfo` facet, which is the pair Atlas reapplies on restore. `last_modified_at` remains the service-side value, which after a restore reflects the restore. Authors and version authors are captured but never reapplied, and sharing permissions are not captured. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
+`fileSystemInfo` holds the client-reported timestamps from the Graph `fileSystemInfo` facet, which is the pair Atlas reapplies on restore. `lastModifiedAt` remains the service-side value, which after a restore reflects the restore. Authors and version authors are captured but never reapplied, and sharing permissions are not captured. See [What a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 All four fields are absent on manifests written before 4.1.0.
 
@@ -455,33 +462,33 @@ The SDK is where this used to bite. Graph hands back these identifiers lowercase
 await atlas.onedrive.deleteOwnerData('75A21B57-4D82-4F42-9CCC-7C231C30F78C');
 ```
 
-Graph **item** IDs (`file_id`, `item_id`) are case-sensitive and never folded. `file_filter` compares them case-insensitively, so an ID copied from `listFileVersions()` matches whatever case you send it in.
+Graph **item** IDs (`fileId`, `itemId`) are case-sensitive and never folded. `fileFilter` compares them case-insensitively, so an ID copied from `listFileVersions()` matches whatever case you send it in.
 
 ## Save Options
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:
 
-| Option                 | Type      | Description                                               |
-| ---------------------- | --------- | --------------------------------------------------------- |
-| `folder_name`          | `string`  | Save only this folder and its subfolders (name or path)   |
-| `message_ref`          | `string`  | Save a single message by index or ID                      |
-| `start_date`           | `Date`    | Include snapshots on or after this date                   |
-| `end_date`             | `Date`    | Include snapshots on or before this date                  |
-| `output_path`          | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
-| `skip_integrity_check` | `boolean` | Skip SHA-256 verification (default: `false`)              |
+| Option               | Type      | Description                                               |
+| -------------------- | --------- | --------------------------------------------------------- |
+| `folderName`         | `string`  | Save only this folder and its subfolders (name or path)   |
+| `messageRef`         | `string`  | Save a single message by index or ID                      |
+| `startDate`          | `Date`    | Include snapshots on or after this date                   |
+| `endDate`            | `Date`    | Include snapshots on or before this date                  |
+| `outputPath`         | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
+| `skipIntegrityCheck` | `boolean` | Skip SHA-256 verification (default: `false`)              |
 
 Both methods return a `SaveResult`:
 
 ```typescript
 interface SaveResult {
-  snapshot_id: string;
-  saved_count: number;
-  attachment_count: number;
-  error_count: number;
+  snapshotId: string;
+  savedCount: number;
+  attachmentCount: number;
+  errorCount: number;
   errors: string[];
-  output_path: string;
-  total_bytes: number;
-  integrity_failures: string[];
+  outputPath: string;
+  totalBytes: number;
+  integrityFailures: string[];
   interrupted: boolean;
 }
 ```
@@ -490,56 +497,56 @@ interface SaveResult {
 
 `atlas.outlook.restore` and `atlas.outlook.restoreMailbox` accept the following options:
 
-| Option           | Type     | Description                                                |
-| ---------------- | -------- | ---------------------------------------------------------- |
-| `folder_name`    | `string` | Restore only this folder and its subfolders (name or path) |
-| `message_ref`    | `string` | Restore a single message by index or ID                    |
-| `target_mailbox` | `string` | Target mailbox for cross-mailbox restore                   |
-| `start_date`     | `Date`   | Include snapshots on or after this date                    |
-| `end_date`       | `Date`   | Include snapshots on or before this date                   |
+| Option          | Type     | Description                                                |
+| --------------- | -------- | ---------------------------------------------------------- |
+| `folderName`    | `string` | Restore only this folder and its subfolders (name or path) |
+| `messageRef`    | `string` | Restore a single message by index or ID                    |
+| `targetMailbox` | `string` | Target mailbox for cross-mailbox restore                   |
+| `startDate`     | `Date`   | Include snapshots on or after this date                    |
+| `endDate`       | `Date`   | Include snapshots on or before this date                   |
 
 Both methods return a `RestoreResult`:
 
 ```typescript
 interface RestoreResult {
-  snapshot_id: string;
-  restored_count: number;
-  attachment_count: number;
-  error_count: number;
-  attachment_error_count: number;
+  snapshotId: string;
+  restoredCount: number;
+  attachmentCount: number;
+  errorCount: number;
+  attachmentErrorCount: number;
   errors: string[];
-  verification_warnings: string[];
-  restore_folder_name: string;
-  graph_cost?: OperationCost; // SDK only
+  verificationWarnings: string[];
+  restoreFolderName: string;
+  graphCost?: OperationCost; // SDK only
   interrupted: boolean;
 }
 ```
 
-| Field                    | Description                                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------------------- |
-| `error_count`            | Message-level failures. Matches `errors.length`.                                            |
-| `attachment_error_count` | Attachment-level failures (count only; details are logged during restore).                  |
-| `errors`                 | Human-readable detail for each message-level failure.                                       |
-| `verification_warnings`  | Per-folder verification warnings, including API failures that prevented count confirmation. |
+| Field                  | Description                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `errorCount`           | Message-level failures. Matches `errors.length`.                                            |
+| `attachmentErrorCount` | Attachment-level failures (count only; details are logged during restore).                  |
+| `errors`               | Human-readable detail for each message-level failure.                                       |
+| `verificationWarnings` | Per-folder verification warnings, including API failures that prevented count confirmation. |
 
 ## Object Lock
 
-Pass `object_lock_request` to any backup method to apply WORM retention. Atlas derives the rest of the policy from it, so the SDK and the CLI produce the same result for the same retention period:
+Pass `objectLockRequest` to any backup method to apply WORM retention. Atlas derives the rest of the policy from it, so the SDK and the CLI produce the same result for the same retention period:
 
 ```typescript
 await atlas.outlook.backup('user@company.com', {
-  object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+  objectLockRequest: { mode: 'COMPLIANCE', retentionDays: 30 },
 });
 
 await atlas.onedrive.backup('owner-id', {
-  object_lock_request: { mode: 'GOVERNANCE', retention_days: 30 },
+  objectLockRequest: { mode: 'GOVERNANCE', retentionDays: 30 },
 });
 ```
 
-| Field            | Derived behavior                                                                                                              |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `mode`           | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Defaults to `GOVERNANCE`. |
-| `retention_days` | Converted to an absolute `retain_until` timestamp in UTC at the moment the run starts.                                        |
+| Field           | Derived behavior                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `mode`          | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Defaults to `GOVERNANCE`. |
+| `retentionDays` | Converted to an absolute `retainUntil` timestamp in UTC at the moment the run starts.                                         |
 
 Outlook applies the policy to each stored object; OneDrive and SharePoint set the bucket default retention so every new object version inherits it. Writes are fail-closed: when a lock policy is present and the bucket has versioning or Object Lock disabled, or does not support the requested mode, the write throws instead of storing unprotected data. Immutability is therefore never silently downgraded.
 
@@ -592,7 +599,7 @@ await atlas.rehydrateMailbox('user@company.com', offsite);
 // Full tenant DR: every workload, reported per workload
 const recovery = await atlas.rehydrateTenant(offsite);
 for (const { workload, result } of recovery.workloads) {
-  console.log(workload, result.objects_copied, result.objects_failed);
+  console.log(workload, result.objectsCopied, result.objectsFailed);
 }
 console.log(recovery.total.status);
 ```
@@ -610,27 +617,28 @@ console.log(recovery.total.status);
 
 ## Graph API Cost Tracking
 
-Every SDK method that interacts with Microsoft Graph reports how many API requests it made, broken down by service pool. The cost is returned as a `graph_cost` field on the result:
+The four operations that report cost, `backup`, `restore`, `restoreMailbox` and `checkMailboxStatus`, return how many Graph API requests they made, broken down by service pool, as a `graphCost` field on the result. Other Graph-backed calls such as `listAvailableMailboxes()` do consume quota but do not carry the field, so a scheduler budgeting against `graphCost` should account for them separately:
 
 ```typescript
 const result = await atlas.outlook.backup('user@company.com');
 
-console.log(result.graph_cost);
+console.log(result.graphCost);
 // {
-//   requests_total: 852,
-//   by_service: {
-//     outlook: { requests: 847, resource_units: 847, upload_bytes: 0 },
-//     identity: { requests: 5, resource_units: 5, upload_bytes: 0 },
+//   requestsTotal: 852,
+//   byService: {
+//     outlook: { requests: 847, resourceUnits: 847, uploadBytes: 0 },
+//     identity: { requests: 5, resourceUnits: 5, uploadBytes: 0 },
 //   },
-//   requests_by_type: {
+//   requestsByType: {
+//     // Keys are request-type labels, not fields: they stay exactly as Atlas records them.
 //     delta_sync: 312, fetch_attachments: 530,
 //     list_folders: 5, mailbox_exists: 2, list_users: 3,
 //   },
-//   elapsed_ms: 45200,
+//   elapsedMs: 45200,
 // }
 ```
 
-Methods that report `graph_cost`: `atlas.outlook.backup`, `atlas.outlook.restore`, `atlas.outlook.restoreMailbox`, `atlas.outlook.checkMailboxStatus`.
+Methods that report `graphCost`: `atlas.outlook.backup`, `atlas.outlook.restore`, `atlas.outlook.restoreMailbox`, `atlas.outlook.checkMailboxStatus`.
 
 ### What counts as a request
 
@@ -652,8 +660,10 @@ Pre-authenticated transfers are deliberately excluded: file downloads from
 `@microsoft.graph.downloadUrl` and OneDrive/SharePoint resumable chunk uploads
 go straight to storage rather than through Graph, and consume no Graph quota.
 
-`requests_by_type` labels each request with the connector operation that issued
-it, so a paginated `delta_sync` shows the page count under one label.
+`requestsByType` labels each request with the connector operation that issued
+it, so a paginated `delta_sync` shows the page count under one label. Those
+labels are map keys rather than fields and are recorded verbatim, so they keep
+the spelling shown in the example above.
 
 ::: warning Recorded costs are higher than in 2.1.0-beta and earlier
 Earlier releases recorded one request per connector method call, so pagination
@@ -675,12 +685,12 @@ import { createAtlasInstance, getGraphCost } from '@wisecom/atlas-sdk';
 
 try {
   const result = await atlas.outlook.backup('user@company.com');
-  record_cost(result.graph_cost);
+  recordCost(result.graphCost);
 } catch (err) {
   // Requests already burned before the failure -- undefined if the error came
   // from somewhere other than a tracked SDK operation.
   const cost = getGraphCost(err);
-  if (cost) record_cost(cost);
+  if (cost) recordCost(cost);
   throw err;
 }
 ```
@@ -688,7 +698,7 @@ try {
 The error itself is rethrown unchanged, so `instanceof` checks and existing catch
 filters keep working, and the cost is a non-enumerable property, so error logging
 and serialisation are unaffected. A failure that happened before any Graph call
-reports `requests_total: 0`, which is a fact worth recording rather than a missing value.
+reports `requestsTotal: 0`, which is a fact worth recording rather than a missing value.
 
 ::: warning Ignoring this skews your scheduling in the wrong direction
 A scheduler that reads cost only on the success path treats the most expensive
@@ -700,22 +710,22 @@ throttled, producing another 429 and raising the throttle fence again.
 
 ```typescript
 interface OperationCost {
-  requests_total: number;
-  by_service: Partial<Record<GraphServicePool, ServicePoolCost>>;
-  requests_by_type: Record<string, number>;
-  elapsed_ms: number;
+  requestsTotal: number;
+  byService: Partial<Record<GraphServicePool, ServicePoolCost>>;
+  requestsByType: Record<string, number>;
+  elapsedMs: number;
 }
 
 interface ServicePoolCost {
   requests: number; // API calls made against this pool
-  resource_units: number; // RU consumed (equals requests for flat-cost Outlook pool)
-  upload_bytes: number; // Request body bytes (relevant for Outlook 150 MB/5min limit)
+  resourceUnits: number; // RU consumed (equals requests for flat-cost Outlook pool)
+  uploadBytes: number; // Request body bytes (relevant for Outlook 150 MB/5min limit)
 }
 
 type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
 ```
 
-Only pools that were actually used during the operation appear as keys in `by_service`. A mail backup typically has `outlook` and `identity` entries.
+Only pools that were actually used during the operation appear as keys in `byService`. A mail backup typically has `outlook` and `identity` entries.
 
 ### GRAPH_SERVICE_LIMITS
 
@@ -725,24 +735,24 @@ The officially-sourced throttling limits are exported as a frozen constant so yo
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
 
 const outlook = GRAPH_SERVICE_LIMITS.outlook;
-// outlook.requests_per_window      => 10,000
-// outlook.window_duration_ms       => 600,000 (10 min)
-// outlook.max_concurrent_requests  => 4
+// outlook.requestsPerWindow      => 10,000
+// outlook.windowDurationMs       => 600,000 (10 min)
+// outlook.maxConcurrentRequests  => 4
 
 const sp = GRAPH_SERVICE_LIMITS.sharepoint_onedrive;
-// sp.resource_units_per_minute['0-1000'] => 1,250
-// sp.delta_with_token_cost               => 1
+// sp.resourceUnitsPerMinute['0-1000'] => 1,250
+// sp.deltaWithTokenCost               => 1
 
 const identity = GRAPH_SERVICE_LIMITS.identity;
-// identity.resource_units_per_10s['L']   => 8,000
-// identity.users_list_cost               => 2
+// identity.resourceUnitsPer10s['L']   => 8,000
+// identity.usersListCost               => 2
 ```
 
 See the [Graph API Rate Limits](/operations/graph-rate-limits) page for the full reference including all pool limits, cost models, and official Microsoft documentation links.
 
 ### Scheduling with pg-boss
 
-A common pattern for SaaS products is to queue one job per mailbox using pg-boss and use `graph_cost` to compute a cooldown before scheduling the next job:
+A common pattern for SaaS products is to queue one job per mailbox using pg-boss and use `graphCost` to compute a cooldown before scheduling the next job:
 
 ```typescript
 import { createAtlasInstance, getGraphCost, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
@@ -752,13 +762,13 @@ import PgBoss from 'pg-boss';
 const boss = new PgBoss(DATABASE_URL);
 
 boss.work('backup-mailbox', async (job) => {
-  const { tenant_config, mailbox_id } = job.data;
-  const atlas = createAtlasInstance(tenant_config);
+  const { tenantConfig, mailboxId } = job.data;
+  const atlas = createAtlasInstance(tenantConfig);
 
   let cost: OperationCost | undefined;
   try {
-    const result = await atlas.outlook.backup(mailbox_id);
-    cost = result.graph_cost;
+    const result = await atlas.outlook.backup(mailboxId);
+    cost = result.graphCost;
   } catch (err) {
     // A failed run has usually burned MORE quota than a successful one. Bill it
     // and cool down on it, then let pg-boss see the failure.
@@ -768,27 +778,30 @@ boss.work('backup-mailbox', async (job) => {
     if (cost) {
       // Store per-pool costs for trend analysis
       await db.query(
-        `INSERT INTO backup_costs
-           (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
+        `INSERT INTO backupCosts
+           (mailboxId, outlookRequests, identityRequests, elapsedMs, completedAt)
          VALUES ($1, $2, $3, $4, NOW())`,
         [
-          mailbox_id,
-          cost.by_service.outlook?.requests ?? 0,
-          cost.by_service.identity?.requests ?? 0,
-          cost.elapsed_ms,
+          mailboxId,
+          cost.byService.outlook?.requests ?? 0,
+          cost.byService.identity?.requests ?? 0,
+          cost.elapsedMs,
         ],
       );
 
       // Compute cooldown from the Outlook pool limit (bottleneck for mail backup)
-      const outlook_limits = GRAPH_SERVICE_LIMITS.outlook;
-      const outlook_used = cost.by_service.outlook?.requests ?? 0;
-      const usage_ratio = outlook_used / outlook_limits.requests_per_window;
-      const cooldown_ms = Math.ceil(usage_ratio * outlook_limits.window_duration_ms);
+      const outlookLimits = GRAPH_SERVICE_LIMITS.outlook;
+      const outlookUsed = cost.byService.outlook?.requests ?? 0;
+      const usageRatio = outlookUsed / outlookLimits.requestsPerWindow;
+      const cooldownMs = Math.ceil(usageRatio * outlookLimits.windowDurationMs);
 
       // Re-enqueue after cooldown -- on the failure path this is what stops the
       // retry from landing straight back on a throttled tenant.
+      // `retryLimit: 0` because this is the retry: pg-boss would otherwise schedule its own
+      // automatic retry alongside this cooldown job, and the tenant would be hit twice.
       await boss.send('backup-mailbox', job.data, {
-        startAfter: new Date(Date.now() + cooldown_ms),
+        startAfter: new Date(Date.now() + cooldownMs),
+        retryLimit: 0,
       });
     }
   }
@@ -797,7 +810,7 @@ boss.work('backup-mailbox', async (job) => {
 
 Because the Outlook pool limit is per-mailbox, each mailbox's cooldown is independent. Running 50 parallel pg-boss workers for 50 different mailboxes is safe, because they do not share quota.
 
-For OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant instead. Aggregate `resource_units` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resource_units_per_minute['<tier>']` before scheduling the next OneDrive job.
+For OneDrive backup jobs, the `sharepoint_onedrive` pool is per-tenant instead. Aggregate `resourceUnits` across all users of a tenant and compare against `GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resourceUnitsPerMinute['<tier>']` before scheduling the next OneDrive job.
 
 ## Errors
 
@@ -819,21 +832,21 @@ try {
 }
 ```
 
-| Class                               | `code`                       | Meaning                                                                         |
-| ----------------------------------- | ---------------------------- | ------------------------------------------------------------------------------- |
-| `AtlasError`                        | any of the below             | Base class; catch this to separate deliberate failures from bugs                |
-| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call for lack of permission or admin consent       |
-| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph will not serve the mailbox                 |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site or object does not exist                         |
-| `ThrottledError`                    | `ATLAS_THROTTLED`            | Service throttled the call and the retry budget was spent; see `retry_after_ms` |
-| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                                    |
-| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold; `key` names it                       |
-| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason that is not permission, retention or absence        |
-| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase or tenant is missing or unusable              |
-| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested but bucket versioning is off                             |
-| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested but the bucket has no Object Lock                        |
-| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | Backend rejected the requested retention mode                                   |
-| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | Conditional write lost a race (HTTP 412)                                        |
+| Class                               | `code`                       | Meaning                                                                       |
+| ----------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
+| `AtlasError`                        | any of the below             | Base class; catch this to separate deliberate failures from bugs              |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call for lack of permission or admin consent     |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph will not serve the mailbox               |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site or object does not exist                       |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Service throttled the call and the retry budget was spent; see `retryAfterMs` |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                                  |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold; `key` names it                     |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason that is not permission, retention or absence      |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase or tenant is missing or unusable            |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested but bucket versioning is off                           |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested but the bucket has no Object Lock                      |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | Backend rejected the requested retention mode                                 |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | Conditional write lost a race (HTTP 412)                                      |
 
 Every error carries the underlying failure as `cause`, so the Graph or AWS SDK error is still available for logging without being what you branch on.
 
@@ -858,16 +871,16 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 
 **Graph cost types:**
 
-| Export                    | Kind  | Description                                                                  |
-| ------------------------- | ----- | ---------------------------------------------------------------------------- |
-| `OperationCost`           | type  | Per-operation cost breakdown                                                 |
-| `ServicePoolCost`         | type  | Cost for a single service pool                                               |
-| `GraphServicePool`        | type  | Pool identifier union type                                                   |
-| `GraphServiceLimits`      | type  | Type for the full limits constant                                            |
-| `OutlookServiceLimits`    | type  | Outlook pool limits type                                                     |
-| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                         |
-| `IdentityServiceLimits`   | type  | Identity pool limits type                                                    |
-| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                              |
-| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                        |
-| `SyncResult`              | type  | Result of `atlas.outlook.backup` (includes `graph_cost`)                     |
-| `RestoreResult`           | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graph_cost`) |
+| Export                    | Kind  | Description                                                                 |
+| ------------------------- | ----- | --------------------------------------------------------------------------- |
+| `OperationCost`           | type  | Per-operation cost breakdown                                                |
+| `ServicePoolCost`         | type  | Cost for a single service pool                                              |
+| `GraphServicePool`        | type  | Pool identifier union type                                                  |
+| `GraphServiceLimits`      | type  | Type for the full limits constant                                           |
+| `OutlookServiceLimits`    | type  | Outlook pool limits type                                                    |
+| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                        |
+| `IdentityServiceLimits`   | type  | Identity pool limits type                                                   |
+| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                             |
+| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                       |
+| `SyncResult`              | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                     |
+| `RestoreResult`           | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`) |

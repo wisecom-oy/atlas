@@ -176,12 +176,12 @@ function build_target(container: Container, options: ReplicateOptions): StorageT
     const target_id = file.target_id;
     const s3_region = file.s3_region;
     return create_storage_target({
-      ...(typeof target_id === 'string' ? { target_id } : {}),
-      s3_endpoint,
-      s3_access_key,
-      s3_secret_key,
-      ...(typeof s3_region === 'string' ? { s3_region } : {}),
-      encryption_passphrase: config.encryption_passphrase,
+      ...(typeof target_id === 'string' ? { targetId: target_id } : {}),
+      s3Endpoint: s3_endpoint,
+      s3AccessKey: s3_access_key,
+      s3SecretKey: s3_secret_key,
+      ...(typeof s3_region === 'string' ? { s3Region: s3_region } : {}),
+      encryptionPassphrase: config.encryption_passphrase,
     });
   }
 
@@ -197,11 +197,11 @@ function build_target(container: Container, options: ReplicateOptions): StorageT
   }
 
   return create_storage_target({
-    s3_endpoint: options.targetEndpoint,
-    s3_access_key: options.targetAccessKey,
-    s3_secret_key: target_secret_key,
-    ...(options.targetRegion !== undefined ? { s3_region: options.targetRegion } : {}),
-    encryption_passphrase: config.encryption_passphrase,
+    s3Endpoint: options.targetEndpoint,
+    s3AccessKey: options.targetAccessKey,
+    s3SecretKey: target_secret_key,
+    ...(options.targetRegion !== undefined ? { s3Region: options.targetRegion } : {}),
+    encryptionPassphrase: config.encryption_passphrase,
   });
 }
 

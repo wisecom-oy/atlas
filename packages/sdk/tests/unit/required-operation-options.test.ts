@@ -19,40 +19,41 @@ import { create_sharepoint_api } from '@/sharepoint-api.factory';
  * flag instead of the mistake.
  */
 describe('adapt_required_operation_options', () => {
-  it('returns the adapted options when snapshot_id is present', () => {
+  it('returns the adapted options when snapshotId is present', () => {
     const adapted = adapt_required_operation_options(
-      { snapshot_id: 'snap-example-1' },
+      { snapshotId: 'snap-example-1' },
       'onedrive.restore()',
     );
 
+    // Public in, internal out: the service ports declare `snapshot_id` (issue #45).
     expect(adapted).toEqual({ snapshot_id: 'snap-example-1' });
   });
 
   it('names the method and the missing field when options are omitted', () => {
     expect(() => adapt_required_operation_options(undefined, 'onedrive.restore()')).toThrow(
-      /onedrive\.restore\(\) requires an options object with a snapshot_id/,
+      /onedrive\.restore\(\) requires an options object with a snapshotId/,
     );
   });
 
-  it('fails the same way when snapshot_id is missing from the object', () => {
+  it('fails the same way when snapshotId is missing from the object', () => {
     expect(() =>
-      adapt_required_operation_options({ file_filter: ['/a.docx'] } as never, 'onedrive.save()'),
-    ).toThrow(/requires an options object with a snapshot_id/);
+      adapt_required_operation_options({ fileFilter: ['/a.docx'] } as never, 'onedrive.save()'),
+    ).toThrow(/requires an options object with a snapshotId/);
   });
 
   it.each([
     ['', 'empty'],
     ['   ', 'blank'],
-  ])('rejects an %s snapshot_id (%s)', (snapshot_id) => {
-    expect(() => adapt_required_operation_options({ snapshot_id }, 'sharepoint.restore()')).toThrow(
-      /requires an options object with a snapshot_id/,
-    );
+  ])('rejects an %s snapshotId (%s)', (snapshot_id) => {
+    expect(() =>
+      adapt_required_operation_options({ snapshotId: snapshot_id }, 'sharepoint.restore()'),
+    ).toThrow(/requires an options object with a snapshotId/);
   });
 
-  it('rejects a non-string snapshot_id instead of passing it through', () => {
+  it('rejects a non-string snapshotId instead of passing it through', () => {
     expect(() =>
-      adapt_required_operation_options({ snapshot_id: 42 } as never, 'sharepoint.save()'),
-    ).toThrow(/requires an options object with a snapshot_id/);
+      adapt_required_operation_options({ snapshotId: 42 } as never, 'sharepoint.save()'),
+    ).toThrow(/requires an options object with a snapshotId/);
   });
 
   it('throws a TypeError, since this is an argument problem', () => {
@@ -63,7 +64,7 @@ describe('adapt_required_operation_options', () => {
     const controller = new AbortController();
     const on_progress = vi.fn();
     const adapted = adapt_required_operation_options(
-      { snapshot_id: 'snap-example-1', signal: controller.signal, onProgress: on_progress },
+      { snapshotId: 'snap-example-1', signal: controller.signal, onProgress: on_progress },
       'onedrive.restore()',
     ) as { should_interrupt?: () => boolean; on_progress?: (event: unknown) => void };
 
@@ -105,7 +106,7 @@ describe('SDK entry points with options omitted', () => {
 
     await expect(
       (api.restore as (owner: string) => Promise<unknown>)('00000000-0000-0000-0000-000000000000'),
-    ).rejects.toThrow(/onedrive\.restore\(\) requires an options object with a snapshot_id/);
+    ).rejects.toThrow(/onedrive\.restore\(\) requires an options object with a snapshotId/);
     expect(restore_onedrive).not.toHaveBeenCalled();
   });
 
@@ -118,7 +119,7 @@ describe('SDK entry points with options omitted', () => {
 
     await expect(
       (api.save as (owner: string) => Promise<unknown>)('00000000-0000-0000-0000-000000000000'),
-    ).rejects.toThrow(/onedrive\.save\(\) requires an options object with a snapshot_id/);
+    ).rejects.toThrow(/onedrive\.save\(\) requires an options object with a snapshotId/);
     expect(save_snapshot).not.toHaveBeenCalled();
   });
 
@@ -130,7 +131,7 @@ describe('SDK entry points with options omitted', () => {
     );
 
     await expect((api.restore as (site: string) => Promise<unknown>)(SITE_ID)).rejects.toThrow(
-      /sharepoint\.restore\(\) requires an options object with a snapshot_id/,
+      /sharepoint\.restore\(\) requires an options object with a snapshotId/,
     );
     expect(restore_sharepoint).not.toHaveBeenCalled();
   });
@@ -143,7 +144,7 @@ describe('SDK entry points with options omitted', () => {
     );
 
     await expect((api.save as (site: string) => Promise<unknown>)(SITE_ID)).rejects.toThrow(
-      /sharepoint\.save\(\) requires an options object with a snapshot_id/,
+      /sharepoint\.save\(\) requires an options object with a snapshotId/,
     );
     expect(save_snapshot).not.toHaveBeenCalled();
   });

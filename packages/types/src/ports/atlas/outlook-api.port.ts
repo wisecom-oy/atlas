@@ -9,10 +9,18 @@ import type { MailboxStats } from '@/domain/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
 import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/mail/discovery.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { Camelize } from '@/public/case-convert';
 
-export type OutlookBackupOptions = Omit<
-  SyncOptions,
-  'progress' | 'create_progress' | 'on_progress' | 'should_interrupt' | 'should_force_stop'
+/**
+ * The public Outlook surface. Every option and result is the camelCase view of the internal
+ * snake_case model, converted at the SDK boundary (issue #45), and named here so that editor
+ * completion and `docs/reference/sdk.md` show a type rather than a mapped-type expression.
+ */
+export type OutlookBackupOptions = Camelize<
+  Omit<
+    SyncOptions,
+    'progress' | 'create_progress' | 'on_progress' | 'should_interrupt' | 'should_force_stop'
+  >
 > &
   SdkOperationOptions & {
     /**
@@ -24,37 +32,53 @@ export type OutlookBackupOptions = Omit<
      */
     readonly hardStopSignal?: AbortSignal;
   };
-export type OutlookVerificationOptions = Omit<
-  VerificationOptions,
-  'on_progress' | 'should_interrupt'
+export type OutlookVerificationOptions = Camelize<
+  Omit<VerificationOptions, 'on_progress' | 'should_interrupt'>
 > &
   SdkOperationOptions;
-export type OutlookRestoreOptions = Omit<
-  RestoreOptions,
-  'create_progress' | 'on_progress' | 'should_interrupt'
+export type OutlookRestoreOptions = Camelize<
+  Omit<RestoreOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
 > &
   SdkOperationOptions;
-export type OutlookSaveOptions = Omit<
-  SaveOptions,
-  'create_progress' | 'on_progress' | 'should_interrupt'
+export type OutlookSaveOptions = Camelize<
+  Omit<SaveOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
 > &
   SdkOperationOptions;
 
+export type OutlookBackupResult = Camelize<SyncResult>;
+export type OutlookVerificationResult = Camelize<VerificationResult>;
+export type OutlookRestoreResult = Camelize<RestoreResult>;
+export type OutlookSaveResult = Camelize<SaveResult>;
+export type OutlookMailboxSummary = Camelize<MailboxSummary>;
+export type OutlookSnapshotManifest = Camelize<Manifest>;
+export type OutlookReadMessageResult = Camelize<ReadMessageResult>;
+export type OutlookDeletionResult = Camelize<DeletionResult>;
+export type OutlookMailboxStats = Camelize<MailboxStats>;
+export type OutlookMailboxStatus = Camelize<MailboxStatusResult>;
+export type OutlookTenantMailbox = Camelize<TenantMailbox>;
+export type OutlookMailboxDiscoveryOptions = Camelize<MailboxDiscoveryOptions>;
+
 export interface OutlookApi {
-  backup(mailboxId: string, options?: OutlookBackupOptions): Promise<SyncResult>;
-  verify(snapshotId: string, options?: OutlookVerificationOptions): Promise<VerificationResult>;
-  restore(snapshotId: string, options?: OutlookRestoreOptions): Promise<RestoreResult>;
-  restoreMailbox(mailboxId: string, options?: OutlookRestoreOptions): Promise<RestoreResult>;
-  save(snapshotId: string, options?: OutlookSaveOptions): Promise<SaveResult>;
-  saveMailbox(mailboxId: string, options?: OutlookSaveOptions): Promise<SaveResult>;
-  listMailboxes(): Promise<MailboxSummary[]>;
-  listSnapshots(mailboxId: string): Promise<Manifest[]>;
-  getSnapshotDetail(snapshotId: string): Promise<Manifest | undefined>;
-  readMessage(snapshotId: string, messageRef: string): Promise<ReadMessageResult | undefined>;
-  deleteMailboxData(mailboxId: string): Promise<DeletionResult>;
-  deleteSnapshot(snapshotId: string): Promise<DeletionResult>;
-  purgeTenantData(): Promise<DeletionResult>;
-  getMailboxStats(mailboxId: string): Promise<MailboxStats>;
-  checkMailboxStatus(mailboxId: string): Promise<MailboxStatusResult>;
-  listAvailableMailboxes(options?: MailboxDiscoveryOptions): Promise<TenantMailbox[]>;
+  backup(mailboxId: string, options?: OutlookBackupOptions): Promise<OutlookBackupResult>;
+  verify(
+    snapshotId: string,
+    options?: OutlookVerificationOptions,
+  ): Promise<OutlookVerificationResult>;
+  restore(snapshotId: string, options?: OutlookRestoreOptions): Promise<OutlookRestoreResult>;
+  restoreMailbox(mailboxId: string, options?: OutlookRestoreOptions): Promise<OutlookRestoreResult>;
+  save(snapshotId: string, options?: OutlookSaveOptions): Promise<OutlookSaveResult>;
+  saveMailbox(mailboxId: string, options?: OutlookSaveOptions): Promise<OutlookSaveResult>;
+  listMailboxes(): Promise<OutlookMailboxSummary[]>;
+  listSnapshots(mailboxId: string): Promise<OutlookSnapshotManifest[]>;
+  getSnapshotDetail(snapshotId: string): Promise<OutlookSnapshotManifest | undefined>;
+  readMessage(
+    snapshotId: string,
+    messageRef: string,
+  ): Promise<OutlookReadMessageResult | undefined>;
+  deleteMailboxData(mailboxId: string): Promise<OutlookDeletionResult>;
+  deleteSnapshot(snapshotId: string): Promise<OutlookDeletionResult>;
+  purgeTenantData(): Promise<OutlookDeletionResult>;
+  getMailboxStats(mailboxId: string): Promise<OutlookMailboxStats>;
+  checkMailboxStatus(mailboxId: string): Promise<OutlookMailboxStatus>;
+  listAvailableMailboxes(options?: OutlookMailboxDiscoveryOptions): Promise<OutlookTenantMailbox[]>;
 }

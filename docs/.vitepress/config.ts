@@ -82,6 +82,7 @@ export default defineConfig({
           { text: 'CLI Recovery & Management', link: '/reference/cli-recovery' },
           { text: 'Programmatic SDK', link: '/reference/sdk' },
           { text: 'Examples', link: '/reference/examples' },
+          { text: 'Migrating to v5', link: '/migration/v5' },
         ],
       },
       {
