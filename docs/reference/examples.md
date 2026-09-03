@@ -504,20 +504,20 @@ async function prune_and_replicate_onedrive(
   keep_count: number,
   offsite: StorageTarget,
 ) {
-  const snapshots = await atlas.onedrive.listSnapshots(owner_id);
+  const snapshots = await atlas.onedrive.listSnapshots(ownerId);
 
   if (snapshots.length <= keep_count) {
     console.log(`[skip] ${ownerId} — ${snapshots.length} snapshot(s), nothing to prune`);
   } else {
     const to_delete = snapshots.slice(0, snapshots.length - keep_count);
     for (const snap of to_delete) {
-      await atlas.onedrive.deleteSnapshot(owner_id, snap.snapshotId);
+      await atlas.onedrive.deleteSnapshot(ownerId, snap.snapshotId);
       console.log(`[prune] deleted ${snap.snapshotId}`);
     }
   }
 
   // Replicate remaining snapshots
-  await atlas.onedrive.replicateAll(owner_id, [offsite]);
+  await atlas.onedrive.replicateAll(ownerId, [offsite]);
   console.log(`[replicated] ${ownerId} snapshots synced to offsite`);
 }
 ```

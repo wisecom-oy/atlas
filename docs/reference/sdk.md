@@ -308,9 +308,12 @@ drive or library. Available on both `atlas.onedrive` and `atlas.sharepoint`.
 ```typescript
 // One exact version, listed first so you know what exists.
 const versions = await atlas.onedrive.listFileVersions('owner-id', '/Documents/report.docx');
+const previous = versions.at(-2);
+if (!previous) throw new Error('No older version is stored for this file');
+
 const result = await atlas.onedrive.restoreVersion('owner-id', {
   fileRef: '/Documents/report.docx',
-  versionId: versions.at(-2)?.versionId,
+  versionId: previous.versionId,
 });
 
 // A rollback of one folder to the state before a known instant.
@@ -614,7 +617,7 @@ console.log(recovery.total.status);
 
 ## Graph API Cost Tracking
 
-Every SDK method that interacts with Microsoft Graph reports how many API requests it made, broken down by service pool. The cost is returned as a `graphCost` field on the result:
+The four operations that report cost, `backup`, `restore`, `restoreMailbox` and `checkMailboxStatus`, return how many Graph API requests they made, broken down by service pool, as a `graphCost` field on the result. Other Graph-backed calls such as `listAvailableMailboxes()` do consume quota but do not carry the field, so a scheduler budgeting against `graphCost` should account for them separately:
 
 ```typescript
 const result = await atlas.outlook.backup('user@company.com');
@@ -658,7 +661,9 @@ Pre-authenticated transfers are deliberately excluded: file downloads from
 go straight to storage rather than through Graph, and consume no Graph quota.
 
 `requestsByType` labels each request with the connector operation that issued
-it, so a paginated `deltaSync` shows the page count under one label.
+it, so a paginated `delta_sync` shows the page count under one label. Those
+labels are map keys rather than fields and are recorded verbatim, so they keep
+the spelling shown in the example above.
 
 ::: warning Recorded costs are higher than in 2.1.0-beta and earlier
 Earlier releases recorded one request per connector method call, so pagination
@@ -792,8 +797,11 @@ boss.work('backup-mailbox', async (job) => {
 
       // Re-enqueue after cooldown -- on the failure path this is what stops the
       // retry from landing straight back on a throttled tenant.
+      // `retryLimit: 0` because this is the retry: pg-boss would otherwise schedule its own
+      // automatic retry alongside this cooldown job, and the tenant would be hit twice.
       await boss.send('backup-mailbox', job.data, {
         startAfter: new Date(Date.now() + cooldownMs),
+        retryLimit: 0,
       });
     }
   }

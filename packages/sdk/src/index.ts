@@ -83,22 +83,20 @@ export type {
   OperationProgressCallback,
 } from '@wisecom/atlas-types';
 
-export type {
-  ObjectLockMode,
-  ObjectLockRequest,
-  BackupSyncMode,
-  RehydrationWorkload,
-} from '@wisecom/atlas-types';
+export type { ObjectLockMode, BackupSyncMode, RehydrationWorkload } from '@wisecom/atlas-types';
+export type { GraphServicePool } from '@wisecom/atlas-types';
 
+/**
+ * These carry converted fields, so the public name resolves to the converted type. Exporting the
+ * internal declaration next to a camelised value would tell a consumer that `requests_total`
+ * exists on something that only has `requestsTotal`.
+ */
 export type {
   OperationCost,
   ServicePoolCost,
-  GraphServicePool,
   GraphServiceLimits,
-  OutlookServiceLimits,
-  SharePointServiceLimits,
-  IdentityServiceLimits,
-} from '@wisecom/atlas-types';
+  ObjectLockRequest,
+} from './public-types';
 
 export {
   AtlasError,

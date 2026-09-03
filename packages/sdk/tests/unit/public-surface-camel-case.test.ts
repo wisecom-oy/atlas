@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type {
   AtlasInstanceConfig,
+  OperationCost,
+  GraphServiceLimits,
+  ObjectLockRequest,
   OutlookBackupOptions,
   OutlookBackupResult,
   OutlookRestoreOptions,
@@ -23,6 +26,7 @@ import type {
   StorageTargetSdkConfig,
 } from '@/index';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
+import { GRAPH_SERVICE_LIMITS } from '@/public-values';
 
 /**
  * Compile-time guard for the public surface.
@@ -42,15 +46,21 @@ type SnakeKeys<T> = T extends readonly (infer Item)[]
       ? {
           [K in keyof T]-?: K extends `${string}_${string}`
             ? K
-            : K extends 'deltaLinks' | 'requestsByType' | 'byService' | 'message'
+            : K extends 'message'
               ? never
-              : SnakeKeys<T[K]>;
+              : K extends 'deltaLinks' | 'requestsByType' | 'byService'
+                ? // The map's own keys are data and are skipped; the values under them are ours,
+                  // so a `request_count` inside `byService` is still a violation.
+                  SnakeKeys<T[K][keyof T[K]]>
+                : SnakeKeys<T[K]>;
         }[keyof T]
       : never;
 
 type NoSnakeKeys<T> = [SnakeKeys<T>] extends [never] ? true : SnakeKeys<T>;
 
 const config_is_camel: NoSnakeKeys<AtlasInstanceConfig> = true;
+const cost_is_camel: NoSnakeKeys<OperationCost> = true;
+const object_lock_request_is_camel: NoSnakeKeys<ObjectLockRequest> = true;
 const operation_options_are_camel: NoSnakeKeys<SdkOperationOptions> = true;
 const storage_target_config_is_camel: NoSnakeKeys<StorageTargetSdkConfig> = true;
 
@@ -92,7 +102,9 @@ describe('public surface', () => {
       onedrive_results_are_camel,
       sharepoint_options_are_camel,
       sharepoint_results_are_camel,
-    ]).toEqual(Array.from({ length: 9 }, () => true));
+      cost_is_camel,
+      object_lock_request_is_camel,
+    ]).toEqual(Array.from({ length: 11 }, () => true));
   });
 
   it('keeps the keys of maps Atlas did not choose', () => {
@@ -114,5 +126,23 @@ describe('public surface', () => {
     expect(Object.keys(cost.byService)).toEqual(['sharepoint_onedrive']);
     expect(Object.keys(cost.requestsByType)).toEqual(['delta_sync']);
     expect(cost.byService.sharepoint_onedrive).toEqual({ requestCount: 1 });
+  });
+
+  it('spells a pool the same way in GRAPH_SERVICE_LIMITS and in a cost', () => {
+    const cost = camelize({
+      requests_total: 0,
+      by_service: { sharepoint_onedrive: { request_count: 0 } },
+      requests_by_type: {},
+      elapsed_ms: 0,
+    });
+
+    // A caller reads a pool name off a cost and indexes the limits with it. Camelising the limits
+    // root gave `sharepointOnedrive` here and `sharepoint_onedrive` there, so that lookup
+    // returned undefined for the drive pool.
+    for (const pool of Object.keys(cost.byService)) {
+      expect(GRAPH_SERVICE_LIMITS).toHaveProperty(pool);
+    }
+    expect(Object.keys(GRAPH_SERVICE_LIMITS)).toContain('sharepoint_onedrive');
+    expect(GRAPH_SERVICE_LIMITS.sharepoint_onedrive.resourceUnitsPerMinute).toBeDefined();
   });
 });

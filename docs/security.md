@@ -108,11 +108,12 @@ There is **no built-in S3 object rename** between email-keyed and ID-keyed mailb
 
 Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of _which_ bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
 
-| Artifact                                                                | Fidelity                                                                                                                                                             |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Archived object in S3, and the `.eml` files `atlas outlook save` writes | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                                                                   |
-| A message recreated in a mailbox by `atlas outlook restore`             | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
-| Snapshots taken before this version                                     | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                                                           |
+| Artifact                                                                                            | Fidelity                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Archived object in S3, and the `.eml` files `atlas outlook save` writes for an entry stored as MIME | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                                                                   |
+| The `.eml` files `atlas outlook save` writes for a legacy entry stored as Graph JSON                | **Reconstructed.** Assembled from the stored JSON payload at export time, as the row below describes                                                                 |
+| A message recreated in a mailbox by `atlas outlook restore`                                         | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
+| Snapshots taken before this version                                                                 | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                                                           |
 
 ### The archived object is the original message
 

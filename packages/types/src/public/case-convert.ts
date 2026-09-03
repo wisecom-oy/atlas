@@ -54,7 +54,16 @@ export const OPAQUE_VALUE_KEYS = ['message'] as const;
  * These two lists are the only part of this module maintained by hand. A key added to either needs
  * a test proving the payload survives; see `case-convert.test.ts`.
  */
-export const PRESERVED_MAP_KEYS = ['delta_links', 'requests_by_type', 'by_service'] as const;
+export const PRESERVED_MAP_KEYS = [
+  'delta_links',
+  'requests_by_type',
+  'by_service',
+  // The camelCase spellings too: `snakeize` walks public values, where these fields already
+  // carry their public names, and it has to preserve the same map keys on the way back in.
+  'deltaLinks',
+  'requestsByType',
+  'byService',
+] as const;
 
 /** The same lists at the type level, so `Camelize` and the runtime converter cannot disagree. */
 export type OpaqueValueKey = (typeof OPAQUE_VALUE_KEYS)[number];
@@ -85,7 +94,13 @@ export type Snakeize<T> = T extends Passthrough
     : T extends readonly (infer Item)[]
       ? readonly Snakeize<Item>[]
       : T extends object
-        ? { [K in keyof T as K extends string ? SnakeKey<K> : K]: Snakeize<T[K]> }
+        ? {
+            [K in keyof T as K extends string ? SnakeKey<K> : K]: K extends OpaqueValueKey
+              ? T[K]
+              : K extends PreservedMapKey
+                ? { [MapKey in keyof T[K]]: Snakeize<T[K][MapKey]> }
+                : Snakeize<T[K]>;
+          }
         : T;
 
 /** Converts an internal value to its public camelCase form. */
