@@ -24,8 +24,16 @@ export const GRAPH_SERVICE_LIMITS: GraphServiceLimits = Object.fromEntries(
 /** The Graph cost of one operation, in the public camelCase form. */
 export type OperationCost = Camelize<InternalOperationCost>;
 
-/** Cost attributed to a single service pool. */
-export type ServicePoolCost = OperationCost['byService'][keyof OperationCost['byService']];
+/**
+ * Cost attributed to a single service pool.
+ *
+ * `NonNullable` because `byService` is partial: only pools the operation actually used appear, so
+ * the indexed access includes `undefined` and the name would otherwise describe a cost that might
+ * not be a cost.
+ */
+export type ServicePoolCost = NonNullable<
+  OperationCost['byService'][keyof OperationCost['byService']]
+>;
 
 /**
  * Reads the Graph cost burned before a failed operation threw.
