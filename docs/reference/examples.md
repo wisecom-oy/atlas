@@ -32,7 +32,7 @@ for (const mailbox of mailboxes) {
   }
 
   console.log(
-    `[backup] ${mailbox} — ${status.totalPendingChanges} pending change(s) across ${status.total_folders} folder(s)`,
+    `[backup] ${mailbox} — ${status.totalPendingChanges} pending change(s) across ${status.totalFolders} folder(s)`,
   );
 
   const result = await atlas.outlook.backup(mailbox);
@@ -284,10 +284,10 @@ async function validate_immutable_readiness(atlas: AtlasInstance) {
 
   console.log('Storage check results:');
   console.log(`  Bucket exists:    ${check.bucketExists}`);
-  console.log(`  Versioning:       ${check.versioning_enabled}`);
+  console.log(`  Versioning:       ${check.versioningEnabled}`);
   console.log(`  Object Lock:      ${check.objectLockEnabled}`);
 
-  if (!check.bucketExists || !check.versioning_enabled || !check.objectLockEnabled) {
+  if (!check.bucketExists || !check.versioningEnabled || !check.objectLockEnabled) {
     throw new Error(
       'Storage is not ready for immutable backups. ' +
         'Ensure the bucket exists with versioning and Object Lock enabled.',
@@ -313,17 +313,17 @@ const mailboxes = await atlas.outlook.listAvailableMailboxes();
 console.log(`Found ${mailboxes.length} mailboxes:`);
 for (const mb of mailboxes) {
   if (mb.mailboxPurpose === 'shared') {
-    console.log(`  ${mb.mail} — ${mb.display_name} (shared mailbox)`);
+    console.log(`  ${mb.mail} — ${mb.displayName} (shared mailbox)`);
   } else {
     console.log(
-      `  ${mb.mail} — ${mb.display_name} (${mb.hasExchangeLicense ? 'licensed' : 'unlicensed'})`,
+      `  ${mb.mail} — ${mb.displayName} (${mb.hasExchangeLicense ? 'licensed' : 'unlicensed'})`,
     );
   }
 }
 
 // Resolve a user email to their Entra object ID
 const user = await atlas.resolveUser('alice@company.com');
-console.log(`Resolved: ${user.display_name} → ${user.object_id}`);
+console.log(`Resolved: ${user.displayName} → ${user.objectId}`);
 
 // List all users in the identity registry (previously backed-up users)
 const registry = await atlas.listUsers();
@@ -427,10 +427,10 @@ async function collect_storage_metrics(atlas: AtlasInstance) {
   const stats = await atlas.getBucketStats();
 
   const metrics = {
-    tenant_id: stats.tenant_id,
-    total_mailboxes: stats.mailboxCount,
+    tenantId: stats.tenantId,
+    totalMailboxes: stats.mailboxCount,
     total_snapshots: stats.snapshotCount,
-    total_messages: stats.total_messages,
+    totalMessages: stats.totalMessages,
     total_size_gb: (stats.totalSizeBytes / 1024 ** 3).toFixed(2),
     total_attachments: stats.attachmentCount,
     attachment_size_gb: (stats.attachmentSizeBytes / 1024 ** 3).toFixed(2),
@@ -450,11 +450,11 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
   return {
     mailbox: stats.mailbox_id,
     snapshots: stats.snapshotCount,
-    messages: stats.total_messages,
+    messages: stats.totalMessages,
     size_mb: (stats.totalSizeBytes / 1024 ** 2).toFixed(1),
     attachments: stats.attachmentCount,
     folders: stats.folders.map((f) => ({
-      id: f.folder_id,
+      id: f.folderId,
       messages: f.messageCount,
       size_mb: (f.totalSizeBytes / 1024 ** 2).toFixed(1),
     })),
@@ -481,7 +481,7 @@ async function prune_old_snapshots(atlas: AtlasInstance, mailbox: string, keep_c
     const result = await atlas.outlook.deleteSnapshot(snapshot.snapshotId);
     console.log(
       `[prune] ${mailbox} — deleted snapshot ${snapshot.snapshotId} ` +
-        `(${result.deleted_count} objects removed)`,
+        `(${result.deletedObjects} objects removed)`,
     );
   }
 
@@ -500,14 +500,14 @@ Prune old OneDrive snapshots, keep the recent ones, and replicate the keepers of
 ```typescript
 async function prune_and_replicate_onedrive(
   atlas: AtlasInstance,
-  owner_id: string,
+  ownerId: string,
   keep_count: number,
   offsite: StorageTarget,
 ) {
   const snapshots = await atlas.onedrive.listSnapshots(owner_id);
 
   if (snapshots.length <= keep_count) {
-    console.log(`[skip] ${owner_id} — ${snapshots.length} snapshot(s), nothing to prune`);
+    console.log(`[skip] ${ownerId} — ${snapshots.length} snapshot(s), nothing to prune`);
   } else {
     const to_delete = snapshots.slice(0, snapshots.length - keep_count);
     for (const snap of to_delete) {
@@ -518,6 +518,6 @@ async function prune_and_replicate_onedrive(
 
   // Replicate remaining snapshots
   await atlas.onedrive.replicateAll(owner_id, [offsite]);
-  console.log(`[replicated] ${owner_id} snapshots synced to offsite`);
+  console.log(`[replicated] ${ownerId} snapshots synced to offsite`);
 }
 ```
