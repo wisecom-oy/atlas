@@ -30,7 +30,10 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { resolve_save_target } from '@wisecom/atlas-core/services/shared/save-archive-target';
+import {
+  resolve_save_target,
+  settle_empty_save_target,
+} from '@wisecom/atlas-core/services/shared/save-archive-target';
 import { save_entries_to_archive } from '@/services/save/save-entry-processor';
 import type { ArchiveTarget } from '@/services/save/save-zip-writer';
 
@@ -48,7 +51,7 @@ export class SaveService implements SaveUseCase {
     options: SaveOptions = {},
   ): Promise<SaveResult> {
     if (begin_operation_progress(options, 'save', 'outlook')) {
-      return this.finish_empty_result(snapshot_id, options);
+      return await this.finish_empty_result(snapshot_id, options);
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
@@ -58,7 +61,7 @@ export class SaveService implements SaveUseCase {
       const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
       if (entries.length === 0) {
         logger.warn('No entries to save');
-        return this.finish_empty_result(snapshot_id, options);
+        return await this.finish_empty_result(snapshot_id, options);
       }
 
       return this.save_batch(ctx, tenant_id, owner_id, snapshot_id, entries, options);
@@ -73,7 +76,7 @@ export class SaveService implements SaveUseCase {
     options: SaveOptions = {},
   ): Promise<SaveResult> {
     if (begin_operation_progress(options, 'save', 'outlook')) {
-      return this.finish_empty_result('mailbox', options);
+      return await this.finish_empty_result('mailbox', options);
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
@@ -81,7 +84,7 @@ export class SaveService implements SaveUseCase {
 
       if (manifests.length === 0) {
         logger.warn('No snapshots found for this mailbox in the given date range');
-        return this.finish_empty_result('mailbox', options);
+        return await this.finish_empty_result('mailbox', options);
       }
 
       const entries = merge_snapshot_entries(manifests);
@@ -93,7 +96,7 @@ export class SaveService implements SaveUseCase {
       const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
       if (filtered.length === 0) {
         logger.warn('No entries to save after filtering');
-        return this.finish_empty_result('mailbox', options);
+        return await this.finish_empty_result('mailbox', options);
       }
 
       logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
@@ -262,9 +265,16 @@ export class SaveService implements SaveUseCase {
     }
   }
 
-  private finish_empty_result(snapshot_id: string, options: SaveOptions): SaveResult {
+  private async finish_empty_result(
+    snapshot_id: string,
+    options: SaveOptions,
+  ): Promise<SaveResult> {
     const interrupted = finish_operation_progress(options, 'save', 'outlook', 0, 0);
-    // No archive was opened, so there is no path to report even when one was requested.
+    // Resolved even here, so a conflicting options pair is refused on every path, and a caller's
+    // stream is settled rather than left open on an export that produced nothing.
+    const { target } = resolve_save_target(options, build_default_output_path);
+    await settle_empty_save_target(target, interrupted);
+    // No archive landed anywhere, so there is no path to report even when one was requested.
     return this.empty_result(snapshot_id, options.output_path ?? '', interrupted);
   }
 

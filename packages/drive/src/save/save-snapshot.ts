@@ -11,7 +11,10 @@ import {
   create_file_archive,
   finalize_file_archive,
 } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
-import { resolve_save_target } from '@wisecom/atlas-core/services/shared/save-archive-target';
+import {
+  resolve_save_target,
+  settle_empty_save_target,
+} from '@wisecom/atlas-core/services/shared/save-archive-target';
 import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import type {
   FileSaveOptions,
@@ -62,6 +65,7 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
   );
   if (begin_operation_progress(options, 'save', workload)) {
     finish_operation_progress(options, 'save', workload, 0, 0);
+    await settle_empty_save_target(target, true);
     return empty_save_result(options.snapshot_id, options.output_path ?? '', true);
   }
   const ctx = await deps.tenant_factory.create(tenant_id);
@@ -76,6 +80,7 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
 
     if (restorable.length === 0) {
       const interrupted = finish_operation_progress(options, 'save', workload, 0, 0);
+      await settle_empty_save_target(target, interrupted);
       return empty_save_result(options.snapshot_id, options.output_path ?? '', interrupted);
     }
 

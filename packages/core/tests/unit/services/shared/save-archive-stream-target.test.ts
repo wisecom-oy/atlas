@@ -10,7 +10,10 @@ import {
   create_file_archive,
   finalize_file_archive,
 } from '@/services/shared/file-save-zip-writer';
-import { resolve_save_target } from '@/services/shared/save-archive-target';
+import {
+  resolve_save_target,
+  settle_empty_save_target,
+} from '@/services/shared/save-archive-target';
 
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
@@ -98,6 +101,35 @@ describe('resolve_save_target', () => {
       target: 'default.zip',
       output_path: 'default.zip',
     });
+  });
+});
+
+describe('settle_empty_save_target', () => {
+  it('hands a completed empty export a valid empty archive rather than a zero-byte body', async () => {
+    const sink = new PassThrough();
+    const received = collect(sink);
+
+    await settle_empty_save_target(sink, false);
+    const body = await received;
+
+    // An archive with no entries is exactly one end-of-central-directory record, which is what
+    // makes it a zip an extractor opens rather than an empty download.
+    expect(body).toEqual(Buffer.from([0x50, 0x4b, 0x05, 0x06, ...new Array(18).fill(0)]));
+    expect(sink.writableEnded).toBe(true);
+  });
+
+  it('destroys the stream for an interrupted empty export', async () => {
+    const sink = new PassThrough();
+
+    await settle_empty_save_target(sink, true);
+
+    expect(sink.destroyed).toBe(true);
+    expect(sink.writableEnded).toBe(false);
+  });
+
+  it('creates no file for a path target that produced nothing', async () => {
+    await settle_empty_save_target(join(dir, 'out.zip'), false);
+    expect(readdirSync(dir)).toEqual([]);
   });
 });
 
