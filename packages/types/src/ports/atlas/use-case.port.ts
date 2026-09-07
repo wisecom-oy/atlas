@@ -35,6 +35,12 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly onedrive: OneDriveApi;
   readonly sharepoint: SharePointApi;
 
+  /**
+   * Checks existing tenant-bucket access and Graph token issuance without provisioning storage.
+   * Rejects with StorageError for S3 failures or AuthError for token failures.
+   * Does not verify workload permissions or the encryption passphrase.
+   */
+  validate(): Promise<void>;
   checkStorage(request?: Camelize<StorageCheckRequest>): Promise<Camelize<StorageCheckResult>>;
   getBucketStats(): Promise<Camelize<BucketStats>>;
   resolveUser(email: string): Promise<Camelize<ResolvedUserIdentity>>;

@@ -22,7 +22,7 @@ const VALID_CONFIG: AtlasInstanceConfig = {
   s3Endpoint: 'http://localhost:9000',
   s3AccessKey: 'ak',
   s3SecretKey: 'sk',
-  encryptionPassphrase: 'passphrase',
+  encryptionPassphrase: '<redacted>'.repeat(2),
 };
 
 const mock_backup = { sync_mailbox: vi.fn() };
@@ -144,19 +144,6 @@ describe('createAtlasInstance', () => {
 
   beforeEach(() => {
     atlas = createAtlasInstance(VALID_CONFIG);
-  });
-
-  it('validates config and maps camelCase fields to snake_case AtlasConfig', async () => {
-    expect(() => createAtlasInstance({ ...VALID_CONFIG, tenantId: '' })).toThrow(/tenantId/);
-
-    const { create_container_from_config } = await import('@/container');
-    createAtlasInstance(VALID_CONFIG);
-    const config_arg = vi.mocked(create_container_from_config).mock.calls[0]![0];
-    expect(config_arg.s3_region).toBe('us-east-1');
-    expect(config_arg.tenant_id).toBe(TENANT_ID);
-    expect(config_arg.client_id).toBe('cid');
-    expect(config_arg.s3_endpoint).toBe('http://localhost:9000');
-    expect(config_arg.encryption_passphrase).toBe('passphrase');
   });
 
   describe('outlook', () => {

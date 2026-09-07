@@ -1,6 +1,5 @@
 import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
 import { create_container_from_config } from '@/container';
-import type { AtlasConfig } from '@wisecom/atlas-core';
 import type {
   AtlasInstance,
   AtlasInstanceConfig,
@@ -24,10 +23,12 @@ import { create_onedrive_api } from '@/onedrive-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
 import { create_disposer } from '@/instance-disposal';
 import { resolve_log_sink, scope_api_logging } from '@/log-scope';
+import { normalize_config } from '@/instance-config';
+import { validate_instance } from '@/instance-validation';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
-  const atlas_config = normalizeConfig(config);
+  const atlas_config = normalize_config(config);
   const container = create_container_from_config(atlas_config);
   const tenant_id = atlas_config.tenant_id;
 
@@ -50,6 +51,9 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     onedrive: scoped(create_onedrive_api(tenant_id, container)),
     sharepoint: scoped(create_sharepoint_api(tenant_id, container)),
 
+    async validate() {
+      await validate_instance(container, tenant_id);
+    },
     async checkStorage(request) {
       return camelize(await storage_check.check_storage(tenant_id, snakeize(request)));
     },
@@ -98,31 +102,4 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
   // Pointing at the scoped `dispose` also keeps both entry points identical,
   // including where their teardown warnings are logged.
   return { ...instance, [Symbol.asyncDispose]: instance.dispose };
-}
-
-function normalizeConfig(config: AtlasInstanceConfig): AtlasConfig {
-  assertRequiredField(config.tenantId, 'tenantId');
-  assertRequiredField(config.clientId, 'clientId');
-  assertRequiredField(config.clientSecret, 'clientSecret');
-  assertRequiredField(config.s3Endpoint, 's3Endpoint');
-  assertRequiredField(config.s3AccessKey, 's3AccessKey');
-  assertRequiredField(config.s3SecretKey, 's3SecretKey');
-  assertRequiredField(config.encryptionPassphrase, 'encryptionPassphrase');
-
-  return {
-    tenant_id: config.tenantId,
-    client_id: config.clientId,
-    client_secret: config.clientSecret,
-    s3_endpoint: config.s3Endpoint,
-    s3_access_key: config.s3AccessKey,
-    s3_secret_key: config.s3SecretKey,
-    s3_region: config.s3Region || 'us-east-1',
-    encryption_passphrase: config.encryptionPassphrase,
-  };
-}
-
-function assertRequiredField(value: string, field_name: keyof AtlasInstanceConfig): void {
-  if (!value) {
-    throw new Error(`Missing required Atlas instance config field: ${field_name}`);
-  }
 }

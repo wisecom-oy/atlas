@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
@@ -12,9 +13,23 @@ const onedrive_src = resolve(root_dir, '../onedrive/src');
 const sharepoint_src = resolve(root_dir, '../sharepoint/src');
 
 export default defineConfig({
+  // Match the CLI's importer-scoped resolver: each workspace package owns its `@/`.
+  plugins: [
+    {
+      name: 'atlas-vitest-workspace-at-alias',
+      enforce: 'pre',
+      resolveId(id, importer) {
+        if (!id.startsWith('@/') || !importer) return null;
+        const from_file = importer.replace(/^file:\/\//, '');
+        const package_name = from_file.match(/\/packages\/([^/]+)\/(?:src|tests)\//)?.[1];
+        if (!package_name) return null;
+        const base = resolve(root_dir, '..', package_name, 'src', id.slice(2));
+        return [base, `${base}.ts`, `${base}.tsx`, `${base}.js`].find(existsSync) ?? null;
+      },
+    },
+  ],
   resolve: {
     alias: [
-      { find: '@', replacement: resolve(root_dir, 'src') },
       { find: /^@wisecom\/atlas-types\/(.+)$/, replacement: `${types_src}/$1` },
       { find: '@wisecom/atlas-types', replacement: resolve(types_src, 'index.ts') },
       { find: /^@wisecom\/atlas-core\/(.+)$/, replacement: `${core_src}/$1` },
