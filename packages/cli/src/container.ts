@@ -7,7 +7,7 @@ import {
   CachingIdentityResolver,
 } from '@wisecom/atlas-core';
 import { bind_core_services } from '@wisecom/atlas-core';
-import { USER_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-types';
+import { ConfigError, USER_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-types';
 import { bind_graph_client } from '@wisecom/atlas-m365-graph';
 import { bind_s3_storage } from '@wisecom/atlas-s3';
 import { bind_outlook } from '@wisecom/atlas-outlook';
@@ -16,7 +16,12 @@ import { bind_sharepoint } from '@wisecom/atlas-sharepoint';
 
 /** Builds the DI container with Graph, S3, core services, and Outlook use cases. */
 export function compose_container(): Container {
-  const config = load_config();
+  let config: AtlasConfig;
+  try {
+    config = load_config();
+  } catch (cause) {
+    throw new ConfigError('Cannot load Atlas configuration.', { cause });
+  }
   return compose_container_from_config(config);
 }
 
