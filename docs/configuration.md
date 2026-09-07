@@ -1,6 +1,6 @@
 # Configuration
 
-Atlas merges configuration from four sources, in this order. Later sources win.
+The Atlas CLI merges configuration from four sources, in this order. Later sources win.
 
 1. **Config file**: `atlas.config.json` or `.atlas/config.json`, searched in cwd, then `~/.atlas/`
 2. **Encrypted secure store**: `~/.atlas/config.enc`, managed with `atlas config`
@@ -8,6 +8,8 @@ Atlas merges configuration from four sources, in this order. Later sources win.
 4. **Environment variables**: always take precedence
 
 This lets you keep defaults in a config file, credentials in the encrypted store on operator workstations, and environment variables for CI/CD or container orchestration where secrets are injected at runtime.
+
+The SDK does not use this discovery chain. Pass credentials and tenant configuration explicitly to `createAtlasInstance`; v5 rejects missing or blank required fields, passphrases shorter than 14 UTF-8 bytes, and malformed HTTP(S) S3 endpoints before creating clients. The optional `atlas.validate()` probes an existing tenant bucket and Graph token acquisition without provisioning storage. See [SDK configuration validation](/reference/sdk#configuration-validation) for endpoint constraints and typed failures.
 
 ## Variables
 

@@ -9,7 +9,7 @@ const VALID_CONFIG: AtlasInstanceConfig = {
   s3Endpoint: 'http://localhost:9000',
   s3AccessKey: 'ak',
   s3SecretKey: 'sk',
-  encryptionPassphrase: 'passphrase',
+  encryptionPassphrase: '<redacted>'.repeat(2),
 };
 
 const resolved = (value: unknown) => vi.fn().mockResolvedValue(value);

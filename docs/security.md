@@ -44,6 +44,10 @@ Parameters used by Atlas for **new** DEK wraps:
 
 The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
 
+The v5 SDK rejects passphrases shorter than 14 UTF-8 bytes at construction, matching the existing KDF warning threshold. Byte length is only a minimum, not an entropy guarantee: use at least five random words or 20 random characters for production. The CLI's existing passphrase handling is unchanged. Never pad or replace an existing passphrase without migrating its wrapped DEK; use the previous SDK or CLI to recover short-passphrase backups.
+
+The optional SDK `validate()` probe performs only S3 `HeadBucket` and Graph token acquisition. It writes no bucket or key material and returns no token. Success does not establish encryption-key correctness, object-write permissions or workload-specific Graph consent. HTTP S3 endpoints remain available for local deployments; use HTTPS across untrusted networks to protect credentials and traffic.
+
 ### DEK: Data Encryption Key
 
 - **Generated once** per tenant: a cryptographically random 256-bit key.

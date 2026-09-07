@@ -33,13 +33,44 @@ const atlas = createAtlasInstance({
 });
 ```
 
-All config is explicit. The SDK **does not read environment variables or config files**, a deliberate security choice for multi-tenant environments: no credentials picked up from a stale `.env` file, no environment variables inherited from a different tenant. Every value is passed at construction time.
+All credentials and tenant configuration are explicit. The SDK does not discover them in environment variables, `.env`, or config files, so a stale file or another tenant's inherited configuration cannot select credentials. The environment-loading container factory is not exported. Standard runtime controls such as TLS certificate validation still apply.
 
 The tenant is bound at creation time, so every method operates within that tenant scope. Methods are async and return Promises.
 
 Everything on the public surface is camelCase: methods, config, option fields and result fields alike. Before v5.0.0 the methods were camelCase and every option and result field was snake_case, because the internal model leaked through as the public API. Atlas is still snake_case internally, and the conversion happens at the SDK boundary, so `atlas.outlook.backup(id, { forceFull: true })` returns `{ summary: { attachmentsStored } }` and never a mixture of the two. See [Migrating to v5](/migration/v5) for the full list of renamed fields.
 
 Two kinds of key stay verbatim, because they are data rather than field names: the keys of a map Atlas did not choose (`deltaLinks` keyed by Graph folder id, `requestsByType` keyed by request label, `byService` keyed by pool name), and the raw Graph payload in `readMessage().message`, which has to keep matching what Graph returned and what the stored blob contains.
+
+### Configuration validation
+
+```typescript
+import { AuthError, StorageError } from '@wisecom/atlas-sdk';
+
+// Optional, after creating the instance and provisioning its tenant bucket.
+try {
+  await atlas.validate();
+} catch (error) {
+  if (error instanceof StorageError) {
+    console.error('Check S3 endpoint, credentials and tenant-bucket access.');
+  } else if (error instanceof AuthError) {
+    console.error('Check Microsoft Entra credentials and connectivity.');
+  }
+  throw error;
+}
+```
+
+`createAtlasInstance(config)` validates locally and synchronously, before creating clients. Missing or blank required fields, a passphrase shorter than **14 UTF-8 bytes**, or an invalid `s3Endpoint` throw `ConfigError` (`ATLAS_CONFIG_INVALID`). The endpoint must be an absolute HTTP or HTTPS URL with a hostname and no embedded credentials, query or fragment. HTTP supports local S3-compatible storage; use HTTPS across untrusted networks. Construction makes no network requests.
+
+`atlas.validate(): Promise<void>` is opt-in. It sends `HeadBucket` for `atlas-{tenantId}`, then requests a Graph token with the instance's shared authentication provider and `https://graph.microsoft.com/.default` scope. A cached valid token may be reused. Success resolves without returning a token or other data.
+
+| Validation stage | Failure | Operator action |
+| ---------------- | ------- | --------------- |
+| S3 `HeadBucket` | `StorageError`, `ATLAS_STORAGE_FAILURE` | Check endpoint, region, credentials, bucket existence and `s3:ListBucket` access. A missing bucket fails; provision it separately. |
+| Graph token acquisition | `AuthError`, `ATLAS_AUTH_DENIED` | Check tenant ID, client ID, client secret and connectivity to Microsoft Entra ID. |
+
+These codes identify the failed validation stage, not necessarily bad credentials: DNS, TLS and transport failures can also cause rejection. The S3 stage runs first; if it fails, Graph is not probed. Each error retains the original failure as `cause`. Do not publish raw provider diagnostics without redacting tenant and credential details.
+
+The probe never creates buckets, loads or wraps encryption keys, or writes objects. It does not verify write permissions, Object Lock readiness, workload-specific Graph consent or whether the passphrase can unwrap existing backups. Use `checkStorage()` for Object Lock readiness; an incorrect existing passphrase still raises `WrongPassphraseError` when a backup or restore loads the key. See [Security](/security#kek-derivation-scrypt) for passphrase guidance and [v5 migration](/migration/v5#eager-configuration-validation) before upgrading an existing tenant.
 
 ### Logging
 
@@ -854,16 +885,12 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 
 ## Exports
 
-`@wisecom/atlas-sdk` re-exports all domain types, port interfaces, and result types, so everything below is available from a single `@wisecom/atlas-sdk` import.
+`@wisecom/atlas-sdk` exports an explicit public list, not all internal domain types or ports. Workload options and results use the camelCase types below; infer other method results from `AtlasInstance` rather than importing internal models. See [v5 exports](/migration/v5#exports-are-now-enumerated).
 
 - Instance types: `AtlasInstance`, `AtlasInstanceConfig`
 - Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
-- Stats types: `BucketStats`, `MailboxStats`, `FolderStats`, `MonthlyBreakdown`
-- Status types: `MailboxStatusResult`, `FolderStatus`, `OneDriveStatusResult`, `OneDriveDriveStatus`, `SharePointStatusResult`, `SharePointLibraryStatus`
-- Identity types: `ResolvedUserIdentity`, `IdentityRegistry`, `IdentityRegistryEntry`
-- Discovery types: `TenantMailbox`, `MailboxDiscoveryOptions`
-- Deletion types: `DeletionResult`
-- Replication types: `ReplicationResult`, `ReplicationStatusRecord`, `StorageTarget`, `StorageTargetConfig`
+- Workload options and results: the named `Outlook*`, `OneDriveSdk*` and `SharePointSdk*` types used by each API
+- Storage targets: `StorageTarget`, `StorageTargetSdkConfig`
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`
@@ -877,10 +904,7 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 | `ServicePoolCost`         | type  | Cost for a single service pool                                              |
 | `GraphServicePool`        | type  | Pool identifier union type                                                  |
 | `GraphServiceLimits`      | type  | Type for the full limits constant                                           |
-| `OutlookServiceLimits`    | type  | Outlook pool limits type                                                    |
-| `SharePointServiceLimits` | type  | SharePoint/OneDrive pool limits type                                        |
-| `IdentityServiceLimits`   | type  | Identity pool limits type                                                   |
 | `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                             |
 | `getGraphCost`            | value | Reads the cost burned before a failed operation threw                       |
-| `SyncResult`              | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                     |
-| `RestoreResult`           | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`) |
+| `OutlookBackupResult`     | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                       |
+| `OutlookRestoreResult`    | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`)    |

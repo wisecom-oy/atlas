@@ -13,6 +13,7 @@ import { GraphCostMiddleware } from '@/graph-cost-middleware';
 import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
+export const GRAPH_AUTH_PROVIDER_TOKEN = Symbol.for('GraphAuthProvider');
 
 const GRAPH_BASE_URL = 'https://graph.microsoft.com';
 
@@ -32,10 +33,8 @@ const GRAPH_BASE_URL = 'https://graph.microsoft.com';
  * any downstream override to a non-TLS endpoint. Refuses to start
  * if NODE_TLS_REJECT_UNAUTHORIZED=0 would disable certificate validation.
  */
-export function create_graph_client(config: GraphConfig): Client {
+export function create_graph_client(auth_provider: TokenCredentialAuthenticationProvider): Client {
   assert_tls_not_disabled();
-  const credential = build_credential(config);
-  const auth_provider = build_auth_provider(credential);
   return Client.initWithMiddleware({
     middleware: build_middleware_chain(auth_provider),
     baseUrl: GRAPH_BASE_URL,
@@ -85,15 +84,15 @@ function assert_tls_not_disabled(): void {
   }
 }
 
-/** Builds an Azure AD client-secret credential for the given tenant. */
-function build_credential(config: GraphConfig): ClientSecretCredential {
-  return new ClientSecretCredential(config.tenant_id, config.client_id, config.client_secret);
-}
-
-/** Wraps the credential in a Graph-compatible authentication provider. */
-function build_auth_provider(
-  credential: ClientSecretCredential,
+/** Creates the shared, caching authentication provider for Graph requests and validation. */
+export function create_graph_auth_provider(
+  config: GraphConfig,
 ): TokenCredentialAuthenticationProvider {
+  const credential = new ClientSecretCredential(
+    config.tenant_id,
+    config.client_id,
+    config.client_secret,
+  );
   return new TokenCredentialAuthenticationProvider(credential, {
     scopes: ['https://graph.microsoft.com/.default'],
   });
