@@ -2,8 +2,8 @@ import { logger } from '@wisecom/atlas-core';
 
 /**
  * Exit code for a run that produced a snapshot but is incomplete (per-item
- * errors or an interrupt). Distinct from 1 (hard failure) so schedulers can
- * separate "page me" from "warn me". Corso's fault model: a backup is
+ * errors or an interrupt). Distinct from fatal category exits so schedulers can
+ * separate an incomplete result from an aborted run. Corso's fault model: a backup is
  * complete only when every error bucket is empty.
  */
 export const EXIT_PARTIAL = 2;
@@ -25,7 +25,7 @@ export interface RunOutcome {
  * Prints per-item errors/warnings on stderr and sets the partial exit code
  * when the run is incomplete. Shared by Outlook, OneDrive, and SharePoint
  * backup, save, and restore commands so all three domains report identically.
- * Hard failures throw and exit 1 upstream; this only handles the partial bucket.
+ * Fatal failures throw and receive a category exit upstream; this only handles partial results.
  */
 export function report_run_outcome(outcome: RunOutcome, item_noun: string): void {
   for (const warning of outcome.warnings) {

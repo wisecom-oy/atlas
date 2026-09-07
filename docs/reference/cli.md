@@ -24,6 +24,51 @@ COLUMNS=200 atlas sharepoint list-sites > sites.txt
 
 This matters beyond readability. Anything that post-processes the output, a log scrubber, a grep for an id, a parser, sees a wrapped value as two unrelated fragments and misses it.
 
+## Exit codes
+
+```bash
+status=0
+atlas outlook backup --mailbox "$mailbox" || status=$?
+case "$status" in
+  0) echo "Complete" ;;
+  2) echo "Incomplete run: inspect the reported items" >&2 ;;
+  3) echo "Transient failure: schedule a later attempt" >&2 ;;
+  4|5|6|7|8) echo "Operator action required; do not retry unchanged" >&2 ;;
+  *) echo "Command failed; inspect stderr" >&2 ;;
+esac
+exit "$status"
+```
+
+| Code | Meaning | Action |
+| ---- | ------- | ------ |
+| `0` | Success, help, or a command with no failure reported | Continue normally. |
+| `1` | Unexpected or unclassified failure, invalid command usage, or a command-reported failure without a typed exception | Inspect stderr. Do not assume the failure is transient. |
+| `2` | Partial backup, restore or save: item errors, skipped files, integrity failures or a soft interrupt | Inspect the partial result before relying on it. |
+| `3` | Throttling exhausted its retry budget, a recognized network error, or transient HTTP `429`, `500`, `502`, `503`, `504` | Schedule a later attempt. A timeout does not prove a write was never committed; inspect partial work before repeating a restore. |
+| `4` | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or an unwrapped HTTP `401`/`403` | Correct credentials, permissions, admin consent or licensing before retrying. |
+| `5` | `ATLAS_WRONG_PASSPHRASE` | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption. |
+| `6` | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration | Correct the configuration or its storage access. |
+| `7` | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404` | Check the selected resource and identifiers. |
+| `8` | `ATLAS_OBJECT_LOCK_RETAINED` | Respect retention or legal hold; repeating the same deletion cannot bypass it. |
+
+Fatal exceptions use this category mapping. Existing command-reported failures remain `1`, including failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial remain `2`; their messages are not reclassified.
+
+An explicit Atlas category takes precedence over transport details. A generic `StorageError` can still resolve to a more specific HTTP or network category. Network detection reads structured Node error codes, including nested `cause`, never message text. An error that merely says “socket hang up” is unclassified unless it carries a recognized code. Hard process termination may be reported by the shell as `128 + signal`; that is separate from Atlas's exit categories.
+
+### Fatal error diagnostics
+
+```text
+[x] Consent required
+[x]   Atlas code: ATLAS_AUTH_DENIED
+[x]   Cause: Permission denied
+[x]   HTTP status: 403
+[x]   Transport code: ErrorAccessDenied
+```
+
+The CLI prints the Atlas code separately from the underlying Graph code, HTTP status, response body or AWS error name. Unwrapped HTTP `401`/`403`, `404` and `429` also receive the corresponding Atlas category in the diagnostic. Fatal diagnostics, including `DEBUG` stacks, go to stderr rather than contaminating redirected stdout.
+
+Provider diagnostics can contain tenant identifiers and sensitive content. Redact them before sharing logs. See [Migrating to v5](/migration/v5#cli-failure-exit-codes) before updating scripts that branch on exit `1` or parse the old output.
+
 ## `atlas outlook`
 
 Outlook mailbox backup, restore, and management commands. All mailbox operations live under this group; cross-cutting storage and replication commands remain at the root level.
@@ -142,7 +187,7 @@ Storing purged mail has compliance consequences. See
 [Recoverable Items and legal hold](../security.md#recoverable-items-and-legal-hold).
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
-`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+`0` means complete, with every error bucket empty. `2` means **partial**: a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Fatal failures now use the [category exit codes](#exit-codes), rather than always returning `1`. A partial backup is restorable but is missing the listed items.
 
 `restore` and `save` follow the same contract: a file they could not decrypt or write is counted as skipped, and any skipped file exits `2`. An export that produced an archive missing some of its files is not a success, and a cron job that only checks for `0` has to be able to see the difference.
 
