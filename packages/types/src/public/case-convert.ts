@@ -1,16 +1,12 @@
 /**
  * Case conversion for the public SDK surface.
  *
- * Atlas is snake_case internally, which `.claude/CLAUDE.md` mandates and every service and domain
- * model follows. The SDK is camelCase, which its methods and config already were and its docs
- * always claimed. Before v5.0.0 only the *methods* honoured that, so consumers read
- * `createAtlasInstance` and then guessed at `force_full`, `restored_count` and `graph_cost`
- * (issue #45).
- *
- * The conversion is one mapped type plus one recursive function rather than sixty hand-mirrored
- * interfaces. Hand-mirroring drifts the first time somebody adds a field to a manifest and forgets
- * the copy; a mapped type cannot.
+ * Camelizes snake_case property names and their nested objects to the camelCase the
+ * public SDK uses; snakeizes back for the internal services. Class instances (including
+ * Node streams, Buffers, Dates, AbortSignal) are passed through untouched.
  */
+
+import type { Writable } from 'node:stream';
 
 /** Snake to camel for a single key. */
 export type CamelKey<S extends string> = S extends `${infer Head}_${infer Tail}`
@@ -32,7 +28,7 @@ export type SnakeKey<S extends string> = S extends `${infer Head}${infer Tail}`
  * `Buffer` and `Date` are objects with their own keys, and a converted `Date` would be an empty
  * object. Functions are progress hooks and reporter factories.
  */
-type Passthrough = Date | Buffer | AbortSignal | ((...args: never[]) => unknown);
+type Passthrough = Date | Buffer | AbortSignal | Writable | ((...args: never[]) => unknown);
 
 /**
  * Keys whose value is somebody else's data and is never touched at all.

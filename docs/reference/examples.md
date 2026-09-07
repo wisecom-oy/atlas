@@ -385,6 +385,36 @@ async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, out
 }
 ```
 
+### Serving an export over HTTP
+
+Hand a user their own mailbox export without staging it on the app server. The archive streams to the response as it is built, so a read-only or ephemeral filesystem is no obstacle and disk use does not scale with mailbox size.
+
+```typescript
+import express from 'express';
+
+const app = express();
+
+app.get('/exports/:mailbox', async (req, res) => {
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${req.params.mailbox}.zip"`);
+
+  try {
+    const result = await atlas.outlook.saveMailbox(req.params.mailbox, { output: res });
+    console.log(`[export] ${result.savedCount} messages, ${result.totalBytes} bytes`);
+
+    if (result.integrityFailures.length > 0) {
+      // The client already has the bytes: record this rather than trying to unsend it.
+      console.warn(`[warn] ${result.integrityFailures.length} integrity failure(s)`);
+    }
+  } catch (err) {
+    // Atlas destroyed the response, so the client sees a broken transfer rather than a short zip.
+    console.error('[export] failed', err);
+  }
+});
+```
+
+`outputPath` is empty in the result, because nothing was written to disk. The drive workloads take the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
+
 ## Maintenance and monitoring
 
 ### Periodic integrity verification

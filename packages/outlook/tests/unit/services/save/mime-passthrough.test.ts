@@ -142,6 +142,7 @@ describe('save archive payload_format routing', () => {
     await save_entries_to_archive(
       ctx,
       'out.zip',
+      'out.zip',
       false,
       new Map([['f1', entries]]),
       new Map([['f1', 'Inbox']]),
@@ -183,6 +184,7 @@ describe('save archive payload_format routing', () => {
   it('still rebuilds a legacy JSON entry through build_eml with its attachments', async () => {
     const result_count = await save_entries_to_archive(
       ctx,
+      'out.zip',
       'out.zip',
       false,
       new Map([['f1', [make_json_entry()]]]),

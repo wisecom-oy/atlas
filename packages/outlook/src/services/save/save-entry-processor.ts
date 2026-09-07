@@ -6,7 +6,11 @@ import type { EntryResult } from '@/services/save/save-entry-writer';
 import { save_json_entry, save_mime_entry } from '@/services/save/save-entry-writer';
 import { verify_checksum } from '@/services/save/save-integrity-validator';
 import type { ArchiveWriter } from '@/services/save/save-zip-writer';
-import { create_save_archive, finalize_archive } from '@/services/save/save-zip-writer';
+import {
+  create_save_archive,
+  finalize_archive,
+  type ArchiveTarget,
+} from '@/services/save/save-zip-writer';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -22,6 +26,7 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
  */
 export async function save_entries_to_archive(
   ctx: TenantContext,
+  target: ArchiveTarget,
   output_path: string,
   skip_integrity: boolean,
   groups: Map<string, ManifestEntry[]>,
@@ -30,7 +35,7 @@ export async function save_entries_to_archive(
   is_interrupted: () => boolean,
   control: OperationControlOptions,
 ): Promise<Omit<SaveResult, 'snapshot_id'> & { processed: number }> {
-  const { archive, promise, publish, abort } = create_save_archive(output_path);
+  const { archive, promise, publish, abort } = create_save_archive(target);
 
   try {
     let global_saved = 0;
@@ -96,7 +101,7 @@ export async function save_entries_to_archive(
     // Only now does anything appear at the output path, so a failure above cannot leave a
     // truncated zip there and cannot destroy a file that was already sitting on it.
     await publish();
-    await mark_downloaded_from_internet(output_path);
+    if (output_path) await mark_downloaded_from_internet(output_path);
 
     log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
 

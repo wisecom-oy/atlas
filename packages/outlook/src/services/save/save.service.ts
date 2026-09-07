@@ -30,7 +30,9 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { resolve_save_target } from '@wisecom/atlas-core/services/shared/save-archive-target';
 import { save_entries_to_archive } from '@/services/save/save-entry-processor';
+import type { ArchiveTarget } from '@/services/save/save-zip-writer';
 
 @injectable()
 export class SaveService implements SaveUseCase {
@@ -178,12 +180,12 @@ export class SaveService implements SaveUseCase {
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);
-    const output_path = options.output_path ?? build_default_output_path();
+    const { target, output_path } = resolve_save_target(options, build_default_output_path);
     const skip_integrity = options.skip_integrity_check ?? false;
 
     logger.info(
       `Saving ${entries.length} messages across ` +
-        `${count_unique_folders(entries)} folders to ${output_path}`,
+        `${count_unique_folders(entries)} folders to ${output_path || '(stream)'}`,
     );
 
     if (skip_integrity) {
@@ -200,6 +202,7 @@ export class SaveService implements SaveUseCase {
     return this.execute_save_loop(
       ctx,
       snapshot_id,
+      target,
       output_path,
       skip_integrity,
       groups,
@@ -212,6 +215,7 @@ export class SaveService implements SaveUseCase {
   private async execute_save_loop(
     ctx: TenantContext,
     snapshot_id: string,
+    target: ArchiveTarget,
     output_path: string,
     skip_integrity: boolean,
     groups: Map<string, ManifestEntry[]>,
@@ -230,6 +234,7 @@ export class SaveService implements SaveUseCase {
     try {
       const result = await save_entries_to_archive(
         ctx,
+        target,
         output_path,
         skip_integrity,
         groups,
@@ -259,6 +264,7 @@ export class SaveService implements SaveUseCase {
 
   private finish_empty_result(snapshot_id: string, options: SaveOptions): SaveResult {
     const interrupted = finish_operation_progress(options, 'save', 'outlook', 0, 0);
+    // No archive was opened, so there is no path to report even when one was requested.
     return this.empty_result(snapshot_id, options.output_path ?? '', interrupted);
   }
 
