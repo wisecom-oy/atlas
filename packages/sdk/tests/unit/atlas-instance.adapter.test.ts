@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import type {
   AtlasInstance,
   AtlasInstanceConfig,
@@ -163,10 +164,10 @@ describe('createAtlasInstance', () => {
       const sync_result = { snapshot: { id: 'snap-1' } } as unknown as SyncResult;
       vi.mocked(mock_backup.sync_mailbox).mockResolvedValue(sync_result);
 
-      const result = await atlas.outlook.backup('user@test.com', { force_full: true });
+      const result = await atlas.outlook.backup('user@test.com', { forceFull: true });
 
-      expect(result).toMatchObject(sync_result);
-      expect(result).toHaveProperty('graph_cost');
+      expect(result).toMatchObject(camelize(sync_result));
+      expect(result).toHaveProperty('graphCost');
       expect(mock_backup.sync_mailbox).toHaveBeenCalledWith(TENANT_ID, 'user@test.com', {
         force_full: true,
       });
@@ -186,7 +187,7 @@ describe('createAtlasInstance', () => {
 
       const result = await atlas.outlook.verify('snap-1');
 
-      expect(result).toBe(verification_result);
+      expect(result).toEqual(camelize(verification_result));
       expect(mock_verification.verify_snapshot_integrity).toHaveBeenCalledWith(
         TENANT_ID,
         'snap-1',
@@ -197,12 +198,12 @@ describe('createAtlasInstance', () => {
 
   describe('onedrive', () => {
     it('backup delegates to OneDriveBackupUseCase with bound tenant_id', async () => {
-      const backup_result = { snapshot_id: 'od-snap-1' };
+      const backup_result = { snapshotId: 'od-snap-1' };
       vi.mocked(mock_onedrive_backup.backup_onedrive).mockResolvedValue(backup_result);
 
-      const result = await atlas.onedrive.backup('owner-1', { force_full: true });
+      const result = await atlas.onedrive.backup('owner-1', { forceFull: true });
 
-      expect(result).toBe(backup_result);
+      expect(result).toEqual(camelize(backup_result));
       expect(mock_onedrive_backup.backup_onedrive).toHaveBeenCalledWith(TENANT_ID, 'owner-1', {
         force_full: true,
       });
@@ -216,7 +217,7 @@ describe('createAtlasInstance', () => {
 
       const result = await atlas.onedrive.verify('owner-1', 'od-snap-1');
 
-      expect(result).toBe(verify_result);
+      expect(result).toEqual(camelize(verify_result));
       expect(mock_onedrive_verification.verify_onedrive_snapshot).toHaveBeenCalledWith(
         TENANT_ID,
         'owner-1',
@@ -230,10 +231,10 @@ describe('createAtlasInstance', () => {
       const results = [{ site_id: 'site-1' }, { site_id: 'subsite-1' }];
       vi.mocked(mock_sharepoint_site_tree_backup.backup_site_tree).mockResolvedValue(results);
 
-      const result = await atlas.sharepoint.backup(SITE_ID, { include_subsites: true });
+      const result = await atlas.sharepoint.backup(SITE_ID, { includeSubsites: true });
 
       // One result per backed-up site: a partially covered tree stays visible to the caller.
-      expect(result).toBe(results);
+      expect(result).toEqual(camelize(results));
       expect(mock_sharepoint_site_tree_backup.backup_site_tree).toHaveBeenCalledWith(
         TENANT_ID,
         SITE_ID,
@@ -245,9 +246,9 @@ describe('createAtlasInstance', () => {
       const results = [{ site_id: 'site-1' }];
       vi.mocked(mock_sharepoint_site_tree_backup.backup_site_tree).mockResolvedValue(results);
 
-      const result = await atlas.sharepoint.backup(SITE_ID, { force_full: true });
+      const result = await atlas.sharepoint.backup(SITE_ID, { forceFull: true });
 
-      expect(result).toEqual(results);
+      expect(result).toEqual(camelize(results));
       expect(mock_sharepoint_site_tree_backup.backup_site_tree).toHaveBeenCalledWith(
         TENANT_ID,
         SITE_ID,
@@ -256,14 +257,14 @@ describe('createAtlasInstance', () => {
     });
 
     it('verify delegates to SharePointVerificationUseCase with bound tenant_id', async () => {
-      const verify_result = { snapshot_id: 'sp-snap-1', passed: 3, failed: [] };
+      const verify_result = { snapshotId: 'sp-snap-1', passed: 3, failed: [] };
       vi.mocked(mock_sharepoint_verification.verify_sharepoint_snapshot).mockResolvedValue(
         verify_result,
       );
 
       const result = await atlas.sharepoint.verify(SITE_ID, 'sp-snap-1');
 
-      expect(result).toBe(verify_result);
+      expect(result).toEqual(camelize(verify_result));
       expect(mock_sharepoint_verification.verify_sharepoint_snapshot).toHaveBeenCalledWith(
         TENANT_ID,
         SITE_ID,
@@ -283,9 +284,9 @@ describe('createAtlasInstance', () => {
       };
       vi.mocked(mock_storage_check.check_storage).mockResolvedValue(check_result);
 
-      const result = await atlas.checkStorage({ mode: 'GOVERNANCE', retention_days: 30 });
+      const result = await atlas.checkStorage({ mode: 'GOVERNANCE', retentionDays: 30 });
 
-      expect(result).toBe(check_result);
+      expect(result).toEqual(camelize(check_result));
       expect(mock_storage_check.check_storage).toHaveBeenCalledWith(TENANT_ID, {
         mode: 'GOVERNANCE',
         retention_days: 30,
@@ -296,7 +297,7 @@ describe('createAtlasInstance', () => {
       const stats_result = { total_objects: 100, total_bytes: 5000 };
       vi.mocked(mock_stats.get_bucket_stats).mockResolvedValue(stats_result);
 
-      expect(await atlas.getBucketStats()).toBe(stats_result);
+      expect(await atlas.getBucketStats()).toEqual(camelize(stats_result));
       expect(mock_stats.get_bucket_stats).toHaveBeenCalledWith(TENANT_ID);
     });
 
@@ -311,7 +312,9 @@ describe('createAtlasInstance', () => {
       const replication_result = [{ snapshot_id: 'snap-1', status: 'completed' }];
       vi.mocked(mock_replication.replicate_snapshot).mockResolvedValue(replication_result);
 
-      expect(await atlas.replicateSnapshot('snap-1', targets)).toBe(replication_result);
+      expect(await atlas.replicateSnapshot('snap-1', targets)).toEqual(
+        camelize(replication_result),
+      );
       expect(mock_replication.replicate_snapshot).toHaveBeenCalledWith(
         TENANT_ID,
         'snap-1',

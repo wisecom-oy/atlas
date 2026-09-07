@@ -26,13 +26,13 @@ const mailboxes = ['ceo@company.com', 'finance@company.com', 'legal@company.com'
 for (const mailbox of mailboxes) {
   const status = await atlas.outlook.checkMailboxStatus(mailbox);
 
-  if (status.is_up_to_date) {
+  if (status.isUpToDate) {
     console.log(`[skip] ${mailbox} — no changes since last backup`);
     continue;
   }
 
   console.log(
-    `[backup] ${mailbox} — ${status.total_pending_changes} pending change(s) across ${status.total_folders} folder(s)`,
+    `[backup] ${mailbox} — ${status.totalPendingChanges} pending change(s) across ${status.totalFolders} folder(s)`,
   );
 
   const result = await atlas.outlook.backup(mailbox);
@@ -40,7 +40,7 @@ for (const mailbox of mailboxes) {
   console.log(
     `[done] ${mailbox} — snapshot ${result.snapshot.id}, ` +
       `${result.summary.stored} stored, ${result.summary.deduplicated} deduped, ` +
-      `${result.summary.attachments_stored} attachments (${result.summary.elapsed_ms}ms)`,
+      `${result.summary.attachmentsStored} attachments (${result.summary.elapsedMs}ms)`,
   );
 }
 ```
@@ -57,11 +57,11 @@ import type { AtlasInstance } from '@wisecom/atlas-sdk';
 
 interface BackupReport {
   mailbox: string;
-  snapshot_id: string;
+  snapshotId: string;
   stored: number;
   deduplicated: number;
   attachments: number;
-  elapsed_ms: number;
+  elapsedMs: number;
 }
 
 async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
@@ -72,7 +72,7 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
     try {
       const status = await atlas.outlook.checkMailboxStatus(mailbox);
 
-      if (status.is_up_to_date) {
+      if (status.isUpToDate) {
         console.log(`[skip] ${mailbox} — already current`);
         continue;
       }
@@ -81,24 +81,24 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
 
       succeeded.push({
         mailbox,
-        snapshot_id: result.snapshot.id,
+        snapshotId: result.snapshot.id,
         stored: result.summary.stored,
         deduplicated: result.summary.deduplicated,
-        attachments: result.summary.attachments_stored,
-        elapsed_ms: result.summary.elapsed_ms,
+        attachments: result.summary.attachmentsStored,
+        elapsedMs: result.summary.elapsedMs,
       });
 
       if (result.summary.interrupted) {
         console.warn(
           `[warn] ${mailbox} — backup was interrupted, ` +
-            `${result.summary.completed_folder_count}/${result.summary.total_folder_count} folders completed`,
+            `${result.summary.completedFolderCount}/${result.summary.totalFolderCount} folders completed`,
         );
       }
 
-      if (result.summary.folder_errors.length > 0) {
+      if (result.summary.folderErrors.length > 0) {
         console.warn(
-          `[warn] ${mailbox} — ${result.summary.folder_errors.length} folder error(s): ` +
-            result.summary.folder_errors.join(', '),
+          `[warn] ${mailbox} — ${result.summary.folderErrors.length} folder error(s): ` +
+            result.summary.folderErrors.join(', '),
         );
       }
     } catch (err) {
@@ -171,7 +171,7 @@ for (const mailbox of mailboxes) {
 
     results.push({
       mailbox,
-      snapshot_id: backup.snapshot.id,
+      snapshotId: backup.snapshot.id,
       stored: backup.summary.stored,
       ok: true,
     });
@@ -199,11 +199,11 @@ Check for pending changes before running a OneDrive or SharePoint backup. This k
 // OneDrive status check
 const odStatus = await atlas.onedrive.checkStatus('owner-id');
 
-if (odStatus.is_up_to_date) {
+if (odStatus.isUpToDate) {
   console.log('[skip] OneDrive is current');
 } else {
   console.log(
-    `[backup] ${odStatus.total_pending_changes} pending changes across ${odStatus.total_drives} drive(s)`,
+    `[backup] ${odStatus.totalPendingChanges} pending changes across ${odStatus.totalDrives} drive(s)`,
   );
   await atlas.onedrive.backup('owner-id');
 }
@@ -211,11 +211,11 @@ if (odStatus.is_up_to_date) {
 // SharePoint status check
 const spStatus = await atlas.sharepoint.checkStatus('site-id');
 
-if (spStatus.is_up_to_date) {
+if (spStatus.isUpToDate) {
   console.log('[skip] SharePoint site is current');
 } else {
   console.log(
-    `[backup] ${spStatus.total_pending_changes} pending changes across ${spStatus.total_libraries} library/libraries`,
+    `[backup] ${spStatus.totalPendingChanges} pending changes across ${spStatus.totalLibraries} library/libraries`,
   );
   await atlas.sharepoint.backup('site-id');
 }
@@ -279,15 +279,15 @@ Verify the bucket is correctly configured before the first immutable backup writ
 async function validate_immutable_readiness(atlas: AtlasInstance) {
   const check = await atlas.checkStorage({
     mode: 'GOVERNANCE',
-    retention_days: 30,
+    retentionDays: 30,
   });
 
   console.log('Storage check results:');
-  console.log(`  Bucket exists:    ${check.bucket_exists}`);
-  console.log(`  Versioning:       ${check.versioning_enabled}`);
-  console.log(`  Object Lock:      ${check.object_lock_enabled}`);
+  console.log(`  Bucket exists:    ${check.bucketExists}`);
+  console.log(`  Versioning:       ${check.versioningEnabled}`);
+  console.log(`  Object Lock:      ${check.objectLockEnabled}`);
 
-  if (!check.bucket_exists || !check.versioning_enabled || !check.object_lock_enabled) {
+  if (!check.bucketExists || !check.versioningEnabled || !check.objectLockEnabled) {
     throw new Error(
       'Storage is not ready for immutable backups. ' +
         'Ensure the bucket exists with versioning and Object Lock enabled.',
@@ -312,24 +312,24 @@ const mailboxes = await atlas.outlook.listAvailableMailboxes();
 
 console.log(`Found ${mailboxes.length} mailboxes:`);
 for (const mb of mailboxes) {
-  if (mb.mailbox_purpose === 'shared') {
-    console.log(`  ${mb.mail} — ${mb.display_name} (shared mailbox)`);
+  if (mb.mailboxPurpose === 'shared') {
+    console.log(`  ${mb.mail} — ${mb.displayName} (shared mailbox)`);
   } else {
     console.log(
-      `  ${mb.mail} — ${mb.display_name} (${mb.has_exchange_license ? 'licensed' : 'unlicensed'})`,
+      `  ${mb.mail} — ${mb.displayName} (${mb.hasExchangeLicense ? 'licensed' : 'unlicensed'})`,
     );
   }
 }
 
 // Resolve a user email to their Entra object ID
 const user = await atlas.resolveUser('alice@company.com');
-console.log(`Resolved: ${user.display_name} → ${user.object_id}`);
+console.log(`Resolved: ${user.displayName} → ${user.objectId}`);
 
 // List all users in the identity registry (previously backed-up users)
 const registry = await atlas.listUsers();
 if (registry) {
   for (const entry of registry.entries) {
-    console.log(`  ${entry.email} — last seen: ${entry.last_backup_at}`);
+    console.log(`  ${entry.email} — last seen: ${entry.lastBackupAt}`);
   }
 }
 ```
@@ -352,7 +352,7 @@ const site = await atlas.sharepoint.resolveSite('https://contoso.sharepoint.com/
 console.log(`Site ID: ${site.id}`);
 
 // Back up the resolved site and every subsite beneath it
-const results = await atlas.sharepoint.backup(site.id, { include_subsites: true });
+const results = await atlas.sharepoint.backup(site.id, { includeSubsites: true });
 ```
 
 ## Export and compliance
@@ -364,21 +364,21 @@ Export mailbox backups as `.eml` archives on a schedule, for legal holds, compli
 ```typescript
 async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, output_dir: string) {
   const timestamp = new Date().toISOString().slice(0, 10);
-  const output_path = `${output_dir}/${mailbox.replace('@', '_at_')}_${timestamp}.zip`;
+  const outputPath = `${output_dir}/${mailbox.replace('@', '_at_')}_${timestamp}.zip`;
 
   const result = await atlas.outlook.saveMailbox(mailbox, {
-    output_path,
-    skip_integrity_check: false,
+    outputPath,
+    skipIntegrityCheck: false,
   });
 
   console.log(
-    `[export] ${mailbox} — ${result.saved_count} messages, ` +
-      `${result.attachment_count} attachments, ` +
-      `${(result.total_bytes / 1024 ** 2).toFixed(1)} MB → ${result.output_path}`,
+    `[export] ${mailbox} — ${result.savedCount} messages, ` +
+      `${result.attachmentCount} attachments, ` +
+      `${(result.totalBytes / 1024 ** 2).toFixed(1)} MB → ${result.outputPath}`,
   );
 
-  if (result.integrity_failures.length > 0) {
-    console.warn(`[warn] ${result.integrity_failures.length} integrity failure(s) during export`);
+  if (result.integrityFailures.length > 0) {
+    console.warn(`[warn] ${result.integrityFailures.length} integrity failure(s) during export`);
   }
 
   return result;
@@ -402,10 +402,10 @@ async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) 
     }
 
     const latest = snapshots[snapshots.length - 1];
-    const result = await atlas.outlook.verify(latest.snapshot_id);
+    const result = await atlas.outlook.verify(latest.snapshotId);
 
     if (result.failed.length === 0) {
-      console.log(`[pass] ${mailbox} — ${result.passed}/${result.total_checked} objects verified`);
+      console.log(`[pass] ${mailbox} — ${result.passed}/${result.totalChecked} objects verified`);
     } else {
       console.error(`[FAIL] ${mailbox} — ${result.failed.length} integrity failure(s):`);
       for (const failure of result.failed) {
@@ -427,13 +427,13 @@ async function collect_storage_metrics(atlas: AtlasInstance) {
   const stats = await atlas.getBucketStats();
 
   const metrics = {
-    tenant_id: stats.tenant_id,
-    total_mailboxes: stats.mailbox_count,
-    total_snapshots: stats.snapshot_count,
-    total_messages: stats.total_messages,
-    total_size_gb: (stats.total_size_bytes / 1024 ** 3).toFixed(2),
-    total_attachments: stats.attachment_count,
-    attachment_size_gb: (stats.attachment_size_bytes / 1024 ** 3).toFixed(2),
+    tenantId: stats.tenantId,
+    totalMailboxes: stats.mailboxCount,
+    total_snapshots: stats.snapshotCount,
+    totalMessages: stats.totalMessages,
+    total_size_gb: (stats.totalSizeBytes / 1024 ** 3).toFixed(2),
+    total_attachments: stats.attachmentCount,
+    attachment_size_gb: (stats.attachmentSizeBytes / 1024 ** 3).toFixed(2),
   };
 
   console.log(JSON.stringify(metrics, null, 2));
@@ -449,14 +449,14 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
 
   return {
     mailbox: stats.mailbox_id,
-    snapshots: stats.snapshot_count,
-    messages: stats.total_messages,
-    size_mb: (stats.total_size_bytes / 1024 ** 2).toFixed(1),
-    attachments: stats.attachment_count,
+    snapshots: stats.snapshotCount,
+    messages: stats.totalMessages,
+    size_mb: (stats.totalSizeBytes / 1024 ** 2).toFixed(1),
+    attachments: stats.attachmentCount,
     folders: stats.folders.map((f) => ({
-      id: f.folder_id,
-      messages: f.message_count,
-      size_mb: (f.total_size_bytes / 1024 ** 2).toFixed(1),
+      id: f.folderId,
+      messages: f.messageCount,
+      size_mb: (f.totalSizeBytes / 1024 ** 2).toFixed(1),
     })),
   };
 }
@@ -478,10 +478,10 @@ async function prune_old_snapshots(atlas: AtlasInstance, mailbox: string, keep_c
   const to_delete = snapshots.slice(0, snapshots.length - keep_count);
 
   for (const snapshot of to_delete) {
-    const result = await atlas.outlook.deleteSnapshot(snapshot.snapshot_id);
+    const result = await atlas.outlook.deleteSnapshot(snapshot.snapshotId);
     console.log(
-      `[prune] ${mailbox} — deleted snapshot ${snapshot.snapshot_id} ` +
-        `(${result.deleted_count} objects removed)`,
+      `[prune] ${mailbox} — deleted snapshot ${snapshot.snapshotId} ` +
+        `(${result.deletedObjects} objects removed)`,
     );
   }
 
@@ -500,24 +500,24 @@ Prune old OneDrive snapshots, keep the recent ones, and replicate the keepers of
 ```typescript
 async function prune_and_replicate_onedrive(
   atlas: AtlasInstance,
-  owner_id: string,
+  ownerId: string,
   keep_count: number,
   offsite: StorageTarget,
 ) {
-  const snapshots = await atlas.onedrive.listSnapshots(owner_id);
+  const snapshots = await atlas.onedrive.listSnapshots(ownerId);
 
   if (snapshots.length <= keep_count) {
-    console.log(`[skip] ${owner_id} — ${snapshots.length} snapshot(s), nothing to prune`);
+    console.log(`[skip] ${ownerId} — ${snapshots.length} snapshot(s), nothing to prune`);
   } else {
     const to_delete = snapshots.slice(0, snapshots.length - keep_count);
     for (const snap of to_delete) {
-      await atlas.onedrive.deleteSnapshot(owner_id, snap.snapshot_id);
-      console.log(`[prune] deleted ${snap.snapshot_id}`);
+      await atlas.onedrive.deleteSnapshot(ownerId, snap.snapshotId);
+      console.log(`[prune] deleted ${snap.snapshotId}`);
     }
   }
 
   // Replicate remaining snapshots
-  await atlas.onedrive.replicateAll(owner_id, [offsite]);
-  console.log(`[replicated] ${owner_id} snapshots synced to offsite`);
+  await atlas.onedrive.replicateAll(ownerId, [offsite]);
+  console.log(`[replicated] ${ownerId} snapshots synced to offsite`);
 }
 ```

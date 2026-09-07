@@ -116,7 +116,7 @@ describe('SDK progress and cancellation option adaptation', () => {
 
     await api.backup(OWNER_ID, {
       hardStopSignal: new AbortController().signal,
-      object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+      objectLockRequest: { mode: 'COMPLIANCE', retentionDays: 30 },
     });
 
     const options = sync_mailbox.mock.calls[0]![2] as {
@@ -219,12 +219,12 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controllers[0].signal,
     });
     await api.restore(OWNER_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[1],
       signal: controllers[1].signal,
     });
     await api.save(OWNER_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[2],
       signal: controllers[2].signal,
     });
@@ -258,12 +258,12 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controllers[0].signal,
     });
     await api.restore(SITE_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[1],
       signal: controllers[1].signal,
     });
     await api.save(SITE_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[2],
       signal: controllers[2].signal,
     });

@@ -12,6 +12,7 @@ import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
 import type { SharePointApi } from '@/ports/atlas/sharepoint-api.port';
 import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
 import type { IdentityRegistry } from '@/domain/identity-registry';
+import type { Camelize } from '@/public/case-convert';
 
 export interface AtlasInstanceConfig {
   readonly tenantId: string;
@@ -34,17 +35,26 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly onedrive: OneDriveApi;
   readonly sharepoint: SharePointApi;
 
-  checkStorage(request?: StorageCheckRequest): Promise<StorageCheckResult>;
-  getBucketStats(): Promise<BucketStats>;
-  resolveUser(email: string): Promise<ResolvedUserIdentity>;
-  listUsers(): Promise<IdentityRegistry | undefined>;
-  replicateSnapshot(snapshotId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
-  replicateMailbox(mailboxId: string, targets: StorageTarget[]): Promise<ReplicationResult[]>;
-  rehydrateSnapshot(snapshotId: string, source: StorageTarget): Promise<ReplicationResult>;
-  rehydrateMailbox(mailboxId: string, source: StorageTarget): Promise<ReplicationResult>;
+  checkStorage(request?: Camelize<StorageCheckRequest>): Promise<Camelize<StorageCheckResult>>;
+  getBucketStats(): Promise<Camelize<BucketStats>>;
+  resolveUser(email: string): Promise<Camelize<ResolvedUserIdentity>>;
+  listUsers(): Promise<Camelize<IdentityRegistry> | undefined>;
+  replicateSnapshot(
+    snapshotId: string,
+    targets: StorageTarget[],
+  ): Promise<Camelize<ReplicationResult>[]>;
+  replicateMailbox(
+    mailboxId: string,
+    targets: StorageTarget[],
+  ): Promise<Camelize<ReplicationResult>[]>;
+  rehydrateSnapshot(
+    snapshotId: string,
+    source: StorageTarget,
+  ): Promise<Camelize<ReplicationResult>>;
+  rehydrateMailbox(mailboxId: string, source: StorageTarget): Promise<Camelize<ReplicationResult>>;
   /** Full tenant recovery across Outlook, OneDrive, and SharePoint, reported per workload. */
-  rehydrateTenant(source: StorageTarget): Promise<TenantRehydrationResult>;
-  getReplicationStatus(snapshotId?: string): Promise<ReplicationStatusRecord[]>;
+  rehydrateTenant(source: StorageTarget): Promise<Camelize<TenantRehydrationResult>>;
+  getReplicationStatus(snapshotId?: string): Promise<Camelize<ReplicationStatusRecord>[]>;
   /**
    * Releases the instance: S3 socket pools, cached bucket state, container
    * bindings. Idempotent. The instance must not be used afterwards.
@@ -54,5 +64,5 @@ export interface AtlasInstance extends AsyncDisposable {
    */
   dispose(): Promise<void>;
 
-  getReplicationStatusByOwner(mailboxId: string): Promise<ReplicationStatusRecord[]>;
+  getReplicationStatusByOwner(mailboxId: string): Promise<Camelize<ReplicationStatusRecord>[]>;
 }

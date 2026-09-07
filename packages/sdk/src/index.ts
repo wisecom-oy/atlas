@@ -1,12 +1,118 @@
-export * from '@wisecom/atlas-types';
+/**
+ * The public `@wisecom/atlas-sdk` surface.
+ *
+ * Enumerated rather than re-exported wholesale. `export * from '@wisecom/atlas-types'` published
+ * every internal port, DI token and service interface as public API, which meant the snake_case
+ * internals were the SDK's vocabulary and any internal rename was a consumer's breaking change
+ * (issue #45). Everything below is camelCase, converted at the boundary.
+ */
+export { createAtlasInstance } from './atlas-instance.adapter';
+export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
+export { getGraphCost, GRAPH_SERVICE_LIMITS } from './public-values';
+
+export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
+export type { StorageTarget } from '@wisecom/atlas-types';
 export type { StorageTargetSdkConfig } from '@wisecom/atlas-s3';
+export type { LogSink, LogFields } from '@wisecom/atlas-types';
+
+export type {
+  OutlookApi,
+  OutlookBackupOptions,
+  OutlookBackupResult,
+  OutlookVerificationOptions,
+  OutlookVerificationResult,
+  OutlookRestoreOptions,
+  OutlookRestoreResult,
+  OutlookSaveOptions,
+  OutlookSaveResult,
+  OutlookMailboxSummary,
+  OutlookSnapshotManifest,
+  OutlookReadMessageResult,
+  OutlookDeletionResult,
+  OutlookMailboxStats,
+  OutlookMailboxStatus,
+  OutlookTenantMailbox,
+  OutlookMailboxDiscoveryOptions,
+} from '@wisecom/atlas-types';
+
+export type {
+  OneDriveApi,
+  OneDriveSdkBackupOptions,
+  OneDriveSdkBackupResult,
+  OneDriveSdkVerificationOptions,
+  OneDriveSdkVerificationResult,
+  OneDriveSdkRestoreOptions,
+  OneDriveSdkRestoreResult,
+  OneDriveSdkVersionRestoreOptions,
+  OneDriveSdkVersionRestoreResult,
+  OneDriveSdkSaveOptions,
+  OneDriveSdkSaveResult,
+  OneDriveSdkSnapshotManifest,
+  OneDriveSdkFileVersion,
+  OneDriveSdkDeletionResult,
+  OneDriveSdkReplicationResult,
+  OneDriveSdkStatusResult,
+  OneDriveSdkStats,
+} from '@wisecom/atlas-types';
+
+export type {
+  SharePointApi,
+  SharePointSdkBackupOptions,
+  SharePointSdkBackupResult,
+  SharePointSdkVerificationOptions,
+  SharePointSdkVerificationResult,
+  SharePointSdkRestoreOptions,
+  SharePointSdkRestoreResult,
+  SharePointSdkVersionRestoreOptions,
+  SharePointSdkVersionRestoreResult,
+  SharePointSdkSaveOptions,
+  SharePointSdkSaveResult,
+  SharePointSdkSnapshotManifest,
+  SharePointSdkFileVersion,
+  SharePointSdkDeletionResult,
+  SharePointSdkReplicationResult,
+  SharePointSdkStatusResult,
+  SharePointSdkSite,
+  SharePointSdkStats,
+} from '@wisecom/atlas-types';
+
+export type {
+  SdkOperationOptions,
+  OperationProgressEvent,
+  OperationProgressPhase,
+  OperationProgressCallback,
+} from '@wisecom/atlas-types';
+
+export type { ObjectLockMode, BackupSyncMode, RehydrationWorkload } from '@wisecom/atlas-types';
+export type { GraphServicePool } from '@wisecom/atlas-types';
+
+/**
+ * These carry converted fields, so the public name resolves to the converted type. Exporting the
+ * internal declaration next to a camelised value would tell a consumer that `requests_total`
+ * exists on something that only has `requestsTotal`.
+ */
+export type {
+  OperationCost,
+  ServicePoolCost,
+  GraphServiceLimits,
+  ObjectLockRequest,
+} from './public-types';
+
+export {
+  AtlasError,
+  AuthError,
+  MailboxNotLicensedError,
+  NotFoundError,
+  ThrottledError,
+  WrongPassphraseError,
+  ObjectLockRetainedError,
+  StorageError,
+  ConfigError,
+} from '@wisecom/atlas-types';
+export type { AtlasErrorCode } from '@wisecom/atlas-types';
 export {
   ObjectLockVersioningDisabledError,
   ObjectLockUnsupportedError,
   ObjectLockModeRejectedError,
   PreconditionFailedError,
 } from '@wisecom/atlas-s3';
-export { createAtlasInstance } from './atlas-instance.adapter';
-export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
-export { get_graph_cost as getGraphCost } from '@wisecom/atlas-core/services/shared/graph-request-context';
-export { create_container, create_container_from_config } from './container';

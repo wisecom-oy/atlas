@@ -76,15 +76,15 @@ Every encrypt operation generates a **fresh random 12-byte IV** (initialization 
 
 ### What Is Encrypted at Rest
 
-| Data                                       | Encrypted | Notes                                                                      |
-| ------------------------------------------ | --------- | -------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`       |
+| Data                                       | Encrypted | Notes                                                                                                                  |
+| ------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`                                                   |
 | Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
-| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                     |
-| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                             |
-| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`             |
-| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                  |
-| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
+| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                                                                 |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                         |
+| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                         |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                              |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                             |
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
@@ -106,30 +106,31 @@ There is **no built-in S3 object rename** between email-keyed and ID-keyed mailb
 
 ## Backup Fidelity
 
-Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of *which* bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
+Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of _which_ bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
 
-| Artifact                                                     | Fidelity                                                                                                                       |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Archived object in S3, and the `.eml` files `atlas outlook save` writes | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                    |
-| A message recreated in a mailbox by `atlas outlook restore`   | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
-| Snapshots taken before this version                          | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                      |
+| Artifact                                                                                            | Fidelity                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Archived object in S3, and the `.eml` files `atlas outlook save` writes for an entry stored as MIME | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                                                                   |
+| The `.eml` files `atlas outlook save` writes for a legacy entry stored as Graph JSON                | **Reconstructed.** Assembled from the stored JSON payload at export time, as the row below describes                                                                 |
+| A message recreated in a mailbox by `atlas outlook restore`                                         | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
+| Snapshots taken before this version                                                                 | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                                                           |
 
 ### The archived object is the original message
 
 Backup fetches every new or changed message as **RFC 5322 MIME** -- the on-the-wire form of an email, every header and body part exactly as the sending and relaying servers produced them -- with `GET /users/{id}/messages/{id}/$value`, and stores those bytes as the canonical encrypted object.
 
-Earlier Atlas versions stored `JSON.stringify()` of roughly 24 selected Microsoft Graph fields and *reconstructed* an `.eml` file at export time with the `mimetext` library. A reconstruction is a plausible email, not the original one: it carries the fields Atlas thought to select, re-encoded by a library that was never in the message's transit path. Everything an investigator would use to prove where a message came from was missing, because Graph's JSON projection never contained it.
+Earlier Atlas versions stored `JSON.stringify()` of roughly 24 selected Microsoft Graph fields and _reconstructed_ an `.eml` file at export time with the `mimetext` library. A reconstruction is a plausible email, not the original one: it carries the fields Atlas thought to select, re-encoded by a library that was never in the message's transit path. Everything an investigator would use to prove where a message came from was missing, because Graph's JSON projection never contained it.
 
 Storing the original bytes recovers the following. Each row is a question an operator or auditor eventually has to answer:
 
-| Recovered content                                                        | What it answers                                                                                                                                          |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The `Received:` chain                                                    | Chain of custody: which servers handled the message, in what order, and when it passed each hop                                                           |
+| Recovered content                                                          | What it answers                                                                                                                                                   |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The `Received:` chain                                                      | Chain of custody: which servers handled the message, in what order, and when it passed each hop                                                                   |
 | `Authentication-Results` with DKIM, SPF, and ARC results, `DKIM-Signature` | Whether the message was authentic or forged. DKIM is a cryptographic signature over selected headers and the body, so it verifies only against the original bytes |
-| `In-Reply-To` and `References`                                           | Threading. Exported `.eml` files group into conversations in any mail client instead of arriving as unrelated messages                                    |
-| Original multipart structure and transfer encodings                      | Byte-level attestation: part boundaries, `Content-Transfer-Encoding`, and part order are preserved rather than regenerated                                |
-| S/MIME signed and encrypted payloads                                     | Signature verification and decryption, both of which are only possible over the original bytes                                                            |
-| Custom `X-` headers and mailing-list headers                             | Gateway, DLP, and list-server annotations that no Graph field exposes                                                                                     |
+| `In-Reply-To` and `References`                                             | Threading. Exported `.eml` files group into conversations in any mail client instead of arriving as unrelated messages                                            |
+| Original multipart structure and transfer encodings                        | Byte-level attestation: part boundaries, `Content-Transfer-Encoding`, and part order are preserved rather than regenerated                                        |
+| S/MIME signed and encrypted payloads                                       | Signature verification and decryption, both of which are only possible over the original bytes                                                                    |
+| Custom `X-` headers and mailing-list headers                               | Gateway, DLP, and list-server annotations that no Graph field exposes                                                                                             |
 
 There is deliberately no `--fidelity` flag. MIME is the only mode for new snapshots, so an operator cannot accidentally archive a year of mail in the weaker format.
 
@@ -150,11 +151,11 @@ Each manifest entry records which format its object holds. Entries with `payload
 
 On that path attachments are separate objects again, and all three Graph attachment types are captured:
 
-| Graph type | What Atlas stores |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `fileAttachment` | The file bytes, inline when Graph includes them, otherwise fetched from `/$value` |
-| `itemAttachment` | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
-| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked |
+| Graph type            | What Atlas stores                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `fileAttachment`      | The file bytes, inline when Graph includes them, otherwise fetched from `/$value`                         |
+| `itemAttachment`      | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
+| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked    |
 
 An attached message therefore exports as a `message/rfc822` part that mail clients open as mail, an invite as `.ics`, and a contact as `.vcf`. The content type is decided by the bytes that arrive rather than by the attachment's name, because Graph does not say which kind of item is attached and an invite mislabelled as mail opens as broken mail.
 
@@ -273,13 +274,13 @@ tenant.
 
 A restored file is the original bytes, verified against the manifest checksum. Everything else that defines a document in Microsoft 365 is a separate question, and the answers differ:
 
-| Property | Captured | Restored |
-| ------------------------------------------- | -------- | ---------------------------------------------------------- |
-| File content | Yes | Yes, byte-exact |
-| Original created and modified timestamps | Yes | Yes, through the `fileSystemInfo` facet |
-| `createdBy` / `lastModifiedBy` authors | Yes | No. Recorded for audit only |
-| Version authors | Yes | No. Recorded for audit only |
-| Sharing permissions and links | No | No |
+| Property                                 | Captured | Restored                                |
+| ---------------------------------------- | -------- | --------------------------------------- |
+| File content                             | Yes      | Yes, byte-exact                         |
+| Original created and modified timestamps | Yes      | Yes, through the `fileSystemInfo` facet |
+| `createdBy` / `lastModifiedBy` authors   | Yes      | No. Recorded for audit only             |
+| Version authors                          | Yes      | No. Recorded for audit only             |
+| Sharing permissions and links            | No       | No                                      |
 
 #### Timestamps: which ones travel
 
@@ -391,10 +392,10 @@ Replication status sidecar files stored under `_meta/replication/` in the primar
 
 Atlas splits its storage access in two, so a browsing operator never needs write credentials:
 
-| Command class                                                                                                 | S3 actions required                                                                                        | Provisioning |
-| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                             | None         |
-| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                          | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
+| Command class                                                                                                                            | S3 actions required                                                                                                         | Provisioning |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                             | None         |
+| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                                   | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
 
 Read-only commands load the tenant context without provisioning: the bucket is never created and a missing `_meta/dek.enc` is never generated. Browsing a tenant that has never been backed up — a mistyped `-t`, or a tenant id from another environment — fails with `No backups found for tenant <id>` instead of leaving behind a lifecycle-configured bucket containing nothing but key material. That matters for two reasons: a wrapped DEK written on a read path is an audit-log surprise in a compliance-facing product, and buckets born from typos are indistinguishable from real tenants when reviewing storage.
 

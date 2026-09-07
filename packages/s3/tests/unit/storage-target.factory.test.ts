@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { create_storage_target } from '@/adapters/storage-target.factory';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
-import type { StorageTargetConfig } from '@wisecom/atlas-types';
+import type { StorageTargetSdkConfig } from '@/adapters/storage-target.factory';
 
 // Holder the hoisted mock can close over; populated by the crypto test before use.
 const crypto_state = vi.hoisted(() => ({ wrapped_dek: Buffer.alloc(0) }));
@@ -39,11 +39,11 @@ vi.mock('@/adapters/tenant-bucket-name', () => ({
 }));
 
 describe('create_storage_target', () => {
-  const base_config: StorageTargetConfig = {
-    s3_endpoint: 'http://offsite:9000',
-    s3_access_key: 'access',
-    s3_secret_key: 'secret',
-    encryption_passphrase: 'test-pass',
+  const base_config: StorageTargetSdkConfig = {
+    s3Endpoint: 'http://offsite:9000',
+    s3AccessKey: 'access',
+    s3SecretKey: 'secret',
+    encryptionPassphrase: 'test-pass',
   };
 
   it('creates a storage target with auto-derived target_id', () => {
@@ -57,7 +57,7 @@ describe('create_storage_target', () => {
   it('uses explicit target_id when provided', () => {
     const target = create_storage_target({
       ...base_config,
-      target_id: 'my-offsite',
+      targetId: 'my-offsite',
     });
 
     expect(target.target_id).toBe('my-offsite');
@@ -101,7 +101,7 @@ describe('create_storage_target', () => {
     const t1 = create_storage_target(base_config);
     const t2 = create_storage_target({
       ...base_config,
-      s3_endpoint: 'http://other:9000',
+      s3Endpoint: 'http://other:9000',
     });
     expect(t1.target_id).not.toBe(t2.target_id);
   });

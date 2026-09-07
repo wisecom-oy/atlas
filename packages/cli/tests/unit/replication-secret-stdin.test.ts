@@ -59,7 +59,7 @@ const RESULT: ReplicationResult = {
 /** The secret the command handed to the storage factory, or undefined when none was built. */
 function captured_secret(): string | undefined {
   const call = (mocks.create_storage_target as Mock).mock.calls[0];
-  return call?.[0]?.s3_secret_key as string | undefined;
+  return call?.[0]?.s3SecretKey as string | undefined;
 }
 
 describe('replicate/rehydrate secret key from stdin (issue #256)', () => {

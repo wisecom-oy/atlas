@@ -45,21 +45,21 @@ await atlas.onedrive.backup('user@company.com');
 
 // SharePoint backup: pass a site URL or Graph site id, add subsites when needed
 await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering', {
-  include_subsites: true,
+  includeSubsites: true,
 });
 ```
 
 ## API overview
 
-| Namespace / method | Purpose |
-| ------------------ | ------- |
-| `atlas.outlook` | Mailbox backup, restore, verify, catalog |
-| `atlas.onedrive` | OneDrive backup and verification |
-| `atlas.sharepoint` | SharePoint site backup and restore |
-| `atlas.getBucketStats()` | Storage statistics |
-| `atlas.checkStorage()` | S3 Object Lock readiness |
-| `atlas.replicateSnapshot()` | Cross-region replication |
-| `createStorageTarget()` | Configure secondary S3 targets |
+| Namespace / method          | Purpose                                  |
+| --------------------------- | ---------------------------------------- |
+| `atlas.outlook`             | Mailbox backup, restore, verify, catalog |
+| `atlas.onedrive`            | OneDrive backup and verification         |
+| `atlas.sharepoint`          | SharePoint site backup and restore       |
+| `atlas.getBucketStats()`    | Storage statistics                       |
+| `atlas.checkStorage()`      | S3 Object Lock readiness                 |
+| `atlas.replicateSnapshot()` | Cross-region replication                 |
+| `createStorageTarget()`     | Configure secondary S3 targets           |
 
 The SDK re-exports domain types, port interfaces, and `GRAPH_SERVICE_LIMITS` from a single import.
 

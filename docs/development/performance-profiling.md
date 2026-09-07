@@ -58,18 +58,18 @@ The functions where CPU is actually consumed, excluding time spent in their call
 
 Aggregates all functions by their Atlas package, giving a high-level view of where compute time goes:
 
-| Domain                           | What it covers                                          |
-| -------------------------------- | ------------------------------------------------------- |
-| `@wisecom/atlas-core/crypto`     | Key derivation (scrypt), AES-256-GCM encrypt/decrypt    |
-| `@wisecom/atlas-s3`              | S3 PutObject/GetObject, MD5 checksum, client operations |
-| `@wisecom/atlas-m365-graph`      | Graph client factory, rate limiting, retry logic        |
+| Domain                           | What it covers                                            |
+| -------------------------------- | --------------------------------------------------------- |
+| `@wisecom/atlas-core/crypto`     | Key derivation (scrypt), AES-256-GCM encrypt/decrypt      |
+| `@wisecom/atlas-s3`              | S3 PutObject/GetObject, MD5 checksum, client operations   |
+| `@wisecom/atlas-m365-graph`      | Graph client factory, rate limiting, retry logic          |
 | `@wisecom/atlas-drive`           | Download retry, streaming restore, manifest chain folding |
-| `@wisecom/atlas-outlook/backup`  | Folder sync, delta processing, attachment storage       |
-| `@wisecom/atlas-outlook/restore` | Message reconstruction, folder creation, uploads        |
-| `node:crypto`                    | Native crypto primitives (called by core/crypto)        |
-| `node:network`                   | TLS handshakes, HTTP framing, TCP                       |
-| `aws-sdk`                        | AWS SDK v3 internals                                    |
-| `ms-graph-sdk`                   | Microsoft Graph client library                          |
+| `@wisecom/atlas-outlook/backup`  | Folder sync, delta processing, attachment storage         |
+| `@wisecom/atlas-outlook/restore` | Message reconstruction, folder creation, uploads          |
+| `node:crypto`                    | Native crypto primitives (called by core/crypto)          |
+| `node:network`                   | TLS handshakes, HTTP framing, TCP                         |
+| `aws-sdk`                        | AWS SDK v3 internals                                      |
+| `ms-graph-sdk`                   | Microsoft Graph client library                            |
 
 ### Hot Paths
 
