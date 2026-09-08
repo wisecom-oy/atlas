@@ -148,7 +148,6 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
 
       const scan_result = await scan_all_drives(
         this._connector,
-        this._cursors,
         drives,
         tenant_id,
         owner_id,

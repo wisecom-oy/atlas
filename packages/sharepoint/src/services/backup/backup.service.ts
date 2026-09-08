@@ -114,7 +114,6 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       const versions = await this.load_run_version_collector(ctx, site_id, stored_cursor);
       const scan = await scan_all_libraries({
         connector: this._connector,
-        cursors: this._cursors,
         versions,
         initial_failed_items: previous_cursor?.failed_items ?? {},
         tenant_id,
