@@ -375,6 +375,12 @@ Files with `change_type: 'deleted'` or a missing `storage_key` are skipped. Chec
 | **≤ 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content`                                |
 | **> 4 MiB** | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429, 500, 502, 503, 504) |
 
+A resumable session finishes on `200` or `201` carrying the finished `driveItem`, not on any 2xx: a
+`202 Accepted` means the session still wants bytes. A last chunk still answered `202` fails the
+file, naming the ranges Graph reports as outstanding, and a thrown error releases the session with
+`DELETE` before propagating. Identical to OneDrive; see
+[What counts as a completed upload](/onedrive-backup#what-counts-as-a-completed-upload).
+
 ```typescript
 const result = await atlas.sharepoint.restore('site-id', {
   snapshot_id: 'sp-snap-123',
