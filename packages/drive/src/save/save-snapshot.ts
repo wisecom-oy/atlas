@@ -14,6 +14,7 @@ import {
 import {
   resolve_save_target,
   settle_empty_save_target,
+  settle_failed_save_target,
 } from '@wisecom/atlas-core/services/shared/save-archive-target';
 import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import type {
@@ -63,37 +64,46 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
   const { target, output_path: resolved_output_path } = resolve_save_target(options, () =>
     build_default_output_path(workload, options.snapshot_id),
   );
-  if (begin_operation_progress(options, 'save', workload)) {
-    finish_operation_progress(options, 'save', workload, 0, 0);
-    await settle_empty_save_target(target, true);
-    return empty_save_result(options.snapshot_id, options.output_path ?? '', true);
-  }
-  const ctx = await deps.tenant_factory.create(tenant_id);
+
   try {
-    const chain = await load_drive_chain_entries(
-      deps.manifests,
-      ctx,
-      owner_id,
-      options.snapshot_id,
-    );
-    const restorable = filter_drive_entries(restorable_entries(chain.entries), options.file_filter);
-
-    if (restorable.length === 0) {
-      const interrupted = finish_operation_progress(options, 'save', workload, 0, 0);
-      await settle_empty_save_target(target, interrupted);
-      return empty_save_result(options.snapshot_id, options.output_path ?? '', interrupted);
+    if (begin_operation_progress(options, 'save', workload)) {
+      finish_operation_progress(options, 'save', workload, 0, 0);
+      await settle_empty_save_target(target, true);
+      return empty_save_result(options.snapshot_id, options.output_path ?? '', true);
     }
+    const ctx = await deps.tenant_factory.create(tenant_id);
+    try {
+      const chain = await load_drive_chain_entries(
+        deps.manifests,
+        ctx,
+        owner_id,
+        options.snapshot_id,
+      );
+      const restorable = filter_drive_entries(
+        restorable_entries(chain.entries),
+        options.file_filter,
+      );
 
-    return await write_drive_snapshot_to_archive(
-      workload,
-      ctx,
-      target,
-      resolved_output_path,
-      restorable,
-      options,
-    );
-  } finally {
-    ctx.destroy();
+      if (restorable.length === 0) {
+        const interrupted = finish_operation_progress(options, 'save', workload, 0, 0);
+        await settle_empty_save_target(target, interrupted);
+        return empty_save_result(options.snapshot_id, options.output_path ?? '', interrupted);
+      }
+
+      return await write_drive_snapshot_to_archive(
+        workload,
+        ctx,
+        target,
+        resolved_output_path,
+        restorable,
+        options,
+      );
+    } finally {
+      ctx.destroy();
+    }
+  } catch (err) {
+    settle_failed_save_target(target);
+    throw err;
   }
 }
 

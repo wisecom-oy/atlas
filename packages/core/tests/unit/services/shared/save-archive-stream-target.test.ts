@@ -85,6 +85,7 @@ describe('resolve_save_target', () => {
     expect(() =>
       resolve_save_target({ output: sink, output_path: join(dir, 'out.zip') }, () => 'default.zip'),
     ).toThrow(ConfigError);
+    expect(sink.destroyed).toBe(false);
   });
 
   it('reports no output path for a stream, and the resolved path otherwise', () => {

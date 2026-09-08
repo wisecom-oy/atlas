@@ -410,13 +410,13 @@ app.get('/exports/my-mailbox', require_authenticated_user, async (req, res) => {
       console.warn(`[warn] ${result.integrityFailures.length} integrity failure(s)`);
     }
   } catch (err) {
-    // Atlas destroyed the response, so the client sees a broken transfer rather than a short zip.
+    // Atlas destroyed the response, even if setup failed before writing any bytes.
     console.error('[export] failed', err);
   }
 });
 ```
 
-`outputPath` is empty in the result, because nothing was written to disk. An export with no messages still ends the stream with a valid empty archive; an interrupted one destroys it. The drive workloads take the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
+`outputPath` is empty in the result, because nothing was written to disk. An export with no messages still ends the stream with a valid empty archive. A failed setup or an interrupted run destroys it. The drive workloads take the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
 
 ## Maintenance and monitoring
 

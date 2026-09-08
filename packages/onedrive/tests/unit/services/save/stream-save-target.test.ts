@@ -69,4 +69,45 @@ describe('OneDrive save to a stream target', () => {
     expect(sink.destroyed).toBe(true);
     expect(sink.writableEnded).toBe(false);
   });
+
+  it('destroys the stream when tenant setup fails', async () => {
+    const sink = new PassThrough();
+    const service = new OneDriveSaveService(
+      {
+        create: vi.fn().mockRejectedValue(new Error('tenant unavailable')),
+      } as unknown as TenantContextFactory,
+      {} as OneDriveManifestRepository,
+    );
+
+    await expect(
+      service.save_snapshot('tenant-1', 'owner-1', {
+        snapshot_id: 'snapshot-1',
+        output: sink,
+      }),
+    ).rejects.toThrow('tenant unavailable');
+
+    expect(sink.destroyed).toBe(true);
+    expect(sink.writableEnded).toBe(false);
+  });
+
+  it('destroys the stream when reading the manifest fails', async () => {
+    const sink = new PassThrough();
+    const ctx = { destroy: vi.fn() } as unknown as TenantContext;
+    const service = new OneDriveSaveService(
+      { create: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
+      {
+        find_by_snapshot: vi.fn().mockRejectedValue(new Error('manifest unavailable')),
+      } as unknown as OneDriveManifestRepository,
+    );
+
+    await expect(
+      service.save_snapshot('tenant-1', 'owner-1', {
+        snapshot_id: 'snapshot-1',
+        output: sink,
+      }),
+    ).rejects.toThrow('manifest unavailable');
+
+    expect(sink.destroyed).toBe(true);
+    expect(sink.writableEnded).toBe(false);
+  });
 });

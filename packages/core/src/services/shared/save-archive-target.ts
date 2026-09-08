@@ -38,6 +38,11 @@ export function resolve_save_target(
   return { target: output_path, output_path };
 }
 
+/** Destroys a failed stream export while leaving path targets untouched. */
+export function settle_failed_save_target(target: ArchiveTarget): void {
+  if (typeof target !== 'string') target.destroy();
+}
+
 /**
  * Settles a caller's stream for a save that opened no archive, so the consumer is never left
  * waiting on a response that will not arrive.
