@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -192,14 +193,18 @@ describe('SaveService', () => {
       expect(result.saved_count).toBe(0);
     });
 
-    it('throws when manifest not found', async () => {
+    it('destroys the stream when the requested snapshot has no manifest', async () => {
+      const sink = new PassThrough();
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
         undefined as unknown as Manifest,
       );
 
-      await expect(service.save_snapshot('test-tenant', 'snap-bad')).rejects.toThrow(
-        'No manifest found',
-      );
+      await expect(
+        service.save_snapshot('test-tenant', 'snap-bad', { output: sink }),
+      ).rejects.toThrow('No manifest found');
+
+      expect(sink.destroyed).toBe(true);
+      expect(sink.writableEnded).toBe(false);
     });
   });
 

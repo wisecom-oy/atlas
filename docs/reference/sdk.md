@@ -568,7 +568,7 @@ What changes compared with a file export:
 | --------- | ------------- |
 | `outputPath` in the result | Empty string. There is no file, so Atlas reports no path. |
 | Counts, errors, `integrityFailures` | Reported exactly as for a file export. |
-| A failed run | The stream is destroyed rather than ended. |
+| A failed run | The stream is destroyed rather than ended, including when setup fails before any bytes are written. |
 | An interrupted run | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`. |
 | `output` with `outputPath` | Rejected with `ConfigError`. Atlas writes one archive, and silently dropping the other value is how an export goes missing. |
 
