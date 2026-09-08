@@ -128,17 +128,23 @@ async function write_drive_snapshot_to_archive(
       processed: files_saved + files_skipped,
       total: entries.length,
     });
-    await finalize_file_archive(archive);
-    const total_bytes = await promise;
-    // Only now does anything appear at the output path, so a failure above cannot leave a
-    // truncated zip there and cannot destroy a file that was already sitting on it.
-    await publish();
-    // Mark only applies to a path target; a stream target has no local file.
-    if (output_path !== '') {
-      await mark_downloaded_from_internet(output_path);
-    }
     const interrupted =
       files_saved + files_skipped < entries.length || options.should_interrupt?.() === true;
+    let total_bytes: number;
+    if (interrupted && typeof target !== 'string') {
+      total_bytes = archive.pointer();
+      await abort();
+    } else {
+      await finalize_file_archive(archive);
+      total_bytes = await promise;
+      // Only now does anything appear at the output path, so a failure above cannot leave a
+      // truncated zip there and cannot destroy a file that was already sitting on it.
+      await publish();
+      // Mark only applies to a path target; a stream target has no local file.
+      if (output_path !== '') {
+        await mark_downloaded_from_internet(output_path);
+      }
+    }
     emit_operation_progress(options, {
       operation: 'save',
       workload,

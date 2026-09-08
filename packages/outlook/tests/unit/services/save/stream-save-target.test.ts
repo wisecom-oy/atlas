@@ -88,6 +88,32 @@ describe('outlook save to a stream target', () => {
     expect(readdirSync(process.cwd())).toEqual(before);
   });
 
+  it('destroys an interrupted stream without finalizing a complete archive', async () => {
+    const sink = new PassThrough();
+    const ctx = make_context();
+    let interrupted = false;
+    vi.mocked(ctx.storage.get).mockImplementation(async () => {
+      interrupted = true;
+      return MIME_BLOB;
+    });
+
+    const result = await save_entries_to_archive(
+      ctx,
+      sink,
+      '',
+      true,
+      new Map([['f1', [make_entry()]]]),
+      new Map([['f1', 'Inbox']]),
+      make_dashboard(),
+      () => interrupted,
+      control,
+    );
+
+    expect(result).toMatchObject({ saved_count: 1, interrupted: true });
+    expect(sink.destroyed).toBe(true);
+    expect(sink.writableEnded).toBe(false);
+  });
+
   it('destroys the stream when the run fails, so a short archive is never a success', async () => {
     const sink = new PassThrough();
     const ctx = {

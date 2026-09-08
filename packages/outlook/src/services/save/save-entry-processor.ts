@@ -96,12 +96,19 @@ export async function save_entries_to_archive(
       processed: global_processed,
       total: global_total,
     });
-    await finalize_archive(archive);
-    const total_bytes = await promise;
-    // Only now does anything appear at the output path, so a failure above cannot leave a
-    // truncated zip there and cannot destroy a file that was already sitting on it.
-    await publish();
-    if (output_path) await mark_downloaded_from_internet(output_path);
+    const run_interrupted = should_interrupt();
+    let total_bytes: number;
+    if (run_interrupted && typeof target !== 'string') {
+      total_bytes = archive.pointer();
+      await abort();
+    } else {
+      await finalize_archive(archive);
+      total_bytes = await promise;
+      // Only now does anything appear at the output path, so a failure above cannot leave a
+      // truncated zip there and cannot destroy a file that was already sitting on it.
+      await publish();
+      if (output_path) await mark_downloaded_from_internet(output_path);
+    }
 
     log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
 
@@ -114,7 +121,7 @@ export async function save_entries_to_archive(
       total_bytes,
       integrity_failures,
       processed: global_processed,
-      interrupted: should_interrupt(),
+      interrupted: run_interrupted,
     };
   } catch (err) {
     // Anything between opening the archive and publishing it can throw. None of it may leave a
