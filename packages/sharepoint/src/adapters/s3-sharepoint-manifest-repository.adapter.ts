@@ -9,6 +9,8 @@ import {
   sharepoint_manifest_prefix,
   sharepoint_manifest_root_prefix,
 } from '@/services/shared/storage-keys';
+import { StorageError } from '@wisecom/atlas-types';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 
 class InvalidSharePointManifestDateError extends Error {
   constructor(readonly storage_key: string) {
@@ -114,9 +116,13 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
       }
       return { ...parsed, created_at };
     } catch (err) {
+      // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
+      // identify is damaged, and returning `undefined` for it reports a broken backup with the
+      // same value as a snapshot that was never taken (issues #340, #341).
+      if (is_absent_object_error(err)) return undefined;
       if (err instanceof InvalidSharePointManifestDateError) throw err;
       if (err instanceof MismatchedSharePointManifestError) throw err;
-      return undefined;
+      throw new StorageError(`Could not read the SharePoint manifest at ${key}`, { cause: err });
     }
   }
 }

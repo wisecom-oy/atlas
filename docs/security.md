@@ -360,6 +360,35 @@ rolling an object back to a previous state is defeated by S3 Object Lock and ver
 by encryption. And a checksum recorded wrong at backup time is not detected by comparing against
 it, which is the same limit that applies to verification above.
 
+### A failed authentication is a failure everywhere
+
+A GCM failure used to be reported as several different kinds of nothing: an attachment that could
+not be decrypted left a restored message with zero attachments and no errors, an export skipped the
+file and finished a valid archive, and a manifest that would not decrypt came back as `undefined`,
+which is the same answer as a snapshot that was never taken. Each of those makes a damaged backup
+look intact from the outside.
+
+| Object                  | Reported as                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| Outlook attachment      | an error on the restore result, counted in `attachment_error_count`          |
+| Drive file in an export | an error and an integrity failure, distinct from a file with nothing to save |
+| Snapshot manifest       | a raised `StorageError`; only a genuinely absent object reads as absent      |
+
+The distinction between absence and damage is the point. A read that returns "no such key" is a
+normal outcome and stays one. Anything else, a decrypt that failed, a body that would not parse, a
+manifest whose identity is not the one its key names, is a damaged object and is raised.
+
+Verification counts an entry the moment it claims a stored blob, rather than requiring a checksum
+before it will look. An entry that names a blob but records no checksum is unverifiable, and used
+to be excluded from `total_checked` altogether, so a snapshot full of them verified clean without a
+single byte being read. It is now a verification failure. Tombstones still count for nothing,
+because a deleted file has no blob to check.
+
+None of this changes the exit-code contract in [the CLI reference](/reference/cli#exit-codes). A
+run that now reports per-item errors or integrity failures exits `2`, which is what a partial run
+has always meant; a manifest that cannot be read is a `StorageError` and exits `1`. What changed is
+that these runs no longer exit `0`.
+
 ### Content-MD5 on Uploads
 
 Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.

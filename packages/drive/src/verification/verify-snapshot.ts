@@ -105,10 +105,9 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
         );
       }
 
-      if (entry_has_blob(entry)) {
-        const corrupt = await is_blob_corrupt(ctx, entry);
+      if (entry_claims_blob(entry)) {
         total_checked++;
-        if (corrupt) failed_file_ids.push(entry.file_id);
+        if (await is_blob_corrupt(ctx, entry)) failed_file_ids.push(entry.file_id);
       }
       processed++;
       emit_operation_progress(options, {
@@ -142,14 +141,18 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
   }
 }
 
-/** A tombstone and an entry with no stored blob have nothing to verify. */
-function entry_has_blob(entry: DriveManifestEntry): boolean {
+/**
+ * Whether the entry claims a stored blob at all.
+ *
+ * A tombstone has nothing to verify. An entry that names a blob but records no checksum is a
+ * different thing: it is unverifiable, which used to exclude it from `total_checked` entirely, so
+ * a snapshot full of them verified as clean without a single byte being read (issue #341).
+ */
+function entry_claims_blob(entry: DriveManifestEntry): boolean {
   return (
     entry.change_type !== 'deleted' &&
     entry.storage_key !== undefined &&
-    entry.storage_key.length > 0 &&
-    entry.checksum !== undefined &&
-    entry.checksum.length > 0
+    entry.storage_key.length > 0
   );
 }
 

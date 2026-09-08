@@ -9,6 +9,8 @@ import {
   onedrive_manifest_prefix,
   onedrive_manifest_root_prefix,
 } from '@/services/shared/storage-keys';
+import { StorageError } from '@wisecom/atlas-types';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 
 class InvalidOneDriveManifestDateError extends Error {
   constructor(readonly storage_key: string) {
@@ -114,9 +116,13 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
       }
       return { ...parsed, created_at };
     } catch (err) {
+      // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
+      // identify is damaged, and returning `undefined` for it reports a broken backup with the
+      // same value as a snapshot that was never taken (issues #340, #341).
+      if (is_absent_object_error(err)) return undefined;
       if (err instanceof InvalidOneDriveManifestDateError) throw err;
       if (err instanceof MismatchedOneDriveManifestError) throw err;
-      return undefined;
+      throw new StorageError(`Could not read the OneDrive manifest at ${key}`, { cause: err });
     }
   }
 }
