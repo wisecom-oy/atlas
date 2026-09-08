@@ -4,7 +4,9 @@ export {
   add_file_to_archive,
   finalize_file_archive,
 } from '@/services/shared/file-save-zip-writer';
-export type { FileArchive } from '@/services/shared/file-save-zip-writer';
+export type { ArchiveTarget, FileArchive } from '@/services/shared/file-save-zip-writer';
+export { resolve_save_target } from '@/services/shared/save-archive-target';
+export type { ResolvedSaveTarget, SaveTargetOptions } from '@/services/shared/save-archive-target';
 export {
   filter_manifests_by_date,
   merge_snapshot_entries,

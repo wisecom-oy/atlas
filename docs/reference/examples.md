@@ -385,6 +385,39 @@ async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, out
 }
 ```
 
+### Serving an export over HTTP
+
+Hand a user their own mailbox export without staging it on the app server. The archive streams to the response as it is built, so a read-only or ephemeral filesystem is no obstacle and disk use does not scale with mailbox size.
+
+The mailbox comes from the authenticated session, never from the request. A route parameter would let any caller export any mailbox in the tenant, and Atlas authenticates as an application: it has tenant-wide access and cannot tell whose request this is.
+
+```typescript
+import express from 'express';
+
+const app = express();
+
+app.get('/exports/my-mailbox', require_authenticated_user, async (req, res) => {
+  const mailbox = req.user.mailbox; // resolved from the session, and tenant-checked
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${mailbox}.zip"`);
+
+  try {
+    const result = await atlas.outlook.saveMailbox(mailbox, { output: res });
+    console.log(`[export] ${result.savedCount} messages, ${result.totalBytes} bytes`);
+
+    if (result.integrityFailures.length > 0) {
+      // The client already has the bytes: record this rather than trying to unsend it.
+      console.warn(`[warn] ${result.integrityFailures.length} integrity failure(s)`);
+    }
+  } catch (err) {
+    // Atlas destroyed the response, so the client sees a broken transfer rather than a short zip.
+    console.error('[export] failed', err);
+  }
+});
+```
+
+`outputPath` is empty in the result, because nothing was written to disk. An export with no messages still ends the stream with a valid empty archive; an interrupted one destroys it. The drive workloads take the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
+
 ## Maintenance and monitoring
 
 ### Periodic integrity verification

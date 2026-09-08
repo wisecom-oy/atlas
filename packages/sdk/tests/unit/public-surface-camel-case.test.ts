@@ -1,3 +1,5 @@
+import type { Writable } from 'node:stream';
+
 import { describe, expect, it } from 'vitest';
 import type {
   AtlasInstanceConfig,
@@ -40,7 +42,7 @@ import { GRAPH_SERVICE_LIMITS } from '@/public-values';
  */
 type SnakeKeys<T> = T extends readonly (infer Item)[]
   ? SnakeKeys<Item>
-  : T extends Date | Buffer | AbortSignal | ((...args: never[]) => unknown)
+  : T extends Date | Buffer | AbortSignal | Writable | ((...args: never[]) => unknown)
     ? never
     : T extends object
       ? {

@@ -128,8 +128,8 @@ describe('SaveService', () => {
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(manifest);
       let interrupted = false;
       vi.mocked(save_entries_to_archive).mockImplementationOnce(async (...args) => {
-        const dashboard = args[5];
-        const is_interrupted = args[6];
+        const dashboard = args[6];
+        const is_interrupted = args[7];
         dashboard.update_total(1, 2, 1, 1);
         interrupted = true;
         expect(is_interrupted()).toBe(true);

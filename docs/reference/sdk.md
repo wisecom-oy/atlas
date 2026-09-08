@@ -507,6 +507,7 @@ Graph **item** IDs (`fileId`, `itemId`) are case-sensitive and never folded. `fi
 | `endDate`            | `Date`    | Include snapshots on or before this date                  |
 | `outputPath`         | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
 | `skipIntegrityCheck` | `boolean` | Skip SHA-256 verification (default: `false`)              |
+| `output`             | `Writable` | Stream the archive to this destination instead of a file  |
 
 Both methods return a `SaveResult`:
 
@@ -523,6 +524,56 @@ interface SaveResult {
   interrupted: boolean;
 }
 ```
+
+## Exporting to a Stream
+
+`save()` and `saveMailbox()` take an `output` stream instead of a path, so an export reaches its consumer without staging on the exporting machine's disk. That matters for a read-only or ephemeral filesystem, and for exports large enough that writing them twice costs real time.
+
+```typescript
+import express from 'express';
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
+
+const app = express();
+const atlas = createAtlasInstance({ /* ...credentials... */ });
+
+app.get('/export/:snapshotId', async (req, res) => {
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="export.zip"');
+
+  try {
+    const result = await atlas.outlook.save(req.params.snapshotId, { output: res });
+    log.info({ saved: result.savedCount, failures: result.integrityFailures }, 'export served');
+  } catch (err) {
+    // Atlas has already destroyed the response, so the client sees a failed transfer.
+    log.error({ err }, 'export failed');
+  }
+});
+```
+
+The same option works for the drive workloads:
+
+```typescript
+await atlas.onedrive.save('user@company.com', { snapshotId, output: res });
+await atlas.sharepoint.save('https://contoso.sharepoint.com/sites/Engineering', {
+  snapshotId,
+  output: res,
+});
+```
+
+Anything implementing Node's `Writable` works: an HTTP response, an upload stream, a compressor.
+
+What changes compared with a file export:
+
+| Behaviour | Stream export |
+| --------- | ------------- |
+| `outputPath` in the result | Empty string. There is no file, so Atlas reports no path. |
+| Counts, errors, `integrityFailures` | Reported exactly as for a file export. |
+| A failed run | The stream is destroyed rather than ended. |
+| `output` with `outputPath` | Rejected with `ConfigError`. Atlas writes one archive, and silently dropping the other value is how an export goes missing. |
+
+**A destroyed stream is the point.** Ending it would hand the consumer a short archive that opens like a complete one, which is the failure mode file exports avoid by staging. Over HTTP the client sees the transfer break, so treat a body that arrived without a completed request as a failed export rather than a partial one. Headers are already sent by then, so the status code cannot report the failure: check the result, or the absence of one, on the server.
+
+Memory is bounded to one message or file at a time in either mode. Each entry is fetched, decrypted, compressed and flushed before the next one starts, so a slow consumer applies backpressure rather than accumulating the archive in the heap.
 
 ## Restore Options
 

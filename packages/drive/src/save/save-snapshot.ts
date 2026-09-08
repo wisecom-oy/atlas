@@ -11,6 +11,10 @@ import {
   create_file_archive,
   finalize_file_archive,
 } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
+import {
+  resolve_save_target,
+  settle_empty_save_target,
+} from '@wisecom/atlas-core/services/shared/save-archive-target';
 import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import type {
   FileSaveOptions,
@@ -54,8 +58,14 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
 ): Promise<FileSaveResult> {
   const { workload } = deps;
   owner_id = normalize_owner_id(owner_id);
+  // Resolved up front so a conflicting options pair is refused before the caller's stream is
+  // touched. The empty results below report no path at all: no archive was opened.
+  const { target, output_path: resolved_output_path } = resolve_save_target(options, () =>
+    build_default_output_path(workload, options.snapshot_id),
+  );
   if (begin_operation_progress(options, 'save', workload)) {
     finish_operation_progress(options, 'save', workload, 0, 0);
+    await settle_empty_save_target(target, true);
     return empty_save_result(options.snapshot_id, options.output_path ?? '', true);
   }
   const ctx = await deps.tenant_factory.create(tenant_id);
@@ -70,68 +80,89 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
 
     if (restorable.length === 0) {
       const interrupted = finish_operation_progress(options, 'save', workload, 0, 0);
+      await settle_empty_save_target(target, interrupted);
       return empty_save_result(options.snapshot_id, options.output_path ?? '', interrupted);
     }
 
-    const output_path =
-      options.output_path ?? build_default_output_path(workload, options.snapshot_id);
-    const skip_integrity = options.skip_integrity_check ?? false;
-    const { archive, promise, publish, abort } = create_file_archive(output_path);
-
-    try {
-      const integrity_failures: string[] = [];
-      const { files_saved, files_skipped, errors } = await save_entries_to_archive(
-        workload,
-        ctx,
-        archive,
-        restorable,
-        skip_integrity,
-        integrity_failures,
-        options,
-      );
-
-      emit_operation_progress(options, {
-        operation: 'save',
-        workload,
-        phase: 'finalizing',
-        processed: files_saved + files_skipped,
-        total: restorable.length,
-      });
-      await finalize_file_archive(archive);
-      const total_bytes = await promise;
-      // Only now does anything appear at the output path, so a failure above cannot leave a
-      // truncated zip there and cannot destroy a file that was already sitting on it.
-      await publish();
-      await mark_downloaded_from_internet(output_path);
-      const interrupted =
-        files_saved + files_skipped < restorable.length || options.should_interrupt?.() === true;
-      emit_operation_progress(options, {
-        operation: 'save',
-        workload,
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed: files_saved + files_skipped,
-        total: restorable.length,
-      });
-
-      return {
-        snapshot_id: options.snapshot_id,
-        files_saved,
-        files_skipped,
-        errors,
-        integrity_failures,
-        output_path,
-        total_bytes,
-        interrupted,
-      };
-    } catch (err) {
-      // Anything between opening the archive and publishing it can throw: the entry loop, the
-      // finalize, the byte count, the move itself. None of them may leave a partial file behind
-      // (issue #307).
-      await abort();
-      throw err;
-    }
+    return await write_drive_snapshot_to_archive(
+      workload,
+      ctx,
+      target,
+      resolved_output_path,
+      restorable,
+      options,
+    );
   } finally {
     ctx.destroy();
+  }
+}
+
+/** Writes snapshot entries to an archive and publishes the result. */
+async function write_drive_snapshot_to_archive(
+  workload: DriveWorkload,
+  ctx: TenantContext,
+  target: Parameters<typeof create_file_archive>[0],
+  output_path: string,
+  entries: DriveManifestEntry[],
+  options: FileSaveOptions,
+): Promise<FileSaveResult> {
+  const skip_integrity = options.skip_integrity_check ?? false;
+  const { archive, promise, publish, abort } = create_file_archive(target);
+
+  try {
+    const integrity_failures: string[] = [];
+    const { files_saved, files_skipped, errors } = await save_entries_to_archive(
+      workload,
+      ctx,
+      archive,
+      entries,
+      skip_integrity,
+      integrity_failures,
+      options,
+    );
+
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload,
+      phase: 'finalizing',
+      processed: files_saved + files_skipped,
+      total: entries.length,
+    });
+    await finalize_file_archive(archive);
+    const total_bytes = await promise;
+    // Only now does anything appear at the output path, so a failure above cannot leave a
+    // truncated zip there and cannot destroy a file that was already sitting on it.
+    await publish();
+    // Mark only applies to a path target; a stream target has no local file.
+    if (output_path !== '') {
+      await mark_downloaded_from_internet(output_path);
+    }
+    const interrupted =
+      files_saved + files_skipped < entries.length || options.should_interrupt?.() === true;
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload,
+      phase: interrupted ? 'interrupted' : 'completed',
+      processed: files_saved + files_skipped,
+      total: entries.length,
+    });
+
+    return {
+      snapshot_id: options.snapshot_id,
+      files_saved,
+      files_skipped,
+      errors,
+      integrity_failures,
+      output_path,
+      total_bytes,
+      interrupted,
+    };
+  } catch (err) {
+    // Anything between opening the archive and publishing it can throw: the entry loop, the
+    // finalize, the byte count, the move itself. None of them may leave a partial file behind
+    // (issue #307).
+    await abort();
+    throw err;
   }
 }
 

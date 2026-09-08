@@ -53,6 +53,8 @@ Construction validates required fields, a minimum passphrase length of 14 UTF-8 
 
 After provisioning the tenant bucket, call `await atlas.validate()` for an optional read-only S3 `HeadBucket` and Graph token probe. S3 failures throw `StorageError`; Graph-token failures throw `AuthError`. The probe does not test the encryption key, write permissions or workload-specific Graph consent. See the [SDK reference](https://wisecom-oy.github.io/atlas/reference/sdk#configuration-validation) and [v5 migration guide](https://wisecom-oy.github.io/atlas/migration/v5#eager-configuration-validation).
 
+Exports can stream instead of writing a file: `atlas.outlook.save(snapshotId, { output: res })` pipes the archive to any Node `Writable`, so an HTTP download never stages on local disk. See [exporting to a stream](https://wisecom-oy.github.io/atlas/reference/sdk#exporting-to-a-stream).
+
 ## API overview
 
 | Namespace / method          | Purpose                                  |

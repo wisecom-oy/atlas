@@ -14,7 +14,6 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-
 vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
   const mock_archive = {
     append: vi.fn(),
