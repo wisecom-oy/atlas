@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => ({
   read_secure_config: vi.fn(),
   write_secure_config: vi.fn(),
   read_env_overrides: vi.fn(),
-  try_load_config_file: vi.fn(),
   secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
 }));
 vi.mock('@wisecom/atlas-core', async (import_original) => {
@@ -67,7 +66,6 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(capture);
   vi.spyOn(console, 'error').mockImplementation(capture);
 
-  mocks.try_load_config_file.mockReturnValue({});
   mocks.read_env_overrides.mockReturnValue({});
   mocks.read_secure_config.mockReturnValue({});
   azure_mocks.get_token.mockResolvedValue({ token: 'fake' });
@@ -175,7 +173,6 @@ describe('atlas config list', () => {
   });
 
   it('names the source a value resolves from, environment winning', async () => {
-    mocks.try_load_config_file.mockReturnValue({ s3_region: 'from-file' });
     mocks.read_secure_config.mockReturnValue({ s3_region: 'from-store' });
     mocks.read_env_overrides.mockReturnValue({ s3_region: 'from-env' });
 

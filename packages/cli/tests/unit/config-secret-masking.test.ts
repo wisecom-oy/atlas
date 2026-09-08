@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   read_secure_config: vi.fn(),
   write_secure_config: vi.fn(),
   read_env_overrides: vi.fn(),
-  try_load_config_file: vi.fn(),
   secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
 }));
 
@@ -66,7 +65,6 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(capture);
   vi.spyOn(console, 'error').mockImplementation(capture);
 
-  mocks.try_load_config_file.mockReturnValue({});
   mocks.read_env_overrides.mockReturnValue({});
   mocks.read_secure_config.mockReturnValue(full_config());
 });

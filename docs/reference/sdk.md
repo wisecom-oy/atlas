@@ -4,7 +4,7 @@ Atlas ships as two npm packages:
 
 | Package                  | Install                             | Use when                                                                                                                                     |
 | ------------------------ | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Day-to-day operations from a shell: cron jobs, one-off backups, operator workflows. Reads `.env` and config files.                           |
+| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Day-to-day operations from a shell: cron jobs, one-off backups, operator workflows. Reads the encrypted store and `ATLAS_*` variables.       |
 | **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk`        | Embedding Atlas in your own Node.js app: multi-tenant SaaS, custom schedulers, portals, or automation that needs typed programmatic control. |
 
 This page documents **`@wisecom/atlas-sdk`**. For shell commands and flags, see [CLI Commands](/reference/cli).
@@ -33,7 +33,7 @@ const atlas = createAtlasInstance({
 });
 ```
 
-All credentials and tenant configuration are explicit. The SDK does not discover them in environment variables, `.env`, or config files, so a stale file or another tenant's inherited configuration cannot select credentials. The environment-loading container factory is not exported. Standard runtime controls such as TLS certificate validation still apply.
+All credentials and tenant configuration are explicit. The SDK does not discover them in environment variables or `.env`, so a stale file or another tenant's inherited configuration cannot select credentials. The environment-loading container factory is not exported. Standard runtime controls such as TLS certificate validation still apply.
 
 The tenant is bound at creation time, so every method operates within that tenant scope. Methods are async and return Promises.
 

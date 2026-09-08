@@ -1,16 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  load_config,
-  try_load_config_file,
-  read_env_overrides,
-  merge_and_validate,
-} from '@/utils/config';
+import { load_config, read_env_overrides, merge_and_validate } from '@/utils/config';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
+import { read_secure_config } from '@/utils/secure-config-store';
 
 vi.mock('node:fs');
-vi.mock('node:os');
 vi.mock('dotenv', () => ({ config: vi.fn() }));
+vi.mock('@/utils/secure-config-store', () => ({ read_secure_config: vi.fn(() => ({})) }));
 
 const ALL_ENV_KEYS = [
   'ATLAS_TENANT_ID',
@@ -110,54 +105,43 @@ describe('config', () => {
     });
   });
 
-  describe('try_load_config_file', () => {
-    it('returns parsed contents when atlas.config.json exists in cwd', () => {
-      vi.mocked(os.homedir).mockReturnValue('/home/testuser');
-      vi.mocked(fs.existsSync).mockImplementation((p) => {
-        return String(p).includes('atlas.config.json') && !String(p).includes('.atlas');
-      });
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(FULL_CONFIG));
-
-      const result = try_load_config_file();
-      expect(result).toEqual(FULL_CONFIG);
-    });
-
-    it('returns empty object when no config file is found', () => {
-      vi.mocked(os.homedir).mockReturnValue('/home/testuser');
-      vi.mocked(fs.existsSync).mockReturnValue(false);
-      expect(try_load_config_file()).toEqual({});
-    });
-  });
-
   describe('load_config', () => {
-    it('merges file and env with env taking precedence', () => {
-      vi.mocked(os.homedir).mockReturnValue('/home/testuser');
-      vi.mocked(fs.existsSync).mockImplementation((p) => {
-        return String(p).includes('atlas.config.json') && !String(p).includes('.atlas');
-      });
-      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(FULL_CONFIG));
-
+    it('merges the secure store and the environment, environment winning', () => {
+      vi.mocked(read_secure_config).mockReturnValue(FULL_CONFIG);
       process.env['ATLAS_CLIENT_SECRET'] = 'env-override';
 
       const result = load_config();
+
       expect(result.tenant_id).toBe('tid');
       expect(result.client_secret).toBe('env-override');
     });
 
-    it('works with env vars only (no config file)', () => {
-      vi.mocked(os.homedir).mockReturnValue('/home/testuser');
-      vi.mocked(fs.existsSync).mockReturnValue(false);
+    it('works from environment variables alone', () => {
+      vi.mocked(read_secure_config).mockReturnValue({});
       set_all_env();
 
       const result = load_config();
+
       expect(result.tenant_id).toBe('tid');
       expect(result.s3_endpoint).toBe('http://localhost:9000');
     });
 
-    it('throws when config is incomplete', () => {
-      vi.mocked(os.homedir).mockReturnValue('/home/testuser');
-      vi.mocked(fs.existsSync).mockReturnValue(false);
+    // #334: a plaintext atlas.config.json used to be a third source, found in the working
+    // directory or in $HOME. It is not read at all now, so a run that still has one and nothing
+    // else fails naming the two supported sources rather than picking up stale credentials.
+    it('ignores a JSON config file in the working directory', () => {
+      vi.mocked(read_secure_config).mockReturnValue({});
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(FULL_CONFIG));
+
       expect(() => load_config()).toThrow('Missing required config fields');
+      expect(fs.readFileSync).not.toHaveBeenCalled();
+    });
+
+    it('throws when configuration is incomplete', () => {
+      vi.mocked(read_secure_config).mockReturnValue({});
+
+      expect(() => load_config()).toThrow('atlas config set');
     });
   });
 });

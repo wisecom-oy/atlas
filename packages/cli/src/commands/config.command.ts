@@ -12,13 +12,11 @@ import {
   read_env_overrides,
   read_secure_config,
   secure_config_dir,
-  try_load_config_file,
   write_secure_config,
 } from '@wisecom/atlas-core';
 import { create_s3_client } from '@wisecom/atlas-s3';
 
 type ConfigSources = {
-  readonly file: Partial<AtlasConfig>;
   readonly secure: Partial<AtlasConfig>;
   readonly env: Partial<AtlasConfig>;
   readonly merged: Partial<AtlasConfig>;
@@ -229,17 +227,14 @@ async function probe_s3(config: Partial<AtlasConfig>): Promise<boolean> {
   }
 }
 
-/** Reads all three config sources plus their merge (env wins). */
+/** Reads both config sources plus their merge (env wins). */
 function read_sources(): ConfigSources {
-  const file = try_load_config_file();
   const secure = read_secure_config();
   const env = read_env_overrides();
-  return { file, secure, env, merged: { ...file, ...secure, ...env } };
+  return { secure, env, merged: { ...secure, ...env } };
 }
 
-/** Names the highest-precedence source that provides a field. */
+/** Names the higher-precedence source that provides a field. */
 function resolve_source(sources: ConfigSources, field: keyof AtlasConfig): string {
-  if (sources.env[field] !== undefined) return 'env';
-  if (sources.secure[field] !== undefined) return 'secure store';
-  return 'config file';
+  return sources.env[field] === undefined ? 'secure store' : 'env';
 }

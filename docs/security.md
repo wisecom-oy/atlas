@@ -405,19 +405,11 @@ Read-only commands load the tenant context without provisioning: the bucket is n
 
 Grant a monitoring or audit principal the read-only row only. If it holds `s3:CreateBucket`, that is a leftover from Atlas versions before 2.1.0-beta and can be revoked.
 
-## Configuration File Security
+## Configuration Security
 
-### Filesystem Permission Check
+Configuration comes from two places: the encrypted store, and `ATLAS_*` variables read from the environment or a `.env` file in the working directory. A plaintext `atlas.config.json` was a third source until v5.0.0; it held `encryption_passphrase` and `client_secret` in the clear, and Atlas compensated with a load-time permission warning. Removing it removed the need for the warning.
 
-`atlas.config.json` may contain `encryption_passphrase` and `client_secret` in plaintext. On Unix systems, Atlas checks the file's permissions at load time and logs a warning if the file is group- or world-readable (i.e., any bits in `0o077` are set):
-
-```
-WARN Config file /home/user/atlas.config.json has overly permissive permissions (mode 0644). Recommended: chmod 600 /home/user/atlas.config.json
-```
-
-This check is skipped on Windows where Unix permission bits do not apply. The check is advisory (warning, not error) to avoid breaking existing deployments, but operators are strongly encouraged to restrict config files to owner-only access (`chmod 600`).
-
-Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file but remain readable from the process environment and from plaintext dotfiles — the exact locations credential-stealing malware sweeps first.
+Environment variables and `.env` files remain readable from the process environment and from a plaintext dotfile, which is where credential-stealing malware looks first. They are the right source where a platform owns the secret, and the wrong one where a person does.
 
 ### Encrypted Secure Store
 

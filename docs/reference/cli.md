@@ -971,7 +971,7 @@ atlas config validate                                             # live Graph +
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `config set <key> <value>` | Validate and save a value to the encrypted store; `-` reads the value from stdin                                  |
 | `config get <key>`         | Print the current effective value (secrets masked)                                                                |
-| `config list`              | Print every key with its value and source (`env`, `secure store`, `config file`)                                  |
+| `config list`              | Print every key with its value and source (`env` or `secure store`)                                               |
 | `config unset <key>`       | Remove a key from the encrypted store                                                                             |
 | `config validate`          | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config; exits non-zero on failure |
 
