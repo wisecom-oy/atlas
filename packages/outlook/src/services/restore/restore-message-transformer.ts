@@ -1,5 +1,6 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
+import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 import { parse_mime_message } from '@/services/shared/mime-message-parser';
 import type { MimeAddress, ParsedMimeMessage } from '@/services/shared/mime-message-parser';
 
@@ -51,14 +52,15 @@ const WRITABLE_FIELDS = new Set([
 
 /**
  * Decrypts a manifest entry from storage and parses the JSON payload.
- * Returns the raw Graph message object as stored during backup.
+ *
+ * The checksum is compared before the bytes are parsed, so a substituted object fails here rather
+ * than reaching `create_message` (issue #340).
  */
 export async function decrypt_and_parse_message(
   ctx: TenantContext,
   entry: ManifestEntry,
 ): Promise<Record<string, unknown>> {
-  const ciphertext = await ctx.storage.get(entry.storage_key);
-  const plaintext = ctx.decrypt(ciphertext);
+  const plaintext = await decrypt_verified_entry(ctx, entry);
   return JSON.parse(plaintext.toString('utf-8')) as Record<string, unknown>;
 }
 
@@ -70,8 +72,15 @@ export async function decrypt_and_parse_mime(
   ctx: TenantContext,
   entry: ManifestEntry,
 ): Promise<ParsedMimeMessage> {
+  return parse_mime_message(await decrypt_verified_entry(ctx, entry));
+}
+
+/** Fetches, decrypts and checksum-verifies one entry's stored payload. */
+async function decrypt_verified_entry(ctx: TenantContext, entry: ManifestEntry): Promise<Buffer> {
   const ciphertext = await ctx.storage.get(entry.storage_key);
-  return parse_mime_message(ctx.decrypt(ciphertext));
+  const plaintext = ctx.decrypt(ciphertext);
+  assert_restored_content_matches(`message ${entry.object_id}`, plaintext, entry.checksum);
+  return plaintext;
 }
 
 /**

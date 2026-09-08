@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { restore_entry_attachments } from '@/services/restore/restore-attachment-writer';
 import type { TenantContext } from '@wisecom/atlas-types';
@@ -5,6 +6,10 @@ import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+
+/** What the stubbed storage decrypts to, and the digest restore now checks it against (#340). */
+const STORED_CONTENT = 'content';
+const STORED_CHECKSUM = createHash('sha256').update(STORED_CONTENT).digest('hex');
 
 function make_ctx(): TenantContext {
   return {
@@ -56,7 +61,7 @@ function make_attachment(overrides: Partial<AttachmentEntry> = {}): AttachmentEn
     content_type: 'application/pdf',
     size_bytes: 1024,
     storage_key: 'attachments/user/sha256hash',
-    checksum: 'sha256hash',
+    checksum: STORED_CHECKSUM,
     is_inline: false,
     ...overrides,
   };

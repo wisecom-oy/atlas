@@ -327,6 +327,39 @@ When you run `atlas outlook verify`, Atlas performs a full integrity check for a
 
 `atlas outlook verify` checks the **message entries** listed in the manifest. For a MIME entry that covers the attachments too, because they are part of the message bytes being hashed. For a legacy JSON entry the separate attachment objects are not hashed against the manifest; they are protected by GCM authentication during any decrypt operation (backup, restore, save), which detects tampering but not a checksum recorded wrong at backup time.
 
+### What the GCM tag does not tell you
+
+The authentication tag proves the bytes were produced under the tenant DEK. It does not say which
+object they belong to. Content is encrypted with one key per tenant and nothing in the ciphertext
+names the object, so any object in the tenant authenticates in any other object's place. Moving one
+blob over another needs write access to the bucket, not the key or the passphrase, and the swapped
+object still decrypts cleanly.
+
+The manifest checksum is what distinguishes them, so it is compared before anything acts on the
+bytes, not after:
+
+| Path                       | Checked before                                                |
+| -------------------------- | ------------------------------------------------------------- |
+| Outlook message restore    | `POST /messages`, for both MIME and legacy JSON entries       |
+| Outlook attachment restore | the attachment upload, per attachment                         |
+| Drive file restore         | the upload, buffered and streamed alike                       |
+| Snapshot manifests         | the manifest is used, by rebuilding its key from its own body |
+
+An entry that records no checksum is refused rather than restored unverified: an unverifiable
+restore is exactly what the substitution is trying to produce.
+
+A manifest is checked differently because it has no checksum of its own. Its identity is in its
+body, so Atlas rebuilds the storage key from the decrypted `owner_id`/`site_id` and `snapshot_id`
+and compares it to the key it read. A manifest planted under another snapshot's key is reported as
+corrupt rather than skipped, because quietly omitting it reads as "this snapshot was never taken",
+which is the outcome the substitution wants.
+
+Two limits are worth stating plainly. Neither check prevents **replay of an older ciphertext for
+the same object**: an earlier version of that exact object still matches its own checksum, so
+rolling an object back to a previous state is defeated by S3 Object Lock and versioning rather than
+by encryption. And a checksum recorded wrong at backup time is not detected by comparing against
+it, which is the same limit that applies to verification above.
+
 ### Content-MD5 on Uploads
 
 Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.

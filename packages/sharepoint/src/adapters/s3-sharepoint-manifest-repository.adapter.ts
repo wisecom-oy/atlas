@@ -17,6 +17,20 @@ class InvalidSharePointManifestDateError extends Error {
   }
 }
 
+class MismatchedSharePointManifestError extends Error {
+  constructor(
+    readonly storage_key: string,
+    site_id: string,
+    snapshot_id: string,
+  ) {
+    super(
+      `SharePoint manifest at ${storage_key} decrypts to ${site_id}/${snapshot_id}; ` +
+        `refusing to use a manifest that is not the one the key names`,
+    );
+    this.name = 'MismatchedSharePointManifestError';
+  }
+}
+
 /** Persists SharePoint snapshot manifests as encrypted JSON in S3. */
 @injectable()
 export class S3SharePointManifestRepository implements SharePointManifestRepository {
@@ -74,6 +88,15 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
     return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   }
 
+  /**
+   * Downloads one manifest, rejecting a body that is not the identity the key names.
+   *
+   * A manifest is encrypted with the tenant key and nothing in the ciphertext says which manifest
+   * it is, so any manifest in the tenant authenticates at any other manifest's key. Rebuilding the
+   * key from the decrypted body and comparing it to the key that was read is what distinguishes
+   * them, and it covers every lookup here rather than only the one that had an id to check
+   * (issue #340).
+   */
   private async download_manifest(
     ctx: TenantContext,
     key: string,
@@ -82,6 +105,9 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
       const payload = await ctx.storage.get(key);
       const json = ctx.decrypt(payload).toString('utf-8');
       const parsed = JSON.parse(json) as SharePointSnapshotManifest;
+      if (sharepoint_manifest_key(parsed.site_id, parsed.snapshot_id) !== key) {
+        throw new MismatchedSharePointManifestError(key, parsed.site_id, parsed.snapshot_id);
+      }
       const created_at = new Date(parsed.created_at);
       if (Number.isNaN(created_at.getTime())) {
         throw new InvalidSharePointManifestDateError(key);
@@ -89,6 +115,7 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
       return { ...parsed, created_at };
     } catch (err) {
       if (err instanceof InvalidSharePointManifestDateError) throw err;
+      if (err instanceof MismatchedSharePointManifestError) throw err;
       return undefined;
     }
   }

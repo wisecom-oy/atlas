@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   restore_one_entry,
@@ -63,10 +64,15 @@ function build_stored_json(): Buffer {
   );
 }
 
+/** Restore refuses bytes that do not match the entry's checksum (issue #340). */
+function sha(body: Buffer): string {
+  return createHash('sha256').update(body).digest('hex');
+}
+
 const MIME_ENTRY: ManifestEntry = {
   object_id: 'msg-mime',
   storage_key: 'data/user/mime-blob',
-  checksum: 'chk-mime',
+  checksum: sha(build_stored_mime()),
   size_bytes: 2048,
   subject: 'Q1 reconciliation figures',
   folder_id: 'f1',
@@ -77,7 +83,7 @@ const MIME_ENTRY: ManifestEntry = {
 const JSON_ENTRY: ManifestEntry = {
   object_id: 'msg-json',
   storage_key: 'data/user/json-blob',
-  checksum: 'chk-json',
+  checksum: sha(build_stored_json()),
   size_bytes: 512,
   subject: 'Legacy JSON message',
   folder_id: 'f1',
@@ -86,7 +92,7 @@ const JSON_ENTRY: ManifestEntry = {
       attachment_id: 'att-1',
       name: 'legacy.txt',
       content_type: 'text/plain',
-      checksum: 'chk-att-1',
+      checksum: sha(JSON_ATTACHMENT_BYTES),
       size_bytes: JSON_ATTACHMENT_BYTES.length,
       is_inline: false,
       storage_key: 'data/user/att-blob',
