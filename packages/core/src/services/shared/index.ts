@@ -19,6 +19,10 @@ export type { DriveChainEntry, DriveChainManifest } from '@/services/shared/driv
 export { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
 export type { StreamDecryptResult } from '@/services/shared/stream-decrypt';
 export {
+  assert_restored_content_matches,
+  RestoredContentMismatchError,
+} from '@/services/shared/restored-content-verifier';
+export {
   safe_abort_multipart,
   stream_encrypt_to_multipart,
   stream_to_content_addressed_storage,

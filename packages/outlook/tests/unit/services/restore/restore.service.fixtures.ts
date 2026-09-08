@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 
 /** Builds a minimal Outlook manifest entry for restore service tests. */
@@ -5,7 +6,7 @@ export function make_restore_entry(id: string, folder_id: string): ManifestEntry
   return {
     object_id: id,
     storage_key: `data/user/${id}`,
-    checksum: id,
+    checksum: STORED_PAYLOAD_CHECKSUM,
     size_bytes: 100,
     subject: `Subject ${id}`,
     folder_id,
@@ -38,3 +39,14 @@ export function make_stored_message(folder_id: string): Buffer {
   });
   return Buffer.concat([Buffer.from('E'), Buffer.from(json)]);
 }
+
+/**
+ * SHA-256 of the plaintext the stubbed storage hands back for every key.
+ *
+ * Restore verifies decrypted bytes against the entry's checksum before it calls Graph (issue
+ * #340), so a fixture entry has to carry the digest of what the stub actually stores rather than
+ * an arbitrary string.
+ */
+export const STORED_PAYLOAD_CHECKSUM = createHash('sha256')
+  .update(make_stored_message('f1').subarray(1))
+  .digest('hex');

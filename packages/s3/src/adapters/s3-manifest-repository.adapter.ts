@@ -25,6 +25,20 @@ function snapshot_pointer_key(snapshot_id: string): string {
   return `${MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`;
 }
 
+class MismatchedManifestError extends Error {
+  constructor(
+    readonly storage_key: string,
+    owner_id: string,
+    snapshot_id: string,
+  ) {
+    super(
+      `Outlook manifest at ${storage_key} decrypts to ${owner_id}/${snapshot_id}; ` +
+        `refusing to use a manifest that is not the one the key names`,
+    );
+    this.name = 'MismatchedManifestError';
+  }
+}
+
 /**
  * Stores manifests as encrypted JSON in the tenant's S3 bucket.
  * Key layout: manifests/{owner_id}/{snapshot_id}.json
@@ -119,7 +133,14 @@ export class S3ManifestRepository implements ManifestRepository {
     return results.filter((manifest): manifest is Manifest => manifest !== undefined);
   }
 
-  /** Downloads an encrypted manifest blob, decrypts it, and parses the JSON. */
+  /**
+   * Downloads an encrypted manifest blob, decrypts it, and rejects a body the key does not name.
+   *
+   * A manifest is encrypted with the tenant key and nothing in the ciphertext says which manifest
+   * it is, so any manifest in the tenant authenticates at any other manifest's key. Rebuilding the
+   * key from the decrypted body is what distinguishes them, and doing it here covers the legacy
+   * scan and the listing paths as well as the pointer lookups (issue #340).
+   */
   private async download_and_decrypt(
     ctx: TenantContext,
     key: string,
@@ -127,8 +148,15 @@ export class S3ManifestRepository implements ManifestRepository {
     try {
       const encrypted = await ctx.storage.get(key);
       const json = ctx.decrypt(encrypted);
-      return JSON.parse(json.toString('utf-8')) as Manifest;
-    } catch {
+      const parsed = JSON.parse(json.toString('utf-8')) as Manifest;
+      if (manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
+        throw new MismatchedManifestError(key, parsed.owner_id, parsed.snapshot_id);
+      }
+      return parsed;
+    } catch (err) {
+      // A tampered manifest is reported, not skipped: quietly omitting it would read as "this
+      // snapshot was never taken", which is the outcome the substitution is trying to produce.
+      if (err instanceof MismatchedManifestError) throw err;
       return undefined;
     }
   }

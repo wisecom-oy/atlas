@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi } from 'vitest';
 import {
   sanitize_message_for_restore,
@@ -161,7 +162,7 @@ describe('decrypt_and_parse_message', () => {
     const entry: ManifestEntry = {
       object_id: 'msg-1',
       storage_key: 'data/user/abc123',
-      checksum: 'abc',
+      checksum: createHash('sha256').update(json_buf).digest('hex'),
       size_bytes: 100,
     };
 

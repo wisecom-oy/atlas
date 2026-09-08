@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { ManifestEntry, TenantContext } from '@wisecom/atlas-types';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
@@ -10,12 +11,19 @@ import { filter_entries_by_folder_name } from '@/services/restore/folder-restore
  * died before touching a single message.
  */
 const INBOX_ID = 'AAMkAG-inbox';
+const JSON_BODY = JSON.stringify({ parentFolderId: INBOX_ID });
+const BROKEN_BODY = 'not json at all';
+
+/** Restore refuses bytes that do not match the entry's checksum (issue #340), so fixtures digest. */
+function sha(body: string): string {
+  return createHash('sha256').update(body).digest('hex');
+}
 
 function entry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
   return {
     object_id: 'msg-1',
     storage_key: 'outlook/data/owner/abc',
-    checksum: 'sha',
+    checksum: sha(''),
     size_bytes: 10,
     ...overrides,
   } as ManifestEntry;
@@ -40,7 +48,12 @@ const MIME_BODY = 'From: john.doe@example.com\r\nSubject: Example subject\r\n\r\
 
 describe('backfill_missing_folder_ids', () => {
   it('does not throw on a legacy MIME entry without folder_id', async () => {
-    const mime = entry({ object_id: 'mime-1', storage_key: 'k-mime', payload_format: 'mime' });
+    const mime = entry({
+      object_id: 'mime-1',
+      storage_key: 'k-mime',
+      payload_format: 'mime',
+      checksum: sha(MIME_BODY),
+    });
     const ctx = make_ctx({ 'k-mime': MIME_BODY });
 
     await expect(backfill_missing_folder_ids(ctx, [mime])).resolves.toBeUndefined();
@@ -48,8 +61,8 @@ describe('backfill_missing_folder_ids', () => {
   });
 
   it('still backfills a legacy JSON entry from its decrypted payload', async () => {
-    const json = entry({ object_id: 'json-1', storage_key: 'k-json' });
-    const ctx = make_ctx({ 'k-json': JSON.stringify({ parentFolderId: INBOX_ID }) });
+    const json = entry({ object_id: 'json-1', storage_key: 'k-json', checksum: sha(JSON_BODY) });
+    const ctx = make_ctx({ 'k-json': JSON_BODY });
 
     await backfill_missing_folder_ids(ctx, [json]);
 
@@ -57,11 +70,16 @@ describe('backfill_missing_folder_ids', () => {
   });
 
   it('backfills the JSON entries alongside a MIME entry that cannot be resolved', async () => {
-    const mime = entry({ object_id: 'mime-1', storage_key: 'k-mime', payload_format: 'mime' });
-    const json = entry({ object_id: 'json-1', storage_key: 'k-json' });
+    const mime = entry({
+      object_id: 'mime-1',
+      storage_key: 'k-mime',
+      payload_format: 'mime',
+      checksum: sha(MIME_BODY),
+    });
+    const json = entry({ object_id: 'json-1', storage_key: 'k-json', checksum: sha(JSON_BODY) });
     const ctx = make_ctx({
       'k-mime': MIME_BODY,
-      'k-json': JSON.stringify({ parentFolderId: INBOX_ID }),
+      'k-json': JSON_BODY,
     });
 
     await backfill_missing_folder_ids(ctx, [mime, json]);
@@ -72,12 +90,17 @@ describe('backfill_missing_folder_ids', () => {
 
   it('selects the folder-matching entries and skips the unresolved MIME one', async () => {
     // The end-to-end shape of a `-f Inbox` run: backfill, then filter.
-    const mime = entry({ object_id: 'mime-1', storage_key: 'k-mime', payload_format: 'mime' });
-    const json = entry({ object_id: 'json-1', storage_key: 'k-json' });
+    const mime = entry({
+      object_id: 'mime-1',
+      storage_key: 'k-mime',
+      payload_format: 'mime',
+      checksum: sha(MIME_BODY),
+    });
+    const json = entry({ object_id: 'json-1', storage_key: 'k-json', checksum: sha(JSON_BODY) });
     const stamped = entry({ object_id: 'json-2', folder_id: INBOX_ID });
     const ctx = make_ctx({
       'k-mime': MIME_BODY,
-      'k-json': JSON.stringify({ parentFolderId: INBOX_ID }),
+      'k-json': JSON_BODY,
     });
     const folder_map = new Map<string, string>([[INBOX_ID, 'Inbox']]);
 
@@ -99,11 +122,15 @@ describe('backfill_missing_folder_ids', () => {
 
   it('keeps going when one JSON payload is unreadable', async () => {
     // A corrupt entry is the same failure shape as the MIME one: it must not take the run with it.
-    const broken = entry({ object_id: 'json-broken', storage_key: 'k-broken' });
-    const good = entry({ object_id: 'json-good', storage_key: 'k-good' });
+    const broken = entry({
+      object_id: 'json-broken',
+      storage_key: 'k-broken',
+      checksum: sha(BROKEN_BODY),
+    });
+    const good = entry({ object_id: 'json-good', storage_key: 'k-good', checksum: sha(JSON_BODY) });
     const ctx = make_ctx({
-      'k-broken': 'not json at all',
-      'k-good': JSON.stringify({ parentFolderId: INBOX_ID }),
+      'k-broken': BROKEN_BODY,
+      'k-good': JSON_BODY,
     });
 
     await expect(backfill_missing_folder_ids(ctx, [broken, good])).resolves.toBeUndefined();
