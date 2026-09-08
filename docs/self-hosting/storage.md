@@ -211,3 +211,26 @@ Content blobs stay one object per file, addressed by SHA-256 (`onedrive/data/<ow
 | Scaleway                                                     | None documented                           | Recommends objects larger than 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/))                      |
 | Backblaze B2                                                 | None documented                           | B2's own cost guide warns some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing))          |
 | MinIO self-hosted                                            | None                                      | Filesystem block size still applies                                                                                                      |
+
+## Per-Object Size Ceiling
+
+A large file is uploaded as a multipart stream to a staging key, then promoted to its
+content-addressed key with a server-side copy. Two S3 limits bound that:
+
+| Limit                      | Value  | How Atlas stays inside it                                                    |
+| -------------------------- | ------ | ---------------------------------------------------------------------------- |
+| Single `CopyObject` source | 5 GB   | A source above it is promoted with ranged `UploadPartCopy` instead           |
+| Object size                | 5 TB   | Not enforced by Atlas; a file larger than this cannot be stored in S3 at all |
+| Parts per multipart upload | 10,000 | Copy parts are 1 GiB, which reaches 10 TiB and so never runs out             |
+
+The 5 GB threshold is a constant in Atlas, not something read from the backend. MinIO does not
+enforce the AWS limit, so deciding from the backend's behaviour would mean the request that fails
+on AWS is the one never exercised locally. Both take the same branch for the same object size.
+
+The promotion is server-side either way: no byte travels back through Atlas, and the ciphertext,
+its checksum, its metadata and any Object Lock retention are identical whichever request is used.
+Retention on a ranged copy is declared when the multipart upload is created, which is where it
+takes effect for a multipart destination.
+
+The practical ceiling is therefore S3's own 5 TB per object, which is far above what Microsoft 365
+will serve: OneDrive and SharePoint cap a single file at 250 GB.
