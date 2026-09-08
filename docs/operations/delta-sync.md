@@ -50,8 +50,9 @@ genuine edit there is still reported as `updated`.
 ## When the cursor is committed
 
 OneDrive and SharePoint keep their delta links in a separate cursor object rather than inside the
-manifest, so a run has two writes to get right. Atlas commits them in one order and never the other:
-the snapshot manifest first, then the run's version index, then the cursor.
+manifest, so a run has several writes to order correctly. A run that produced entries writes the
+snapshot manifest first, then the run's version index, then the cursor. A run with no entries has
+no manifest to write, so it writes the version index and then the cursor.
 
 The ordering is what makes an interrupted or failed run safe to retry. A cursor written first would
 record that the drive was consumed up to a point no snapshot references. The encrypted content would
