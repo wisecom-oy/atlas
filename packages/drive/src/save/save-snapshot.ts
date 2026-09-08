@@ -263,9 +263,12 @@ async function buffered_decrypt(
 ): Promise<Buffer | undefined> {
   const ciphertext = await ctx.storage.get(entry.storage_key!);
   const content = ctx.decrypt(ciphertext);
-  if (!skip_integrity && entry.checksum && !sha256_matches(content, entry.checksum)) {
+  // A missing checksum is not a pass. The streaming path already refuses it, and an entry nobody
+  // can verify is exactly the one a substituted blob hides behind, so it is an integrity failure
+  // rather than a file written into the archive unchecked (issues #340, #341).
+  if (!skip_integrity && (!entry.checksum || !sha256_matches(content, entry.checksum))) {
     integrity_failures.push(entry.file_id);
-    logger.warn(`Checksum mismatch for ${entry.file_name}; skipping`);
+    logger.warn(`Missing or mismatched checksum for ${entry.file_name}; skipping`);
     return undefined;
   }
   return content;

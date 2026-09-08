@@ -384,6 +384,11 @@ to be excluded from `total_checked` altogether, so a snapshot full of them verif
 single byte being read. It is now a verification failure. Tombstones still count for nothing,
 because a deleted file has no blob to check.
 
+An export applies the same rule. A file whose entry records no checksum is an integrity failure
+rather than a file written into the archive unchecked, which is what the streaming export path
+already did and the buffered one did not. `--skip-integrity-check` still opts out of the comparison
+entirely, for the case where recovering something beats proving it is the right something.
+
 None of this changes the exit-code contract in [the CLI reference](/reference/cli#exit-codes). A
 run that now reports per-item errors or integrity failures exits `2`, which is what a partial run
 has always meant; a manifest that cannot be read is a `StorageError` and exits `1`. What changed is
