@@ -215,7 +215,11 @@ async function save_entries_to_archive(
         logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
       }
     } catch (err) {
+      // A read or decrypt that threw is a damaged file, not a deliberate skip. It counts in both
+      // places: `errors` so the run cannot exit clean, and `integrity_failures` so it is not
+      // confused with an entry that had nothing to save (issue #341).
       errors.push(`${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`);
+      integrity_failures.push(entry.file_id);
       files_skipped++;
     }
     emit_operation_progress(options, {
@@ -240,19 +244,12 @@ async function download_and_decrypt(
   if (!entry.storage_key) return undefined;
 
   if (should_stream_restore(entry)) {
-    try {
-      const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key);
-      if (!skip_integrity && !verify_streaming_checksum(entry, sha256_hex)) {
-        integrity_failures.push(entry.file_id);
-        return undefined;
-      }
-      return content;
-    } catch (err) {
-      logger.warn(
-        `Streaming decrypt failed for ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key);
+    if (!skip_integrity && !verify_streaming_checksum(entry, sha256_hex)) {
+      integrity_failures.push(entry.file_id);
       return undefined;
     }
+    return content;
   }
 
   return buffered_decrypt(ctx, entry, skip_integrity, integrity_failures);
@@ -264,23 +261,17 @@ async function buffered_decrypt(
   skip_integrity: boolean,
   integrity_failures: string[],
 ): Promise<Buffer | undefined> {
-  try {
-    const ciphertext = await ctx.storage.get(entry.storage_key!);
-    const content = ctx.decrypt(ciphertext);
-    if (!skip_integrity && entry.checksum) {
-      if (!sha256_matches(content, entry.checksum)) {
-        integrity_failures.push(entry.file_id);
-        logger.warn(`Checksum mismatch for ${entry.file_name}; skipping`);
-        return undefined;
-      }
-    }
-    return content;
-  } catch (err) {
-    logger.warn(
-      `Failed to decrypt ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-    );
+  const ciphertext = await ctx.storage.get(entry.storage_key!);
+  const content = ctx.decrypt(ciphertext);
+  // A missing checksum is not a pass. The streaming path already refuses it, and an entry nobody
+  // can verify is exactly the one a substituted blob hides behind, so it is an integrity failure
+  // rather than a file written into the archive unchecked (issues #340, #341).
+  if (!skip_integrity && (!entry.checksum || !sha256_matches(content, entry.checksum))) {
+    integrity_failures.push(entry.file_id);
+    logger.warn(`Missing or mismatched checksum for ${entry.file_name}; skipping`);
     return undefined;
   }
+  return content;
 }
 
 /** A result with no files, used for a pre-aborted run and for a snapshot with nothing to save. */

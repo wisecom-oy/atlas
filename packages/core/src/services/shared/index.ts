@@ -22,6 +22,7 @@ export {
   assert_restored_content_matches,
   RestoredContentMismatchError,
 } from '@/services/shared/restored-content-verifier';
+export { is_absent_object_error } from '@/services/shared/absent-object';
 export {
   safe_abort_multipart,
   stream_encrypt_to_multipart,
