@@ -73,13 +73,13 @@ Provider diagnostics can contain tenant identifiers and sensitive content. Redac
 
 A short flag means one thing across the whole CLI. Before v5.0.0 three of them meant two things, and the pair that mattered was `atlas stats -s <site>` against `atlas onedrive verify -s <snapshot>`.
 
-| Flag | Meaning                                       | Notes                                                                                         |
-| ---- | --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `-s` | `--snapshot`                                  | Every command that acts on a snapshot, including `stats`, which no longer accepts `-s` at all |
-| `-o` | `--owner`                                     | A drive owner; `--output` has no short flag on any command                                    |
-| `-f` | `--folder` on Outlook, `--file` on the drives | One value each; repeat `-f` to name several Outlook folders                                   |
-| `-t` | `--tenant`                                    | Every command                                                                                 |
-| `-m` | `--mailbox`                                   | Every command that acts on a mailbox                                                          |
+| Flag | Meaning                                       | Notes                                                                              |
+| ---- | --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `-s` | `--snapshot`                                  | Every command that acts on a snapshot; `stats` does not, and rejects `-s` outright |
+| `-o` | `--owner`                                     | A drive owner; `--output` has no short flag on any command                         |
+| `-f` | `--folder` on Outlook, `--file` on the drives | One value each; repeat `-f` to name several Outlook folders                        |
+| `-t` | `--tenant`                                    | Every command                                                                      |
+| `-m` | `--mailbox`                                   | Every command that acts on a mailbox                                               |
 
 A retired spelling is rejected rather than reinterpreted, naming its replacement:
 
