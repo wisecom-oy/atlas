@@ -15,6 +15,9 @@ const { cleanup_stale_staging, process_large_file } =
 
 const KEY = randomBytes(32);
 const OWNER = 'owner-1';
+// The chunk source is mocked, so the item's reported size is whatever the mock yields: the
+// pipeline now fails an item whose chunks do not add up to it (issue #338).
+const ITEM_BYTES = 1024;
 
 interface Recorded {
   readonly ctx: TenantContext;
@@ -68,7 +71,7 @@ function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaIte
     kind: 'file',
     file_name: 'movie.mp4',
     parent_path: '/Videos',
-    size_bytes: 400 * 1024 * 1024,
+    size_bytes: ITEM_BYTES,
     deleted: false,
     ...overrides,
   } as OneDriveDeltaItem;
@@ -83,7 +86,7 @@ function make_connector(url?: string): OneDriveConnector {
 beforeEach(() => {
   vi.clearAllMocks();
   chunk_mocks.fetch_file_chunks.mockImplementation(async function* () {
-    yield Buffer.alloc(1024, 7);
+    yield Buffer.alloc(ITEM_BYTES, 7);
   });
 });
 
@@ -103,7 +106,7 @@ describe('process_large_file', () => {
     expect(connector.resolve_download_url).not.toHaveBeenCalled();
     expect(chunk_mocks.fetch_file_chunks).toHaveBeenCalledWith(
       'https://cdn.example/abc',
-      400 * 1024 * 1024,
+      ITEM_BYTES,
       'item-1',
     );
   });
@@ -195,6 +198,45 @@ describe('process_large_file', () => {
     expect(begin).toContain('staging');
     expect(begin).toContain('item-1');
     expect(recorded.copy_args[0]?.from).toBe(begin.slice('begin:'.length));
+  });
+
+  // Issue #338: the checksum is taken over whatever arrived, so a transfer that ended early or
+  // restarted mid-stream produces a validly encrypted object with a matching checksum. The
+  // reported item size is the only expectation that can catch it.
+  it('fails an item whose chunks ended before its reported size, promoting nothing', async () => {
+    const recorded = make_ctx();
+    chunk_mocks.fetch_file_chunks.mockImplementation(async function* () {
+      yield Buffer.alloc(ITEM_BYTES / 2, 7);
+    });
+
+    await expect(
+      process_large_file(
+        make_connector('https://cdn.example/abc'),
+        make_item(),
+        OWNER,
+        recorded.ctx,
+      ),
+    ).rejects.toThrow(/produced 512 bytes, expected 1024/);
+    expect(recorded.ops).not.toContain('complete');
+    expect(recorded.ops).not.toContain('copy');
+  });
+
+  it('fails an item whose chunks overran its reported size, promoting nothing', async () => {
+    const recorded = make_ctx();
+    chunk_mocks.fetch_file_chunks.mockImplementation(async function* () {
+      yield Buffer.alloc(ITEM_BYTES / 2, 7);
+      yield Buffer.alloc(ITEM_BYTES, 7);
+    });
+
+    await expect(
+      process_large_file(
+        make_connector('https://cdn.example/abc'),
+        make_item(),
+        OWNER,
+        recorded.ctx,
+      ),
+    ).rejects.toThrow(/produced 1536 bytes, expected 1024/);
+    expect(recorded.ops).not.toContain('copy');
   });
 });
 

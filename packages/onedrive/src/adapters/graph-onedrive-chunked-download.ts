@@ -1,5 +1,6 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { stream_whole_file_in_chunks } from '@wisecom/atlas-drive/backup/whole-file-stream';
+import { assert_range_chunk } from '@wisecom/atlas-drive/backup/download-integrity';
 import {
   is_retryable_error,
   is_transient_error,
@@ -45,14 +46,16 @@ export async function* fetch_file_chunks(
   item_id: string,
 ): AsyncGenerator<Buffer> {
   const chunk_count = Math.ceil(total_bytes / CHUNK_SIZE_BYTES);
+  let yielded_chunks = 0;
 
   for (let i = 0; i < chunk_count; i++) {
     const range_start = i * CHUNK_SIZE_BYTES;
     const range_end = Math.min(range_start + CHUNK_SIZE_BYTES - 1, total_bytes - 1);
     const expected_length = range_end - range_start + 1;
 
+    let chunk: Buffer;
     try {
-      yield await download_chunk_with_retry(
+      chunk = await download_chunk_with_retry(
         download_url,
         range_start,
         range_end,
@@ -65,9 +68,19 @@ export async function* fetch_file_chunks(
       );
     } catch (err) {
       if (!(err instanceof RangeIgnoredError)) throw err;
+      // The streamed pass restarts at byte zero, so it can only replace the chunks already handed
+      // to the consumer, never continue them. Once one has been yielded the consumer has fed it
+      // into a cipher and appending a second copy of the file would produce a validly encrypted
+      // object holding a prefix plus the whole file (issue #338). Fail the item instead; the next
+      // run retries it and takes the streamed path from the first chunk.
+      if (yielded_chunks > 0) {
+        throw new Error(
+          `Range requests stopped being honoured for ${item_id} after ${yielded_chunks} chunk(s); ` +
+            `the partial transfer cannot be continued by a whole-file download`,
+        );
+      }
       // Every remaining chunk would fetch and discard the same whole file: a 1 GiB item costs
-      // 256 GiB transferred to produce 1 GiB. One streamed pass delivers the rest, and the
-      // chunks already yielded are re-read from the start, which is the price of finding out.
+      // 256 GiB transferred to produce 1 GiB. One streamed pass delivers the whole file instead.
       logger.warn(
         `Range requests are ignored for ${item_id} (HTTP 200 with the full body); ` +
           `falling back to one streamed download`,
@@ -80,6 +93,8 @@ export async function* fetch_file_chunks(
       });
       return;
     }
+    yielded_chunks++;
+    yield chunk;
   }
 }
 
@@ -211,16 +226,24 @@ async function download_single_chunk(
     const buf = Buffer.from(await response.arrayBuffer());
 
     if (response.status === 200) {
-      // A single-chunk item legitimately comes back whole, so the slice is a no-op there.
-      if (buf.length < range_end + 1) {
+      // A single-chunk item legitimately comes back whole, so the slice is a no-op there. Anything
+      // other than the whole file means the body is not what the slice offsets assume (issue #338).
+      if (buf.length !== total_bytes) {
         throw new CdnHttpError(
-          `CDN returned 200 with ${buf.length} bytes but range_end is ${range_end} for ${item_id}`,
+          `CDN returned 200 with ${buf.length} bytes for ${item_id}, expected ${total_bytes}`,
           200,
         );
       }
       return buf.subarray(range_start, range_end + 1);
     }
 
+    assert_range_chunk(
+      item_id,
+      range_start,
+      range_end,
+      response.headers.get('Content-Range'),
+      buf.length,
+    );
     return buf;
   } finally {
     clearTimeout(timer);

@@ -11,11 +11,18 @@ function to_array_buffer(body: Buffer): ArrayBuffer {
   return copy;
 }
 
-function range_response(status: number, body = Buffer.alloc(0)): Response {
+function range_response(
+  status: number,
+  body = Buffer.alloc(0),
+  content_range = `bytes 0-${Math.max(body.length - 1, 0)}/${body.length}`,
+): Response {
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: { get: (): string | null => null },
+    headers: {
+      get: (name: string): string | null =>
+        name.toLowerCase() === 'content-range' && status === 206 ? content_range : null,
+    },
     arrayBuffer: (): Promise<ArrayBuffer> => Promise.resolve(to_array_buffer(body)),
     text: (): Promise<string> => Promise.resolve(''),
     // The Range-ignored path cancels the body unread, and the streamed fallback iterates it.

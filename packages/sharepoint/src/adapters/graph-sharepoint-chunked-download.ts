@@ -4,6 +4,7 @@ import {
   is_transient_error,
   parse_retry_after_ms,
 } from '@wisecom/atlas-m365-graph';
+import { assert_range_chunk } from '@wisecom/atlas-drive/backup/download-integrity';
 
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 export const CHUNK_DOWNLOAD_THRESHOLD = 4 * 1024 * 1024;
@@ -163,15 +164,24 @@ async function download_single_chunk(
         `CDN returned HTTP 200 instead of 206 for Range request on ${item_id} — ` +
           `server ignored Range header, slicing ${buf.length} bytes to expected range`,
       );
-      if (buf.length < range_end + 1) {
+      // A single-chunk item legitimately comes back whole, so the slice is a no-op there. Anything
+      // other than the whole file means the body is not what the slice offsets assume (issue #338).
+      if (buf.length !== total_bytes) {
         throw new CdnHttpError(
-          `CDN returned 200 with ${buf.length} bytes but range_end is ${range_end} for ${item_id}`,
+          `CDN returned 200 with ${buf.length} bytes for ${item_id}, expected ${total_bytes}`,
           200,
         );
       }
       return buf.subarray(range_start, range_end + 1);
     }
 
+    assert_range_chunk(
+      item_id,
+      range_start,
+      range_end,
+      response.headers.get('Content-Range'),
+      buf.length,
+    );
     return buf;
   } finally {
     clearTimeout(timer);

@@ -24,6 +24,11 @@ export {
 export { format_bytes } from '@/shared/format-bytes';
 export { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
 export {
+  assert_range_chunk,
+  assert_transferred_size,
+  DownloadIntegrityError,
+} from '@/backup/download-integrity';
+export {
   stream_whole_file_in_chunks,
   type WholeFileStreamOptions,
 } from '@/backup/whole-file-stream';

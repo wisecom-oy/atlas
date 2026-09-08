@@ -92,6 +92,15 @@ SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.g
 - **Exponential backoff** when `Retry-After` is absent or carries no usable wait (base 1s, max 32s, with jitter). A `Retry-After` in the past is treated as absent, since honouring it as "retry now" would remove the jitter that stops concurrent workers retrying in lockstep. A value further out than an hour is capped at an hour and treated as a server bug rather than an instruction.
 - **Graph content fallback.** If the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content`, which routes through the Graph gateway rather than the CDN.
 - **Stall timeout per chunk.** Each range request is aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. The budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB. If the CDN ignores the `Range` header and answers `200` with the whole file, the budget is re-sized to that body before it is read.
+- **Transfer validation.** A `206` is rejected unless its body is exactly the requested length and
+  its `Content-Range` names the range that was asked for, a `200` answering a range request is
+  rejected unless it carries the item's full reported size, and a streamed large file is rejected
+  unless its chunks add up to that size. A recorded checksum is computed over whatever arrived, so
+  without these an interrupted transfer becomes a validly encrypted backup of the wrong bytes. If
+  the CDN starts ignoring `Range` partway through a file, the item fails rather than having the
+  whole-file body appended to the chunks already consumed. See
+  [What a chunk has to prove before it is stored](/onedrive-backup#what-a-chunk-has-to-prove-before-it-is-stored)
+  for the full table; the two providers behave identically here.
 
 ## Failed Items and Delta Progress
 
