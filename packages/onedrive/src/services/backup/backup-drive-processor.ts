@@ -5,7 +5,6 @@ import type {
   OneDriveDeltaResult,
   OneDriveDrive,
   OneDriveFileVersionRecord,
-  OneDriveDeltaCursorRepository,
   OneDriveManifestEntry,
   TenantContext,
   OperationControlOptions,
@@ -26,7 +25,6 @@ import {
 } from '@/services/backup/delta-item-processor';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
 import { scoped_delta } from '@/services/backup/folder-scope';
-import { persist_scan_cursor } from '@/services/backup/scan-cursor-writer';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import {
   make_item_progress_callback,
@@ -70,10 +68,15 @@ export interface DriveScanAccumulators {
   version_rows: Map<string, OneDriveFileVersionRecord[]>;
 }
 
-/** Fetches delta changes across all drives and accumulates manifest entries. */
+/**
+ * Fetches delta changes across all drives and accumulates manifest entries.
+ *
+ * Nothing is committed here. The delta links ride in `delta_link_by_drive` until the caller has
+ * written the snapshot manifest, because a cursor saved first would point past content no snapshot
+ * references, and the next run would see no work to redo (issue #339).
+ */
 export async function scan_all_drives(
   connector: OneDriveConnector,
-  cursors: OneDriveDeltaCursorRepository,
   drives: OneDriveDrive[],
   tenant_id: string,
   owner_id: string,
@@ -172,15 +175,6 @@ export async function scan_all_drives(
       accumulate_drive_result(accumulators, delta_link_by_drive, drive, drive_result);
       accumulators.drives_scanned++;
 
-      await persist_scan_cursor(
-        cursors,
-        ctx,
-        owner_id,
-        delta_link_by_drive,
-        tracking_state,
-        accumulators.failed_items,
-        folder_scope,
-      );
       if (!drive_result.interrupted) {
         report_drive_success(
           progress,

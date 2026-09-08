@@ -5,7 +5,6 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 import type {
   SharePointBackupOptions,
   SharePointDeltaCursor,
-  SharePointDeltaCursorRepository,
   SharePointDocumentLibrary,
   SharePointFileVersionRecord,
   SharePointManifestEntry,
@@ -37,7 +36,6 @@ export interface SharePointLibraryScanResult {
 
 interface SharePointLibraryScanParams {
   connector: SharePointSiteConnector;
-  cursors: SharePointDeltaCursorRepository;
   versions: RunVersionCollector;
   tenant_id: string;
   site_id: string;
@@ -54,7 +52,6 @@ interface SharePointLibraryScanParams {
 /** Scans libraries sequentially and stops at a safe item boundary. */
 export async function scan_all_libraries({
   connector,
-  cursors,
   versions,
   tenant_id,
   site_id,
@@ -97,7 +94,6 @@ export async function scan_all_libraries({
     try {
       const library_result = await process_single_library(
         connector,
-        cursors,
         versions,
         tenant_id,
         site_id,
