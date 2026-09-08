@@ -18,15 +18,15 @@ It is infrastructure rather than a desktop backup app: a CLI and a typed SDK, bu
 
 Recovery is only useful if it still works when the production environment cannot be trusted. That shapes the architecture:
 
-| Property | How it works | Why it matters |
-| --- | --- | --- |
-| **Per-tenant encryption** | AES-256-GCM envelope encryption; a scrypt-derived key wraps a per-tenant data key that never leaves memory unwrapped | Storage compromise alone does not expose mail or files |
-| **Customer-controlled storage** | Any S3-compatible backend: AWS, MinIO, or on-premise | You decide where backup data lives and who holds the credentials |
-| **Content-addressed storage** | Messages, attachments, and files keyed by SHA-256 of the plaintext | Identical content is stored once; re-runs do not re-upload |
-| **Storage-level immutability** | S3 Object Lock with time-based retention | Retention is enforced by the storage layer, not by application logic |
-| **Delta synchronisation** | Graph delta cursors per folder, drive, and library | Incremental runs; a single failed item does not replay the whole backlog |
-| **Snapshot replication** | Ciphertext copied as-is to a secondary S3 target | A second, independent copy for disaster recovery |
-| **Open implementation** | Apache-2.0, no proprietary archive format | The recovery path can be audited rather than assumed |
+| Property                        | How it works                                                                                                         | Why it matters                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Per-tenant encryption**       | AES-256-GCM envelope encryption; a scrypt-derived key wraps a per-tenant data key that never leaves memory unwrapped | Storage compromise alone does not expose mail or files                   |
+| **Customer-controlled storage** | Any S3-compatible backend: AWS, MinIO, or on-premise                                                                 | You decide where backup data lives and who holds the credentials         |
+| **Content-addressed storage**   | Messages, attachments, and files keyed by SHA-256 of the plaintext                                                   | Identical content is stored once; re-runs do not re-upload               |
+| **Storage-level immutability**  | S3 Object Lock with time-based retention                                                                             | Retention is enforced by the storage layer, not by application logic     |
+| **Delta synchronisation**       | Graph delta cursors per folder, drive, and library                                                                   | Incremental runs; a single failed item does not replay the whole backlog |
+| **Snapshot replication**        | Ciphertext copied as-is to a secondary S3 target                                                                     | A second, independent copy for disaster recovery                         |
+| **Open implementation**         | Apache-2.0, no proprietary archive format                                                                            | The recovery path can be audited rather than assumed                     |
 
 Large files stream without touching disk: transfers at or above 64 MiB are downloaded, encrypted, and assembled into multipart uploads in bounded memory.
 
@@ -63,19 +63,20 @@ SharePoint coverage is document libraries only. Generic lists and site pages are
 
 ## Documentation
 
-| Topic | |
-| --- | --- |
-| Getting Started | [docs](https://wisecom-oy.github.io/atlas/getting-started) |
-| Configuration | [docs](https://wisecom-oy.github.io/atlas/configuration) |
-| Azure AD Setup | [docs](https://wisecom-oy.github.io/atlas/azure-ad-setup) |
-| Security Model | [docs](https://wisecom-oy.github.io/atlas/security) |
-| Self-Hosting | [docs](https://wisecom-oy.github.io/atlas/self-hosting) |
-| OneDrive Backup | [docs](https://wisecom-oy.github.io/atlas/onedrive-backup) |
-| SharePoint Backup | [docs](https://wisecom-oy.github.io/atlas/sharepoint-backup) |
-| Storage Layout | [docs](https://wisecom-oy.github.io/atlas/operations/storage-layout) |
-| Troubleshooting | [docs](https://wisecom-oy.github.io/atlas/troubleshooting) |
-| CLI Reference | [docs](https://wisecom-oy.github.io/atlas/reference/cli) |
-| SDK Reference | [docs](https://wisecom-oy.github.io/atlas/reference/sdk) |
+| Topic             |                                                                      |
+| ----------------- | -------------------------------------------------------------------- |
+| Getting Started   | [docs](https://wisecom-oy.github.io/atlas/getting-started)           |
+| Configuration     | [docs](https://wisecom-oy.github.io/atlas/configuration)             |
+| Azure AD Setup    | [docs](https://wisecom-oy.github.io/atlas/azure-ad-setup)            |
+| Security Model    | [docs](https://wisecom-oy.github.io/atlas/security)                  |
+| Self-Hosting      | [docs](https://wisecom-oy.github.io/atlas/self-hosting)              |
+| OneDrive Backup   | [docs](https://wisecom-oy.github.io/atlas/onedrive-backup)           |
+| SharePoint Backup | [docs](https://wisecom-oy.github.io/atlas/sharepoint-backup)         |
+| Storage Layout    | [docs](https://wisecom-oy.github.io/atlas/operations/storage-layout) |
+| Troubleshooting   | [docs](https://wisecom-oy.github.io/atlas/troubleshooting)           |
+| CLI Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/cli)             |
+| SDK Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/sdk)             |
+| Migrating to v5   | [docs](https://wisecom-oy.github.io/atlas/migration/v5)              |
 
 **Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the programmatic Node.js API.
 
