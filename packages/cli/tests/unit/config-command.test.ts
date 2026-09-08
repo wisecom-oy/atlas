@@ -84,7 +84,7 @@ describe('atlas config set', () => {
   it('reads the value from stdin when given "-", keeping it out of shell history', async () => {
     fs_mocks.readFileSync.mockReturnValue('  FAKE-secret-from-stdin  \n');
 
-    await run(['client.secret', '-']);
+    await run(['set', 'client.secret', '-']);
 
     // Read from fd 0, not from the argument vector.
     expect(fs_mocks.readFileSync).toHaveBeenCalledWith(0, 'utf-8');
@@ -94,13 +94,15 @@ describe('atlas config set', () => {
   });
 
   it('rejects an invalid value and writes nothing', async () => {
-    await expect(run(['tenant.id', 'not-a-guid'])).rejects.toThrow(/Invalid value for tenant.id/);
+    await expect(run(['set', 'tenant.id', 'not-a-guid'])).rejects.toThrow(
+      /Invalid value for tenant.id/,
+    );
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
 
   it('rejects a passphrase below the minimum length', async () => {
-    await expect(run(['encryption.passphrase', 'short'])).rejects.toThrow(/at least 12/);
+    await expect(run(['set', 'encryption.passphrase', 'short'])).rejects.toThrow(/at least 12/);
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
@@ -108,7 +110,7 @@ describe('atlas config set', () => {
   it('keeps existing keys when storing a new one', async () => {
     mocks.read_secure_config.mockReturnValue({ tenant_id: 'existing-tenant' });
 
-    await run(['s3.region', 'eu-north-1']);
+    await run(['set', 's3.region', 'eu-north-1']);
 
     expect(mocks.write_secure_config).toHaveBeenCalledWith({
       tenant_id: 'existing-tenant',
@@ -119,7 +121,7 @@ describe('atlas config set', () => {
   it('warns that an ATLAS_* variable overrides the value just stored', async () => {
     mocks.read_env_overrides.mockReturnValue({ s3_region: 'us-west-2' });
 
-    await run(['s3.region', 'eu-north-1']);
+    await run(['set', 's3.region', 'eu-north-1']);
 
     expect(output.join('\n')).toMatch(/environment variable currently overrides s3\.region/);
   });
@@ -127,13 +129,13 @@ describe('atlas config set', () => {
   it('does not warn when the environment agrees with the stored value', async () => {
     mocks.read_env_overrides.mockReturnValue({ s3_region: 'eu-north-1' });
 
-    await run(['s3.region', 'eu-north-1']);
+    await run(['set', 's3.region', 'eu-north-1']);
 
     expect(output.join('\n')).not.toMatch(/environment variable currently overrides/);
   });
 
   it('skips the live probe while the credential group is incomplete', async () => {
-    await run(['client.id', '00000000-0000-0000-0000-000000000002']);
+    await run(['set', 'client.id', '00000000-0000-0000-0000-000000000002']);
 
     expect(output.join('\n')).toMatch(/Graph credentials incomplete/);
     expect(azure_mocks.get_token).not.toHaveBeenCalled();
@@ -142,13 +144,15 @@ describe('atlas config set', () => {
   it('probes Graph once the last credential in the group is stored', async () => {
     mocks.read_secure_config.mockReturnValue(COMPLETE_GRAPH);
 
-    await run(['client.secret', 'FAKE-client-secret']);
+    await run(['set', 'client.secret', 'FAKE-client-secret']);
 
     expect(azure_mocks.get_token).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unknown key', async () => {
-    await expect(run(['nope.key', 'value'])).rejects.toThrow(/Unknown config key "nope.key"/);
+    await expect(run(['set', 'nope.key', 'value'])).rejects.toThrow(
+      /Unknown config key "nope.key"/,
+    );
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
@@ -156,7 +160,7 @@ describe('atlas config set', () => {
 
 describe('atlas config get', () => {
   it('warns and prints nothing when the key is unset', async () => {
-    await run(['tenant.id']);
+    await run(['get', 'tenant.id']);
 
     expect(output.join('\n')).toMatch(/tenant\.id is not set/);
     expect(console.log).not.toHaveBeenCalled();
@@ -192,8 +196,8 @@ describe('atlas config list', () => {
 });
 
 describe('atlas config unset', () => {
-  it('errors with usage when no key is given', async () => {
-    await expect(run(['unset'])).rejects.toThrow(/Usage: atlas config unset/);
+  it('refuses to run without a key rather than guessing one', async () => {
+    await expect(run(['unset'])).rejects.toThrow(/missing required argument/);
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });

@@ -18,6 +18,7 @@ import {
 } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList } from '@/ui/components/key-value-list';
@@ -51,7 +52,7 @@ export async function execute_outlook_verify(
   const tenant_id = resolve_tenant_id(container, options);
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Verify" />
+      <Banner title={banner_title('outlook', 'Verify')} />
       <KeyValueList items={[{ label: 'Mailbox', value: options.mailbox }]} />
     </Box>,
   );
@@ -78,7 +79,7 @@ export async function execute_outlook_status(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Status" />
+      <Banner title={banner_title('outlook', 'Status')} />
       <KeyValueList
         items={[
           { label: 'Tenant', value: tenant_id },
@@ -100,7 +101,7 @@ export async function execute_outlook_mailboxes(
   const tenant_id = resolve_tenant_id(container, options);
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Mailboxes" />
+      <Banner title={banner_title('outlook', 'Mailboxes')} />
       <KeyValueList items={[{ label: 'Tenant', value: tenant_id }]} />
     </Box>,
   );

@@ -29,6 +29,8 @@ import { logger, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-core';
 import type { UserIdentityResolver } from '@wisecom/atlas-types';
 import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
 import { resolve_secret_option } from '@/utils/secret-option';
+import { with_snapshot, with_tenant } from '@/commands/shared-options';
+import { banner_title } from '@/ui/banner-title';
 
 /**
  * Resolves an owner for recovery without touching primary storage.
@@ -71,21 +73,22 @@ export function register_rehydrate_command(
   program: Command,
   get_container: ContainerFactory,
 ): void {
-  program
+  const command = program
     .command('rehydrate')
     .description('Recover snapshots from a replica to primary (disaster recovery)')
-    .option('-s, --snapshot <id>', 'recover a specific snapshot')
     .option('-m, --mailbox <id>', 'recover all snapshots for a mailbox')
     .option('--site <url-or-id>', 'recover all snapshots for a SharePoint site')
     .option('-o, --owner <email-or-id>', 'recover all OneDrive snapshots for an owner')
     .option('--all', 'recover all mailboxes and snapshots (full tenant DR)')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--source-endpoint <url>', 'source replica S3 endpoint URL')
     .option('--source-access-key <key>', 'source replica S3 access key')
     .option('--source-secret-key <key>', 'source replica S3 secret key; "-" reads it from stdin')
     .option('--source-region <region>', 'source replica S3 region')
-    .option('--source-config <path>', 'path to JSON file with source S3 credentials')
-    .action((options: RehydrateOptions) => execute_rehydrate(get_container(), options));
+    .option('--source-config <path>', 'path to JSON file with source S3 credentials');
+  with_snapshot(command, 'recover a specific snapshot');
+  with_tenant(command).action((options: RehydrateOptions) =>
+    execute_rehydrate(get_container(), options),
+  );
 }
 
 function resolve_tenant_id(container: Container, options: RehydrateOptions): string {
@@ -123,7 +126,7 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Rehydrate" />
+      <Banner title={banner_title('tenant', 'Rehydrate')} />
       <KeyValueList items={header_items} />
     </Box>,
   );

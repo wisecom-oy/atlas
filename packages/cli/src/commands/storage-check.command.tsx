@@ -5,6 +5,8 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { ObjectLockMode } from '@wisecom/atlas-types/ports/backup/use-case.port';
 import type { StorageCheckResult, StorageCheckUseCase } from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { with_object_lock, with_tenant } from '@/commands/shared-options';
+import { banner_title } from '@/ui/banner-title';
 import { Box } from 'ink';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
@@ -26,13 +28,13 @@ export function register_storage_check_command(
   program: Command,
   get_container: ContainerFactory,
 ): void {
-  program
+  const command = program
     .command('storage-check')
-    .description('Check S3/MinIO Object Lock readiness for backup policies')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('--lock-mode <mode>', 'Object Lock mode: governance|compliance')
-    .option('--retention-days <n>', 'planned retention period in days')
-    .action((options: StorageCheckOptions) => execute_storage_check(get_container(), options));
+    .description('Check S3/MinIO Object Lock readiness for backup policies');
+  with_object_lock(command, 'planned retention period in days');
+  with_tenant(command).action((options: StorageCheckOptions) =>
+    execute_storage_check(get_container(), options),
+  );
 }
 
 async function execute_storage_check(
@@ -52,7 +54,7 @@ async function execute_storage_check(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Storage Check" />
+      <Banner title={banner_title('tenant', 'Storage Check')} />
       <KeyValueList items={build_result_items(result, ready)} />
     </Box>,
   );

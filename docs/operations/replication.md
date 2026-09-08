@@ -108,10 +108,10 @@ atlas-{tenant_id}/
 Each sidecar records the target ID, status (COMPLETED/PARTIAL/FAILED), object counts, byte counts, timestamps, manifest checksums, and the last error.
 
 ```bash
-atlas replicate --status                          # all snapshots, all targets
-atlas replicate --status -m user@company.com      # filter by mailbox
-atlas replicate --status --site <site-id>         # filter by SharePoint site
-atlas replicate --status -s <snapshot-id>         # filter by snapshot
+atlas replicate status                          # all snapshots, all targets
+atlas replicate status -m user@company.com      # filter by mailbox
+atlas replicate status --site <site-id>         # filter by SharePoint site
+atlas replicate status -s <snapshot-id>         # filter by snapshot
 ```
 
 ## CLI usage

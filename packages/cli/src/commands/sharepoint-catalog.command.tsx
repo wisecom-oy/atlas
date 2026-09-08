@@ -8,6 +8,8 @@ import {
   SHAREPOINT_CATALOG_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
+import { with_tenant } from '@/commands/shared-options';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
@@ -32,14 +34,13 @@ export function register_sharepoint_list_snapshots(
   group: Command,
   get_container: ContainerFactory,
 ): void {
-  group
+  const command = group
     .command('list-snapshots')
     .description('List SharePoint snapshots for a site')
-    .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .action((options: SharePointListSnapshotsOptions) =>
-      execute_sharepoint_list_snapshots(get_container(), options),
-    );
+    .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID');
+  with_tenant(command).action((options: SharePointListSnapshotsOptions) =>
+    execute_sharepoint_list_snapshots(get_container(), options),
+  );
 }
 
 /** Registers `atlas sharepoint list-versions` subcommand. */
@@ -47,15 +48,14 @@ export function register_sharepoint_list_versions(
   group: Command,
   get_container: ContainerFactory,
 ): void {
-  group
+  const command = group
     .command('list-versions')
     .description('List all backed-up versions for a specific file')
     .requiredOption('--site <url-or-id>', 'SharePoint site URL or site ID')
-    .requiredOption('-f, --file <ref>', 'file ID or path')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .action((options: SharePointListVersionsOptions) =>
-      execute_sharepoint_list_versions(get_container(), options),
-    );
+    .requiredOption('-f, --file <ref>', 'file ID or path');
+  with_tenant(command).action((options: SharePointListVersionsOptions) =>
+    execute_sharepoint_list_versions(get_container(), options),
+  );
 }
 
 function resolve_tenant_id(container: Container, options: SharePointTenantOptions): string {
@@ -107,7 +107,7 @@ async function execute_sharepoint_list_snapshots(
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
   const snapshots = await catalog.list_sharepoint_snapshots(tenant_id, site.site_id);
 
-  await render_static_view(<Banner title="Atlas SharePoint Snapshots" />);
+  await render_static_view(<Banner title={banner_title('sharepoint', 'Snapshots')} />);
   if (snapshots.length === 0) {
     logger.info('No SharePoint snapshots found.');
     return;
@@ -134,7 +134,7 @@ async function execute_sharepoint_list_versions(
     options.file,
   );
 
-  await render_static_view(<Banner title="Atlas SharePoint File Versions" />);
+  await render_static_view(<Banner title={banner_title('sharepoint', 'File Versions')} />);
   if (versions.length === 0) {
     logger.info('No versions found for this file.');
     return;

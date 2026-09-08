@@ -41,10 +41,10 @@ Every setting has three equivalent forms: an environment variable, a config file
 ## The Encrypted Secure Store (`atlas config`)
 
 ```bash
-atlas config tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f
-atlas config client.id 11112222-3333-4444-5555-666677778888
-pbpaste | atlas config client.secret -   # "-" reads from stdin, keeping secrets out of shell history
-atlas config s3.endpoint https://s3.example.com
+atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f
+atlas config set client.id 11112222-3333-4444-5555-666677778888
+pbpaste | atlas config set client.secret -   # "-" reads from stdin, keeping secrets out of shell history
+atlas config set s3.endpoint https://s3.example.com
 atlas config list          # every key, secrets masked, source annotated
 atlas config validate      # live-check Graph and S3 connectivity
 atlas config unset client.secret

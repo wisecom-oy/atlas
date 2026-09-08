@@ -1,3 +1,4 @@
+import { Option } from 'commander';
 import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
@@ -8,6 +9,7 @@ import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
 import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats-outlook.view';
 import { print_drive_stats } from '@/commands/stats-drive.view';
+import { reject_retired_short, with_tenant, STATS_SERVICES } from '@/commands/shared-options';
 
 type ContainerFactory = () => Container;
 type StatsServiceName = 'outlook' | 'onedrive' | 'sharepoint';
@@ -24,28 +26,31 @@ interface StatsOptions {
 }
 
 const SERVICE_NAMES: StatsServiceName[] = ['outlook', 'onedrive', 'sharepoint'];
-const DEFAULT_TOP = 20;
+const DEFAULT_TOP = '20';
 
 /** Registers the `atlas stats` subcommand for storage statistics. */
 export function register_stats_command(program: Command, get_container: ContainerFactory): void {
-  program
+  const command = program
     .command('stats')
     .description('Show storage statistics for Outlook, OneDrive, and SharePoint backups')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('-m, --mailbox <email>', 'Outlook statistics for a specific mailbox')
     .option('-o, --owner <email|id>', 'OneDrive statistics for a specific owner')
-    .option('-s, --site <url|id>', 'SharePoint statistics for a specific site')
-    .option('--service <name>', 'limit output to one service: outlook, onedrive, sharepoint, all')
-    .option('--top <n>', `maximum owner/site rows in drive tables (default ${DEFAULT_TOP})`)
-    .option('--json', 'output raw JSON instead of formatted tables')
-    .action((options: StatsOptions) => execute_stats(get_container(), options));
+    .option('--site <url|id>', 'SharePoint statistics for a specific site')
+    .addOption(
+      new Option('--service <name>', 'limit output to one service').choices([...STATS_SERVICES]),
+    )
+    .option('--top <n>', 'maximum owner/site rows in drive tables', DEFAULT_TOP)
+    .option('--json', 'output raw JSON instead of formatted tables');
+  // `-s` was this command's own spelling of --site while it meant --snapshot everywhere else.
+  reject_retired_short(command, '-s', '--site');
+  with_tenant(command).action((options: StatsOptions) => execute_stats(get_container(), options));
 }
 
 /** Collects stats for every selected service, then prints tables or a single JSON payload. */
 async function execute_stats(container: Container, options: StatsOptions): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
   const services = resolve_services(options);
-  const top = parse_top(options.top);
+  const top = parse_top(options.top ?? DEFAULT_TOP);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
   const collected: [StatsServiceName, ServiceStats][] = [];
@@ -76,12 +81,8 @@ function resolve_services(options: StatsOptions): StatsServiceName[] {
     throw new Error('Use only one of --mailbox, --owner, or --site at a time');
   }
 
+  // Commander has already rejected anything outside STATS_SERVICES.
   const requested = options.service ?? 'all';
-  if (requested !== 'all' && !SERVICE_NAMES.includes(requested as StatsServiceName)) {
-    throw new Error(
-      `Unknown --service "${requested}"; expected outlook, onedrive, sharepoint, or all`,
-    );
-  }
   if (scoped.length === 1) {
     if (requested !== 'all' && requested !== scoped[0]) {
       throw new Error(`--service ${requested} conflicts with the ${scoped[0]} scope flag`);
@@ -128,9 +129,8 @@ function resolve_tenant_id(container: Container, options: StatsOptions): string 
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
 }
 
-/** Parses and validates the --top row limit. */
-function parse_top(raw: string | undefined): number {
-  if (raw === undefined) return DEFAULT_TOP;
+/** Parses and validates the --top row limit, which commander always supplies. */
+function parse_top(raw: string): number {
   const value = Number.parseInt(raw, 10);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error('--top must be a positive integer');

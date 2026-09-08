@@ -1,12 +1,13 @@
 import type { DeletionResult } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { ask_confirmation } from '@/ui/components/confirm-prompt';
 import { render_static_view } from '@/ui/render';
 
 /** Renders the shared delete banner every deletion command starts with. */
 export async function render_delete_banner(): Promise<void> {
-  await render_static_view(<Banner title="Atlas Delete" />);
+  await render_static_view(<Banner title={banner_title('tenant', 'Delete')} />);
 }
 
 /**

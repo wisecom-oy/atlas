@@ -288,7 +288,7 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 | `-o, --owner <id>`         | User email or Entra object ID            | Required       |
 | `-s, --snapshot <id>`      | Snapshot ID to save from                 | Required       |
 | `--file-filter <paths...>` | Only save specific files (by ID or path) | All files      |
-| `-O, --output <path>`      | Output zip file path                     | Auto-generated |
+| `--output <path>`          | Output zip file path                     | Auto-generated |
 | `--skip-verify`            | Skip SHA-256 integrity checks            | `false`        |
 | `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
@@ -425,7 +425,7 @@ Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is 
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-123
-atlas onedrive save -o user@company.com -s od-snap-123 -O ~/Downloads/backup.zip
+atlas onedrive save -o user@company.com -s od-snap-123 --output ~/Downloads/backup.zip
 atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents/report.docx"
 ```
 
