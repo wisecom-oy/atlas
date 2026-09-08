@@ -13,6 +13,7 @@ import {
   print_delete_result,
   render_delete_banner,
 } from '@/commands/deletion-presenter';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { ask_confirmation } from '@/ui/components/confirm-prompt';
 import { ErrorList } from '@/ui/components/error-list';
@@ -53,7 +54,7 @@ export async function execute_outlook_save(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Save" />
+      <Banner title={banner_title('outlook', 'Save')} />
       <KeyValueList items={[{ label: 'Tenant', value: tenant_id }]} />
     </Box>,
   );

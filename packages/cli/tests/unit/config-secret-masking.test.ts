@@ -87,7 +87,7 @@ describe('atlas config never prints a secret in full', () => {
   });
 
   it.each(secret_keys.map((spec) => spec.key))('config get masks %s', async (key) => {
-    await run([key]);
+    await run(['get', key]);
 
     const full_value = FAKE_VALUES[key]!;
     expect(output.join('\n')).not.toContain(full_value);
@@ -97,7 +97,7 @@ describe('atlas config never prints a secret in full', () => {
   });
 
   it.each(plain_keys.map((spec) => spec.key))('config get prints %s in full', async (key) => {
-    await run([key]);
+    await run(['get', key]);
 
     // Distinguishes masking from blanket redaction: a non-secret must survive.
     expect(output.join('\n')).toContain(FAKE_VALUES[key]!);

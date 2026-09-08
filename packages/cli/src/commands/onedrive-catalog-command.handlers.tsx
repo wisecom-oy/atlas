@@ -8,6 +8,7 @@ import {
   resolve_tenant_id,
   type OneDriveTenantOptions,
 } from '@/commands/onedrive-command.handlers';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
@@ -64,7 +65,7 @@ export async function execute_onedrive_list_snapshots(
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
   const snapshots = await catalog.list_onedrive_snapshots(tenant_id, owner.object_id);
 
-  await render_static_view(<Banner title="Atlas OneDrive Snapshots" />);
+  await render_static_view(<Banner title={banner_title('onedrive', 'Snapshots')} />);
   if (snapshots.length === 0) {
     logger.info('No OneDrive snapshots found.');
     return;
@@ -90,7 +91,7 @@ export async function execute_onedrive_list_versions(
     options.file,
   );
 
-  await render_static_view(<Banner title="Atlas OneDrive File Versions" />);
+  await render_static_view(<Banner title={banner_title('onedrive', 'File Versions')} />);
   if (versions.length === 0) {
     logger.info('No versions found for this file.');
     return;

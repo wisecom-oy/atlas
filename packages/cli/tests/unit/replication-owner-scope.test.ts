@@ -156,8 +156,8 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
     );
   });
 
-  it('scopes --status -o to the resolved owner object ID', async () => {
-    await program.parseAsync(['replicate', '--status', '-o', OWNER_EMAIL], { from: 'user' });
+  it('scopes `replicate status -o` to the resolved owner object ID', async () => {
+    await program.parseAsync(['replicate', 'status', '-o', OWNER_EMAIL], { from: 'user' });
 
     expect(outlook.get_replication_status_by_owner).toHaveBeenCalledWith(
       'test-tenant',

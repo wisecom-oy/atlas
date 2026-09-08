@@ -27,31 +27,66 @@ type ConfigSources = {
 const GRAPH_FIELDS: (keyof AtlasConfig)[] = ['tenant_id', 'client_id', 'client_secret'];
 const S3_FIELDS: (keyof AtlasConfig)[] = ['s3_endpoint', 's3_access_key', 's3_secret_key'];
 
-/** Registers the "atlas config" command (git-config style key/value store). */
+/**
+ * Registers the `atlas config` group.
+ *
+ * The verbs are subcommands rather than magic values smuggled into a positional argument, so
+ * `atlas config list --help` documents itself the way every other command does (issue #162).
+ */
 export function register_config_command(program: Command): void {
-  program
+  const group = program
     .command('config')
     .description('Get and set Atlas configuration in the encrypted local store')
-    .argument('[key]', 'config key (e.g. tenant.id), or: list | unset | validate')
-    .argument('[value]', 'value to set; "-" reads from stdin; omit to print the current value')
     .addHelpText(
       'after',
       ['', 'Keys:', ...CONFIG_KEYS.map((k) => `  ${k.key.padEnd(24)} ${k.description}`)].join('\n'),
-    )
-    .action(async (key: string | undefined, value: string | undefined) => {
-      load_dotenv({ quiet: true });
-      if (key === undefined || key === 'list') return execute_list();
-      if (key === 'validate') return execute_validate();
-      if (key === 'unset') return execute_unset(value);
+    );
+  // Inherited by every subcommand, so each verb sees ATLAS_* overrides from the environment.
+  group.hook('preAction', () => {
+    load_dotenv({ quiet: true });
+  });
 
-      const spec = find_config_key(key);
-      if (spec === undefined) {
-        throw new Error(`Unknown config key "${key}". Run "atlas config list" to see all keys.`);
-      }
-      if (value === undefined) return execute_get(spec);
+  group
+    .command('list')
+    .description('Print every key with its masked value and the source it resolves from')
+    .action(() => execute_list());
+
+  group
+    .command('get')
+    .description('Print the effective value of one key')
+    .argument('<key>', 'config key (e.g. tenant.id)')
+    .action((key: string) => execute_get(require_config_key(key)));
+
+  group
+    .command('set')
+    .description('Store a value in the encrypted local store')
+    .argument('<key>', 'config key (e.g. tenant.id)')
+    .argument('<value>', 'value to set; "-" reads it from stdin')
+    .action(async (key: string, value: string) => {
       // "-" reads the value from stdin so secrets never land in shell history.
-      return execute_set(spec, value === '-' ? readFileSync(0, 'utf-8').trim() : value);
+      const resolved = value === '-' ? readFileSync(0, 'utf-8').trim() : value;
+      await execute_set(require_config_key(key), resolved);
     });
+
+  group
+    .command('unset')
+    .description('Remove a key from the encrypted local store')
+    .argument('<key>', 'config key (e.g. tenant.id)')
+    .action((key: string) => execute_unset(key));
+
+  group
+    .command('validate')
+    .description('Live-validate Graph and S3 connectivity with the effective config')
+    .action(async () => execute_validate());
+}
+
+/** Resolves a key spec, naming the discovery command when the key is unknown. */
+function require_config_key(key: string): ConfigKeySpec {
+  const spec = find_config_key(key);
+  if (spec === undefined) {
+    throw new Error(`Unknown config key "${key}". Run "atlas config list" to see all keys.`);
+  }
+  return spec;
 }
 
 /** Prints every key with its masked value and the source it resolves from. */
@@ -102,10 +137,8 @@ async function execute_set(spec: ConfigKeySpec, value: string): Promise<void> {
 }
 
 /** Removes a key from the encrypted store. */
-function execute_unset(key: string | undefined): void {
-  if (key === undefined) throw new Error('Usage: atlas config unset <key>');
-  const spec = find_config_key(key);
-  if (spec === undefined) throw new Error(`Unknown config key "${key}"`);
+function execute_unset(key: string): void {
+  const spec = require_config_key(key);
 
   const stored = read_secure_config();
   if (stored[spec.field] === undefined) {

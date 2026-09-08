@@ -8,6 +8,7 @@ import type { Manifest, AttachmentEntry } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook-scope';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -39,7 +40,7 @@ export async function execute_outlook_list(
   const tenant_id = options.tenant ?? container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas List" />
+      <Banner title={banner_title('outlook', 'List')} />
       <KeyValueList items={[{ label: 'Tenant', value: tenant_id }]} />
     </Box>,
   );
@@ -90,7 +91,7 @@ export async function execute_outlook_read(
     return;
   }
 
-  await render_static_view(<Banner title="Atlas Read" />);
+  await render_static_view(<Banner title={banner_title('outlook', 'Read')} />);
 
   if (!result) {
     logger.error(`Message not found. Check the snapshot ID and message ID are correct.`);

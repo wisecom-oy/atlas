@@ -260,7 +260,7 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 | `--site <url-or-id>`       | SharePoint site URL or Graph site ID     | Required       |
 | `-s, --snapshot <id>`      | Snapshot ID to save from                 | Required       |
 | `--file-filter <paths...>` | Only save specific files (by ID or path) | All files      |
-| `-O, --output <path>`      | Output zip file path                     | Auto-generated |
+| `--output <path>`          | Output zip file path                     | Auto-generated |
 | `--skip-verify`            | Skip SHA-256 integrity checks            | `false`        |
 | `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
@@ -394,7 +394,7 @@ Library names were not recorded in older manifests, so rule 1 cannot apply to th
 
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
-atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 -O ~/Downloads/backup.zip
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --output ~/Downloads/backup.zip
 ```
 
 ## Verification

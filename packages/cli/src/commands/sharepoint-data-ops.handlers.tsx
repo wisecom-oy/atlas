@@ -5,6 +5,7 @@ import {
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
@@ -63,7 +64,7 @@ export async function execute_sharepoint_status(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas SharePoint Status" />
+      <Banner title={banner_title('sharepoint', 'Status')} />
       <KeyValueList
         items={[
           { label: 'Tenant', value: tenant_id },

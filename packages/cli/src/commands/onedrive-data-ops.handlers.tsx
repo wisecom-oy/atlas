@@ -5,6 +5,7 @@ import {
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
@@ -63,7 +64,7 @@ export async function execute_onedrive_status(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas OneDrive Status" />
+      <Banner title={banner_title('onedrive', 'Status')} />
       <KeyValueList
         items={[
           { label: 'Tenant', value: tenant_id },

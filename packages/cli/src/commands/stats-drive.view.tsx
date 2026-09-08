@@ -1,6 +1,7 @@
 import type { DriveStats, DriveOwnerSummary, DriveMonthlyBreakdown } from '@wisecom/atlas-types';
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import type { KeyValueItem } from '@/ui/components/key-value-list';
@@ -10,8 +11,8 @@ import { render_static_view } from '@/ui/render';
 import { format_bytes, format_microseconds } from '@/command-formatters';
 
 const SERVICE_LABELS: Record<DriveStats['service'], { title: string; owners: string }> = {
-  onedrive: { title: 'Atlas OneDrive Statistics', owners: 'Owners' },
-  sharepoint: { title: 'Atlas SharePoint Statistics', owners: 'Sites' },
+  onedrive: { title: banner_title('onedrive', 'Statistics'), owners: 'Owners' },
+  sharepoint: { title: banner_title('sharepoint', 'Statistics'), owners: 'Sites' },
 };
 
 /** Renders OneDrive or SharePoint drive statistics as banner, overview, and tables. */
