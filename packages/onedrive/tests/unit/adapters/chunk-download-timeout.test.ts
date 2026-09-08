@@ -29,9 +29,13 @@ describe('chunk download abort timeout', () => {
       .mockImplementation((_url: string, init: { headers: { Range: string } }) => {
         const [, start, end] = /bytes=(\d+)-(\d+)/.exec(init.headers.Range)!;
         const body = Buffer.alloc(Number(end) - Number(start) + 1, 1);
+        const content_range = `bytes ${start}-${end}/*`;
         return Promise.resolve({
           status: 206,
-          headers: { get: (): string | null => null },
+          headers: {
+            get: (name: string): string | null =>
+              name.toLowerCase() === 'content-range' ? content_range : null,
+          },
           arrayBuffer: () => Promise.resolve(body.buffer.slice(0, body.length)),
         } as unknown as Response);
       });

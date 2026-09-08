@@ -45,9 +45,13 @@ describe('chunk download abort timeout', () => {
   /** A 206 answering exactly the requested range. */
   function range_response(range_start: number, range_end: number): Response {
     const body = Buffer.alloc(range_end - range_start + 1, 1);
+    const content_range = `bytes ${range_start}-${range_end}/*`;
     return {
       status: 206,
-      headers: { get: (): string | null => null },
+      headers: {
+        get: (name: string): string | null =>
+          name.toLowerCase() === 'content-range' ? content_range : null,
+      },
       arrayBuffer: () => Promise.resolve(body.buffer.slice(0, body.length)),
     } as unknown as Response;
   }

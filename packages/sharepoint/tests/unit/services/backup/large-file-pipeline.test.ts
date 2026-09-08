@@ -15,6 +15,9 @@ const { cleanup_stale_staging, process_large_file } =
 
 const KEY = randomBytes(32);
 const SITE = 'site-1';
+// The chunk source is mocked, so the item's reported size is whatever the mock yields: the
+// pipeline now fails an item whose chunks do not add up to it (issue #338).
+const ITEM_BYTES = 1024;
 
 interface Recorded {
   readonly ctx: TenantContext;
@@ -68,7 +71,7 @@ function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDelt
     kind: 'file',
     file_name: 'movie.mp4',
     parent_path: '/Videos',
-    size_bytes: 400 * 1024 * 1024,
+    size_bytes: ITEM_BYTES,
     deleted: false,
     ...overrides,
   } as SharePointDeltaItem;
@@ -83,7 +86,7 @@ function make_connector(url?: string): SharePointSiteConnector {
 beforeEach(() => {
   vi.clearAllMocks();
   chunk_mocks.fetch_file_chunks.mockImplementation(async function* () {
-    yield Buffer.alloc(1024, 7);
+    yield Buffer.alloc(ITEM_BYTES, 7);
   });
 });
 
@@ -103,7 +106,7 @@ describe('process_large_file', () => {
     expect(connector.resolve_download_url).not.toHaveBeenCalled();
     expect(chunk_mocks.fetch_file_chunks).toHaveBeenCalledWith(
       'https://cdn.example/abc',
-      400 * 1024 * 1024,
+      ITEM_BYTES,
       'item-1',
     );
   });

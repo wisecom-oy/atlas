@@ -2,6 +2,7 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import type { StorageObjectLockPolicy, TenantContext } from '@wisecom/atlas-types';
 import type { DriveDeltaItem } from '@/drive-ports';
+import { assert_transferred_size } from '@/backup/download-integrity';
 import { format_bytes } from '@/shared/format-bytes';
 import type { DriveStorageKeys } from '@/shared/storage-keys';
 
@@ -57,7 +58,7 @@ export async function process_large_drive_file(
 
   const result = await stream_to_content_addressed_storage(
     ctx,
-    deps.fetch_chunks(download_url, item.size_bytes, item.item_id),
+    counted_chunks(deps.fetch_chunks(download_url, item.size_bytes, item.item_id), item),
     {
       staging_key,
       staging_prefix: deps.keys.staging_prefix_for(owner_id),
@@ -73,6 +74,26 @@ export async function process_large_drive_file(
   }
 
   return result;
+}
+
+/**
+ * Passes chunks straight through, then fails the item if they did not add up to its reported size.
+ *
+ * The last point where a truncated, duplicated or restarted transfer can still be caught: past it
+ * the bytes have a checksum and an auth tag of their own, and nothing downstream knows how many
+ * there should have been (issue #338). Throwing here aborts the staged multipart upload, so no
+ * canonical object is promoted and no manifest entry is written.
+ */
+async function* counted_chunks(
+  chunks: AsyncIterable<Buffer>,
+  item: DriveDeltaItem,
+): AsyncGenerator<Buffer> {
+  let transferred = 0;
+  for await (const chunk of chunks) {
+    transferred += chunk.length;
+    yield chunk;
+  }
+  assert_transferred_size(item.item_id, transferred, item.size_bytes);
 }
 
 /** Removes leftover staging objects and incomplete multipart uploads. */

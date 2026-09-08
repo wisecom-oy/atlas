@@ -85,6 +85,35 @@ Implementation thresholds from `@wisecom/atlas-onedrive`:
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file. Each range request is also aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. That budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB.
 
+#### What a chunk has to prove before it is stored
+
+The checksum Atlas records is computed over the bytes that arrived, so it cannot tell a truncated
+transfer from a complete one: a one byte body produces a perfectly valid SHA-256 for one byte, and
+AES-GCM authenticates it just as happily. Every check therefore compares the transfer against an
+expectation formed before it started.
+
+| Check                | Rejected                                                                                     |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| Body length          | A `206` whose body is not exactly the number of bytes the `Range` header asked for            |
+| `Content-Range`      | A `206` with a missing, unparseable, or mismatched `Content-Range`, including the `*` form    |
+| Whole-file responses | A `200` answering a range request whose body is not the item's full reported size             |
+| Total transferred    | A streamed large file whose chunks do not add up to the size Graph reported for the item      |
+
+`Content-Range` is required rather than optional because it is the only thing that identifies which
+bytes of the file arrived. Without it a server answering every range with the same chunk would be
+indistinguishable from a correct one, and the result would be a validly encrypted backup of the
+wrong content.
+
+One more case is a restart rather than a truncation. If the CDN honours the first range requests
+and then answers a later one with the whole file, the whole-file fallback would start again at byte
+zero while the chunks already consumed are inside the cipher, producing an object holding a prefix
+followed by the entire file. Atlas fails the item instead. The next run retries it and takes the
+streamed path from the first chunk. A CDN that ignores `Range` from the very first request is
+unaffected, since nothing has been consumed yet.
+
+A failed check fails that item, not the run. The file is recorded in the failed-item ledger, no
+manifest entry is written for it, and the next backup retries it.
+
 ### Unicode Path Handling
 
 OneDrive paths and file names from Graph are normalized to **Unicode NFC** in the connector and catalog (`String.prototype.normalize('NFC')`). That aligns macOS (often NFD) with Windows and Linux naming, so the same logical path does not produce duplicate index entries after sync.

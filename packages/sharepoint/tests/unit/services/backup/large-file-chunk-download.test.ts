@@ -14,11 +14,15 @@ function to_array_buffer(body: Buffer): ArrayBuffer {
   return copy;
 }
 
-function range_response(status: number, body = Buffer.alloc(0)): Response {
+function range_response(status: number, body = Buffer.alloc(0), range_start = 0): Response {
+  const content_range = `bytes ${range_start}-${range_start + Math.max(body.length - 1, 0)}/*`;
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: { get: (): string | null => null },
+    headers: {
+      get: (name: string): string | null =>
+        name.toLowerCase() === 'content-range' && status === 206 ? content_range : null,
+    },
     arrayBuffer: (): Promise<ArrayBuffer> => Promise.resolve(to_array_buffer(body)),
     text: (): Promise<string> => Promise.resolve(''),
     // The Range-ignored path cancels the body unread, and the streamed fallback iterates it.
@@ -54,7 +58,7 @@ describe('fetch_file_chunks', () => {
     const fetch_mock = vi
       .fn()
       .mockResolvedValueOnce(range_response(206, first))
-      .mockResolvedValueOnce(range_response(206, second));
+      .mockResolvedValueOnce(range_response(206, second, CHUNK_SIZE));
     vi.stubGlobal('fetch', fetch_mock);
 
     const body = await collect('https://cdn.test/file', CHUNK_SIZE + 1024);
