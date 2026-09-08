@@ -74,8 +74,8 @@ def test_02_replicate_copies_every_workload_and_the_key(
 
 
 def test_03_status_records_the_replication(cli: Cli, settings: Settings, s3: Any) -> None:
-    """`replicate --status` reads the sidecar records replication wrote on primary."""
-    cli.ok("replicate", "--status", "-m", settings.mailbox)
+    """`replicate status` reads the sidecar records replication wrote on primary."""
+    cli.ok("replicate", "status", "-m", settings.mailbox)
     assert storage.list_keys(s3, settings.bucket, "_meta/replication/"), (
         "no replication record written"
     )

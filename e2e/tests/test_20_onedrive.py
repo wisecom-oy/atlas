@@ -140,8 +140,8 @@ def test_05_save_exports_the_file(
 ) -> None:
     """`onedrive save` writes a zip that mirrors the drive hierarchy.
 
-    Note the capital `-O` for output: `onedrive save` differs from `outlook save` here, and `-o` is
-    the owner.
+    `--output` carries no short flag on any workload since v5.0.0, so `-o` is unambiguously the
+    owner here (issue #162).
     """
     archive = exports / f"{run_marker}-onedrive.zip"
     cli.ok(
@@ -151,7 +151,7 @@ def test_05_save_exports_the_file(
         settings.onedrive_owner,
         "-s",
         STATE["snapshot"],
-        "-O",
+        "--output",
         str(archive),
         timeout=WHOLE_DRIVE_TIMEOUT,
     )

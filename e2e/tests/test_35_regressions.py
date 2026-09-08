@@ -147,6 +147,29 @@ def test_03_sdk_lists_the_snapshots_the_cli_wrote(settings: Settings, s3: Any) -
     )
 
 
+def test_04_retired_v4_invocations_fail_against_the_shipped_bundle(cli: Cli) -> None:
+    """Every v4 spelling v5.0.0 dropped is rejected rather than reinterpreted (#162, #322).
+
+    Exit code and message only: parsing fails before any Graph or S3 call, so the values below are
+    placeholders. The point is that a scheduled `atlas stats -s <site>` breaks loudly instead of
+    resolving the site as a snapshot id and reporting on the wrong scope. Here rather than in a
+    unit test because the failure has to hold for the bundle an operator's cron actually runs.
+    """
+    for argv, expected in (
+        (("stats", "-s", "contoso.sharepoint.com"), "Pass --site instead"),
+        (("outlook", "save", "-s", "snap-1", "-o", "export.zip"), "Pass --output instead"),
+        (
+            ("onedrive", "save", "-o", "owner", "-s", "snap-1", "-O", "export.zip"),
+            "Pass --output instead",
+        ),
+        (("replicate", "--status", "-m", "user@example.com"), "unknown option '--status'"),
+        (("config", "tenant.id", UNKNOWN_TENANT), "unknown command 'tenant.id'"),
+    ):
+        result = cli.run(*argv)
+        assert result.code != 0, result.describe()
+        assert expected in result.out, result.describe()
+
+
 def _sole_owner(s3: Any, settings: Settings) -> str:
     """The one Outlook owner segment in the bucket, read from the manifest keys."""
     owners = {key.split("/")[1] for key in storage.list_keys(s3, settings.bucket, "manifests/")}

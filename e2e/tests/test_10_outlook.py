@@ -69,7 +69,7 @@ def test_04_verify_passes_on_a_fresh_snapshot(cli: Cli, settings: Settings) -> N
 def test_05_save_exports_an_eml_archive(cli: Cli, exports: Path, run_marker: str) -> None:
     """`outlook save` produces a zip containing the message as `.eml`."""
     archive = exports / f"{run_marker}.zip"
-    cli.ok("outlook", "save", "-s", STATE["snapshot"], "-o", str(archive))
+    cli.ok("outlook", "save", "-s", STATE["snapshot"], "--output", str(archive))
 
     assert archive.exists(), f"{archive} was not written"
     with zipfile.ZipFile(archive) as zf:
