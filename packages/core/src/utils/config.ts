@@ -1,8 +1,4 @@
-import { readFileSync, existsSync, statSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { homedir, platform } from 'node:os';
 import { config as load_dotenv } from 'dotenv';
-import { logger } from '@/utils/logger';
 import { read_secure_config } from '@/utils/secure-config-store';
 
 export interface GraphConfig {
@@ -26,8 +22,6 @@ export type AtlasConfig = GraphConfig & S3Config & CryptoConfig;
 
 export const ATLAS_CONFIG_TOKEN = Symbol.for('AtlasConfig');
 
-const CONFIG_FILE_NAMES = ['atlas.config.json', join('.atlas', 'config.json')];
-
 const ENV_MAP: Record<string, keyof AtlasConfig> = {
   ATLAS_TENANT_ID: 'tenant_id',
   ATLAS_CLIENT_ID: 'client_id',
@@ -40,73 +34,20 @@ const ENV_MAP: Record<string, keyof AtlasConfig> = {
 };
 
 /**
- * Loads Atlas configuration by merging sources in this order
- * (later sources override earlier ones):
- *   1. atlas.config.json file
- *   2. Encrypted secure store (~/.atlas/config.enc, managed via "atlas config")
- *   3. .env file (loaded into process.env via dotenv, does NOT overwrite existing vars)
- *   4. Real environment variables (always win)
- * Throws if any required field is missing after merging.
+ * Loads Atlas configuration from the two sources v5.0.0 supports, environment winning:
+ *   1. the encrypted store at `~/.atlas/config.enc`, written by `atlas config set`
+ *   2. `ATLAS_*` environment variables, exported or read from `.env` in the working directory
+ *
+ * A plaintext `atlas.config.json` used to be a third source, searched in the working directory
+ * and then in `$HOME`. It held `client_secret` and `encryption_passphrase` in the clear, needed a
+ * permission warning to compensate, and let a stale file in `$HOME` supply credentials to a run
+ * somewhere else (issue #334). Throws if any required field is missing after merging.
  */
 export function load_config(): AtlasConfig {
   // quiet: dotenv's load banner goes to stdout, which corrupts pipeable output
   // such as `atlas outlook read --raw > message.eml`.
   load_dotenv({ quiet: true });
-  const file_config = try_load_config_file();
-  const secure_config = read_secure_config();
-  const env_overrides = read_env_overrides();
-  return merge_and_validate({ ...file_config, ...secure_config, ...env_overrides });
-}
-
-/**
- * Searches for a config file in the current directory and the user's
- * home directory. Returns the parsed contents, or an empty object if
- * no file is found.
- */
-export function try_load_config_file(): Partial<AtlasConfig> {
-  const search_dirs = [process.cwd(), homedir()];
-
-  for (const dir of search_dirs) {
-    for (const name of CONFIG_FILE_NAMES) {
-      const file_path = resolve(dir, name);
-      if (existsSync(file_path)) {
-        return parse_config_file(file_path);
-      }
-    }
-  }
-
-  return {};
-}
-
-/** Reads and JSON-parses a single config file. */
-function parse_config_file(file_path: string): Partial<AtlasConfig> {
-  warn_if_world_readable(file_path);
-  const raw = readFileSync(file_path, 'utf-8');
-  const parsed: unknown = JSON.parse(raw);
-
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new Error(`Config file ${file_path} must contain a JSON object`);
-  }
-
-  return parsed as Partial<AtlasConfig>;
-}
-
-/** Warns if a config file has group- or world-readable permissions (Unix only). */
-function warn_if_world_readable(file_path: string): void {
-  if (platform() === 'win32') return;
-  try {
-    const stat = statSync(file_path);
-    const other_bits = stat.mode & 0o077;
-    if (other_bits !== 0) {
-      const mode_str = `0${(stat.mode & 0o777).toString(8)}`;
-      logger.warn(
-        `Config file ${file_path} has overly permissive permissions (mode ${mode_str}). ` +
-          `Recommended: chmod 600 ${file_path}`,
-      );
-    }
-  } catch {
-    /* stat failure is non-fatal — config will fail at read anyway */
-  }
+  return merge_and_validate({ ...read_secure_config(), ...read_env_overrides() });
 }
 
 /**
@@ -146,7 +87,8 @@ export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
   if (missing.length > 0) {
     throw new Error(
       `Missing required config fields: ${missing.join(', ')}. ` +
-        'Set them via "atlas config set <key> <value>", atlas.config.json, or ATLAS_* environment variables.',
+        'Set them via "atlas config set <key> <value>", or ATLAS_* environment variables ' +
+        '(exported, or in a .env file in the current directory).',
     );
   }
 

@@ -85,13 +85,11 @@ echo "Git commit: $(git_commit) ($(git_state))"
 # "Docker version 29.4.0, build 9d7ad9f" -> "29.4.0"
 echo "Docker: $(version_of docker --version | sed -E 's/^Docker version ([^,]+).*/\1/')"
 
-# Atlas merges configuration from four sources, later winning over earlier, so
-# "which sources exist" is usually the first question a config bug raises.
+# Atlas reads configuration from the encrypted store and from ATLAS_* variables, environment
+# winning, so "which sources exist" is usually the first question a config bug raises.
 echo ""
 echo "Config sources"
 echo "--------------"
-echo "atlas.config.json: $(present atlas.config.json)"
-echo "~/.atlas/config.json: $(present "$HOME/.atlas/config.json")"
 echo "~/.atlas/config.enc: $(present "$HOME/.atlas/config.enc")"
 echo ".env: $(present .env)"
 

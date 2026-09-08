@@ -100,7 +100,7 @@ class Cli:
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=self._home,  # no repo-root atlas.config.json in scope
+            cwd=self._home,  # away from the repo root, so only the env vars below configure it
             env=env,
         )
         result = Result(
