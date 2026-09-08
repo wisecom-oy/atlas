@@ -92,3 +92,30 @@ describe('Outlook manifest identity (issue #340)', () => {
     );
   });
 });
+
+/** Issue #341: absence and a manifest nobody could read used to be the same `undefined`. */
+describe('Outlook manifest absence versus damage (issue #341)', () => {
+  const repo = new S3ManifestRepository();
+
+  it('returns undefined when the object genuinely is not there', async () => {
+    const ctx = make_ctx({});
+    const absent = Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' });
+    vi.mocked(ctx.storage.list).mockResolvedValue(['manifests/user@test.com/snap-1.json']);
+    vi.mocked(ctx.storage.get).mockRejectedValue(absent);
+
+    await expect(repo.find_by_snapshot(ctx, 'snap-1')).resolves.toBeUndefined();
+  });
+
+  it('raises when the object is there but cannot be decrypted', async () => {
+    const ctx = make_ctx({});
+    vi.mocked(ctx.storage.list).mockResolvedValue(['manifests/user@test.com/snap-1.json']);
+    vi.mocked(ctx.storage.get).mockResolvedValue(Buffer.from('ENC:'));
+    vi.mocked(ctx.decrypt).mockImplementation(() => {
+      throw new Error('Unsupported state or unable to authenticate data');
+    });
+
+    await expect(repo.find_by_snapshot(ctx, 'snap-1')).rejects.toThrow(
+      /Could not read the manifest at manifests\/user@test.com\/snap-1.json/,
+    );
+  });
+});

@@ -32,11 +32,23 @@ export async function restore_one_entry(
   owner_id: string,
   target_folder_id: string,
   entry: ManifestEntry,
-): Promise<{ att: number }> {
+): Promise<EntryRestoreOutcome> {
   if (entry.payload_format === 'mime') {
     return restore_mime_entry(ctx, restore_connector, tenant_id, owner_id, target_folder_id, entry);
   }
   return restore_json_entry(ctx, restore_connector, tenant_id, owner_id, target_folder_id, entry);
+}
+
+/**
+ * What one entry produced: attachments uploaded, and the attachments that did not make it.
+ *
+ * The failures travel with the count because the message is already in the mailbox by the time an
+ * attachment fails. Dropping them reported a restored message with zero attachments and no errors,
+ * which reads as a message that simply had none (issue #341).
+ */
+export interface EntryRestoreOutcome {
+  readonly att: number;
+  readonly attachment_errors: string[];
 }
 
 /** Restores a legacy Graph JSON entry, pulling attachments back from storage. */
@@ -47,7 +59,7 @@ async function restore_json_entry(
   owner_id: string,
   target_folder_id: string,
   entry: ManifestEntry,
-): Promise<{ att: number }> {
+): Promise<EntryRestoreOutcome> {
   const json = await decrypt_and_parse_message(ctx, entry);
   const sanitized = sanitize_message_for_restore(json);
   const new_msg_id = await restore_connector.create_message(
@@ -57,20 +69,18 @@ async function restore_json_entry(
     sanitized,
   );
 
-  let att = 0;
-  if (entry.attachments && entry.attachments.length > 0) {
-    const result = await restore_entry_attachments(
-      ctx,
-      restore_connector,
-      tenant_id,
-      owner_id,
-      new_msg_id,
-      entry.attachments,
-    );
-    att = result.restored;
+  if (!entry.attachments || entry.attachments.length === 0) {
+    return { att: 0, attachment_errors: [] };
   }
-
-  return { att };
+  const result = await restore_entry_attachments(
+    ctx,
+    restore_connector,
+    tenant_id,
+    owner_id,
+    new_msg_id,
+    entry.attachments,
+  );
+  return { att: result.restored, attachment_errors: result.errors };
 }
 
 /**
@@ -86,7 +96,7 @@ async function restore_mime_entry(
   owner_id: string,
   target_folder_id: string,
   entry: ManifestEntry,
-): Promise<{ att: number }> {
+): Promise<EntryRestoreOutcome> {
   const parsed = await decrypt_and_parse_mime(ctx, entry);
   const new_msg_id = await restore_connector.create_message(
     tenant_id,
@@ -95,7 +105,7 @@ async function restore_mime_entry(
     build_restore_payload_from_mime(parsed),
   );
 
-  if (parsed.attachments.length === 0) return { att: 0 };
+  if (parsed.attachments.length === 0) return { att: 0, attachment_errors: [] };
 
   const result = await restore_parsed_attachments(
     restore_connector,
@@ -104,7 +114,7 @@ async function restore_mime_entry(
     new_msg_id,
     parsed.attachments,
   );
-  return { att: result.restored };
+  return { att: result.restored, attachment_errors: result.errors };
 }
 
 /** Restores all entries for a single folder, updating dashboard per-message. */
@@ -122,16 +132,22 @@ export async function restore_folder_entries(
   dashboard: TransferProgressReporter,
   is_interrupted: () => boolean,
   control: OperationControlOptions,
-): Promise<{ restored: number; attachments: number; errors: string[] }> {
+): Promise<{
+  restored: number;
+  attachments: number;
+  errors: string[];
+  attachment_errors: string[];
+}> {
   let restored = 0;
   let attachments = 0;
   const errors: string[] = [];
+  const attachment_errors: string[] = [];
 
   for (const entry of entries) {
     if (is_interrupted()) break;
 
     try {
-      const { att } = await restore_one_entry(
+      const outcome = await restore_one_entry(
         ctx,
         restore_connector,
         tenant_id,
@@ -140,7 +156,10 @@ export async function restore_folder_entries(
         entry,
       );
       restored++;
-      attachments += att;
+      attachments += outcome.att;
+      // The message landed, so this is not an entry failure, but the mailbox is missing content
+      // the snapshot holds. Reporting it keeps the run out of a clean exit (issue #341).
+      attachment_errors.push(...outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${entry.object_id}: ${msg}`);
@@ -167,7 +186,7 @@ export async function restore_folder_entries(
     });
   }
 
-  return { restored, attachments, errors };
+  return { restored, attachments, errors, attachment_errors };
 }
 
 /** Restores a single message with its attachments. No dashboard needed. */
@@ -196,7 +215,7 @@ export async function restore_single_message(
     created_folders,
   );
 
-  const { att: att_count } = await restore_one_entry(
+  const outcome = await restore_one_entry(
     ctx,
     restore_connector,
     tenant_id,
@@ -204,15 +223,17 @@ export async function restore_single_message(
     target_fid,
     entry,
   );
+  const att_count = outcome.att;
 
   logger.success(`Restored 1 message${att_count > 0 ? ` + ${att_count} attachments` : ''}`);
+  for (const failure of outcome.attachment_errors) logger.warn(`Attachment failed: ${failure}`);
   return {
     snapshot_id,
     restored_count: 1,
     attachment_count: att_count,
     error_count: 0,
-    attachment_error_count: 0,
-    errors: [],
+    attachment_error_count: outcome.attachment_errors.length,
+    errors: outcome.attachment_errors,
     verification_warnings: [],
     restore_folder_name: root.display_name,
     interrupted: false,

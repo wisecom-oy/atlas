@@ -3,6 +3,8 @@ import type { Manifest } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
+import { StorageError } from '@wisecom/atlas-types';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 
 const MANIFEST_PREFIX = 'manifests';
 const MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
@@ -154,10 +156,12 @@ export class S3ManifestRepository implements ManifestRepository {
       }
       return parsed;
     } catch (err) {
-      // A tampered manifest is reported, not skipped: quietly omitting it would read as "this
-      // snapshot was never taken", which is the outcome the substitution is trying to produce.
+      // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
+      // identify is damaged, and returning `undefined` for it reports a broken backup with the
+      // same value as a snapshot that was never taken (issues #340, #341).
+      if (is_absent_object_error(err)) return undefined;
       if (err instanceof MismatchedManifestError) throw err;
-      return undefined;
+      throw new StorageError(`Could not read the manifest at ${key}`, { cause: err });
     }
   }
 }

@@ -31,6 +31,7 @@ export async function execute_restore_loop(
   let global_restored = 0;
   let global_att = 0;
   let global_errors = 0;
+  let global_att_errors = 0;
   const all_errors: string[] = [];
   const start = Date.now();
   const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
@@ -84,7 +85,8 @@ export async function execute_restore_loop(
       global_restored += result.restored;
       global_att += result.attachments;
       global_errors += result.errors.length;
-      all_errors.push(...result.errors);
+      all_errors.push(...result.errors, ...result.attachment_errors);
+      global_att_errors += result.attachment_errors.length;
 
       const rate = calc_rate(global_restored, Date.now() - start);
       const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
@@ -113,7 +115,7 @@ export async function execute_restore_loop(
       restored_count: global_restored,
       attachment_count: global_att,
       error_count: global_errors,
-      attachment_error_count: 0,
+      attachment_error_count: global_att_errors,
       errors: all_errors,
       verification_warnings: [],
       restore_folder_name: root.display_name,

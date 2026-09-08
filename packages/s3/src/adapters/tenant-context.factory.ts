@@ -7,6 +7,7 @@ import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import type {
   TenantContext,
@@ -59,7 +60,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       wrapped = await storage.get(DEK_META_KEY);
     } catch (err) {
       key_service.destroy();
-      if (is_absent(err)) throw new Error(`No backups found for tenant ${tenant_id}`);
+      if (is_absent_object_error(err)) throw new Error(`No backups found for tenant ${tenant_id}`);
       throw err;
     }
 
@@ -141,10 +142,4 @@ function build_context(
       key_service.create_decrypt_decipher(dek, iv, auth_tag),
     destroy: (): void => key_service.destroy(),
   };
-}
-
-/** Returns whether a storage error means "no such object or bucket" rather than a real failure. */
-function is_absent(err: unknown): boolean {
-  const name = (err as { name?: string } | null)?.name;
-  return name === 'NoSuchKey' || name === 'NoSuchBucket' || name === 'NotFound';
 }
