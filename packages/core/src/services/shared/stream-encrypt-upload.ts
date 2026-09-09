@@ -206,10 +206,22 @@ export async function safe_abort_multipart(
   try {
     await handle.abort();
   } catch (err) {
+    // A completion can fail on the client after the backend applied it, and the abort that follows
+    // then finds no upload. Nothing is stranded in that case, so it is not an operator's problem.
+    if (is_upload_already_gone(err)) {
+      logger.debug(`Staging upload for ${staging_key} was already gone when the abort ran`);
+      return;
+    }
     logger.warn(
       `Could not abort the staging upload for ${staging_key}: ` +
         `${err instanceof Error ? err.message : String(err)}. ` +
         `Its parts stay billable until the bucket's lifecycle rule or the next run collects them.`,
     );
   }
+}
+
+/** Recognises the backend's answer for an upload id that no longer exists. */
+function is_upload_already_gone(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null || !('name' in err)) return false;
+  return err.name === 'NoSuchUpload' || err.name === 'NotFound';
 }

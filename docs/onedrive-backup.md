@@ -89,10 +89,19 @@ Chunked downloads retry each **4 MiB** range independently (5 attempts with back
 
 Every large file of one owner stages under the same prefix, `onedrive/staging/{owner_id}/`, so a
 run cleaning up after an earlier one and a run currently transferring cannot be told apart by key.
-They are told apart by age: startup cleanup only deletes staging objects last modified more than
-24 hours ago, and only aborts multipart uploads started more than 24 hours ago. A transfer running
-now is never touched, and a backend that reports no timestamp for an upload gets left alone rather
-than guessed at.
+Two things tell them apart. Age is the coarse filter: startup cleanup only considers staging
+objects last modified, and uploads started, more than 24 hours ago. Activity is the real answer for
+an upload, because nothing caps one item's transfer at 24 hours and a 250 GB file on a throttled
+link legitimately runs longer than that. An upload past the cutoff is left alone when any of its
+parts was written since, which a live transfer does every few seconds.
+
+A backend that reports no start time for an upload is left alone and counted in a warning, since
+an upload whose age cannot be established cannot be shown to be abandoned. Those are what the
+bucket's `AbortIncompleteMultipartUpload` lifecycle rule is for.
+
+Erasing an owner is the one case that sweeps without a cutoff. A prefix delete removes staged
+objects and not the parts of an incomplete upload, and no later run visits the prefix of an owner
+nobody backs up any more, so `deleteOwnerData` aborts every upload under it.
 
 A run aborts its own upload on any failure after the upload was created, including a failed
 existence check and a completion the bucket refuses. When that abort itself fails, Atlas logs the

@@ -13,17 +13,22 @@ import type { DeletionStorage } from '@/services/deletion/shared/prefix-deleter'
 const OWNER = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
 
-function make_storage(): DeletionStorage {
+type PurgeStorage = DeletionStorage & {
+  abort_incomplete_uploads: ReturnType<typeof vi.fn>;
+};
+
+function make_storage(): PurgeStorage {
   return {
     delete: vi.fn().mockResolvedValue(undefined),
     delete_version: vi.fn().mockResolvedValue(undefined),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
+    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
   };
 }
 
 describe('workload deletion', () => {
-  let storage: DeletionStorage;
+  let storage: PurgeStorage;
   let factory: TenantContextFactory;
   let onedrive: OneDriveDeletionService;
   let sharepoint: SharePointDeletionService;
@@ -43,6 +48,24 @@ describe('workload deletion', () => {
 
     onedrive = container.get(OneDriveDeletionService);
     sharepoint = container.get(SharePointDeletionService);
+  });
+
+  // A prefix delete removes staged objects and leaves an incomplete upload's parts paying for
+  // themselves, and no later run sweeps an owner nobody backs up again (issue #345).
+  it('aborts every staging upload of the owner it erases', async () => {
+    await onedrive.delete_owner_data('t', OWNER);
+
+    const [prefix, cutoff] = storage.abort_incomplete_uploads.mock.calls[0]!;
+    expect(prefix).toBe(`onedrive/staging/${OWNER}/`);
+    // A purge means every upload, including one a run may still be writing: its destination is
+    // being erased.
+    expect((cutoff as Date).getTime()).toBeGreaterThanOrEqual(Date.now() - 5_000);
+  });
+
+  it('aborts every staging upload of the site it erases', async () => {
+    await sharepoint.delete_site_data('t', SITE);
+
+    expect(storage.abort_incomplete_uploads.mock.calls[0]?.[0]).toContain('sharepoint/staging/');
   });
 
   describe('OneDriveDeletionService', () => {

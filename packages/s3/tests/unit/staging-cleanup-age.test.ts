@@ -53,6 +53,42 @@ describe('staging cleanup age filter (issue #345)', () => {
     ]);
   });
 
+  it('leaves an old upload that is still receiving parts', async () => {
+    // Nothing caps one item's transfer at the cutoff: a very large file on a throttled link runs
+    // for hours, and aborting it is the concurrency failure this is all about (issue #345).
+    send.mockImplementation(async (command: { constructor: { name: string } }) => {
+      if (command.constructor.name === 'ListMultipartUploadsCommand') {
+        return {
+          Uploads: [{ Key: `${PREFIX}item-a`, UploadId: 'slow-but-alive', Initiated: ABANDONED }],
+          IsTruncated: false,
+        };
+      }
+      if (command.constructor.name === 'ListPartsCommand') {
+        return { Parts: [{ PartNumber: 1, LastModified: LIVE }], IsTruncated: false };
+      }
+      return {};
+    });
+
+    expect(await storage.abort_incomplete_uploads(PREFIX, CUTOFF)).toBe(0);
+    expect(inputs_of(send, 'AbortMultipartUploadCommand')).toHaveLength(0);
+  });
+
+  it('aborts an old upload whose last part is older than the cutoff too', async () => {
+    send.mockImplementation(async (command: { constructor: { name: string } }) => {
+      if (command.constructor.name === 'ListMultipartUploadsCommand') {
+        return {
+          Uploads: [{ Key: `${PREFIX}item-a`, UploadId: 'stranded', Initiated: ABANDONED }],
+          IsTruncated: false,
+        };
+      }
+      if (command.constructor.name === 'ListPartsCommand') {
+        return { Parts: [{ PartNumber: 1, LastModified: ABANDONED }], IsTruncated: false };
+      }
+      return {};
+    });
+
+    expect(await storage.abort_incomplete_uploads(PREFIX, CUTOFF)).toBe(1);
+  });
   it('leaves an upload whose start time the backend did not report', async () => {
     send.mockImplementation(async (command: { constructor: { name: string } }) => {
       if (command.constructor.name === 'ListMultipartUploadsCommand') {

@@ -103,9 +103,14 @@ async function* counted_chunks(
 /**
  * Age past which a staging object or an incomplete upload is treated as abandoned.
  *
- * A staging key is live only between the first part and the copy onto the canonical key, which is
- * one file's transfer. A day is far longer than that even for a very large file on a slow link,
- * and short enough that abandoned parts do not accumulate a bill.
+ * Nothing caps one item's transfer at this, and it is not meant to: a 250 GB item on a throttled
+ * link can run for many hours, so the storage sweep also refuses to abort an upload with a part
+ * written since the cutoff. The day is the coarse filter, recent activity is the real answer, and
+ * the bucket's own `AbortIncompleteMultipartUpload` rule collects whatever both miss.
+ *
+ * For staging objects there is no activity to read, so the age stands alone. One is live only
+ * between the multipart completion and the copy onto the canonical key, which is a server-side
+ * copy of one file rather than a transfer, so a day is orders of magnitude longer than the window.
  */
 const STAGING_ABANDONED_AFTER_MS = 24 * 60 * 60 * 1000;
 
