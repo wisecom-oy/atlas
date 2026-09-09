@@ -168,10 +168,17 @@ export async function append_archive_entry(
   content: Buffer,
 ): Promise<void> {
   const failed = archive_failure(file_archive);
-  const written = once(file_archive.archive, 'entry');
+  // A save keeps going after a per-entry failure, so an abandoned waiter would add a listener pair
+  // to the archiver for every entry left in the run.
+  const cancel_wait = new AbortController();
+  const written = once(file_archive.archive, 'entry', { signal: cancel_wait.signal });
   file_archive.archive.append(content, { name: entry_path });
-  await Promise.race([written, failed]);
-  await Promise.race([file_archive.drain(), failed]);
+  try {
+    await Promise.race([written, failed]);
+    await Promise.race([file_archive.drain(), failed]);
+  } finally {
+    cancel_wait.abort();
+  }
 }
 
 /** Rejects with whatever failed the archive, and never resolves, so it can only lose a race. */
