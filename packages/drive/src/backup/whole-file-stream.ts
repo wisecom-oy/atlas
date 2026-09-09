@@ -69,6 +69,8 @@ export async function* stream_whole_file_in_chunks(
       // Armed again only now, when the loop goes back to waiting on the body.
       timer = arm_stall_timer(controller, stall_timeout_ms, item_id);
     }
+    // The body is done, so the tail is handed over with no timer running behind it.
+    clearTimeout(timer);
     if (pending_bytes > 0) yield Buffer.concat(pending);
   } finally {
     clearTimeout(timer);

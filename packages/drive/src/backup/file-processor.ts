@@ -41,6 +41,10 @@ export async function process_drive_backup_file(
         abort_signal,
       );
     } catch (err) {
+      // A cancelled run is not a bad file. Swallowing it records the item in the failed-item
+      // ledger, and five cancellations of the same large file burn its retry budget and skip it
+      // for good, because delta never re-presents an unchanged item (issue #344).
+      if (abort_signal?.aborted === true) throw err;
       // A missing grant or a service refusal is not a skip: it must reach the caller
       // so the run can name the cause instead of reporting a lost file (issue #246).
       if (is_unretryable_download_failure(err)) throw err;

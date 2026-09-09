@@ -102,6 +102,7 @@ export async function sync_file_versions(
   snapshot_id: string,
   ctx: TenantContext,
   watermark: DriveVersionWatermark | string | undefined,
+  abort_signal?: AbortSignal,
 ): Promise<VersionSyncOutcome> {
   const versions = await connector.list_file_versions(item.drive_id, item.item_id);
   if (versions.length === 0) return empty_outcome();
@@ -115,6 +116,7 @@ export async function sync_file_versions(
     ctx,
     versions,
     watermark,
+    abort_signal,
   );
   if (outcome.new_versions_stored > 0) {
     logger.info(
@@ -134,6 +136,7 @@ async function capture_new_versions(
   ctx: TenantContext,
   versions: readonly DriveFileVersion[],
   watermark: DriveVersionWatermark | string | undefined,
+  abort_signal?: AbortSignal,
 ): Promise<VersionSyncOutcome> {
   const totals: VersionSyncResult = {
     new_versions_stored: 0,
@@ -158,6 +161,7 @@ async function capture_new_versions(
       snapshot_id,
       ctx,
       version,
+      abort_signal,
     );
     // Not `||=`: that short-circuits once blocked and would stop tallying the remaining versions
     // entirely.
@@ -221,11 +225,23 @@ async function capture_version(
   snapshot_id: string,
   ctx: TenantContext,
   version: DriveFileVersion,
+  abort_signal?: AbortSignal,
 ): Promise<VersionCapture> {
   let stored: StoredVersionContent;
   try {
-    stored = await store_version_content(keys, connector, item, owner_id, ctx, version);
+    stored = await store_version_content(
+      keys,
+      connector,
+      item,
+      owner_id,
+      ctx,
+      version,
+      abort_signal,
+    );
   } catch (err) {
+    // A cancelled run is not a version that failed to download: recording it as failed would block
+    // the watermark and re-fetch it next run for no reason (issue #344).
+    if (abort_signal?.aborted === true) throw err;
     if (!(err instanceof VersionDownloadError)) throw err;
     if (is_content_gone_error(err.source)) {
       logger.debug(

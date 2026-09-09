@@ -42,9 +42,10 @@ export async function store_version_content(
   owner_id: string,
   ctx: TenantContext,
   version: DriveFileVersion,
+  abort_signal?: AbortSignal,
 ): Promise<StoredVersionContent> {
   if (version.size_bytes >= LARGE_FILE_THRESHOLD) {
-    return await store_streamed(keys, connector, item, owner_id, ctx, version);
+    return await store_streamed(keys, connector, item, owner_id, ctx, version, abort_signal);
   }
   return await store_buffered(keys, connector, item, owner_id, ctx, version);
 }
@@ -56,14 +57,19 @@ async function store_streamed(
   owner_id: string,
   ctx: TenantContext,
   version: DriveFileVersion,
+  abort_signal?: AbortSignal,
 ): Promise<StoredVersionContent> {
   const chunks = await open_version_stream(connector, item, version);
 
-  const result = await stream_to_content_addressed_storage(ctx, tag_source_errors(chunks), {
-    staging_key: keys.staging_key(owner_id, item.item_id),
-    staging_prefix: keys.staging_prefix_for(owner_id),
-    build_data_key: (checksum) => keys.data_key(owner_id, checksum),
-  });
+  const result = await stream_to_content_addressed_storage(
+    ctx,
+    tag_source_errors(chunks, abort_signal),
+    {
+      staging_key: keys.staging_key(owner_id, item.item_id),
+      staging_prefix: keys.staging_prefix_for(owner_id),
+      build_data_key: (checksum) => keys.data_key(owner_id, checksum),
+    },
+  );
 
   return {
     checksum: result.checksum,
@@ -124,10 +130,16 @@ async function open_version_stream(
  * upload that failed part way left the download running with nobody reading it (issue #344). The
  * `finally` runs on a consumer failure, an early `break` and normal completion alike.
  */
-async function* tag_source_errors(chunks: AsyncIterable<Buffer>): AsyncGenerator<Buffer> {
+async function* tag_source_errors(
+  chunks: AsyncIterable<Buffer>,
+  abort_signal?: AbortSignal,
+): AsyncGenerator<Buffer> {
   const iterator = chunks[Symbol.asyncIterator]();
   try {
     while (true) {
+      // The Graph client takes no signal, so cancellation lands here instead: throwing runs the
+      // `finally` below, which closes the stream and drops the connection (issue #344).
+      abort_signal?.throwIfAborted();
       let next: IteratorResult<Buffer>;
       try {
         next = await iterator.next();
@@ -138,6 +150,7 @@ async function* tag_source_errors(chunks: AsyncIterable<Buffer>): AsyncGenerator
       yield next.value;
     }
   } finally {
-    await iterator.return?.();
+    // Best effort: closing the source must not replace the failure that got us here.
+    await iterator.return?.().catch(() => undefined);
   }
 }

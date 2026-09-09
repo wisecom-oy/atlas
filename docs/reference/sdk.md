@@ -274,10 +274,16 @@ const result = await atlas.outlook.backup('user@company.com', {
 
 Both return a result with `interrupted: true` rather than throwing, and both keep the snapshot manifest that was written for the work already done. `hardStopSignal` trades re-enumeration of one folder for a faster exit, so use it when a deadline matters more than the wasted work.
 
-OneDrive and SharePoint backups accept `signal` only, and it now reaches the transfer itself: a
-cancelled run aborts the download it is in the middle of rather than waiting out a file that may be
-gigabytes long, and it does not start the next chunk or the next retry. Their long unit of work is
-that one file transfer, so there is nothing left for an escalation signal to shorten.
+OneDrive and SharePoint backups accept `signal` only, and it reaches the transfer itself rather
+than only the next item: a cancelled run aborts the chunk request in flight, skips the retry
+backoff, and closes a historical version's stream instead of reading it to the end. Their long unit
+of work is that one file transfer, so there is nothing left for an escalation signal to shorten.
+
+What it does not cover: anything that goes through the Graph SDK client rather than a direct
+request. That is small-file content under 64 MiB, which is bounded by its own per-request timeout,
+and every mail operation. Cancelling those still waits for the item in flight. Cancellation is also
+an SDK feature: the CLI has no equivalent for drive backups, so Ctrl+C there behaves as it always
+did.
 
 `OperationProgressEvent` is stable across workloads:
 

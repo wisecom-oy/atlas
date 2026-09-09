@@ -133,6 +133,7 @@ export async function process_delta_item(
       snapshot_id,
       ctx,
       versions.watermarks[item.item_id],
+      abort_signal,
     );
     collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
@@ -184,6 +185,9 @@ export async function process_item_guarded(
       abort_signal,
     );
   } catch (err) {
+    // A cancelled transfer is the run stopping, not the item failing. Recording it would spend one
+    // of the item's five ledger attempts and eventually skip the file for good (issue #344).
+    if (abort_signal?.aborted === true) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`SharePoint item ${item.item_id} (${item.file_name}) failed: ${reason}`);
     library_state.failed_item_ids.add(item.item_id);
@@ -231,18 +235,25 @@ export async function retry_failed_items(
     // regardless of stale tracking state: an unchanged etag would otherwise
     // classify as "no change" and leave the item stuck in the ledger.
     forget_item_tracking(tracking, record.item_id);
-    await process_item_guarded(
-      connector,
-      item,
-      site_id,
-      snapshot_id,
-      ctx,
-      tracking,
-      library_state,
-      versions,
-      version_stats,
-      abort_signal,
-    );
+    try {
+      await process_item_guarded(
+        connector,
+        item,
+        site_id,
+        snapshot_id,
+        ctx,
+        tracking,
+        library_state,
+        versions,
+        version_stats,
+        abort_signal,
+      );
+    } catch (err) {
+      // Cancelled mid-retry: the item keeps the attempt count it already had, and the caller
+      // treats the library as interrupted (issue #344).
+      if (abort_signal?.aborted !== true) throw err;
+      return true;
+    }
     on_item_processed?.(item.file_name);
   }
   return false;

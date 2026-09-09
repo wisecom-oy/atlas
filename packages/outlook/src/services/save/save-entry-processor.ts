@@ -127,7 +127,14 @@ export async function save_entries_to_archive(
     };
   } catch (err) {
     // Anything between opening the archive and publishing it can throw. None of it may leave a
-    // partial file behind (issue #307).
+    // partial file behind (issue #307), and the progress stream still owes its subscriber one
+    // terminal event: a destination that went away is now a routine way to get here (issue #344).
+    emit_operation_progress(control, {
+      operation: 'save',
+      workload: 'outlook',
+      phase: 'interrupted',
+      processed: 0,
+    });
     await abort();
     throw err;
   }

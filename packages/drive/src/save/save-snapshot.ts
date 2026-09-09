@@ -178,7 +178,15 @@ async function write_drive_snapshot_to_archive(
   } catch (err) {
     // Anything between opening the archive and publishing it can throw: the entry loop, the
     // finalize, the byte count, the move itself. None of them may leave a partial file behind
-    // (issue #307).
+    // (issue #307), and the progress stream still owes its subscriber one terminal event: a
+    // destination that went away is now a routine way to get here (issue #344).
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload,
+      phase: 'interrupted',
+      processed: 0,
+      total: entries.length,
+    });
     await abort();
     throw err;
   }

@@ -137,18 +137,26 @@ export async function process_single_library(
       interrupted = true;
       break;
     }
-    await process_item_guarded(
-      connector,
-      item,
-      site_id,
-      snapshot_id,
-      ctx,
-      tracking,
-      library_state,
-      versions,
-      version_stats,
-      options.abort_signal,
-    );
+    try {
+      await process_item_guarded(
+        connector,
+        item,
+        site_id,
+        snapshot_id,
+        ctx,
+        tracking,
+        library_state,
+        versions,
+        version_stats,
+        options.abort_signal,
+      );
+    } catch (err) {
+      // The guard records a failed item and carries on, except for a cancelled transfer, which it
+      // rethrows: the run is stopping, and this item has not failed (issue #344).
+      if (options.abort_signal?.aborted !== true) throw err;
+      interrupted = true;
+      break;
+    }
     processed_delta_items++;
     on_item_processed?.(item.file_name);
   }

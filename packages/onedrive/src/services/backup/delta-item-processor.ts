@@ -140,6 +140,7 @@ export async function process_delta_item(
       snapshot_id,
       ctx,
       versions.watermarks[item.item_id],
+      abort_signal,
     );
     collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, on_version_stats_update);
