@@ -92,12 +92,12 @@ transfer from a complete one: a one byte body produces a perfectly valid SHA-256
 AES-GCM authenticates it just as happily. Every check therefore compares the transfer against an
 expectation formed before it started.
 
-| Check                | Rejected                                                                                     |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| Body length          | A `206` whose body is not exactly the number of bytes the `Range` header asked for            |
-| `Content-Range`      | A `206` with a missing, unparseable, or mismatched `Content-Range`, including the `*` form    |
-| Whole-file responses | A `200` answering a range request whose body is not the item's full reported size             |
-| Total transferred    | A streamed large file whose chunks do not add up to the size Graph reported for the item      |
+| Check                | Rejected                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Body length          | A `206` whose body is not exactly the number of bytes the `Range` header asked for         |
+| `Content-Range`      | A `206` with a missing, unparseable, or mismatched `Content-Range`, including the `*` form |
+| Whole-file responses | A `200` answering a range request whose body is not the item's full reported size          |
+| Total transferred    | A streamed large file whose chunks do not add up to the size Graph reported for the item   |
 
 `Content-Range` is required rather than optional because it is the only thing that identifies which
 bytes of the file arrived. Without it a server answering every range with the same chunk would be
@@ -437,6 +437,23 @@ This exists because the conflict policy is not a safety net. With the default `r
 Nesting the original structure under a restore root lengthens every path, and OneDrive enforces a path length limit. A file that exceeds it is reported as a skipped item with the reason and does not abort the run.
 
 Restored files are uploaded to the target user's primary drive. Folders are created as needed, and existing folders with the same name are reused rather than overwritten. Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on any transient Graph status: 429, 500, 502, 503, 504). A range PUT is addressed by its `Content-Range`, so a replayed chunk rewrites the same bytes rather than appending them twice.
+
+#### What counts as a completed upload
+
+A resumable session finishes on a status code, not on any 2xx. Graph answers an intermediate chunk
+with `202 Accepted` and the ranges it still wants, and the final chunk with `200` or `201` carrying
+the finished `driveItem`. Atlas reports the file as restored only on that terminal response.
+
+If the last chunk still comes back `202`, every byte has been sent and the session has not
+converged, so the file fails rather than being counted as restored. The failure names the ranges
+Graph still expects, read back from the session. Atlas does not retry into the same session: the
+content is all in hand, so a session that has not completed is a protocol or service problem, and
+the next restore opens a fresh one.
+
+A thrown error, a socket reset or a DNS failure mid-chunk, takes the same exit as a terminal HTTP
+error: the session is released with `DELETE` before the error propagates. A `DELETE` that itself
+fails is logged, because the session keeps its reserved quota until Graph expires it and an
+operator chasing a quota complaint needs to know Atlas tried.
 
 Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is read from S3 as a stream, the first 28 bytes (12-byte IV + 16-byte auth tag) are consumed to initialize AES-256-GCM, and ciphertext is decrypted in chunks without buffering the full ciphertext in memory.
 

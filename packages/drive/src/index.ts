@@ -63,6 +63,7 @@ export {
   type DriveCatalogDeps,
 } from '@/catalog/catalog-queries';
 export { ensure_drive_folder_path, type DriveFolderCreator } from '@/restore/folder-path';
+export { upload_content_to_session, LARGE_UPLOAD_CHUNK } from '@/restore/upload-session';
 export {
   restore_drive_version,
   type DriveUploadConnector,
