@@ -27,6 +27,7 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
     tenant_id: 't',
     storage: {
       list: vi.fn().mockResolvedValue([]),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       exists: vi.fn().mockResolvedValue(false),
       put: vi.fn().mockResolvedValue(undefined),

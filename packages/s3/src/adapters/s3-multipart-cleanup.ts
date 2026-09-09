@@ -5,17 +5,22 @@ import {
 } from '@aws-sdk/client-s3';
 
 /**
- * Aborts every incomplete multipart upload under a prefix, returning the count.
+ * Aborts incomplete multipart uploads under a prefix that started before `older_than`, returning
+ * the count.
  *
- * An abandoned multipart upload keeps its parts, and the tenant keeps paying
- * storage for bytes no object will ever expose. The listing is paginated on two
- * markers, key and upload id, because one key can carry several stranded
- * uploads.
+ * An abandoned multipart upload keeps its parts, and the tenant keeps paying storage for bytes no
+ * object will ever expose. The cutoff is what separates abandoned from live: two backups of the
+ * same owner share a staging prefix, and an unfiltered sweep aborts the upload the other one is
+ * still streaming into, which fails it with `NoSuchUpload` on its next part (issue #345).
+ *
+ * The listing is paginated on two markers, key and upload id, because one key can carry several
+ * stranded uploads.
  */
 export async function abort_incomplete_multipart_uploads(
   client: S3Client,
   bucket: string,
   prefix: string,
+  older_than: Date,
 ): Promise<number> {
   let aborted = 0;
   let key_marker: string | undefined;
@@ -32,16 +37,18 @@ export async function abort_incomplete_multipart_uploads(
     );
 
     for (const upload of response.Uploads ?? []) {
-      if (upload.Key && upload.UploadId) {
-        await client.send(
-          new AbortMultipartUploadCommand({
-            Bucket: bucket,
-            Key: upload.Key,
-            UploadId: upload.UploadId,
-          }),
-        );
-        aborted += 1;
-      }
+      // No `Initiated` means the backend did not report a start time, and an upload that cannot be
+      // shown to be abandoned is left alone.
+      const started = upload.Initiated;
+      if (!upload.Key || !upload.UploadId || !started || started >= older_than) continue;
+      await client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: bucket,
+          Key: upload.Key,
+          UploadId: upload.UploadId,
+        }),
+      );
+      aborted += 1;
     }
 
     if (!response.IsTruncated) break;

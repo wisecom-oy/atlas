@@ -85,6 +85,22 @@ Implementation thresholds from `@wisecom/atlas-onedrive`:
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file. Each range request is also aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. That budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB.
 
+#### Staging cleanup and concurrent runs
+
+Every large file of one owner stages under the same prefix, `onedrive/staging/{owner_id}/`, so a
+run cleaning up after an earlier one and a run currently transferring cannot be told apart by key.
+They are told apart by age: startup cleanup only deletes staging objects last modified more than
+24 hours ago, and only aborts multipart uploads started more than 24 hours ago. A transfer running
+now is never touched, and a backend that reports no timestamp for an upload gets left alone rather
+than guessed at.
+
+A run aborts its own upload on any failure after the upload was created, including a failed
+existence check and a completion the bucket refuses. When that abort itself fails, Atlas logs the
+staging key and stops there. It does not sweep the prefix: that fallback used to abort whatever a
+concurrent backup of the same owner was streaming into, turning one run's failure into two. The
+parts left behind cost storage until the next cleanup or the bucket's own lifecycle rule collects
+them, which is why the failed abort is logged rather than swallowed.
+
 #### What a chunk has to prove before it is stored
 
 The checksum Atlas records is computed over the bytes that arrived, so it cannot tell a truncated

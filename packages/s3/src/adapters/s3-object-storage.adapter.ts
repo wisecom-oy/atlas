@@ -194,6 +194,30 @@ export class S3ObjectStorage implements ObjectStorage {
     return keys;
   }
 
+  /** Lists keys under the prefix last modified before `older_than`. */
+  async list_stale(prefix: string, older_than: Date): Promise<string[]> {
+    const keys: string[] = [];
+    let continuation_token: string | undefined;
+
+    do {
+      const response = await this._client.send(
+        new ListObjectsV2Command({
+          Bucket: this._bucket,
+          Prefix: prefix,
+          ContinuationToken: continuation_token,
+        }),
+      );
+
+      for (const obj of response.Contents ?? []) {
+        // An object with no reported timestamp cannot be shown to be abandoned, so it stays.
+        if (obj.Key && obj.LastModified && obj.LastModified < older_than) keys.push(obj.Key);
+      }
+      continuation_token = response.NextContinuationToken;
+    } while (continuation_token);
+
+    return keys;
+  }
+
   /** Lists all object versions and delete markers under a prefix. */
   async list_versions(
     prefix: string,
@@ -317,8 +341,8 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   /** Lists and aborts incomplete multipart uploads under {@link prefix}; returns count aborted. */
-  async abort_incomplete_uploads(prefix: string): Promise<number> {
-    return abort_incomplete_multipart_uploads(this._client, this._bucket, prefix);
+  async abort_incomplete_uploads(prefix: string, older_than: Date): Promise<number> {
+    return abort_incomplete_multipart_uploads(this._client, this._bucket, prefix, older_than);
   }
 
   private async validate_immutability_policy(policy?: StorageObjectLockPolicy): Promise<void> {

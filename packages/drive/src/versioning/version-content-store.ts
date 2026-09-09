@@ -66,7 +66,6 @@ async function store_streamed(
     tag_source_errors(chunks, abort_signal),
     {
       staging_key: keys.staging_key(owner_id, item.item_id),
-      staging_prefix: keys.staging_prefix_for(owner_id),
       build_data_key: (checksum) => keys.data_key(owner_id, checksum),
     },
   );

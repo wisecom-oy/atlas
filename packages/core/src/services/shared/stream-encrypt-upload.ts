@@ -35,8 +35,6 @@ export interface ContentAddressedStreamResult {
 export interface ContentAddressedStreamTarget {
   /** Unique per-call staging key the encrypted stream lands on first. */
   readonly staging_key: string;
-  /** Prefix used to sweep orphaned parts when an abort fails. */
-  readonly staging_prefix: string;
   /** Builds the canonical key from the plaintext checksum. */
   build_data_key(checksum: string): string;
   readonly object_lock_policy?: StorageObjectLockPolicy;
@@ -63,12 +61,20 @@ export async function stream_to_content_addressed_storage(
 
   const canonical_key = target.build_data_key(checksum);
 
-  if (await ctx.storage.exists(canonical_key)) {
-    await safe_abort_multipart(handle, target.staging_prefix, ctx);
-    return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
-  }
+  // Everything from here to `complete()` owns an upload that exists in the bucket. A throw in
+  // between, an `exists()` that fails or a completion the backend refuses, used to leave it there
+  // active and billable with nobody holding its id (issue #345).
+  try {
+    if (await ctx.storage.exists(canonical_key)) {
+      await safe_abort_multipart(handle, target.staging_key);
+      return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
+    }
 
-  await handle.complete(completed_parts);
+    await handle.complete(completed_parts);
+  } catch (err) {
+    await safe_abort_multipart(handle, target.staging_key);
+    throw err;
+  }
 
   // ponytail: the exists() check above races a concurrent writer, and the loser
   // overwrites with identical bytes -- canonical_key IS the SHA-256 of the
@@ -163,11 +169,7 @@ export async function stream_encrypt_to_multipart(
 
     return { checksum: hash.digest('hex'), handle, completed_parts: state.completed_parts };
   } catch (err) {
-    await safe_abort_multipart(
-      handle,
-      staging_key.substring(0, staging_key.lastIndexOf('/') + 1),
-      ctx,
-    );
+    await safe_abort_multipart(handle, staging_key);
     throw err;
   }
 }
@@ -188,16 +190,26 @@ async function flush_pending_parts(
   }
 }
 
-/** Aborts a multipart upload, falling back to sweeping orphaned parts by prefix. */
+/**
+ * Aborts one multipart upload and reports it when that fails.
+ *
+ * The fallback used to sweep every incomplete upload under the staging prefix, which is shared by
+ * every large file of one owner: a failure in one run aborted the upload a concurrent run was
+ * streaming into (issue #345). One failed abort leaves one upload's parts behind, which the
+ * bucket's lifecycle rule and the age-filtered startup cleanup both collect, so the answer is to
+ * name it rather than to widen the blast radius.
+ */
 export async function safe_abort_multipart(
   handle: MultipartUploadHandle,
-  staging_prefix: string,
-  ctx: TenantContext,
+  staging_key: string,
 ): Promise<void> {
   try {
     await handle.abort();
   } catch (err) {
-    logger.warn(`Multipart abort failed, cleaning up orphaned parts: ${err}`);
-    await ctx.storage.abort_incomplete_uploads(staging_prefix).catch(() => {});
+    logger.warn(
+      `Could not abort the staging upload for ${staging_key}: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        `Its parts stay billable until the bucket's lifecycle rule or the next run collects them.`,
+    );
   }
 }

@@ -20,6 +20,7 @@ function make_ctx(): TenantContext {
       delete: vi.fn(),
       delete_version: vi.fn(),
       exists: vi.fn(),
+      list_stale: vi.fn(async () => []),
       list: vi.fn(),
       list_versions: vi.fn().mockResolvedValue([]),
       begin_multipart_upload: vi.fn().mockResolvedValue({

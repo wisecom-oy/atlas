@@ -42,6 +42,7 @@ function make_ctx(): TenantContext {
       delete: vi.fn().mockResolvedValue(undefined),
       copy: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       begin_multipart_upload: vi.fn().mockResolvedValue({
         upload_part: vi.fn().mockResolvedValue('etag'),

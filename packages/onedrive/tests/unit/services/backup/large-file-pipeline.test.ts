@@ -53,6 +53,7 @@ function make_ctx(options: { exists?: boolean; list?: string[] } = {}): Recorded
         ops.push(`delete:${key}`);
       }),
       list: vi.fn(async () => options.list ?? []),
+      list_stale: vi.fn(async () => options.list ?? []),
       abort_incomplete_uploads: vi.fn(async () => 0),
     },
     create_cipher: () => {
