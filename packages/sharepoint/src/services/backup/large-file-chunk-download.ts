@@ -31,11 +31,15 @@ export async function* fetch_file_chunks(
   download_url: string,
   total_bytes: number,
   item_id: string,
+  abort_signal?: AbortSignal,
 ): AsyncGenerator<Buffer> {
   const chunk_count = Math.ceil(total_bytes / CHUNK_SIZE_BYTES);
   let yielded_chunks = 0;
 
   for (let i = 0; i < chunk_count; i++) {
+    // Cheap between chunks, and the signal also reaches the request itself below, so a cancelled
+    // run neither starts the next chunk nor waits out the one in flight (issue #344).
+    abort_signal?.throwIfAborted();
     const range_start = i * CHUNK_SIZE_BYTES;
     const range_end = Math.min(range_start + CHUNK_SIZE_BYTES - 1, total_bytes - 1);
     const expected_length = range_end - range_start + 1;
@@ -52,6 +56,7 @@ export async function* fetch_file_chunks(
         chunk_count,
         total_bytes,
         chunk_count > 1,
+        abort_signal,
       );
     } catch (err) {
       if (!(err instanceof RangeIgnoredError)) throw err;
@@ -73,6 +78,7 @@ export async function* fetch_file_chunks(
           `falling back to one streamed download`,
       );
       yield* stream_whole_file_in_chunks(download_url, item_id, {
+        abort_signal,
         chunk_size_bytes: CHUNK_SIZE_BYTES,
         // Same per-chunk budget the Range path uses, applied between reads rather than to the
         // whole transfer, so a stalled body is cut off but a slow one is not.
@@ -95,6 +101,7 @@ async function download_chunk_with_retry(
   total_chunks: number,
   total_bytes: number,
   report_ignored_range: boolean,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
     try {
@@ -106,8 +113,13 @@ async function download_chunk_with_retry(
         item_id,
         total_bytes,
         report_ignored_range,
+        abort_signal,
       );
     } catch (err) {
+      // A cancelled run is not a chunk failure. Checked before the classification below, which
+      // would otherwise relabel the abort as `Failed chunk ...` and have it recorded against the
+      // item (issue #344).
+      abort_signal?.throwIfAborted();
       // Not retryable and not a failure: the caller switches strategy on it.
       if (err instanceof RangeIgnoredError) throw err;
       if (!is_cdn_retryable(err) || attempt === MAX_CHUNK_RETRIES) {
@@ -122,7 +134,9 @@ async function download_chunk_with_retry(
         `Chunk ${chunk_index}/${total_chunks} retry ${attempt + 1}/${MAX_CHUNK_RETRIES} ` +
           `for ${item_id} in ${(delay / 1000).toFixed(1)}s`,
       );
-      await sleep(delay);
+      // Rejects with the abort reason, so a run cancelled during a 30 second backoff stops
+      // there rather than waiting the delay out (issue #344).
+      await sleep(delay, abort_signal);
     }
   }
 
@@ -137,10 +151,16 @@ async function download_single_chunk(
   item_id: string,
   total_bytes: number,
   report_ignored_range: boolean,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   const timeout_ms = Math.max(30_000, Math.ceil(expected_length / MIN_THROUGHPUT_BYTES_PER_MS));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout_ms);
+  // One listener, removed below, rather than `AbortSignal.any` per chunk: the run's signal outlives
+  // every chunk, and Node keeps a dependent entry for each composite until the source aborts, which
+  // is 256 of them per GiB transferred (issue #344).
+  const cancel_chunk = (): void => controller.abort(abort_signal?.reason);
+  abort_signal?.addEventListener('abort', cancel_chunk, { once: true });
 
   try {
     const response = await fetch(url, {
@@ -189,6 +209,7 @@ async function download_single_chunk(
     return buf;
   } finally {
     clearTimeout(timer);
+    abort_signal?.removeEventListener('abort', cancel_chunk);
   }
 }
 
@@ -203,8 +224,23 @@ function compute_retry_delay(attempt: number): number {
   return Math.min(base + jitter, CHUNK_MAX_DELAY_MS);
 }
 
-function sleep(ms: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, ms);
-  return promise;
+/**
+ * Waits, unless the run is cancelled first.
+ *
+ * `node:timers/promises` would do this in one line, but it is invisible to the fake timers the
+ * retry tests drive, and a backoff nobody can fast-forward is a five second unit test.
+ */
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const on_abort = (): void => {
+    clearTimeout(timer);
+    reject(signal?.reason instanceof Error ? signal.reason : new Error('The run was cancelled'));
+  };
+  const timer = setTimeout(() => {
+    signal?.removeEventListener('abort', on_abort);
+    resolve();
+  }, ms);
+  signal?.addEventListener('abort', on_abort, { once: true });
+  await promise;
 }

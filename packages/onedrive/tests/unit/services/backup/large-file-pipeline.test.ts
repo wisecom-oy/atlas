@@ -108,6 +108,7 @@ describe('process_large_file', () => {
       'https://cdn.example/abc',
       ITEM_BYTES,
       'item-1',
+      undefined,
     );
   });
 

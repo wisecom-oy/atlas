@@ -21,13 +21,18 @@ import type {
  * and no integrity failures. Nothing in the result said a file had failed to authenticate.
  */
 
-vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
+vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (import_original) => {
+  const actual =
+    await import_original<
+      typeof import('@wisecom/atlas-core/services/shared/file-save-zip-writer')
+    >();
   const archive = {
     append: vi.fn(),
     finalize: vi.fn().mockResolvedValue(undefined),
     pointer: vi.fn().mockReturnValue(4096),
   };
   return {
+    ...actual,
     create_file_archive: vi.fn().mockReturnValue({
       archive,
       promise: Promise.resolve(4096),

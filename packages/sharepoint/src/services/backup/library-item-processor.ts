@@ -65,6 +65,7 @@ export async function process_delta_item(
   library_state: LibraryProcessingState,
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
+  abort_signal?: AbortSignal,
 ): Promise<void> {
   const effective_kind =
     item.deleted && item.kind === 'file' && tracking.previous_kind_by_file_id[item.item_id]
@@ -111,7 +112,14 @@ export async function process_delta_item(
     return;
   }
 
-  const result = await download_or_record_refusal(connector, item, site_id, ctx, library_state);
+  const result = await download_or_record_refusal(
+    connector,
+    item,
+    site_id,
+    ctx,
+    library_state,
+    abort_signal,
+  );
   if (!result) return;
 
   if (result.deduplicated) library_state.library_files_deduplicated++;
@@ -125,6 +133,7 @@ export async function process_delta_item(
       snapshot_id,
       ctx,
       versions.watermarks[item.item_id],
+      abort_signal,
     );
     collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, (s, u, f) => {
@@ -160,6 +169,7 @@ export async function process_item_guarded(
   library_state: LibraryProcessingState,
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
+  abort_signal?: AbortSignal,
 ): Promise<void> {
   try {
     await process_delta_item(
@@ -172,8 +182,12 @@ export async function process_item_guarded(
       library_state,
       versions,
       version_stats,
+      abort_signal,
     );
   } catch (err) {
+    // A cancelled transfer is the run stopping, not the item failing. Recording it would spend one
+    // of the item's five ledger attempts and eventually skip the file for good (issue #344).
+    if (abort_signal?.aborted === true) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`SharePoint item ${item.item_id} (${item.file_name}) failed: ${reason}`);
     library_state.failed_item_ids.add(item.item_id);
@@ -204,6 +218,7 @@ export async function retry_failed_items(
   version_stats: VersionStatsState,
   should_interrupt?: () => boolean,
   on_item_processed?: (file_name: string) => void,
+  abort_signal?: AbortSignal,
 ): Promise<boolean> {
   for (const record of retryable_items(library_state.failed_items, drive_id)) {
     if (should_interrupt?.() === true) return true;
@@ -220,17 +235,25 @@ export async function retry_failed_items(
     // regardless of stale tracking state: an unchanged etag would otherwise
     // classify as "no change" and leave the item stuck in the ledger.
     forget_item_tracking(tracking, record.item_id);
-    await process_item_guarded(
-      connector,
-      item,
-      site_id,
-      snapshot_id,
-      ctx,
-      tracking,
-      library_state,
-      versions,
-      version_stats,
-    );
+    try {
+      await process_item_guarded(
+        connector,
+        item,
+        site_id,
+        snapshot_id,
+        ctx,
+        tracking,
+        library_state,
+        versions,
+        version_stats,
+        abort_signal,
+      );
+    } catch (err) {
+      // Cancelled mid-retry: the item keeps the attempt count it already had, and the caller
+      // treats the library as interrupted (issue #344).
+      if (abort_signal?.aborted !== true) throw err;
+      return true;
+    }
     on_item_processed?.(item.file_name);
   }
   return false;
@@ -257,6 +280,7 @@ async function download_or_record_refusal(
   site_id: string,
   ctx: TenantContext,
   library_state: LibraryProcessingState,
+  abort_signal?: AbortSignal,
 ): Promise<Awaited<ReturnType<typeof process_backup_file>>> {
   const record = (reason: string, permanent?: boolean): undefined => {
     library_state.failed_item_ids.add(item.item_id);
@@ -271,7 +295,7 @@ async function download_or_record_refusal(
   };
 
   try {
-    const result = await process_backup_file(connector, item, site_id, ctx);
+    const result = await process_backup_file(connector, item, site_id, ctx, abort_signal);
     return result ?? record('file content could not be downloaded');
   } catch (err) {
     if (!is_download_refused(err)) throw err;

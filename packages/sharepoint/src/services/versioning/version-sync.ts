@@ -25,6 +25,7 @@ export async function sync_file_versions(
   snapshot_id: string,
   ctx: TenantContext,
   watermark: SharePointVersionWatermark | string | undefined,
+  abort_signal?: AbortSignal,
 ): Promise<VersionSyncOutcome> {
   return sync_drive_file_versions(
     SHAREPOINT_KEYS,
@@ -34,5 +35,6 @@ export async function sync_file_versions(
     snapshot_id,
     ctx,
     watermark,
+    abort_signal,
   );
 }

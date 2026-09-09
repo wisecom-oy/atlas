@@ -8,6 +8,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import {
   add_file_to_archive,
+  ArchiveDestinationError,
   create_file_archive,
   finalize_file_archive,
 } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
@@ -177,7 +178,15 @@ async function write_drive_snapshot_to_archive(
   } catch (err) {
     // Anything between opening the archive and publishing it can throw: the entry loop, the
     // finalize, the byte count, the move itself. None of them may leave a partial file behind
-    // (issue #307).
+    // (issue #307), and the progress stream still owes its subscriber one terminal event: a
+    // destination that went away is now a routine way to get here (issue #344).
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload,
+      phase: 'interrupted',
+      processed: 0,
+      total: entries.length,
+    });
     await abort();
     throw err;
   }
@@ -216,6 +225,10 @@ async function save_entries_to_archive(
         logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
       }
     } catch (err) {
+      // A destination that is gone is not a bad file: every entry left would be downloaded,
+      // decrypted and dropped on the floor, so the run stops here and the caller reports the
+      // failure (issue #344).
+      if (err instanceof ArchiveDestinationError) throw err;
       // A read or decrypt that threw is a damaged file, not a deliberate skip. It counts in both
       // places: `errors` so the run cannot exit clean, and `integrity_failures` so it is not
       // confused with an entry that had nothing to save (issue #341).

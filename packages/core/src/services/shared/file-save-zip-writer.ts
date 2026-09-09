@@ -10,6 +10,20 @@ import { logger } from '@/utils/logger';
 export type FileArchiveWriter = Archiver;
 
 /**
+ * The archive cannot take entries any more: its destination failed, or it went away.
+ *
+ * Distinct from a bad entry, because the answer differs. One file that will not decrypt is
+ * reported and the run moves on; a destination that is gone means every remaining entry would be
+ * downloaded, decrypted and thrown away, so the run stops instead (issue #344).
+ */
+export class ArchiveDestinationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ArchiveDestinationError';
+  }
+}
+
+/**
  * Where a save archive is written: a filesystem path, or a caller's stream.
  *
  * A stream target exports without touching local disk, which is what an embedder piping to an
@@ -74,16 +88,28 @@ export function create_file_archive(
     // A staged file is only safe to rename once its descriptor is closed. A caller's stream may
     // never emit `close` at all, so for those the flush is what completion means.
     output.on(staging_path === undefined ? 'finish' : 'close', () => resolve(archive.pointer()));
+    // The archiver's own errors, a rejected entry name or an append after finalize, are the
+    // caller's mistake rather than a destination that went away, so they keep their own identity.
     archive.on('error', reject);
     // Errors on the destination are not forwarded through pipe(), so without this a failed write
     // resolves on `close` and the caller reports a successful save.
-    output.on('error', reject);
+    output.on('error', (err: Error) =>
+      reject(
+        new ArchiveDestinationError(`The archive destination failed: ${err.message}`, {
+          cause: err,
+        }),
+      ),
+    );
     // `destroy()` with no error emits `close` and nothing else, so a consumer that walks away
     // leaves a caller's stream with no `finish` to resolve on. Resolution has already happened by
     // then on the success path, where `finish` precedes `close`.
     if (staging_path === undefined) {
       output.on('close', () =>
-        reject(new Error('The archive destination closed before the archive was finished')),
+        reject(
+          new ArchiveDestinationError(
+            'The archive destination closed before the archive was finished',
+          ),
+        ),
       );
     }
   });
@@ -113,7 +139,7 @@ export function create_file_archive(
  */
 async function wait_for_drain(output: Writable): Promise<void> {
   if (output.destroyed || output.writableEnded) {
-    throw new Error('The archive destination is closed');
+    throw new ArchiveDestinationError('The archive destination is closed');
   }
   if (!output.writableNeedDrain) return;
   const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -125,7 +151,8 @@ async function wait_for_drain(output: Writable): Promise<void> {
     else reject(err);
   };
   const on_drain = (): void => settle();
-  const on_close = (): void => settle(new Error('The archive destination closed mid-entry'));
+  const on_close = (): void =>
+    settle(new ArchiveDestinationError('The archive destination closed mid-entry'));
   const on_error = (err: Error): void => settle(err);
   output.once('drain', on_drain);
   output.once('close', on_close);
@@ -193,7 +220,13 @@ export async function append_archive_entry(
   }
 }
 
-/** Rejects with whatever failed the archive, and never resolves, so it can only lose a race. */
+/**
+ * Rejects with whatever failed the archive, and never resolves, so it can only lose a race.
+ *
+ * The failure keeps the identity it was rejected with: a destination that went away is an
+ * {@link ArchiveDestinationError} and stops the run, an archiver-level error is itself and fails
+ * the entry that saw it.
+ */
 function archive_failure(file_archive: FileArchive): Promise<never> {
   return file_archive.promise.then(
     () => new Promise<never>(() => undefined),

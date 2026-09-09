@@ -17,8 +17,16 @@ export async function process_backup_file(
   item: SharePointDeltaItem,
   site_id: string,
   ctx: TenantContext,
+  abort_signal?: AbortSignal,
 ): Promise<FileProcessResult | undefined> {
-  return process_drive_backup_file(SHAREPOINT_LARGE_FILE_DEPS, connector, item, site_id, ctx);
+  return process_drive_backup_file(
+    SHAREPOINT_LARGE_FILE_DEPS,
+    connector,
+    item,
+    site_id,
+    ctx,
+    abort_signal,
+  );
 }
 
 /** @throws Error when no document libraries are returned (likely missing Graph permissions). */
