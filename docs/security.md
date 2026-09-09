@@ -408,6 +408,13 @@ error, so a failed tag or a checksum that does not match abandons the session wi
 file is created. What Graph already accepted stays inside a session nobody can read and expires
 with it.
 
+Holding a chunk back is necessary but not sufficient, because a session commits as soon as the
+ranges it has received cover the total it was opened for, and that total is the size the manifest
+recorded rather than anything measured during the restore. An object longer than its recorded size
+would fill the declared range mid-stream and commit there. Atlas therefore refuses any chunk that
+would reach the declared end while the source is still producing: the file fails, the session is
+released, and the recorded size and the stored object are reported as disagreeing.
+
 The property to keep when this code is touched: an unverified byte may travel, but nothing may
 make it visible. A destination that publishes as it receives, a filesystem path or a stream handed
 to a caller, needs the buffered path and its up-front verification instead.

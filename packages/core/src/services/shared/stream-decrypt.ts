@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { TenantContext } from '@wisecom/atlas-types';
 
@@ -63,11 +63,15 @@ export async function stream_sha256_from_storage(
  * wants {@link stream_decrypt_from_storage} and its buffered verification instead (issue #343).
  *
  * The generator must be drained or its `return()` called, which a `for await` loop does either way.
+ *
+ * `label` names the object in the failure. The storage key is not used for that: it carries the
+ * owner identifier, and this message reaches operator logs and run summaries.
  */
 export async function* stream_verified_plaintext(
   ctx: TenantContext,
   storage_key: string,
   expected_sha256_hex: string,
+  label: string,
 ): AsyncGenerator<Buffer> {
   const sha256 = createHash('sha256');
   for await (const chunk of decrypt_plaintext_chunks(ctx, storage_key)) {
@@ -75,9 +79,14 @@ export async function* stream_verified_plaintext(
     yield chunk;
   }
   const actual = sha256.digest('hex');
-  if (actual !== expected_sha256_hex) {
+  // ponytail: seventh copy of this two-line comparison in the repo; one shared helper in
+  // services/shared would be better, and touches five files this change has no business in.
+  const matches =
+    actual.length === expected_sha256_hex.length &&
+    timingSafeEqual(Buffer.from(actual, 'utf8'), Buffer.from(expected_sha256_hex, 'utf8'));
+  if (!matches) {
     throw new Error(
-      `Checksum mismatch for ${storage_key}: manifest recorded ${expected_sha256_hex}, decrypted ${actual}`,
+      `Checksum mismatch for ${label}: manifest recorded ${expected_sha256_hex}, decrypted ${actual}`,
     );
   }
 }

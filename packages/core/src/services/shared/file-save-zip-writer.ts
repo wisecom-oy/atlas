@@ -150,8 +150,13 @@ async function abort_archive(
  * destination as the source allowed: an export to a stalled consumer compressed every entry it
  * could decrypt and the result sat in the archive's readable buffer (issue #343). Waiting for the
  * archiver's `entry` event bounds the queue and {@link FileArchive.drain} bounds the buffer.
- * `once` rejects on `error`, so a destination that failed mid-entry surfaces here rather than
- * resolving as a saved file.
+ *
+ * A destination that fails is raised here rather than waited on. Its error lands on the byte-count
+ * promise, not on the archiver, and an archive that lost its destination stops emitting `entry`
+ * altogether: a disk filling up mid-export would otherwise park the producer forever.
+ *
+ * One entry at a time. The `entry` event names no correlation, so a caller appending two entries
+ * concurrently would pair each wait with whichever finished first.
  *
  * Callers own the entry path, because what makes one safe differs by workload: a drive export
  * carries a folder path the provider already validated, and a mail export builds one from a
@@ -162,10 +167,21 @@ export async function append_archive_entry(
   entry_path: string,
   content: Buffer,
 ): Promise<void> {
+  const failed = archive_failure(file_archive);
   const written = once(file_archive.archive, 'entry');
   file_archive.archive.append(content, { name: entry_path });
-  await written;
-  await file_archive.drain();
+  await Promise.race([written, failed]);
+  await Promise.race([file_archive.drain(), failed]);
+}
+
+/** Rejects with whatever failed the archive, and never resolves, so it can only lose a race. */
+function archive_failure(file_archive: FileArchive): Promise<never> {
+  return file_archive.promise.then(
+    () => new Promise<never>(() => undefined),
+    (err: unknown) => {
+      throw err instanceof Error ? err : new Error(String(err));
+    },
+  );
 }
 
 /** Adds a file to the archive under the given folder path. */

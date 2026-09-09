@@ -84,7 +84,13 @@ function stored_object(options: { corrupt?: boolean; wrong_checksum?: boolean } 
   };
 }
 
-/** A Graph upload session that records what it was sent, answering the last chunk with 201. */
+/**
+ * A Graph upload session that records what it was sent.
+ *
+ * Completion follows the contract rather than the object: the session commits as soon as a
+ * `Content-Range` reaches the total it was opened for, which is what makes a declared total that
+ * understates the source dangerous.
+ */
 function stub_session(harness: Harness): {
   uploaded: Buffer[];
   ranges: string[];
@@ -112,13 +118,17 @@ function stub_session(harness: Harness): {
         if (method !== 'PUT') return new Response('{"nextExpectedRanges":["0-"]}', { status: 200 });
 
         const body = init!.body!;
+        const range = init!.headers!['Content-Range']!;
         uploaded.push(Buffer.from(body));
-        ranges.push(init!.headers!['Content-Range']!);
+        ranges.push(range);
         // Bytes decrypted but not yet handed to Graph: this is what restore has to hold.
         peak_in_flight = Math.max(peak_in_flight, harness.read_bytes() - sent);
         sent += body.length;
-        return new Response(sent === OBJECT_BYTES ? '{"id":"item-1"}' : '{}', {
-          status: sent === OBJECT_BYTES ? 201 : 202,
+
+        const [, last, total] = /bytes \d+-(\d+)\/(\d+)/.exec(range)!;
+        const committed = Number(last) === Number(total) - 1;
+        return new Response(committed ? '{"id":"item-1"}' : '{}', {
+          status: committed ? 201 : 202,
         });
       },
     ),
@@ -188,5 +198,28 @@ describe('streamed large restore (issue #343)', () => {
     } as StoredBlobRef);
 
     expect(content).toBeUndefined();
+  });
+
+  it('refuses to commit when the source is longer than the manifest recorded', async () => {
+    // Graph commits as soon as the ranges cover the total the session was opened for, and that
+    // total comes from the manifest. An object longer than its recorded size would otherwise fill
+    // the declared range from inside the stream, committing bytes no tag and no digest had passed.
+    const harness = stored_object();
+    const understated = 2 * LARGE_UPLOAD_CHUNK;
+    const session = stub_session(harness);
+
+    const content = await download_and_decrypt_blob(harness.ctx, {
+      ...harness.ref,
+      size_bytes: understated,
+    } as StoredBlobRef);
+
+    await expect(
+      upload_content_to_session(UPLOAD_URL, content!, harness.ref.file_name),
+    ).rejects.toThrow(/more content than the \d+ byte\(s\) recorded for it/);
+
+    expect(
+      session.ranges.some((range) => range.endsWith(`-${understated - 1}/${understated}`)),
+    ).toBe(false);
+    expect(session.deletes()).toBe(1);
   });
 });

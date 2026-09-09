@@ -68,15 +68,15 @@ describe('archive backpressure (issue #343)', () => {
     await file_archive.abort();
   });
 
-  it('accepts entries again once the destination drains', async () => {
-    const consumed: Buffer[] = [];
+  it('writes every entry once the destination drains', async () => {
     const draining = new Writable({
-      write(chunk: Buffer, _encoding, callback) {
-        consumed.push(Buffer.from(chunk));
+      write(_chunk: Buffer, _encoding, callback) {
         callback();
       },
     });
     const file_archive = create_file_archive(draining);
+    const written: string[] = [];
+    file_archive.archive.on('entry', (entry: { name: string }) => written.push(entry.name));
 
     for (let index = 0; index < 3; index++) {
       await add_file_to_archive(
@@ -88,6 +88,31 @@ describe('archive backpressure (issue #343)', () => {
     }
     await file_archive.archive.finalize();
 
-    expect(Buffer.concat(consumed).length).toBeGreaterThan(0);
+    expect(written).toEqual(['reports/file-0.bin', 'reports/file-1.bin', 'reports/file-2.bin']);
+    expect(await file_archive.promise).toBeGreaterThan(0);
+  });
+
+  it('fails the next entry when the destination has died, rather than waiting on it', async () => {
+    const failing = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback(new Error('no space left on device'));
+      },
+    });
+    const file_archive = create_file_archive(failing);
+
+    // The destination's error lands on the byte-count promise, and a piped archive that lost its
+    // destination stops emitting `entry`, so without raising it here the producer waits forever.
+    await expect(
+      (async () => {
+        for (let index = 0; index < ENTRY_COUNT; index++) {
+          await add_file_to_archive(
+            file_archive,
+            'reports',
+            `file-${index}.bin`,
+            Buffer.alloc(ENTRY_BYTES, index),
+          );
+        }
+      })(),
+    ).rejects.toThrow(/no space left on device/);
   });
 });

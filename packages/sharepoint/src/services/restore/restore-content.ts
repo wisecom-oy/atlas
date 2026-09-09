@@ -78,7 +78,7 @@ async function* authenticated_chunks(
   file_name: string,
 ): AsyncGenerator<Buffer> {
   try {
-    yield* stream_verified_plaintext(ctx, storage_key, expected_checksum);
+    yield* stream_verified_plaintext(ctx, storage_key, expected_checksum, file_name);
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
       throw new SharePointDecryptAuthError(`AES-GCM authentication failed for ${file_name}`, {

@@ -17,7 +17,13 @@ export class ByteQueue {
     return this._bytes;
   }
 
-  /** Appends a chunk. Empty chunks are dropped rather than queued. */
+  /**
+   * Appends a chunk. Empty chunks are dropped rather than queued.
+   *
+   * The queue takes ownership: what is not handed out stays as a view into this buffer, so a caller
+   * reusing a scratch buffer would change bytes already queued. Every caller today pushes a fresh
+   * buffer, which is what `cipher.update` and a stream chunk both are.
+   */
   push(chunk: Buffer): void {
     if (chunk.length === 0) return;
     this._chunks.push(chunk);

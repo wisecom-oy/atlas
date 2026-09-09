@@ -100,10 +100,14 @@ export async function upload_content_to_session(
   if (outcome.kind === 'completed') return;
 
   if (outcome.kind === 'early') {
-    // Graph removed the session when it returned the item, so there is nothing left to cancel.
+    // Graph removed the session when it returned the item, so there is nothing left to cancel, and
+    // the item it created stays. Reaching this means Graph answered a chunk that was not the last
+    // one with a terminal status, against its own contract, so the file at the target is short and
+    // was assembled from bytes this upload had not finished verifying.
     throw new Error(
-      `Resumable upload of ${label} completed at ${outcome.range} with ` +
-        `${outcome.unsent} byte(s) unsent`,
+      `Resumable upload of ${label} was completed by Graph at ${outcome.range} with ` +
+        `${outcome.unsent} byte(s) unsent; a partial, unverified file now exists at the target ` +
+        `and has to be removed by hand`,
     );
   }
 
@@ -136,6 +140,16 @@ async function put_source_chunks(
     // committing PUT below.
     while (pending.bytes > LARGE_UPLOAD_CHUNK) {
       const block = pending.take(LARGE_UPLOAD_CHUNK);
+      // Holding bytes back is not enough on its own: Graph commits as soon as the ranges it has
+      // received cover the declared total, and the total comes from the manifest rather than from
+      // the source. A source longer than the manifest recorded would therefore commit here, while
+      // the tag and the digest are still unchecked, so it fails instead.
+      if (sent + block.length >= source.total_bytes) {
+        throw new Error(
+          `Resumable upload of ${label} has more content than the ${source.total_bytes} byte(s) ` +
+            `recorded for it; refusing to complete the session with unverified bytes`,
+        );
+      }
       const range = `bytes ${sent}-${sent + block.length - 1}/${source.total_bytes}`;
       if (await put_chunk_with_retry(upload_url, range, block)) {
         return { kind: 'early', range, unsent: source.total_bytes - sent - block.length };
@@ -144,25 +158,22 @@ async function put_source_chunks(
     }
   }
 
-  // The source ended without throwing, so everything it produced is authenticated and whatever is
-  // still pending is what creates the item.
+  // The source ended without throwing, so everything it produced carries an authenticated tag and a
+  // digest that matched, and whatever is still pending is what creates the item.
   const streamed = sent + pending.bytes;
   if (streamed !== source.total_bytes) {
     throw new Error(
-      `Resumable upload of ${label} has ${streamed} byte(s) to send but the session was opened ` +
-        `for ${source.total_bytes}`,
+      `Resumable upload of ${label} verified ${streamed} byte(s), but the manifest recorded ` +
+        `${source.total_bytes} and the session was opened for that`,
     );
   }
 
-  while (pending.bytes > 0) {
-    const block = pending.take(Math.min(LARGE_UPLOAD_CHUNK, pending.bytes));
-    const range = `bytes ${sent}-${sent + block.length - 1}/${source.total_bytes}`;
-    const completed = await put_chunk_with_retry(upload_url, range, block);
-    sent += block.length;
-    if (completed) {
-      return pending.bytes === 0
-        ? { kind: 'completed' }
-        : { kind: 'early', range, unsent: pending.bytes };
+  // The loop above only drains while strictly more than one chunk is pending, so at most one chunk
+  // is left and this single PUT is the one that creates the item.
+  if (pending.bytes > 0) {
+    const range = `bytes ${sent}-${source.total_bytes - 1}/${source.total_bytes}`;
+    if (await put_chunk_with_retry(upload_url, range, pending.take(pending.bytes))) {
+      return { kind: 'completed' };
     }
   }
 
