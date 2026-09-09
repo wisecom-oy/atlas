@@ -394,6 +394,24 @@ run that now reports per-item errors or integrity failures exits `2`, which is w
 has always meant; a manifest that cannot be read is a `StorageError` and exits `1`. What changed is
 that these runs no longer exit `0`.
 
+### Nothing is released before it authenticates
+
+Restoring a large file streams the plaintext into a Graph upload session as it is decrypted, which
+means bytes leave Atlas before AES-256-GCM has authenticated the object and before the SHA-256 can
+be compared to the manifest. Neither check can happen earlier: the tag covers the whole object and
+arrives last, and a digest is only a digest once the final byte is in it.
+
+What makes that safe is where the release actually happens. An upload session accumulates chunks
+the caller cannot read, and the item only exists once the session is committed by the chunk
+carrying the last byte. Atlas holds that chunk back until the decrypt stream has ended without
+error, so a failed tag or a checksum that does not match abandons the session with `DELETE` and no
+file is created. What Graph already accepted stays inside a session nobody can read and expires
+with it.
+
+The property to keep when this code is touched: an unverified byte may travel, but nothing may
+make it visible. A destination that publishes as it receives, a filesystem path or a stream handed
+to a caller, needs the buffered path and its up-front verification instead.
+
 ### Content-MD5 on Uploads
 
 Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.

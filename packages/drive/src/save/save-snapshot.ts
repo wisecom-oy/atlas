@@ -117,14 +117,15 @@ async function write_drive_snapshot_to_archive(
   options: FileSaveOptions,
 ): Promise<FileSaveResult> {
   const skip_integrity = options.skip_integrity_check ?? false;
-  const { archive, promise, publish, abort } = create_file_archive(target);
+  const file_archive = create_file_archive(target);
+  const { archive, promise, publish, abort } = file_archive;
 
   try {
     const integrity_failures: string[] = [];
     const { files_saved, files_skipped, errors } = await save_entries_to_archive(
       workload,
       ctx,
-      archive,
+      file_archive,
       entries,
       skip_integrity,
       integrity_failures,
@@ -186,7 +187,7 @@ async function write_drive_snapshot_to_archive(
 async function save_entries_to_archive(
   workload: DriveWorkload,
   ctx: TenantContext,
-  archive: Parameters<typeof add_file_to_archive>[0],
+  file_archive: Parameters<typeof add_file_to_archive>[0],
   entries: DriveManifestEntry[],
   skip_integrity: boolean,
   integrity_failures: string[],
@@ -210,7 +211,7 @@ async function save_entries_to_archive(
       if (!content) {
         files_skipped++;
       } else {
-        await add_file_to_archive(archive, entry.parent_path, entry.file_name, content);
+        await add_file_to_archive(file_archive, entry.parent_path, entry.file_name, content);
         files_saved++;
         logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
       }

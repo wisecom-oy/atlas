@@ -10,6 +10,7 @@ import {
 import type {
   DriveFileSystemInfo,
   DriveItemIdentity,
+  LargeFileContent,
   OneDriveConnector,
   OneDriveDeltaItem,
   OneDriveDeltaResult,
@@ -197,7 +198,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     drive_id: string,
     parent_id: string,
     file_name: string,
-    content: Buffer,
+    content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
   ): Promise<void> {

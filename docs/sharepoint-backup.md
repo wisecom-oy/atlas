@@ -381,6 +381,12 @@ file, naming the ranges Graph reports as outstanding, and a thrown error release
 `DELETE` before propagating. Identical to OneDrive; see
 [What counts as a completed upload](/onedrive-backup#what-counts-as-a-completed-upload).
 
+Plaintext is streamed into the session as it is decrypted rather than buffered, so a restore holds
+two upload chunks instead of the whole file, and the committing chunk is held back until the
+decrypt stream has ended. A failed tag or a checksum that does not match the manifest abandons the
+session, so the file is never created. Identical to OneDrive; see
+[Memory during a large restore](/onedrive-backup#memory-during-a-large-restore).
+
 ```typescript
 const result = await atlas.sharepoint.restore('site-id', {
   snapshot_id: 'sp-snap-123',
@@ -406,6 +412,10 @@ Library names were not recorded in older manifests, so rule 1 cannot apply to th
 ### Saving to a local archive
 
 `atlas sharepoint save` writes a zip archive instead of uploading to Graph. The archive preserves the SharePoint folder hierarchy from document libraries, and files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
+
+The archive is written one entry at a time and waits for the destination to take each one, so
+streaming an export to a slow consumer runs at the consumer's pace instead of queueing every entry
+it could decrypt.
 
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123

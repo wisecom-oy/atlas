@@ -1,4 +1,4 @@
-import type { DriveFileSystemInfo } from '@wisecom/atlas-types';
+import type { DriveFileSystemInfo, LargeFileContent } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { build_upload_file_system_info, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -142,7 +142,7 @@ export async function graph_onedrive_upload_large_file(
   drive_id: string,
   parent_id: string,
   file_name: string,
-  content: Buffer,
+  content: LargeFileContent,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
 ): Promise<void> {

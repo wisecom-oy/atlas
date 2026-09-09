@@ -22,9 +22,10 @@ afterEach(async () => {
 describe('create_file_archive', () => {
   it('writes an archive and reports the byte count', async () => {
     const output_path = join(dir, 'out.zip');
-    const { archive, promise, publish } = create_file_archive(output_path);
+    const file_archive = create_file_archive(output_path);
+    const { archive, promise, publish } = file_archive;
 
-    await add_file_to_archive(archive, '/Documents', 'report.txt', Buffer.from('hello'));
+    await add_file_to_archive(file_archive, '/Documents', 'report.txt', Buffer.from('hello'));
     await finalize_file_archive(archive);
     const total_bytes = await promise;
     await publish();
@@ -35,9 +36,10 @@ describe('create_file_archive', () => {
 
   it('writes nothing to the output path before it is published (issue #307)', async () => {
     const output_path = join(dir, 'out.zip');
-    const { archive } = create_file_archive(output_path);
+    const file_archive = create_file_archive(output_path);
+    const { archive } = file_archive;
 
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello'));
 
     // Entries land in a sibling temporary file, so a truncated zip can never be mistaken for a
     // finished export at the path an operator was given. The temp file itself is not asserted:
@@ -49,8 +51,9 @@ describe('create_file_archive', () => {
 
   it('leaves no temporary file behind when the run aborts', async () => {
     const output_path = join(dir, 'partial.zip');
-    const { archive, abort } = create_file_archive(output_path);
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    const file_archive = create_file_archive(output_path);
+    const { archive, abort } = file_archive;
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello'));
 
     await abort();
 
@@ -62,8 +65,9 @@ describe('create_file_archive', () => {
     const output_path = join(dir, 'existing.zip');
     writeFileSync(output_path, 'someone else data');
 
-    const { archive, abort } = create_file_archive(output_path);
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    const file_archive = create_file_archive(output_path);
+    const { archive, abort } = file_archive;
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello'));
     await abort();
 
     // Not just present: unchanged. Opening the output path for writing truncated it before
@@ -75,8 +79,9 @@ describe('create_file_archive', () => {
     const output_path = join(dir, 'existing.zip');
     writeFileSync(output_path, 'someone else data');
 
-    const { archive, promise, publish } = create_file_archive(output_path);
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    const file_archive = create_file_archive(output_path);
+    const { archive, promise, publish } = file_archive;
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello'));
     await finalize_file_archive(archive);
     await promise;
     await publish();
@@ -87,7 +92,8 @@ describe('create_file_archive', () => {
 
   it('does not raise when the archive is aborted twice', async () => {
     const output_path = join(dir, 'twice.zip');
-    const { abort } = create_file_archive(output_path);
+    const file_archive = create_file_archive(output_path);
+    const { abort } = file_archive;
 
     await abort();
     await expect(abort()).resolves.toBeUndefined();

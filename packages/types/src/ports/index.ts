@@ -232,6 +232,8 @@ export type {
   DriveVersionRestoreResult,
 } from './drive/version-restore.port';
 
+export type { LargeFileContent, StreamedFileContent } from './drive/large-file-content.port';
+
 export type {
   SharePointSiteConnector,
   SharePointSite,

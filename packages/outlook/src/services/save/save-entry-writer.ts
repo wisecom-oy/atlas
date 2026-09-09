@@ -2,7 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry, AttachmentEntry } from '@wisecom/atlas-types';
 import { build_eml, build_eml_filename, deduplicate_filename } from '@/services/save/eml-builder';
 import { verify_checksum } from '@/services/save/save-integrity-validator';
-import type { ArchiveWriter } from '@/services/save/save-zip-writer';
+import type { SaveArchive } from '@/services/save/save-zip-writer';
 import { add_eml_to_archive } from '@/services/save/save-zip-writer';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -32,7 +32,7 @@ export async function save_mime_entry(
   entry: ManifestEntry,
   folder_name: string,
   mime: Buffer,
-  archive: ArchiveWriter,
+  archive: SaveArchive,
   used_names: Set<string>,
 ): Promise<void> {
   const raw_filename = build_eml_filename(entry.received_at, entry.subject);
@@ -51,7 +51,7 @@ export async function save_json_entry(
   folder_name: string,
   plaintext: Buffer,
   skip_integrity: boolean,
-  archive: ArchiveWriter,
+  archive: SaveArchive,
   used_names: Set<string>,
   result: EntryResult,
 ): Promise<void> {

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
 import type { Writable } from 'node:stream';
@@ -20,6 +21,14 @@ export type ArchiveTarget = string | Writable;
 export interface FileArchive {
   readonly archive: FileArchiveWriter;
   readonly promise: Promise<number>;
+  /**
+   * Resolves once the destination has taken what the archive has produced so far.
+   *
+   * The archiver keeps compressing whatever it is handed, so without this a producer runs as far
+   * ahead of a slow consumer as its source allows and the difference sits in the archive's readable
+   * buffer (issue #343).
+   */
+  drain(): Promise<void>;
   /**
    * Makes the completed archive available to its consumer. For a path target this moves the
    * finished archive onto the output path, which is untouched until then. For a stream target the
@@ -78,11 +87,38 @@ export function create_file_archive(
   return {
     archive,
     promise,
+    drain: () => wait_for_drain(output),
     publish: async () => {
       if (staging_path !== undefined) await rename(staging_path, target as string);
     },
     abort: () => abort_archive(archive, output, staging_path),
   };
+}
+
+/**
+ * Waits until the destination is ready for more, or until it is gone.
+ *
+ * A destination that is destroyed mid-export never emits `drain`, and a producer parked on that
+ * event would wait forever instead of failing; the actual failure is delivered through the
+ * archive's byte-count promise.
+ */
+async function wait_for_drain(output: Writable): Promise<void> {
+  if (!output.writableNeedDrain || output.destroyed || output.writableEnded) return;
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const settle = (err?: Error): void => {
+    output.off('drain', on_drain);
+    output.off('close', on_close);
+    output.off('error', on_error);
+    if (err === undefined) resolve();
+    else reject(err);
+  };
+  const on_drain = (): void => settle();
+  const on_close = (): void => settle();
+  const on_error = (err: Error): void => settle(err);
+  output.once('drain', on_drain);
+  output.once('close', on_close);
+  output.once('error', on_error);
+  await promise;
 }
 
 async function abort_archive(
@@ -106,17 +142,46 @@ async function abort_archive(
   }
 }
 
+/**
+ * Appends one entry at the given path in the archive, resolving once it has been compressed and
+ * the destination has taken what that produced.
+ *
+ * `append()` only queues, so awaiting it alone let a producer run as far ahead of a slow
+ * destination as the source allowed: an export to a stalled consumer compressed every entry it
+ * could decrypt and the result sat in the archive's readable buffer (issue #343). Waiting for the
+ * archiver's `entry` event bounds the queue and {@link FileArchive.drain} bounds the buffer.
+ * `once` rejects on `error`, so a destination that failed mid-entry surfaces here rather than
+ * resolving as a saved file.
+ *
+ * Callers own the entry path, because what makes one safe differs by workload: a drive export
+ * carries a folder path the provider already validated, and a mail export builds one from a
+ * subject the sender chose.
+ */
+export async function append_archive_entry(
+  file_archive: FileArchive,
+  entry_path: string,
+  content: Buffer,
+): Promise<void> {
+  const written = once(file_archive.archive, 'entry');
+  file_archive.archive.append(content, { name: entry_path });
+  await written;
+  await file_archive.drain();
+}
+
 /** Adds a file to the archive under the given folder path. */
 export async function add_file_to_archive(
-  archive: FileArchiveWriter,
+  file_archive: FileArchive,
   folder_path: string,
   file_name: string,
   content: Buffer,
 ): Promise<void> {
   const normalized =
     folder_path === '/' || folder_path === '' ? '' : folder_path.replace(/^\//, '');
-  const entry_path = normalized ? `${normalized}/${file_name}` : file_name;
-  archive.append(content, { name: entry_path });
+  await append_archive_entry(
+    file_archive,
+    normalized ? `${normalized}/${file_name}` : file_name,
+    content,
+  );
 }
 
 /** Finalizes the archive (must be called after all files are added). */

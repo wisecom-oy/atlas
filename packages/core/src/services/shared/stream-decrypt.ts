@@ -52,6 +52,37 @@ export async function stream_sha256_from_storage(
 }
 
 /**
+ * Yields the plaintext of an encrypted object and fails the iteration unless the digest matches
+ * `expected_sha256_hex`.
+ *
+ * Nothing about a chunk is trustworthy while it is being yielded: AES-GCM only authenticates at
+ * `final()`, and the manifest checksum is only comparable once every byte has passed through. A
+ * consumer therefore MUST NOT make the bytes visible to anyone until the iteration has completed
+ * normally. A Graph upload session satisfies that by holding its last chunk back, so the item is
+ * only created after this generator returns; a caller that cannot delay its side effect that way
+ * wants {@link stream_decrypt_from_storage} and its buffered verification instead (issue #343).
+ *
+ * The generator must be drained or its `return()` called, which a `for await` loop does either way.
+ */
+export async function* stream_verified_plaintext(
+  ctx: TenantContext,
+  storage_key: string,
+  expected_sha256_hex: string,
+): AsyncGenerator<Buffer> {
+  const sha256 = createHash('sha256');
+  for await (const chunk of decrypt_plaintext_chunks(ctx, storage_key)) {
+    sha256.update(chunk);
+    yield chunk;
+  }
+  const actual = sha256.digest('hex');
+  if (actual !== expected_sha256_hex) {
+    throw new Error(
+      `Checksum mismatch for ${storage_key}: manifest recorded ${expected_sha256_hex}, decrypted ${actual}`,
+    );
+  }
+}
+
+/**
  * Yields decrypted plaintext chunks in one pass over the stored object.
  *
  * The IV and auth tag occupy the first {@link HEADER_LENGTH} bytes, which may
