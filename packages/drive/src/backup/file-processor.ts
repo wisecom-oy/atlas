@@ -55,7 +55,7 @@ export async function process_drive_backup_file(
     }
   }
 
-  const raw_body = await download_with_retry(connector, item);
+  const raw_body = await download_with_retry(connector, item, { abort_signal });
   if (!raw_body) return undefined;
 
   const checksum = compute_sha256_chunked(raw_body);
