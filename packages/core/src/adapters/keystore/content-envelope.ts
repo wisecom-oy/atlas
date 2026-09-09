@@ -74,5 +74,8 @@ export function content_aad(header: Buffer, scope: string): Buffer {
  */
 export function content_scope(storage_key: string): string {
   const last_separator = storage_key.lastIndexOf('/');
-  return last_separator === -1 ? '' : storage_key.slice(0, last_separator + 1);
+  // A key at the bucket root, `identity-registry.json`, has no directory to name its purpose. The
+  // key itself is the scope there: an empty one would make every root object interchangeable,
+  // which is the substitution this exists to stop.
+  return last_separator === -1 ? storage_key : storage_key.slice(0, last_separator + 1);
 }

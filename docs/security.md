@@ -104,8 +104,14 @@ What this does and does not cover:
 
 Objects written before the header existed carry no magic and are decrypted the way they always
 were, with no associated data. Every existing backup stays readable, there is no migration step and
-no configuration flag. A blob written from now on carries the header, so a bucket ends up with both
-until its older objects age out.
+no configuration flag.
+
+That compatibility is also the limit of the protection. A headerless object has no scope to check,
+so the substitution above still works against one: it can be moved anywhere in the bucket and will
+decrypt. Only objects written since the binding reject a move across owners or purposes. A bucket
+gains the property object by object as new content is written, and a snapshot taken now is bound
+throughout, so an operator who wants the guarantee across an old backup takes a fresh one. Restore
+covers the rest either way, by comparing the manifest checksum before anything is written.
 
 ### What Is Encrypted at Rest
 

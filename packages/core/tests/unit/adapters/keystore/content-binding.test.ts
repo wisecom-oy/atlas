@@ -56,6 +56,15 @@ describe('content scope binding (issue #350)', () => {
     expect(() => svc.decrypt(stored, dek, OWNER_A)).toThrow(/Unsupported content envelope version/);
   });
 
+  it('binds a key with no directory to the whole key', () => {
+    // `identity-registry.json` lives at the bucket root, so the directory is empty and every root
+    // object would otherwise share one scope.
+    const { svc, dek } = service();
+    const stored = svc.encrypt(Buffer.from('registry'), dek, 'identity-registry.json');
+
+    expect(() => svc.decrypt(stored, dek, 'something-else.json')).toThrow();
+  });
+
   it('reads an object written before the binding existed', () => {
     // Everything already in a bucket has no header and no AAD. It stays readable with no
     // migration step, which is the whole reason the header is optional on read.
