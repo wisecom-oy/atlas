@@ -246,7 +246,7 @@ async function process_single_entry(
   };
 
   const ciphertext = await ctx.storage.get(entry.storage_key);
-  const plaintext = ctx.decrypt(ciphertext);
+  const plaintext = ctx.decrypt(ciphertext, entry.storage_key);
 
   if (!skip_integrity && entry.checksum) {
     if (!verify_checksum(plaintext, entry.checksum)) {

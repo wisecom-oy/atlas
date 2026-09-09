@@ -81,8 +81,18 @@ describe('DEK bootstrap race (issue #25)', () => {
 
     // data encrypted by either context decrypts with the other
     const secret = Buffer.from('cross-process payload');
-    expect(ctx_b.decrypt(ctx_a.encrypt(secret))).toEqual(secret);
-    expect(ctx_a.decrypt(ctx_b.encrypt(secret))).toEqual(secret);
+    expect(
+      ctx_b.decrypt(
+        ctx_a.encrypt(secret, 'onedrive/data/owner-1/blob'),
+        'onedrive/data/owner-1/blob',
+      ),
+    ).toEqual(secret);
+    expect(
+      ctx_a.decrypt(
+        ctx_b.encrypt(secret, 'onedrive/data/owner-1/blob'),
+        'onedrive/data/owner-1/blob',
+      ),
+    ).toEqual(secret);
   });
 
   it('a later bootstrap loads the existing DEK instead of writing', async () => {
@@ -100,7 +110,12 @@ describe('DEK bootstrap race (issue #25)', () => {
     expect(put_calls_total).toBe(put_calls_after_first);
 
     const secret = Buffer.from('same key across runs');
-    expect(ctx_second.decrypt(ctx_first.encrypt(secret))).toEqual(secret);
+    expect(
+      ctx_second.decrypt(
+        ctx_first.encrypt(secret, 'onedrive/data/owner-1/blob'),
+        'onedrive/data/owner-1/blob',
+      ),
+    ).toEqual(secret);
   });
 
   it('every DEK write is create-only', async () => {

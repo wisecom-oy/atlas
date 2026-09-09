@@ -63,7 +63,11 @@ function make_ctx(
     },
     create_cipher: () => {
       const iv = randomBytes(12);
-      return { cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }), iv };
+      return {
+        cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }),
+        iv,
+        header: Buffer.alloc(0),
+      };
     },
   } as unknown as TenantContext;
 
@@ -241,6 +245,7 @@ describe('stream_encrypt_to_multipart', () => {
 describe('stream_to_content_addressed_storage', () => {
   const target = (staging_key = 'staging/a') => ({
     staging_key,
+    data_scope: 'data/',
     staging_prefix: 'staging/',
     build_data_key: (checksum: string) => `data/${checksum}`,
   });

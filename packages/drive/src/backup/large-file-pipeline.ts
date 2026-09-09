@@ -68,6 +68,7 @@ export async function process_large_drive_file(
       staging_key,
       staging_prefix: deps.keys.staging_prefix_for(owner_id),
       build_data_key: (checksum) => deps.keys.data_key(owner_id, checksum),
+      data_scope: deps.keys.data_prefix_for(owner_id),
       ...(object_lock_policy && { object_lock_policy }),
     },
   );

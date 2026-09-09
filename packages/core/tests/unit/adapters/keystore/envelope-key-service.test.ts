@@ -7,6 +7,7 @@ import { DEK_BLOB_VERSION, parse_dek_blob } from '@/adapters/keystore/dek-blob-c
 describe('EnvelopeKeyService', () => {
   const passphrase = 'test-passphrase';
   const tenant_id = 'tenant-1';
+  const storage_key = 'onedrive/data/owner-1/abc123';
 
   describe('encrypt / decrypt round-trip', () => {
     it('round-trips arbitrary data', () => {
@@ -14,8 +15,8 @@ describe('EnvelopeKeyService', () => {
       const dek = svc.generate_dek();
       const plaintext = Buffer.from('hello world, this is a test message');
 
-      const ciphertext = svc.encrypt(plaintext, dek);
-      const decrypted = svc.decrypt(ciphertext, dek);
+      const ciphertext = svc.encrypt(plaintext, dek, storage_key);
+      const decrypted = svc.decrypt(ciphertext, dek, storage_key);
       expect(decrypted.equals(plaintext)).toBe(true);
     });
 
@@ -24,8 +25,8 @@ describe('EnvelopeKeyService', () => {
       const dek = svc.generate_dek();
       const plaintext = Buffer.from('same data');
 
-      const ct1 = svc.encrypt(plaintext, dek);
-      const ct2 = svc.encrypt(plaintext, dek);
+      const ct1 = svc.encrypt(plaintext, dek, storage_key);
+      const ct2 = svc.encrypt(plaintext, dek, storage_key);
       expect(ct1.equals(ct2)).toBe(false);
     });
 
@@ -34,17 +35,18 @@ describe('EnvelopeKeyService', () => {
       const dek = svc.generate_dek();
       const plaintext = Buffer.from('test');
 
-      const ciphertext = svc.encrypt(plaintext, dek);
-      expect(ciphertext.length).toBe(plaintext.length + 12 + 16);
+      const ciphertext = svc.encrypt(plaintext, dek, storage_key);
+      // Envelope header (5) plus IV (12) and auth tag (16).
+      expect(ciphertext.length).toBe(plaintext.length + 5 + 12 + 16);
     });
 
     it('rejects tampered ciphertext', () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
-      const ciphertext = svc.encrypt(Buffer.from('data'), dek);
+      const ciphertext = svc.encrypt(Buffer.from('data'), dek, storage_key);
 
       ciphertext[ciphertext.length - 1] ^= 0xff;
-      expect(() => svc.decrypt(ciphertext, dek)).toThrow();
+      expect(() => svc.decrypt(ciphertext, dek, storage_key)).toThrow();
     });
 
     it('rejects truncated ciphertext', () => {
@@ -52,7 +54,7 @@ describe('EnvelopeKeyService', () => {
       const dek = svc.generate_dek();
       const short = Buffer.alloc(10);
 
-      expect(() => svc.decrypt(short, dek)).toThrow('too short');
+      expect(() => svc.decrypt(short, dek, storage_key)).toThrow('too short');
     });
   });
 

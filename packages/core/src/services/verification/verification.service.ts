@@ -183,7 +183,7 @@ export class VerificationService implements VerificationUseCase {
   private async is_item_corrupt(ctx: TenantContext, item: CheckItem): Promise<boolean> {
     try {
       const ciphertext = await ctx.storage.get(item.storage_key);
-      const plaintext = ctx.decrypt(ciphertext);
+      const plaintext = ctx.decrypt(ciphertext, item.storage_key);
       const actual_checksum = compute_sha256(plaintext);
       return is_checksum_mismatch(actual_checksum, item.checksum);
     } catch {

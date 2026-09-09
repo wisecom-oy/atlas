@@ -75,7 +75,7 @@ export class CatalogService implements CatalogUseCase {
       if (!entry) return undefined;
 
       const encrypted = await ctx.storage.get(entry.storage_key);
-      const raw = ctx.decrypt(encrypted);
+      const raw = ctx.decrypt(encrypted, entry.storage_key);
       if (entry.payload_format === 'mime') {
         return { raw, payload_format: 'mime', attachments: [] };
       }

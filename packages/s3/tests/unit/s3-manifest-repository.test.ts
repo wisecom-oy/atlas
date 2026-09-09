@@ -82,7 +82,9 @@ describe('S3ManifestRepository', () => {
       const manifest = make_manifest();
       await repo.save(ctx, manifest);
 
-      expect(ctx.encrypt).toHaveBeenCalledTimes(2);
+      // Manifest, snapshot pointer, latest pointer: the two pointers carry the same JSON but
+      // live in different directories, and each is bound to its own (issue #350).
+      expect(ctx.encrypt).toHaveBeenCalledTimes(3);
       const put_calls = vi.mocked(ctx.storage.put).mock.calls;
       expect(put_calls.map((call) => call[0])).toEqual([
         'manifests/user@test.com/snap-1.json',

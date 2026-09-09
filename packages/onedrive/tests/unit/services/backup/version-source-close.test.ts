@@ -24,6 +24,7 @@ const SOURCE_CHUNK = 4 * 1024 * 1024;
 
 const KEYS: DriveStorageKeys = {
   data_key: (owner_id: string, checksum: string) => `onedrive/data/${owner_id}/${checksum}`,
+  data_prefix_for: (owner_id: string) => `onedrive/data/${owner_id}/`,
   staging_key: (owner_id: string, item_id: string) => `onedrive/staging/${owner_id}/${item_id}`,
   staging_prefix_for: (owner_id: string) => `onedrive/staging/${owner_id}/`,
 } as unknown as DriveStorageKeys;

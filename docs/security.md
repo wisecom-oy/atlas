@@ -73,10 +73,39 @@ Every encrypt operation uses **AES-256-GCM** (Galois/Counter Mode), which provid
 ### Ciphertext Format
 
 ```
-[12-byte IV][16-byte GCM auth tag][ciphertext]
+[ATLS][version][12-byte IV][16-byte GCM auth tag][ciphertext]
 ```
 
 Every encrypt operation generates a **fresh random 12-byte IV** (initialization vector). This is critical for GCM security -- reusing an IV with the same key would be catastrophic, potentially exposing the XOR of two plaintexts and compromising the authentication key. Atlas generates a new random IV for every single object it encrypts.
+
+### What a ciphertext is bound to
+
+One DEK encrypts every object of a tenant, so the GCM tag alone proves only that the bytes were
+produced under that tenant's key. It does not prove they are the bytes that belong at this key.
+Until the header above existed, any object therefore authenticated in any other object's place:
+overwriting one stored blob with another needed write access to the bucket, not the passphrase.
+
+The header and the object's scope are authenticated as associated data, so a ciphertext only
+decrypts where it was written. The scope is the key's directory, which names the purpose and the
+owner: `onedrive/data/{owner_id}/`, `manifests/{mailbox}/`, `_meta/replication/{owner}/{snapshot}/`.
+The directory rather than the whole key, because the large-file pipeline encrypts into a staging
+key and promotes the finished object onto a content-addressed key whose checksum is unknown while
+the cipher is running. The streamed writer therefore binds the canonical directory, not the staging
+one, and a reader derives the same value from the key it is reading.
+
+What this does and does not cover:
+
+| Attack                                                       | Result                                                        |
+| ------------------------------------------------------------ | --------------------------------------------------------------- |
+| Move one object over another owner's or another purpose's key | Decryption fails: the scope in the AAD no longer matches       |
+| Strip or lower the version header                             | Decryption fails: the header is inside the AAD                 |
+| Move an object within its own directory                       | Not prevented; the manifest checksum comparison covers that    |
+| Replay an older ciphertext of the same object                 | Not prevented; that is Object Lock's and versioning's job      |
+
+Objects written before the header existed carry no magic and are decrypted the way they always
+were, with no associated data. Every existing backup stays readable, there is no migration step and
+no configuration flag. A blob written from now on carries the header, so a bucket ends up with both
+until its older objects age out.
 
 ### What Is Encrypted at Rest
 

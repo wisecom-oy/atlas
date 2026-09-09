@@ -68,7 +68,14 @@ describe('read-only tenant context (issue #93)', () => {
     const factory = new DefaultTenantContextFactory(make_s3(objects) as never, CONFIG, buckets);
     const ctx = await factory.create_readonly(TENANT_ID);
 
-    expect(ctx.decrypt(ctx.encrypt(Buffer.from('payload'))).toString()).toBe('payload');
+    expect(
+      ctx
+        .decrypt(
+          ctx.encrypt(Buffer.from('payload'), 'onedrive/data/owner-1/blob'),
+          'onedrive/data/owner-1/blob',
+        )
+        .toString(),
+    ).toBe('payload');
     ctx.destroy();
   });
 

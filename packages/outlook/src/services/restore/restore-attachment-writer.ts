@@ -97,7 +97,7 @@ export async function restore_parsed_attachments(
  */
 async function decrypt_attachment(ctx: TenantContext, att: AttachmentEntry): Promise<Buffer> {
   const ciphertext = await ctx.storage.get(att.storage_key);
-  const content = ctx.decrypt(ciphertext);
+  const content = ctx.decrypt(ciphertext, att.storage_key);
   assert_restored_content_matches(`attachment "${att.name}"`, content, att.checksum);
   return content;
 }

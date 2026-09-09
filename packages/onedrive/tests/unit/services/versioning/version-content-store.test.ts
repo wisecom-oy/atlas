@@ -52,7 +52,11 @@ function make_ctx(): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     create_cipher: () => {
       const iv = randomBytes(12);
-      return { cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }), iv };
+      return {
+        cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }),
+        iv,
+        header: Buffer.alloc(0),
+      };
     },
     destroy: vi.fn(),
   } as unknown as TenantContext;

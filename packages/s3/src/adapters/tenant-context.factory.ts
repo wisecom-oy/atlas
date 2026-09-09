@@ -135,11 +135,13 @@ function build_context(
   return {
     tenant_id,
     storage,
-    encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
-    decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
-    create_cipher: () => key_service.create_encrypt_cipher(dek),
-    create_decipher: (iv: Buffer, auth_tag: Buffer) =>
-      key_service.create_decrypt_decipher(dek, iv, auth_tag),
+    encrypt: (data: Buffer, storage_key: string): Buffer =>
+      key_service.encrypt(data, dek, storage_key),
+    decrypt: (data: Buffer, storage_key: string): Buffer =>
+      key_service.decrypt(data, dek, storage_key),
+    create_cipher: (scope_key: string) => key_service.create_encrypt_cipher(dek, scope_key),
+    create_decipher: (iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer) =>
+      key_service.create_decrypt_decipher(dek, iv, auth_tag, scope_key, header),
     destroy: (): void => key_service.destroy(),
   };
 }
