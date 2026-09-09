@@ -75,6 +75,7 @@ export async function upload_content_to_session(
   content: Buffer,
   label: string,
 ): Promise<void> {
+  let early_completion: string | undefined;
   try {
     for (let offset = 0; offset < content.length; offset += LARGE_UPLOAD_CHUNK) {
       const end = Math.min(offset + LARGE_UPLOAD_CHUNK, content.length);
@@ -85,14 +86,14 @@ export async function upload_content_to_session(
         content.subarray(offset, end),
       );
       if (completed) {
-        if (end < content.length) {
-          await cancel_upload_session(upload_url, `an early completion at ${range}`);
-          throw new Error(
-            `Resumable upload of ${label} completed at ${range} with ` +
-              `${content.length - end} byte(s) unsent`,
-          );
-        }
-        return;
+        if (end === content.length) return;
+        // Graph removed the session when it returned the item, so there is nothing left to cancel.
+        // Reported after the try so the catch below does not send a second DELETE to a session that
+        // is already gone and log that it stays reserved.
+        early_completion =
+          `Resumable upload of ${label} completed at ${range} with ` +
+          `${content.length - end} byte(s) unsent`;
+        break;
       }
     }
   } catch (err) {
@@ -101,6 +102,8 @@ export async function upload_content_to_session(
     await cancel_upload_session(upload_url, 'a failed chunk upload');
     throw err;
   }
+
+  if (early_completion) throw new Error(early_completion);
 
   // Every chunk was accepted and none of them completed the item.
   const outstanding = await read_outstanding_ranges(upload_url);

@@ -82,7 +82,9 @@ describe('upload_content_to_session (issue #342)', () => {
       /completed at bytes 0-10485759\/10486784 with 1024 byte\(s\) unsent/,
     );
 
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(true);
+    // Graph removed the session when it returned the item, so a DELETE would only 404 and log that
+    // the session stays reserved.
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 
   it('reports a cleanup that itself failed rather than hiding it', async () => {
