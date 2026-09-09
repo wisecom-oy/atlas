@@ -7,7 +7,6 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   CreateMultipartUploadCommand,
-  CopyObjectCommand,
   ListMultipartUploadsCommand,
   AbortMultipartUploadCommand,
   type S3Client,
@@ -36,11 +35,8 @@ import {
   ObjectLockVersioningDisabledError,
   PreconditionFailedError,
 } from '@/adapters/object-lock.errors';
-import {
-  build_s3_copy_source,
-  is_backend_mode_rejection,
-  is_precondition_failed,
-} from '@/adapters/s3-error-classifier';
+import { is_backend_mode_rejection, is_precondition_failed } from '@/adapters/s3-error-classifier';
+import { copy_object_server_side } from '@/adapters/s3-large-copy';
 
 /**
  * S3-backed ObjectStorage scoped to a single bucket.
@@ -285,7 +281,14 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  /** Copies an object server-side within this bucket. */
+  /**
+   * Copies an object server-side within this bucket.
+   *
+   * A single `CopyObject` is limited to a 5 GB source, which is smaller than the objects the
+   * multipart upload path accepts, so promotion used to fail on a large file after its bytes were
+   * already uploaded. The source size decides the request: anything above the limit is copied as
+   * ranged `UploadPartCopy` parts instead (issue #346).
+   */
   async copy(
     source_key: string,
     dest_key: string,
@@ -293,21 +296,14 @@ export class S3ObjectStorage implements ObjectStorage {
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<void> {
     await this.validate_immutability_policy(object_lock_policy);
-    const copy_source = build_s3_copy_source(this._bucket, source_key);
     try {
-      await this._client.send(
-        new CopyObjectCommand({
-          Bucket: this._bucket,
-          Key: dest_key,
-          CopySource: copy_source,
-          Metadata: metadata,
-          MetadataDirective: metadata ? 'REPLACE' : undefined,
-          ObjectLockMode: object_lock_policy?.mode,
-          ObjectLockRetainUntilDate: object_lock_policy?.retain_until
-            ? new Date(object_lock_policy.retain_until)
-            : undefined,
-        }),
-      );
+      await copy_object_server_side(this._client, {
+        bucket: this._bucket,
+        source_key,
+        dest_key,
+        metadata,
+        object_lock_policy,
+      });
     } catch (err) {
       if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {
         throw new ObjectLockModeRejectedError(
