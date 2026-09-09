@@ -79,7 +79,7 @@ describe('upload_content_to_session (issue #342)', () => {
     const calls = stub_session([201, 201]);
 
     await expect(upload_content_to_session(UPLOAD_URL, TWO_CHUNKS, 'Report.docx')).rejects.toThrow(
-      /completed at bytes 0-10485759\/10486784 with 1024 byte\(s\) unsent/,
+      /completed by Graph at bytes 0-10485759\/10486784 with 1024 byte\(s\) unsent; a partial, unverified file now exists/,
     );
 
     // Graph removed the session when it returned the item, so a DELETE would only 404 and log that

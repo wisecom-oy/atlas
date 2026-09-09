@@ -1,4 +1,5 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
+import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 export interface OneDriveDrive {
   readonly drive_id: string;
   readonly drive_name: string;
@@ -120,14 +121,14 @@ export interface OneDriveConnector {
     file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
 
-  /** Uploads a large file via resumable upload session. */
+  /** Uploads a large file via resumable upload session, buffered or streamed. */
   upload_large_file(
     tenant_id: string,
     owner_id: string,
     drive_id: string,
     parent_id: string,
     file_name: string,
-    content: Buffer,
+    content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;

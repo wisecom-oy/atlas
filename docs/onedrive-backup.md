@@ -457,6 +457,24 @@ operator chasing a quota complaint needs to know Atlas tried.
 
 Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is read from S3 as a stream, the first 28 bytes (12-byte IV + 16-byte auth tag) are consumed to initialize AES-256-GCM, and ciphertext is decrypted in chunks without buffering the full ciphertext in memory.
 
+#### Memory during a large restore
+
+The plaintext is not buffered either. Each decrypted chunk goes into the upload session as it is
+produced, so a restore holds two 10 MiB upload chunks and one download chunk regardless of whether
+the file is 5 MiB or 50 GiB. Peak memory therefore follows how many files a run restores at once,
+not the size of the largest file in the backup.
+
+Streaming a file that has not been verified yet is safe because the item does not exist until the
+session is committed. AES-256-GCM only authenticates at the end of the object, and the SHA-256 can
+only be compared once the last byte is out, so Atlas holds the committing chunk back until the
+decrypt stream has ended cleanly. A failed authentication tag or a checksum that does not match the
+manifest therefore abandons the session with `DELETE`, and Graph never creates the file. The bytes
+Graph already accepted belong to a session nobody can read, and they expire with it.
+
+A file that fails this way is reported as a restore error and the run exits non-zero. It is not a
+silent skip: a manifest entry whose stored object no longer matches is the case an operator most
+needs to hear about.
+
 **Conflict behavior** controls what happens when a file already exists at the target path:
 
 | Mode               | Behavior                                                                                  |
@@ -468,6 +486,13 @@ Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is 
 ### Saving to a local archive
 
 `atlas onedrive save` writes a zip archive instead of uploading to Graph. The archive preserves the OneDrive folder hierarchy, and files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
+
+The archive is written one entry at a time, and the next file is not decrypted until the
+destination has taken the previous one. With `--output` the destination is a local file and this is
+invisible. It matters when the SDK streams the archive somewhere slower, an HTTP response or an
+upload: the export now runs at the consumer's pace instead of compressing everything it can and
+holding the result in the archive's buffer. One file is held whole while it is compressed, so an
+export's peak follows the largest file in the snapshot rather than the snapshot.
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-123

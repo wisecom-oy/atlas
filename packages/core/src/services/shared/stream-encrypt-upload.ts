@@ -4,6 +4,7 @@ import type {
   StorageObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { ByteQueue } from '@/services/shared/byte-queue';
 import { logger } from '@/utils/logger';
 
 /**
@@ -88,8 +89,7 @@ export async function stream_to_content_addressed_storage(
 }
 
 interface PendingPartState {
-  pending: Buffer[];
-  pending_bytes: number;
+  pending: ByteQueue;
   first_part_data: Buffer | null;
   part_number: number;
   completed_parts: CompletedPart[];
@@ -127,8 +127,7 @@ export async function stream_encrypt_to_multipart(
 
   try {
     const state: PendingPartState = {
-      pending: [],
-      pending_bytes: 0,
+      pending: new ByteQueue(),
       first_part_data: null,
       part_number: 2,
       completed_parts: [],
@@ -136,31 +135,21 @@ export async function stream_encrypt_to_multipart(
 
     for await (const chunk of chunks) {
       hash.update(chunk);
-      const encrypted = cipher.update(chunk);
-      if (encrypted.length === 0) continue;
+      state.pending.push(cipher.update(chunk));
 
-      state.pending.push(encrypted);
-      state.pending_bytes += encrypted.length;
-
-      while (state.pending_bytes >= PART_SIZE) {
+      while (state.pending.bytes >= PART_SIZE) {
         await flush_pending_parts(handle, state);
       }
     }
 
-    const final_block = cipher.final();
-    if (final_block.length > 0) {
-      state.pending.push(final_block);
-      state.pending_bytes += final_block.length;
-    }
+    state.pending.push(cipher.final());
 
     if (!state.first_part_data) {
-      state.first_part_data = Buffer.concat(state.pending);
-      state.pending.length = 0;
-      state.pending_bytes = 0;
+      state.first_part_data = state.pending.take(state.pending.bytes);
     }
 
-    if (state.pending_bytes > 0) {
-      const last_part = Buffer.concat(state.pending);
+    if (state.pending.bytes > 0) {
+      const last_part = state.pending.take(state.pending.bytes);
       const etag = await handle.upload_part(state.part_number, last_part);
       state.completed_parts.push({ ETag: etag, PartNumber: state.part_number });
     }
@@ -188,21 +177,12 @@ async function flush_pending_parts(
   handle: MultipartUploadHandle,
   state: PendingPartState,
 ): Promise<void> {
-  const combined = Buffer.concat(state.pending);
-  state.pending.length = 0;
-  state.pending_bytes = 0;
-
-  const part_data = combined.subarray(0, PART_SIZE);
-  if (combined.length > PART_SIZE) {
-    const remainder = Buffer.from(combined.subarray(PART_SIZE));
-    state.pending.push(remainder);
-    state.pending_bytes = remainder.length;
-  }
+  const part_data = state.pending.take(PART_SIZE);
 
   if (!state.first_part_data) {
-    state.first_part_data = Buffer.from(part_data);
+    state.first_part_data = part_data;
   } else {
-    const etag = await handle.upload_part(state.part_number, Buffer.from(part_data));
+    const etag = await handle.upload_part(state.part_number, part_data);
     state.completed_parts.push({ ETag: etag, PartNumber: state.part_number });
     state.part_number++;
   }

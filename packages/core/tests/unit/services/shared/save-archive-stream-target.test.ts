@@ -39,9 +39,10 @@ describe('create_file_archive with a stream target', () => {
   it('delivers the archive to the caller stream and writes no file (issue #44)', async () => {
     const sink = new PassThrough();
     const received = collect(sink);
-    const { archive, promise, publish } = create_file_archive(sink);
+    const file_archive = create_file_archive(sink);
+    const { archive, promise, publish } = file_archive;
 
-    await add_file_to_archive(archive, '/Documents', 'report.txt', Buffer.from('hello'));
+    await add_file_to_archive(file_archive, '/Documents', 'report.txt', Buffer.from('hello'));
     await finalize_file_archive(archive);
     const total_bytes = await promise;
     await publish();
@@ -56,8 +57,9 @@ describe('create_file_archive with a stream target', () => {
 
   it('destroys the stream on abort, so a truncated archive is never a successful transfer', async () => {
     const sink = new PassThrough();
-    const { archive, abort } = create_file_archive(sink);
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    const file_archive = create_file_archive(sink);
+    const { archive, abort } = file_archive;
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello'));
 
     await abort();
 
@@ -68,11 +70,12 @@ describe('create_file_archive with a stream target', () => {
 
   it('reports a destination failure rather than a successful save', async () => {
     const sink = new PassThrough();
-    const { archive, promise } = create_file_archive(sink);
+    const file_archive = create_file_archive(sink);
+    const { archive, promise } = file_archive;
     const failure = new Error('consumer went away');
     sink.destroy(failure);
 
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello')).catch(
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello')).catch(
       () => undefined,
     );
     await expect(promise).rejects.toThrow(failure.message);
@@ -137,9 +140,10 @@ describe('settle_empty_save_target', () => {
 describe('create_file_archive with a path target', () => {
   it('still stages and publishes, so #307 holds for file exports', async () => {
     const output_path = join(dir, 'out.zip');
-    const { archive, promise, publish } = create_file_archive(output_path);
+    const file_archive = create_file_archive(output_path);
+    const { archive, promise, publish } = file_archive;
 
-    await add_file_to_archive(archive, '/', 'report.txt', Buffer.from('hello'));
+    await add_file_to_archive(file_archive, '/', 'report.txt', Buffer.from('hello'));
     await finalize_file_archive(archive);
     expect(existsSync(output_path)).toBe(false);
 

@@ -1,5 +1,8 @@
 import { type Archiver } from 'archiver';
-import { create_file_archive } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
+import {
+  append_archive_entry,
+  create_file_archive,
+} from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
 import type { ArchiveTarget } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
 
 export type { ArchiveTarget };
@@ -7,6 +10,8 @@ export type { ArchiveTarget };
 export interface SaveArchive {
   readonly archive: ArchiveWriter;
   readonly promise: Promise<number>;
+  /** Resolves once the destination has taken what the archive has produced so far. */
+  drain(): Promise<void>;
   /**
    * Makes the completed archive available: a rename onto the output path for a file target,
    * nothing for a stream target, whose consumer already has the bytes.
@@ -26,27 +31,19 @@ export type ArchiveWriter = Archiver;
  * For a stream target, pipes directly to the caller's Writable without staging.
  */
 export function create_save_archive(target: ArchiveTarget): SaveArchive {
-  const { archive, promise, publish, abort } = create_file_archive(target, {
-    compression_level: 9,
-  });
-  return { archive, promise, publish, abort };
+  return create_file_archive(target, { compression_level: 9 });
 }
 
 /**
- * Appends an EML buffer and waits for it to be compressed and flushed.
+ * Appends an EML buffer and waits for it to be compressed and taken by the destination.
  *
- * Backpressure: archiver.append() is fire-and-forget — it queues the buffer
- * internally and compresses in the background. Without waiting, the loop in
- * save-entry-processor would download the next message from S3 immediately,
- * causing the queue (and heap) to grow without bound. For a 500 GB mailbox
- * that means OOM long before the archive is finished.
- *
- * By awaiting the 'entry' event we guarantee each EML is compressed and
- * written to the output stream before the next S3 download starts, keeping
- * peak memory at roughly one message + its attachments.
+ * `archiver.append()` only queues, so without waiting the loop in save-entry-processor would
+ * download the next message from S3 immediately and the queue, and the archive's readable buffer,
+ * would grow without bound. For a 500 GB mailbox that means OOM long before the archive is
+ * finished. Waiting keeps peak memory at roughly one message and its attachments.
  */
 export function add_eml_to_archive(
-  archive: ArchiveWriter,
+  save_archive: SaveArchive,
   folder_path: string,
   filename: string,
   content: Buffer,
@@ -61,20 +58,11 @@ export function add_eml_to_archive(
   // changes no existing archive; it means a future caller passing an item or attachment
   // name cannot reintroduce the traversal (issue #258).
   const dir_path = folder_path.split('/').map(sanitize_path_segment).join('/');
-  const entry_path = `${dir_path}/${sanitize_path_segment(filename)}`;
-  return new Promise<void>((resolve, reject) => {
-    const on_entry = (): void => {
-      archive.removeListener('error', on_error);
-      resolve();
-    };
-    const on_error = (err: Error): void => {
-      archive.removeListener('entry', on_entry);
-      reject(err);
-    };
-    archive.once('entry', on_entry);
-    archive.once('error', on_error);
-    archive.append(content, { name: entry_path });
-  });
+  return append_archive_entry(
+    save_archive,
+    `${dir_path}/${sanitize_path_segment(filename)}`,
+    content,
+  );
 }
 
 /** Finalizes the archive. The returned promise resolves to total bytes written. */

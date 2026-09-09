@@ -1,4 +1,5 @@
 import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
+import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 export interface SharePointSite {
   readonly site_id: string;
   readonly site_url: string;
@@ -140,14 +141,14 @@ export interface SharePointSiteConnector {
     file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
 
-  /** Uploads a large file via resumable upload session. */
+  /** Uploads a large file via resumable upload session, buffered or streamed. */
   upload_large_file(
     tenant_id: string,
     site_id: string,
     drive_id: string,
     parent_id: string,
     file_name: string,
-    content: Buffer,
+    content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;

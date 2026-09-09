@@ -1,54 +1,79 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
-import type { StoredBlobRef, TenantContext } from '@wisecom/atlas-types';
-import {
-  should_stream_restore,
-  stream_decrypt_from_storage,
-  verify_streaming_checksum,
-} from '@wisecom/atlas-drive/restore/streaming-restore';
+import { stream_verified_plaintext } from '@wisecom/atlas-core/services/shared/stream-decrypt';
+import type {
+  LargeFileContent,
+  StoredBlobRef,
+  StreamedFileContent,
+  TenantContext,
+} from '@wisecom/atlas-types';
+import { should_stream_restore } from '@wisecom/atlas-drive/restore/streaming-restore';
 import {
   OneDriveDecryptAuthError,
   plaintext_sha256_equals_expected,
 } from '@/services/restore/restore-integrity';
 
 /**
- * Fetches and decrypts one stored blob, or undefined when it cannot be trusted.
+ * Fetches one stored blob for restore, or undefined when it cannot be trusted.
  *
- * Returning undefined rather than throwing lets a bulk restore skip one bad
- * object and report it, instead of losing the whole run. An AES-GCM auth
- * failure is thrown instead of swallowed, so a caller can tell "wrong key or
- * tampered ciphertext" from "one unreadable object" rather than reporting the
- * first as the second (issue #76).
+ * A file past the streaming threshold is handed back as a verified stream rather than a buffer, so
+ * restoring it costs two upload chunks of memory instead of the whole plaintext (issue #343). The
+ * shape is the caller's upload decision too: a stream is only produced for a file the small-file
+ * upload could not take anyway.
+ *
+ * Returning undefined rather than throwing lets a bulk restore skip one bad object and report it,
+ * instead of losing the whole run. An AES-GCM auth failure is thrown instead of swallowed, so a
+ * caller can tell "wrong key or tampered ciphertext" from "one unreadable object" rather than
+ * reporting the first as the second (issue #76).
  */
 export async function download_and_decrypt_blob(
   ctx: TenantContext,
   ref: StoredBlobRef,
-): Promise<Buffer | undefined> {
+): Promise<LargeFileContent | undefined> {
   if (!ref.storage_key) return undefined;
   return should_stream_restore(ref)
-    ? stream_download_and_decrypt(ctx, ref)
+    ? verified_blob_stream(ctx, ref)
     : buffered_download_and_decrypt(ctx, ref);
 }
 
-/** Streaming path: avoids holding the full ciphertext in memory for large files. */
-async function stream_download_and_decrypt(
+/**
+ * Streaming path: the plaintext is never held whole, so the checksum can only be compared once the
+ * last chunk has been produced.
+ *
+ * The upload the stream feeds must therefore not commit until the iteration ends, which the Graph
+ * upload session guarantees by holding its final chunk back. A mismatch or a failed tag then
+ * abandons the session rather than leaving a wrong file in the user's drive.
+ */
+function verified_blob_stream(
   ctx: TenantContext,
   ref: StoredBlobRef,
-): Promise<Buffer | undefined> {
+): StreamedFileContent | undefined {
+  if (!ref.checksum) {
+    logger.warn(`Missing checksum for ${ref.file_name}; skipping restore`);
+    return undefined;
+  }
+  return {
+    chunks: authenticated_chunks(ctx, ref.storage_key!, ref.checksum, ref.file_name),
+    total_bytes: ref.size_bytes,
+  };
+}
+
+/** Yields verified plaintext, reporting a failed tag as the operator-visible error it is. */
+async function* authenticated_chunks(
+  ctx: TenantContext,
+  storage_key: string,
+  expected_checksum: string,
+  file_name: string,
+): AsyncGenerator<Buffer> {
   try {
-    const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, ref.storage_key!);
-    if (!verify_streaming_checksum(ref, sha256_hex)) return undefined;
-    return content;
+    yield* stream_verified_plaintext(ctx, storage_key, expected_checksum, file_name);
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
-      throw new OneDriveDecryptAuthError(`AES-GCM authentication failed for ${ref.file_name}`, {
+      throw new OneDriveDecryptAuthError(`AES-GCM authentication failed for ${file_name}`, {
         cause: err,
       });
     }
-    logger.warn(
-      `Streaming decrypt failed for ${ref.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return undefined;
+    throw err;
   }
 }
 

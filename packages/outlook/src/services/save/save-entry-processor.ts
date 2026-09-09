@@ -5,7 +5,7 @@ import type { SaveResult } from '@wisecom/atlas-types';
 import type { EntryResult } from '@/services/save/save-entry-writer';
 import { save_json_entry, save_mime_entry } from '@/services/save/save-entry-writer';
 import { verify_checksum } from '@/services/save/save-integrity-validator';
-import type { ArchiveWriter } from '@/services/save/save-zip-writer';
+import type { SaveArchive } from '@/services/save/save-zip-writer';
 import {
   create_save_archive,
   finalize_archive,
@@ -35,7 +35,8 @@ export async function save_entries_to_archive(
   is_interrupted: () => boolean,
   control: OperationControlOptions,
 ): Promise<Omit<SaveResult, 'snapshot_id'> & { processed: number }> {
-  const { archive, promise, publish, abort } = create_save_archive(target);
+  const save_archive = create_save_archive(target);
+  const { archive, promise, publish, abort } = save_archive;
 
   try {
     let global_saved = 0;
@@ -66,7 +67,7 @@ export async function save_entries_to_archive(
         folder_name,
         folder_index,
         skip_integrity,
-        archive,
+        save_archive,
         used_names,
         groups,
         global_total,
@@ -143,7 +144,7 @@ async function process_folder_entries(
   folder_name: string,
   folder_index: number,
   skip_integrity: boolean,
-  archive: ArchiveWriter,
+  archive: SaveArchive,
   used_names: Set<string>,
   groups: Map<string, ManifestEntry[]>,
   global_total: number,
@@ -223,7 +224,7 @@ async function process_single_entry(
   entry: ManifestEntry,
   folder_name: string,
   skip_integrity: boolean,
-  archive: ArchiveWriter,
+  archive: SaveArchive,
   used_names: Set<string>,
 ): Promise<EntryResult> {
   const result: EntryResult = {

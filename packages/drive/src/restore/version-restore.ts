@@ -11,6 +11,7 @@ import type {
   DriveVersionPlacement,
   DriveVersionRestoreOptions,
   DriveVersionRestoreResult,
+  LargeFileContent,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -21,8 +22,6 @@ import type {
 } from '@/drive-ports';
 import { select_versions_to_restore, type SelectedVersion } from '@/versioning/version-selection';
 import { build_restored_file_name, split_parent_path } from '@/versioning/version-placement';
-
-const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
 
 /** The upload surface of a drive connector; both provider connectors satisfy it structurally. */
 export interface DriveUploadConnector {
@@ -42,7 +41,7 @@ export interface DriveUploadConnector {
     drive_id: string,
     parent_id: string,
     file_name: string,
-    content: Buffer,
+    content: LargeFileContent,
     conflict_behavior?: string,
     file_system_info?: DriveFileSystemInfo,
   ): Promise<void>;
@@ -61,7 +60,7 @@ export interface DriveVersionRestoreDeps {
   readonly download_blob: (
     ctx: TenantContext,
     version: DriveFileVersionRecord,
-  ) => Promise<Buffer | undefined>;
+  ) => Promise<LargeFileContent | undefined>;
   /** Resolves or creates the folder chain the restored file goes into, within one drive. */
   readonly ensure_folder_path: (
     tenant_id: string,
@@ -214,20 +213,30 @@ async function restore_one_version(
     const file_system_info = version.last_modified_at
       ? { last_modified_at: version.last_modified_at }
       : undefined;
-    const args = [
-      tenant_id,
-      owner_id,
-      drive_id,
-      parent_id,
-      file_name,
-      content,
-      conflict,
-      file_system_info,
-    ] as const;
-    if (content.length <= SMALL_FILE_LIMIT) {
-      await deps.connector.upload_small_file(...args);
+    // The blob reader decides buffered or streamed by the recorded size, so the shape it returns
+    // is also the upload to use: a stream is only produced for a file past the small-file limit.
+    if (Buffer.isBuffer(content)) {
+      await deps.connector.upload_small_file(
+        tenant_id,
+        owner_id,
+        drive_id,
+        parent_id,
+        file_name,
+        content,
+        conflict,
+        file_system_info,
+      );
     } else {
-      await deps.connector.upload_large_file(...args);
+      await deps.connector.upload_large_file(
+        tenant_id,
+        owner_id,
+        drive_id,
+        parent_id,
+        file_name,
+        content,
+        conflict,
+        file_system_info,
+      );
     }
 
     const restored_to = parent_path === '/' ? `/${file_name}` : `${parent_path}/${file_name}`;

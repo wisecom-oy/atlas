@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import type { TenantContext } from '@wisecom/atlas-types';
 
@@ -49,6 +49,46 @@ export async function stream_sha256_from_storage(
     sha256.update(chunk);
   }
   return sha256.digest('hex');
+}
+
+/**
+ * Yields the plaintext of an encrypted object and fails the iteration unless the digest matches
+ * `expected_sha256_hex`.
+ *
+ * Nothing about a chunk is trustworthy while it is being yielded: AES-GCM only authenticates at
+ * `final()`, and the manifest checksum is only comparable once every byte has passed through. A
+ * consumer therefore MUST NOT make the bytes visible to anyone until the iteration has completed
+ * normally. A Graph upload session satisfies that by holding its last chunk back, so the item is
+ * only created after this generator returns; a caller that cannot delay its side effect that way
+ * wants {@link stream_decrypt_from_storage} and its buffered verification instead (issue #343).
+ *
+ * The generator must be drained or its `return()` called, which a `for await` loop does either way.
+ *
+ * `label` names the object in the failure. The storage key is not used for that: it carries the
+ * owner identifier, and this message reaches operator logs and run summaries.
+ */
+export async function* stream_verified_plaintext(
+  ctx: TenantContext,
+  storage_key: string,
+  expected_sha256_hex: string,
+  label: string,
+): AsyncGenerator<Buffer> {
+  const sha256 = createHash('sha256');
+  for await (const chunk of decrypt_plaintext_chunks(ctx, storage_key)) {
+    sha256.update(chunk);
+    yield chunk;
+  }
+  const actual = sha256.digest('hex');
+  // ponytail: seventh copy of this two-line comparison in the repo; one shared helper in
+  // services/shared would be better, and touches five files this change has no business in.
+  const matches =
+    actual.length === expected_sha256_hex.length &&
+    timingSafeEqual(Buffer.from(actual, 'utf8'), Buffer.from(expected_sha256_hex, 'utf8'));
+  if (!matches) {
+    throw new Error(
+      `Checksum mismatch for ${label}: manifest recorded ${expected_sha256_hex}, decrypted ${actual}`,
+    );
+  }
 }
 
 /**

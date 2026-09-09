@@ -2,7 +2,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import { build_upload_file_system_info, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { upload_content_to_session } from '@wisecom/atlas-drive/restore/upload-session';
-import type { DriveFileSystemInfo } from '@wisecom/atlas-types';
+import type { DriveFileSystemInfo, LargeFileContent } from '@wisecom/atlas-types';
 
 async function find_child_folder_id_by_name(
   client: Client,
@@ -137,7 +137,7 @@ export async function graph_sharepoint_upload_large_file(
   drive_id: string,
   parent_id: string,
   file_name: string,
-  content: Buffer,
+  content: LargeFileContent,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
 ): Promise<void> {
