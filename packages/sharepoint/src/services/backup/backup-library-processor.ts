@@ -128,6 +128,7 @@ export async function process_single_library(
     version_stats,
     options.should_interrupt,
     on_item_processed,
+    options.abort_signal,
   );
 
   let processed_delta_items = 0;
@@ -146,6 +147,7 @@ export async function process_single_library(
       library_state,
       versions,
       version_stats,
+      options.abort_signal,
     );
     processed_delta_items++;
     on_item_processed?.(item.file_name);

@@ -1,5 +1,6 @@
 export * from '@/services/shared/owner-id-migration';
 export {
+  ArchiveDestinationError,
   create_file_archive,
   add_file_to_archive,
   finalize_file_archive,

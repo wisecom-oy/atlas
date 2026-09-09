@@ -1,3 +1,4 @@
+import { ArchiveDestinationError } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
 import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
@@ -185,6 +186,9 @@ async function process_folder_entries(
       integrity_fail += result.integrity_fail;
       counters.integrity_failures.push(...result.integrity_failures);
     } catch (err) {
+      // A destination that is gone fails the run rather than every remaining message one at a
+      // time: each would be downloaded and decrypted only to be dropped (issue #344).
+      if (err instanceof ArchiveDestinationError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       counters.all_errors.push(`${entry.object_id}: ${msg}`);
       error_count++;

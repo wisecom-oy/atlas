@@ -116,17 +116,28 @@ async function open_version_stream(
   }
 }
 
-/** Re-labels mid-transfer read failures so storage failures stay distinguishable. */
+/**
+ * Re-labels mid-transfer read failures so storage failures stay distinguishable, and closes the
+ * source when the consumer stops.
+ *
+ * A manually driven iterator is not closed by the `for await` that consumes this generator, so an
+ * upload that failed part way left the download running with nobody reading it (issue #344). The
+ * `finally` runs on a consumer failure, an early `break` and normal completion alike.
+ */
 async function* tag_source_errors(chunks: AsyncIterable<Buffer>): AsyncGenerator<Buffer> {
   const iterator = chunks[Symbol.asyncIterator]();
-  while (true) {
-    let next: IteratorResult<Buffer>;
-    try {
-      next = await iterator.next();
-    } catch (err) {
-      throw new VersionDownloadError(err);
+  try {
+    while (true) {
+      let next: IteratorResult<Buffer>;
+      try {
+        next = await iterator.next();
+      } catch (err) {
+        throw new VersionDownloadError(err);
+      }
+      if (next.done === true) return;
+      yield next.value;
     }
-    if (next.done === true) return;
-    yield next.value;
+  } finally {
+    await iterator.return?.();
   }
 }

@@ -29,6 +29,7 @@ export interface DriveLargeFileDeps {
     download_url: string,
     total_bytes: number,
     item_id: string,
+    abort_signal?: AbortSignal,
   ) => AsyncIterable<Buffer>;
 }
 
@@ -44,6 +45,7 @@ export async function process_large_drive_file(
   owner_id: string,
   ctx: TenantContext,
   object_lock_policy?: StorageObjectLockPolicy,
+  abort_signal?: AbortSignal,
 ): Promise<LargeFileResult> {
   const download_url = item.download_url ?? (await connector.resolve_download_url(item));
   if (!download_url) {
@@ -58,7 +60,10 @@ export async function process_large_drive_file(
 
   const result = await stream_to_content_addressed_storage(
     ctx,
-    counted_chunks(deps.fetch_chunks(download_url, item.size_bytes, item.item_id), item),
+    counted_chunks(
+      deps.fetch_chunks(download_url, item.size_bytes, item.item_id, abort_signal),
+      item,
+    ),
     {
       staging_key,
       staging_prefix: deps.keys.staging_prefix_for(owner_id),

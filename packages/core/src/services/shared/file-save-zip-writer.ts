@@ -10,6 +10,20 @@ import { logger } from '@/utils/logger';
 export type FileArchiveWriter = Archiver;
 
 /**
+ * The archive cannot take entries any more: its destination failed, or it went away.
+ *
+ * Distinct from a bad entry, because the answer differs. One file that will not decrypt is
+ * reported and the run moves on; a destination that is gone means every remaining entry would be
+ * downloaded, decrypted and thrown away, so the run stops instead (issue #344).
+ */
+export class ArchiveDestinationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ArchiveDestinationError';
+  }
+}
+
+/**
  * Where a save archive is written: a filesystem path, or a caller's stream.
  *
  * A stream target exports without touching local disk, which is what an embedder piping to an
@@ -83,7 +97,11 @@ export function create_file_archive(
     // then on the success path, where `finish` precedes `close`.
     if (staging_path === undefined) {
       output.on('close', () =>
-        reject(new Error('The archive destination closed before the archive was finished')),
+        reject(
+          new ArchiveDestinationError(
+            'The archive destination closed before the archive was finished',
+          ),
+        ),
       );
     }
   });
@@ -113,7 +131,7 @@ export function create_file_archive(
  */
 async function wait_for_drain(output: Writable): Promise<void> {
   if (output.destroyed || output.writableEnded) {
-    throw new Error('The archive destination is closed');
+    throw new ArchiveDestinationError('The archive destination is closed');
   }
   if (!output.writableNeedDrain) return;
   const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -125,7 +143,8 @@ async function wait_for_drain(output: Writable): Promise<void> {
     else reject(err);
   };
   const on_drain = (): void => settle();
-  const on_close = (): void => settle(new Error('The archive destination closed mid-entry'));
+  const on_close = (): void =>
+    settle(new ArchiveDestinationError('The archive destination closed mid-entry'));
   const on_error = (err: Error): void => settle(err);
   output.once('drain', on_drain);
   output.once('close', on_close);
@@ -198,7 +217,11 @@ function archive_failure(file_archive: FileArchive): Promise<never> {
   return file_archive.promise.then(
     () => new Promise<never>(() => undefined),
     (err: unknown) => {
-      throw err instanceof Error ? err : new Error(String(err));
+      if (err instanceof ArchiveDestinationError) throw err;
+      throw new ArchiveDestinationError(
+        `The archive destination failed: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      );
     },
   );
 }

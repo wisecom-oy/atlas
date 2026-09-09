@@ -48,8 +48,12 @@ function expect_adapted_options(
   expect(options).not.toHaveProperty('signal');
   const should_interrupt = options.should_interrupt as () => boolean;
   expect(should_interrupt()).toBe(false);
+  // The predicate answers between items; the signal is what a service hands to a request already
+  // in flight, so both have to arrive (issue #344).
+  expect(options.abort_signal).toBe(controller.signal);
   controller.abort();
   expect(should_interrupt()).toBe(true);
+  expect((options.abort_signal as AbortSignal).aborted).toBe(true);
 }
 
 describe('SDK progress and cancellation option adaptation', () => {

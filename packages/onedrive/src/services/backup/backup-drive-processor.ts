@@ -301,6 +301,7 @@ export async function process_single_drive(
       version_stats,
       on_version_stats_update,
       versions,
+      control.abort_signal,
     );
     // Progress rows were sized from the delta batch; retried items are extra.
     if (from_delta) on_item_processed?.(item);

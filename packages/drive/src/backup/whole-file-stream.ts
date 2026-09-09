@@ -7,9 +7,17 @@ export interface WholeFileStreamOptions {
    *
    * A server that sends headers and then stalls would otherwise hold the download forever, which
    * is the failure the Range path bounds per chunk (issue #198). The clock is reset on every
-   * part, so a slow-but-moving transfer is never cut off.
+   * part, so a slow-but-moving transfer is never cut off, and it is disarmed while a chunk is in
+   * the consumer's hands, so a busy consumer is not read as a stalled server (issue #344).
    */
   readonly stall_timeout_ms: number;
+  /**
+   * Cancellation from the caller, ending the request rather than the next item.
+   *
+   * A cancelled run used to wait out the whole body before it noticed, which for a multi-gigabyte
+   * item is minutes of transfer nobody wants any more (issue #344).
+   */
+  readonly abort_signal?: AbortSignal | undefined;
 }
 
 /**
@@ -25,16 +33,21 @@ export async function* stream_whole_file_in_chunks(
   item_id: string,
   options: WholeFileStreamOptions,
 ): AsyncGenerator<Buffer> {
-  const { chunk_size_bytes, stall_timeout_ms } = options;
+  const { chunk_size_bytes, stall_timeout_ms, abort_signal } = options;
   if (!Number.isSafeInteger(chunk_size_bytes) || chunk_size_bytes <= 0) {
     throw new Error(`Invalid chunk size for the streamed download of ${item_id}`);
   }
+  abort_signal?.throwIfAborted();
 
   const controller = new AbortController();
   let timer = arm_stall_timer(controller, stall_timeout_ms, item_id);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const signal =
+      abort_signal === undefined
+        ? controller.signal
+        : AbortSignal.any([controller.signal, abort_signal]);
+    const response = await fetch(url, { signal });
     if (!response.ok || !response.body) {
       throw new Error(`HTTP ${response.status} for the streamed download of ${item_id}`);
     }
@@ -42,8 +55,8 @@ export async function* stream_whole_file_in_chunks(
     let pending: Buffer[] = [];
     let pending_bytes = 0;
     for await (const part of response.body as unknown as AsyncIterable<Uint8Array>) {
+      // The read arrived, so the network is not what the timer would be measuring from here on.
       clearTimeout(timer);
-      timer = arm_stall_timer(controller, stall_timeout_ms, item_id);
       pending.push(Buffer.from(part));
       pending_bytes += part.byteLength;
       while (pending_bytes >= chunk_size_bytes) {
@@ -53,10 +66,16 @@ export async function* stream_whole_file_in_chunks(
         pending = rest.length > 0 ? [rest] : [];
         pending_bytes = rest.length;
       }
+      // Armed again only now, when the loop goes back to waiting on the body.
+      timer = arm_stall_timer(controller, stall_timeout_ms, item_id);
     }
     if (pending_bytes > 0) yield Buffer.concat(pending);
   } finally {
     clearTimeout(timer);
+    // A consumer that stopped early, because it failed or because the run was cancelled, leaves
+    // the body half read. Aborting here closes the socket instead of leaving the transfer running
+    // with nobody reading it (issue #344); after a completed body it does nothing.
+    controller.abort();
   }
 }
 

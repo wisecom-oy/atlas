@@ -250,7 +250,7 @@ if (result.interrupted) {
 | Option       | Type                                      | Description                                                                                     |
 | ------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.            |
-| `signal`     | `AbortSignal`                             | Requests graceful cancellation. Atlas finishes the current item, then stops at a safe boundary. |
+| `signal`     | `AbortSignal`                             | Requests cancellation. The transfer in flight is ended and the run stops at a safe boundary.    |
 
 `atlas.outlook.backup` accepts a third option, `hardStopSignal`, for the case where graceful is not fast enough. This is the escalation the CLI wires to a second Ctrl+C:
 
@@ -274,7 +274,10 @@ const result = await atlas.outlook.backup('user@company.com', {
 
 Both return a result with `interrupted: true` rather than throwing, and both keep the snapshot manifest that was written for the work already done. `hardStopSignal` trades re-enumeration of one folder for a faster exit, so use it when a deadline matters more than the wasted work.
 
-OneDrive and SharePoint backups accept `signal` only. Their long unit of work is a single file transfer, and aborting one mid-stream is not implemented, so there is nothing for an escalation to shorten.
+OneDrive and SharePoint backups accept `signal` only, and it now reaches the transfer itself: a
+cancelled run aborts the download it is in the middle of rather than waiting out a file that may be
+gigabytes long, and it does not start the next chunk or the next retry. Their long unit of work is
+that one file transfer, so there is nothing left for an escalation signal to shorten.
 
 `OperationProgressEvent` is stable across workloads:
 
@@ -575,6 +578,21 @@ What changes compared with a file export:
 **A destroyed stream is the point.** Ending a failed or interrupted stream would hand the consumer a short archive that opens like a complete one, which is the failure mode file exports avoid by staging. Over HTTP the client sees the transfer break, so treat a body that arrived without a completed request as a failed export rather than a partial one. Headers are already sent by then, so the status code cannot report the failure: check the result, or the absence of one, on the server.
 
 Memory is bounded to one message or file at a time in either mode. Each entry is fetched, decrypted, compressed and flushed before the next one starts, so a slow consumer applies backpressure rather than accumulating the archive in the heap.
+
+### When the consumer disconnects
+
+A client that hangs up mid-export destroys the response, and Atlas treats that as the end of the
+run rather than as one failed entry:
+
+- The promise rejects with the destination failure. It does not sit pending waiting for a stream
+  that will never emit `finish`.
+- Nothing further is downloaded. The next entry would be fetched, decrypted and dropped, so the
+  run stops at the entry it could not write.
+- The archive is never finalised, so the bytes the client already received are not a valid zip.
+
+Over HTTP the disconnect is usually the client's doing, which means nobody is listening for the
+rejection. Handle it on the server anyway: the rejection is what tells the run to stop, and it is
+the only record that an export ended early.
 
 ## Restore Options
 

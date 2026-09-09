@@ -27,10 +27,19 @@ export async function process_drive_backup_file(
   item: DriveDeltaItem,
   owner_id: string,
   ctx: TenantContext,
+  abort_signal?: AbortSignal,
 ): Promise<FileProcessResult | undefined> {
   if (item.size_bytes >= LARGE_FILE_THRESHOLD) {
     try {
-      return await process_large_drive_file(deps, connector, item, owner_id, ctx);
+      return await process_large_drive_file(
+        deps,
+        connector,
+        item,
+        owner_id,
+        ctx,
+        undefined,
+        abort_signal,
+      );
     } catch (err) {
       // A missing grant or a service refusal is not a skip: it must reach the caller
       // so the run can name the cause instead of reporting a lost file (issue #246).

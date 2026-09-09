@@ -31,11 +31,15 @@ export async function* fetch_file_chunks(
   download_url: string,
   total_bytes: number,
   item_id: string,
+  abort_signal?: AbortSignal,
 ): AsyncGenerator<Buffer> {
   const chunk_count = Math.ceil(total_bytes / CHUNK_SIZE_BYTES);
   let yielded_chunks = 0;
 
   for (let i = 0; i < chunk_count; i++) {
+    // Cheap between chunks, and the signal also reaches the request itself below, so a cancelled
+    // run neither starts the next chunk nor waits out the one in flight (issue #344).
+    abort_signal?.throwIfAborted();
     const range_start = i * CHUNK_SIZE_BYTES;
     const range_end = Math.min(range_start + CHUNK_SIZE_BYTES - 1, total_bytes - 1);
     const expected_length = range_end - range_start + 1;
@@ -52,6 +56,7 @@ export async function* fetch_file_chunks(
         chunk_count,
         total_bytes,
         chunk_count > 1,
+        abort_signal,
       );
     } catch (err) {
       if (!(err instanceof RangeIgnoredError)) throw err;
@@ -73,6 +78,7 @@ export async function* fetch_file_chunks(
           `falling back to one streamed download`,
       );
       yield* stream_whole_file_in_chunks(download_url, item_id, {
+        abort_signal,
         chunk_size_bytes: CHUNK_SIZE_BYTES,
         // Same per-chunk budget the Range path uses, applied between reads rather than to the
         // whole transfer, so a stalled body is cut off but a slow one is not.
@@ -95,6 +101,7 @@ async function download_chunk_with_retry(
   total_chunks: number,
   total_bytes: number,
   report_ignored_range: boolean,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   for (let attempt = 0; attempt <= MAX_CHUNK_RETRIES; attempt++) {
     try {
@@ -106,6 +113,7 @@ async function download_chunk_with_retry(
         item_id,
         total_bytes,
         report_ignored_range,
+        abort_signal,
       );
     } catch (err) {
       // Not retryable and not a failure: the caller switches strategy on it.
@@ -117,6 +125,8 @@ async function download_chunk_with_retry(
         );
       }
 
+      // Backing off is waiting, and a cancelled run has no reason to wait.
+      abort_signal?.throwIfAborted();
       const delay = compute_retry_delay(attempt);
       logger.debug(
         `Chunk ${chunk_index}/${total_chunks} retry ${attempt + 1}/${MAX_CHUNK_RETRIES} ` +
@@ -137,6 +147,7 @@ async function download_single_chunk(
   item_id: string,
   total_bytes: number,
   report_ignored_range: boolean,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   const timeout_ms = Math.max(30_000, Math.ceil(expected_length / MIN_THROUGHPUT_BYTES_PER_MS));
   const controller = new AbortController();
@@ -145,7 +156,10 @@ async function download_single_chunk(
   try {
     const response = await fetch(url, {
       headers: { Range: `bytes=${range_start}-${range_end}` },
-      signal: controller.signal,
+      signal:
+        abort_signal === undefined
+          ? controller.signal
+          : AbortSignal.any([controller.signal, abort_signal]),
     });
 
     if (response.status === 429 || response.status === 503 || response.status === 504) {
