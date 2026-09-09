@@ -84,6 +84,11 @@ Implementation thresholds from `@wisecom/atlas-sharepoint`:
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff), so a transient failure replays a single chunk instead of the whole file. A chunk is retried on the same statuses as any other Graph call (429, 500, 502, 503, and 504), because the CDN in front of Graph raises `500` and `502` under load. A `4xx` response fails the chunk immediately.
 
+Staging cleanup is scoped by age, not by prefix alone: a site's staging prefix is shared by every
+large file it transfers, so only objects and uploads older than 24 hours are collected, and a run
+aborts nothing but its own upload when it fails. Identical to OneDrive; see
+[Staging cleanup and concurrent runs](/onedrive-backup#staging-cleanup-and-concurrent-runs).
+
 ### Download Resilience
 
 SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting, and the CDN also returns transient gateway faults of its own. Atlas handles this with:

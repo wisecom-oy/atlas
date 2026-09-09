@@ -66,7 +66,6 @@ export async function process_large_drive_file(
     ),
     {
       staging_key,
-      staging_prefix: deps.keys.staging_prefix_for(owner_id),
       build_data_key: (checksum) => deps.keys.data_key(owner_id, checksum),
       ...(object_lock_policy && { object_lock_policy }),
     },
@@ -101,22 +100,44 @@ async function* counted_chunks(
   assert_transferred_size(item.item_id, transferred, item.size_bytes);
 }
 
-/** Removes leftover staging objects and incomplete multipart uploads. */
+/**
+ * Age past which a staging object or an incomplete upload is treated as abandoned.
+ *
+ * Nothing caps one item's transfer at this, and it is not meant to: a 250 GB item on a throttled
+ * link can run for many hours, so the storage sweep also refuses to abort an upload with a part
+ * written since the cutoff. The day is the coarse filter, recent activity is the real answer, and
+ * the bucket's own `AbortIncompleteMultipartUpload` rule collects whatever both miss.
+ *
+ * For staging objects there is no activity to read, so the age stands alone. One is live only
+ * between the multipart completion and the copy onto the canonical key, which is a server-side
+ * copy of one file rather than a transfer, so a day is orders of magnitude longer than the window.
+ */
+const STAGING_ABANDONED_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Removes staging objects and incomplete multipart uploads left behind by earlier runs.
+ *
+ * Only what is demonstrably abandoned: two backups of the same owner share one staging prefix, and
+ * an unfiltered sweep deleted the object the other run was about to copy and aborted the upload it
+ * was still streaming into, which failed that run with `NoSuchUpload` on its next part
+ * (issue #345).
+ */
 export async function cleanup_stale_drive_staging(
   keys: DriveStorageKeys,
   ctx: TenantContext,
   owner_id: string,
 ): Promise<void> {
   const prefix = keys.staging_prefix_for(owner_id);
+  const abandoned_before = new Date(Date.now() - STAGING_ABANDONED_AFTER_MS);
 
-  const stale_keys = await ctx.storage.list(prefix);
+  const stale_keys = await ctx.storage.list_stale(prefix, abandoned_before);
   for (const key of stale_keys) {
     logger.info(`Cleaning up stale staging object: ${key}`);
     await ctx.storage.delete(key).catch(() => {});
   }
 
-  const aborted = await ctx.storage.abort_incomplete_uploads(prefix);
+  const aborted = await ctx.storage.abort_incomplete_uploads(prefix, abandoned_before);
   if (aborted > 0) {
-    logger.info(`Aborted ${aborted} incomplete staging upload(s)`);
+    logger.info(`Aborted ${aborted} incomplete staging upload(s) older than 24h`);
   }
 }

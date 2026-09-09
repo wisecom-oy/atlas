@@ -37,6 +37,7 @@ function make_ctx(objects: Record<string, Manifest>): TenantContext {
       list: vi.fn(async (prefix: string) =>
         Object.keys(objects).filter((key) => key.startsWith(prefix)),
       ),
+      list_stale: vi.fn(async () => []),
       delete: vi.fn(),
       delete_version: vi.fn(),
       exists: vi.fn(),
