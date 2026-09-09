@@ -368,7 +368,9 @@ Before 4.0.0 a restore wrote every file back over its original path. With the de
 
 Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via the Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site, described in [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 
-Files with `change_type: 'deleted'` or a missing `storage_key` are skipped. Checksum verification runs before upload, and corrupted blobs are skipped with a warning.
+Files with `change_type: 'deleted'` or a missing `storage_key` are skipped. A blob whose checksum
+does not match the manifest is a restore error rather than a warning: the file is not created, it
+is named in the run's errors, and the run exits non-zero.
 
 | Size        | Strategy                                                                                                               |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------- |

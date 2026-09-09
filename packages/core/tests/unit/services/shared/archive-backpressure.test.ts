@@ -115,4 +115,23 @@ describe('archive backpressure (issue #343)', () => {
       })(),
     ).rejects.toThrow(/no space left on device/);
   });
+
+  it('fails the entry and the byte count when the consumer walks away without an error', async () => {
+    const sink = new Writable({
+      write(_chunk, _encoding, callback) {
+        callback();
+      },
+    });
+    const file_archive = create_file_archive(sink);
+    await add_file_to_archive(file_archive, 'reports', 'first.bin', Buffer.alloc(1024, 1));
+
+    // destroy() with no error emits `close` and neither `finish` nor `error`, so nothing would
+    // settle on its own.
+    sink.destroy();
+
+    await expect(
+      add_file_to_archive(file_archive, 'reports', 'second.bin', Buffer.alloc(1024, 2)),
+    ).rejects.toThrow(/destination (is closed|closed)/);
+    await expect(file_archive.promise).rejects.toThrow(/closed before the archive was finished/);
+  });
 });

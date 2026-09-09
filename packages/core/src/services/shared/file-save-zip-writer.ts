@@ -78,6 +78,14 @@ export function create_file_archive(
     // Errors on the destination are not forwarded through pipe(), so without this a failed write
     // resolves on `close` and the caller reports a successful save.
     output.on('error', reject);
+    // `destroy()` with no error emits `close` and nothing else, so a consumer that walks away
+    // leaves a caller's stream with no `finish` to resolve on. Resolution has already happened by
+    // then on the success path, where `finish` precedes `close`.
+    if (staging_path === undefined) {
+      output.on('close', () =>
+        reject(new Error('The archive destination closed before the archive was finished')),
+      );
+    }
   });
   // Attach a handler now, so an error raised while entries are still being written is not an
   // unhandled rejection. Awaiting `promise` later still sees the rejection.
@@ -96,14 +104,18 @@ export function create_file_archive(
 }
 
 /**
- * Waits until the destination is ready for more, or until it is gone.
+ * Waits until the destination is ready for more, and fails when it is gone.
  *
- * A destination that is destroyed mid-export never emits `drain`, and a producer parked on that
- * event would wait forever instead of failing; the actual failure is delivered through the
- * archive's byte-count promise.
+ * A destination that is destroyed mid-export never emits `drain`, so a producer parked on that
+ * event waits forever. A `close` while entries are still being written is always premature, for a
+ * staged file as much as for a caller's stream, so it fails the entry that was waiting rather than
+ * letting the run report it as saved.
  */
 async function wait_for_drain(output: Writable): Promise<void> {
-  if (!output.writableNeedDrain || output.destroyed || output.writableEnded) return;
+  if (output.destroyed || output.writableEnded) {
+    throw new Error('The archive destination is closed');
+  }
+  if (!output.writableNeedDrain) return;
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   const settle = (err?: Error): void => {
     output.off('drain', on_drain);
@@ -113,7 +125,7 @@ async function wait_for_drain(output: Writable): Promise<void> {
     else reject(err);
   };
   const on_drain = (): void => settle();
-  const on_close = (): void => settle();
+  const on_close = (): void => settle(new Error('The archive destination closed mid-entry'));
   const on_error = (err: Error): void => settle(err);
   output.once('drain', on_drain);
   output.once('close', on_close);
