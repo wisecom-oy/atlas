@@ -141,9 +141,17 @@ async function execute_mailbox_restore(
   await report_restore_result(result);
 }
 
-/** Prints a human-readable summary of the restore result. */
+/**
+ * Prints a human-readable summary of the restore result.
+ *
+ * Success is decided from `errors`, not from `error_count`. `error_count` counts message-level
+ * failures only, while attachment failures land in `errors`, so a run whose only casualties were
+ * attachments printed a green summary, printed no error list, and exited 0. The single-message
+ * path made it worse by hardcoding `error_count: 0` while still returning attachment errors
+ * (issue #359).
+ */
 async function report_restore_result(result: RestoreResult): Promise<void> {
-  if (result.error_count === 0 && !result.interrupted) {
+  if (result.errors.length === 0 && !result.interrupted) {
     const entries: SummaryEntry[] = [
       { label: 'messages restored', value: result.restored_count, color: 'green' },
     ];
