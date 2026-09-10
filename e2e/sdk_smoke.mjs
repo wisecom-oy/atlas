@@ -29,4 +29,4 @@ const atlas = createAtlasInstance({
 });
 
 const snapshots = await atlas.outlook.listSnapshots(required('E2E_MAILBOX'));
-process.stdout.write(JSON.stringify(snapshots.map((manifest) => manifest.snapshot_id)));
+process.stdout.write(JSON.stringify(snapshots.map((manifest) => manifest.snapshotId)));
