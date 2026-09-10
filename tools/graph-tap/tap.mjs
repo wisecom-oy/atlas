@@ -246,7 +246,12 @@ function finish(request, extra) {
   totals.requests += 1;
   totals.tx += slot.tx;
   totals.rx += slot.rx;
-  const key = record.failed ? 'failed' : String(record.status);
+  // A failure that already had a status is a response-body failure, not a transport one.
+  const key = record.failed
+    ? record.status
+      ? `${record.status}+failed`
+      : 'failed'
+    : String(record.status);
   totals.by_status[key] = (totals.by_status[key] || 0) + 1;
 
   if (!quiet) {
@@ -324,8 +329,15 @@ dc.channel('undici:request:trailers').subscribe(
 
 dc.channel('undici:request:error').subscribe(
   safely(({ request, error }) => {
-    if (tracked.has(request))
-      finish(request, { failed: String(error?.message || error).slice(0, 120) });
+    const slot = tracked.get(request);
+    if (!slot) return;
+    // A failure after the response headers arrived still has a status, and dropping it made a
+    // cancelled body indistinguishable from a request that never reached the server. `failed`
+    // stays either way, so a truncated body is never read as a clean response (issue #373).
+    finish(request, {
+      ...(slot.status ? { status: slot.status } : {}),
+      failed: String(error?.message || error).slice(0, 120),
+    });
   }),
 );
 
