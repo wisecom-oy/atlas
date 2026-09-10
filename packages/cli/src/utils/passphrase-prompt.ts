@@ -34,7 +34,10 @@ async function ask_hidden(prompt: string): Promise<string> {
   try {
     const answer = await new Promise<string>((resolve) => rl.question(prompt, resolve));
     process.stdout.write('\n');
-    return answer.trim();
+    // Not trimmed. readline already excludes the newline, so what is left is what was typed, and
+    // a passphrase with a leading or trailing space is a passphrase. Trimming it here would wrap
+    // the key with a value the operator cannot reproduce from their password manager.
+    return answer;
   } finally {
     rl.close();
   }

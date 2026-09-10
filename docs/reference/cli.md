@@ -999,6 +999,15 @@ not to a compromised bucket. The answer to that is replicating to a fresh target
 passphrase and retiring the old bucket, which re-encrypts every object.
 ::::
 
+:::: warning The old passphrase stays live until the replaced version expires
+Atlas buckets are versioned, with noncurrent versions expiring after 30 days. A re-wrap writes
+a new current `_meta/dek.enc` and leaves the version it replaced in place. Anyone with the old
+passphrase and permission to read object versions can still read that one and unwrap the same,
+unchanged data key until it expires. Delete the noncurrent versions of `_meta/dek.enc` where
+policy and Object Lock allow, or revoke the leaked reader's `s3:GetObjectVersion`, which closes
+the window at once.
+::::
+
 The new passphrase is prompted and confirmed rather than accepted as a flag value, so it stays
 out of the shell history and out of the process table. On a pipe it is read from stdin whole,
 with no confirmation round a script cannot answer.

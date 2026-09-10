@@ -8,6 +8,7 @@ import { ATLAS_CONFIG_TOKEN, type AtlasConfig } from '@/utils/config';
 import { logger } from '@/utils/logger';
 import {
   DekRewrapVerificationError,
+  DekRewrapRollbackError,
   DekWrapperMissingError,
   describe_rewrap_write_failure,
 } from '@/services/keys/dek-rewrap.errors';
@@ -51,7 +52,16 @@ export class DekRewrapService implements DekRewrapUseCase {
         throw describe_rewrap_write_failure(DEK_KEY, err);
       }
 
-      assert_rewrap_opens(await storage.get(DEK_KEY), next, tenant_id, dek);
+      try {
+        assert_rewrap_opens(await storage.get(DEK_KEY), next, tenant_id, dek);
+      } catch (err) {
+        // The only wrapper has already been overwritten at this point, so a verification failure
+        // without a rollback leaves the tenant unopenable. Put the blob that was read at the
+        // start back, prove it still opens with the passphrase the operator already has, and
+        // only then report the original failure.
+        await restore_previous_wrapper(storage, stored, current, tenant_id, err);
+        throw err;
+      }
 
       logger.info(`Re-wrapped the data key for ${tenant_id}; no data object was touched`);
       return {
@@ -89,5 +99,31 @@ function assert_rewrap_opens(
 
   if (read_back.length !== expected_dek.length || !timingSafeEqual(read_back, expected_dek)) {
     throw new DekRewrapVerificationError('the re-wrapped key is not the key that was stored');
+  }
+}
+
+/**
+ * Puts the wrapper that was read at the start back, and proves it still opens.
+ *
+ * Rollback is best effort by nature: the storage that just failed verification is the storage
+ * being asked to accept the restore. When that fails too, the thrown error names both, because
+ * an operator whose only wrapper is in an unknown state needs to know that before anything else.
+ */
+async function restore_previous_wrapper(
+  storage: { put(key: string, body: Buffer): Promise<void>; get(key: string): Promise<Buffer> },
+  previous: Buffer,
+  current: EnvelopeKeyService,
+  tenant_id: string,
+  cause: unknown,
+): Promise<void> {
+  try {
+    await storage.put(DEK_KEY, previous);
+    current.unwrap_dek(await storage.get(DEK_KEY), tenant_id);
+    logger.warn(
+      `Re-wrap failed verification for ${tenant_id}; restored the previous wrapper, which still ` +
+        `opens with the passphrase in use. Nothing changed.`,
+    );
+  } catch (restore_err) {
+    throw new DekRewrapRollbackError(DEK_KEY, cause, restore_err);
   }
 }

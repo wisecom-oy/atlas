@@ -39,24 +39,35 @@ interface Harness {
 
 /** A bucket holding one wrapped DEK, written with `OLD_PASSPHRASE`. */
 function make_harness(
-  options: { config_passphrase?: string; seed?: boolean; serve_after_write?: Buffer } = {},
+  options: {
+    config_passphrase?: string;
+    seed?: boolean;
+    /** Served by `get` after the first write, to fake a storage that returns the wrong blob. */
+    serve_after_write?: Buffer;
+    /** Fails the rollback write, so the bucket is left in an unknown state. */
+    reject_second_put?: boolean;
+  } = {},
 ): Harness {
   const writer = new EnvelopeKeyService(OLD_PASSPHRASE);
   const dek = writer.generate_dek();
   const objects = new Map<string, Buffer>();
   if (options.seed !== false) objects.set(DEK_KEY, writer.wrap_dek(dek, TENANT));
-  let written = false;
+  let writes = 0;
 
   const storage = {
     exists: vi.fn(async (key: string) => objects.has(key)),
     get: vi.fn(async (key: string) => {
-      if (written && options.serve_after_write) return options.serve_after_write;
+      // The rollback read must see what the rollback wrote, not the faked blob.
+      if (writes === 1 && options.serve_after_write) return options.serve_after_write;
       const found = objects.get(key);
       if (!found) throw new Error(`NoSuchKey: ${key}`);
       return found;
     }),
     put: vi.fn(async (key: string, body: Buffer) => {
-      written = true;
+      writes += 1;
+      if (writes === 2 && options.reject_second_put === true) {
+        throw new Error('AccessDenied on the restore');
+      }
       objects.set(key, body);
     }),
   };
@@ -135,6 +146,31 @@ describe('re-wrapping a tenant data key', () => {
 
     await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
       /Re-wrap verification failed/,
+    );
+  });
+
+  it('puts the previous wrapper back when verification fails, so the tenant still opens', async () => {
+    const foreign_writer = new EnvelopeKeyService(NEW_PASSPHRASE);
+    const foreign = foreign_writer.wrap_dek(foreign_writer.generate_dek(), TENANT);
+    const { service, objects, dek } = make_harness({ serve_after_write: foreign });
+
+    await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
+      /Re-wrap verification failed/,
+    );
+
+    // The only wrapper was overwritten before verification, so without the rollback the tenant
+    // would be unopenable with either passphrase.
+    const restored = new EnvelopeKeyService(OLD_PASSPHRASE);
+    expect(restored.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
+  });
+
+  it('names the state of the bucket when the rollback itself fails', async () => {
+    const foreign_writer = new EnvelopeKeyService(NEW_PASSPHRASE);
+    const foreign = foreign_writer.wrap_dek(foreign_writer.generate_dek(), TENANT);
+    const { service } = make_harness({ serve_after_write: foreign, reject_second_put: true });
+
+    await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
+      /could not be restored/,
     );
   });
 });

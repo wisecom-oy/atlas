@@ -746,10 +746,16 @@ readable. **This rotates the wrapper, not the key**: an attacker who already hol
 or the plaintext is unaffected by it. Use it for a leaked passphrase, not for a compromised
 bucket.
 
+Buckets are versioned and noncurrent versions expire after 30 days, so the wrapper this replaces
+stays readable until then. Someone with the old passphrase and permission to read object
+versions can still unwrap the same data key from it. Treat the rotation as complete only once
+that version is gone, or once the leaked reader's `s3:GetObjectVersion` is revoked.
+
 A wrong current passphrase rejects before anything is written. After the write the blob is read
 back and unwrapped before the promise resolves, so a resolved call means the tenant opens with
-the new passphrase. Update the instance configuration afterwards: nothing reads the new value
-until you do, and an instance constructed with the old passphrase will fail its next operation.
+the new passphrase, and a verification failure restores the previous wrapper before rejecting.
+Update the instance configuration afterwards: nothing reads the new value until you do, and an
+instance constructed with the old passphrase will fail its next operation.
 
 ## Graph API Cost Tracking
 

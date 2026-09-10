@@ -27,6 +27,26 @@ export class DekRewrapVerificationError extends StorageError {
 }
 
 /**
+ * Thrown when the re-wrap failed verification and the previous wrapper could not be put back.
+ *
+ * This is the one state where the operator has to act immediately, so the message says what is
+ * in the bucket rather than only what went wrong.
+ */
+export class DekRewrapRollbackError extends StorageError {
+  constructor(key: string, verification_cause: unknown, restore_cause: unknown) {
+    const verification = verification_cause instanceof Error ? verification_cause.message : '';
+    const restore = restore_cause instanceof Error ? restore_cause.message : String(restore_cause);
+    super(
+      `Re-wrap failed verification (${verification}) and the previous wrapper could not be ` +
+        `restored (${restore}). ${key} is now in an unknown state: do not discard either ` +
+        `passphrase, and check whether the object opens with one of them before running anything ` +
+        `else against this tenant.`,
+      { cause: restore_cause },
+    );
+  }
+}
+
+/**
  * Names an Object Lock or permission refusal on the wrapped-key write.
  *
  * A bucket that retains `_meta/dek.enc` under a governance-mode policy refuses the overwrite with
