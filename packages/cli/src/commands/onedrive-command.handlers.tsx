@@ -25,6 +25,7 @@ import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
 import { report_run_outcome, report_skipped_items } from '@/command-run-outcome';
+import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -117,14 +118,23 @@ export async function execute_onedrive_backup(
     </Box>,
   );
 
-  const result = await backup.backup_onedrive(tenant_id, owner.object_id, {
-    force_full: options.full ?? false,
-    ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
-    owner_email: owner.email,
-    owner_display_name: owner.display_name,
-    object_lock_request,
-    create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
-  });
+  const gate = install_interrupt_gate(
+    '[!] Stopping after the current file; the delta cursor is not advanced for an interrupted run',
+  );
+  let result;
+  try {
+    result = await backup.backup_onedrive(tenant_id, owner.object_id, {
+      force_full: options.full ?? false,
+      ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
+      owner_email: owner.email,
+      owner_display_name: owner.display_name,
+      object_lock_request,
+      create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
+      should_interrupt: gate.should_interrupt,
+    });
+  } finally {
+    gate.dispose();
+  }
 
   if (result.snapshot) {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);
@@ -153,7 +163,14 @@ export async function execute_onedrive_backup(
   } else {
     logger.error('Status: UNHEALTHY');
   }
-  report_run_outcome({ errors: result.summary.errors, warnings: result.summary.warnings }, 'file');
+  report_run_outcome(
+    {
+      errors: result.summary.errors,
+      warnings: result.summary.warnings,
+      interrupted: result.interrupted,
+    },
+    'file',
+  );
 }
 
 export async function execute_onedrive_restore(
