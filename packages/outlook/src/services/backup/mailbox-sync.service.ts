@@ -132,6 +132,12 @@ export class MailboxSyncService implements BackupUseCase {
           continue;
         }
 
+        // Per-message attachment failures, not folder failures: the folder's entries are kept
+        // and the run reports itself incomplete rather than losing the folder (issue #366).
+        folder_errors.push(
+          ...outcome.attachment_errors.map((line) => `${folder.folder_path}: ${line}`),
+        );
+
         all_entries.push(...outcome.entries);
         // Persist a folder's delta link only when every page was fully processed;
         // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
@@ -226,6 +232,7 @@ export class MailboxSyncService implements BackupUseCase {
     stored: number;
     deduplicated: number;
     attachments_stored: number;
+    attachment_errors: string[];
     folder_processed: number;
     error?: string;
   }> {
@@ -265,6 +272,7 @@ export class MailboxSyncService implements BackupUseCase {
         stored: result.stored,
         deduplicated: result.deduplicated,
         attachments_stored: result.attachments_stored,
+        attachment_errors: result.attachment_errors,
         folder_processed: result.folder_processed,
       };
     } catch (err) {
@@ -275,6 +283,7 @@ export class MailboxSyncService implements BackupUseCase {
         stored: 0,
         deduplicated: 0,
         attachments_stored: 0,
+        attachment_errors: [],
         folder_processed: 0,
         error: msg,
       };
