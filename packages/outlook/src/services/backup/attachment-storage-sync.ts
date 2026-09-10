@@ -45,7 +45,7 @@ async function store_single_attachment(
   if (has_content) {
     const exists = await ctx.storage.exists(storage_key);
     if (!exists) {
-      const ciphertext = ctx.encrypt(att.content);
+      const ciphertext = ctx.encrypt(att.content, storage_key);
       await ctx.storage.put(storage_key, ciphertext, undefined, object_lock_policy);
     }
   }

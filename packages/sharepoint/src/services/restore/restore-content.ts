@@ -104,7 +104,7 @@ async function buffered_download_and_decrypt(
   }
 
   try {
-    const content = ctx.decrypt(encrypted);
+    const content = ctx.decrypt(encrypted, entry.storage_key!);
     const expected = entry.checksum;
     if (!expected || !plaintext_sha256_equals_expected(content, expected)) {
       logger.warn(

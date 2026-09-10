@@ -77,7 +77,11 @@ describe('create_storage_target', () => {
     expect(ctx.storage).toBeDefined();
     // Round-trip proves unwrap_dek recovered the original DEK.
     const plaintext = Buffer.from('round-trip');
-    expect(ctx.decrypt(ctx.encrypt(plaintext)).equals(plaintext)).toBe(true);
+    expect(
+      ctx
+        .decrypt(ctx.encrypt(plaintext, 'onedrive/data/owner-1/blob'), 'onedrive/data/owner-1/blob')
+        .equals(plaintext),
+    ).toBe(true);
   });
 
   it('creates a storage-only context when no DEK exists', async () => {
@@ -87,8 +91,8 @@ describe('create_storage_target', () => {
 
     expect(ctx.tenant_id).toBe('tenant-1');
     expect(ctx.storage).toBeDefined();
-    expect(() => ctx.encrypt(Buffer.from('x'))).toThrow('no DEK');
-    expect(() => ctx.decrypt(Buffer.from('x'))).toThrow('no DEK');
+    expect(() => ctx.encrypt(Buffer.from('x'), 'onedrive/data/owner-1/blob')).toThrow('no DEK');
+    expect(() => ctx.decrypt(Buffer.from('x'), 'onedrive/data/owner-1/blob')).toThrow('no DEK');
     mock_exists_returns = true;
   });
 

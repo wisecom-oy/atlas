@@ -34,7 +34,7 @@ describe('CatalogService.read_message', () => {
     expect(result?.payload_format).toBeUndefined();
     expect(result?.attachments).toEqual([]);
     expect(mock_context.storage.get).toHaveBeenCalledWith('data/u/abc');
-    expect(mock_context.decrypt).toHaveBeenCalledWith(ciphertext);
+    expect(mock_context.decrypt).toHaveBeenCalledWith(ciphertext, 'data/u/abc');
   });
 
   it('returns attachment metadata from a JSON manifest entry', async () => {

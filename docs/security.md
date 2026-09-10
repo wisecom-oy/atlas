@@ -73,10 +73,51 @@ Every encrypt operation uses **AES-256-GCM** (Galois/Counter Mode), which provid
 ### Ciphertext Format
 
 ```
-[12-byte IV][16-byte GCM auth tag][ciphertext]
+[ATLS][version][12-byte IV][16-byte GCM auth tag][ciphertext]
 ```
 
 Every encrypt operation generates a **fresh random 12-byte IV** (initialization vector). This is critical for GCM security -- reusing an IV with the same key would be catastrophic, potentially exposing the XOR of two plaintexts and compromising the authentication key. Atlas generates a new random IV for every single object it encrypts.
+
+### What a ciphertext is bound to
+
+One DEK encrypts every object of a tenant, so the GCM tag alone proves only that the bytes were
+produced under that tenant's key. It does not prove they are the bytes that belong at this key.
+Until the header above existed, any object therefore authenticated in any other object's place:
+overwriting one stored blob with another needed write access to the bucket, not the passphrase.
+
+The header and the object's scope are authenticated as associated data, so a ciphertext only
+decrypts where it was written. The scope is the key's directory, which names the purpose and the
+owner: `onedrive/data/{owner_id}/`, `manifests/{mailbox}/`, `_meta/replication/{owner}/{snapshot}/`.
+The directory rather than the whole key, because the large-file pipeline encrypts into a staging
+key and promotes the finished object onto a content-addressed key whose checksum is unknown while
+the cipher is running. The streamed writer therefore binds the canonical directory, not the staging
+one, and a reader derives the same value from the key it is reading.
+
+What this does and does not cover:
+
+| Attack                                                       | Result                                                        |
+| ------------------------------------------------------------ | --------------------------------------------------------------- |
+| Move one object over another owner's or another purpose's key | Decryption fails: the scope in the AAD no longer matches       |
+| Strip or lower the version header                             | Decryption fails: the header is inside the AAD                 |
+| Move an object within its own directory                       | Not prevented; the manifest checksum comparison covers that    |
+| Replay an older ciphertext of the same object                 | Not prevented; that is Object Lock's and versioning's job      |
+
+Objects written before the header existed carry no magic and are decrypted the way they always
+were, with no associated data. Every existing backup stays readable, there is no migration step and
+no configuration flag.
+
+That compatibility is also the limit of the protection. A headerless object has no scope to check,
+so the substitution above still works against one: it can be moved anywhere in the bucket and will
+decrypt. Only objects written since the binding reject a move across owners or purposes.
+
+A bucket gains the property object by object as content is encrypted, which is not the same as
+snapshot by snapshot. File content is stored by checksum, so a backup of a file whose bytes are
+already in the bucket deduplicates onto the existing object and does not rewrite it, and a forced
+full run behaves the same way. A new snapshot's manifests, indexes and cursors are bound because
+they are written fresh, while the content they point at keeps whatever protection it was written
+with. Taking a new backup therefore does not upgrade an old blob: an object becomes bound when its
+plaintext changes, or when it is deleted from the bucket and stored again. Restore covers the rest
+either way, by comparing the manifest checksum before anything is written.
 
 ### What Is Encrypted at Rest
 
@@ -329,11 +370,12 @@ When you run `atlas outlook verify`, Atlas performs a full integrity check for a
 
 ### What the GCM tag does not tell you
 
-The authentication tag proves the bytes were produced under the tenant DEK. It does not say which
-object they belong to. Content is encrypted with one key per tenant and nothing in the ciphertext
-names the object, so any object in the tenant authenticates in any other object's place. Moving one
-blob over another needs write access to the bucket, not the key or the passphrase, and the swapped
-object still decrypts cleanly.
+The authentication tag proves the bytes were produced under the tenant DEK. For an object written
+before the scope binding above, it says nothing about which object those bytes belong to: a
+headerless ciphertext names no object, so any such object authenticates in any other object's
+place. Moving one blob over another needs write access to the bucket, not the key or the
+passphrase, and the swapped object still decrypts cleanly. A scope-bound object refuses a move
+across owners or purposes, but within its own directory it decrypts the same way.
 
 The manifest checksum is what distinguishes them, so it is compared before anything acts on the
 bytes, not after:

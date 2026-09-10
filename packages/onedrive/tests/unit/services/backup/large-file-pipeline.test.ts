@@ -60,7 +60,11 @@ function make_ctx(options: { exists?: boolean; list?: string[] } = {}): Recorded
     },
     create_cipher: () => {
       const iv = randomBytes(12);
-      return { cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }), iv };
+      return {
+        cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }),
+        iv,
+        header: Buffer.alloc(0),
+      };
     },
   } as unknown as TenantContext;
 

@@ -40,7 +40,7 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
   async save(ctx: TenantContext, manifest: OneDriveSnapshotManifest): Promise<void> {
     const key = onedrive_manifest_key(manifest.owner_id, manifest.snapshot_id);
     const payload = Buffer.from(JSON.stringify(manifest));
-    await ctx.storage.put(key, ctx.encrypt(payload));
+    await ctx.storage.put(key, ctx.encrypt(payload, key));
   }
 
   /** Loads a manifest by listing only that owner's manifest prefix. */
@@ -105,7 +105,7 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
   ): Promise<OneDriveSnapshotManifest | undefined> {
     try {
       const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload).toString('utf-8');
+      const json = ctx.decrypt(payload, key).toString('utf-8');
       const parsed = JSON.parse(json) as OneDriveSnapshotManifest;
       if (onedrive_manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
         throw new MismatchedOneDriveManifestError(key, parsed.owner_id, parsed.snapshot_id);

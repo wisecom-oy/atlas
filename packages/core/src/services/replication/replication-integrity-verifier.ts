@@ -60,7 +60,7 @@ async function verify_single_object(
 ): Promise<boolean> {
   try {
     const ciphertext = await ctx.storage.get(key);
-    const plaintext = ctx.decrypt(ciphertext);
+    const plaintext = ctx.decrypt(ciphertext, key);
     const actual = createHash('sha256').update(plaintext).digest('hex');
     if (actual.length !== expected_checksum.length) return false;
     return timingSafeEqual(Buffer.from(actual, 'utf8'), Buffer.from(expected_checksum, 'utf8'));

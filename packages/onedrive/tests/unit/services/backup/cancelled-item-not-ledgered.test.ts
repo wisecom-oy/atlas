@@ -25,6 +25,7 @@ const ITEM = {
 
 const KEYS = {
   data_key: (owner_id: string, checksum: string) => `onedrive/data/${owner_id}/${checksum}`,
+  data_prefix_for: (owner_id: string) => `onedrive/data/${owner_id}/`,
   staging_key: (owner_id: string, item_id: string) => `onedrive/staging/${owner_id}/${item_id}`,
   staging_prefix_for: (owner_id: string) => `onedrive/staging/${owner_id}/`,
 };

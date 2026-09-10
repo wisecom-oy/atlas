@@ -40,7 +40,7 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
   async save(ctx: TenantContext, manifest: SharePointSnapshotManifest): Promise<void> {
     const key = sharepoint_manifest_key(manifest.site_id, manifest.snapshot_id);
     const payload = Buffer.from(JSON.stringify(manifest));
-    await ctx.storage.put(key, ctx.encrypt(payload));
+    await ctx.storage.put(key, ctx.encrypt(payload, key));
   }
 
   /** Loads a manifest by listing only that site's manifest prefix. */
@@ -105,7 +105,7 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
   ): Promise<SharePointSnapshotManifest | undefined> {
     try {
       const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload).toString('utf-8');
+      const json = ctx.decrypt(payload, key).toString('utf-8');
       const parsed = JSON.parse(json) as SharePointSnapshotManifest;
       if (sharepoint_manifest_key(parsed.site_id, parsed.snapshot_id) !== key) {
         throw new MismatchedSharePointManifestError(key, parsed.site_id, parsed.snapshot_id);

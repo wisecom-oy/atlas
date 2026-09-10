@@ -37,6 +37,14 @@ export interface ContentAddressedStreamTarget {
   readonly staging_key: string;
   /** Builds the canonical key from the plaintext checksum. */
   build_data_key(checksum: string): string;
+  /**
+   * The directory the finished object lives in, which the ciphertext is bound to.
+   *
+   * Not the staging key's: the object is promoted onto its content-addressed key and has to
+   * decrypt from there, and the checksum that key is built from is unknown when the cipher is
+   * created (issue #350).
+   */
+  readonly data_scope: string;
   readonly object_lock_policy?: StorageObjectLockPolicy;
 }
 
@@ -57,6 +65,7 @@ export async function stream_to_content_addressed_storage(
     ctx,
     target.staging_key,
     chunks,
+    target.data_scope,
   );
 
   const canonical_key = target.build_data_key(checksum);
@@ -126,8 +135,9 @@ export async function stream_encrypt_to_multipart(
   ctx: TenantContext,
   staging_key: string,
   chunks: AsyncIterable<Buffer>,
+  scope_key: string = staging_key,
 ): Promise<StreamEncryptUploadResult> {
-  const { cipher, iv } = ctx.create_cipher();
+  const { cipher, iv, header } = ctx.create_cipher(scope_key);
   const hash = createHash('sha256');
   const handle = await ctx.storage.begin_multipart_upload(staging_key);
 
@@ -161,7 +171,7 @@ export async function stream_encrypt_to_multipart(
     }
 
     const auth_tag = cipher.getAuthTag();
-    const header_part = Buffer.concat([iv, auth_tag, state.first_part_data]);
+    const header_part = Buffer.concat([header, iv, auth_tag, state.first_part_data]);
     const part1_etag = await handle.upload_part(1, header_part);
     state.completed_parts.push({ ETag: part1_etag, PartNumber: 1 });
 

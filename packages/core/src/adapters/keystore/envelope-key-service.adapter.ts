@@ -9,6 +9,14 @@ import { WrongPassphraseError } from '@wisecom/atlas-types';
 import { DEFAULT_KDF_STRATEGY, KDF_STRATEGIES } from '@/adapters/keystore/kdf-strategy';
 import { parse_dek_blob, build_header_bytes } from '@/adapters/keystore/dek-blob-codec';
 import type { DekBlobHeader } from '@/adapters/keystore/dek-blob-codec';
+import {
+  build_content_header,
+  content_aad,
+  content_scope,
+  has_content_header,
+  read_content_header,
+  CONTENT_HEADER_LENGTH,
+} from '@/adapters/keystore/content-envelope';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
@@ -24,7 +32,9 @@ const KEY_LENGTH = 32;
  *   versioned, AAD-authenticated blob (see `dek-blob-codec`).
  * - All tenant data is encrypted with the DEK (buffer or streaming).
  *
- * Content format: [12-byte IV] [16-byte auth tag] [ciphertext]
+ * Content format: [magic] [version] [12-byte IV] [16-byte auth tag] [ciphertext], with the header
+ * and the object's scope authenticated as AAD so a ciphertext only decrypts where it belongs
+ * (issue #350). A blob written before that header existed has no AAD and is read as it always was.
  */
 export class EnvelopeKeyService {
   // Stored as a Buffer so it can be zeroed via destroy(). The caller-side JS
@@ -40,30 +50,64 @@ export class EnvelopeKeyService {
     this._passphrase_buf.fill(0);
   }
 
-  /** Encrypts plaintext using the given DEK. */
-  encrypt(data: Buffer, dek: Buffer): Buffer {
-    return aes_gcm_encrypt(data, dek);
-  }
-
-  /** Decrypts ciphertext using the given DEK. Throws on tampered data. */
-  decrypt(data: Buffer, dek: Buffer): Buffer {
-    return aes_gcm_decrypt(data, dek);
+  /**
+   * Encrypts plaintext using the given DEK, bound to the object's storage key.
+   *
+   * The binding is the key's directory, so the result decrypts under that prefix and nowhere else.
+   */
+  encrypt(data: Buffer, dek: Buffer, storage_key: string): Buffer {
+    const header = build_content_header();
+    const aad = content_aad(header, content_scope(storage_key));
+    return Buffer.concat([header, aes_gcm_encrypt(data, dek, aad)]);
   }
 
   /**
-   * Creates a streaming AES-256-GCM cipher using the DEK (same parameters as
-   * {@link EnvelopeKeyService.encrypt}); finalize with auth tag for the envelope format.
+   * Decrypts ciphertext using the given DEK. Throws on tampered data, and on a blob that carries
+   * the versioned header but was written for another scope.
+   *
+   * A blob with no header predates the binding and is decrypted without AAD.
    */
-  create_encrypt_cipher(dek: Buffer): { cipher: CipherGCM; iv: Buffer } {
-    const iv = randomBytes(IV_LENGTH);
-    const cipher = createCipheriv(ALGORITHM, dek, iv, { authTagLength: AUTH_TAG_LENGTH });
-    return { cipher, iv };
+  decrypt(data: Buffer, dek: Buffer, storage_key: string): Buffer {
+    if (!has_content_header(data)) return aes_gcm_decrypt(data, dek);
+    const header = read_content_header(data);
+    const aad = content_aad(header, content_scope(storage_key));
+    return aes_gcm_decrypt(data.subarray(CONTENT_HEADER_LENGTH), dek, aad);
   }
 
-  /** Creates a streaming AES-256-GCM decipher initialized with IV and auth tag. */
-  create_decrypt_decipher(dek: Buffer, iv: Buffer, auth_tag: Buffer): DecipherGCM {
+  /**
+   * Creates a streaming AES-256-GCM cipher bound to a scope, plus the header the caller has to
+   * write ahead of the IV for the object to be readable.
+   *
+   * `scope_key` is any key in the directory the finished object will live in, which for the
+   * large-file pipeline is the content-addressed key rather than the staging key it streams into.
+   */
+  create_encrypt_cipher(
+    dek: Buffer,
+    scope_key: string,
+  ): { cipher: CipherGCM; iv: Buffer; header: Buffer } {
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, dek, iv, { authTagLength: AUTH_TAG_LENGTH });
+    const header = build_content_header();
+    cipher.setAAD(content_aad(header, content_scope(scope_key)));
+    return { cipher, iv, header };
+  }
+
+  /**
+   * Creates a streaming AES-256-GCM decipher initialized with IV and auth tag.
+   *
+   * `header` is the envelope header the reader found ahead of the IV, or undefined for an object
+   * written before the header existed, which authenticates without AAD.
+   */
+  create_decrypt_decipher(
+    dek: Buffer,
+    iv: Buffer,
+    auth_tag: Buffer,
+    scope_key: string,
+    header?: Buffer,
+  ): DecipherGCM {
     const decipher = createDecipheriv(ALGORITHM, dek, iv, { authTagLength: AUTH_TAG_LENGTH });
     decipher.setAuthTag(auth_tag);
+    if (header) decipher.setAAD(content_aad(header, content_scope(scope_key)));
     return decipher;
   }
 

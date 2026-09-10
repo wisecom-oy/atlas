@@ -63,7 +63,7 @@ export async function process_drive_backup_file(
   const exists = await ctx.storage.exists(storage_key);
 
   if (!exists) {
-    await ctx.storage.put(storage_key, ctx.encrypt(raw_body));
+    await ctx.storage.put(storage_key, ctx.encrypt(raw_body, storage_key));
     return { storage_key, checksum, stored: true, deduplicated: false };
   }
 

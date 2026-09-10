@@ -18,7 +18,7 @@ export class S3IdentityRegistryRepository implements IdentityRegistryRepository 
       const exists = await ctx.storage.exists(REGISTRY_KEY);
       if (!exists) return undefined;
       const encrypted = await ctx.storage.get(REGISTRY_KEY);
-      const json = ctx.decrypt(encrypted);
+      const json = ctx.decrypt(encrypted, REGISTRY_KEY);
       return JSON.parse(json.toString('utf-8')) as IdentityRegistry;
     } catch {
       return undefined;
@@ -27,7 +27,7 @@ export class S3IdentityRegistryRepository implements IdentityRegistryRepository 
 
   async save(ctx: TenantContext, registry: IdentityRegistry): Promise<void> {
     const json = Buffer.from(JSON.stringify(registry));
-    const encrypted = ctx.encrypt(json);
+    const encrypted = ctx.encrypt(json, REGISTRY_KEY);
     await ctx.storage.put(REGISTRY_KEY, encrypted);
   }
 }

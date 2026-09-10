@@ -17,7 +17,7 @@ export class S3OneDriveDeltaCursorRepository implements OneDriveDeltaCursorRepos
 
     try {
       const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload).toString('utf-8');
+      const json = ctx.decrypt(payload, key).toString('utf-8');
       return JSON.parse(json) as OneDriveDeltaCursor;
     } catch {
       return undefined;
@@ -28,6 +28,6 @@ export class S3OneDriveDeltaCursorRepository implements OneDriveDeltaCursorRepos
   async save(ctx: TenantContext, cursor: OneDriveDeltaCursor): Promise<void> {
     const key = onedrive_delta_cursor_key(cursor.owner_id);
     const payload = Buffer.from(JSON.stringify(cursor));
-    await ctx.storage.put(key, ctx.encrypt(payload));
+    await ctx.storage.put(key, ctx.encrypt(payload, key));
   }
 }

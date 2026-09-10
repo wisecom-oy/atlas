@@ -51,16 +51,20 @@ export class S3ManifestRepository implements ManifestRepository {
   async save(ctx: TenantContext, manifest: Manifest): Promise<void> {
     const key = manifest_key(manifest.owner_id, manifest.snapshot_id);
     const json = Buffer.from(JSON.stringify(manifest));
-    const encrypted = ctx.encrypt(json);
+    const encrypted = ctx.encrypt(json, key);
     const object_lock_policy = to_storage_object_lock_policy(manifest);
     await ctx.storage.put(key, encrypted, undefined, object_lock_policy);
 
-    const pointer = ctx.encrypt(
-      Buffer.from(JSON.stringify({ manifest_key: key } satisfies ManifestPointer)),
+    // Encrypted once per destination: the two pointers live in different directories, and the
+    // binding is what stops one being moved onto the other (issue #350).
+    const pointer_json = Buffer.from(
+      JSON.stringify({ manifest_key: key } satisfies ManifestPointer),
     );
+    const snapshot_key = snapshot_pointer_key(manifest.snapshot_id);
+    const latest_key = latest_pointer_key(manifest.owner_id);
     await Promise.all([
-      ctx.storage.put(snapshot_pointer_key(manifest.snapshot_id), pointer),
-      ctx.storage.put(latest_pointer_key(manifest.owner_id), pointer),
+      ctx.storage.put(snapshot_key, ctx.encrypt(pointer_json, snapshot_key)),
+      ctx.storage.put(latest_key, ctx.encrypt(pointer_json, latest_key)),
     ]);
   }
 
@@ -110,7 +114,7 @@ export class S3ManifestRepository implements ManifestRepository {
   private async download_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
     try {
       const encrypted = await ctx.storage.get(key);
-      const json = ctx.decrypt(encrypted);
+      const json = ctx.decrypt(encrypted, key);
       const parsed = JSON.parse(json.toString('utf-8')) as Partial<ManifestPointer>;
       return typeof parsed.manifest_key === 'string' ? parsed.manifest_key : undefined;
     } catch {
@@ -149,7 +153,7 @@ export class S3ManifestRepository implements ManifestRepository {
   ): Promise<Manifest | undefined> {
     try {
       const encrypted = await ctx.storage.get(key);
-      const json = ctx.decrypt(encrypted);
+      const json = ctx.decrypt(encrypted, key);
       const parsed = JSON.parse(json.toString('utf-8')) as Manifest;
       if (manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
         throw new MismatchedManifestError(key, parsed.owner_id, parsed.snapshot_id);

@@ -8,22 +8,36 @@ export interface TenantStorageContext {
   readonly storage: ObjectStorage;
 }
 
-/** Tenant-scoped encryption/decryption operations. */
+/**
+ * Tenant-scoped encryption and decryption.
+ *
+ * Every method takes the key the object lives under, because one DEK covers the whole tenant and
+ * the ciphertext is bound to its scope: an object moved to another key stops decrypting instead of
+ * authenticating in its place (issue #350). The key is required rather than optional, since an
+ * optional binding is one a call site forgets and the protection then disappears silently.
+ */
 export interface TenantCryptoContext {
-  /** Encrypts plaintext with this tenant's data encryption key. */
-  encrypt(data: Buffer): Buffer;
+  /** Encrypts plaintext for the object that will live at `storage_key`. */
+  encrypt(data: Buffer, storage_key: string): Buffer;
 
-  /** Decrypts ciphertext with this tenant's data encryption key. */
-  decrypt(data: Buffer): Buffer;
+  /** Decrypts the object read from `storage_key`. */
+  decrypt(data: Buffer, storage_key: string): Buffer;
 
   /**
-   * Creates a streaming AES-256-GCM cipher and IV for payloads that match
-   * the non-streaming {@link TenantCryptoContext.encrypt} envelope layout on read.
+   * Creates a streaming AES-256-GCM cipher, its IV, and the envelope header to write ahead of it.
+   *
+   * `scope_key` is a key in the directory the finished object belongs to, which for a staged
+   * large-file upload is its content-addressed key rather than the staging key.
    */
-  create_cipher(): { cipher: CipherGCM; iv: Buffer };
+  create_cipher(scope_key: string): { cipher: CipherGCM; iv: Buffer; header: Buffer };
 
-  /** Creates a streaming AES-256-GCM decipher for the given IV and auth tag. */
-  create_decipher(iv: Buffer, auth_tag: Buffer): DecipherGCM;
+  /**
+   * Creates a streaming AES-256-GCM decipher for the given IV and auth tag.
+   *
+   * `header` is the envelope header found ahead of the IV, absent for an object written before the
+   * binding existed.
+   */
+  create_decipher(iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer): DecipherGCM;
 }
 
 /** Bundles tenant-scoped storage and encryption for a single tenant. */

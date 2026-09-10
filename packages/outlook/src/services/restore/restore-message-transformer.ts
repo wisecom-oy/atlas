@@ -78,7 +78,7 @@ export async function decrypt_and_parse_mime(
 /** Fetches, decrypts and checksum-verifies one entry's stored payload. */
 async function decrypt_verified_entry(ctx: TenantContext, entry: ManifestEntry): Promise<Buffer> {
   const ciphertext = await ctx.storage.get(entry.storage_key);
-  const plaintext = ctx.decrypt(ciphertext);
+  const plaintext = ctx.decrypt(ciphertext, entry.storage_key);
   assert_restored_content_matches(`message ${entry.object_id}`, plaintext, entry.checksum);
   return plaintext;
 }

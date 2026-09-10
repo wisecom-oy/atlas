@@ -61,6 +61,7 @@ async function* one_chunk(): AsyncGenerator<Buffer> {
 const TARGET = {
   staging_key: 'onedrive/staging/owner-1/item-1',
   build_data_key: (checksum: string) => `onedrive/data/owner-1/${checksum}`,
+  data_scope: 'onedrive/data/owner-1/',
 };
 
 describe('multipart upload ownership (issue #345)', () => {

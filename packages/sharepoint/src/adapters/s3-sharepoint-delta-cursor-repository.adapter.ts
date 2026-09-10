@@ -17,7 +17,7 @@ export class S3SharePointDeltaCursorRepository implements SharePointDeltaCursorR
 
     try {
       const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload).toString('utf-8');
+      const json = ctx.decrypt(payload, key).toString('utf-8');
       return JSON.parse(json) as SharePointDeltaCursor;
     } catch {
       return undefined;
@@ -28,6 +28,6 @@ export class S3SharePointDeltaCursorRepository implements SharePointDeltaCursorR
   async save(ctx: TenantContext, cursor: SharePointDeltaCursor): Promise<void> {
     const key = sharepoint_delta_cursor_key(cursor.site_id);
     const payload = Buffer.from(JSON.stringify(cursor));
-    await ctx.storage.put(key, ctx.encrypt(payload));
+    await ctx.storage.put(key, ctx.encrypt(payload, key));
   }
 }

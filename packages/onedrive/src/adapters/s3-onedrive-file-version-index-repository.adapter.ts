@@ -85,10 +85,8 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
     if (indexes.length === 0) return;
     validate_key_segment(snapshot_id);
     const payload: RunIndexPayload = { owner_id, snapshot_id, indexes };
-    await ctx.storage.put(
-      onedrive_run_index_key(owner_id, snapshot_id),
-      ctx.encrypt(Buffer.from(JSON.stringify(payload), 'utf-8')),
-    );
+    const key = onedrive_run_index_key(owner_id, snapshot_id);
+    await ctx.storage.put(key, ctx.encrypt(Buffer.from(JSON.stringify(payload), 'utf-8'), key));
   }
 
   /** Lists per-file version histories for an owner, merged across all index objects. */
@@ -145,7 +143,7 @@ export class S3OneDriveFileVersionIndexRepository implements OneDriveFileVersion
   ): Promise<OneDriveFileVersionIndex[]> {
     const payload = await ctx.storage.get(key);
     try {
-      const parsed = JSON.parse(ctx.decrypt(payload).toString('utf-8')) as StoredIndexPayload;
+      const parsed = JSON.parse(ctx.decrypt(payload, key).toString('utf-8')) as StoredIndexPayload;
       return 'indexes' in parsed ? parsed.indexes : [parsed];
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

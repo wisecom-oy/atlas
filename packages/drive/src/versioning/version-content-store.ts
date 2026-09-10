@@ -67,6 +67,7 @@ async function store_streamed(
     {
       staging_key: keys.staging_key(owner_id, item.item_id),
       build_data_key: (checksum) => keys.data_key(owner_id, checksum),
+      data_scope: keys.data_prefix_for(owner_id),
     },
   );
 
@@ -99,7 +100,7 @@ async function store_buffered(
   const checksum = createHash('sha256').update(content).digest('hex');
   const storage_key = keys.data_key(owner_id, checksum);
   const deduplicated = await ctx.storage.exists(storage_key);
-  if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(content));
+  if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(content, storage_key));
 
   return { checksum, storage_key, deduplicated };
 }

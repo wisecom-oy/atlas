@@ -107,7 +107,7 @@ async function decrypt_and_verify_attachment(
   result: EntryResult,
 ): Promise<Buffer> {
   const ciphertext = await ctx.storage.get(att.storage_key);
-  const plaintext = ctx.decrypt(ciphertext);
+  const plaintext = ctx.decrypt(ciphertext, att.storage_key);
 
   if (!skip_integrity && att.checksum) {
     if (!verify_checksum(plaintext, att.checksum)) {

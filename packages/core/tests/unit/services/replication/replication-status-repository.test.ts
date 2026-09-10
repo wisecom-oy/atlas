@@ -86,6 +86,7 @@ describe('replication-status-repository', () => {
     expect(key).toBe('_meta/replication/mbx-1/snap-1/offsite.json');
     expect(ctx.encrypt).toHaveBeenCalledWith(
       expect.objectContaining(Buffer.from(JSON.stringify(record))),
+      '_meta/replication/mbx-1/snap-1/offsite.json',
     );
     expect(data).toBeInstanceOf(Buffer);
   });
