@@ -18,6 +18,7 @@ function make_storage(): ObjectStorage {
     delete: vi.fn(),
     delete_version: vi.fn(),
     exists: vi.fn(),
+    list_stale: vi.fn(async () => []),
     list: vi.fn(),
     list_versions: vi.fn(),
     begin_multipart_upload: vi.fn().mockResolvedValue({
@@ -85,6 +86,7 @@ describe('replication-status-repository', () => {
     expect(key).toBe('_meta/replication/mbx-1/snap-1/offsite.json');
     expect(ctx.encrypt).toHaveBeenCalledWith(
       expect.objectContaining(Buffer.from(JSON.stringify(record))),
+      '_meta/replication/mbx-1/snap-1/offsite.json',
     );
     expect(data).toBeInstanceOf(Buffer);
   });

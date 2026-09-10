@@ -47,6 +47,32 @@ rebaselines. Files in the rebaselining drive are recorded as `created` again,
 which is what a lost delta chain means; files elsewhere keep their history and a
 genuine edit there is still reported as `updated`.
 
+## When the cursor is committed
+
+OneDrive and SharePoint keep their delta links in a separate cursor object rather than inside the
+manifest, so a run has several writes to order correctly. A run that produced entries writes the
+snapshot manifest first, then the run's version index, then the cursor. A run with no entries has
+no manifest to write, so it writes the version index and then the cursor.
+
+The ordering is what makes an interrupted or failed run safe to retry. A cursor written first would
+record that the drive was consumed up to a point no snapshot references. The encrypted content would
+be in the bucket and durable, but nothing would point at it, and the next run would ask Graph for
+changes since that advanced link and correctly be told there are none. The result reports healthy
+with no errors while the change is unrecoverable.
+
+With the manifest first, the worst case is repeated work rather than lost work. A crash after the
+manifest but before the cursor leaves change tracking pointing at the previous run, so the next run
+re-enumerates the same interval and writes a second snapshot covering it. The content is
+content-addressed, so the re-upload deduplicates against what is already stored and costs Graph
+reads rather than storage.
+
+This applies per run, not per drive. A multi-drive owner or a site with several libraries
+accumulates its advanced delta links in memory and commits them together after the manifest, so a
+drive that finished never has its progress committed ahead of the snapshot that makes it reachable.
+
+Outlook is unaffected: its delta links live inside the manifest, so there is only one write and the
+question does not arise.
+
 ## File version dedup (OneDrive and SharePoint)
 
 OneDrive and SharePoint backups capture more than the current copy of a file. For every file the delta stream reports as changed, Atlas also enumerates the file's **historical versions** through `GET /drives/{drive-id}/items/{item-id}/versions` and stores each one it has not captured before. The current version is skipped, because the manifest entry already covers it.

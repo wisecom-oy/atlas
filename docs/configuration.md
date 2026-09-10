@@ -1,6 +1,6 @@
 # Configuration
 
-Atlas merges configuration from four sources, in this order. Later sources win.
+The Atlas CLI merges configuration from four sources, in this order. Later sources win.
 
 1. **Config file**: `atlas.config.json` or `.atlas/config.json`, searched in cwd, then `~/.atlas/`
 2. **Encrypted secure store**: `~/.atlas/config.enc`, managed with `atlas config`
@@ -8,6 +8,8 @@ Atlas merges configuration from four sources, in this order. Later sources win.
 4. **Environment variables**: always take precedence
 
 This lets you keep defaults in a config file, credentials in the encrypted store on operator workstations, and environment variables for CI/CD or container orchestration where secrets are injected at runtime.
+
+The SDK does not use this discovery chain. Pass credentials and tenant configuration explicitly to `createAtlasInstance`; v5 rejects missing or blank required fields, passphrases shorter than 14 UTF-8 bytes, and malformed HTTP(S) S3 endpoints before creating clients. The optional `atlas.validate()` probes an existing tenant bucket and Graph token acquisition without provisioning storage. See [SDK configuration validation](/reference/sdk#configuration-validation) for endpoint constraints and typed failures.
 
 ## Variables
 
@@ -39,10 +41,10 @@ Every setting has three equivalent forms: an environment variable, a config file
 ## The Encrypted Secure Store (`atlas config`)
 
 ```bash
-atlas config tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f
-atlas config client.id 11112222-3333-4444-5555-666677778888
-pbpaste | atlas config client.secret -   # "-" reads from stdin, keeping secrets out of shell history
-atlas config s3.endpoint https://s3.example.com
+atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f
+atlas config set client.id 11112222-3333-4444-5555-666677778888
+pbpaste | atlas config set client.secret -   # "-" reads from stdin, keeping secrets out of shell history
+atlas config set s3.endpoint https://s3.example.com
 atlas config list          # every key, secrets masked, source annotated
 atlas config validate      # live-check Graph and S3 connectivity
 atlas config unset client.secret

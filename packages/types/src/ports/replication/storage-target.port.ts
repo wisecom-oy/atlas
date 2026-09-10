@@ -1,12 +1,17 @@
 import type { TenantContext } from '@/ports/tenant/context.port';
 
+/**
+ * camelCase, matching `AtlasInstanceConfig`. The factory is bound in the DI container by symbol,
+ * which is untyped, so a second snake_case spelling of this shape is not a synonym: it resolves
+ * to `undefined` fields at runtime and an S3 client with no credentials (issue #377).
+ */
 export interface StorageTargetConfig {
-  readonly target_id?: string;
-  readonly s3_endpoint: string;
-  readonly s3_access_key: string;
-  readonly s3_secret_key: string;
-  readonly s3_region?: string;
-  readonly encryption_passphrase: string;
+  readonly targetId?: string;
+  readonly s3Endpoint: string;
+  readonly s3AccessKey: string;
+  readonly s3SecretKey: string;
+  readonly s3Region?: string;
+  readonly encryptionPassphrase: string;
 }
 
 export interface StorageTarget {

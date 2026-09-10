@@ -7,6 +7,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { delete_scopes } from '@/services/deletion/shared/prefix-deleter';
+import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 
 @injectable()
 export class SharePointDeletionService implements SharePointDeletionUseCase {
@@ -24,13 +25,18 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
   async delete_site_data(tenant_id: string, site_id: string): Promise<DeletionResult> {
     site_id = normalize_owner_id(site_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_scopes(storage, [
+    const staging_prefix = `sharepoint/staging/${site_id}/`;
+    const result = await delete_scopes(storage, [
       `sharepoint/manifests/${site_id}/`,
       `sharepoint/data/${site_id}/`,
       `sharepoint/index/${site_id}/`,
       `sharepoint/_meta/${site_id}/`,
-      `sharepoint/staging/${site_id}/`,
+      staging_prefix,
     ]);
+    // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps a site
+    // nobody backs up any more (issue #345).
+    await abort_staging_uploads(storage, staging_prefix);
+    return result;
   }
 
   /**

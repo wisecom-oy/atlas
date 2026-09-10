@@ -1,3 +1,4 @@
+import type { Writable } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import { Container } from 'inversify';
@@ -19,13 +20,18 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 
-vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
+vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (import_original) => {
+  const actual =
+    await import_original<
+      typeof import('@wisecom/atlas-core/services/shared/file-save-zip-writer')
+    >();
   const mock_archive = {
     append: vi.fn(),
     finalize: vi.fn().mockResolvedValue(undefined),
     pointer: vi.fn().mockReturnValue(4096),
   };
   return {
+    ...actual,
     create_file_archive: vi.fn().mockReturnValue({
       archive: mock_archive,
       promise: Promise.resolve(4096),
@@ -36,11 +42,17 @@ vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
     finalize_file_archive: vi.fn().mockResolvedValue(undefined),
   };
 });
-
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
   stream_decrypt_from_storage: vi.fn(),
   verify_streaming_checksum: vi.fn().mockReturnValue(true),
+}));
+
+const { mock_mark_downloaded } = vi.hoisted(() => ({
+  mock_mark_downloaded: vi.fn<(path: string) => Promise<void>>().mockResolvedValue(undefined),
+}));
+vi.mock('@wisecom/atlas-core/utils/zone-identifier', () => ({
+  mark_downloaded_from_internet: mock_mark_downloaded,
 }));
 
 function make_entry(overrides: Overrides<OneDriveManifestEntry> = {}): OneDriveManifestEntry {
@@ -313,6 +325,25 @@ describe('OneDriveSaveService', () => {
       expect(on_progress).toHaveBeenLastCalledWith(
         expect.objectContaining({ operation: 'save', workload: 'onedrive', phase: 'interrupted' }),
       );
+    });
+
+    it('accepts a stream target and reports empty output_path', async () => {
+      const entries = [make_entry(), make_entry({ file_id: 'file-2', file_name: 'budget.xlsx' })];
+      const manifest = make_manifest(entries);
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(manifest);
+      const mock_stream = { write: vi.fn() } as unknown as Writable;
+      mock_mark_downloaded.mockClear();
+
+      const result = await service.save_snapshot('test-tenant', 'owner-1', {
+        snapshot_id: 'od-snap-1',
+        output: mock_stream,
+      });
+
+      expect(result.files_saved).toBe(2);
+      expect(result.output_path).toBe('');
+      expect(result.total_bytes).toBeGreaterThan(0);
+      // A stream export has no local file, so there is nothing to mark as downloaded.
+      expect(mock_mark_downloaded).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,45 +1,117 @@
 import { randomBytes } from 'node:crypto';
-import { createWriteStream, type WriteStream } from 'node:fs';
+import { once } from 'node:events';
+import { createWriteStream } from 'node:fs';
 import { rename, rm } from 'node:fs/promises';
+import type { Writable } from 'node:stream';
 import { ZipArchive, type Archiver } from 'archiver';
 import { logger } from '@/utils/logger';
 
 /** The archiver instance file entries are appended to. */
 export type FileArchiveWriter = Archiver;
 
+/**
+ * The archive cannot take entries any more: its destination failed, or it went away.
+ *
+ * Distinct from a bad entry, because the answer differs. One file that will not decrypt is
+ * reported and the run moves on; a destination that is gone means every remaining entry would be
+ * downloaded, decrypted and thrown away, so the run stops instead (issue #344).
+ */
+export class ArchiveDestinationError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ArchiveDestinationError';
+  }
+}
+
+/**
+ * Where a save archive is written: a filesystem path, or a caller's stream.
+ *
+ * A stream target exports without touching local disk, which is what an embedder piping to an
+ * HTTP response or an upload needs (issue #44). It also has no staging step, because there is no
+ * path to move the bytes onto.
+ */
+export type ArchiveTarget = string | Writable;
+
 export interface FileArchive {
   readonly archive: FileArchiveWriter;
   readonly promise: Promise<number>;
   /**
-   * Moves the finished archive onto the output path. Call it after the archive is finalized and
-   * the byte count has resolved; until then the output path is untouched.
+   * Resolves once the destination has taken what the archive has produced so far.
+   *
+   * The archiver keeps compressing whatever it is handed, so without this a producer runs as far
+   * ahead of a slow consumer as its source allows and the difference sits in the archive's readable
+   * buffer (issue #343).
+   */
+  drain(): Promise<void>;
+  /**
+   * Makes the completed archive available to its consumer. For a path target this moves the
+   * finished archive onto the output path, which is untouched until then. For a stream target the
+   * bytes were already delivered as they were written, so there is nothing left to do.
+   *
+   * Call it after the archive is finalized and the byte count has resolved.
    */
   publish(): Promise<void>;
-  /** Destroys the stream and removes the temporary file, for a run that failed before publishing. */
+  /**
+   * Tears down a run that failed before publishing.
+   *
+   * A path target loses its temporary file and leaves any pre-existing file at the output path
+   * intact. A stream target is destroyed, so a consumer sees a failed transfer rather than a
+   * truncated archive delivered as a success.
+   */
   abort(): Promise<void>;
 }
 
 /**
- * Creates a zip archive for the given output path. Returns the archiver and a promise that
+ * Creates a zip archive for the given target. Returns the archiver and a promise that
  * resolves with total bytes written.
  *
- * Entries are written to a sibling temporary file and moved onto the output path by
- * {@link FileArchive.publish}, so nothing appears there until the archive is complete. A
+ * Entries bound for a path are written to a sibling temporary file and moved onto the output path
+ * by {@link FileArchive.publish}, so nothing appears there until the archive is complete. A
  * truncated zip is indistinguishable from a finished one, which is worse than no file at all when
  * the reason an operator ran a save is that they need the bytes (issue #307), and a save that
  * fails must not destroy a file that was already sitting at the path it was pointed at.
+ *
+ * A stream target cannot stage: its consumer receives bytes as they are produced, which is the
+ * point of streaming an export. `abort()` therefore destroys it instead.
  */
-export function create_file_archive(output_path: string): FileArchive {
-  const staging_path = `${output_path}.part-${randomBytes(6).toString('hex')}`;
-  const output = createWriteStream(staging_path);
-  const archive = new ZipArchive({ zlib: { level: 6 } });
+export function create_file_archive(
+  target: ArchiveTarget,
+  options: { readonly compression_level?: number } = {},
+): FileArchive {
+  const staging_path =
+    typeof target === 'string' ? `${target}.part-${randomBytes(6).toString('hex')}` : undefined;
+  const output =
+    staging_path === undefined ? (target as Writable) : createWriteStream(staging_path);
+  const archive = new ZipArchive({ zlib: { level: options.compression_level ?? 6 } });
 
   const promise = new Promise<number>((resolve, reject) => {
-    output.on('close', () => resolve(archive.pointer()));
+    // A staged file is only safe to rename once its descriptor is closed. A caller's stream may
+    // never emit `close` at all, so for those the flush is what completion means.
+    output.on(staging_path === undefined ? 'finish' : 'close', () => resolve(archive.pointer()));
+    // The archiver's own errors, a rejected entry name or an append after finalize, are the
+    // caller's mistake rather than a destination that went away, so they keep their own identity.
     archive.on('error', reject);
     // Errors on the destination are not forwarded through pipe(), so without this a failed write
     // resolves on `close` and the caller reports a successful save.
-    output.on('error', reject);
+    output.on('error', (err: Error) =>
+      reject(
+        new ArchiveDestinationError(`The archive destination failed: ${err.message}`, {
+          cause: err,
+        }),
+      ),
+    );
+    // `destroy()` with no error emits `close` and nothing else, so a consumer that walks away
+    // leaves a caller's stream with no `finish` to resolve on. Resolution has already happened by
+    // then on the success path, where `finish` precedes `close`.
+    if (staging_path === undefined) {
+      output.on('close', () =>
+        reject(
+          new ArchiveDestinationError(
+            'The archive destination closed before the archive was finished',
+          ),
+        ),
+      );
+    }
   });
   // Attach a handler now, so an error raised while entries are still being written is not an
   // unhandled rejection. Awaiting `promise` later still sees the rejection.
@@ -49,15 +121,49 @@ export function create_file_archive(output_path: string): FileArchive {
   return {
     archive,
     promise,
-    publish: () => rename(staging_path, output_path),
+    drain: () => wait_for_drain(output),
+    publish: async () => {
+      if (staging_path !== undefined) await rename(staging_path, target as string);
+    },
     abort: () => abort_archive(archive, output, staging_path),
   };
 }
 
+/**
+ * Waits until the destination is ready for more, and fails when it is gone.
+ *
+ * A destination that is destroyed mid-export never emits `drain`, so a producer parked on that
+ * event waits forever. A `close` while entries are still being written is always premature, for a
+ * staged file as much as for a caller's stream, so it fails the entry that was waiting rather than
+ * letting the run report it as saved.
+ */
+async function wait_for_drain(output: Writable): Promise<void> {
+  if (output.destroyed || output.writableEnded) {
+    throw new ArchiveDestinationError('The archive destination is closed');
+  }
+  if (!output.writableNeedDrain) return;
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const settle = (err?: Error): void => {
+    output.off('drain', on_drain);
+    output.off('close', on_close);
+    output.off('error', on_error);
+    if (err === undefined) resolve();
+    else reject(err);
+  };
+  const on_drain = (): void => settle();
+  const on_close = (): void =>
+    settle(new ArchiveDestinationError('The archive destination closed mid-entry'));
+  const on_error = (err: Error): void => settle(err);
+  output.once('drain', on_drain);
+  output.once('close', on_close);
+  output.once('error', on_error);
+  await promise;
+}
+
 async function abort_archive(
   archive: FileArchiveWriter,
-  output: WriteStream,
-  staging_path: string,
+  output: Writable,
+  staging_path: string | undefined,
 ): Promise<void> {
   try {
     archive.abort();
@@ -65,6 +171,7 @@ async function abort_archive(
     // Already destroyed or never started; the stream teardown below is what matters.
   }
   output.destroy();
+  if (staging_path === undefined) return;
   try {
     await rm(staging_path, { force: true });
   } catch (err) {
@@ -74,17 +181,75 @@ async function abort_archive(
   }
 }
 
+/**
+ * Appends one entry at the given path in the archive, resolving once it has been compressed and
+ * the destination has taken what that produced.
+ *
+ * `append()` only queues, so awaiting it alone let a producer run as far ahead of a slow
+ * destination as the source allowed: an export to a stalled consumer compressed every entry it
+ * could decrypt and the result sat in the archive's readable buffer (issue #343). Waiting for the
+ * archiver's `entry` event bounds the queue and {@link FileArchive.drain} bounds the buffer.
+ *
+ * A destination that fails is raised here rather than waited on. Its error lands on the byte-count
+ * promise, not on the archiver, and an archive that lost its destination stops emitting `entry`
+ * altogether: a disk filling up mid-export would otherwise park the producer forever.
+ *
+ * One entry at a time. The `entry` event names no correlation, so a caller appending two entries
+ * concurrently would pair each wait with whichever finished first.
+ *
+ * Callers own the entry path, because what makes one safe differs by workload: a drive export
+ * carries a folder path the provider already validated, and a mail export builds one from a
+ * subject the sender chose.
+ */
+export async function append_archive_entry(
+  file_archive: FileArchive,
+  entry_path: string,
+  content: Buffer,
+): Promise<void> {
+  const failed = archive_failure(file_archive);
+  // A save keeps going after a per-entry failure, so an abandoned waiter would add a listener pair
+  // to the archiver for every entry left in the run.
+  const cancel_wait = new AbortController();
+  const written = once(file_archive.archive, 'entry', { signal: cancel_wait.signal });
+  file_archive.archive.append(content, { name: entry_path });
+  try {
+    await Promise.race([written, failed]);
+    await Promise.race([file_archive.drain(), failed]);
+  } finally {
+    cancel_wait.abort();
+  }
+}
+
+/**
+ * Rejects with whatever failed the archive, and never resolves, so it can only lose a race.
+ *
+ * The failure keeps the identity it was rejected with: a destination that went away is an
+ * {@link ArchiveDestinationError} and stops the run, an archiver-level error is itself and fails
+ * the entry that saw it.
+ */
+function archive_failure(file_archive: FileArchive): Promise<never> {
+  return file_archive.promise.then(
+    () => new Promise<never>(() => undefined),
+    (err: unknown) => {
+      throw err instanceof Error ? err : new Error(String(err));
+    },
+  );
+}
+
 /** Adds a file to the archive under the given folder path. */
 export async function add_file_to_archive(
-  archive: FileArchiveWriter,
+  file_archive: FileArchive,
   folder_path: string,
   file_name: string,
   content: Buffer,
 ): Promise<void> {
   const normalized =
     folder_path === '/' || folder_path === '' ? '' : folder_path.replace(/^\//, '');
-  const entry_path = normalized ? `${normalized}/${file_name}` : file_name;
-  archive.append(content, { name: entry_path });
+  await append_archive_entry(
+    file_archive,
+    normalized ? `${normalized}/${file_name}` : file_name,
+    content,
+  );
 }
 
 /** Finalizes the archive (must be called after all files are added). */

@@ -120,7 +120,9 @@ describe('restoring original timestamps (issue #54)', () => {
   const stub_chunk_uploads = (): void => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response('{}', { status: 202 })),
+      // 201 is the terminal answer that carries the finished driveItem. A 202 means the session
+      // still wants bytes, and the upload now fails on it rather than reporting success (#342).
+      vi.fn(async () => new Response('{}', { status: 201 })),
     );
   };
 

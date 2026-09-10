@@ -42,6 +42,7 @@ function make_ctx(): TenantContext {
       delete: vi.fn().mockResolvedValue(undefined),
       copy: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       begin_multipart_upload: vi.fn().mockResolvedValue({
         upload_part: vi.fn().mockResolvedValue('etag'),
@@ -52,7 +53,11 @@ function make_ctx(): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     create_cipher: () => {
       const iv = randomBytes(12);
-      return { cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }), iv };
+      return {
+        cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }),
+        iv,
+        header: Buffer.alloc(0),
+      };
     },
     destroy: vi.fn(),
   } as unknown as TenantContext;

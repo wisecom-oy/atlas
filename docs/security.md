@@ -25,7 +25,9 @@ Envelope encryption separates the key that protects your data (DEK) from the key
 
 - The DEK is a random 256-bit key with maximum entropy -- it does not depend on passphrase strength.
 - The KEK is derived from your passphrase and only used to wrap/unwrap the DEK.
-- If you need to change the passphrase in the future, only the DEK wrapper needs to be re-encrypted -- not every object in storage.
+- Changing the passphrase only has to re-encrypt the DEK wrapper, not every object in storage. The
+  blob format is built for that, but no command performs it today. Read the warning below before
+  you change `ATLAS_ENCRYPTION_PASSPHRASE` on a tenant that already has backups.
 
 ### KEK Derivation: scrypt
 
@@ -42,7 +44,11 @@ Parameters used by Atlas for **new** DEK wraps:
 | Output              | 32 bytes (256 bits)            | AES-256 key length                                                                        |
 | Minimum N on unwrap | 16384                          | Blobs with weaker parameters are rejected                                                 |
 
-The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
+The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so a re-wrap picks up new scrypt parameters without relying on a separate `_meta/kek_params.json` file. Atlas wraps a DEK when it first creates one, and nothing re-wraps an existing one: the parameters a tenant was bootstrapped with are the parameters it keeps.
+
+The v5 SDK rejects passphrases shorter than 14 UTF-8 bytes at construction, matching the existing KDF warning threshold. Byte length is only a minimum, not an entropy guarantee: use at least five random words or 20 random characters for production. The CLI's existing passphrase handling is unchanged. Never pad or replace an existing passphrase without migrating its wrapped DEK; use the previous SDK or CLI to recover short-passphrase backups.
+
+The optional SDK `validate()` probe performs only S3 `HeadBucket` and Graph token acquisition. It writes no bucket or key material and returns no token. Success does not establish encryption-key correctness, object-write permissions or workload-specific Graph consent. HTTP S3 endpoints remain available for local deployments; use HTTPS across untrusted networks to protect credentials and traffic.
 
 ### DEK: Data Encryption Key
 
@@ -69,22 +75,72 @@ Every encrypt operation uses **AES-256-GCM** (Galois/Counter Mode), which provid
 ### Ciphertext Format
 
 ```
-[12-byte IV][16-byte GCM auth tag][ciphertext]
+[ATLS][version][12-byte IV][16-byte GCM auth tag][ciphertext]
 ```
 
 Every encrypt operation generates a **fresh random 12-byte IV** (initialization vector). This is critical for GCM security -- reusing an IV with the same key would be catastrophic, potentially exposing the XOR of two plaintexts and compromising the authentication key. Atlas generates a new random IV for every single object it encrypts.
 
+Random IVs carry a birthday bound, so one key cannot be used an unlimited number of times. NIST SP
+800-38D caps random-IV GCM at 2^32 invocations per key, where the chance of any IV repeating is
+still about 2^-33. One DEK covers a whole tenant, and Atlas runs one encrypt per object, streamed
+objects included: a multipart upload takes a single IV for the whole object rather than one per
+part. The budget is therefore 4.3 billion distinct objects in one tenant bucket, and content is
+addressed by checksum, so backing up unchanged bytes again does not spend another one. At ten
+million new objects a year that is a four-century limit, which is why Atlas has no re-key
+threshold.
+
+### What a ciphertext is bound to
+
+One DEK encrypts every object of a tenant, so the GCM tag alone proves only that the bytes were
+produced under that tenant's key. It does not prove they are the bytes that belong at this key.
+Until the header above existed, any object therefore authenticated in any other object's place:
+overwriting one stored blob with another needed write access to the bucket, not the passphrase.
+
+The header and the object's scope are authenticated as associated data, so a ciphertext only
+decrypts where it was written. The scope is the key's directory, which names the purpose and the
+owner: `onedrive/data/{owner_id}/`, `manifests/{mailbox}/`, `_meta/replication/{owner}/{snapshot}/`.
+The directory rather than the whole key, because the large-file pipeline encrypts into a staging
+key and promotes the finished object onto a content-addressed key whose checksum is unknown while
+the cipher is running. The streamed writer therefore binds the canonical directory, not the staging
+one, and a reader derives the same value from the key it is reading.
+
+What this does and does not cover:
+
+| Attack                                                       | Result                                                        |
+| ------------------------------------------------------------ | --------------------------------------------------------------- |
+| Move one object over another owner's or another purpose's key | Decryption fails: the scope in the AAD no longer matches       |
+| Strip or lower the version header                             | Decryption fails: the header is inside the AAD                 |
+| Move an object within its own directory                       | Not prevented; the manifest checksum comparison covers that    |
+| Replay an older ciphertext of the same object                 | Not prevented; that is Object Lock's and versioning's job      |
+
+Objects written before the header existed carry no magic and are decrypted the way they always
+were, with no associated data. Every existing backup stays readable, there is no migration step and
+no configuration flag.
+
+That compatibility is also the limit of the protection. A headerless object has no scope to check,
+so the substitution above still works against one: it can be moved anywhere in the bucket and will
+decrypt. Only objects written since the binding reject a move across owners or purposes.
+
+A bucket gains the property object by object as content is encrypted, which is not the same as
+snapshot by snapshot. File content is stored by checksum, so a backup of a file whose bytes are
+already in the bucket deduplicates onto the existing object and does not rewrite it, and a forced
+full run behaves the same way. A new snapshot's manifests, indexes and cursors are bound because
+they are written fresh, while the content they point at keeps whatever protection it was written
+with. Taking a new backup therefore does not upgrade an old blob: an object becomes bound when its
+plaintext changes, or when it is deleted from the bucket and stored again. Restore covers the rest
+either way, by comparing the manifest checksum before anything is written.
+
 ### What Is Encrypted at Rest
 
-| Data                                       | Encrypted | Notes                                                                      |
-| ------------------------------------------ | --------- | -------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`       |
+| Data                                       | Encrypted | Notes                                                                                                                  |
+| ------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`                                                   |
 | Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
-| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                     |
-| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                             |
-| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`             |
-| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                  |
-| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access |
+| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                                                                 |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                         |
+| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                         |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                              |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                             |
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
@@ -106,30 +162,31 @@ There is **no built-in S3 object rename** between email-keyed and ID-keyed mailb
 
 ## Backup Fidelity
 
-Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of *which* bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
+Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of _which_ bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
 
-| Artifact                                                     | Fidelity                                                                                                                       |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| Archived object in S3, and the `.eml` files `atlas outlook save` writes | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                    |
-| A message recreated in a mailbox by `atlas outlook restore`   | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
-| Snapshots taken before this version                          | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                      |
+| Artifact                                                                                            | Fidelity                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Archived object in S3, and the `.eml` files `atlas outlook save` writes for an entry stored as MIME | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                                                                   |
+| The `.eml` files `atlas outlook save` writes for a legacy entry stored as Graph JSON                | **Reconstructed.** Assembled from the stored JSON payload at export time, as the row below describes                                                                 |
+| A message recreated in a mailbox by `atlas outlook restore`                                         | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
+| Snapshots taken before this version                                                                 | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                                                           |
 
 ### The archived object is the original message
 
 Backup fetches every new or changed message as **RFC 5322 MIME** -- the on-the-wire form of an email, every header and body part exactly as the sending and relaying servers produced them -- with `GET /users/{id}/messages/{id}/$value`, and stores those bytes as the canonical encrypted object.
 
-Earlier Atlas versions stored `JSON.stringify()` of roughly 24 selected Microsoft Graph fields and *reconstructed* an `.eml` file at export time with the `mimetext` library. A reconstruction is a plausible email, not the original one: it carries the fields Atlas thought to select, re-encoded by a library that was never in the message's transit path. Everything an investigator would use to prove where a message came from was missing, because Graph's JSON projection never contained it.
+Earlier Atlas versions stored `JSON.stringify()` of roughly 24 selected Microsoft Graph fields and _reconstructed_ an `.eml` file at export time with the `mimetext` library. A reconstruction is a plausible email, not the original one: it carries the fields Atlas thought to select, re-encoded by a library that was never in the message's transit path. Everything an investigator would use to prove where a message came from was missing, because Graph's JSON projection never contained it.
 
 Storing the original bytes recovers the following. Each row is a question an operator or auditor eventually has to answer:
 
-| Recovered content                                                        | What it answers                                                                                                                                          |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The `Received:` chain                                                    | Chain of custody: which servers handled the message, in what order, and when it passed each hop                                                           |
+| Recovered content                                                          | What it answers                                                                                                                                                   |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The `Received:` chain                                                      | Chain of custody: which servers handled the message, in what order, and when it passed each hop                                                                   |
 | `Authentication-Results` with DKIM, SPF, and ARC results, `DKIM-Signature` | Whether the message was authentic or forged. DKIM is a cryptographic signature over selected headers and the body, so it verifies only against the original bytes |
-| `In-Reply-To` and `References`                                           | Threading. Exported `.eml` files group into conversations in any mail client instead of arriving as unrelated messages                                    |
-| Original multipart structure and transfer encodings                      | Byte-level attestation: part boundaries, `Content-Transfer-Encoding`, and part order are preserved rather than regenerated                                |
-| S/MIME signed and encrypted payloads                                     | Signature verification and decryption, both of which are only possible over the original bytes                                                            |
-| Custom `X-` headers and mailing-list headers                             | Gateway, DLP, and list-server annotations that no Graph field exposes                                                                                     |
+| `In-Reply-To` and `References`                                             | Threading. Exported `.eml` files group into conversations in any mail client instead of arriving as unrelated messages                                            |
+| Original multipart structure and transfer encodings                        | Byte-level attestation: part boundaries, `Content-Transfer-Encoding`, and part order are preserved rather than regenerated                                        |
+| S/MIME signed and encrypted payloads                                       | Signature verification and decryption, both of which are only possible over the original bytes                                                                    |
+| Custom `X-` headers and mailing-list headers                               | Gateway, DLP, and list-server annotations that no Graph field exposes                                                                                             |
 
 There is deliberately no `--fidelity` flag. MIME is the only mode for new snapshots, so an operator cannot accidentally archive a year of mail in the weaker format.
 
@@ -150,11 +207,11 @@ Each manifest entry records which format its object holds. Entries with `payload
 
 On that path attachments are separate objects again, and all three Graph attachment types are captured:
 
-| Graph type | What Atlas stores |
-| ---------------------- | ---------------------------------------------------------------------------------------------------- |
-| `fileAttachment` | The file bytes, inline when Graph includes them, otherwise fetched from `/$value` |
-| `itemAttachment` | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
-| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked |
+| Graph type            | What Atlas stores                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `fileAttachment`      | The file bytes, inline when Graph includes them, otherwise fetched from `/$value`                         |
+| `itemAttachment`      | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
+| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked    |
 
 An attached message therefore exports as a `message/rfc822` part that mail clients open as mail, an invite as `.ics`, and a contact as `.vcf`. The content type is decided by the bytes that arrive rather than by the attachment's name, because Graph does not say which kind of item is attached and an invite mislabelled as mail opens as broken mail.
 
@@ -273,13 +330,13 @@ tenant.
 
 A restored file is the original bytes, verified against the manifest checksum. Everything else that defines a document in Microsoft 365 is a separate question, and the answers differ:
 
-| Property | Captured | Restored |
-| ------------------------------------------- | -------- | ---------------------------------------------------------- |
-| File content | Yes | Yes, byte-exact |
-| Original created and modified timestamps | Yes | Yes, through the `fileSystemInfo` facet |
-| `createdBy` / `lastModifiedBy` authors | Yes | No. Recorded for audit only |
-| Version authors | Yes | No. Recorded for audit only |
-| Sharing permissions and links | No | No |
+| Property                                 | Captured | Restored                                |
+| ---------------------------------------- | -------- | --------------------------------------- |
+| File content                             | Yes      | Yes, byte-exact                         |
+| Original created and modified timestamps | Yes      | Yes, through the `fileSystemInfo` facet |
+| `createdBy` / `lastModifiedBy` authors   | Yes      | No. Recorded for audit only             |
+| Version authors                          | Yes      | No. Recorded for audit only             |
+| Sharing permissions and links            | No       | No                                      |
 
 #### Timestamps: which ones travel
 
@@ -321,6 +378,99 @@ When you run `atlas outlook verify`, Atlas performs a full integrity check for a
 4. Compares against the checksum stored in the manifest using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
 
 `atlas outlook verify` checks the **message entries** listed in the manifest. For a MIME entry that covers the attachments too, because they are part of the message bytes being hashed. For a legacy JSON entry the separate attachment objects are not hashed against the manifest; they are protected by GCM authentication during any decrypt operation (backup, restore, save), which detects tampering but not a checksum recorded wrong at backup time.
+
+### What the GCM tag does not tell you
+
+The authentication tag proves the bytes were produced under the tenant DEK. For an object written
+before the scope binding above, it says nothing about which object those bytes belong to: a
+headerless ciphertext names no object, so any such object authenticates in any other object's
+place. Moving one blob over another needs write access to the bucket, not the key or the
+passphrase, and the swapped object still decrypts cleanly. A scope-bound object refuses a move
+across owners or purposes, but within its own directory it decrypts the same way.
+
+The manifest checksum is what distinguishes them, so it is compared before anything acts on the
+bytes, not after:
+
+| Path                       | Checked before                                                |
+| -------------------------- | ------------------------------------------------------------- |
+| Outlook message restore    | `POST /messages`, for both MIME and legacy JSON entries       |
+| Outlook attachment restore | the attachment upload, per attachment                         |
+| Drive file restore         | the upload, buffered and streamed alike                       |
+| Snapshot manifests         | the manifest is used, by rebuilding its key from its own body |
+
+An entry that records no checksum is refused rather than restored unverified: an unverifiable
+restore is exactly what the substitution is trying to produce.
+
+A manifest is checked differently because it has no checksum of its own. Its identity is in its
+body, so Atlas rebuilds the storage key from the decrypted `owner_id`/`site_id` and `snapshot_id`
+and compares it to the key it read. A manifest planted under another snapshot's key is reported as
+corrupt rather than skipped, because quietly omitting it reads as "this snapshot was never taken",
+which is the outcome the substitution wants.
+
+Two limits are worth stating plainly. Neither check prevents **replay of an older ciphertext for
+the same object**: an earlier version of that exact object still matches its own checksum, so
+rolling an object back to a previous state is defeated by S3 Object Lock and versioning rather than
+by encryption. And a checksum recorded wrong at backup time is not detected by comparing against
+it, which is the same limit that applies to verification above.
+
+### A failed authentication is a failure everywhere
+
+A GCM failure used to be reported as several different kinds of nothing: an attachment that could
+not be decrypted left a restored message with zero attachments and no errors, an export skipped the
+file and finished a valid archive, and a manifest that would not decrypt came back as `undefined`,
+which is the same answer as a snapshot that was never taken. Each of those makes a damaged backup
+look intact from the outside.
+
+| Object                  | Reported as                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| Outlook attachment      | an error on the restore result, counted in `attachment_error_count`          |
+| Drive file in an export | an error and an integrity failure, distinct from a file with nothing to save |
+| Snapshot manifest       | a raised `StorageError`; only a genuinely absent object reads as absent      |
+
+The distinction between absence and damage is the point. A read that returns "no such key" is a
+normal outcome and stays one. Anything else, a decrypt that failed, a body that would not parse, a
+manifest whose identity is not the one its key names, is a damaged object and is raised.
+
+Verification counts an entry the moment it claims a stored blob, rather than requiring a checksum
+before it will look. An entry that names a blob but records no checksum is unverifiable, and used
+to be excluded from `total_checked` altogether, so a snapshot full of them verified clean without a
+single byte being read. It is now a verification failure. Tombstones still count for nothing,
+because a deleted file has no blob to check.
+
+An export applies the same rule. A file whose entry records no checksum is an integrity failure
+rather than a file written into the archive unchecked, which is what the streaming export path
+already did and the buffered one did not. `--skip-integrity-check` still opts out of the comparison
+entirely, for the case where recovering something beats proving it is the right something.
+
+None of this changes the exit-code contract in [the CLI reference](/reference/cli#exit-codes). A
+run that now reports per-item errors or integrity failures exits `2`, which is what a partial run
+has always meant; a manifest that cannot be read is a `StorageError` and exits `1`. What changed is
+that these runs no longer exit `0`.
+
+### Nothing is released before it authenticates
+
+Restoring a large file streams the plaintext into a Graph upload session as it is decrypted, which
+means bytes leave Atlas before AES-256-GCM has authenticated the object and before the SHA-256 can
+be compared to the manifest. Neither check can happen earlier: the tag covers the whole object and
+arrives last, and a digest is only a digest once the final byte is in it.
+
+What makes that safe is where the release actually happens. An upload session accumulates chunks
+the caller cannot read, and the item only exists once the session is committed by the chunk
+carrying the last byte. Atlas holds that chunk back until the decrypt stream has ended without
+error, so a failed tag or a checksum that does not match abandons the session with `DELETE` and no
+file is created. What Graph already accepted stays inside a session nobody can read and expires
+with it.
+
+Holding a chunk back is necessary but not sufficient, because a session commits as soon as the
+ranges it has received cover the total it was opened for, and that total is the size the manifest
+recorded rather than anything measured during the restore. An object longer than its recorded size
+would fill the declared range mid-stream and commit there. Atlas therefore refuses any chunk that
+would reach the declared end while the source is still producing: the file fails, the session is
+released, and the recorded size and the stored object are reported as disagreeing.
+
+The property to keep when this code is touched: an unverified byte may travel, but nothing may
+make it visible. A destination that publishes as it receives, a filesystem path or a stream handed
+to a caller, needs the buffered path and its up-front verification instead.
 
 ### Content-MD5 on Uploads
 
@@ -391,10 +541,10 @@ Replication status sidecar files stored under `_meta/replication/` in the primar
 
 Atlas splits its storage access in two, so a browsing operator never needs write credentials:
 
-| Command class                                                                                                 | S3 actions required                                                                                        | Provisioning |
-| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                             | None         |
-| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                          | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
+| Command class                                                                                                                            | S3 actions required                                                                                                         | Provisioning |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                             | None         |
+| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                                   | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
 
 Read-only commands load the tenant context without provisioning: the bucket is never created and a missing `_meta/dek.enc` is never generated. Browsing a tenant that has never been backed up — a mistyped `-t`, or a tenant id from another environment — fails with `No backups found for tenant <id>` instead of leaving behind a lifecycle-configured bucket containing nothing but key material. That matters for two reasons: a wrapped DEK written on a read path is an audit-log surprise in a compliance-facing product, and buckets born from typos are indistinguishable from real tenants when reviewing storage.
 

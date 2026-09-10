@@ -1,3 +1,4 @@
+import { ArchiveDestinationError } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
 import { mark_downloaded_from_internet } from '@wisecom/atlas-core/utils/zone-identifier';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
@@ -5,8 +6,12 @@ import type { SaveResult } from '@wisecom/atlas-types';
 import type { EntryResult } from '@/services/save/save-entry-writer';
 import { save_json_entry, save_mime_entry } from '@/services/save/save-entry-writer';
 import { verify_checksum } from '@/services/save/save-integrity-validator';
-import type { ArchiveWriter } from '@/services/save/save-zip-writer';
-import { create_save_archive, finalize_archive } from '@/services/save/save-zip-writer';
+import type { SaveArchive } from '@/services/save/save-zip-writer';
+import {
+  create_save_archive,
+  finalize_archive,
+  type ArchiveTarget,
+} from '@/services/save/save-zip-writer';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -22,6 +27,7 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
  */
 export async function save_entries_to_archive(
   ctx: TenantContext,
+  target: ArchiveTarget,
   output_path: string,
   skip_integrity: boolean,
   groups: Map<string, ManifestEntry[]>,
@@ -30,7 +36,8 @@ export async function save_entries_to_archive(
   is_interrupted: () => boolean,
   control: OperationControlOptions,
 ): Promise<Omit<SaveResult, 'snapshot_id'> & { processed: number }> {
-  const { archive, promise, publish, abort } = create_save_archive(output_path);
+  const save_archive = create_save_archive(target);
+  const { archive, promise, publish, abort } = save_archive;
 
   try {
     let global_saved = 0;
@@ -61,7 +68,7 @@ export async function save_entries_to_archive(
         folder_name,
         folder_index,
         skip_integrity,
-        archive,
+        save_archive,
         used_names,
         groups,
         global_total,
@@ -91,12 +98,19 @@ export async function save_entries_to_archive(
       processed: global_processed,
       total: global_total,
     });
-    await finalize_archive(archive);
-    const total_bytes = await promise;
-    // Only now does anything appear at the output path, so a failure above cannot leave a
-    // truncated zip there and cannot destroy a file that was already sitting on it.
-    await publish();
-    await mark_downloaded_from_internet(output_path);
+    const run_interrupted = should_interrupt();
+    let total_bytes: number;
+    if (run_interrupted && typeof target !== 'string') {
+      total_bytes = archive.pointer();
+      await abort();
+    } else {
+      await finalize_archive(archive);
+      total_bytes = await promise;
+      // Only now does anything appear at the output path, so a failure above cannot leave a
+      // truncated zip there and cannot destroy a file that was already sitting on it.
+      await publish();
+      if (output_path) await mark_downloaded_from_internet(output_path);
+    }
 
     log_save_summary(global_saved, global_att, global_errors, total_bytes, start);
 
@@ -109,11 +123,18 @@ export async function save_entries_to_archive(
       total_bytes,
       integrity_failures,
       processed: global_processed,
-      interrupted: should_interrupt(),
+      interrupted: run_interrupted,
     };
   } catch (err) {
     // Anything between opening the archive and publishing it can throw. None of it may leave a
-    // partial file behind (issue #307).
+    // partial file behind (issue #307), and the progress stream still owes its subscriber one
+    // terminal event: a destination that went away is now a routine way to get here (issue #344).
+    emit_operation_progress(control, {
+      operation: 'save',
+      workload: 'outlook',
+      phase: 'interrupted',
+      processed: 0,
+    });
     await abort();
     throw err;
   }
@@ -131,7 +152,7 @@ async function process_folder_entries(
   folder_name: string,
   folder_index: number,
   skip_integrity: boolean,
-  archive: ArchiveWriter,
+  archive: SaveArchive,
   used_names: Set<string>,
   groups: Map<string, ManifestEntry[]>,
   global_total: number,
@@ -172,6 +193,9 @@ async function process_folder_entries(
       integrity_fail += result.integrity_fail;
       counters.integrity_failures.push(...result.integrity_failures);
     } catch (err) {
+      // A destination that is gone fails the run rather than every remaining message one at a
+      // time: each would be downloaded and decrypted only to be dropped (issue #344).
+      if (err instanceof ArchiveDestinationError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       counters.all_errors.push(`${entry.object_id}: ${msg}`);
       error_count++;
@@ -211,7 +235,7 @@ async function process_single_entry(
   entry: ManifestEntry,
   folder_name: string,
   skip_integrity: boolean,
-  archive: ArchiveWriter,
+  archive: SaveArchive,
   used_names: Set<string>,
 ): Promise<EntryResult> {
   const result: EntryResult = {
@@ -222,7 +246,7 @@ async function process_single_entry(
   };
 
   const ciphertext = await ctx.storage.get(entry.storage_key);
-  const plaintext = ctx.decrypt(ciphertext);
+  const plaintext = ctx.decrypt(ciphertext, entry.storage_key);
 
   if (!skip_integrity && entry.checksum) {
     if (!verify_checksum(plaintext, entry.checksum)) {

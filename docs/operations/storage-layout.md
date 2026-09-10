@@ -48,14 +48,14 @@ For managed service providers backing up multiple tenants, this isolation means 
 
 ### Outlook
 
-| Prefix                                         | Contents                                       | Security notes                                                                 |
-| ---------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)   | **Most critical object.** Losing it means losing access to all tenant data     |
-| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest         | Encrypted; updated after each successful manifest upload                       |
-| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key   | Encrypted; avoids a tenant-wide manifest listing                               |
-| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                     |
-| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256 | Content is encrypted; S3 metadata is not                           |
-| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)            | Contains subjects, folder names, and delta URLs, all encrypted                 |
+| Prefix                                         | Contents                                                        | Security notes                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                    | **Most critical object.** Losing it means losing access to all tenant data |
+| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
+| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
+| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
+| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
+| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, folder names, and delta URLs, all encrypted             |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
 
@@ -77,22 +77,22 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 
 ### OneDrive
 
-| Prefix                                 | Contents                                   | Security notes                                          |
-| -------------------------------------- | ------------------------------------------ | ------------------------------------------------------- |
-| `onedrive/data/{owner_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID |
-| `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types            |
-| `onedrive/index/{owner_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run      |
-| `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge   |
+| Prefix                                 | Contents                                   | Security notes                                                          |
+| -------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| `onedrive/data/{owner_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID                 |
+| `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types                            |
+| `onedrive/index/{owner_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run                      |
+| `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge                   |
 | `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors                    | Holds delta links, per-file paths, names, etags, and version watermarks |
 
 ### SharePoint
 
-| Prefix                                  | Contents                                   | Security notes                                |
-| --------------------------------------- | ------------------------------------------ | --------------------------------------------- |
-| `sharepoint/data/{site_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID |
-| `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types  |
-| `sharepoint/index/{site_id}/runs/`      | One version index object per backup run     | Maps file IDs to the versions captured by that run     |
-| `sharepoint/index/{site_id}/files/`     | Legacy per-file version indexes             | Readable alongside run objects; removed only by purge  |
+| Prefix                                  | Contents                                   | Security notes                                                          |
+| --------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| `sharepoint/data/{site_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID                           |
+| `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types                            |
+| `sharepoint/index/{site_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run                      |
+| `sharepoint/index/{site_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge                   |
 | `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors                    | Holds delta links, per-file paths, names, etags, and version watermarks |
 
 #### Version index objects
@@ -133,11 +133,11 @@ Integrity verification follows from the same property. Decrypt the object, hash 
 
 Each uploaded object carries S3 metadata headers:
 
-| Header                          | Value                                   | Encrypted                     |
-| ------------------------------- | --------------------------------------- | ----------------------------- |
-| `x-amz-meta-x-message-id`       | Microsoft Graph message ID              | **No**, visible to S3 access  |
-| `x-amz-meta-x-plaintext-sha256` | SHA-256 of original plaintext           | **No**, visible to S3 access  |
-| `Content-MD5`                   | MD5 of ciphertext (transport integrity) | N/A, standard S3 header       |
+| Header                          | Value                                   | Encrypted                    |
+| ------------------------------- | --------------------------------------- | ---------------------------- |
+| `x-amz-meta-x-message-id`       | Microsoft Graph message ID              | **No**, visible to S3 access |
+| `x-amz-meta-x-plaintext-sha256` | SHA-256 of original plaintext           | **No**, visible to S3 access |
+| `Content-MD5`                   | MD5 of ciphertext (transport integrity) | N/A, standard S3 header      |
 
 :::: warning Metadata visibility
 S3 object metadata is **not encrypted**. Anyone with S3 read access (for example `s3:GetObject` or `s3:ListBucket` with metadata) can see Graph message IDs and plaintext hashes. The message **content** stays encrypted, but the metadata reveals that specific messages exist and what their content hashes are. That is the trade-off: metadata enables deduplication checks and integrity verification without decryption, and it leaks existence information.

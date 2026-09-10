@@ -5,7 +5,6 @@ import type {
   OneDriveDeltaResult,
   OneDriveDrive,
   OneDriveFileVersionRecord,
-  OneDriveDeltaCursorRepository,
   OneDriveManifestEntry,
   TenantContext,
   OperationControlOptions,
@@ -21,12 +20,16 @@ import type { PackageReport } from '@wisecom/atlas-core/services/shared/package-
 import {
   clear_file_tracking_on_reset,
   process_delta_item,
+  type DeltaItemOutcome,
   type DriveTrackingState,
   type VersionStats,
 } from '@/services/backup/delta-item-processor';
+import {
+  apply_item_outcome,
+  record_item_outcome_failure,
+} from '@/services/backup/drive-item-outcome';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
 import { scoped_delta } from '@/services/backup/folder-scope';
-import { persist_scan_cursor } from '@/services/backup/scan-cursor-writer';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import {
   make_item_progress_callback,
@@ -70,10 +73,15 @@ export interface DriveScanAccumulators {
   version_rows: Map<string, OneDriveFileVersionRecord[]>;
 }
 
-/** Fetches delta changes across all drives and accumulates manifest entries. */
+/**
+ * Fetches delta changes across all drives and accumulates manifest entries.
+ *
+ * Nothing is committed here. The delta links ride in `delta_link_by_drive` until the caller has
+ * written the snapshot manifest, because a cursor saved first would point past content no snapshot
+ * references, and the next run would see no work to redo (issue #339).
+ */
 export async function scan_all_drives(
   connector: OneDriveConnector,
-  cursors: OneDriveDeltaCursorRepository,
   drives: OneDriveDrive[],
   tenant_id: string,
   owner_id: string,
@@ -172,15 +180,6 @@ export async function scan_all_drives(
       accumulate_drive_result(accumulators, delta_link_by_drive, drive, drive_result);
       accumulators.drives_scanned++;
 
-      await persist_scan_cursor(
-        cursors,
-        ctx,
-        owner_id,
-        delta_link_by_drive,
-        tracking_state,
-        accumulators.failed_items,
-        folder_scope,
-      );
       if (!drive_result.interrupted) {
         report_drive_success(
           progress,
@@ -297,40 +296,38 @@ export async function process_single_drive(
       delete result.delta_link;
       break;
     }
-    const outcome = await process_delta_item(
-      connector,
-      item,
-      owner_id,
-      snapshot_id,
-      ctx,
-      state,
-      version_stats,
-      on_version_stats_update,
-      versions,
-    );
+    let outcome: DeltaItemOutcome;
+    try {
+      outcome = await process_delta_item(
+        connector,
+        item,
+        owner_id,
+        snapshot_id,
+        ctx,
+        state,
+        version_stats,
+        on_version_stats_update,
+        versions,
+        control.abort_signal,
+      );
+    } catch (err) {
+      // A cancelled transfer is the run stopping, not the item failing. Recording it would spend
+      // one of the item's five ledger attempts and eventually skip the file for good (issue #344).
+      if (control.abort_signal?.aborted !== true) throw err;
+      result.interrupted = true;
+      delete result.delta_link;
+      break;
+    }
     // Progress rows were sized from the delta batch; retried items are extra.
     if (from_delta) on_item_processed?.(item);
     if (from_delta) processed_delta_item_ids.add(item.item_id);
 
     if (outcome.error) {
-      logger.warn(`Drive ${drive.drive_id}: ${outcome.error}`);
-      result.errors.push(outcome.error);
-      failed_item_ids.add(item.item_id);
-      result.failed_items = record_item_failure(result.failed_items, {
-        item_id: item.item_id,
-        drive_id: drive.drive_id,
-        name: item.file_name,
-        reason: outcome.error,
-        ...(outcome.permanent === true ? { permanent: true } : {}),
-      });
+      record_item_outcome_failure(result, failed_item_ids, drive.drive_id, item, outcome);
       continue;
     }
 
-    result.failed_items = clear_item_failure(result.failed_items, item.item_id);
-    result.files_stored += outcome.files_stored;
-    result.files_deduplicated += outcome.files_deduplicated;
-    result.deleted_items += outcome.deleted_items;
-    if (outcome.entry) result.entries.push(outcome.entry);
+    apply_item_outcome(result, item, outcome);
   }
 
   result.package_report = summarize_processed_package_items(

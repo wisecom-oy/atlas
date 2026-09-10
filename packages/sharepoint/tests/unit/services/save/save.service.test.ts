@@ -14,14 +14,18 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-
-vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', () => {
+vi.mock('@wisecom/atlas-core/services/shared/file-save-zip-writer', async (import_original) => {
+  const actual =
+    await import_original<
+      typeof import('@wisecom/atlas-core/services/shared/file-save-zip-writer')
+    >();
   const mock_archive = {
     append: vi.fn(),
     finalize: vi.fn().mockResolvedValue(undefined),
     pointer: vi.fn().mockReturnValue(8192),
   };
   return {
+    ...actual,
     create_file_archive: vi.fn().mockReturnValue({
       archive: mock_archive,
       promise: Promise.resolve(8192),

@@ -30,7 +30,13 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import {
+  resolve_save_target,
+  settle_empty_save_target,
+  settle_failed_save_target,
+} from '@wisecom/atlas-core/services/shared/save-archive-target';
 import { save_entries_to_archive } from '@/services/save/save-entry-processor';
+import type { ArchiveTarget } from '@/services/save/save-zip-writer';
 
 @injectable()
 export class SaveService implements SaveUseCase {
@@ -45,23 +51,38 @@ export class SaveService implements SaveUseCase {
     snapshot_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
-    if (begin_operation_progress(options, 'save', 'outlook')) {
-      return this.finish_empty_result(snapshot_id, options);
-    }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
-      const manifest = await this.load_manifest(ctx, snapshot_id);
-      const owner_id = manifest.owner_id;
-
-      const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
-      if (entries.length === 0) {
-        logger.warn('No entries to save');
-        return this.finish_empty_result(snapshot_id, options);
+      if (begin_operation_progress(options, 'save', 'outlook')) {
+        return await this.finish_empty_result(snapshot_id, options, target);
       }
+      const ctx = await this._tenant_factory.create(tenant_id);
+      try {
+        const manifest = await this.load_manifest(ctx, snapshot_id);
+        const owner_id = manifest.owner_id;
 
-      return this.save_batch(ctx, tenant_id, owner_id, snapshot_id, entries, options);
-    } finally {
-      ctx.destroy();
+        const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
+        if (entries.length === 0) {
+          logger.warn('No entries to save');
+          return await this.finish_empty_result(snapshot_id, options, target);
+        }
+
+        return this.save_batch(
+          ctx,
+          tenant_id,
+          owner_id,
+          snapshot_id,
+          entries,
+          options,
+          target,
+          output_path,
+        );
+      } finally {
+        ctx.destroy();
+      }
+    } catch (err) {
+      settle_failed_save_target(target);
+      throw err;
     }
   }
 
@@ -70,35 +91,52 @@ export class SaveService implements SaveUseCase {
     owner_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
-    if (begin_operation_progress(options, 'save', 'outlook')) {
-      return this.finish_empty_result('mailbox', options);
-    }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
-      const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
-
-      if (manifests.length === 0) {
-        logger.warn('No snapshots found for this mailbox in the given date range');
-        return this.finish_empty_result('mailbox', options);
+      if (begin_operation_progress(options, 'save', 'outlook')) {
+        return await this.finish_empty_result('mailbox', options, target);
       }
+      const ctx = await this._tenant_factory.create(tenant_id);
+      try {
+        const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
 
-      const entries = merge_snapshot_entries(manifests);
+        if (manifests.length === 0) {
+          logger.warn('No snapshots found for this mailbox in the given date range');
+          return await this.finish_empty_result('mailbox', options, target);
+        }
 
-      if (options.folder_name) {
-        await backfill_missing_folder_ids(ctx, entries);
+        const entries = merge_snapshot_entries(manifests);
+
+        if (options.folder_name) {
+          await backfill_missing_folder_ids(ctx, entries);
+        }
+
+        const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
+        if (filtered.length === 0) {
+          logger.warn('No entries to save after filtering');
+          return await this.finish_empty_result('mailbox', options, target);
+        }
+
+        logger.info(
+          `Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`,
+        );
+
+        return this.save_batch(
+          ctx,
+          tenant_id,
+          owner_id,
+          'mailbox',
+          filtered,
+          options,
+          target,
+          output_path,
+        );
+      } finally {
+        ctx.destroy();
       }
-
-      const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
-      if (filtered.length === 0) {
-        logger.warn('No entries to save after filtering');
-        return this.finish_empty_result('mailbox', options);
-      }
-
-      logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
-
-      return this.save_batch(ctx, tenant_id, owner_id, 'mailbox', filtered, options);
-    } finally {
-      ctx.destroy();
+    } catch (err) {
+      settle_failed_save_target(target);
+      throw err;
     }
   }
 
@@ -173,17 +211,18 @@ export class SaveService implements SaveUseCase {
     snapshot_id: string,
     entries: ManifestEntry[],
     options: SaveOptions,
+    target: ArchiveTarget,
+    output_path: string,
   ): Promise<SaveResult> {
     const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);
-    const output_path = options.output_path ?? build_default_output_path();
     const skip_integrity = options.skip_integrity_check ?? false;
 
     logger.info(
       `Saving ${entries.length} messages across ` +
-        `${count_unique_folders(entries)} folders to ${output_path}`,
+        `${count_unique_folders(entries)} folders to ${output_path || '(stream)'}`,
     );
 
     if (skip_integrity) {
@@ -200,6 +239,7 @@ export class SaveService implements SaveUseCase {
     return this.execute_save_loop(
       ctx,
       snapshot_id,
+      target,
       output_path,
       skip_integrity,
       groups,
@@ -212,6 +252,7 @@ export class SaveService implements SaveUseCase {
   private async execute_save_loop(
     ctx: TenantContext,
     snapshot_id: string,
+    target: ArchiveTarget,
     output_path: string,
     skip_integrity: boolean,
     groups: Map<string, ManifestEntry[]>,
@@ -230,6 +271,7 @@ export class SaveService implements SaveUseCase {
     try {
       const result = await save_entries_to_archive(
         ctx,
+        target,
         output_path,
         skip_integrity,
         groups,
@@ -257,8 +299,14 @@ export class SaveService implements SaveUseCase {
     }
   }
 
-  private finish_empty_result(snapshot_id: string, options: SaveOptions): SaveResult {
+  private async finish_empty_result(
+    snapshot_id: string,
+    options: SaveOptions,
+    target: ArchiveTarget,
+  ): Promise<SaveResult> {
     const interrupted = finish_operation_progress(options, 'save', 'outlook', 0, 0);
+    await settle_empty_save_target(target, interrupted);
+    // No archive landed anywhere, so there is no path to report even when one was requested.
     return this.empty_result(snapshot_id, options.output_path ?? '', interrupted);
   }
 

@@ -10,45 +10,19 @@ import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
 
-/** SDK-facing camelCase config, consistent with AtlasInstanceConfig. */
-export interface StorageTargetSdkConfig {
-  readonly targetId?: string;
-  readonly s3Endpoint: string;
-  readonly s3AccessKey: string;
-  readonly s3SecretKey: string;
-  readonly s3Region?: string;
-  readonly encryptionPassphrase: string;
-}
-
 function derive_target_id(endpoint: string, region?: string): string {
   const raw = `${endpoint}|${region ?? 'us-east-1'}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 16);
 }
 
-function normalize_target_config(
-  config: StorageTargetSdkConfig | StorageTargetConfig,
-): StorageTargetConfig {
-  if ('s3_endpoint' in config) return config;
-  let result: StorageTargetConfig = {
-    s3_endpoint: config.s3Endpoint,
-    s3_access_key: config.s3AccessKey,
-    s3_secret_key: config.s3SecretKey,
-    encryption_passphrase: config.encryptionPassphrase,
-  };
-  if (config.targetId !== undefined) {
-    result = { ...result, target_id: config.targetId };
-  }
-  if (config.s3Region !== undefined) {
-    result = { ...result, s3_region: config.s3Region };
-  }
-  return result;
-}
-
-/** Creates a lightweight storage-only target for replication. Accepts both camelCase (SDK) and snake_case (internal) config. */
-export function create_storage_target(
-  config: StorageTargetSdkConfig | StorageTargetConfig,
-): StorageTarget {
-  return new DefaultStorageTarget(normalize_target_config(config));
+/**
+ * Creates a lightweight storage-only target for replication.
+ *
+ * Bound into the container by symbol, which is untyped, so this signature is the only thing
+ * standing between a caller and an S3 client built from undefined credentials (issue #377).
+ */
+export function create_storage_target(config: StorageTargetConfig): StorageTarget {
+  return new DefaultStorageTarget(config);
 }
 
 /**
@@ -69,17 +43,17 @@ export class DefaultStorageTarget implements StorageTarget {
   private readonly _buckets = new BucketCache();
 
   constructor(config: StorageTargetConfig) {
-    this.target_id = config.target_id ?? derive_target_id(config.s3_endpoint, config.s3_region);
-    this.endpoint = config.s3_endpoint;
-    this._passphrase = config.encryption_passphrase;
-    this._region = config.s3_region ?? 'us-east-1';
+    this.target_id = config.targetId ?? derive_target_id(config.s3Endpoint, config.s3Region);
+    this.endpoint = config.s3Endpoint;
+    this._passphrase = config.encryptionPassphrase;
+    this._region = config.s3Region ?? 'us-east-1';
 
     this._client = new S3Client({
-      endpoint: config.s3_endpoint,
+      endpoint: config.s3Endpoint,
       region: this._region,
       credentials: {
-        accessKeyId: config.s3_access_key,
-        secretAccessKey: config.s3_secret_key,
+        accessKeyId: config.s3AccessKey,
+        secretAccessKey: config.s3SecretKey,
       },
       forcePathStyle: true,
     });
@@ -104,11 +78,13 @@ export class DefaultStorageTarget implements StorageTarget {
       return {
         tenant_id,
         storage,
-        encrypt: (data: Buffer): Buffer => key_service.encrypt(data, dek),
-        decrypt: (data: Buffer): Buffer => key_service.decrypt(data, dek),
-        create_cipher: () => key_service.create_encrypt_cipher(dek),
-        create_decipher: (iv: Buffer, auth_tag: Buffer) =>
-          key_service.create_decrypt_decipher(dek, iv, auth_tag),
+        encrypt: (data: Buffer, storage_key: string): Buffer =>
+          key_service.encrypt(data, dek, storage_key),
+        decrypt: (data: Buffer, storage_key: string): Buffer =>
+          key_service.decrypt(data, dek, storage_key),
+        create_cipher: (scope_key: string) => key_service.create_encrypt_cipher(dek, scope_key),
+        create_decipher: (iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer) =>
+          key_service.create_decrypt_decipher(dek, iv, auth_tag, scope_key, header),
         destroy: (): void => key_service.destroy(),
       };
     }

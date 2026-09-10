@@ -7,6 +7,8 @@ import {
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
+import { with_tenant } from '@/commands/shared-options';
+import { banner_title } from '@/ui/banner-title';
 import { Box, Text } from 'ink';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
@@ -48,11 +50,12 @@ export function register_list_users_command(
   program: Command,
   get_container: ContainerFactory,
 ): void {
-  program
+  const command = program
     .command('list-users')
-    .description('List all backed-up users from the local identity registry')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .action((options: ListUsersOptions) => execute_list_users(get_container(), options));
+    .description('List all backed-up users from the local identity registry');
+  with_tenant(command).action((options: ListUsersOptions) =>
+    execute_list_users(get_container(), options),
+  );
 }
 
 async function execute_list_users(container: Container, options: ListUsersOptions): Promise<void> {
@@ -66,7 +69,7 @@ async function execute_list_users(container: Container, options: ListUsersOption
   const registry = await registry_repo.load(ctx);
 
   if (!registry || registry.entries.length === 0) {
-    await render_static_view(<Banner title="Atlas Identity Registry" />);
+    await render_static_view(<Banner title={banner_title('tenant', 'Identity Registry')} />);
     logger.info('No users registered yet. Run a backup to populate the registry.');
     return;
   }
@@ -93,7 +96,10 @@ async function execute_list_users(container: Container, options: ListUsersOption
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Identity Registry" subtitle={`Tenant: ${registry.tenant_id}`} />
+      <Banner
+        title={banner_title('tenant', 'Identity Registry')}
+        subtitle={`Tenant: ${registry.tenant_id}`}
+      />
       <KeyValueList
         items={[
           { label: 'Active', value: String(active.length) },

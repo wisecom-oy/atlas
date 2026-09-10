@@ -41,8 +41,6 @@ import {
 import { count_created_folders } from '@wisecom/atlas-drive/restore/folder-path';
 import { ensure_onedrive_folder_path } from '@/services/restore/restore-folder-path';
 
-const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
-
 @injectable()
 export class OneDriveRestoreService implements OneDriveRestoreUseCase {
   constructor(
@@ -183,7 +181,9 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         return { restored: false };
       }
 
-      if (content.length <= SMALL_FILE_LIMIT) {
+      // The blob reader streams anything past the small-file limit, so the shape it returned is
+      // the upload to use.
+      if (Buffer.isBuffer(content)) {
         await this._connector.upload_small_file(
           tenant_id,
           target_owner,

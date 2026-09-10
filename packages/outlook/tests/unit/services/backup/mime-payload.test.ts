@@ -43,6 +43,7 @@ function make_ctx(already_stored = false): StoreHarness {
     list_versions: vi.fn().mockResolvedValue([]),
     begin_multipart_upload: vi.fn(),
     copy: vi.fn(),
+    list_stale: vi.fn(async () => []),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   } as unknown as ObjectStorage;

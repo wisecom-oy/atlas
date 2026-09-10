@@ -44,6 +44,7 @@ function make_storage(
       return value;
     }),
     exists: vi.fn(async (key: string) => objects.has(key)),
+    list_stale: vi.fn(async () => []),
     list: vi.fn(async (prefix: string) =>
       [...objects.keys()].filter((key) => key.startsWith(prefix)),
     ),

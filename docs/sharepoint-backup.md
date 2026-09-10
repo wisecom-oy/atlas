@@ -84,6 +84,11 @@ Implementation thresholds from `@wisecom/atlas-sharepoint`:
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with exponential backoff), so a transient failure replays a single chunk instead of the whole file. A chunk is retried on the same statuses as any other Graph call (429, 500, 502, 503, and 504), because the CDN in front of Graph raises `500` and `502` under load. A `4xx` response fails the chunk immediately.
 
+Staging cleanup is scoped by age, not by prefix alone: a site's staging prefix is shared by every
+large file it transfers, so only objects and uploads older than 24 hours are collected, and a run
+aborts nothing but its own upload when it fails. Identical to OneDrive; see
+[Staging cleanup and concurrent runs](/onedrive-backup#staging-cleanup-and-concurrent-runs).
+
 ### Download Resilience
 
 SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.graph.downloadUrl`) are subject to Microsoft Graph rate limiting, and the CDN also returns transient gateway faults of its own. Atlas handles this with:
@@ -92,6 +97,15 @@ SharePoint's direct download URLs (pre-authenticated CDN links via `@microsoft.g
 - **Exponential backoff** when `Retry-After` is absent or carries no usable wait (base 1s, max 32s, with jitter). A `Retry-After` in the past is treated as absent, since honouring it as "retry now" would remove the jitter that stops concurrent workers retrying in lockstep. A value further out than an hour is capped at an hour and treated as a server bug rather than an instruction.
 - **Graph content fallback.** If the pre-authenticated URL fails after retries, Atlas falls back to `GET /drives/{drive_id}/items/{item_id}/content`, which routes through the Graph gateway rather than the CDN.
 - **Stall timeout per chunk.** Each range request is aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. The budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB. If the CDN ignores the `Range` header and answers `200` with the whole file, the budget is re-sized to that body before it is read.
+- **Transfer validation.** A `206` is rejected unless its body is exactly the requested length and
+  its `Content-Range` names the range that was asked for, a `200` answering a range request is
+  rejected unless it carries the item's full reported size, and a streamed large file is rejected
+  unless its chunks add up to that size. A recorded checksum is computed over whatever arrived, so
+  without these an interrupted transfer becomes a validly encrypted backup of the wrong bytes. If
+  the CDN starts ignoring `Range` partway through a file, the item fails rather than having the
+  whole-file body appended to the chunks already consumed. See
+  [What a chunk has to prove before it is stored](/onedrive-backup#what-a-chunk-has-to-prove-before-it-is-stored)
+  for the full table; the two providers behave identically here.
 
 ## Failed Items and Delta Progress
 
@@ -260,7 +274,7 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 | `--site <url-or-id>`       | SharePoint site URL or Graph site ID     | Required       |
 | `-s, --snapshot <id>`      | Snapshot ID to save from                 | Required       |
 | `--file-filter <paths...>` | Only save specific files (by ID or path) | All files      |
-| `-O, --output <path>`      | Output zip file path                     | Auto-generated |
+| `--output <path>`          | Output zip file path                     | Auto-generated |
 | `--skip-verify`            | Skip SHA-256 integrity checks            | `false`        |
 | `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
@@ -359,12 +373,26 @@ Before 4.0.0 a restore wrote every file back over its original path. With the de
 
 Restore decrypts stored file blobs, verifies SHA-256 checksums, and uploads them back to a site's document libraries via the Graph API. Restoring in place uses each manifest entry's own `drive_id`, so files return to the library they came from. Restoring to another site with `--target-site` re-points every upload at a library of that site, described in [Where a cross-site restore lands](#where-a-cross-site-restore-lands).
 
-Files with `change_type: 'deleted'` or a missing `storage_key` are skipped. Checksum verification runs before upload, and corrupted blobs are skipped with a warning.
+Files with `change_type: 'deleted'` or a missing `storage_key` are skipped. A blob whose checksum
+does not match the manifest is a restore error rather than a warning: the file is not created, it
+is named in the run's errors, and the run exits non-zero.
 
 | Size        | Strategy                                                                                                               |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **≤ 4 MiB** | Single PUT via `PUT /sites/{site_id}/drives/{drive_id}/items/{parent}:/{name}:/content`                                |
 | **> 4 MiB** | Resumable upload session via `createUploadSession` with 10 MiB chunks (3 retries per chunk on 429, 500, 502, 503, 504) |
+
+A resumable session finishes on `200` or `201` carrying the finished `driveItem`, not on any 2xx: a
+`202 Accepted` means the session still wants bytes. A last chunk still answered `202` fails the
+file, naming the ranges Graph reports as outstanding, and a thrown error releases the session with
+`DELETE` before propagating. Identical to OneDrive; see
+[What counts as a completed upload](/onedrive-backup#what-counts-as-a-completed-upload).
+
+Plaintext is streamed into the session as it is decrypted rather than buffered, so a restore holds
+two upload chunks instead of the whole file, and the committing chunk is held back until the
+decrypt stream has ended. A failed tag or a checksum that does not match the manifest abandons the
+session, so the file is never created. Identical to OneDrive; see
+[Memory during a large restore](/onedrive-backup#memory-during-a-large-restore).
 
 ```typescript
 const result = await atlas.sharepoint.restore('site-id', {
@@ -392,9 +420,13 @@ Library names were not recorded in older manifests, so rule 1 cannot apply to th
 
 `atlas sharepoint save` writes a zip archive instead of uploading to Graph. The archive preserves the SharePoint folder hierarchy from document libraries, and files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
 
+The archive is written one entry at a time and waits for the destination to take each one, so
+streaming an export to a slow consumer runs at the consumer's pace instead of queueing every entry
+it could decrypt.
+
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
-atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 -O ~/Downloads/backup.zip
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --output ~/Downloads/backup.zip
 ```
 
 ## Verification

@@ -19,6 +19,7 @@ import {
   make_restore_entry as make_entry,
   make_restore_manifest as make_manifest,
   make_stored_message,
+  STORED_PAYLOAD_CHECKSUM,
 } from './restore.service.fixtures';
 
 describe('RestoreService', () => {
@@ -38,6 +39,7 @@ describe('RestoreService', () => {
         delete: vi.fn(),
         delete_version: vi.fn(),
         exists: vi.fn(),
+        list_stale: vi.fn(async () => []),
         list: vi.fn(),
         list_versions: vi.fn().mockResolvedValue([]),
         begin_multipart_upload: vi.fn().mockResolvedValue({
@@ -220,7 +222,7 @@ describe('RestoreService', () => {
           content_type: 'application/pdf',
           size_bytes: 512,
           storage_key: 'attachments/user/hash1',
-          checksum: 'hash1',
+          checksum: STORED_PAYLOAD_CHECKSUM,
           is_inline: false,
         },
       ],

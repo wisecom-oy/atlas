@@ -10,6 +10,14 @@ const MAX_DELAY_MS = 30_000;
 /** Optional tuning for {@link download_with_retry}. */
 export interface DownloadRetryOptions {
   readonly max_attempts?: number;
+  /**
+   * Cancellation for the run.
+   *
+   * The Graph client takes no signal, so the request in flight still finishes; its own per-request
+   * timeout bounds that. What this stops is starting another attempt and sitting out a backoff of
+   * up to 30 seconds after the run was cancelled (issue #344).
+   */
+  readonly abort_signal?: AbortSignal | undefined;
 }
 
 /**
@@ -29,6 +37,7 @@ export async function download_with_retry(
   const max_attempts = options.max_attempts ?? DEFAULT_MAX_ATTEMPTS;
 
   for (let attempt = 1; attempt <= max_attempts; attempt++) {
+    options.abort_signal?.throwIfAborted();
     try {
       return await connector.download_file_content(item);
     } catch (err) {
@@ -50,7 +59,7 @@ export async function download_with_retry(
         `File download retry ${attempt}/${max_attempts} for ${item.file_name} ` +
           `(${format_bytes(item.size_bytes)}) in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
       );
-      await sleep(delay);
+      await sleep(delay, options.abort_signal);
     }
   }
 
@@ -63,6 +72,18 @@ function compute_file_retry_delay(attempt: number): number {
   return Math.min(base + jitter, MAX_DELAY_MS);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Waits, unless the run is cancelled first. */
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const on_abort = (): void => {
+    clearTimeout(timer);
+    reject(signal?.reason instanceof Error ? signal.reason : new Error('The run was cancelled'));
+  };
+  const timer = setTimeout(() => {
+    signal?.removeEventListener('abort', on_abort);
+    resolve();
+  }, ms);
+  signal?.addEventListener('abort', on_abort, { once: true });
+  await promise;
 }

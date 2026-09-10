@@ -21,6 +21,7 @@ import {
   type SharePointTenantOptions,
 } from '@/commands/sharepoint-command.handlers';
 import { format_bytes } from '@/command-formatters';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
@@ -103,7 +104,7 @@ export async function execute_onedrive_restore_version(
     owner.object_id,
     build_version_restore_options(options),
   );
-  await report_version_restore('Atlas OneDrive Version Restore', result);
+  await report_version_restore(banner_title('onedrive', 'Version Restore'), result);
 }
 
 /** Runs `atlas sharepoint restore-version`. */
@@ -121,7 +122,7 @@ export async function execute_sharepoint_restore_version(
     site_id,
     build_version_restore_options(options),
   );
-  await report_version_restore('Atlas SharePoint Version Restore', result);
+  await report_version_restore(banner_title('sharepoint', 'Version Restore'), result);
 }
 
 /** Prints what was written, then what was not, then the placement guarantee. */

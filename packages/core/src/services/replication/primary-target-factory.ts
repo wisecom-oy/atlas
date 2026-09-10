@@ -7,10 +7,10 @@ export function create_primary_target(
   config: AtlasConfig,
 ): StorageTarget {
   return factory({
-    s3_endpoint: config.s3_endpoint,
-    s3_access_key: config.s3_access_key,
-    s3_secret_key: config.s3_secret_key,
-    s3_region: config.s3_region,
-    encryption_passphrase: config.encryption_passphrase,
+    s3Endpoint: config.s3_endpoint,
+    s3AccessKey: config.s3_access_key,
+    s3SecretKey: config.s3_secret_key,
+    s3Region: config.s3_region,
+    encryptionPassphrase: config.encryption_passphrase,
   });
 }

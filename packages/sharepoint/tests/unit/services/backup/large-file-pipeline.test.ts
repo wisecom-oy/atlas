@@ -15,6 +15,9 @@ const { cleanup_stale_staging, process_large_file } =
 
 const KEY = randomBytes(32);
 const SITE = 'site-1';
+// The chunk source is mocked, so the item's reported size is whatever the mock yields: the
+// pipeline now fails an item whose chunks do not add up to it (issue #338).
+const ITEM_BYTES = 1024;
 
 interface Recorded {
   readonly ctx: TenantContext;
@@ -50,11 +53,18 @@ function make_ctx(options: { exists?: boolean; list?: string[] } = {}): Recorded
         ops.push(`delete:${key}`);
       }),
       list: vi.fn(async () => options.list ?? []),
+      list_stale: vi.fn(async (_prefix: string, older_than: Date) =>
+        older_than <= new Date() ? (options.list ?? []) : [],
+      ),
       abort_incomplete_uploads: vi.fn(async () => 0),
     },
     create_cipher: () => {
       const iv = randomBytes(12);
-      return { cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }), iv };
+      return {
+        cipher: createCipheriv('aes-256-gcm', KEY, iv, { authTagLength: 16 }),
+        iv,
+        header: Buffer.alloc(0),
+      };
     },
   } as unknown as TenantContext;
 
@@ -68,7 +78,7 @@ function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDelt
     kind: 'file',
     file_name: 'movie.mp4',
     parent_path: '/Videos',
-    size_bytes: 400 * 1024 * 1024,
+    size_bytes: ITEM_BYTES,
     deleted: false,
     ...overrides,
   } as SharePointDeltaItem;
@@ -83,7 +93,7 @@ function make_connector(url?: string): SharePointSiteConnector {
 beforeEach(() => {
   vi.clearAllMocks();
   chunk_mocks.fetch_file_chunks.mockImplementation(async function* () {
-    yield Buffer.alloc(1024, 7);
+    yield Buffer.alloc(ITEM_BYTES, 7);
   });
 });
 
@@ -103,8 +113,9 @@ describe('process_large_file', () => {
     expect(connector.resolve_download_url).not.toHaveBeenCalled();
     expect(chunk_mocks.fetch_file_chunks).toHaveBeenCalledWith(
       'https://cdn.example/abc',
-      400 * 1024 * 1024,
+      ITEM_BYTES,
       'item-1',
+      undefined,
     );
   });
 
@@ -228,9 +239,13 @@ describe('cleanup_stale_staging', () => {
 
     await cleanup_stale_staging(recorded.ctx, SITE);
 
-    const prefix = vi.mocked(recorded.ctx.storage.abort_incomplete_uploads).mock.calls[0]?.[0];
+    const [prefix, cutoff] = vi.mocked(recorded.ctx.storage.abort_incomplete_uploads).mock
+      .calls[0]!;
     expect(prefix).toContain('staging');
     expect(prefix).toContain(SITE);
+    // Without a cutoff in the past the sweep is the unfiltered one issue #345 is about: it would
+    // abort whatever a concurrent run of the same owner is streaming into.
+    expect(Date.now() - cutoff.getTime()).toBeGreaterThan(23 * 60 * 60 * 1000);
   });
 
   it('does nothing to delete when no staging objects are left', async () => {

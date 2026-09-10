@@ -17,6 +17,7 @@ import {
   SHAREPOINT_SAVE_USE_CASE_TOKEN,
   SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { ErrorList } from '@/ui/components/error-list';
@@ -107,7 +108,7 @@ export async function execute_sharepoint_list_sites(
   const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
   const sites = await connector.list_sites(tenant_id);
 
-  await render_static_view(<Banner title="Atlas SharePoint Sites" />);
+  await render_static_view(<Banner title={banner_title('sharepoint', 'Sites')} />);
   if (sites.length === 0) {
     logger.info('No SharePoint sites found.');
     return;
@@ -144,7 +145,7 @@ export async function execute_sharepoint_backup(
     object_lock_request,
   });
 
-  await render_static_view(<Banner title="Atlas SharePoint Backup" />);
+  await render_static_view(<Banner title={banner_title('sharepoint', 'Backup')} />);
   if (results.length > 1) {
     logger.info(`Backed up ${results.length} site(s) including subsites`);
   }
@@ -233,7 +234,7 @@ export async function execute_sharepoint_restore(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas SharePoint Restore" />
+      <Banner title={banner_title('sharepoint', 'Restore')} />
       <KeyValueList
         items={[
           { label: 'Snapshot', value: result.snapshot_id },
@@ -271,7 +272,7 @@ export async function execute_sharepoint_save(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas SharePoint Save" />
+      <Banner title={banner_title('sharepoint', 'Save')} />
       <KeyValueList
         items={[
           { label: 'Snapshot', value: result.snapshot_id },
@@ -310,7 +311,7 @@ export async function execute_sharepoint_verify(
     options.snapshot,
   );
 
-  await render_static_view(<Banner title="Atlas SharePoint Verify" />);
+  await render_static_view(<Banner title={banner_title('sharepoint', 'Verify')} />);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;

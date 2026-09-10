@@ -31,8 +31,9 @@ describe('save-zip-writer', () => {
     const path = temp_path('create');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
-    await add_eml_to_archive(archive, 'Inbox', 'test.eml', Buffer.from('EML content'));
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
+    await add_eml_to_archive(save_archive, 'Inbox', 'test.eml', Buffer.from('EML content'));
     await finalize_archive(archive);
     const bytes = await promise;
     await publish();
@@ -45,10 +46,11 @@ describe('save-zip-writer', () => {
     const path = temp_path('multi');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
-    await add_eml_to_archive(archive, 'Inbox', 'a.eml', Buffer.from('Message A'));
-    await add_eml_to_archive(archive, 'Sent Items', 'b.eml', Buffer.from('Message B'));
-    await add_eml_to_archive(archive, 'Inbox', 'c.eml', Buffer.from('Message C'));
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
+    await add_eml_to_archive(save_archive, 'Inbox', 'a.eml', Buffer.from('Message A'));
+    await add_eml_to_archive(save_archive, 'Sent Items', 'b.eml', Buffer.from('Message B'));
+    await add_eml_to_archive(save_archive, 'Inbox', 'c.eml', Buffer.from('Message C'));
     await finalize_archive(archive);
     const bytes = await promise;
     await publish();
@@ -60,7 +62,8 @@ describe('save-zip-writer', () => {
     const path = temp_path('empty');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
     await finalize_archive(archive);
     const bytes = await promise;
     await publish();
@@ -72,12 +75,13 @@ describe('save-zip-writer', () => {
     const path = temp_path('nested');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
     const entries: string[] = [];
     archive.on('entry', (e) => entries.push(String(e.name)));
 
-    await add_eml_to_archive(archive, 'Inbox/Projects/2026', 'a.eml', Buffer.from('A'));
-    await add_eml_to_archive(archive, 'Archive/Projects/2026', 'b.eml', Buffer.from('B'));
+    await add_eml_to_archive(save_archive, 'Inbox/Projects/2026', 'a.eml', Buffer.from('A'));
+    await add_eml_to_archive(save_archive, 'Archive/Projects/2026', 'b.eml', Buffer.from('B'));
     await finalize_archive(archive);
     await promise;
     await publish();
@@ -89,11 +93,12 @@ describe('save-zip-writer', () => {
     const path = temp_path('sanitize');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
     const entries: string[] = [];
     archive.on('entry', (e) => entries.push(String(e.name)));
 
-    await add_eml_to_archive(archive, 'Inbox/Q1:Q2/..', 'a.eml', Buffer.from('A'));
+    await add_eml_to_archive(save_archive, 'Inbox/Q1:Q2/..', 'a.eml', Buffer.from('A'));
     await finalize_archive(archive);
     await promise;
     await publish();
@@ -108,11 +113,12 @@ describe('save-zip-writer', () => {
     const path = temp_path('traversal');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
     const entries: string[] = [];
     archive.on('entry', (e) => entries.push(String(e.name)));
 
-    await add_eml_to_archive(archive, 'Inbox', '../../../etc/passwd', Buffer.from('A'));
+    await add_eml_to_archive(save_archive, 'Inbox', '../../../etc/passwd', Buffer.from('A'));
     await finalize_archive(archive);
     await promise;
     await publish();
@@ -128,11 +134,12 @@ describe('save-zip-writer', () => {
     const path = temp_path('flatten');
     created_files.push(path);
 
-    const { archive, promise, publish } = create_save_archive(path);
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
     const entries: string[] = [];
     archive.on('entry', (e) => entries.push(String(e.name)));
 
-    await add_eml_to_archive(archive, 'Inbox', 'a/b\\c\x01d.eml', Buffer.from('A'));
+    await add_eml_to_archive(save_archive, 'Inbox', 'a/b\\c\x01d.eml', Buffer.from('A'));
     await finalize_archive(archive);
     await promise;
     await publish();
@@ -155,12 +162,13 @@ describe('save-zip-writer', () => {
       deduplicate_filename(build_eml_filename('2026-03-10T14:30:22Z', 'Same'), new Set(['x'])),
     ];
 
-    const { archive, promise, publish } = create_save_archive(path);
+    const save_archive = create_save_archive(path);
+    const { archive, promise, publish } = save_archive;
     const entries: string[] = [];
     archive.on('entry', (e) => entries.push(String(e.name)));
 
     for (const name of generated) {
-      await add_eml_to_archive(archive, 'Inbox', name, Buffer.from('A'));
+      await add_eml_to_archive(save_archive, 'Inbox', name, Buffer.from('A'));
     }
     await finalize_archive(archive);
     await promise;

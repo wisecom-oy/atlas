@@ -10,6 +10,7 @@ import { build_object_lock_policy, build_object_lock_request } from '@/command-o
 import { format_bytes } from '@/command-formatters';
 import { report_run_outcome } from '@/command-run-outcome';
 import { logger } from '@wisecom/atlas-core';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
@@ -64,7 +65,7 @@ export async function execute_outlook_backup(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Backup" />
+      <Banner title={banner_title('outlook', 'Backup')} />
       <KeyValueList items={items} />
     </Box>,
   );

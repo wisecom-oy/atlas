@@ -1,10 +1,13 @@
 export * from '@/services/shared/owner-id-migration';
 export {
+  ArchiveDestinationError,
   create_file_archive,
   add_file_to_archive,
   finalize_file_archive,
 } from '@/services/shared/file-save-zip-writer';
-export type { FileArchive } from '@/services/shared/file-save-zip-writer';
+export type { ArchiveTarget, FileArchive } from '@/services/shared/file-save-zip-writer';
+export { resolve_save_target } from '@/services/shared/save-archive-target';
+export type { ResolvedSaveTarget, SaveTargetOptions } from '@/services/shared/save-archive-target';
 export {
   filter_manifests_by_date,
   merge_snapshot_entries,
@@ -16,6 +19,11 @@ export {
 export type { DriveChainEntry, DriveChainManifest } from '@/services/shared/drive-snapshot-chain';
 export { stream_decrypt_from_storage } from '@/services/shared/stream-decrypt';
 export type { StreamDecryptResult } from '@/services/shared/stream-decrypt';
+export {
+  assert_restored_content_matches,
+  RestoredContentMismatchError,
+} from '@/services/shared/restored-content-verifier';
+export { is_absent_object_error } from '@/services/shared/absent-object';
 export {
   safe_abort_multipart,
   stream_encrypt_to_multipart,

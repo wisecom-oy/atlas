@@ -85,6 +85,60 @@ Implementation thresholds from `@wisecom/atlas-onedrive`:
 
 Chunked downloads retry each **4 MiB** range independently (5 attempts with backoff in the adapter), so a transient failure replays a single chunk instead of the whole file. Each range request is also aborted if the chunk has not transferred at roughly 256 KB/s, with a floor of 30 seconds. That budget is sized from the chunk being fetched, not the file, so a dead connection costs about 30 seconds and then a retry regardless of whether the file is 5 MB or 5 GB.
 
+#### Staging cleanup and concurrent runs
+
+Every large file of one owner stages under the same prefix, `onedrive/staging/{owner_id}/`, so a
+run cleaning up after an earlier one and a run currently transferring cannot be told apart by key.
+Two things tell them apart. Age is the coarse filter: startup cleanup only considers staging
+objects last modified, and uploads started, more than 24 hours ago. Activity is the real answer for
+an upload, because nothing caps one item's transfer at 24 hours and a 250 GB file on a throttled
+link legitimately runs longer than that. An upload past the cutoff is left alone when any of its
+parts was written since, which a live transfer does every few seconds.
+
+A backend that reports no start time for an upload is left alone and counted in a warning, since
+an upload whose age cannot be established cannot be shown to be abandoned. Those are what the
+bucket's `AbortIncompleteMultipartUpload` lifecycle rule is for.
+
+Erasing an owner is the one case that sweeps without a cutoff. A prefix delete removes staged
+objects and not the parts of an incomplete upload, and no later run visits the prefix of an owner
+nobody backs up any more, so `deleteOwnerData` aborts every upload under it.
+
+A run aborts its own upload on any failure after the upload was created, including a failed
+existence check and a completion the bucket refuses. When that abort itself fails, Atlas logs the
+staging key and stops there. It does not sweep the prefix: that fallback used to abort whatever a
+concurrent backup of the same owner was streaming into, turning one run's failure into two. The
+parts left behind cost storage until the next cleanup or the bucket's own lifecycle rule collects
+them, which is why the failed abort is logged rather than swallowed.
+
+#### What a chunk has to prove before it is stored
+
+The checksum Atlas records is computed over the bytes that arrived, so it cannot tell a truncated
+transfer from a complete one: a one byte body produces a perfectly valid SHA-256 for one byte, and
+AES-GCM authenticates it just as happily. Every check therefore compares the transfer against an
+expectation formed before it started.
+
+| Check                | Rejected                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Body length          | A `206` whose body is not exactly the number of bytes the `Range` header asked for         |
+| `Content-Range`      | A `206` with a missing, unparseable, or mismatched `Content-Range`, including the `*` form |
+| Whole-file responses | A `200` answering a range request whose body is not the item's full reported size          |
+| Total transferred    | A streamed large file whose chunks do not add up to the size Graph reported for the item   |
+
+`Content-Range` is required rather than optional because it is the only thing that identifies which
+bytes of the file arrived. Without it a server answering every range with the same chunk would be
+indistinguishable from a correct one, and the result would be a validly encrypted backup of the
+wrong content.
+
+One more case is a restart rather than a truncation. If the CDN honours the first range requests
+and then answers a later one with the whole file, the whole-file fallback would start again at byte
+zero while the chunks already consumed are inside the cipher, producing an object holding a prefix
+followed by the entire file. Atlas fails the item instead. The next run retries it and takes the
+streamed path from the first chunk. A CDN that ignores `Range` from the very first request is
+unaffected, since nothing has been consumed yet.
+
+A failed check fails that item, not the run. The file is recorded in the failed-item ledger, no
+manifest entry is written for it, and the next backup retries it.
+
 ### Unicode Path Handling
 
 OneDrive paths and file names from Graph are normalized to **Unicode NFC** in the connector and catalog (`String.prototype.normalize('NFC')`). That aligns macOS (often NFD) with Windows and Linux naming, so the same logical path does not produce duplicate index entries after sync.
@@ -288,7 +342,7 @@ On Windows the archive is stamped with Mark-of-the-Web (`Zone.Identifier`, `Zone
 | `-o, --owner <id>`         | User email or Entra object ID            | Required       |
 | `-s, --snapshot <id>`      | Snapshot ID to save from                 | Required       |
 | `--file-filter <paths...>` | Only save specific files (by ID or path) | All files      |
-| `-O, --output <path>`      | Output zip file path                     | Auto-generated |
+| `--output <path>`          | Output zip file path                     | Auto-generated |
 | `--skip-verify`            | Skip SHA-256 integrity checks            | `false`        |
 | `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
@@ -409,7 +463,42 @@ Nesting the original structure under a restore root lengthens every path, and On
 
 Restored files are uploaded to the target user's primary drive. Folders are created as needed, and existing folders with the same name are reused rather than overwritten. Each file is decrypted, SHA-256 verified against the manifest checksum, and then uploaded using a small-file PUT (&le; 4 MiB) or a resumable upload session (> 4 MiB, with per-chunk retry on any transient Graph status: 429, 500, 502, 503, 504). A range PUT is addressed by its `Content-Range`, so a replayed chunk rewrites the same bytes rather than appending them twice.
 
+#### What counts as a completed upload
+
+A resumable session finishes on a status code, not on any 2xx. Graph answers an intermediate chunk
+with `202 Accepted` and the ranges it still wants, and the final chunk with `200` or `201` carrying
+the finished `driveItem`. Atlas reports the file as restored only on that terminal response.
+
+If the last chunk still comes back `202`, every byte has been sent and the session has not
+converged, so the file fails rather than being counted as restored. The failure names the ranges
+Graph still expects, read back from the session. Atlas does not retry into the same session: the
+content is all in hand, so a session that has not completed is a protocol or service problem, and
+the next restore opens a fresh one.
+
+A thrown error, a socket reset or a DNS failure mid-chunk, takes the same exit as a terminal HTTP
+error: the session is released with `DELETE` before the error propagates. A `DELETE` that itself
+fails is logged, because the session keeps its reserved quota until Graph expires it and an
+operator chasing a quota complaint needs to know Atlas tried.
+
 Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is read from S3 as a stream, the first 28 bytes (12-byte IV + 16-byte auth tag) are consumed to initialize AES-256-GCM, and ciphertext is decrypted in chunks without buffering the full ciphertext in memory.
+
+#### Memory during a large restore
+
+The plaintext is not buffered either. Each decrypted chunk goes into the upload session as it is
+produced, so a restore holds two 10 MiB upload chunks and one download chunk regardless of whether
+the file is 5 MiB or 50 GiB. Peak memory therefore follows how many files a run restores at once,
+not the size of the largest file in the backup.
+
+Streaming a file that has not been verified yet is safe because the item does not exist until the
+session is committed. AES-256-GCM only authenticates at the end of the object, and the SHA-256 can
+only be compared once the last byte is out, so Atlas holds the committing chunk back until the
+decrypt stream has ended cleanly. A failed authentication tag or a checksum that does not match the
+manifest therefore abandons the session with `DELETE`, and Graph never creates the file. The bytes
+Graph already accepted belong to a session nobody can read, and they expire with it.
+
+A file that fails this way is reported as a restore error and the run exits non-zero. It is not a
+silent skip: a manifest entry whose stored object no longer matches is the case an operator most
+needs to hear about.
 
 **Conflict behavior** controls what happens when a file already exists at the target path:
 
@@ -423,9 +512,16 @@ Files larger than 4 MiB use a streaming decrypt pipeline: the encrypted blob is 
 
 `atlas onedrive save` writes a zip archive instead of uploading to Graph. The archive preserves the OneDrive folder hierarchy, and files larger than 4 MiB use streaming decryption to avoid holding the full ciphertext in memory.
 
+The archive is written one entry at a time, and the next file is not decrypted until the
+destination has taken the previous one. With `--output` the destination is a local file and this is
+invisible. It matters when the SDK streams the archive somewhere slower, an HTTP response or an
+upload: the export now runs at the consumer's pace instead of compressing everything it can and
+holding the result in the archive's buffer. One file is held whole while it is compressed, so an
+export's peak follows the largest file in the snapshot rather than the snapshot.
+
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-123
-atlas onedrive save -o user@company.com -s od-snap-123 -O ~/Downloads/backup.zip
+atlas onedrive save -o user@company.com -s od-snap-123 --output ~/Downloads/backup.zip
 atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents/report.docx"
 ```
 

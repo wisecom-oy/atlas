@@ -49,6 +49,7 @@ function make_harness(
     tenant_id: 't',
     storage: {
       list: vi.fn().mockResolvedValue([]),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       exists: vi.fn().mockResolvedValue(false),
       put: vi.fn().mockResolvedValue(undefined),

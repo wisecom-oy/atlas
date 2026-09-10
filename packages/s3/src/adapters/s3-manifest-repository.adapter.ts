@@ -3,6 +3,8 @@ import type { Manifest } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
+import { StorageError } from '@wisecom/atlas-types';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 
 const MANIFEST_PREFIX = 'manifests';
 const MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
@@ -25,6 +27,20 @@ function snapshot_pointer_key(snapshot_id: string): string {
   return `${MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`;
 }
 
+class MismatchedManifestError extends Error {
+  constructor(
+    readonly storage_key: string,
+    owner_id: string,
+    snapshot_id: string,
+  ) {
+    super(
+      `Outlook manifest at ${storage_key} decrypts to ${owner_id}/${snapshot_id}; ` +
+        `refusing to use a manifest that is not the one the key names`,
+    );
+    this.name = 'MismatchedManifestError';
+  }
+}
+
 /**
  * Stores manifests as encrypted JSON in the tenant's S3 bucket.
  * Key layout: manifests/{owner_id}/{snapshot_id}.json
@@ -35,16 +51,20 @@ export class S3ManifestRepository implements ManifestRepository {
   async save(ctx: TenantContext, manifest: Manifest): Promise<void> {
     const key = manifest_key(manifest.owner_id, manifest.snapshot_id);
     const json = Buffer.from(JSON.stringify(manifest));
-    const encrypted = ctx.encrypt(json);
+    const encrypted = ctx.encrypt(json, key);
     const object_lock_policy = to_storage_object_lock_policy(manifest);
     await ctx.storage.put(key, encrypted, undefined, object_lock_policy);
 
-    const pointer = ctx.encrypt(
-      Buffer.from(JSON.stringify({ manifest_key: key } satisfies ManifestPointer)),
+    // Encrypted once per destination: the two pointers live in different directories, and the
+    // binding is what stops one being moved onto the other (issue #350).
+    const pointer_json = Buffer.from(
+      JSON.stringify({ manifest_key: key } satisfies ManifestPointer),
     );
+    const snapshot_key = snapshot_pointer_key(manifest.snapshot_id);
+    const latest_key = latest_pointer_key(manifest.owner_id);
     await Promise.all([
-      ctx.storage.put(snapshot_pointer_key(manifest.snapshot_id), pointer),
-      ctx.storage.put(latest_pointer_key(manifest.owner_id), pointer),
+      ctx.storage.put(snapshot_key, ctx.encrypt(pointer_json, snapshot_key)),
+      ctx.storage.put(latest_key, ctx.encrypt(pointer_json, latest_key)),
     ]);
   }
 
@@ -94,7 +114,7 @@ export class S3ManifestRepository implements ManifestRepository {
   private async download_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
     try {
       const encrypted = await ctx.storage.get(key);
-      const json = ctx.decrypt(encrypted);
+      const json = ctx.decrypt(encrypted, key);
       const parsed = JSON.parse(json.toString('utf-8')) as Partial<ManifestPointer>;
       return typeof parsed.manifest_key === 'string' ? parsed.manifest_key : undefined;
     } catch {
@@ -119,17 +139,33 @@ export class S3ManifestRepository implements ManifestRepository {
     return results.filter((manifest): manifest is Manifest => manifest !== undefined);
   }
 
-  /** Downloads an encrypted manifest blob, decrypts it, and parses the JSON. */
+  /**
+   * Downloads an encrypted manifest blob, decrypts it, and rejects a body the key does not name.
+   *
+   * A manifest is encrypted with the tenant key and nothing in the ciphertext says which manifest
+   * it is, so any manifest in the tenant authenticates at any other manifest's key. Rebuilding the
+   * key from the decrypted body is what distinguishes them, and doing it here covers the legacy
+   * scan and the listing paths as well as the pointer lookups (issue #340).
+   */
   private async download_and_decrypt(
     ctx: TenantContext,
     key: string,
   ): Promise<Manifest | undefined> {
     try {
       const encrypted = await ctx.storage.get(key);
-      const json = ctx.decrypt(encrypted);
-      return JSON.parse(json.toString('utf-8')) as Manifest;
-    } catch {
-      return undefined;
+      const json = ctx.decrypt(encrypted, key);
+      const parsed = JSON.parse(json.toString('utf-8')) as Manifest;
+      if (manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
+        throw new MismatchedManifestError(key, parsed.owner_id, parsed.snapshot_id);
+      }
+      return parsed;
+    } catch (err) {
+      // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
+      // identify is damaged, and returning `undefined` for it reports a broken backup with the
+      // same value as a snapshot that was never taken (issues #340, #341).
+      if (is_absent_object_error(err)) return undefined;
+      if (err instanceof MismatchedManifestError) throw err;
+      throw new StorageError(`Could not read the manifest at ${key}`, { cause: err });
     }
   }
 }

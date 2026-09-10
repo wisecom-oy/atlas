@@ -146,7 +146,7 @@ export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
   if (missing.length > 0) {
     throw new Error(
       `Missing required config fields: ${missing.join(', ')}. ` +
-        'Set them via "atlas config <key> <value>", atlas.config.json, or ATLAS_* environment variables.',
+        'Set them via "atlas config set <key> <value>", atlas.config.json, or ATLAS_* environment variables.',
     );
   }
 

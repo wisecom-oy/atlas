@@ -16,6 +16,7 @@ import {
   ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
   USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList } from '@/ui/components/key-value-list';
@@ -102,7 +103,7 @@ export async function execute_onedrive_backup(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas OneDrive Backup" />
+      <Banner title={banner_title('onedrive', 'Backup')} />
       <KeyValueList
         items={[
           {
@@ -177,7 +178,7 @@ export async function execute_onedrive_restore(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas OneDrive Restore" />
+      <Banner title={banner_title('onedrive', 'Restore')} />
       <KeyValueList
         items={[
           { label: 'Snapshot', value: result.snapshot_id },
@@ -212,7 +213,7 @@ export async function execute_onedrive_save(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas OneDrive Save" />
+      <Banner title={banner_title('onedrive', 'Save')} />
       <KeyValueList
         items={[
           { label: 'Snapshot', value: result.snapshot_id },
@@ -246,7 +247,7 @@ export async function execute_onedrive_verify(
     options.snapshot,
   );
 
-  await render_static_view(<Banner title="Atlas OneDrive Verify" />);
+  await render_static_view(<Banner title={banner_title('onedrive', 'Verify')} />);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;

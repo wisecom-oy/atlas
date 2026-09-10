@@ -37,30 +37,51 @@ function make_cursor(
   };
 }
 
+function make_failed_record(item_id: string) {
+  return {
+    item_id,
+    drive_id: 'drive-1',
+    name: `${item_id}.docx`,
+    reason: 'file content could not be downloaded',
+    attempts: 1,
+    first_failed_at: '2026-01-01T00:00:00.000Z',
+    last_failed_at: '2026-01-02T00:00:00.000Z',
+  };
+}
+
 /**
- * `failing_scan_cursor_save` makes the per-library cursor save throw, which
- * costs the library its accumulated entries: the run then finalizes with no
- * snapshot while still holding the version rows captured before the throw.
+ * `failing_library_scan` retries two ledger items: the first captures its version history, the
+ * second throws while being re-fetched, which costs the library its accumulated entries. The run
+ * then finalizes with no snapshot while still holding the version rows captured before the throw.
  */
 function make_harness(
   stored_cursor: SharePointDeltaCursor | undefined,
-  options: { failing_scan_cursor_save?: boolean } = {},
+  options: { failing_library_scan?: boolean } = {},
 ) {
   const connector = make_connector({
     fetch_delta: vi.fn().mockResolvedValue({
       drive_id: 'drive-1',
       delta_link: 'https://delta-link',
-      items: [make_file_item('f1')],
+      items: options.failing_library_scan ? [] : [make_file_item('f1')],
       reset_detected: false,
     }),
+    fetch_item_by_id: vi.fn((_t: string, _s: string, _d: string, item_id: string) =>
+      item_id === 'boom'
+        ? Promise.reject(new Error('library scan failed'))
+        : Promise.resolve(make_file_item(item_id)),
+    ),
     list_file_versions: vi.fn().mockResolvedValue(VERSIONS),
     download_file_version: vi.fn().mockResolvedValue(Buffer.from('old-content')),
   } as never);
   const file_indexes = make_file_indexes();
-  const cursors = make_cursors(stored_cursor);
-  if (options.failing_scan_cursor_save) {
-    (cursors.save as unknown as Mock).mockRejectedValueOnce(new Error('cursor save failed'));
-  }
+  const cursors = make_cursors(
+    options.failing_library_scan
+      ? {
+          ...(stored_cursor as SharePointDeltaCursor),
+          failed_items: { f1: make_failed_record('f1'), boom: make_failed_record('boom') },
+        }
+      : stored_cursor,
+  );
   return {
     service: make_service({ connector, file_indexes, cursors }),
     connector,
@@ -120,7 +141,7 @@ describe('SharePoint version dedup watermarks (issue #161)', () => {
 
   it('indexes captured versions before the watermark cursor when the run keeps no entries', async () => {
     const { service, file_indexes, cursors } = make_harness(make_cursor({}), {
-      failing_scan_cursor_save: true,
+      failing_library_scan: true,
     });
 
     const result = await service.backup_site('tenant-1', 'site-1', {});

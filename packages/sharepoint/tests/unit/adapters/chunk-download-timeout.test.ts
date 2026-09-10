@@ -45,9 +45,13 @@ describe('chunk download abort timeout', () => {
   /** A 206 answering exactly the requested range. */
   function range_response(range_start: number, range_end: number): Response {
     const body = Buffer.alloc(range_end - range_start + 1, 1);
+    const content_range = `bytes ${range_start}-${range_end}/*`;
     return {
       status: 206,
-      headers: { get: (): string | null => null },
+      headers: {
+        get: (name: string): string | null =>
+          name.toLowerCase() === 'content-range' ? content_range : null,
+      },
       arrayBuffer: () => Promise.resolve(body.buffer.slice(0, body.length)),
     } as unknown as Response;
   }
@@ -130,13 +134,17 @@ describe('chunk download abort timeout', () => {
     // the entire file, so draining it needs the file's budget, not a chunk's.
     // Arming that per response instead of per chunk is what keeps the common
     // path fast without regressing this one.
-    const total = 100 * 1024 * 1024;
-    const whole_file = Buffer.alloc(total, 7);
+    // Three chunks, not twenty-five, and one body buffer rather than one per chunk. The size only
+    // has to put the whole-file budget above the 30 second floor, which starts at 7.33 MiB; at
+    // 100 MiB the mock re-copied the body on every chunk and the case spent 2.5 GiB of memcpy to
+    // assert two numbers, which is what made it time out on a loaded runner.
+    const total = 12 * 1024 * 1024;
+    const whole_file = Buffer.alloc(total, 7).buffer;
 
     fetch_mock.mockResolvedValue({
       status: 200,
       headers: { get: (): string | null => null },
-      arrayBuffer: () => Promise.resolve(whole_file.buffer.slice(0, whole_file.length)),
+      arrayBuffer: () => Promise.resolve(whole_file),
     } as unknown as Response);
 
     const delays = capture_armed_delays();

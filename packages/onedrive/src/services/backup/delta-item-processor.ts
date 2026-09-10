@@ -80,6 +80,7 @@ export async function process_delta_item(
   version_stats: VersionStats,
   on_version_stats_update: (stored: number, unavailable: number, failed: number) => void,
   versions: RunVersionCollector,
+  abort_signal?: AbortSignal,
 ): Promise<DeltaItemOutcome> {
   const effective_kind =
     item.deleted && item.kind === 'file' && state.previous_kind_by_file_id[item.item_id]
@@ -127,7 +128,7 @@ export async function process_delta_item(
     };
   }
 
-  const download = await download_or_record_refusal(connector, item, owner_id, ctx);
+  const download = await download_or_record_refusal(connector, item, owner_id, ctx, abort_signal);
   if (download.outcome) return download.outcome;
   const result = download.result;
 
@@ -139,6 +140,7 @@ export async function process_delta_item(
       snapshot_id,
       ctx,
       versions.watermarks[item.item_id],
+      abort_signal,
     );
     collect_run_versions(versions, item.item_id, version_result);
     accumulate_version_stats(version_result, version_stats, on_version_stats_update);
@@ -168,13 +170,14 @@ async function download_or_record_refusal(
   item: OneDriveDeltaItem,
   owner_id: string,
   ctx: TenantContext,
+  abort_signal?: AbortSignal,
 ): Promise<
   | { outcome: DeltaItemOutcome; result?: undefined }
   | { outcome?: undefined; result: NonNullable<Awaited<ReturnType<typeof process_backup_file>>> }
 > {
   const empty = { files_stored: 0, files_deduplicated: 0, deleted_items: 0 };
   try {
-    const result = await process_backup_file(connector, item, owner_id, ctx);
+    const result = await process_backup_file(connector, item, owner_id, ctx, abort_signal);
     if (result) return { result };
     return {
       outcome: { ...empty, error: `Failed to process file ${item.file_name} (${item.item_id})` },

@@ -1,7 +1,6 @@
 import type {
   SharePointBackupOptions,
   SharePointDeltaCursor,
-  SharePointDeltaCursorRepository,
   SharePointDeltaResult,
   SharePointDocumentLibrary,
   SharePointManifestEntry,
@@ -62,15 +61,18 @@ export function clear_file_tracking_on_reset(
 }
 
 /**
- * Processes one document library delta and persists cursor state.
+ * Processes one document library delta and accumulates its manifest entries.
  *
- * The cursor advances even when individual items fail: successful entries are
- * kept and each failure is recorded in the ledger for retry on the next run,
- * so a single unreadable file can no longer freeze the library's incrementals.
+ * The delta link advances even when individual items fail: successful entries are kept and each
+ * failure is recorded in the ledger for retry on the next run, so a single unreadable file can no
+ * longer freeze the library's incrementals.
+ *
+ * Nothing is committed here. The advanced link rides in `delta_link_by_drive` until the caller has
+ * written the snapshot manifest, because a cursor saved first would point past content no snapshot
+ * references, and the next run would see no work to redo (issue #339).
  */
 export async function process_single_library(
   connector: SharePointSiteConnector,
-  cursors: SharePointDeltaCursorRepository,
   versions: RunVersionCollector,
   tenant_id: string,
   site_id: string,
@@ -126,6 +128,7 @@ export async function process_single_library(
     version_stats,
     options.should_interrupt,
     on_item_processed,
+    options.abort_signal,
   );
 
   let processed_delta_items = 0;
@@ -134,17 +137,26 @@ export async function process_single_library(
       interrupted = true;
       break;
     }
-    await process_item_guarded(
-      connector,
-      item,
-      site_id,
-      snapshot_id,
-      ctx,
-      tracking,
-      library_state,
-      versions,
-      version_stats,
-    );
+    try {
+      await process_item_guarded(
+        connector,
+        item,
+        site_id,
+        snapshot_id,
+        ctx,
+        tracking,
+        library_state,
+        versions,
+        version_stats,
+        options.abort_signal,
+      );
+    } catch (err) {
+      // The guard records a failed item and carries on, except for a cancelled transfer, which it
+      // rethrows: the run is stopping, and this item has not failed (issue #344).
+      if (options.abort_signal?.aborted !== true) throw err;
+      interrupted = true;
+      break;
+    }
     processed_delta_items++;
     on_item_processed?.(item.file_name);
   }
@@ -158,13 +170,6 @@ export async function process_single_library(
   const package_report = summarize_package_items(delta.items, incomplete_item_ids);
 
   if (!interrupted) delta_link_by_drive[library.drive_id] = delta.delta_link;
-  await cursors.save(ctx, {
-    site_id,
-    delta_link_by_drive,
-    ...tracking,
-    failed_items: library_state.failed_items,
-    updated_at: new Date().toISOString(),
-  });
 
   return {
     entries: library_state.library_entries,

@@ -71,14 +71,14 @@ Delta links are stored in the snapshot manifest, per-folder for Outlook, per-dri
 
 ## Other Terms
 
-| Term                 | Definition                                                                                                                                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Manifest**         | A JSON file in S3 describing a snapshot: backed-up items, their storage keys, checksums, paths or folder assignments, and delta links. One manifest per snapshot.                                      |
-| **Snapshot**         | A point-in-time backup record: a manifest file plus the data objects it references.                                                                                                                    |
-| **Tenant**           | A Microsoft 365 organization, identified by its Azure AD tenant ID (a UUID). Each tenant gets its own S3 bucket prefix, its own DEK, and its own backups across all workloads.                         |
-| **Owner**            | The Entra object ID of a OneDrive user. CLI commands accept email/UPN and resolve to the object ID automatically.                                                                                      |
-| **Site**             | A SharePoint site, identified by URL or Graph site ID (`hostname,site-guid,web-guid`). A site backup covers all document libraries in that site.                                                       |
-| **Replica marker**   | A file (`_meta/replica.marker`) written to secondary storage targets on first replication. Atlas checks for it to detect a backup command accidentally pointed at a replica instead of primary storage. |
+| Term               | Definition                                                                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Manifest**       | A JSON file in S3 describing a snapshot: backed-up items, their storage keys, checksums, paths or folder assignments, and delta links. One manifest per snapshot.                                       |
+| **Snapshot**       | A point-in-time backup record: a manifest file plus the data objects it references.                                                                                                                     |
+| **Tenant**         | A Microsoft 365 organization, identified by its Azure AD tenant ID (a UUID). Each tenant gets its own S3 bucket prefix, its own DEK, and its own backups across all workloads.                          |
+| **Owner**          | The Entra object ID of a OneDrive user. CLI commands accept email/UPN and resolve to the object ID automatically.                                                                                       |
+| **Site**           | A SharePoint site, identified by URL or Graph site ID (`hostname,site-guid,web-guid`). A site backup covers all document libraries in that site.                                                        |
+| **Replica marker** | A file (`_meta/replica.marker`) written to secondary storage targets on first replication. Atlas checks for it to detect a backup command accidentally pointed at a replica instead of primary storage. |
 
 ## See Also
 

@@ -57,11 +57,11 @@ Before enabling immutable backups, the S3 bucket must satisfy three conditions:
 
 Atlas validates all three before writing any data. If a check fails, the backup **aborts immediately** with a specific error category:
 
-| Error category                            | Fix                                                       |
-| ----------------------------------------- | --------------------------------------------------------- |
-| `versioning disabled`                     | Enable versioning on the bucket                           |
-| `Object Lock unsupported/disabled`        | Recreate the bucket with Object Lock enabled              |
-| `backend rejected requested mode/headers` | The storage backend does not support the requested mode   |
+| Error category                            | Fix                                                     |
+| ----------------------------------------- | ------------------------------------------------------- |
+| `versioning disabled`                     | Enable versioning on the bucket                         |
+| `Object Lock unsupported/disabled`        | Recreate the bucket with Object Lock enabled            |
+| `backend rejected requested mode/headers` | The storage backend does not support the requested mode |
 
 The fail-fast behavior is deliberate. Atlas never silently downgrades from immutable to mutable writes, because you would not discover the gap until you needed the immutability guarantee.
 

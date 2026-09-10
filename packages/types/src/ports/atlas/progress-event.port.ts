@@ -24,8 +24,17 @@ export interface SdkOperationOptions {
   readonly signal?: AbortSignal;
 }
 
-/** Internal hooks used by services without exposing AbortSignal or SDK naming. */
+/** Internal hooks used by services, without the SDK naming. */
 export interface OperationControlOptions {
   readonly on_progress?: OperationProgressCallback;
   readonly should_interrupt?: () => boolean;
+  /**
+   * Cancels work that is already in flight.
+   *
+   * `should_interrupt` is polled between items, so a cancelled run still waits out whatever
+   * network read it was in the middle of, and a large download can hold it for minutes. This
+   * reaches the request itself (issue #344). Services take both: the predicate decides whether to
+   * start the next item, the signal ends the one already running.
+   */
+  readonly abort_signal?: AbortSignal;
 }

@@ -122,11 +122,13 @@ describe('S3OneDriveManifestRepository', () => {
     expect(listed.map((m) => m.snapshot_id)).toEqual(['snap-new', 'snap-mid', 'snap-old']);
   });
 
-  it('skips an unreadable object under the prefix instead of failing the listing', async () => {
+  it('fails the listing on an unreadable object rather than omitting it', async () => {
+    // Issue #341 supersedes the earlier "skip it and keep going" behaviour. Omitting a manifest
+    // nobody could read reports the site as having fewer snapshots than it has, and the newest
+    // one being the damaged one turns `find_latest` into a silently older snapshot.
     const { ctx } = make_ctx(
       {
         'onedrive/manifests/owner-1/snap-1.json': make_manifest('snap-1', '2026-03-01T00:00:00Z'),
-        'onedrive/manifests/owner-1/snap-corrupt.json': 'not-json',
         // Listed so the injected get() failure below is actually reached: list() is derived
         // from the stored keys, so a key present only in get_error is never read.
         'onedrive/manifests/owner-1/snap-unreadable.json': make_manifest(
@@ -137,10 +139,9 @@ describe('S3OneDriveManifestRepository', () => {
       { 'onedrive/manifests/owner-1/snap-unreadable.json': new Error('decrypt failed') },
     );
 
-    const listed = await repo.list_snapshots_by_owner(ctx, OWNER);
-
-    // One bad object must not hide every other snapshot the owner has.
-    expect(listed.map((m) => m.snapshot_id)).toEqual(['snap-1']);
+    await expect(repo.list_snapshots_by_owner(ctx, OWNER)).rejects.toThrow(
+      /Could not read the OneDrive manifest at onedrive\/manifests\/owner-1\/snap-unreadable.json/,
+    );
   });
 
   it('throws when a manifest carries an unparseable created_at', async () => {

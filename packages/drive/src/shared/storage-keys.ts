@@ -24,6 +24,8 @@ export interface DriveStorageKeys {
   validate_key_segment(value: string): void;
   /** Builds the content-addressed key for a stored file blob. */
   data_key(owner_id: string, checksum: string): string;
+  /** The directory every blob of one owning segment lives in, which its ciphertext is bound to. */
+  data_prefix_for(owner_id: string): string;
   /** Builds the key for a snapshot manifest. */
   manifest_key(owner_id: string, snapshot_id: string): string;
   /** Builds the prefix for listing all manifests of one owning segment. */
@@ -98,6 +100,9 @@ export function build_drive_storage_keys(
       const owner = owning_segment(owner_id);
       validate_key_segment(checksum);
       return `${data_prefix}/${owner}/${checksum}`;
+    },
+    data_prefix_for(owner_id) {
+      return `${data_prefix}/${owning_segment(owner_id)}/`;
     },
     manifest_key(owner_id, snapshot_id) {
       const owner = owning_segment(owner_id);

@@ -48,8 +48,12 @@ function expect_adapted_options(
   expect(options).not.toHaveProperty('signal');
   const should_interrupt = options.should_interrupt as () => boolean;
   expect(should_interrupt()).toBe(false);
+  // The predicate answers between items; the signal is what a service hands to a request already
+  // in flight, so both have to arrive (issue #344).
+  expect(options.abort_signal).toBe(controller.signal);
   controller.abort();
   expect(should_interrupt()).toBe(true);
+  expect((options.abort_signal as AbortSignal).aborted).toBe(true);
 }
 
 describe('SDK progress and cancellation option adaptation', () => {
@@ -116,7 +120,7 @@ describe('SDK progress and cancellation option adaptation', () => {
 
     await api.backup(OWNER_ID, {
       hardStopSignal: new AbortController().signal,
-      object_lock_request: { mode: 'COMPLIANCE', retention_days: 30 },
+      objectLockRequest: { mode: 'COMPLIANCE', retentionDays: 30 },
     });
 
     const options = sync_mailbox.mock.calls[0]![2] as {
@@ -219,12 +223,12 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controllers[0].signal,
     });
     await api.restore(OWNER_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[1],
       signal: controllers[1].signal,
     });
     await api.save(OWNER_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[2],
       signal: controllers[2].signal,
     });
@@ -258,12 +262,12 @@ describe('SDK progress and cancellation option adaptation', () => {
       signal: controllers[0].signal,
     });
     await api.restore(SITE_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[1],
       signal: controllers[1].signal,
     });
     await api.save(SITE_ID, {
-      snapshot_id: 'snap-1',
+      snapshotId: 'snap-1',
       onProgress: callbacks[2],
       signal: controllers[2].signal,
     });

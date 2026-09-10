@@ -5,6 +5,7 @@ import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type { DeletionUseCase } from '@wisecom/atlas-types';
 import { DELETION_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { print_delete_result, render_delete_banner } from '@/commands/deletion-presenter';
+import { with_tenant, with_yes } from '@/commands/shared-options';
 import { ask_exact_match } from '@/ui/components/confirm-prompt';
 
 type ContainerFactory = () => Container;
@@ -23,13 +24,14 @@ export function register_tenant_delete_command(
   program: Command,
   get_container: ContainerFactory,
 ): void {
-  program
+  const command = program
     .command('delete')
     .description('Delete tenant-wide data across every workload')
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
-    .option('--purge', 'delete ALL data in the tenant bucket, every workload (irreversible)')
-    .option('-y, --yes', 'skip confirmation prompt')
-    .action((options: TenantDeleteOptions) => execute_tenant_delete(get_container(), options));
+    .option('--purge', 'delete ALL data in the tenant bucket, every workload (irreversible)');
+  with_yes(command);
+  with_tenant(command).action((options: TenantDeleteOptions) =>
+    execute_tenant_delete(get_container(), options),
+  );
 }
 
 /** Purges every object in the tenant bucket after confirmation. */

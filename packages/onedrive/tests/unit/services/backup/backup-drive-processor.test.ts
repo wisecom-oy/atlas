@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   BackupProgressReporter,
   OneDriveConnector,
-  OneDriveDeltaCursorRepository,
   OneDriveDrive,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -48,12 +47,11 @@ describe('scan_all_drives progress reporting', () => {
         .mockResolvedValueOnce({ items: [], delta_link: 'next-1', reset_detected: false })
         .mockRejectedValueOnce(new Error('boom')),
     } as unknown as OneDriveConnector;
-    const cursors = { save: vi.fn() } as unknown as OneDriveDeltaCursorRepository;
+    const delta_link_by_drive: Record<string, string> = {};
     const { reporter, calls } = make_reporter_recorder();
 
     const result = await scan_all_drives(
       connector,
-      cursors,
       DRIVES,
       'tenant-1',
       'owner-1',
@@ -65,7 +63,7 @@ describe('scan_all_drives progress reporting', () => {
         previous_etag_by_file_id: {},
         previous_kind_by_file_id: {},
       },
-      {},
+      delta_link_by_drive,
       { delta_link_by_drive: { d1: 'prev-link' } },
       false,
       EMPTY_VERSIONS,
@@ -83,7 +81,9 @@ describe('scan_all_drives progress reporting', () => {
       'error:1=boom',
     ]);
     expect(result.errors).toHaveLength(1);
-    expect(cursors.save).toHaveBeenCalledTimes(1);
+    // The scan commits nothing: only the drive that finished contributes a link,
+    // and the caller writes it after the manifest (issue #339).
+    expect(delta_link_by_drive).toEqual({ d1: 'next-1' });
   });
 
   it('stops between items and retains the prior drive delta link', async () => {
@@ -109,11 +109,10 @@ describe('scan_all_drives progress reporting', () => {
       files_deduplicated: 0,
       deleted_items: 0,
     });
-    const cursors = { save: vi.fn() } as unknown as OneDriveDeltaCursorRepository;
+    const delta_link_by_drive: Record<string, string> = { d1: 'prev-link' };
 
     const result = await scan_all_drives(
       connector,
-      cursors,
       [DRIVES[0]!],
       'tenant-1',
       'owner-1',
@@ -125,7 +124,7 @@ describe('scan_all_drives progress reporting', () => {
         previous_etag_by_file_id: {},
         previous_kind_by_file_id: {},
       },
-      { d1: 'prev-link' },
+      delta_link_by_drive,
       { delta_link_by_drive: { d1: 'prev-link' } },
       false,
       EMPTY_VERSIONS,
@@ -142,8 +141,6 @@ describe('scan_all_drives progress reporting', () => {
 
     expect(process_delta_item).toHaveBeenCalledOnce();
     expect(result.interrupted).toBe(true);
-    expect(vi.mocked(cursors.save).mock.calls[0]![1].delta_link_by_drive).toEqual({
-      d1: 'prev-link',
-    });
+    expect(delta_link_by_drive).toEqual({ d1: 'prev-link' });
   });
 });

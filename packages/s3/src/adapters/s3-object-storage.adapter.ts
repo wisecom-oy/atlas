@@ -7,7 +7,6 @@ import {
   HeadObjectCommand,
   ListObjectsV2Command,
   CreateMultipartUploadCommand,
-  CopyObjectCommand,
   ListMultipartUploadsCommand,
   AbortMultipartUploadCommand,
   type S3Client,
@@ -36,11 +35,8 @@ import {
   ObjectLockVersioningDisabledError,
   PreconditionFailedError,
 } from '@/adapters/object-lock.errors';
-import {
-  build_s3_copy_source,
-  is_backend_mode_rejection,
-  is_precondition_failed,
-} from '@/adapters/s3-error-classifier';
+import { is_backend_mode_rejection, is_precondition_failed } from '@/adapters/s3-error-classifier';
+import { copy_object_server_side } from '@/adapters/s3-large-copy';
 
 /**
  * S3-backed ObjectStorage scoped to a single bucket.
@@ -175,6 +171,27 @@ export class S3ObjectStorage implements ObjectStorage {
 
   /** Lists keys sharing the given prefix; `limit` stops enumeration early. */
   async list(prefix: string, limit?: number): Promise<string[]> {
+    return this.collect_keys(prefix, () => true, limit);
+  }
+
+  /**
+   * Lists keys under the prefix last modified before `older_than`.
+   *
+   * An object with no reported timestamp cannot be shown to be abandoned, so it stays.
+   */
+  async list_stale(prefix: string, older_than: Date): Promise<string[]> {
+    return this.collect_keys(
+      prefix,
+      (last_modified) => last_modified !== undefined && last_modified < older_than,
+    );
+  }
+
+  /** One paginated walk; the two listings differ only in what they keep and when they stop. */
+  private async collect_keys(
+    prefix: string,
+    keep: (last_modified: Date | undefined) => boolean,
+    limit?: number,
+  ): Promise<string[]> {
     const keys: string[] = [];
     let continuation_token: string | undefined;
 
@@ -189,7 +206,7 @@ export class S3ObjectStorage implements ObjectStorage {
       );
 
       for (const obj of response.Contents ?? []) {
-        if (obj.Key) keys.push(obj.Key);
+        if (obj.Key && keep(obj.LastModified)) keys.push(obj.Key);
       }
       if (limit !== undefined && keys.length >= limit) return keys.slice(0, limit);
       continuation_token = response.NextContinuationToken;
@@ -285,7 +302,14 @@ export class S3ObjectStorage implements ObjectStorage {
     }
   }
 
-  /** Copies an object server-side within this bucket. */
+  /**
+   * Copies an object server-side within this bucket.
+   *
+   * A single `CopyObject` is limited to a 5 GB source, which is smaller than the objects the
+   * multipart upload path accepts, so promotion used to fail on a large file after its bytes were
+   * already uploaded. The source size decides the request: anything above the limit is copied as
+   * ranged `UploadPartCopy` parts instead (issue #346).
+   */
   async copy(
     source_key: string,
     dest_key: string,
@@ -293,21 +317,14 @@ export class S3ObjectStorage implements ObjectStorage {
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<void> {
     await this.validate_immutability_policy(object_lock_policy);
-    const copy_source = build_s3_copy_source(this._bucket, source_key);
     try {
-      await this._client.send(
-        new CopyObjectCommand({
-          Bucket: this._bucket,
-          Key: dest_key,
-          CopySource: copy_source,
-          Metadata: metadata,
-          MetadataDirective: metadata ? 'REPLACE' : undefined,
-          ObjectLockMode: object_lock_policy?.mode,
-          ObjectLockRetainUntilDate: object_lock_policy?.retain_until
-            ? new Date(object_lock_policy.retain_until)
-            : undefined,
-        }),
-      );
+      await copy_object_server_side(this._client, {
+        bucket: this._bucket,
+        source_key,
+        dest_key,
+        metadata,
+        object_lock_policy,
+      });
     } catch (err) {
       if (is_backend_mode_rejection(err, object_lock_policy?.mode)) {
         throw new ObjectLockModeRejectedError(
@@ -321,8 +338,14 @@ export class S3ObjectStorage implements ObjectStorage {
   }
 
   /** Lists and aborts incomplete multipart uploads under {@link prefix}; returns count aborted. */
-  async abort_incomplete_uploads(prefix: string): Promise<number> {
-    return abort_incomplete_multipart_uploads(this._client, this._bucket, prefix);
+  async abort_incomplete_uploads(prefix: string, older_than: Date): Promise<number> {
+    const swept = await abort_incomplete_multipart_uploads(
+      this._client,
+      this._bucket,
+      prefix,
+      older_than,
+    );
+    return swept.aborted;
   }
 
   private async validate_immutability_policy(policy?: StorageObjectLockPolicy): Promise<void> {

@@ -1,71 +1,8 @@
-import type { DriveFileSystemInfo } from '@wisecom/atlas-types';
+import type { DriveFileSystemInfo, LargeFileContent } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import {
-  build_upload_file_system_info,
-  is_transient_error,
-  with_graph_retry,
-} from '@wisecom/atlas-m365-graph';
+import { build_upload_file_system_info, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-
-const LARGE_UPLOAD_CHUNK = 10 * 1024 * 1024;
-const CHUNK_PUT_ATTEMPTS = 3;
-
-async function sleep_ms(delay_ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, delay_ms));
-}
-
-function parse_fetch_retry_after_ms(header_value: string | null): number | undefined {
-  if (!header_value) return undefined;
-  const trimmed = header_value.trim();
-  const seconds = parseInt(trimmed, 10);
-  if (!isNaN(seconds)) return seconds * 1000;
-  const date_ms = Date.parse(trimmed);
-  if (!isNaN(date_ms)) {
-    const delta = date_ms - Date.now();
-    return delta > 0 ? delta : undefined;
-  }
-  return undefined;
-}
-
-async function cancel_resumable_upload_session(upload_url: string): Promise<void> {
-  try {
-    await fetch(upload_url, { method: 'DELETE' });
-  } catch {}
-}
-
-async function put_upload_chunk_with_retry(
-  upload_url: string,
-  range: string,
-  chunk: Buffer,
-): Promise<void> {
-  let last_detail = '';
-  for (let attempt = 0; attempt < CHUNK_PUT_ATTEMPTS; attempt++) {
-    const response = await fetch(upload_url, {
-      method: 'PUT',
-      headers: {
-        'Content-Range': range,
-        'Content-Length': String(chunk.length),
-      },
-      body: chunk,
-    });
-    if (response.ok) return;
-
-    last_detail = await response.text();
-    // A range PUT is addressed by Content-Range, so replaying one after a
-    // transient 500/502/504 rewrites the same bytes (issue #36).
-    const retriable = is_transient_error({ statusCode: response.status });
-    const is_last = attempt === CHUNK_PUT_ATTEMPTS - 1;
-    if (retriable && !is_last) {
-      const wait_ms = parse_fetch_retry_after_ms(response.headers.get('retry-after')) ?? 1000;
-      await sleep_ms(wait_ms);
-      continue;
-    }
-    await cancel_resumable_upload_session(upload_url);
-    throw new Error(
-      `Resumable upload failed at range ${range}: HTTP ${response.status} ${last_detail}`,
-    );
-  }
-}
+import { upload_content_to_session } from '@wisecom/atlas-drive/restore/upload-session';
 
 async function find_child_folder_id_by_name(
   client: Client,
@@ -205,7 +142,7 @@ export async function graph_onedrive_upload_large_file(
   drive_id: string,
   parent_id: string,
   file_name: string,
-  content: Buffer,
+  content: LargeFileContent,
   conflict_behavior: string = 'rename',
   file_system_info?: DriveFileSystemInfo,
 ): Promise<void> {
@@ -229,10 +166,5 @@ export async function graph_onedrive_upload_large_file(
   }
   const upload_url = session_response.uploadUrl;
 
-  for (let offset = 0; offset < content.length; offset += LARGE_UPLOAD_CHUNK) {
-    const end = Math.min(offset + LARGE_UPLOAD_CHUNK, content.length);
-    const chunk = content.subarray(offset, end);
-    const range = `bytes ${offset}-${end - 1}/${content.length}`;
-    await put_upload_chunk_with_retry(upload_url, range, chunk);
-  }
+  await upload_content_to_session(upload_url, content, file_name);
 }

@@ -111,12 +111,12 @@ describe('drive backups reject bad Object Lock flags before reaching Graph (issu
     expect(h.backup_onedrive).not.toHaveBeenCalled();
   });
 
-  it('fails a SharePoint backup without resolving the site', async () => {
+  it('rejects an unknown --lock-mode at the flag boundary, before resolving the site', async () => {
     await expect(
       h.program.parseAsync(['sharepoint', 'backup', '--site', SITE_URL, '--lock-mode', 'bogus'], {
         from: 'user',
       }),
-    ).rejects.toThrow(INVALID_MODE_ERROR);
+    ).rejects.toThrow(/Allowed choices are governance, compliance/);
 
     expect(h.resolve_site).not.toHaveBeenCalled();
     expect(h.backup_site_tree).not.toHaveBeenCalled();

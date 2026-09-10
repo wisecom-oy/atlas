@@ -7,6 +7,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { delete_scopes } from '@/services/deletion/shared/prefix-deleter';
+import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 
 @injectable()
 export class OneDriveDeletionService implements OneDriveDeletionUseCase {
@@ -24,13 +25,18 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
   async delete_owner_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
     owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_scopes(storage, [
+    const staging_prefix = `onedrive/staging/${owner_id}/`;
+    const result = await delete_scopes(storage, [
       `onedrive/manifests/${owner_id}/`,
       `onedrive/data/${owner_id}/`,
       `onedrive/index/${owner_id}/`,
       `onedrive/_meta/${owner_id}/`,
-      `onedrive/staging/${owner_id}/`,
+      staging_prefix,
     ]);
+    // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps an owner
+    // nobody backs up any more (issue #345).
+    await abort_staging_uploads(storage, staging_prefix);
+    return result;
   }
 
   /**

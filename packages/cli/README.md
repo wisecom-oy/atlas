@@ -56,6 +56,12 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 
 Run `atlas --help` or `atlas <command> --help` for full flag reference.
 
+## Exit codes
+
+v5 preserves `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures now use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource and `8` for retention.
+
+Treat every nonzero code as a failure or incomplete run. Fatal diagnostics go to stderr and include both the Atlas category and the underlying provider details. See the [exit-code reference](https://wisecom-oy.github.io/atlas/reference/cli#exit-codes) and [v5 migration guide](https://wisecom-oy.github.io/atlas/migration/v5#cli-failure-exit-codes) before updating scheduled jobs.
+
 ## Programmatic use
 
 For embedding Atlas in Node.js applications, use [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) instead.

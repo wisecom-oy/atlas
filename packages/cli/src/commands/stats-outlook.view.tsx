@@ -6,6 +6,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { Box, Text } from 'ink';
 import type { ReactElement } from 'react';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import type { KeyValueItem } from '@/ui/components/key-value-list';
@@ -18,7 +19,10 @@ import { format_bytes, format_microseconds } from '@/command-formatters';
 export async function print_bucket_stats(stats: BucketStats): Promise<void> {
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Bucket Statistics" subtitle={`Tenant: ${stats.tenant_id}`} />
+      <Banner
+        title={banner_title('tenant', 'Bucket Statistics')}
+        subtitle={`Tenant: ${stats.tenant_id}`}
+      />
       <Text bold>Overview</Text>
       <KeyValueList items={build_overview_items(stats)} />
       {stats.monthly_breakdown.length > 0 ? (
@@ -32,7 +36,10 @@ export async function print_bucket_stats(stats: BucketStats): Promise<void> {
 export async function print_mailbox_stats(stats: MailboxStats): Promise<void> {
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Mailbox Statistics" subtitle={`Mailbox: ${stats.owner_id}`} />
+      <Banner
+        title={banner_title('outlook', 'Statistics')}
+        subtitle={`Mailbox: ${stats.owner_id}`}
+      />
       <Text bold>Overview</Text>
       <KeyValueList items={build_overview_items(stats)} />
       {stats.folders.length > 0 ? <FolderTable folders={stats.folders} /> : undefined}

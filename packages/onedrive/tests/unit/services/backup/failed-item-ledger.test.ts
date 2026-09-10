@@ -109,6 +109,7 @@ function make_harness(options: {
       put: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
       delete: vi.fn().mockResolvedValue(undefined),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     },
     encrypt: (buffer: Buffer) => buffer,
@@ -206,9 +207,9 @@ describe('OneDrive persistent item failure (issue #34)', () => {
     expect(saved.delta_link_by_drive[DRIVE_ID]).toBe('delta-2');
     const recorded = saved.failed_items?.p1;
     expect(recorded).toMatchObject({ item_id: 'p1', drive_id: DRIVE_ID, attempts: 1 });
-    // The drive checkpoints before the snapshot is written -- the failure must
-    // not gate that save, or a later drive crashing loses this drive's progress.
-    expect(harness.save_order).toEqual(['cursor', 'manifest', 'cursor']);
+    // A failed item must not gate the snapshot, and the cursor carrying the ledger
+    // still lands only after the manifest that makes this run recoverable (#339).
+    expect(harness.save_order).toEqual(['manifest', 'cursor']);
     expect(result.summary.healthy).toBe(false);
     expect(result.summary.warnings).toEqual([
       expect.stringContaining('Not backed up: poison.txt (p1)'),

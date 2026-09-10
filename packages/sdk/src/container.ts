@@ -1,11 +1,6 @@
 import 'reflect-metadata';
 import { Container } from 'inversify';
-import {
-  type AtlasConfig,
-  load_config,
-  ATLAS_CONFIG_TOKEN,
-  CachingIdentityResolver,
-} from '@wisecom/atlas-core';
+import { type AtlasConfig, ATLAS_CONFIG_TOKEN, CachingIdentityResolver } from '@wisecom/atlas-core';
 import { bind_core_services } from '@wisecom/atlas-core';
 import { USER_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-types';
 import { bind_graph_client } from '@wisecom/atlas-m365-graph';
@@ -14,11 +9,7 @@ import { bind_outlook } from '@wisecom/atlas-outlook';
 import { bind_onedrive } from '@wisecom/atlas-onedrive';
 import { bind_sharepoint } from '@wisecom/atlas-sharepoint';
 
-export function create_container(): Container {
-  const config = load_config();
-  return create_container_from_config(config);
-}
-
+/** Builds the SDK container exclusively from explicit configuration. */
 export function create_container_from_config(config: AtlasConfig): Container {
   const container = new Container();
   container.bind<AtlasConfig>(ATLAS_CONFIG_TOKEN).toConstantValue(config);

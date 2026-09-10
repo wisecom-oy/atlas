@@ -15,7 +15,7 @@ export async function save_replication_status(
 ): Promise<void> {
   const key = status_key(record.owner_id, record.snapshot_id, record.target_id);
   const plaintext = Buffer.from(JSON.stringify(record), 'utf-8');
-  const ciphertext = ctx.encrypt(plaintext);
+  const ciphertext = ctx.encrypt(plaintext, key);
   await ctx.storage.put(key, ciphertext);
 }
 
@@ -77,7 +77,7 @@ async function decrypt_status_record(
     const exists = await ctx.storage.exists(key);
     if (!exists) return undefined;
     const ciphertext = await ctx.storage.get(key);
-    const plaintext = ctx.decrypt(ciphertext);
+    const plaintext = ctx.decrypt(ciphertext, key);
     return JSON.parse(plaintext.toString('utf-8')) as ReplicationStatusRecord;
   } catch {
     return undefined;

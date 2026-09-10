@@ -42,6 +42,7 @@ export function make_ctx(): TenantContext {
       get_with_etag: vi.fn(),
       get_stream: vi.fn(),
       apply_default_retention: vi.fn(),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn(),
     },
     encrypt: vi.fn((data: Buffer) => data),

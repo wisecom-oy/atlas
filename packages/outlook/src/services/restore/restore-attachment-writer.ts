@@ -3,6 +3,7 @@ import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { AttachmentEntry } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 
 export interface AttachmentRestoreResult {
   readonly restored: number;
@@ -35,7 +36,7 @@ export async function restore_entry_attachments(
     }
 
     try {
-      const content = await decrypt_attachment(ctx, att.storage_key);
+      const content = await decrypt_attachment(ctx, att);
 
       await restore_connector.add_attachment(tenant_id, owner_id, new_message_id, {
         name: att.name,
@@ -88,8 +89,15 @@ export async function restore_parsed_attachments(
   return { restored, skipped: 0, errors };
 }
 
-/** Fetches and decrypts a single attachment binary from object storage. */
-async function decrypt_attachment(ctx: TenantContext, storage_key: string): Promise<Buffer> {
-  const ciphertext = await ctx.storage.get(storage_key);
-  return ctx.decrypt(ciphertext);
+/**
+ * Fetches and decrypts a single attachment binary from object storage.
+ *
+ * Verified against the manifest checksum before it is returned, so a substituted blob fails the
+ * entry rather than being uploaded under another attachment's name (issue #340).
+ */
+async function decrypt_attachment(ctx: TenantContext, att: AttachmentEntry): Promise<Buffer> {
+  const ciphertext = await ctx.storage.get(att.storage_key);
+  const content = ctx.decrypt(ciphertext, att.storage_key);
+  assert_restored_content_matches(`attachment "${att.name}"`, content, att.checksum);
+  return content;
 }

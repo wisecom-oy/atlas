@@ -53,7 +53,7 @@ export async function store_single_message(
 
   const already_stored = await ctx.storage.exists(storage_key);
   if (!already_stored) {
-    const ciphertext = ctx.encrypt(payload);
+    const ciphertext = ctx.encrypt(payload, storage_key);
     await ctx.storage.put(
       storage_key,
       ciphertext,

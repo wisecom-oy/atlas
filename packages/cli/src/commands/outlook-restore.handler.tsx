@@ -7,6 +7,7 @@ import { RESTORE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import { report_run_outcome } from '@/command-run-outcome';
 import { resolve_outlook_scope } from '@/commands/outlook-scope';
+import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -70,7 +71,7 @@ export async function execute_outlook_restore(
 
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Restore" />
+      <Banner title={banner_title('outlook', 'Restore')} />
       <KeyValueList items={[{ label: 'Tenant', value: tenant_id }]} />
     </Box>,
   );

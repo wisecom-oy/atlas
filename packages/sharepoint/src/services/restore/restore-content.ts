@@ -11,14 +11,16 @@
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
-import type { StoredBlobRef, TenantContext } from '@wisecom/atlas-types';
+import type {
+  LargeFileContent,
+  StoredBlobRef,
+  StreamedFileContent,
+  TenantContext,
+} from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
-import {
-  should_stream_restore,
-  stream_decrypt_from_storage,
-  verify_streaming_checksum,
-} from '@wisecom/atlas-drive/restore/streaming-restore';
+import { stream_verified_plaintext } from '@wisecom/atlas-core/services/shared/stream-decrypt';
+import { should_stream_restore } from '@wisecom/atlas-drive/restore/streaming-restore';
 
 /** Thrown when ciphertext decrypts with AES-GCM but fails the authentication tag check. */
 export class SharePointDecryptAuthError extends Error {
@@ -28,36 +30,62 @@ export class SharePointDecryptAuthError extends Error {
   }
 }
 
-/** Returns the entry's verified plaintext, or undefined when it cannot be restored. */
+/**
+ * Returns the entry's content for restore, or undefined when it cannot be restored.
+ *
+ * A file past the streaming threshold comes back as a verified stream rather than a buffer, so
+ * restoring it costs two upload chunks of memory instead of the whole plaintext (issue #343). The
+ * shape doubles as the upload decision: only a file too large for the small-file upload streams.
+ */
 export async function download_and_decrypt(
   ctx: TenantContext,
   entry: StoredBlobRef,
-): Promise<Buffer | undefined> {
+): Promise<LargeFileContent | undefined> {
   if (!entry.storage_key) return undefined;
 
   return should_stream_restore(entry)
-    ? stream_download_and_decrypt(ctx, entry)
+    ? verified_blob_stream(ctx, entry)
     : buffered_download_and_decrypt(ctx, entry);
 }
 
-async function stream_download_and_decrypt(
+/**
+ * Streaming path: the plaintext is never held whole, so the checksum is only comparable once the
+ * last chunk has been produced.
+ *
+ * The upload it feeds must therefore not commit until the iteration ends, which the Graph upload
+ * session guarantees by holding its final chunk back. A mismatch or a failed tag then abandons the
+ * session instead of leaving a wrong file in the library.
+ */
+function verified_blob_stream(
   ctx: TenantContext,
   entry: StoredBlobRef,
-): Promise<Buffer | undefined> {
+): StreamedFileContent | undefined {
+  if (!entry.checksum) {
+    logger.warn(`Missing checksum for ${entry.file_name}; skipping restore`);
+    return undefined;
+  }
+  return {
+    chunks: authenticated_chunks(ctx, entry.storage_key!, entry.checksum, entry.file_name),
+    total_bytes: entry.size_bytes,
+  };
+}
+
+/** Yields verified plaintext, reporting a failed tag as the operator-visible error it is. */
+async function* authenticated_chunks(
+  ctx: TenantContext,
+  storage_key: string,
+  expected_checksum: string,
+  file_name: string,
+): AsyncGenerator<Buffer> {
   try {
-    const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key!);
-    if (!verify_streaming_checksum(entry, sha256_hex)) return undefined;
-    return content;
+    yield* stream_verified_plaintext(ctx, storage_key, expected_checksum, file_name);
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
-      throw new SharePointDecryptAuthError(`AES-GCM authentication failed for ${entry.file_name}`, {
+      throw new SharePointDecryptAuthError(`AES-GCM authentication failed for ${file_name}`, {
         cause: err,
       });
     }
-    logger.warn(
-      `Streaming decrypt failed for ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return undefined;
+    throw err;
   }
 }
 
@@ -76,7 +104,7 @@ async function buffered_download_and_decrypt(
   }
 
   try {
-    const content = ctx.decrypt(encrypted);
+    const content = ctx.decrypt(encrypted, entry.storage_key!);
     const expected = entry.checksum;
     if (!expected || !plaintext_sha256_equals_expected(content, expected)) {
       logger.warn(

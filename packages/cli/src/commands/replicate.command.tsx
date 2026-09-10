@@ -27,6 +27,8 @@ import { logger } from '@wisecom/atlas-core';
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
 import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
 import { resolve_secret_option } from '@/utils/secret-option';
+import { with_snapshot, with_tenant } from '@/commands/shared-options';
+import { banner_title } from '@/ui/banner-title';
 
 type ContainerFactory = () => Container;
 
@@ -41,32 +43,43 @@ interface ReplicateOptions {
   targetSecretKey?: string;
   targetRegion?: string;
   targetConfig?: string;
-  status?: boolean;
 }
 
-/** Registers the `atlas replicate` subcommand. */
+/** Adds the scope flags both `replicate` and `replicate status` select snapshots with. */
+function with_replication_scope(command: Command): Command {
+  const scoped = command
+    .option('-m, --mailbox <id>', 'all unreplicated snapshots for a mailbox')
+    .option('--site <url-or-id>', 'all unreplicated snapshots for a SharePoint site')
+    .option('-o, --owner <email-or-id>', 'all unreplicated snapshots for a OneDrive owner');
+  return with_tenant(with_snapshot(scoped, 'a specific snapshot'));
+}
+
+/** Registers the `atlas replicate` subcommand and its `status` reporting subcommand. */
 export function register_replicate_command(
   program: Command,
   get_container: ContainerFactory,
 ): void {
-  program
+  const group = program
     .command('replicate')
     .description('Replicate snapshots to a secondary S3 storage target')
-    .option('-s, --snapshot <id>', 'replicate a specific snapshot')
-    .option('-m, --mailbox <id>', 'replicate all unreplicated snapshots for a mailbox')
-    .option('--site <url-or-id>', 'replicate all unreplicated snapshots for a SharePoint site')
-    .option(
-      '-o, --owner <email-or-id>',
-      'replicate all unreplicated snapshots for a OneDrive owner',
-    )
-    .option('-t, --tenant <id>', 'tenant identifier (defaults to config)')
     .option('--target-endpoint <url>', 'target S3 endpoint URL')
     .option('--target-access-key <key>', 'target S3 access key')
     .option('--target-secret-key <key>', 'target S3 secret key; "-" reads it from stdin')
     .option('--target-region <region>', 'target S3 region')
-    .option('--target-config <path>', 'path to JSON file with target S3 credentials')
-    .option('--status', 'show replication status instead of replicating')
-    .action((options: ReplicateOptions) => execute_replicate(get_container(), options));
+    .option('--target-config <path>', 'path to JSON file with target S3 credentials');
+  with_replication_scope(group).action((options: ReplicateOptions) =>
+    execute_replicate(get_container(), options),
+  );
+
+  // Reporting is its own verb rather than a flag that silently changes what the command does. The
+  // scope flags are declared on both, so each `--help` is complete; commander binds a flag typed
+  // after the subcommand name to the parent, so the action reads the merged view.
+  const status = group
+    .command('status')
+    .description('Show replication status instead of replicating');
+  with_replication_scope(status).action((_options: ReplicateOptions, command: Command) =>
+    execute_replicate_status(get_container(), command.optsWithGlobals<ReplicateOptions>()),
+  );
 }
 
 function resolve_tenant_id(container: Container, options: ReplicateOptions): string {
@@ -74,26 +87,30 @@ function resolve_tenant_id(container: Container, options: ReplicateOptions): str
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
 }
 
+async function execute_replicate_status(
+  container: Container,
+  options: ReplicateOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const use_case = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
+  const owner_scope = options.owner
+    ? (await resolve_owner(container, tenant_id, options.owner)).object_id
+    : undefined;
+  const site_scope = options.site
+    ? await resolve_site_id(container, tenant_id, options.site)
+    : undefined;
+  const scope_id = options.mailbox ?? site_scope ?? owner_scope;
+  await show_status(use_case, tenant_id, options.snapshot, scope_id);
+}
+
 async function execute_replicate(container: Container, options: ReplicateOptions): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
   const use_case = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
 
-  if (options.status) {
-    const owner_scope = options.owner
-      ? (await resolve_owner(container, tenant_id, options.owner)).object_id
-      : undefined;
-    const site_scope = options.site
-      ? await resolve_site_id(container, tenant_id, options.site)
-      : undefined;
-    const scope_id = options.mailbox ?? site_scope ?? owner_scope;
-    await show_status(use_case, tenant_id, options.snapshot, scope_id);
-    return;
-  }
-
   const target = build_target(container, options);
   await render_static_view(
     <Box flexDirection="column">
-      <Banner title="Atlas Replicate" />
+      <Banner title={banner_title('tenant', 'Replicate')} />
       <KeyValueList
         items={[
           { label: 'Tenant', value: tenant_id },
@@ -115,7 +132,7 @@ async function execute_replicate(container: Container, options: ReplicateOptions
     await report_results(results);
   } else {
     logger.error(
-      'Either --snapshot, --mailbox, --owner, or --site is required (or --status to view status)',
+      'Either --snapshot, --mailbox, --owner, or --site is required (or "atlas replicate status")',
     );
     process.exitCode = 1;
   }
@@ -176,12 +193,12 @@ function build_target(container: Container, options: ReplicateOptions): StorageT
     const target_id = file.target_id;
     const s3_region = file.s3_region;
     return create_storage_target({
-      ...(typeof target_id === 'string' ? { target_id } : {}),
-      s3_endpoint,
-      s3_access_key,
-      s3_secret_key,
-      ...(typeof s3_region === 'string' ? { s3_region } : {}),
-      encryption_passphrase: config.encryption_passphrase,
+      ...(typeof target_id === 'string' ? { targetId: target_id } : {}),
+      s3Endpoint: s3_endpoint,
+      s3AccessKey: s3_access_key,
+      s3SecretKey: s3_secret_key,
+      ...(typeof s3_region === 'string' ? { s3Region: s3_region } : {}),
+      encryptionPassphrase: config.encryption_passphrase,
     });
   }
 
@@ -197,11 +214,11 @@ function build_target(container: Container, options: ReplicateOptions): StorageT
   }
 
   return create_storage_target({
-    s3_endpoint: options.targetEndpoint,
-    s3_access_key: options.targetAccessKey,
-    s3_secret_key: target_secret_key,
-    ...(options.targetRegion !== undefined ? { s3_region: options.targetRegion } : {}),
-    encryption_passphrase: config.encryption_passphrase,
+    s3Endpoint: options.targetEndpoint,
+    s3AccessKey: options.targetAccessKey,
+    s3SecretKey: target_secret_key,
+    ...(options.targetRegion !== undefined ? { s3Region: options.targetRegion } : {}),
+    encryptionPassphrase: config.encryption_passphrase,
   });
 }
 
@@ -282,7 +299,7 @@ async function show_status(
   snapshot_id: string | undefined,
   scope_id: string | undefined,
 ): Promise<void> {
-  await render_static_view(<Banner title="Replication Status" />);
+  await render_static_view(<Banner title={banner_title('tenant', 'Replication Status')} />);
 
   let records: ReplicationStatusRecord[];
   if (snapshot_id) {

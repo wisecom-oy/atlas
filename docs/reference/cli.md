@@ -24,6 +24,72 @@ COLUMNS=200 atlas sharepoint list-sites > sites.txt
 
 This matters beyond readability. Anything that post-processes the output, a log scrubber, a grep for an id, a parser, sees a wrapped value as two unrelated fragments and misses it.
 
+## Exit codes
+
+```bash
+status=0
+atlas outlook backup --mailbox "$mailbox" || status=$?
+case "$status" in
+  0) echo "Complete" ;;
+  2) echo "Incomplete run: inspect the reported items" >&2 ;;
+  3) echo "Transient failure: schedule a later attempt" >&2 ;;
+  4|5|6|7|8) echo "Operator action required; do not retry unchanged" >&2 ;;
+  *) echo "Command failed; inspect stderr" >&2 ;;
+esac
+exit "$status"
+```
+
+| Code | Meaning                                                                                                                | Action                                                                                                                            |
+| ---- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | Success, help, or a command with no failure reported                                                                   | Continue normally.                                                                                                                |
+| `1`  | Unexpected or unclassified failure, invalid command usage, or a command-reported failure without a typed exception     | Inspect stderr. Do not assume the failure is transient.                                                                           |
+| `2`  | Partial backup, restore or save: item errors, skipped files, integrity failures or a soft interrupt                    | Inspect the partial result before relying on it.                                                                                  |
+| `3`  | Throttling exhausted its retry budget, a recognized network error, or transient HTTP `429`, `500`, `502`, `503`, `504` | Schedule a later attempt. A timeout does not prove a write was never committed; inspect partial work before repeating a restore.  |
+| `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or an unwrapped HTTP `401`/`403`                                    | Correct credentials, permissions, admin consent or licensing before retrying.                                                     |
+| `5`  | `ATLAS_WRONG_PASSPHRASE`                                                                                               | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption. |
+| `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                                | Correct the configuration or its storage access.                                                                                  |
+| `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                           | Check the selected resource and identifiers.                                                                                      |
+| `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                           | Respect retention or legal hold; repeating the same deletion cannot bypass it.                                                    |
+
+Fatal exceptions use this category mapping. Existing command-reported failures remain `1`, including failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial remain `2`; their messages are not reclassified.
+
+An explicit Atlas category takes precedence over transport details. A generic `StorageError` can still resolve to a more specific HTTP or network category. Network detection reads structured Node error codes, including nested `cause`, never message text. An error that merely says “socket hang up” is unclassified unless it carries a recognized code. Hard process termination may be reported by the shell as `128 + signal`; that is separate from Atlas's exit categories.
+
+### Fatal error diagnostics
+
+```text
+[x] Consent required
+[x]   Atlas code: ATLAS_AUTH_DENIED
+[x]   Cause: Permission denied
+[x]   HTTP status: 403
+[x]   Transport code: ErrorAccessDenied
+```
+
+The CLI prints the Atlas code separately from the underlying Graph code, HTTP status, response body or AWS error name. Unwrapped HTTP `401`/`403`, `404` and `429` also receive the corresponding Atlas category in the diagnostic. Fatal diagnostics, including `DEBUG` stacks, go to stderr rather than contaminating redirected stdout.
+
+Provider diagnostics can contain tenant identifiers and sensitive content. Redact them before sharing logs. See [Migrating to v5](/migration/v5#cli-failure-exit-codes) before updating scripts that branch on exit `1` or parse the old output.
+
+## Short flags
+
+A short flag means one thing across the whole CLI. Before v5.0.0 three of them meant two things, and the pair that mattered was `atlas stats -s <site>` against `atlas onedrive verify -s <snapshot>`.
+
+| Flag | Meaning                                       | Notes                                                                              |
+| ---- | --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `-s` | `--snapshot`                                  | Every command that acts on a snapshot; `stats` does not, and rejects `-s` outright |
+| `-o` | `--owner`                                     | A drive owner; `--output` has no short flag on any command                         |
+| `-f` | `--folder` on Outlook, `--file` on the drives | One value each; repeat `-f` to name several Outlook folders                        |
+| `-t` | `--tenant`                                    | Every command                                                                      |
+| `-m` | `--mailbox`                                   | Every command that acts on a mailbox                                               |
+
+A retired spelling is rejected rather than reinterpreted, naming its replacement:
+
+```console
+$ atlas stats -s https://contoso.sharepoint.com/sites/Engineering
+error: option '-s <value>' argument 'https://...' is invalid. -s no longer means --site in v5.0.0. Pass --site instead.
+```
+
+`--site` carries no short flag, so nothing can shadow `-s` again. See [Migrating to v5](/migration/v5) for the full old-to-new table.
+
 ## `atlas outlook`
 
 Outlook mailbox backup, restore, and management commands. All mailbox operations live under this group; cross-cutting storage and replication commands remain at the root level.
@@ -47,7 +113,7 @@ Back up one mailbox from an M365 tenant to object storage, with a per-folder pro
 ```bash
 atlas outlook backup -m user@company.com                      # incremental backup
 atlas outlook backup -m user@company.com --full                # force full sync (ignore delta state)
-atlas outlook backup -m user@company.com -f Inbox Sent         # specific folders only
+atlas outlook backup -m user@company.com -f Inbox -f "Sent Items"   # specific folders only
 atlas outlook backup -m user@company.com -P 50                 # larger page size for fewer API round-trips
 atlas outlook backup -m user@company.com --retention-days 30 --lock-mode governance
 atlas outlook backup -m user@company.com --retention-days 365 --lock-mode compliance
@@ -57,7 +123,7 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | Option                        | Description                                                                  |
 | ----------------------------- | ---------------------------------------------------------------------------- |
 | `-m, --mailbox <id>`          | Mailbox to back up (required)                                                |
-| `-f, --folder <name...>`      | Filter to specific folder(s) by name or path (see below)                     |
+| `-f, --folder <name>`         | Filter to one folder by name or path; repeat for several (see below)         |
 | `--full`                      | Ignore saved delta links, run full enumeration                               |
 | `-P, --page-size <n>`         | Graph API page size per delta request (1--100, default 10)                   |
 | `--retention-days <n>`        | Apply Object Lock retention for `n` days                                     |
@@ -142,7 +208,7 @@ Storing purged mail has compliance consequences. See
 [Recoverable Items and legal hold](../security.md#recoverable-items-and-legal-hold).
 
 ::: warning Exit codes (all backup commands: Outlook, OneDrive, SharePoint)
-`0`: complete, every folder/file/mailbox processed without error. `1`: hard failure, the run aborted (auth, storage, unhandled error). `2`: **partial**, a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Schedulers should treat `1` as "page me" and `2` as "warn me": a partial backup is restorable but is missing the listed items. A run is reported complete only when every error bucket is empty (corso's fault-model contract).
+`0` means complete, with every error bucket empty. `2` means **partial**: a snapshot was saved but the run is incomplete because of per-folder/per-file errors or a soft interrupt (Ctrl+C). Failed items are listed on stderr. Fatal failures now use the [category exit codes](#exit-codes), rather than always returning `1`. A partial backup is restorable but is missing the listed items.
 
 `restore` and `save` follow the same contract: a file they could not decrypt or write is counted as skipped, and any skipped file exits `2`. An export that produced an archive missing some of its files is not a success, and a cron job that only checks for `0` has to be able to see the difference.
 
@@ -302,7 +368,7 @@ Nothing is written on macOS or Linux, which have no equivalent. If the target fi
 atlas outlook save -s <snapshot-id>
 atlas outlook save -s <snapshot-id> -f Inbox
 atlas outlook save -s <snapshot-id> --message 42
-atlas outlook save -s <snapshot-id> -o ~/Downloads/backup.zip
+atlas outlook save -s <snapshot-id> --output ~/Downloads/backup.zip
 atlas outlook save -s <snapshot-id> --skip-verify
 ```
 
@@ -323,7 +389,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | `--message <ref>`             | Save a single message by `#` index from `atlas outlook list`          |
 | `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                       |
 | `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                      |
-| `-o, --output <path>`         | Output file path (default: `Restore-<timestamp>.zip`)                 |
+| `--output <path>`             | Output file path (default: `Restore-<timestamp>.zip`)                 |
 | `--skip-verify`               | Skip SHA-256 integrity checks (faster on low-power systems)           |
 | `-t, --tenant <id>`           | Override tenant ID                                                    |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail; excluded by default |
@@ -624,7 +690,7 @@ The archive is written to a temporary file next to the output path and moved ont
 
 ```bash
 atlas onedrive save -o user@company.com -s od-snap-1735689600000-a1b2c3
-atlas onedrive save -o user@company.com -s od-snap-123 -O ~/Downloads/backup.zip
+atlas onedrive save -o user@company.com -s od-snap-123 --output ~/Downloads/backup.zip
 atlas onedrive save -o user@company.com -s od-snap-123 --file-filter "/Documents/report.docx"
 atlas onedrive save -o user@company.com -s od-snap-123 --skip-verify
 ```
@@ -634,7 +700,7 @@ atlas onedrive save -o user@company.com -s od-snap-123 --skip-verify
 | `-o, --owner <id>`         | User email or Entra object ID (required)       |
 | `-s, --snapshot <id>`      | OneDrive snapshot ID (required)                |
 | `--file-filter <paths...>` | Only save specific files (by ID or path)       |
-| `-O, --output <path>`      | Output zip file path (default: auto-generated) |
+| `--output <path>`          | Output zip file path (default: auto-generated) |
 | `--skip-verify`            | Skip SHA-256 integrity checks                  |
 | `-t, --tenant <id>`        | Override tenant ID from config                 |
 
@@ -800,7 +866,7 @@ Save decrypted files from a SharePoint snapshot to a local zip archive. The arch
 
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123
-atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 -O ~/Downloads/backup.zip
+atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --output ~/Downloads/backup.zip
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --file-filter "/Documents/report.docx"
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 --skip-verify
 ```
@@ -810,7 +876,7 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 | `--site <url-or-id>`       | SharePoint site URL or Graph site ID (required) |
 | `-s, --snapshot <id>`      | SharePoint snapshot ID (required)               |
 | `--file-filter <paths...>` | Only save specific files (by ID or path)        |
-| `-O, --output <path>`      | Output zip file path (default: auto-generated)  |
+| `--output <path>`          | Output zip file path (default: auto-generated)  |
 | `--skip-verify`            | Skip SHA-256 integrity checks                   |
 | `-t, --tenant <id>`        | Override tenant ID from config                  |
 
@@ -871,7 +937,7 @@ atlas stats                            # all services: Outlook, OneDrive, ShareP
 atlas stats --service outlook          # Outlook bucket-level overview only
 atlas stats -m user@company.com        # Outlook mailbox-level breakdown
 atlas stats -o user@company.com        # OneDrive statistics for one owner
-atlas stats -s https://contoso.sharepoint.com/sites/Engineering   # one site
+atlas stats --site https://contoso.sharepoint.com/sites/Engineering   # one site
 atlas stats --top 5                    # limit owner/site tables to 5 rows
 atlas stats --json                     # raw JSON output
 ```
@@ -880,7 +946,7 @@ atlas stats --json                     # raw JSON output
 | ------------------------- | ------------------------------------------------------------------------------------------ |
 | `-m, --mailbox <email>`   | Outlook statistics for a specific mailbox (implies `--service outlook`)                    |
 | `-o, --owner <email\|id>` | OneDrive statistics for a specific owner (implies `--service onedrive`)                    |
-| `-s, --site <url\|id>`    | SharePoint statistics for a specific site (implies `--service sharepoint`)                 |
+| `--site <url\|id>`        | SharePoint statistics for a specific site (implies `--service sharepoint`)                 |
 | `--service <name>`        | Limit output to one service: `outlook`, `onedrive`, `sharepoint`, or `all` (default `all`) |
 | `--top <n>`               | Maximum owner/site rows in OneDrive/SharePoint tables (default 20)                         |
 | `--json`                  | Output raw JSON instead of formatted tables                                                |
@@ -893,27 +959,29 @@ Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scop
 Manage Atlas configuration in an encrypted local store, git-config style. Values are written to `~/.atlas/config.enc` (AES-256-GCM); the store key lives in the OS keyring (macOS Keychain or libsecret), so credentials never sit on disk or in the environment in plaintext. See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
 
 ```bash
-atlas config tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f   # set + validate
-pbpaste | atlas config client.secret -                        # "-" reads from stdin (no shell history)
-atlas config client.secret                                    # get (secrets masked)
-atlas config list                                             # all keys, values, sources
-atlas config unset client.secret                              # remove from the store
-atlas config validate                                         # live Graph + S3 connectivity check
+atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f   # set + validate
+pbpaste | atlas config set client.secret -                        # "-" reads from stdin (no shell history)
+atlas config get client.secret                                    # get (secrets masked)
+atlas config list                                                 # all keys, values, sources
+atlas config unset client.secret                                  # remove from the store
+atlas config validate                                             # live Graph + S3 connectivity check
 ```
 
-| Usage                  | Description                                                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `config <key> <value>` | Validate and save a value to the encrypted store                                                                  |
-| `config <key>`         | Print the current effective value (secrets masked)                                                                |
-| `config list`          | Print every key with its value and source (`env`, `secure store`, `config file`)                                  |
-| `config unset <key>`   | Remove a key from the encrypted store                                                                             |
-| `config validate`      | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config; exits non-zero on failure |
+| Subcommand                 | Description                                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `config set <key> <value>` | Validate and save a value to the encrypted store; `-` reads the value from stdin                                  |
+| `config get <key>`         | Print the current effective value (secrets masked)                                                                |
+| `config list`              | Print every key with its value and source (`env`, `secure store`, `config file`)                                  |
+| `config unset <key>`       | Remove a key from the encrypted store                                                                             |
+| `config validate`          | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config; exits non-zero on failure |
+
+Each verb is a subcommand, so `atlas config set --help` documents itself. Before v5.0.0 the key and value were positional and `list`, `unset` and `validate` were recognised as key names, which left `atlas config list --help` documenting nothing.
 
 Keys: `tenant.id`, `client.id`, `client.secret`, `s3.endpoint`, `s3.access-key`, `s3.secret-key`, `s3.region`, `encryption.passphrase`. Each value is format-checked on save (GUIDs, URL scheme, 12-character passphrase minimum), and once a credential group is complete the matching live probe runs automatically. Note that `ATLAS_*` environment variables still override stored values; the command warns when a saved value is shadowed.
 
 ## `atlas replicate`
 
-Replicate snapshots to a secondary S3-compatible storage target. Ciphertext is copied as-is (no decryption). Only unreplicated snapshots and missing objects are transferred.
+Replicate snapshots to a secondary S3-compatible storage target. Ciphertext is copied as-is (no decryption). Only unreplicated snapshots and missing objects are transferred. Reporting is the `status` subcommand rather than a flag: it reads the same scope flags and writes no data.
 
 ```bash
 atlas replicate -s <snapshot-id> \
@@ -929,11 +997,11 @@ atlas replicate --site contoso.sharepoint.com,guid,guid -s sp-snap-1735689600000
 atlas replicate -o user@company.com --target-config ./offsite.json
 atlas replicate -o user@company.com -s od-snap-1735689600000-a1b2c3 --target-config ./offsite.json
 
-atlas replicate --status
-atlas replicate --status -m user@company.com
-atlas replicate --status -s <snapshot-id>
-atlas replicate --status --site https://contoso.sharepoint.com/sites/Engineering
-atlas replicate --status -o user@company.com
+atlas replicate status
+atlas replicate status -m user@company.com
+atlas replicate status -s <snapshot-id>
+atlas replicate status --site https://contoso.sharepoint.com/sites/Engineering
+atlas replicate status -o user@company.com
 ```
 
 | Option                      | Description                                                |
@@ -947,7 +1015,6 @@ atlas replicate --status -o user@company.com
 | `--target-secret-key <key>` | Target S3 secret key; `-` reads it from stdin              |
 | `--target-region <region>`  | Target S3 region (default: `us-east-1`)                    |
 | `--target-config <path>`    | Path to JSON file with target S3 credentials               |
-| `--status`                  | Show replication status instead of replicating             |
 | `-t, --tenant <id>`         | Override tenant ID                                         |
 
 ::: tip Target Config File

@@ -53,6 +53,7 @@ function make_mock_storage(): ObjectStorage {
     delete: vi.fn(),
     delete_version: vi.fn(),
     exists: vi.fn().mockResolvedValue(false),
+    list_stale: vi.fn(async () => []),
     list: vi.fn().mockResolvedValue([]),
     list_versions: vi.fn().mockResolvedValue([]),
     begin_multipart_upload: vi.fn().mockResolvedValue({
@@ -235,7 +236,12 @@ describe('MailboxSyncService', () => {
 
     await service.sync_mailbox('t', 'user@test.com');
 
-    expect(mock_context.encrypt).toHaveBeenCalledWith(msg.raw_body);
+    // The key travels with the plaintext: the ciphertext is bound to where it is stored, so a
+    // blob moved to another key stops decrypting (issue #350).
+    expect(mock_context.encrypt).toHaveBeenCalledWith(
+      msg.raw_body,
+      expect.stringContaining('data/user@test.com/'),
+    );
     const [, stored_data] = (mock_context.storage.put as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(stored_data[0]).toBe(0x45);
   });

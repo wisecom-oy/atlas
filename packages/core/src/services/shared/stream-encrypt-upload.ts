@@ -4,6 +4,7 @@ import type {
   StorageObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { ByteQueue } from '@/services/shared/byte-queue';
 import { logger } from '@/utils/logger';
 
 /**
@@ -34,10 +35,16 @@ export interface ContentAddressedStreamResult {
 export interface ContentAddressedStreamTarget {
   /** Unique per-call staging key the encrypted stream lands on first. */
   readonly staging_key: string;
-  /** Prefix used to sweep orphaned parts when an abort fails. */
-  readonly staging_prefix: string;
   /** Builds the canonical key from the plaintext checksum. */
   build_data_key(checksum: string): string;
+  /**
+   * The directory the finished object lives in, which the ciphertext is bound to.
+   *
+   * Not the staging key's: the object is promoted onto its content-addressed key and has to
+   * decrypt from there, and the checksum that key is built from is unknown when the cipher is
+   * created (issue #350).
+   */
+  readonly data_scope: string;
   readonly object_lock_policy?: StorageObjectLockPolicy;
 }
 
@@ -58,16 +65,25 @@ export async function stream_to_content_addressed_storage(
     ctx,
     target.staging_key,
     chunks,
+    target.data_scope,
   );
 
   const canonical_key = target.build_data_key(checksum);
 
-  if (await ctx.storage.exists(canonical_key)) {
-    await safe_abort_multipart(handle, target.staging_prefix, ctx);
-    return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
-  }
+  // Everything from here to `complete()` owns an upload that exists in the bucket. A throw in
+  // between, an `exists()` that fails or a completion the backend refuses, used to leave it there
+  // active and billable with nobody holding its id (issue #345).
+  try {
+    if (await ctx.storage.exists(canonical_key)) {
+      await safe_abort_multipart(handle, target.staging_key);
+      return { checksum, storage_key: canonical_key, stored: false, deduplicated: true };
+    }
 
-  await handle.complete(completed_parts);
+    await handle.complete(completed_parts);
+  } catch (err) {
+    await safe_abort_multipart(handle, target.staging_key);
+    throw err;
+  }
 
   // ponytail: the exists() check above races a concurrent writer, and the loser
   // overwrites with identical bytes -- canonical_key IS the SHA-256 of the
@@ -88,8 +104,7 @@ export async function stream_to_content_addressed_storage(
 }
 
 interface PendingPartState {
-  pending: Buffer[];
-  pending_bytes: number;
+  pending: ByteQueue;
   first_part_data: Buffer | null;
   part_number: number;
   completed_parts: CompletedPart[];
@@ -120,15 +135,15 @@ export async function stream_encrypt_to_multipart(
   ctx: TenantContext,
   staging_key: string,
   chunks: AsyncIterable<Buffer>,
+  scope_key: string = staging_key,
 ): Promise<StreamEncryptUploadResult> {
-  const { cipher, iv } = ctx.create_cipher();
+  const { cipher, iv, header } = ctx.create_cipher(scope_key);
   const hash = createHash('sha256');
   const handle = await ctx.storage.begin_multipart_upload(staging_key);
 
   try {
     const state: PendingPartState = {
-      pending: [],
-      pending_bytes: 0,
+      pending: new ByteQueue(),
       first_part_data: null,
       part_number: 2,
       completed_parts: [],
@@ -136,37 +151,27 @@ export async function stream_encrypt_to_multipart(
 
     for await (const chunk of chunks) {
       hash.update(chunk);
-      const encrypted = cipher.update(chunk);
-      if (encrypted.length === 0) continue;
+      state.pending.push(cipher.update(chunk));
 
-      state.pending.push(encrypted);
-      state.pending_bytes += encrypted.length;
-
-      while (state.pending_bytes >= PART_SIZE) {
+      while (state.pending.bytes >= PART_SIZE) {
         await flush_pending_parts(handle, state);
       }
     }
 
-    const final_block = cipher.final();
-    if (final_block.length > 0) {
-      state.pending.push(final_block);
-      state.pending_bytes += final_block.length;
-    }
+    state.pending.push(cipher.final());
 
     if (!state.first_part_data) {
-      state.first_part_data = Buffer.concat(state.pending);
-      state.pending.length = 0;
-      state.pending_bytes = 0;
+      state.first_part_data = state.pending.take(state.pending.bytes);
     }
 
-    if (state.pending_bytes > 0) {
-      const last_part = Buffer.concat(state.pending);
+    if (state.pending.bytes > 0) {
+      const last_part = state.pending.take(state.pending.bytes);
       const etag = await handle.upload_part(state.part_number, last_part);
       state.completed_parts.push({ ETag: etag, PartNumber: state.part_number });
     }
 
     const auth_tag = cipher.getAuthTag();
-    const header_part = Buffer.concat([iv, auth_tag, state.first_part_data]);
+    const header_part = Buffer.concat([header, iv, auth_tag, state.first_part_data]);
     const part1_etag = await handle.upload_part(1, header_part);
     state.completed_parts.push({ ETag: part1_etag, PartNumber: 1 });
 
@@ -174,11 +179,7 @@ export async function stream_encrypt_to_multipart(
 
     return { checksum: hash.digest('hex'), handle, completed_parts: state.completed_parts };
   } catch (err) {
-    await safe_abort_multipart(
-      handle,
-      staging_key.substring(0, staging_key.lastIndexOf('/') + 1),
-      ctx,
-    );
+    await safe_abort_multipart(handle, staging_key);
     throw err;
   }
 }
@@ -188,36 +189,49 @@ async function flush_pending_parts(
   handle: MultipartUploadHandle,
   state: PendingPartState,
 ): Promise<void> {
-  const combined = Buffer.concat(state.pending);
-  state.pending.length = 0;
-  state.pending_bytes = 0;
-
-  const part_data = combined.subarray(0, PART_SIZE);
-  if (combined.length > PART_SIZE) {
-    const remainder = Buffer.from(combined.subarray(PART_SIZE));
-    state.pending.push(remainder);
-    state.pending_bytes = remainder.length;
-  }
+  const part_data = state.pending.take(PART_SIZE);
 
   if (!state.first_part_data) {
-    state.first_part_data = Buffer.from(part_data);
+    state.first_part_data = part_data;
   } else {
-    const etag = await handle.upload_part(state.part_number, Buffer.from(part_data));
+    const etag = await handle.upload_part(state.part_number, part_data);
     state.completed_parts.push({ ETag: etag, PartNumber: state.part_number });
     state.part_number++;
   }
 }
 
-/** Aborts a multipart upload, falling back to sweeping orphaned parts by prefix. */
+/**
+ * Aborts one multipart upload and reports it when that fails.
+ *
+ * The fallback used to sweep every incomplete upload under the staging prefix, which is shared by
+ * every large file of one owner: a failure in one run aborted the upload a concurrent run was
+ * streaming into (issue #345). One failed abort leaves one upload's parts behind, which the
+ * bucket's lifecycle rule and the age-filtered startup cleanup both collect, so the answer is to
+ * name it rather than to widen the blast radius.
+ */
 export async function safe_abort_multipart(
   handle: MultipartUploadHandle,
-  staging_prefix: string,
-  ctx: TenantContext,
+  staging_key: string,
 ): Promise<void> {
   try {
     await handle.abort();
   } catch (err) {
-    logger.warn(`Multipart abort failed, cleaning up orphaned parts: ${err}`);
-    await ctx.storage.abort_incomplete_uploads(staging_prefix).catch(() => {});
+    // A completion can fail on the client after the backend applied it, and the abort that follows
+    // then finds no upload. Nothing is stranded in that case, so it is not an operator's problem.
+    if (is_upload_already_gone(err)) {
+      logger.debug(`Staging upload for ${staging_key} was already gone when the abort ran`);
+      return;
+    }
+    logger.warn(
+      `Could not abort the staging upload for ${staging_key}: ` +
+        `${err instanceof Error ? err.message : String(err)}. ` +
+        `Its parts stay billable until the bucket's lifecycle rule or the next run collects them.`,
+    );
   }
+}
+
+/** Recognises the backend's answer for an upload id that no longer exists. */
+function is_upload_already_gone(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null || !('name' in err)) return false;
+  return err.name === 'NoSuchUpload' || err.name === 'NotFound';
 }

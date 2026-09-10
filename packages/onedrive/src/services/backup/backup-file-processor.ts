@@ -13,8 +13,16 @@ export async function process_backup_file(
   item: OneDriveDeltaItem,
   owner_id: string,
   ctx: TenantContext,
+  abort_signal?: AbortSignal,
 ): Promise<FileProcessResult | undefined> {
-  return process_drive_backup_file(ONEDRIVE_LARGE_FILE_DEPS, connector, item, owner_id, ctx);
+  return process_drive_backup_file(
+    ONEDRIVE_LARGE_FILE_DEPS,
+    connector,
+    item,
+    owner_id,
+    ctx,
+    abort_signal,
+  );
 }
 
 /** @throws Error when no drives are returned (likely missing Graph permissions). */

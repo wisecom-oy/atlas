@@ -90,7 +90,7 @@ atlas outlook list
 atlas outlook restore -m user@company.com -f Inbox
 
 # save as EML zip archive
-atlas outlook save -m user@company.com -o backup.zip
+atlas outlook save -m user@company.com --output backup.zip
 
 # list OneDrive snapshots
 atlas onedrive list-snapshots -o user@company.com

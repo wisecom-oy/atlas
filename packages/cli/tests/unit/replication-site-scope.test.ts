@@ -157,11 +157,11 @@ describe('replicate/rehydrate --site SharePoint scope', () => {
     );
   });
 
-  it('scopes --status by the resolved site id, not the raw URL', async () => {
+  it('scopes `replicate status` by the resolved site id, not the raw URL', async () => {
     const use_case = container.get<{ get_replication_status_by_owner: Mock }>(
       REPLICATION_USE_CASE_TOKEN,
     );
-    await program.parseAsync(['replicate', '--status', '--site', SITE_URL], { from: 'user' });
+    await program.parseAsync(['replicate', 'status', '--site', SITE_URL], { from: 'user' });
 
     expect(use_case.get_replication_status_by_owner).toHaveBeenCalledWith('test-tenant', SITE_ID);
   });

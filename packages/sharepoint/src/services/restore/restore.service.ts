@@ -47,8 +47,6 @@ import {
   restore_parent_path,
 } from '@wisecom/atlas-core/services/shared/restore-destination';
 
-const SMALL_FILE_LIMIT = 4 * 1024 * 1024;
-
 /** Per-run state deciding which library each entry is written to. */
 interface EntryRouting {
   readonly cross_site: boolean;
@@ -263,7 +261,9 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         return 'skipped';
       }
 
-      if (content.length <= SMALL_FILE_LIMIT) {
+      // The blob reader streams anything past the small-file limit, so the shape it returned is
+      // the upload to use.
+      if (Buffer.isBuffer(content)) {
         await this._connector.upload_small_file(
           tenant_id,
           target_site,

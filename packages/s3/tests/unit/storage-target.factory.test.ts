@@ -18,6 +18,7 @@ vi.mock('@/adapters/s3-object-storage.adapter', () => ({
     delete_version = async (): Promise<void> => {};
     exists = async (): Promise<boolean> => mock_exists_returns;
     list = async (): Promise<string[]> => [];
+    list_stale = async (): Promise<string[]> => [];
     list_versions = async (): Promise<string[]> => [];
     begin_multipart_upload = async () => ({
       upload_part: async (): Promise<string> => '',
@@ -40,10 +41,10 @@ vi.mock('@/adapters/tenant-bucket-name', () => ({
 
 describe('create_storage_target', () => {
   const base_config: StorageTargetConfig = {
-    s3_endpoint: 'http://offsite:9000',
-    s3_access_key: 'access',
-    s3_secret_key: 'secret',
-    encryption_passphrase: 'test-pass',
+    s3Endpoint: 'http://offsite:9000',
+    s3AccessKey: 'access',
+    s3SecretKey: 'secret',
+    encryptionPassphrase: 'test-pass',
   };
 
   it('creates a storage target with auto-derived target_id', () => {
@@ -57,7 +58,7 @@ describe('create_storage_target', () => {
   it('uses explicit target_id when provided', () => {
     const target = create_storage_target({
       ...base_config,
-      target_id: 'my-offsite',
+      targetId: 'my-offsite',
     });
 
     expect(target.target_id).toBe('my-offsite');
@@ -76,7 +77,11 @@ describe('create_storage_target', () => {
     expect(ctx.storage).toBeDefined();
     // Round-trip proves unwrap_dek recovered the original DEK.
     const plaintext = Buffer.from('round-trip');
-    expect(ctx.decrypt(ctx.encrypt(plaintext)).equals(plaintext)).toBe(true);
+    expect(
+      ctx
+        .decrypt(ctx.encrypt(plaintext, 'onedrive/data/owner-1/blob'), 'onedrive/data/owner-1/blob')
+        .equals(plaintext),
+    ).toBe(true);
   });
 
   it('creates a storage-only context when no DEK exists', async () => {
@@ -86,8 +91,8 @@ describe('create_storage_target', () => {
 
     expect(ctx.tenant_id).toBe('tenant-1');
     expect(ctx.storage).toBeDefined();
-    expect(() => ctx.encrypt(Buffer.from('x'))).toThrow('no DEK');
-    expect(() => ctx.decrypt(Buffer.from('x'))).toThrow('no DEK');
+    expect(() => ctx.encrypt(Buffer.from('x'), 'onedrive/data/owner-1/blob')).toThrow('no DEK');
+    expect(() => ctx.decrypt(Buffer.from('x'), 'onedrive/data/owner-1/blob')).toThrow('no DEK');
     mock_exists_returns = true;
   });
 
@@ -101,7 +106,7 @@ describe('create_storage_target', () => {
     const t1 = create_storage_target(base_config);
     const t2 = create_storage_target({
       ...base_config,
-      s3_endpoint: 'http://other:9000',
+      s3Endpoint: 'http://other:9000',
     });
     expect(t1.target_id).not.toBe(t2.target_id);
   });

@@ -51,7 +51,7 @@ Rotate the client secret every 90 days at minimum for production environments.
 
 1. In **Certificates & secrets** on the app registration, add a new client secret.
 2. Copy the secret **Value** immediately. The portal shows it only once, and the Secret ID is not the secret.
-3. Update Atlas with the new value, either `ATLAS_CLIENT_SECRET` or `atlas config client.secret` (see [Configuration](/configuration)).
+3. Update Atlas with the new value, either `ATLAS_CLIENT_SECRET` or by piping it to `atlas config set client.secret -`, which reads the value from stdin so it never reaches shell history (see [Configuration](/configuration)).
 4. Confirm authentication works, then delete the old secret in **Certificates & secrets**.
 
 An expired or mistyped secret surfaces as `AADSTS7000215`. See [Troubleshooting](/troubleshooting#aadsts-error-codes).
