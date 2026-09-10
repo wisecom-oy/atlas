@@ -108,10 +108,16 @@ no configuration flag.
 
 That compatibility is also the limit of the protection. A headerless object has no scope to check,
 so the substitution above still works against one: it can be moved anywhere in the bucket and will
-decrypt. Only objects written since the binding reject a move across owners or purposes. A bucket
-gains the property object by object as new content is written, and a snapshot taken now is bound
-throughout, so an operator who wants the guarantee across an old backup takes a fresh one. Restore
-covers the rest either way, by comparing the manifest checksum before anything is written.
+decrypt. Only objects written since the binding reject a move across owners or purposes.
+
+A bucket gains the property object by object as content is encrypted, which is not the same as
+snapshot by snapshot. File content is stored by checksum, so a backup of a file whose bytes are
+already in the bucket deduplicates onto the existing object and does not rewrite it, and a forced
+full run behaves the same way. A new snapshot's manifests, indexes and cursors are bound because
+they are written fresh, while the content they point at keeps whatever protection it was written
+with. Taking a new backup therefore does not upgrade an old blob: an object becomes bound when its
+plaintext changes, or when it is deleted from the bucket and stored again. Restore covers the rest
+either way, by comparing the manifest checksum before anything is written.
 
 ### What Is Encrypted at Rest
 
@@ -364,11 +370,12 @@ When you run `atlas outlook verify`, Atlas performs a full integrity check for a
 
 ### What the GCM tag does not tell you
 
-The authentication tag proves the bytes were produced under the tenant DEK. It does not say which
-object they belong to. Content is encrypted with one key per tenant and nothing in the ciphertext
-names the object, so any object in the tenant authenticates in any other object's place. Moving one
-blob over another needs write access to the bucket, not the key or the passphrase, and the swapped
-object still decrypts cleanly.
+The authentication tag proves the bytes were produced under the tenant DEK. For an object written
+before the scope binding above, it says nothing about which object those bytes belong to: a
+headerless ciphertext names no object, so any such object authenticates in any other object's
+place. Moving one blob over another needs write access to the bucket, not the key or the
+passphrase, and the swapped object still decrypts cleanly. A scope-bound object refuses a move
+across owners or purposes, but within its own directory it decrypts the same way.
 
 The manifest checksum is what distinguishes them, so it is compared before anything acts on the
 bytes, not after:
