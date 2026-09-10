@@ -14,6 +14,7 @@ import {
   compute_chunk_timeout_ms,
   download_file_chunked,
 } from '@/adapters/graph-sharepoint-chunked-download';
+import { assert_transferred_size } from '@wisecom/atlas-drive/backup/download-integrity';
 
 interface GraphDriveItemDownload {
   '@microsoft.graph.downloadUrl'?: string;
@@ -117,7 +118,13 @@ async function attempt_download_with_refresh(
   }
 }
 
-/** Downloads via the Graph /content endpoint with stream drain. */
+/**
+ * Downloads via the Graph /content endpoint with stream drain.
+ *
+ * The drained byte count is checked against the recorded size for the same reason the chunked
+ * path checks it: a complete-looking body of the wrong length would otherwise be stored with a
+ * checksum computed over those wrong bytes (issue #368).
+ */
 export async function download_via_graph_content(
   client: Client,
   item: SharePointDeltaItem,
@@ -134,7 +141,9 @@ export async function download_via_graph_content(
     `Graph content request timed out for file ${item.item_id}`,
   );
   const drain_timeout_ms = stream_timeout_ms * 2;
-  return await stream_to_buffer(stream, drain_timeout_ms);
+  const body = await stream_to_buffer(stream, drain_timeout_ms);
+  assert_transferred_size(item.item_id, body.length, item.size_bytes);
+  return body;
 }
 
 /**
@@ -195,7 +204,11 @@ async function download_from_url(
         );
       }
 
-      return Buffer.from(await response.arrayBuffer());
+      const body = Buffer.from(await response.arrayBuffer());
+      // A well-framed 200 carrying the wrong body would otherwise be hashed, encrypted and
+      // written with a checksum matching those wrong bytes (issue #368).
+      assert_transferred_size(item_id, body.length, size_bytes);
+      return body;
     } finally {
       clearTimeout(timer);
     }
