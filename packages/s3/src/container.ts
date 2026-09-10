@@ -9,7 +9,7 @@ import {
   STORAGE_DISPOSER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
-import type { StorageDisposer } from '@wisecom/atlas-types';
+import type { StorageDisposer, StorageTargetFactory } from '@wisecom/atlas-types';
 import { create_s3_client, S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
 import { S3IdentityRegistryRepository } from '@/adapters/s3-identity-registry-repository.adapter';
@@ -33,7 +33,9 @@ export function bind_s3_storage(container: Container, config: S3Config & CryptoC
     .to(S3IdentityRegistryRepository)
     .inSingletonScope();
   container.bind(DEK_VALIDATION_FN_TOKEN).toConstantValue(validate_dek_match);
-  container.bind(STORAGE_TARGET_FACTORY_TOKEN).toConstantValue(create_storage_target);
+  container
+    .bind<StorageTargetFactory>(STORAGE_TARGET_FACTORY_TOKEN)
+    .toConstantValue(create_storage_target);
 
   container.bind(StorageCheckService).toSelf();
   container.bind(STORAGE_CHECK_USE_CASE_TOKEN).toService(StorageCheckService);

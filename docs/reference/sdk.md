@@ -966,7 +966,7 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 - Instance types: `AtlasInstance`, `AtlasInstanceConfig`
 - Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
 - Workload options and results: the named `Outlook*`, `OneDriveSdk*` and `SharePointSdk*` types used by each API
-- Storage targets: `StorageTarget`, `StorageTargetSdkConfig`
+- Storage targets: `StorageTarget`, `StorageTargetConfig`
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`

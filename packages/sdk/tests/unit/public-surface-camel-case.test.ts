@@ -25,7 +25,7 @@ import type {
   SharePointSdkRestoreOptions,
   SharePointSdkStatusResult,
   SdkOperationOptions,
-  StorageTargetSdkConfig,
+  StorageTargetConfig,
 } from '@/index';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { GRAPH_SERVICE_LIMITS } from '@/public-values';
@@ -64,7 +64,7 @@ const config_is_camel: NoSnakeKeys<AtlasInstanceConfig> = true;
 const cost_is_camel: NoSnakeKeys<OperationCost> = true;
 const object_lock_request_is_camel: NoSnakeKeys<ObjectLockRequest> = true;
 const operation_options_are_camel: NoSnakeKeys<SdkOperationOptions> = true;
-const storage_target_config_is_camel: NoSnakeKeys<StorageTargetSdkConfig> = true;
+const storage_target_config_is_camel: NoSnakeKeys<StorageTargetConfig> = true;
 
 const outlook_options_are_camel: NoSnakeKeys<
   OutlookBackupOptions | OutlookRestoreOptions | OutlookSaveOptions
