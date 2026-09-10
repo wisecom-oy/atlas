@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { WrongPassphraseError } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { DekRewrapService } from '@/services/keys/dek-rewrap.service';
-import { DekWrapperMissingError } from '@/services/keys/dek-rewrap.errors';
+import { DekWrapperChangedError, DekWrapperMissingError } from '@/services/keys/dek-rewrap.errors';
 import type { AtlasConfig } from '@/utils/config';
 
 /**
@@ -42,8 +43,14 @@ function make_harness(
   options: {
     config_passphrase?: string;
     seed?: boolean;
-    /** Served by `get` after the first write, to fake a storage that returns the wrong blob. */
-    serve_after_write?: Buffer;
+    /**
+     * Stored instead of the bytes the first write sends, which is how a concurrent writer or a
+     * backend that mangles a write looks from the caller's side. ETags stay consistent with what
+     * is stored, the way S3 behaves.
+     */
+    store_instead?: Buffer;
+    /** Stored right after this run's first read, so its compare-and-swap must fail. */
+    rival_after_read?: Buffer;
     /** Fails the rollback write, so the bucket is left in an unknown state. */
     reject_second_put?: boolean;
   } = {},
@@ -53,22 +60,38 @@ function make_harness(
   const objects = new Map<string, Buffer>();
   if (options.seed !== false) objects.set(DEK_KEY, writer.wrap_dek(dek, TENANT));
   let writes = 0;
+  let reads = 0;
 
+  const etag_of = (body: Buffer): string => `"${createHash('md5').update(body).digest('hex')}"`;
   const storage = {
     exists: vi.fn(async (key: string) => objects.has(key)),
     get: vi.fn(async (key: string) => {
-      // The rollback read must see what the rollback wrote, not the faked blob.
-      if (writes === 1 && options.serve_after_write) return options.serve_after_write;
       const found = objects.get(key);
       if (!found) throw new Error(`NoSuchKey: ${key}`);
       return found;
     }),
-    put: vi.fn(async (key: string, body: Buffer) => {
+    get_with_etag: vi.fn(async (key: string) => {
+      const data = objects.get(key);
+      if (!data) throw new Error(`NoSuchKey: ${key}`);
+      const result = { data, etag: etag_of(data) };
+      // A rival write landing immediately after this run's read is what the compare-and-swap on
+      // the following put exists to catch.
+      if (reads === 0 && options.rival_after_read) objects.set(key, options.rival_after_read);
+      reads += 1;
+      return result;
+    }),
+    put: vi.fn(async (key: string, body: Buffer, _m?: unknown, _l?: unknown, if_match?: string) => {
+      const held = objects.get(key);
+      if (if_match !== undefined && held && if_match !== etag_of(held)) {
+        const conflict = new Error(`Conditional write failed for key ${key}`);
+        conflict.name = 'PreconditionFailedError';
+        throw conflict;
+      }
       writes += 1;
       if (writes === 2 && options.reject_second_put === true) {
         throw new Error('AccessDenied on the restore');
       }
-      objects.set(key, body);
+      objects.set(key, writes === 1 && options.store_instead ? options.store_instead : body);
     }),
   };
 
@@ -137,40 +160,63 @@ describe('re-wrapping a tenant data key', () => {
     await expect(service.rewrap_tenant_dek(TENANT)).rejects.toBeInstanceOf(DekWrapperMissingError);
   });
 
-  it('fails loudly when the blob read back is not the key that was stored', async () => {
-    // Storage accepts the write and serves a different blob back. The read-back check exists for
-    // exactly this: the alternative is an unopenable bucket discovered at the next backup.
-    const foreign_writer = new EnvelopeKeyService(NEW_PASSPHRASE);
-    const foreign = foreign_writer.wrap_dek(foreign_writer.generate_dek(), TENANT);
-    const { service } = make_harness({ serve_after_write: foreign });
+  it('rejects a new passphrase the SDK would refuse at construction', async () => {
+    const { service, objects } = make_harness();
+    const before = objects.get(DEK_KEY)!;
 
-    await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
-      /Re-wrap verification failed/,
-    );
+    // `createAtlasInstance` enforces 14 bytes; rewrapDataKey reaches the wrap without it, so an
+    // empty string would otherwise wrap the tenant key under an empty passphrase.
+    await expect(service.rewrap_tenant_dek(TENANT, '')).rejects.toThrow(/at least 14/);
+    expect(objects.get(DEK_KEY)).toBe(before);
   });
 
-  it('puts the previous wrapper back when verification fails, so the tenant still opens', async () => {
-    const foreign_writer = new EnvelopeKeyService(NEW_PASSPHRASE);
-    const foreign = foreign_writer.wrap_dek(foreign_writer.generate_dek(), TENANT);
-    const { service, objects, dek } = make_harness({ serve_after_write: foreign });
+  it('leaves a concurrent run\u2019s wrapper alone rather than reverting it', async () => {
+    // Someone else's valid wrapper is what is stored when this run reads back. Rolling back
+    // here would silently undo their rotation and leave them believing it took.
+    const rival = new EnvelopeKeyService(NEW_PASSPHRASE);
+    const rival_blob = rival.wrap_dek(rival.generate_dek(), TENANT);
+    const { service, objects } = make_harness({ store_instead: rival_blob });
+
+    await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toBeInstanceOf(
+      DekWrapperChangedError,
+    );
+    expect(objects.get(DEK_KEY)).toBe(rival_blob);
+  });
+
+  it('restores the previous wrapper when what landed opens with neither passphrase', async () => {
+    // A mangled write: nobody can back out of this, so putting the old wrapper back is strictly
+    // an improvement over leaving the tenant unopenable.
+    const { service, objects, dek } = make_harness({ store_instead: Buffer.from('not a wrapper') });
 
     await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
-      /Re-wrap verification failed/,
+      /opened with neither passphrase/,
     );
 
-    // The only wrapper was overwritten before verification, so without the rollback the tenant
-    // would be unopenable with either passphrase.
     const restored = new EnvelopeKeyService(OLD_PASSPHRASE);
     expect(restored.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
   });
 
-  it('names the state of the bucket when the rollback itself fails', async () => {
-    const foreign_writer = new EnvelopeKeyService(NEW_PASSPHRASE);
-    const foreign = foreign_writer.wrap_dek(foreign_writer.generate_dek(), TENANT);
-    const { service } = make_harness({ serve_after_write: foreign, reject_second_put: true });
+  it('names the state of the bucket when the restore itself fails', async () => {
+    const { service } = make_harness({
+      store_instead: Buffer.from('not a wrapper'),
+      reject_second_put: true,
+    });
 
     await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
       /could not be restored/,
     );
+  });
+
+  it('refuses the write when the wrapper changed between the read and the write', async () => {
+    const rival = new EnvelopeKeyService(NEW_PASSPHRASE);
+    const rival_blob = rival.wrap_dek(rival.generate_dek(), TENANT);
+    const { service, objects } = make_harness({ rival_after_read: rival_blob });
+
+    // The read saw the original blob, so the unwrap succeeds; the compare-and-swap on the write
+    // is what catches that the object moved underneath this run.
+    await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toBeInstanceOf(
+      DekWrapperChangedError,
+    );
+    expect(objects.get(DEK_KEY)).toBe(rival_blob);
   });
 });

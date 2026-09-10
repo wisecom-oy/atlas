@@ -47,13 +47,39 @@ export class DekRewrapRollbackError extends StorageError {
 }
 
 /**
- * Names an Object Lock or permission refusal on the wrapped-key write.
+ * Names a compare-and-swap refusal on the wrapped-key write.
  *
- * A bucket that retains `_meta/dek.enc` under a governance-mode policy refuses the overwrite with
- * a bare access denial, which reads like a credentials problem and is not one (issue #374).
+ * The stored wrapper changed between this run reading it and writing it back, which means
+ * another re-wrap or a bootstrap is in flight. Overwriting it would discard whatever that run
+ * established, so this run stops instead.
+ */
+export class DekWrapperChangedError extends StorageError {
+  constructor(key: string, cause: unknown) {
+    super(
+      `${key} changed while this re-wrap was running, so the write was refused and nothing was ` +
+        `overwritten. Another re-wrap or a first backup is likely in flight against this tenant. ` +
+        `Wait for it to finish, confirm which passphrase opens the tenant, then try again.`,
+      { cause },
+    );
+  }
+}
+
+/**
+ * Classifies a failed wrapped-key write.
+ *
+ * Two cases are worth naming rather than passing through raw. A compare-and-swap refusal means
+ * something else changed the wrapper. A bucket that retains `_meta/dek.enc` under a
+ * governance-mode policy refuses the overwrite with a bare access denial, which reads like a
+ * credentials problem and is not one (issue #374).
  */
 export function describe_rewrap_write_failure(key: string, err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err);
+  const name = err instanceof Error ? err.name : '';
+
+  if (name === 'PreconditionFailedError' || /precondition|412/i.test(message)) {
+    return new DekWrapperChangedError(key, err);
+  }
+
   if (!/access denied|forbidden|403|object lock|retention|WORM/i.test(message)) {
     return err instanceof Error ? err : new Error(message);
   }
