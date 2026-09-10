@@ -28,6 +28,7 @@ import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
 import { OneDriveDecryptAuthError } from '@/services/restore/restore-integrity';
 import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
 import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
+import { build_drive_router } from '@/services/restore/drive-router';
 import {
   load_drive_chain_entries,
   restorable_entries,
@@ -76,7 +77,6 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       if (!primary_drive) {
         throw new Error('No OneDrive drives found for target user');
       }
-      const drive_id = primary_drive.drive_id;
 
       const conflict = options.conflict_behavior ?? 'rename';
       const restorable = filter_drive_entries(
@@ -99,12 +99,29 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
         total: restorable.length,
       });
 
+      // Each entry records the drive it came from, and an owner can have several. Resolving one
+      // target drive per run and writing everything into it put the second drive's files into
+      // the first drive, silently, since every upload succeeded against real folder ids. With
+      // `--conflict replace` that overwrote same-path files (issue #361).
+      const resolve_target_drive = build_drive_router(
+        restorable,
+        drives.map((drive) => drive.drive_id),
+        owner_id,
+        target_owner,
+      );
+
       for (const entry of restorable) {
         if (options.should_interrupt?.() === true) break;
+        const routed = resolve_target_drive(entry);
+        if (routed.error !== undefined) {
+          files_skipped++;
+          errors.push(routed.error);
+          continue;
+        }
         const result = await this.restore_single_entry(
           tenant_id,
           target_owner,
-          drive_id,
+          routed.drive_id,
           entry,
           ctx,
           folder_ids,

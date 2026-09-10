@@ -614,6 +614,14 @@ A snapshot taken with `--folder` contains only that folder's files. Restoring it
 
 A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-4.0.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
+An owner can have more than one drive, and every manifest entry records the
+drive its file came from. A restore to the original owner puts each file back
+in that drive; a file whose drive no longer exists is reported and skipped
+rather than written into a different one. `--target-owner` has no drive
+mapping to work from, since Atlas records drive IDs and not drive names, so it
+is refused when the snapshot spans more than one drive. Restore those to the
+original owner, or one drive at a time with `--file-filter`.
+
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
 A `--file-filter` path is the rooted path shown in a listing, and a file at the drive or library root is written the way you would expect: `/Report.docx`, not `//Report.docx`. Version commands take the same path forms, and when one path belongs to two different drive items, which happens after a file is deleted and recreated at the same path, the command names both file IDs and stops rather than picking one.
