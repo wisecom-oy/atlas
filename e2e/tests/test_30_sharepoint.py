@@ -105,7 +105,7 @@ def test_06_save_exports_the_file(
         settings.sharepoint_site,
         "-s",
         STATE["snapshot"],
-        "-O",
+        "--output",
         str(archive),
     )
 
