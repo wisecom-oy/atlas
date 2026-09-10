@@ -671,6 +671,11 @@ A file with no version stored at or before the cutoff is **reported, not
 skipped silently**, and counts toward the skipped total. Treat that list as the
 work still outstanding: those files have no pre-incident copy in the backup.
 
+The exit code follows the same contract as snapshot `restore`: `0` when every
+file was rolled back, `2` when files were skipped, and `1` when any restore
+errored. A scripted rollback that only checks for `0` therefore sees the
+difference between a clean run and one that recovered nothing.
+
 ::: details Why Atlas uploads its own bytes instead of calling Graph
 Microsoft Graph can promote a previous version in place with `restoreVersion`,
 and Atlas deliberately does not use it. That call only works on a version the
