@@ -24,11 +24,3 @@ export async function process_backup_file(
     abort_signal,
   );
 }
-
-/** @throws Error when no drives are returned (likely missing Graph permissions). */
-export function ensure_drives_discovered(drive_count: number): void {
-  if (drive_count > 0) return;
-  throw new Error(
-    'Missing Microsoft Graph application permissions for OneDrive: Files.Read.All, Sites.Read.All.',
-  );
-}

@@ -136,9 +136,7 @@ Decryption errors mean the configured passphrase does not match the one used to 
 Error: Unable to unwrap DEK: incorrect passphrase or corrupted key blob
 ```
 
-The passphrase in `ATLAS_ENCRYPTION_PASSPHRASE` does not match the one used when the tenant was first initialized. The wrapped DEK (stored at `_meta/dek.enc` in the bucket) was encrypted with the original passphrase using scrypt key derivation. Changing the passphrase without re-wrapping the DEK makes all data inaccessible.
-
-There is no way to recover data if the original passphrase is lost. That is by design, because the passphrase is the root of the entire encryption chain.
+The passphrase in `ATLAS_ENCRYPTION_PASSPHRASE` does not match the one used when the tenant was first initialized. The wrapped DEK (stored at `_meta/dek.enc` in the bucket) was encrypted with the original passphrase using scrypt key derivation. Changing the passphrase without re-wrapping the DEK makes all data inaccessible: run [`atlas keys rewrap --new-passphrase`](/reference/cli#atlas-keys) with the old passphrase still configured, then change the configured value.
 
 ### Corrupted DEK blob
 

@@ -2,13 +2,14 @@ import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifi
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
-import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { ManifestRepository, MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { StatusUseCase, MailboxStatusResult, FolderStatus } from '@wisecom/atlas-types';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -18,6 +19,8 @@ export class MailboxStatusService implements StatusUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(MAILBOX_CONNECTOR_TOKEN) private readonly _connector: MailboxConnector,
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
+    @inject(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
+    private readonly _cursors: MailboxDeltaCursorRepository,
   ) {}
 
   /** Peeks at Graph delta state to report whether a mailbox backup is current. */
@@ -31,7 +34,12 @@ export class MailboxStatusService implements StatusUseCase {
       // Legacy manifests carry mutable-ID delta links (issue #48); resuming
       // them with the immutable preference would mix ID formats, so peek
       // treats them as "no saved state" — every folder reports pending.
-      const saved_links = previous?.id_format === 'immutable' ? (previous?.delta_links ?? {}) : {};
+      // Delta links live in the cursor as of #370; a mailbox last backed up by an older release
+      // still has them only in its head manifest.
+      const cursor = await this._cursors.load(ctx, owner_id);
+      const saved_links =
+        cursor?.delta_links ??
+        (previous?.id_format === 'immutable' ? (previous?.delta_links ?? {}) : {});
 
       const all_folders = await this._connector.list_mail_folders(tenant_id, owner_id);
       const folder_statuses = await this.peek_all_folders(

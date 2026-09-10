@@ -109,6 +109,34 @@ describe('outlook save and restore exit codes', () => {
     expect(process.exitCode).toBe(EXIT_PARTIAL);
   });
 
+  it('restore exits non-zero when the only failures were attachments', async () => {
+    // error_count counts message failures only. Deciding success from it printed a green
+    // summary for a message restored without its attachment (issue #359).
+    restore_snapshot.mockResolvedValue(
+      make_restore_result({
+        error_count: 0,
+        attachment_error_count: 1,
+        errors: ['message:2 attachment invoice.pdf: 403 from Graph'],
+      }),
+    );
+    await run_restore();
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
+  });
+
+  it('restores a single message with the same verdict as a batch', async () => {
+    // The single-message path hardcodes error_count: 0 while still returning attachment errors.
+    restore_snapshot.mockResolvedValue(
+      make_restore_result({
+        restored_count: 1,
+        error_count: 0,
+        attachment_error_count: 1,
+        errors: ['attachment invoice.pdf: 403 from Graph'],
+      }),
+    );
+    await run_restore();
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
+  });
+
   it('leaves a clean save and a clean restore at 0', async () => {
     await run_save();
     expect(process.exitCode).toBeUndefined();

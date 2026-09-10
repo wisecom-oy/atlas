@@ -5,6 +5,7 @@ import { MailboxStatusService } from '@/services/status/mailbox-status.service';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, DeltaSyncResult } from '@wisecom/atlas-types';
@@ -108,6 +109,9 @@ describe('MailboxStatusService', () => {
     const container = new Container();
     container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
+    container
+      .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
+      .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
     container.bind(MailboxStatusService).toSelf();
 

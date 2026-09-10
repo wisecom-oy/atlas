@@ -68,6 +68,11 @@ function make_client(): GraphClientMock {
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream };
 }
+
+/**
+ * `size_bytes` is 0, which `assert_transferred_size` reads as "no recorded size" and skips.
+ * These cases are about how a 403 is classified, not about transfer length (issue #368).
+ */
 function make_item(): OneDriveDeltaItem {
   return {
     drive_id: 'drive-1',
@@ -75,7 +80,7 @@ function make_item(): OneDriveDeltaItem {
     kind: 'file',
     file_name: 'Report.docx',
     parent_path: '/',
-    size_bytes: 1024,
+    size_bytes: 0,
     deleted: false,
     download_url: STALE_URL,
   };

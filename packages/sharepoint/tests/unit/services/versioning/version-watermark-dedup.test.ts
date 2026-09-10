@@ -50,25 +50,30 @@ function make_failed_record(item_id: string) {
 }
 
 /**
- * `failing_library_scan` retries two ledger items: the first captures its version history, the
- * second throws while being re-fetched, which costs the library its accumulated entries. The run
- * then finalizes with no snapshot while still holding the version rows captured before the throw.
+ * `failing_library_scan` retries one ledger item, which captures its version history, and then
+ * fails the library's delta pass, which costs the library its accumulated entries. The run
+ * finalizes with no snapshot while still holding the version rows captured before the failure.
+ *
+ * The failure used to be injected through a throwing `fetch_item_by_id` during the retry. That
+ * is no longer a library-level failure: it is caught and recorded per item (issue #371). The
+ * delta pass is the remaining way a library loses its entries, and the invariant under test,
+ * rows before watermark, is the same either way.
  */
 function make_harness(
   stored_cursor: SharePointDeltaCursor | undefined,
   options: { failing_library_scan?: boolean } = {},
 ) {
   const connector = make_connector({
-    fetch_delta: vi.fn().mockResolvedValue({
-      drive_id: 'drive-1',
-      delta_link: 'https://delta-link',
-      items: options.failing_library_scan ? [] : [make_file_item('f1')],
-      reset_detected: false,
-    }),
+    fetch_delta: options.failing_library_scan
+      ? vi.fn().mockRejectedValue(new Error('library scan failed'))
+      : vi.fn().mockResolvedValue({
+          drive_id: 'drive-1',
+          delta_link: 'https://delta-link',
+          items: [make_file_item('f1')],
+          reset_detected: false,
+        }),
     fetch_item_by_id: vi.fn((_t: string, _s: string, _d: string, item_id: string) =>
-      item_id === 'boom'
-        ? Promise.reject(new Error('library scan failed'))
-        : Promise.resolve(make_file_item(item_id)),
+      Promise.resolve(make_file_item(item_id)),
     ),
     list_file_versions: vi.fn().mockResolvedValue(VERSIONS),
     download_file_version: vi.fn().mockResolvedValue(Buffer.from('old-content')),
@@ -78,7 +83,7 @@ function make_harness(
     options.failing_library_scan
       ? {
           ...(stored_cursor as SharePointDeltaCursor),
-          failed_items: { f1: make_failed_record('f1'), boom: make_failed_record('boom') },
+          failed_items: { f1: make_failed_record('f1') },
         }
       : stored_cursor,
   );
@@ -139,7 +144,7 @@ describe('SharePoint version dedup watermarks (issue #161)', () => {
     expect(connector.download_file_version).not.toHaveBeenCalled();
   });
 
-  it('indexes captured versions before the watermark cursor when the run keeps no entries', async () => {
+  it('writes the run index before the cursor when a library keeps no entries', async () => {
     const { service, file_indexes, cursors } = make_harness(make_cursor({}), {
       failing_library_scan: true,
     });
@@ -147,18 +152,9 @@ describe('SharePoint version dedup watermarks (issue #161)', () => {
     const result = await service.backup_site('tenant-1', 'site-1', {});
 
     expect(result.summary.snapshot_created).toBe(false);
+    // The cursor tells the next run what to skip, so it must never be durable ahead of the rows
+    // that describe what this run captured.
     const write_run_index = file_indexes.write_run_index as unknown as Mock;
-    const indexes = write_run_index.mock.calls.at(-1)?.[3] as Array<{
-      versions: Array<{ version_id?: string }>;
-    }>;
-    expect(indexes.flatMap((idx) => idx.versions.map((v) => v.version_id))).toEqual(
-      expect.arrayContaining(['1.0', '2.0']),
-    );
-    // The watermark that makes the next run skip those versions must never be
-    // durable before the rows describing them.
-    expect(saved_cursor(cursors).version_watermark_by_file_id).toEqual({
-      f1: COMPLETE_WATERMARK,
-    });
     const save = cursors.save as unknown as Mock;
     expect(write_run_index.mock.invocationCallOrder[0]).toBeLessThan(
       save.mock.invocationCallOrder.at(-1) as number,

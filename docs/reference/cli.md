@@ -614,6 +614,14 @@ A snapshot taken with `--folder` contains only that folder's files. Restoring it
 
 A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it, matching how Outlook restores have always worked. `--in-place` reproduces the pre-4.0.0 behaviour of writing back over the original paths; it is never the default, because `--conflict rename` turns a repeated in-place restore into suffixed duplicates scattered through live content rather than a failure. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
+An owner can have more than one drive, and every manifest entry records the
+drive its file came from. A restore to the original owner puts each file back
+in that drive; a file whose drive no longer exists is reported and skipped
+rather than written into a different one. `--target-owner` has no drive
+mapping to work from, since Atlas records drive IDs and not drive names, so it
+is refused when the snapshot spans more than one drive. Restore those to the
+original owner, or one drive at a time with `--file-filter`.
+
 Identifiers are matched case-insensitively: `--owner`, `--site`, and `--file-filter` all accept whatever case a listing or portal shows. Owner and site IDs are lowercased before they become storage keys, so one identifier always addresses one tree. Earlier releases wrote a second tree for a second spelling and deleted from whichever one they were handed.
 
 A `--file-filter` path is the rooted path shown in a listing, and a file at the drive or library root is written the way you would expect: `/Report.docx`, not `//Report.docx`. Version commands take the same path forms, and when one path belongs to two different drive items, which happens after a file is deleted and recreated at the same path, the command names both file IDs and stops rather than picking one.
@@ -670,6 +678,11 @@ the incident.
 A file with no version stored at or before the cutoff is **reported, not
 skipped silently**, and counts toward the skipped total. Treat that list as the
 work still outstanding: those files have no pre-incident copy in the backup.
+
+The exit code follows the same contract as snapshot `restore`: `0` when every
+file was rolled back, `2` when files were skipped, and `1` when any restore
+errored. A scripted rollback that only checks for `0` therefore sees the
+difference between a clean run and one that recovered nothing.
 
 ::: details Why Atlas uploads its own bytes instead of calling Graph
 Microsoft Graph can promote a previous version in place with `restoreVersion`,
@@ -953,6 +966,64 @@ atlas stats --json                     # raw JSON output
 | `-t, --tenant <id>`       | Override tenant ID from config                                                             |
 
 Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards. With multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
+
+## `atlas keys`
+
+Manage the tenant data key. One verb so far.
+
+```bash
+atlas keys rewrap                       # re-wrap under the configured passphrase, current KDF parameters
+atlas keys rewrap --new-passphrase      # prompt for a new passphrase, twice, with no echo
+atlas keys rewrap --new-passphrase < secret.txt   # non-interactive, for a scripted rotation
+```
+
+| Subcommand      | Description                                                                    |
+| --------------- | ------------------------------------------------------------------------------ |
+| `keys rewrap`   | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
+
+| Option              | Description                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one              |
+| `-t, --tenant <id>` | Override tenant ID from config                                                     |
+
+The data key itself does not change. Nothing in the bucket is re-encrypted, every existing
+snapshot stays readable, and the run writes exactly one object. What changes is the wrapper: the
+KEK that protects the data key is derived again, from the new passphrase and a fresh salt, under
+the current KDF parameters. A tenant bootstrapped with weaker scrypt parameters is brought
+forward by running this with no flags.
+
+:::: danger This rotates the wrapper, not the key
+If the data key or the plaintext has already been captured, re-wrapping changes nothing for the
+attacker: they do not need the passphrase any more. This is the answer to a **leaked passphrase**,
+not to a compromised bucket. The answer to that is replicating to a fresh target under a new
+passphrase and retiring the old bucket, which re-encrypts every object.
+::::
+
+:::: warning The old passphrase stays live until the replaced version expires
+Atlas buckets are versioned, with noncurrent versions expiring after 30 days. A re-wrap writes
+a new current `_meta/dek.enc` and leaves the version it replaced in place. Anyone with the old
+passphrase and permission to read object versions can still read that one and unwrap the same,
+unchanged data key until it expires. Delete the noncurrent versions of `_meta/dek.enc` where
+policy and Object Lock allow, or revoke the leaked reader's `s3:GetObjectVersion`, which closes
+the window at once.
+::::
+
+The new passphrase is prompted and confirmed rather than accepted as a flag value, so it stays
+out of the shell history and out of the process table. On a pipe it is read from stdin whole,
+with no confirmation round a script cannot answer.
+
+The order is deliberate. The stored key is unwrapped with the current passphrase first, so a
+wrong one fails before anything is written. After the write the blob is read back and unwrapped
+with the new passphrase, and the run only reports success when the key that comes back is the key
+that went in: a wrapper that cannot be unwrapped is an unopenable bucket, and finding that out at
+the next backup is too late. Keep both passphrases until a read succeeds with the new one.
+
+Update `ATLAS_ENCRYPTION_PASSPHRASE`, or `atlas config set encryption.passphrase`, after the
+command succeeds. Nothing reads the new value until you do.
+
+Where a bucket holds `_meta/dek.enc` under an Object Lock retention policy, the write is refused
+until the retention expires. The command says so, along with the fact that the stored key is
+unchanged, rather than surfacing a bare access denial that reads like a credentials fault.
 
 ## `atlas config`
 

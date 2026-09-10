@@ -19,6 +19,7 @@ import {
   DownloadRefusedError,
   MissingGraphPermissionsError,
 } from '@wisecom/atlas-m365-graph';
+import { assert_transferred_size } from '@wisecom/atlas-drive/backup/download-integrity';
 
 interface GraphDriveItemDownload {
   '@microsoft.graph.downloadUrl'?: string;
@@ -130,7 +131,13 @@ export async function download_with_fallback(
   );
 }
 
-/** Downloads via the Graph /content endpoint with stream drain. */
+/**
+ * Downloads via the Graph /content endpoint with stream drain.
+ *
+ * The drained byte count is checked against the recorded size for the same reason the chunked
+ * path checks it: a complete-looking body of the wrong length would otherwise be stored with a
+ * checksum computed over those wrong bytes (issue #368).
+ */
 export async function download_via_graph_content(
   client: Client,
   item: OneDriveDeltaItem,
@@ -147,7 +154,9 @@ export async function download_via_graph_content(
     `Graph content request timed out for file ${item.item_id}`,
   );
   const drain_timeout_ms = compute_chunk_timeout_ms(item.size_bytes) * 2;
-  return await stream_to_buffer(stream, drain_timeout_ms);
+  const body = await stream_to_buffer(stream, drain_timeout_ms);
+  assert_transferred_size(item.item_id, body.length, item.size_bytes);
+  return body;
 }
 
 /**

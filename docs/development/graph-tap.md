@@ -136,6 +136,14 @@ scope; those statuses are excluded from `ERRORS` so they are not counted twice.
 `SLOWEST` appears only when a request exceeded one second. Open the raw `.jsonl`
 only when one specific request matters.
 
+A request that failed is reported under one of two shapes, because they are
+different faults. `failed` on its own means the request never received a
+response: a connection refused, a DNS failure, a socket reset before any
+header arrived. `202+failed` means the server answered and the body did not
+finish, which is what a cancelled or truncated response body looks like. The
+`ERRORS` block spells the second one `202 body: <reason>` so a 2xx that never
+delivered its body cannot be read as a success.
+
 ## Options
 
 | Flag              | Effect                                                                                                |

@@ -40,6 +40,26 @@ const server = createServer((req, res) => {
     res.end(body);
     return;
   }
+  // Answers 202 with headers, then never finishes the body it promised. The caller cancels the
+  // body it does not need, which is what a chunked upload does (issue #373).
+  if (req.url.startsWith('/accepted-then-stalls')) {
+    res.writeHead(202, { 'content-type': 'application/json', 'content-length': '100000' });
+    res.flushHeaders();
+    res.write('{');
+    return;
+  }
+  // Promises more than it sends, then drops the connection: a genuinely truncated body.
+  if (req.url.startsWith('/truncated')) {
+    res.writeHead(200, { 'content-type': 'application/json', 'content-length': '100000' });
+    res.write('{"value":[');
+    setTimeout(() => res.destroy(), 10);
+    return;
+  }
+  // Drops the socket before writing any status line, so the failure lands before headers.
+  if (req.url.startsWith('/no-headers')) {
+    req.socket.destroy();
+    return;
+  }
   res.writeHead(200, { 'content-type': 'application/json' });
   res.end('{"value":[]}');
 });
@@ -57,6 +77,20 @@ await fetch('${base}/v1.0/users/user@example.com/messages/${long_id}', { headers
 await fetch('${base}/v1.0/users/user@example.com/messages/delta?$deltatoken=${'D'.repeat(500)}&$select=id,subject', { headers: auth });
 await fetch('${base}/error/v1.0/users/00000000-1111-2222-3333-444444444444/drive', { headers: auth });
 await fetch('${base}/v1.0/upload?tempauth=${'T'.repeat(200)}', { method: 'POST', headers: auth, body: '{"hello":"world"}' });
+
+// A 202 whose body the caller deliberately cancels: the status is known and must survive.
+const accepted = await fetch('${base}/accepted-then-stalls', { method: 'PUT', headers: auth, body: 'chunk' });
+if (accepted.status !== 202) throw new Error('expected 202, got ' + accepted.status);
+await accepted.body.cancel();
+
+// A body that really is truncated: still a 200, still a failure.
+await fetch('${base}/truncated', { headers: auth }).then((r) => r.text()).catch(() => {});
+
+// Nothing listening, so the failure lands before any response header.
+await fetch('${base}/no-headers', { headers: auth }).catch(() => {});
+
+// Give the tap's error subscribers a tick to land before the process exits.
+await new Promise((resolve) => setTimeout(resolve, 150));
 `,
 );
 
@@ -89,9 +123,26 @@ const records = raw
   .map((l) => JSON.parse(l));
 
 const checks = [];
+const skipped = [];
 const check = (name, fn) => {
   fn();
   checks.push(name);
+};
+
+/**
+ * The `undici:request:bodyChunkSent` and `bodyChunkReceived` channels do not fire on every Node
+ * release, and where they do not, the tap sees no body bytes at all: no `tx`, no `rx`, and no
+ * buffered error payload to decode. The checks that read those are reported as skipped rather
+ * than asserted, so the self-check stays usable and the gap stays visible instead of being
+ * quietly asserted away.
+ */
+const body_chunks_observable = records.some((r) => (r.rx ?? 0) > 0 || (r.tx ?? 0) > 0);
+const check_body = (name, fn) => {
+  if (!body_chunks_observable) {
+    skipped.push(name);
+    return;
+  }
+  check(name, fn);
 };
 
 check('bearer token never reaches the capture', () => {
@@ -99,7 +150,28 @@ check('bearer token never reaches the capture', () => {
   assert.ok(!raw.toLowerCase().includes('authorization'), 'authorization header recorded');
 });
 
-check('every request was captured', () => assert.equal(records.length, 4));
+check('every request was captured, once each', () => assert.equal(records.length, 7));
+
+check('a cancelled 202 body keeps its status and its reason (issue #373)', () => {
+  const rec = records.find((r) => r.url.includes('accepted-then-stalls'));
+  assert.ok(rec, 'no record for the cancelled 202');
+  assert.equal(rec.status, 202, 'HTTP status was discarded by the body cancellation');
+  assert.ok(rec.failed, 'a cancelled body must not read as a clean 202');
+});
+
+check('a truncated body keeps its status and its reason', () => {
+  const rec = records.find((r) => r.url.includes('truncated'));
+  assert.ok(rec, 'no record for the truncated response');
+  assert.equal(rec.status, 200);
+  assert.ok(rec.failed, 'a truncated body must not read as a complete 200');
+});
+
+check('a failure before any response header carries no status', () => {
+  const rec = records.find((r) => r.url.includes('no-headers'));
+  assert.ok(rec, 'no record for the connection failure');
+  assert.equal(rec.status, undefined, 'invented a status for a request that never got one');
+  assert.ok(rec.failed);
+});
 
 check('long opaque ids are templated', () => {
   assert.ok(
@@ -126,7 +198,7 @@ check('download-url credentials are elided', () => {
   assert.ok(!upload.url.includes('TTTT'));
 });
 
-check('gzipped graph errors are decoded and flattened', () => {
+check_body('gzipped graph errors are decoded and flattened', () => {
   const err = records.find((r) => r.status === 404);
   assert.equal(err.graph_error.code, 'ErrorItemNotFound');
   assert.equal(err.graph_error.message, 'The specified object was not found.');
@@ -139,9 +211,13 @@ check('throttling headers kept, diagnostic noise dropped', () => {
   assert.ok(!('content-type' in (err.res_headers ?? {})), 'plain JSON content-type is noise');
 });
 
-check('timing and byte counts are recorded', () => {
+check('timing is recorded', () => {
   const upload = records.find((r) => r.method === 'POST');
   assert.equal(typeof upload.ms, 'number');
+});
+
+check_body('byte counts are recorded', () => {
+  const upload = records.find((r) => r.method === 'POST');
   assert.equal(upload.tx, 17, 'request body bytes'); // {"hello":"world"} is 17 bytes
   assert.ok(records.every((r) => r.rx > 0));
 });
@@ -151,4 +227,5 @@ check('request bodies are not recorded without --bodies', () => {
 });
 
 for (const name of checks) console.log(`  ok  ${name}`);
-console.log(`\n${checks.length} checks passed`);
+for (const name of skipped) console.log(`  --  ${name} (this runtime emits no response body chunks)`);
+console.log(`\n${checks.length} checks passed${skipped.length ? `, ${skipped.length} skipped` : ''}`);

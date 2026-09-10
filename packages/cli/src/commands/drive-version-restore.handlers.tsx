@@ -25,6 +25,7 @@ import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
+import { report_skipped_items, EXIT_PARTIAL } from '@/command-run-outcome';
 
 /** Flags shared by both drives; only the scope flag differs. */
 interface VersionRestoreFlags {
@@ -161,4 +162,11 @@ async function report_version_restore(
   );
 
   if (result.interrupted) logger.warn('Run was interrupted before every version was restored.');
+
+  // Same contract as snapshot restore: skips exit 2, errors exit 1, and errors win. A scripted
+  // rollback could not tell a clean run from a total failure while this exited 0 either way
+  // (issue #362).
+  report_skipped_items(result.files_skipped, 'File');
+  if (result.interrupted) process.exitCode = EXIT_PARTIAL;
+  if (result.errors.length > 0) process.exitCode = 1;
 }

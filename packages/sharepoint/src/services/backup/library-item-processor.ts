@@ -4,6 +4,7 @@ import type {
   SharePointSiteConnector,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { AuthError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   clear_item_failure,
@@ -222,11 +223,16 @@ export async function retry_failed_items(
 ): Promise<boolean> {
   for (const record of retryable_items(library_state.failed_items, drive_id)) {
     if (should_interrupt?.() === true) return true;
-    const item = await connector.fetch_item_by_id(tenant_id, site_id, drive_id, record.item_id);
+    const item = await refetch_or_record(
+      connector,
+      tenant_id,
+      site_id,
+      drive_id,
+      record,
+      library_state,
+    );
 
     if (!item) {
-      logger.info(`Failed item ${record.item_id} (${record.name}) no longer exists -- clearing`);
-      library_state.failed_items = clear_item_failure(library_state.failed_items, record.item_id);
       on_item_processed?.(record.name);
       continue;
     }
@@ -257,6 +263,44 @@ export async function retry_failed_items(
     on_item_processed?.(item.file_name);
   }
   return false;
+}
+
+/**
+ * Re-reads one ledger item, turning a fetch failure into another ledger entry.
+ *
+ * Unguarded, the throw travelled out of the library processor into the library scan, which
+ * recorded a library-level error and dropped every entry the same run had already processed. One
+ * flaky fetch cost the whole library its run. The OneDrive twin has always caught it per item
+ * (issue #371). A revoked permission is not per-item and still propagates.
+ *
+ * Returns undefined when the item is gone or could not be read, in both cases having updated the
+ * ledger itself.
+ */
+async function refetch_or_record(
+  connector: SharePointSiteConnector,
+  tenant_id: string,
+  site_id: string,
+  drive_id: string,
+  record: { item_id: string; name: string },
+  library_state: LibraryProcessingState,
+): Promise<SharePointDeltaItem | undefined> {
+  try {
+    const item = await connector.fetch_item_by_id(tenant_id, site_id, drive_id, record.item_id);
+    if (item) return item;
+    logger.info(`Failed item ${record.item_id} (${record.name}) no longer exists -- clearing`);
+    library_state.failed_items = clear_item_failure(library_state.failed_items, record.item_id);
+    return undefined;
+  } catch (err) {
+    if (err instanceof AuthError) throw err;
+    const reason = err instanceof Error ? err.message : String(err);
+    library_state.failed_items = record_item_failure(library_state.failed_items, {
+      item_id: record.item_id,
+      drive_id,
+      name: record.name,
+      reason: `Retry fetch failed: ${reason}`,
+    });
+    return undefined;
+  }
 }
 
 /** Drops tracking state for one item so it is reprocessed as new content. */

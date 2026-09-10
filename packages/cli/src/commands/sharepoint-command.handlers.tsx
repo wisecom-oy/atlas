@@ -26,6 +26,7 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { report_run_outcome, report_skipped_items } from '@/command-run-outcome';
+import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -137,13 +138,22 @@ export async function execute_sharepoint_backup(
   const backup = container.get<SharePointSiteTreeBackupUseCase>(
     SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   );
-  const results = await backup.backup_site_tree(tenant_id, site.site_id, {
-    force_full: options.full ?? false,
-    include_subsites: options.includeSubsites ?? false,
-    site_url: site.site_url,
-    site_display_name: site.display_name,
-    object_lock_request,
-  });
+  const gate = install_interrupt_gate(
+    '[!] Stopping after the current file; the delta cursor is not advanced for an interrupted run',
+  );
+  let results;
+  try {
+    results = await backup.backup_site_tree(tenant_id, site.site_id, {
+      force_full: options.full ?? false,
+      include_subsites: options.includeSubsites ?? false,
+      site_url: site.site_url,
+      site_display_name: site.display_name,
+      object_lock_request,
+      should_interrupt: gate.should_interrupt,
+    });
+  } finally {
+    gate.dispose();
+  }
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Backup')} />);
   if (results.length > 1) {
@@ -202,7 +212,14 @@ async function report_site_backup(result: SharePointBackupResult): Promise<void>
   // Warnings, errors, and the partial-run exit code go through the shared
   // reporter so every site's failures are attributed to that site. The overall
   // HEALTHY/UNHEALTHY verdict is the caller's, once every site has reported.
-  report_run_outcome({ errors: result.summary.errors, warnings: result.summary.warnings }, 'file');
+  report_run_outcome(
+    {
+      errors: result.summary.errors,
+      warnings: result.summary.warnings,
+      interrupted: result.interrupted,
+    },
+    'file',
+  );
 }
 
 export async function execute_sharepoint_restore(

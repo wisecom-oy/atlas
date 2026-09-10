@@ -28,6 +28,7 @@ export type {
 } from './mail/discovery.port';
 
 export type { ManifestRepository } from './storage/manifest-repository.port';
+export type { MailboxDeltaCursorRepository } from './backup/delta-cursor-repository.port';
 
 export type { KeyService } from './crypto/key-service.port';
 
@@ -72,6 +73,8 @@ export type { RestoreUseCase, RestoreResult, RestoreOptions } from './restore/us
 export type { CatalogUseCase, MailboxSummary, ReadMessageResult } from './catalog/use-case.port';
 
 export type { DeletionUseCase, DeletionResult } from './deletion/use-case.port';
+
+export type { DekRewrapUseCase, DekRewrapResult } from './keys/dek-rewrap.port';
 
 export type {
   StorageCheckUseCase,
@@ -280,6 +283,7 @@ export {
   MAILBOX_CONNECTOR_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   KEY_SERVICE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
@@ -305,6 +309,7 @@ export {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
+  DEK_REWRAP_USE_CASE_TOKEN,
   SAVE_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,

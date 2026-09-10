@@ -50,7 +50,14 @@ for await (const line of rl) {
   totals.tx += rec.tx || 0;
   totals.rx += rec.rx || 0;
   totals.span = Math.max(totals.span, (rec.t || 0) + (rec.ms || 0));
-  const status_key = rec.failed ? 'failed' : String(rec.status);
+  // A `failed` record that carries a status failed after the response headers arrived. Keeping
+  // them apart is the difference between "never reached the server" and "the server answered
+  // and the body did not finish", which are different faults (issue #373).
+  const status_key = rec.failed
+    ? rec.status
+      ? `${rec.status}+failed`
+      : 'failed'
+    : String(rec.status);
   bump(totals.by_status, status_key);
 
   const key = `${rec.method} ${rec.url}`;
@@ -87,7 +94,9 @@ for await (const line of rl) {
   const throttle_status = rec.status === 429 || rec.status === 503;
   if (rec.failed || (!throttle_status && (rec.graph_error || rec.status >= 400))) {
     const code = rec.failed
-      ? `transport: ${rec.failed}`
+      ? rec.status
+        ? `${rec.status} body: ${rec.failed}`
+        : `transport: ${rec.failed}`
       : `${rec.status} ${rec.graph_error?.code || '(no code)'}`;
     const e = errors.get(code) || { count: 0, sample: rec.graph_error?.message, urls: new Set() };
     e.count += 1;
