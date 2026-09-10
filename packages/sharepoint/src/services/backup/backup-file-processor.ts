@@ -28,11 +28,3 @@ export async function process_backup_file(
     abort_signal,
   );
 }
-
-/** @throws Error when no document libraries are returned (likely missing Graph permissions). */
-export function ensure_libraries_discovered(library_count: number): void {
-  if (library_count > 0) return;
-  throw new Error(
-    'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',
-  );
-}
