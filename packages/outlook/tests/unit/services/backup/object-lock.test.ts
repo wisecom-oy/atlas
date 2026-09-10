@@ -5,6 +5,7 @@ import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   type MailboxConnector,
   type ManifestRepository,
@@ -103,6 +104,9 @@ describe('MailboxSyncService object lock', () => {
     const container = new Container();
     container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
+    container
+      .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
+      .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
     container.bind(MailboxSyncService).toSelf();
     service = container.get(MailboxSyncService);

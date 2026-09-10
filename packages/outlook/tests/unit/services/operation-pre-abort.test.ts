@@ -9,7 +9,7 @@ describe('Outlook operation cancellation', () => {
     const factory = { create: vi.fn() } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 5 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
-    const backup = new MailboxSyncService(factory, {} as never, {} as never);
+    const backup = new MailboxSyncService(factory, {} as never, {} as never, {} as never);
     const restore = new RestoreService(factory, {} as never, {} as never, {} as never);
     const save = new SaveService(factory, {} as never, {} as never);
 

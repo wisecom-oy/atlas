@@ -89,3 +89,19 @@ export interface ManifestEntry {
    */
   readonly recoverable_items?: boolean | undefined;
 }
+
+/**
+ * A mailbox's folder delta links, kept outside the snapshot manifests.
+ *
+ * Manifests carried these until v5.1.0, which meant a run that changed nothing still had to
+ * write a whole snapshot object to record where each folder's delta stopped, so a quiet mailbox
+ * grew one manifest per run forever. A snapshot is immutable once written, so rewriting the head
+ * was not an option: the links moved to a cursor the run overwrites, the way the drive providers
+ * have always done it (issue #370).
+ */
+export interface MailboxDeltaCursor {
+  readonly owner_id: string;
+  /** Delta link per Graph folder id, for folders whose last pass completed. */
+  readonly delta_links: Record<string, string>;
+  readonly updated_at: string;
+}

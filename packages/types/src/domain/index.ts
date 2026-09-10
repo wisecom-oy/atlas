@@ -5,6 +5,7 @@ export type { BackupObject } from './backup-object';
 export type { FailedItemRecord, FailedItemLedger } from './failed-item';
 export type {
   Manifest,
+  MailboxDeltaCursor,
   MailboxPurpose,
   ManifestEntry,
   AttachmentEntry,

@@ -2,6 +2,7 @@ import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifi
 import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
+import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
@@ -11,6 +12,8 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
+import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
+import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
 import {
@@ -34,6 +37,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -45,6 +49,8 @@ export class MailboxSyncService implements BackupUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(MAILBOX_CONNECTOR_TOKEN) private readonly _connector: MailboxConnector,
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
+    @inject(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
+    private readonly _cursors: MailboxDeltaCursorRepository,
   ) {}
 
   /** Orchestrates a full or incremental mailbox backup across all (or filtered) folders. */
@@ -62,7 +68,7 @@ export class MailboxSyncService implements BackupUseCase {
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      await this.warn_if_replica(ctx);
+      await warn_if_replica(ctx);
       const snapshot = create_pending_snapshot(tenant_id, owner_id, {
         owner_email: options.owner_email,
         owner_display_name: options.owner_display_name,
@@ -71,12 +77,12 @@ export class MailboxSyncService implements BackupUseCase {
       const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
-      const previous = options.force_full
-        ? undefined
-        : await this._manifests.find_latest_by_owner(ctx, owner_id);
-      const saved_links = resolve_saved_delta_links(previous);
-      const previous_entry_count = previous?.total_objects ?? 0;
-      const mode = resolve_sync_mode(options.force_full, saved_links);
+      const { previous, saved_links, previous_entry_count, mode } = await resolve_resume_state(
+        { manifests: this._manifests, cursors: this._cursors },
+        ctx,
+        owner_id,
+        options.force_full === true,
+      );
 
       const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
         folder_filter: options.folder_filter,
@@ -168,7 +174,16 @@ export class MailboxSyncService implements BackupUseCase {
         mailbox_purpose,
         excluded_folders,
       });
-      await this._manifests.save(ctx, manifest);
+
+      const persisted = await persist_mailbox_run(
+        { manifests: this._manifests, cursors: this._cursors },
+        ctx,
+        manifest,
+        snapshot,
+        previous,
+        all_entries.length,
+      );
+
       interrupted ||= should_interrupt();
       emit_operation_progress(options, {
         operation: 'backup',
@@ -178,7 +193,7 @@ export class MailboxSyncService implements BackupUseCase {
         total: global_total,
       });
 
-      const completed = mark_snapshot_completed(snapshot, all_entries.length);
+      const completed = persisted.snapshot;
       return {
         snapshot: completed,
         manifest,
@@ -295,20 +310,5 @@ export class MailboxSyncService implements BackupUseCase {
         retain_until: options.object_lock_policy.retain_until,
       },
     };
-  }
-
-  private async warn_if_replica(ctx: {
-    storage: { exists(key: string): Promise<boolean> };
-  }): Promise<void> {
-    try {
-      if (await ctx.storage.exists('_meta/replica.marker')) {
-        logger.warn(
-          'This storage target contains a replica marker (_meta/replica.marker). ' +
-            'Running backup against a replica is not recommended -- use the primary storage.',
-        );
-      }
-    } catch {
-      /* non-critical: do not block backup if marker check fails */
-    }
   }
 }

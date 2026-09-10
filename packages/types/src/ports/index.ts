@@ -28,6 +28,7 @@ export type {
 } from './mail/discovery.port';
 
 export type { ManifestRepository } from './storage/manifest-repository.port';
+export type { MailboxDeltaCursorRepository } from './backup/delta-cursor-repository.port';
 
 export type { KeyService } from './crypto/key-service.port';
 
@@ -280,6 +281,7 @@ export {
   MAILBOX_CONNECTOR_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   KEY_SERVICE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
