@@ -61,14 +61,19 @@ function make_client(): GraphClientMock {
   return { client, api, get, get_stream };
 }
 
-function make_item(): SharePointDeltaItem {
+/**
+ * `size_bytes` matches whichever body the case serves, because a download is now rejected when
+ * the transferred length disagrees with the recorded size (issue #368). These cases are about
+ * how a 403 is classified, not about truncation, so the sizes have to be honest.
+ */
+function make_item(size_bytes = CONTENT_BODY.length): SharePointDeltaItem {
   return {
     drive_id: 'drive-1',
     item_id: 'item-1',
     kind: 'file',
     file_name: 'Budget.xlsx',
     parent_path: '/',
-    size_bytes: 1024,
+    size_bytes,
     deleted: false,
     download_url: STALE_URL,
   };
@@ -143,7 +148,9 @@ describe('SharePoint 403 handling by cause (issue #246)', () => {
           Promise.resolve(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)),
       });
 
-    await expect(download_with_fallback(mock.client, make_item())).resolves.toEqual(body);
+    await expect(download_with_fallback(mock.client, make_item(body.length))).resolves.toEqual(
+      body,
+    );
     expect(mock.get).toHaveBeenCalledOnce();
     expect(mock.get_stream).not.toHaveBeenCalled();
   });

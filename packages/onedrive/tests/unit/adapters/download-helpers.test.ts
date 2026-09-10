@@ -86,12 +86,17 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
   return { client, api, get, get_stream, select };
 }
 
+/**
+ * `size_bytes` defaults to 0, which `assert_transferred_size` reads as "no recorded size" and
+ * skips. These cases are about routing and refresh, not transfer length, so they should not have
+ * to keep a fixture body and a fixture size in step (issue #368).
+ */
 function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaItem {
   return {
     drive_id: 'drive-1',
     item_id: 'item-1',
     name: 'Report.docx',
-    size_bytes: 1024,
+    size_bytes: 0,
     ...overrides,
   } as OneDriveDeltaItem;
 }
@@ -131,7 +136,7 @@ describe('OneDrive download helpers', () => {
       );
 
       expect(body).toEqual(URL_BODY);
-      expect(mocks.download_from_url).toHaveBeenCalledWith(STALE_URL, 1024, 'item-1');
+      expect(mocks.download_from_url).toHaveBeenCalledWith(STALE_URL, 0, 'item-1');
       expect(mock.api).not.toHaveBeenCalled();
     });
 
@@ -181,8 +186,8 @@ describe('OneDrive download helpers', () => {
 
       expect(body).toEqual(URL_BODY);
       expect(mock.get).toHaveBeenCalledOnce();
-      expect(mocks.download_from_url).toHaveBeenNthCalledWith(1, STALE_URL, 1024, 'item-1');
-      expect(mocks.download_from_url).toHaveBeenNthCalledWith(2, FRESH_URL, 1024, 'item-1');
+      expect(mocks.download_from_url).toHaveBeenNthCalledWith(1, STALE_URL, 0, 'item-1');
+      expect(mocks.download_from_url).toHaveBeenNthCalledWith(2, FRESH_URL, 0, 'item-1');
       expect(mock.get_stream).not.toHaveBeenCalled();
     });
 
@@ -243,6 +248,15 @@ describe('OneDrive download helpers', () => {
         30_000,
         'Graph content request timed out for file item-1',
       );
+    });
+
+    it('refuses a drained body that is not the recorded length (issue #368)', async () => {
+      const mock = make_client();
+      mocks.stream_to_buffer.mockResolvedValue(Buffer.from('<html>error page</html>'));
+
+      await expect(
+        download_via_graph_content(mock.client, make_item({ size_bytes: 4096 })),
+      ).rejects.toThrow(/expected 4096/);
     });
   });
 

@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 
 import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
+import { assert_transferred_size } from '@wisecom/atlas-drive/backup/download-integrity';
 
 /**
  * Drains a readable stream into a buffer with a wall-clock timeout.
@@ -56,7 +57,13 @@ export async function with_timeout<T>(
   }
 }
 
-/** Downloads a pre-authenticated OneDrive URL into a buffer. */
+/**
+ * Downloads a pre-authenticated OneDrive URL into a buffer.
+ *
+ * The byte count is checked against the size the delta recorded, so a well-framed 200 carrying
+ * the wrong body cannot be hashed, encrypted and written with a checksum that matches those
+ * wrong bytes. #338 closed this for the chunked path and left the buffered one open (issue #368).
+ */
 export async function download_from_url(
   download_url: string,
   size_bytes: number,
@@ -70,7 +77,9 @@ export async function download_from_url(
     if (!response.ok) {
       throw new Error(`Failed to download OneDrive file ${item_id}: HTTP ${response.status}`);
     }
-    return Buffer.from(await response.arrayBuffer());
+    const body = Buffer.from(await response.arrayBuffer());
+    assert_transferred_size(item_id, body.length, size_bytes);
+    return body;
   } finally {
     clearTimeout(timeout);
   }

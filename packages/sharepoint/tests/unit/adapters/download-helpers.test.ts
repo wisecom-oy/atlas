@@ -85,12 +85,17 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
   return { client, api, get, get_stream, select };
 }
 
+/**
+ * `size_bytes` defaults to 0, which `assert_transferred_size` reads as "no recorded size" and
+ * skips. These cases are about routing and refresh, not about transfer length, so they should
+ * not have to keep a fixture body and a fixture size in step (issue #368).
+ */
 function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDeltaItem {
   return {
     drive_id: 'drive-1',
     item_id: 'item-1',
     name: 'Budget.xlsx',
-    size_bytes: 1024,
+    size_bytes: 0,
     ...overrides,
   } as SharePointDeltaItem;
 }
@@ -160,8 +165,14 @@ describe('SharePoint download helpers', () => {
       expect(mocks.download_file_chunked).toHaveBeenCalledOnce();
       expect(fetch_mock).not.toHaveBeenCalled();
 
+      // At the threshold exactly, so it takes the direct path. The body has to be that long now
+      // that a short one is an integrity failure rather than a silent truncation (issue #368).
+      // Asserted by length: a deep compare of 4 MiB takes seconds.
+      const at_threshold = Buffer.alloc(CHUNK_DOWNLOAD_THRESHOLD, 1);
+      fetch_mock.mockResolvedValue(make_response({ status: 200, body: at_threshold }));
       const small = make_item({ download_url: STALE_URL, size_bytes: CHUNK_DOWNLOAD_THRESHOLD });
-      await expect(download_with_fallback(make_client().client, small)).resolves.toEqual(URL_BODY);
+      const body = await download_with_fallback(make_client().client, small);
+      expect(body.length).toBe(CHUNK_DOWNLOAD_THRESHOLD);
       expect(fetch_mock).toHaveBeenCalledOnce();
       expect(mocks.download_file_chunked).toHaveBeenCalledOnce();
     });
