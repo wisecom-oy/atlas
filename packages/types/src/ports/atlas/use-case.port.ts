@@ -6,6 +6,7 @@ import type {
   ReplicationStatusRecord,
   TenantRehydrationResult,
 } from '@/domain/replication';
+import type { DekRewrapResult } from '@/ports/keys/dek-rewrap.port';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
 import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
@@ -61,6 +62,14 @@ export interface AtlasInstance extends AsyncDisposable {
   /** Full tenant recovery across Outlook, OneDrive, and SharePoint, reported per workload. */
   rehydrateTenant(source: StorageTarget): Promise<Camelize<TenantRehydrationResult>>;
   getReplicationStatus(snapshotId?: string): Promise<Camelize<ReplicationStatusRecord>[]>;
+  /**
+   * Re-wraps the tenant's stored data key under `newPassphrase`, or under the configured one
+   * with current KDF parameters when it is omitted.
+   *
+   * The data key is unchanged, so no stored object is re-encrypted and every snapshot stays
+   * readable. This rotates the wrapper, not the key.
+   */
+  rewrapDataKey(newPassphrase?: string): Promise<Camelize<DekRewrapResult>>;
   /**
    * Releases the instance: S3 socket pools, cached bucket state, container
    * bindings. Idempotent. The instance must not be used afterwards.

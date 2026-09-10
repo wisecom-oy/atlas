@@ -722,6 +722,35 @@ console.log(recovery.total.status);
 | `s3Region`             | `string` | S3 region (default: `us-east-1`)                                 |
 | `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)      |
 
+## Key Re-wrap
+
+```typescript
+const result = await atlas.rewrapDataKey(newPassphrase);
+
+console.log(result.passphraseChanged, result.previousKdfId, result.kdfId);
+```
+
+Re-wraps the tenant's stored data key. Called with no argument it re-wraps under the configured
+passphrase with current KDF parameters, which is how a tenant bootstrapped with weaker scrypt
+parameters is brought forward.
+
+| Field              | Type      | Description                                                    |
+| ------------------ | --------- | -------------------------------------------------------------- |
+| `tenantId`         | `string`  | Tenant whose key was re-wrapped                                |
+| `passphraseChanged`| `boolean` | False when the call re-wrapped under the configured passphrase |
+| `previousKdfId`    | `number`  | KDF the wrapper used before the call                           |
+| `kdfId`            | `number`  | KDF the new wrapper uses                                       |
+
+The data key is unchanged, so nothing in the bucket is re-encrypted and every snapshot stays
+readable. **This rotates the wrapper, not the key**: an attacker who already holds the data key
+or the plaintext is unaffected by it. Use it for a leaked passphrase, not for a compromised
+bucket.
+
+A wrong current passphrase rejects before anything is written. After the write the blob is read
+back and unwrapped before the promise resolves, so a resolved call means the tenant opens with
+the new passphrase. Update the instance configuration afterwards: nothing reads the new value
+until you do, and an instance constructed with the old passphrase will fail its next operation.
+
 ## Graph API Cost Tracking
 
 The four operations that report cost, `backup`, `restore`, `restoreMailbox` and `checkMailboxStatus`, return how many Graph API requests they made, broken down by service pool, as a `graphCost` field on the result. Other Graph-backed calls such as `listAvailableMailboxes()` do consume quota but do not carry the field, so a scheduler budgeting against `graphCost` should account for them separately:
