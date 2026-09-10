@@ -178,7 +178,14 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
 
       const content = await download_and_decrypt_blob(ctx, entry);
       if (!content) {
-        return { restored: false };
+        // The specific cause is already logged; recording it here is what makes a restore that
+        // wrote nothing exit non-zero instead of counting a missing blob as a quiet skip. The
+        // SharePoint twin has always done this, so the same event used to exit 2 here and 1
+        // there (issue #358).
+        return {
+          restored: false,
+          error: `${entry.file_name}: content unavailable or failed verification; skipped`,
+        };
       }
 
       // The blob reader streams anything past the small-file limit, so the shape it returned is
