@@ -35,6 +35,12 @@ The content itself (ciphertext blobs) lives separately in S3, organized by conte
 
 A snapshot is **immutable once written**. Atlas never modifies a snapshot after creation, and with Object Lock enabled on the bucket, the manifest file is locked against deletion for the retention period.
 
+A run that captured nothing writes no snapshot. All three workloads behave this way: a mailbox
+or drive with no changes since the last backup adds no manifest object, and the previous
+snapshot stays the latest one. Where a run stopped reading each folder or drive is recorded in a
+separate cursor object the run overwrites, which is why an unchanged mailbox does not accumulate
+one manifest per run just to remember its position.
+
 Snapshot IDs differ by workload:
 
 - **Outlook**: short hash IDs (e.g. `snap-a3b2c1`)

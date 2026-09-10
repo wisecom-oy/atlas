@@ -6,9 +6,10 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailMessage, DeltaSyncResult } from '@wisecom/atlas-types';
-import type { ManifestRepository } from '@wisecom/atlas-types';
+import type { ManifestRepository, MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { ObjectStorage } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
@@ -82,6 +83,7 @@ export interface MailboxSyncHarness {
   readonly mock_connector: MailboxConnector;
   readonly mock_context: TenantContext;
   readonly mock_manifests: ManifestRepository;
+  readonly mock_cursors: MailboxDeltaCursorRepository;
 }
 
 export function create_mailbox_sync_harness(): MailboxSyncHarness {
@@ -115,9 +117,15 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
     create_storage_only: vi.fn().mockResolvedValue(mock_context),
   };
 
+  const mock_cursors: MailboxDeltaCursorRepository = {
+    load: vi.fn().mockResolvedValue(undefined),
+    save: vi.fn(),
+  };
+
   const container = new Container();
   container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
+  container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(mock_cursors);
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
   container.bind(MailboxSyncService).toSelf();
 
@@ -126,5 +134,6 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
     mock_connector,
     mock_context,
     mock_manifests,
+    mock_cursors,
   };
 }

@@ -5,6 +5,7 @@ import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type {
@@ -15,6 +16,7 @@ import type {
   MailFolder,
   MailMessage,
   ManifestRepository,
+  MailboxDeltaCursorRepository,
   ObjectStorage,
   TenantContext,
   TenantContextFactory,
@@ -94,6 +96,7 @@ function make_streaming_fetch_delta(
 describe('interrupt delta-link safeguard (issue #23)', () => {
   let storage: ObjectStorage;
   let manifests: ManifestRepository;
+  let cursors: MailboxDeltaCursorRepository;
   let connector: MailboxConnector;
   let service: MailboxSyncService;
 
@@ -154,16 +157,27 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
       fetch_attachments: vi.fn().mockResolvedValue([]),
     };
 
+    cursors = {
+      load: vi.fn().mockResolvedValue(undefined),
+      save: vi.fn(),
+    };
+
     const container = new Container();
     container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(connector);
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(manifests);
+    container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(cursors);
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
     container.bind(MailboxSyncService).toSelf();
     service = container.get(MailboxSyncService);
   });
 
+  /**
+   * Delta links moved out of the manifest and into the cursor in #370, so this is where the
+   * safeguard is now observable. The invariant is unchanged: a folder that did not finish every
+   * page keeps the link it had.
+   */
   function saved_delta_links(): Record<string, string> {
-    const calls = vi.mocked(manifests.save).mock.calls;
+    const calls = vi.mocked(cursors.save).mock.calls;
     expect(calls.length).toBe(1);
     return calls[0]![1].delta_links;
   }
