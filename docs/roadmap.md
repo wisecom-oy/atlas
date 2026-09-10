@@ -135,7 +135,7 @@ Throttling is already modelled for this pool (`IdentityServiceLimits`: resource 
 
 ### Argon2 KDF migration
 
-Evaluate replacing scrypt with Argon2id for KEK derivation. The versioned DEK blob format (`v1`) already includes a `kdf_id` field, making algorithm upgrades possible without breaking existing tenants. This includes building an `atlas migrate-kdf` command that re-wraps all DEK blobs under the new KDF without re-encrypting data objects.
+Evaluate replacing scrypt with Argon2id for KEK derivation. The versioned DEK blob format (`v1`) already includes a `kdf_id` field, making algorithm upgrades possible without breaking existing tenants. The command that migrates a tenant already exists: `atlas keys rewrap` re-wraps the stored key under the current default KDF without re-encrypting data objects, so what remains here is registering the strategy and deciding the default, not building the migration.
 
 ### Graph throttling and cost audit
 

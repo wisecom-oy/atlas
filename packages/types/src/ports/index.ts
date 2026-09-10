@@ -74,6 +74,8 @@ export type { CatalogUseCase, MailboxSummary, ReadMessageResult } from './catalo
 
 export type { DeletionUseCase, DeletionResult } from './deletion/use-case.port';
 
+export type { DekRewrapUseCase, DekRewrapResult } from './keys/dek-rewrap.port';
+
 export type {
   StorageCheckUseCase,
   StorageCheckRequest,
@@ -307,6 +309,7 @@ export {
   CATALOG_USE_CASE_TOKEN,
   DELETION_USE_CASE_TOKEN,
   STORAGE_CHECK_USE_CASE_TOKEN,
+  DEK_REWRAP_USE_CASE_TOKEN,
   SAVE_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,

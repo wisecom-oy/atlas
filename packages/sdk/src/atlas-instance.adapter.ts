@@ -8,6 +8,7 @@ import type {
   ReplicationUseCase,
   UserIdentityResolver,
   IdentityRegistryRepository,
+  DekRewrapUseCase,
 } from '@wisecom/atlas-types';
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
@@ -16,6 +17,7 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  DEK_REWRAP_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
@@ -40,6 +42,7 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   );
   const tenant_factory = container.get<TenantContextFactory>(TENANT_CONTEXT_FACTORY_TOKEN);
+  const dek_rewrap = container.get<DekRewrapUseCase>(DEK_REWRAP_USE_CASE_TOKEN);
   const dispose = create_disposer(container);
   const sink = resolve_log_sink(config.logger);
   const scoped = <T extends object>(api: T): T => scope_api_logging(api, tenant_id, sink);
@@ -91,6 +94,9 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     },
     async getReplicationStatusByOwner(owner_id) {
       return camelize(await replication.get_replication_status_by_owner(tenant_id, owner_id));
+    },
+    async rewrapDataKey(new_passphrase) {
+      return camelize(await dek_rewrap.rewrap_tenant_dek(tenant_id, new_passphrase));
     },
 
     dispose,

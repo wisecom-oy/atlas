@@ -25,9 +25,8 @@ Envelope encryption separates the key that protects your data (DEK) from the key
 
 - The DEK is a random 256-bit key with maximum entropy -- it does not depend on passphrase strength.
 - The KEK is derived from your passphrase and only used to wrap/unwrap the DEK.
-- Changing the passphrase only has to re-encrypt the DEK wrapper, not every object in storage. The
-  blob format is built for that, but no command performs it today. Read the warning below before
-  you change `ATLAS_ENCRYPTION_PASSPHRASE` on a tenant that already has backups.
+- Changing the passphrase only re-encrypts the DEK wrapper, not every object in storage.
+  `atlas keys rewrap --new-passphrase` performs it, one `PutObject` against `_meta/dek.enc`.
 
 ### KEK Derivation: scrypt
 
@@ -44,7 +43,7 @@ Parameters used by Atlas for **new** DEK wraps:
 | Output              | 32 bytes (256 bits)            | AES-256 key length                                                                        |
 | Minimum N on unwrap | 16384                          | Blobs with weaker parameters are rejected                                                 |
 
-The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so a re-wrap picks up new scrypt parameters without relying on a separate `_meta/kek_params.json` file. Atlas wraps a DEK when it first creates one, and nothing re-wraps an existing one: the parameters a tenant was bootstrapped with are the parameters it keeps.
+The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, including a re-wrap, so `atlas keys rewrap` picks up current scrypt parameters without relying on a separate `_meta/kek_params.json` file. Until a re-wrap runs, a tenant keeps the parameters it was bootstrapped with.
 
 The v5 SDK rejects passphrases shorter than 14 UTF-8 bytes at construction, matching the existing KDF warning threshold. Byte length is only a minimum, not an entropy guarantee: use at least five random words or 20 random characters for production. The CLI's existing passphrase handling is unchanged. Never pad or replace an existing passphrase without migrating its wrapped DEK; use the previous SDK or CLI to recover short-passphrase backups.
 
@@ -57,11 +56,55 @@ The optional SDK `validate()` probe performs only S3 `HeadBucket` and Graph toke
 - **Never stored in plaintext** -- only exists in memory during a backup/restore run.
 - **Re-derived on every run**: Atlas reads `_meta/dek.enc`, derives the KEK from the passphrase, unwraps the DEK, and holds it in memory for the session.
 
-::: danger Passphrase Is Irrecoverable
-There is **no key rotation mechanism** and **no recovery path**. If you lose the passphrase, the DEK cannot be unwrapped, and all data for that tenant is permanently inaccessible. Changing the passphrase without migrating the wrapped DEK will cause GCM authentication failures when Atlas tries to unwrap `_meta/dek.enc`.
+:::: danger A lost passphrase is still irrecoverable
+There is **no recovery path**. If you lose the passphrase, the DEK cannot be unwrapped and all
+data for that tenant is permanently inaccessible. Changing `ATLAS_ENCRYPTION_PASSPHRASE` without
+re-wrapping the stored key causes GCM authentication failures on the next unwrap of
+`_meta/dek.enc`, so use `atlas keys rewrap --new-passphrase` and change the configured value only
+after it succeeds.
 
-**Treat the passphrase as critically as the data itself.** Store it in a password manager, a sealed envelope in a safe, or a secrets management system -- but never lose it.
-:::
+**Treat the passphrase as critically as the data itself.** Store it in a password manager, a
+sealed envelope in a safe, or a secrets management system, but never lose it.
+::::
+
+### Re-wrapping the data key
+
+`atlas keys rewrap` derives a new KEK, from a new passphrase or from the current KDF parameters
+with a fresh salt, and rewrites `_meta/dek.enc` under it. The DEK inside is byte-identical, so
+nothing in the bucket is re-encrypted and every existing snapshot stays readable. It is one
+object write regardless of how large the tenant is.
+
+What it is worth is bounded by that. **It rotates the wrapper, not the key.** The threat it
+answers is a leaked passphrase: whoever holds the old one can no longer derive a KEK that opens
+the current wrapper. It does nothing about an attacker who already holds the DEK itself or
+plaintext they decrypted with it, because neither needs the passphrase again. For that, the
+answer is replicating to a fresh target under a new passphrase and retiring the old bucket,
+which re-encrypts every object under a new DEK.
+
+:::: warning Revocation is not immediate on a versioned bucket
+Atlas enables bucket versioning and expires noncurrent versions after 30 days. A re-wrap writes
+a new current `_meta/dek.enc`; it does not remove the version it replaced. Until that noncurrent
+version expires, someone holding the old passphrase **and** permission to read object versions
+can still read it and unwrap the same, unchanged DEK.
+
+Treat the re-wrap as complete only once that version is gone. Where policy and Object Lock
+allow, delete the noncurrent versions of `_meta/dek.enc` explicitly; where they do not, the old
+passphrase remains a live credential for up to 30 days, and read access to object versions is
+what stands between it and the key. Revoking the leaked reader's `s3:GetObjectVersion` closes
+the window immediately.
+::::
+
+The order matters and is enforced. The stored key is unwrapped with the current passphrase
+before anything is written, so a wrong one costs nothing. After the write, the blob is read back
+and unwrapped with the new passphrase and compared against the key that went in, because a
+wrapper that cannot be unwrapped is an unopenable bucket and the next backup is too late to find
+that out. A verification failure puts the previous wrapper back and proves it still opens before
+the error is reported, so a failed re-wrap leaves the tenant exactly as it was. Keep both
+passphrases until a read succeeds with the new one.
+
+The same command with no flags re-wraps under the configured passphrase, which is how a tenant
+bootstrapped under weaker scrypt parameters is brought forward to the current ones. Existing
+backups are unaffected either way.
 
 ## Encryption Details
 
