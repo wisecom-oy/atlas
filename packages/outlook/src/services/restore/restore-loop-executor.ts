@@ -56,15 +56,32 @@ export async function execute_restore_loop(
       if (is_interrupted()) break;
       dashboard.mark_active(folder_index);
 
-      const target_fid = await ensure_subfolder(
-        restore_connector,
-        tenant_id,
-        target_mailbox,
-        root.folder_id,
-        fid,
-        folder_map,
-        created_folders,
-      );
+      // A folder that cannot be created costs its own messages, not the rest of the plan. The
+      // drive restores have always degraded per folder; this was the one path where one Graph
+      // 4xx on create_mail_folder aborted the run and left every later folder untouched, in a
+      // state indistinguishable from an interrupt (issue #360).
+      let target_fid: string;
+      try {
+        target_fid = await ensure_subfolder(
+          restore_connector,
+          tenant_id,
+          target_mailbox,
+          root.folder_id,
+          fid,
+          folder_map,
+          created_folders,
+        );
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        all_errors.push(
+          `folder ${folder_map.get(fid) ?? fid}: could not be created (${reason}); ` +
+            `${folder_items.length} message(s) not restored`,
+        );
+        global_errors++;
+        dashboard.mark_done(folder_index, 0, 0);
+        folder_index++;
+        continue;
+      }
 
       const result = await restore_folder_entries(
         ctx,
