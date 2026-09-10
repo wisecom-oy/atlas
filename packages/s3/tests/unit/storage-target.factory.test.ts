@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { create_storage_target } from '@/adapters/storage-target.factory';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
-import type { StorageTargetSdkConfig } from '@/adapters/storage-target.factory';
+import type { StorageTargetConfig } from '@wisecom/atlas-types';
 
 // Holder the hoisted mock can close over; populated by the crypto test before use.
 const crypto_state = vi.hoisted(() => ({ wrapped_dek: Buffer.alloc(0) }));
@@ -40,7 +40,7 @@ vi.mock('@/adapters/tenant-bucket-name', () => ({
 }));
 
 describe('create_storage_target', () => {
-  const base_config: StorageTargetSdkConfig = {
+  const base_config: StorageTargetConfig = {
     s3Endpoint: 'http://offsite:9000',
     s3AccessKey: 'access',
     s3SecretKey: 'secret',

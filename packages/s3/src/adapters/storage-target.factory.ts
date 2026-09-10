@@ -10,47 +10,19 @@ import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
 
-/** SDK-facing camelCase config, consistent with AtlasInstanceConfig. */
-export interface StorageTargetSdkConfig {
-  readonly targetId?: string;
-  readonly s3Endpoint: string;
-  readonly s3AccessKey: string;
-  readonly s3SecretKey: string;
-  readonly s3Region?: string;
-  readonly encryptionPassphrase: string;
-}
-
 function derive_target_id(endpoint: string, region?: string): string {
   const raw = `${endpoint}|${region ?? 'us-east-1'}`;
   return createHash('sha256').update(raw).digest('hex').slice(0, 16);
 }
 
 /**
- * Maps the public camelCase config to the internal shape.
+ * Creates a lightweight storage-only target for replication.
  *
- * Only the camelCase form is accepted. Taking both was the dual vocabulary v5.0.0 removes: the
- * SDK's documented convention is camelCase, and a factory that quietly accepted the internal
- * spelling made the internal one look public (issue #45).
+ * Bound into the container by symbol, which is untyped, so this signature is the only thing
+ * standing between a caller and an S3 client built from undefined credentials (issue #377).
  */
-function normalize_target_config(config: StorageTargetSdkConfig): StorageTargetConfig {
-  let result: StorageTargetConfig = {
-    s3_endpoint: config.s3Endpoint,
-    s3_access_key: config.s3AccessKey,
-    s3_secret_key: config.s3SecretKey,
-    encryption_passphrase: config.encryptionPassphrase,
-  };
-  if (config.targetId !== undefined) {
-    result = { ...result, target_id: config.targetId };
-  }
-  if (config.s3Region !== undefined) {
-    result = { ...result, s3_region: config.s3Region };
-  }
-  return result;
-}
-
-/** Creates a lightweight storage-only target for replication from camelCase config. */
-export function create_storage_target(config: StorageTargetSdkConfig): StorageTarget {
-  return new DefaultStorageTarget(normalize_target_config(config));
+export function create_storage_target(config: StorageTargetConfig): StorageTarget {
+  return new DefaultStorageTarget(config);
 }
 
 /**
@@ -71,17 +43,17 @@ export class DefaultStorageTarget implements StorageTarget {
   private readonly _buckets = new BucketCache();
 
   constructor(config: StorageTargetConfig) {
-    this.target_id = config.target_id ?? derive_target_id(config.s3_endpoint, config.s3_region);
-    this.endpoint = config.s3_endpoint;
-    this._passphrase = config.encryption_passphrase;
-    this._region = config.s3_region ?? 'us-east-1';
+    this.target_id = config.targetId ?? derive_target_id(config.s3Endpoint, config.s3Region);
+    this.endpoint = config.s3Endpoint;
+    this._passphrase = config.encryptionPassphrase;
+    this._region = config.s3Region ?? 'us-east-1';
 
     this._client = new S3Client({
-      endpoint: config.s3_endpoint,
+      endpoint: config.s3Endpoint,
       region: this._region,
       credentials: {
-        accessKeyId: config.s3_access_key,
-        secretAccessKey: config.s3_secret_key,
+        accessKeyId: config.s3AccessKey,
+        secretAccessKey: config.s3SecretKey,
       },
       forcePathStyle: true,
     });
