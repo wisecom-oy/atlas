@@ -76,7 +76,6 @@ describe('streamed object scope binding (issue #350)', () => {
       })(),
       {
         staging_key: `onedrive/staging/${OWNER}/item-1-a1b2`,
-        staging_prefix: `onedrive/staging/${OWNER}/`,
         build_data_key: (checksum) => `${DATA_SCOPE}${checksum}`,
         data_scope: DATA_SCOPE,
       },

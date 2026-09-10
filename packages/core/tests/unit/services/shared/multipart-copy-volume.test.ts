@@ -27,6 +27,7 @@ function make_ctx(): { ctx: TenantContext; parts: Map<number, Buffer> } {
         complete: vi.fn(async () => undefined),
         abort: vi.fn(async () => undefined),
       })),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn(async () => 0),
     },
     create_cipher: stub_tenant_create_cipher,

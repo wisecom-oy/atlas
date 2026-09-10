@@ -109,6 +109,7 @@ function make_harness(options: {
       put: vi.fn().mockResolvedValue(undefined),
       list: vi.fn().mockResolvedValue([]),
       delete: vi.fn().mockResolvedValue(undefined),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     },
     encrypt: (buffer: Buffer) => buffer,

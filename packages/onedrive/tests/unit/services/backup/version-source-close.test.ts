@@ -75,6 +75,7 @@ function failing_upload_ctx(): TenantContext {
         complete: vi.fn(async () => undefined),
         abort: vi.fn(async () => undefined),
       })),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn(async () => 0),
       exists: vi.fn(async () => false),
     },

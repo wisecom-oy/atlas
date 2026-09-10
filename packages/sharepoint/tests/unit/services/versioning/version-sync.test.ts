@@ -39,6 +39,7 @@ function make_ctx(): TenantContext {
       delete: vi.fn(),
       begin_multipart_upload: vi.fn(),
       copy: vi.fn(),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn(),
     },
     encrypt: vi.fn((data: Buffer) => data),

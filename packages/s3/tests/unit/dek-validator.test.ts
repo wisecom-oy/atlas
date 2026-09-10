@@ -11,6 +11,7 @@ function make_storage(): ObjectStorage {
     delete_version: vi.fn(),
     exists: vi.fn(),
     list: vi.fn(),
+    list_stale: vi.fn(async () => []),
     list_versions: vi.fn(),
     begin_multipart_upload: vi.fn().mockResolvedValue({
       upload_part: vi.fn(),

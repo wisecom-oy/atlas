@@ -112,6 +112,21 @@ export interface ObjectStorage {
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<void>;
 
-  /** Aborts all incomplete multipart uploads under the given prefix. */
-  abort_incomplete_uploads(prefix: string): Promise<number>;
+  /**
+   * Lists keys under a prefix last modified before `older_than`.
+   *
+   * Startup cleanup has no other way to tell an abandoned staging object from one a concurrent run
+   * is about to copy, and deleting the second breaks that run (issue #345).
+   */
+  list_stale(prefix: string, older_than: Date): Promise<string[]>;
+
+  /**
+   * Aborts incomplete multipart uploads under the prefix that started before `older_than`, and
+   * returns how many.
+   *
+   * The cutoff is required rather than optional: an unfiltered sweep of an owner prefix aborts the
+   * upload a concurrent backup is streaming into, which fails that run with `NoSuchUpload` on its
+   * next part (issue #345).
+   */
+  abort_incomplete_uploads(prefix: string, older_than: Date): Promise<number>;
 }

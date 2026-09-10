@@ -53,6 +53,9 @@ function make_ctx(options: { exists?: boolean; list?: string[] } = {}): Recorded
         ops.push(`delete:${key}`);
       }),
       list: vi.fn(async () => options.list ?? []),
+      list_stale: vi.fn(async (_prefix: string, older_than: Date) =>
+        older_than <= new Date() ? (options.list ?? []) : [],
+      ),
       abort_incomplete_uploads: vi.fn(async () => 0),
     },
     create_cipher: () => {
@@ -236,9 +239,13 @@ describe('cleanup_stale_staging', () => {
 
     await cleanup_stale_staging(recorded.ctx, SITE);
 
-    const prefix = vi.mocked(recorded.ctx.storage.abort_incomplete_uploads).mock.calls[0]?.[0];
+    const [prefix, cutoff] = vi.mocked(recorded.ctx.storage.abort_incomplete_uploads).mock
+      .calls[0]!;
     expect(prefix).toContain('staging');
     expect(prefix).toContain(SITE);
+    // Without a cutoff in the past the sweep is the unfiltered one issue #345 is about: it would
+    // abort whatever a concurrent run of the same owner is streaming into.
+    expect(Date.now() - cutoff.getTime()).toBeGreaterThan(23 * 60 * 60 * 1000);
   });
 
   it('does nothing to delete when no staging objects are left', async () => {

@@ -56,6 +56,7 @@ function make_ctx(
       delete: vi.fn(async (key: string) => {
         ops.push(`delete:${key}`);
       }),
+      list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn(async (prefix: string) => {
         ops.push(`abort_incomplete:${prefix}`);
         return 0;
@@ -213,7 +214,7 @@ describe('stream_encrypt_to_multipart', () => {
     expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
   });
 
-  it('sweeps orphaned parts by prefix when the abort itself fails', async () => {
+  it('leaves other uploads alone when the abort itself fails', async () => {
     const recorded = make_ctx({ abort_fails: true });
     async function* failing(): AsyncGenerator<Buffer> {
       yield Buffer.alloc(1024, 1);
@@ -223,8 +224,11 @@ describe('stream_encrypt_to_multipart', () => {
     await expect(stream_encrypt_to_multipart(recorded.ctx, 'staging/a', failing())).rejects.toThrow(
       'source died',
     );
-    // Otherwise the tenant pays storage for parts nothing will ever complete.
-    expect(recorded.ops).toContain('abort_incomplete:staging/');
+    // The staging prefix is shared by every large file of one owner, so the old fallback aborted
+    // whatever a concurrent run was streaming into. One stranded upload is the lifecycle rule's
+    // problem; a broken concurrent backup is not (issue #345).
+    expect(recorded.ops).toContain('abort');
+    expect(recorded.ops.some((op) => op.startsWith('abort_incomplete'))).toBe(false);
   });
 
   it('aborts the upload when the source fails mid-stream', async () => {
@@ -246,7 +250,6 @@ describe('stream_to_content_addressed_storage', () => {
   const target = (staging_key = 'staging/a') => ({
     staging_key,
     data_scope: 'data/',
-    staging_prefix: 'staging/',
     build_data_key: (checksum: string) => `data/${checksum}`,
   });
 
