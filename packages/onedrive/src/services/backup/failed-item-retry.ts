@@ -1,4 +1,5 @@
 import type { OneDriveConnector, OneDriveDeltaItem } from '@wisecom/atlas-types';
+import { AuthError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   clear_item_failure,
@@ -49,6 +50,9 @@ export async function resolve_retry_items(
       logger.info(`Previously failed item ${record.name} (${record.item_id}) no longer exists`);
       next_ledger = clear_item_failure(next_ledger, record.item_id);
     } catch (err) {
+      // A revoked grant is not a per-item fault and re-recording it 12 times per run tells the
+      // operator nothing. Matches the SharePoint twin (issue #371).
+      if (err instanceof AuthError) throw err;
       const reason = err instanceof Error ? err.message : String(err);
       next_ledger = record_item_failure(next_ledger, {
         item_id: record.item_id,
