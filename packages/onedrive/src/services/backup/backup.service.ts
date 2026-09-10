@@ -38,7 +38,6 @@ import {
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
-import { ensure_drives_discovered } from '@/services/backup/backup-file-processor';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
 import type { PackageReportTotals } from '@/services/backup/package-report';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
@@ -95,7 +94,13 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       const previous_cursor =
         options.force_full === true || scope_changed ? undefined : stored_cursor;
       const drives = await this._connector.list_drives(tenant_id, owner_id);
-      ensure_drives_discovered(drives.length);
+      // An empty list is what Graph answers for an owner whose OneDrive was never provisioned.
+      // A revoked grant is a 403, which `list_drives` has already turned into the permission
+      // error, so reading empty as a permission fault sent the operator to check a consent grant
+      // that was fine (issue #369). Nothing to back up is a clean run with no snapshot.
+      if (drives.length === 0) {
+        logger.warn(`Owner ${owner_id} has no OneDrive drives; there is nothing to back up`);
+      }
       progress = options.create_progress?.(
         drives.map((drive) => ({ name: drive.drive_name, total_items: 0 })),
       );

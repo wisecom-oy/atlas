@@ -41,7 +41,6 @@ import {
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import { ensure_libraries_discovered } from '@/services/backup/backup-file-processor';
 import type {
   FileTrackingState,
   VersionStatsState,
@@ -90,7 +89,12 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       const stored_cursor = await this._cursors.load(ctx, site_id);
       const previous_cursor = options.force_full === true ? undefined : stored_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
-      ensure_libraries_discovered(libraries.length);
+      // Same reasoning as the OneDrive twin: a revoked grant is a 403 that
+      // `list_document_libraries` has already named, so an empty list is a site with no document
+      // library rather than a permission fault (issue #369).
+      if (libraries.length === 0) {
+        logger.warn(`Site ${site_id} has no document libraries; there is nothing to back up`);
+      }
       emit_operation_progress(options, {
         operation: 'backup',
         workload: 'sharepoint',
