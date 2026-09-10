@@ -6,6 +6,7 @@ import type {
   ObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface StoredMessage {
@@ -29,6 +30,11 @@ export async function capture_mime_payload(
   try {
     return await connector.fetch_mime(tenant_id, owner_id, message.message_id);
   } catch (err) {
+    // The fallback is for per-message faults such as ErrorItemNotFound. A revoked permission or
+    // an unlicensed mailbox is neither: swallowing those degraded every message in the run to
+    // the JSON payload, lost the original MIME, and still exited 0. `fetch_message_mime` already
+    // raises them as typed errors; this is the catch that used to eat them (issue #372).
+    if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`MIME capture failed for message ${message.message_id}: ${reason}`);
     return undefined;
