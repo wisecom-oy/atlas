@@ -25,7 +25,9 @@ Envelope encryption separates the key that protects your data (DEK) from the key
 
 - The DEK is a random 256-bit key with maximum entropy -- it does not depend on passphrase strength.
 - The KEK is derived from your passphrase and only used to wrap/unwrap the DEK.
-- If you need to change the passphrase in the future, only the DEK wrapper needs to be re-encrypted -- not every object in storage.
+- Changing the passphrase only has to re-encrypt the DEK wrapper, not every object in storage. The
+  blob format is built for that, but no command performs it today. Read the warning below before
+  you change `ATLAS_ENCRYPTION_PASSPHRASE` on a tenant that already has backups.
 
 ### KEK Derivation: scrypt
 
@@ -42,7 +44,7 @@ Parameters used by Atlas for **new** DEK wraps:
 | Output              | 32 bytes (256 bits)            | AES-256 key length                                                                        |
 | Minimum N on unwrap | 16384                          | Blobs with weaker parameters are rejected                                                 |
 
-The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so re-wrapping the DEK after a passphrase change uses new scrypt parameters without relying on a separate `_meta/kek_params.json` file.
+The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, so a re-wrap picks up new scrypt parameters without relying on a separate `_meta/kek_params.json` file. Atlas wraps a DEK when it first creates one, and nothing re-wraps an existing one: the parameters a tenant was bootstrapped with are the parameters it keeps.
 
 The v5 SDK rejects passphrases shorter than 14 UTF-8 bytes at construction, matching the existing KDF warning threshold. Byte length is only a minimum, not an entropy guarantee: use at least five random words or 20 random characters for production. The CLI's existing passphrase handling is unchanged. Never pad or replace an existing passphrase without migrating its wrapped DEK; use the previous SDK or CLI to recover short-passphrase backups.
 
@@ -77,6 +79,15 @@ Every encrypt operation uses **AES-256-GCM** (Galois/Counter Mode), which provid
 ```
 
 Every encrypt operation generates a **fresh random 12-byte IV** (initialization vector). This is critical for GCM security -- reusing an IV with the same key would be catastrophic, potentially exposing the XOR of two plaintexts and compromising the authentication key. Atlas generates a new random IV for every single object it encrypts.
+
+Random IVs carry a birthday bound, so one key cannot be used an unlimited number of times. NIST SP
+800-38D caps random-IV GCM at 2^32 invocations per key, where the chance of any IV repeating is
+still about 2^-33. One DEK covers a whole tenant, and Atlas runs one encrypt per object, streamed
+objects included: a multipart upload takes a single IV for the whole object rather than one per
+part. The budget is therefore 4.3 billion distinct objects in one tenant bucket, and content is
+addressed by checksum, so backing up unchanged bytes again does not spend another one. At ten
+million new objects a year that is a four-century limit, which is why Atlas has no re-key
+threshold.
 
 ### What a ciphertext is bound to
 

@@ -42,7 +42,14 @@ export interface TenantCryptoContext {
 
 /** Bundles tenant-scoped storage and encryption for a single tenant. */
 export interface TenantContext extends TenantStorageContext, TenantCryptoContext {
-  /** Zeros sensitive key material. Call when the context is no longer needed. */
+  /**
+   * Zeros the passphrase buffer the context derived its KEK from. Call when the context is no
+   * longer needed.
+   *
+   * The DEK itself is left to garbage collection, and the passphrase also survives as an
+   * immutable string in the process configuration, so this is hygiene rather than a guarantee
+   * that no key material is left in memory.
+   */
   destroy(): void;
 }
 
