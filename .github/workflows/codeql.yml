@@ -53,6 +53,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Nothing here pushes, and the default leaves the job token in .git/config where any
+          # later step, including a compromised action, can read it. CodeQL authenticates its
+          # SARIF upload through the environment, not through git.
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
