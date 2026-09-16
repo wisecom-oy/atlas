@@ -1,0 +1,71 @@
+name: CodeQL
+
+# Code scanning as a committed workflow, not GitHub's default setup.
+#
+# Default setup ran here until 2026-06-04 and then stopped, and nothing failed when it did:
+# an absent analysis looks exactly like a clean one, so 16 releases shipped unscanned before
+# anyone noticed (issue #407). A workflow file cannot be switched off from a settings page
+# without a commit, and a commit gets reviewed.
+#
+# Both languages the old setup covered stay covered. `actions` matters as much as the
+# TypeScript here: this repository's workflows hold tenant credentials and an npm publish
+# token, and the last two real findings in CI were a `workflow_dispatch` input interpolated
+# into a shell step and argv-visible S3 secrets (issues #257, v4.2.0).
+on:
+  # Alerts are attributed to the branch that was analysed, so the repository's alert list is
+  # only current if the long-lived branches are scanned after a merge. The PR run below gates
+  # the change; this one is what keeps `main` and `dev` honest afterwards.
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+  # A weekly run catches findings that come from a new CodeQL query release rather than from a
+  # new commit. 04:00 Monday, an hour after the nightly E2E cron, so the two do not overlap.
+  schedule:
+    - cron: '0 4 * * 1'
+
+permissions:
+  contents: read
+
+# Superseded pushes to a PR branch are pointless work, same as ci.yml.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    # Uploading SARIF is the whole point of the job, and that needs write access to the
+    # security events scope. Everything else stays read-only.
+    permissions:
+      contents: read
+      security-events: write
+    timeout-minutes: 30
+
+    strategy:
+      # One language must not hide the other: a failed `actions` analysis still has to leave the
+      # TypeScript result uploaded, and a red row for the language that failed.
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+
+      # No build step and no autobuild: CodeQL extracts TypeScript from source, and a `pnpm
+      # run build` would only add `dist/` output for it to ignore. `actions` is YAML.
+      #
+      # `analyze` fails the job when extraction or the SARIF upload fails, and it is deliberately
+      # not wrapped in `continue-on-error`: a scan that could not upload its results must show up
+      # as a failure, since that is the exact way scanning went missing for three months.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:${{ matrix.language }}'
