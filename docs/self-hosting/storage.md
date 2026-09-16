@@ -9,7 +9,7 @@ The included `docker/docker-compose.yml` starts MinIO with a Docker named volume
 ```yaml
 services:
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: atlas-minio
     ports:
       - '${MINIO_API_PORT:-9000}:9000'
@@ -27,6 +27,10 @@ volumes:
 
 That is fine for development and quick testing. Real deployments need control over where the data lands.
 
+The image comes from `quay.io`, not Docker Hub. Docker Hub refuses anonymous pulls of `minio/minio`, so a `docker compose up` against that registry fails with `pull access denied` before MinIO ever starts. `quay.io/minio/minio` serves the same images without authentication.
+
+The tag is a pinned release rather than `latest`. Object Lock and versioning behaviour has changed between MinIO releases, and immutable backups depend on both, so an unattended `docker compose pull` should not be able to move the storage backend under an existing archive. Bump the tag deliberately, then re-run `atlas storage-check` to confirm the new release still reports the bucket as lock-capable.
+
 ### Pointing MinIO to External Storage
 
 To store backup data on a specific disk or mount point, replace the named volume with a **bind mount**. For an external drive mounted at `/mnt/backup-drive`:
@@ -34,7 +38,7 @@ To store backup data on a specific disk or mount point, replace the named volume
 ```yaml
 services:
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: atlas-minio
     ports:
       - '9000:9000'

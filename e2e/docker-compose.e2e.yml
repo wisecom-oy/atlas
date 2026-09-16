@@ -7,9 +7,16 @@
 #
 # Two endpoints, not two buckets: Atlas derives the bucket name from the tenant id, so a
 # replication target has to be a different endpoint.
+#
+# `quay.io`, not Docker Hub: Docker Hub denies anonymous pulls of `minio/minio`, which killed
+# every nightly run from 2026-09-12 onward at this step, before the first Graph call (issue #406).
+#
+# A pinned release, not `latest`: with `latest` the storage backend under the immutability
+# assertions could change between two runs with no commit to point at. Bumping the tag is now a
+# reviewable diff, and `test_00_preflight` is what proves the new release is still `lock-capable`.
 services:
   minio-primary:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: atlas-e2e-minio-primary
     # `/data/{1...4}`: the four drives must exist, so they live under one mounted volume.
     command: server /data/{1...4} --console-address ":9001"
@@ -28,7 +35,7 @@ services:
       retries: 20
 
   minio-replica:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: atlas-e2e-minio-replica
     command: server /data/{1...4} --console-address ":9001"
     ports:
