@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 import type { AtlasConfig } from '@wisecom/atlas-core';
+import { NotFoundError, WrongPassphraseError } from '@wisecom/atlas-types';
 
 // Regression tests for issue #93: browsing a tenant must not provision it.
 // A read-only context issues no CreateBucket and no PutObject, so a mistyped
@@ -79,13 +80,15 @@ describe('read-only tenant context (issue #93)', () => {
     ctx.destroy();
   });
 
-  it('reports that no backups exist instead of generating a DEK', async () => {
+  it('reports a typed absence instead of generating a DEK', async () => {
     const s3 = make_s3(new Map());
     const factory = new DefaultTenantContextFactory(s3 as never, CONFIG, buckets);
 
-    await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow(
-      `No backups found for tenant ${TENANT_ID}`,
-    );
+    const error = await factory.create_readonly(TENANT_ID).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(NotFoundError);
+    expect((error as NotFoundError).code).toBe('ATLAS_NOT_FOUND');
+    expect((error as Error).message).toBe(`No backups found for tenant ${TENANT_ID}`);
     const commands = s3.send.mock.calls.map(([cmd]) => cmd.constructor.name);
     expect(commands).toEqual(['GetObjectCommand']);
   });
@@ -104,6 +107,23 @@ describe('read-only tenant context (issue #93)', () => {
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow(
       `No backups found for tenant ${TENANT_ID}`,
     );
+  });
+
+  it('uses one GET and preserves WrongPassphraseError for an existing wrapper', async () => {
+    const { objects } = stored_dek();
+    const s3 = make_s3(objects);
+    const wrong_config = {
+      ...CONFIG,
+      encryption_passphrase: 'different-passphrase-long',
+    } as AtlasConfig;
+    const factory = new DefaultTenantContextFactory(s3 as never, wrong_config, buckets);
+
+    const error = await factory.create_readonly(TENANT_ID).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(WrongPassphraseError);
+    expect((error as WrongPassphraseError).code).toBe('ATLAS_WRONG_PASSPHRASE');
+    const commands = s3.send.mock.calls.map(([cmd]) => cmd.constructor.name);
+    expect(commands).toEqual(['GetObjectCommand']);
   });
 
   it('surfaces a credential failure as itself, not as "no backups"', async () => {

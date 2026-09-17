@@ -44,7 +44,7 @@ Two kinds of key stay verbatim, because they are data rather than field names: t
 ### Configuration validation
 
 ```typescript
-import { AuthError, StorageError } from '@wisecom/atlas-sdk';
+import { AuthError, StorageError, WrongPassphraseError } from '@wisecom/atlas-sdk';
 
 // Optional, after creating the instance and provisioning its tenant bucket.
 try {
@@ -52,6 +52,8 @@ try {
 } catch (error) {
   if (error instanceof StorageError) {
     console.error('Check S3 endpoint, credentials and tenant-bucket access.');
+  } else if (error instanceof WrongPassphraseError) {
+    console.error("The passphrase does not open this tenant's existing backup key.");
   } else if (error instanceof AuthError) {
     console.error('Check Microsoft Entra credentials and connectivity.');
   }
@@ -61,16 +63,19 @@ try {
 
 `createAtlasInstance(config)` validates locally and synchronously, before creating clients. Missing or blank required fields, a passphrase shorter than **14 UTF-8 bytes**, or an invalid `s3Endpoint` throw `ConfigError` (`ATLAS_CONFIG_INVALID`). The endpoint must be an absolute HTTP or HTTPS URL with a hostname and no embedded credentials, query or fragment. HTTP supports local S3-compatible storage; use HTTPS across untrusted networks. Construction makes no network requests.
 
-`atlas.validate(): Promise<void>` is opt-in. It sends `HeadBucket` for `atlas-{tenantId}`, then requests a Graph token with the instance's shared authentication provider and `https://graph.microsoft.com/.default` scope. A cached valid token may be reused. Success resolves without returning a token or other data.
+`atlas.validate(): Promise<void>` is opt-in. It checks three stages, in order: `HeadBucket` for `atlas-{tenantId}`, the existing wrapped tenant key when one is present, then a Graph token from the instance's shared authentication provider with `https://graph.microsoft.com/.default` scope. A cached valid token may be reused. Success resolves without returning a token, key material or other data.
 
 | Validation stage | Failure | Operator action |
 | ---------------- | ------- | --------------- |
 | S3 `HeadBucket` | `StorageError`, `ATLAS_STORAGE_FAILURE` | Check endpoint, region, credentials, bucket existence and `s3:ListBucket` access. A missing bucket fails; provision it separately. |
+| `_meta/dek.enc` unwrap, when the object exists | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, verify that the tenant row and passphrase row match. |
 | Graph token acquisition | `AuthError`, `ATLAS_AUTH_DENIED` | Check tenant ID, client ID, client secret and connectivity to Microsoft Entra ID. |
 
-These codes identify the failed validation stage, not necessarily bad credentials: DNS, TLS and transport failures can also cause rejection. The S3 stage runs first; if it fails, Graph is not probed. Each error retains the original failure as `cause`. Do not publish raw provider diagnostics without redacting tenant and credential details.
+These codes identify the failed validation stage, not necessarily bad credentials: DNS, TLS and transport failures can also cause rejection. Stages stop on the first failure, so Graph is not probed after an S3 or passphrase failure. Each error retains the original failure as `cause`. Do not publish raw provider diagnostics without redacting tenant and credential details.
 
-The probe never creates buckets, loads or wraps encryption keys, or writes objects. It does not verify write permissions, Object Lock readiness, workload-specific Graph consent or whether the passphrase can unwrap existing backups. Use `checkStorage()` for Object Lock readiness; an incorrect existing passphrase still raises `WrongPassphraseError` when a backup or restore loads the key. See [Security](/security#kek-derivation-scrypt) for passphrase guidance and [v5 migration](/migration/v5#eager-configuration-validation) before upgrading an existing tenant.
+The key stage performs at most one additional storage `GET`, then a local AES-256-GCM open. It never creates a missing `_meta/dek.enc`, writes an object, logs key material or retains the temporary data encryption key (DEK). A fresh tenant with no wrapped key passes and continues to Graph validation; the first backup still creates the key through the normal race-safe path.
+
+The probe does not verify write permissions, Object Lock readiness or workload-specific Graph consent. Use `checkStorage()` for Object Lock readiness. See [Security](/security#kek-derivation-scrypt) for passphrase guidance and [v5 migration](/migration/v5#eager-configuration-validation) before upgrading an existing tenant.
 
 ### Logging
 
