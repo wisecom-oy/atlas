@@ -197,6 +197,23 @@ A version download that fails for an unexpected reason, such as throttling, `403
 
 Versions the service reports as gone (`404` or `410`, content purged by the site's retention policy) are expected, counted as `unavailable`, and do not affect health. OneNote package accounting and other advisory notes remain **warnings**: they appear as `[!]` lines above the status and leave the exit code at `0`.
 
+## When No Snapshot Is Created
+
+A run creates a snapshot only when something changed, so two very different outcomes both end without one, and they mean opposite things:
+
+| `summary.noSnapshotReason` | Meaning | Recovery point |
+| -------------------------- | ------- | -------------- |
+| `no_changes` | The site holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
+| `no_content` | The site holds nothing to protect, and no snapshot exists for it. | None. |
+
+The field is set only on a completed run that wrote no snapshot. It is absent when a snapshot was created, and absent on a run that was interrupted before it could tell, where `interrupted` is the answer instead.
+
+Before this existed, both cases returned `snapshot: undefined` with zero counters and `healthy: true`, so a consumer had no way to separate an empty site from a covered one and reported both as backed up. An empty site reporting success is the failure mode that matters here: nothing can be restored from it.
+
+The CLI makes the same distinction. `no_changes` prints `No SharePoint changes detected. Snapshot skipped.`, while `no_content` prints a warning that nothing was backed up and no snapshot exists.
+
+A site is judged to hold content when the run walked at least one item, or when the delta cursor already records a file from an earlier run. Only when neither is true does Atlas read the latest manifest to check whether a snapshot exists anyway, which keeps the common path free of an extra storage call and stops a pruned or newly seeded cursor from reporting a covered site as empty.
+
 ## OneNote Notebooks
 
 A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:

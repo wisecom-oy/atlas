@@ -2,6 +2,7 @@
 // manifests they build differ in their identity fields and in what each provider records per
 // entry, so the shared version would be generic over almost every line.
 import type {
+  NoSnapshotReason,
   OneDriveBackupResult,
   OneDriveChangeType,
   OneDriveDeltaCursor,
@@ -98,6 +99,7 @@ export function build_empty_result(
   warnings: string[],
   interrupted: boolean,
   healthy: boolean,
+  no_snapshot_reason?: NoSnapshotReason,
 ): OneDriveBackupResult {
   return {
     owner_id,
@@ -111,6 +113,7 @@ export function build_empty_result(
       deleted_items,
       cursor_updated: true,
       snapshot_created: false,
+      ...(no_snapshot_reason !== undefined && { no_snapshot_reason }),
       versions_stored,
       versions_unavailable,
       errors,

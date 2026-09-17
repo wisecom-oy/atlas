@@ -266,6 +266,21 @@ A version download that fails for an unexpected reason, such as throttling, `403
 
 Versions the service reports as gone (`404` or `410`, content purged by the site's retention policy) are expected, counted as `unavailable`, and do not affect health. OneNote package accounting and other advisory notes remain **warnings**: they appear as `[!]` lines above the status and leave the exit code at `0`.
 
+## When No Snapshot Is Created
+
+A run creates a snapshot only when something changed, so two very different outcomes both end without one, and they mean opposite things:
+
+| `summary.noSnapshotReason` | Meaning | Recovery point |
+| -------------------------- | ------- | -------------- |
+| `no_changes` | The drive holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
+| `no_content` | The drive holds nothing to protect, and no snapshot exists for it. | None. |
+
+The field is set only on a completed run that wrote no snapshot. It is absent when a snapshot was created, and absent on a run that was interrupted before it could tell, where `interrupted` is the answer instead.
+
+Both cases used to return `snapshot: undefined` with zero counters and `healthy: true`, so an empty drive and a covered one were indistinguishable and a consumer reported both as backed up. `no_content` on an account that has never opened OneDrive is expected; see [`NotFoundError` for an unprovisioned drive](/troubleshooting) for the case where the drive does not exist at all.
+
+The CLI prints `No OneDrive changes detected. Snapshot skipped.` for `no_changes`, and warns that nothing was backed up and no snapshot exists for `no_content`.
+
 ## OneNote Notebooks
 
 A OneNote notebook is not a file. Graph returns the notebook root as a driveItem carrying a **`package` facet** (`package.type == "oneNote"`) alongside a `folder` facet, and its actual content as ordinary child files:

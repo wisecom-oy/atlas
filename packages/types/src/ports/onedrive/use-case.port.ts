@@ -2,7 +2,11 @@ import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive-manifest';
-import type { BackupProgressReporter, ObjectLockRequest } from '../backup/use-case.port';
+import type {
+  BackupProgressReporter,
+  NoSnapshotReason,
+  ObjectLockRequest,
+} from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type {
@@ -18,6 +22,11 @@ export interface OneDriveBackupSummary {
   readonly deleted_items: number;
   readonly cursor_updated: boolean;
   readonly snapshot_created: boolean;
+  /**
+   * Set only when a completed run created no snapshot, saying which of the two reasons it was.
+   * Absent when a snapshot was created, and on a run interrupted before it could tell.
+   */
+  readonly no_snapshot_reason?: NoSnapshotReason | undefined;
   readonly versions_stored: number;
   readonly versions_unavailable: number;
   readonly errors: string[];

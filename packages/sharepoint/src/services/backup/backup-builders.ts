@@ -2,6 +2,7 @@
 // manifests they build differ in their identity fields and in what each provider records per
 // entry, so the shared version would be generic over almost every line.
 import type {
+  NoSnapshotReason,
   SharePointBackupResult,
   SharePointChangeType,
   SharePointDeltaCursor,
@@ -120,6 +121,7 @@ export function build_empty_result(
   warnings: string[],
   healthy: boolean,
   interrupted: boolean,
+  no_snapshot_reason?: NoSnapshotReason,
 ): SharePointBackupResult {
   return {
     site_id,
@@ -133,6 +135,7 @@ export function build_empty_result(
       deleted_items,
       cursor_updated: true,
       snapshot_created: false,
+      ...(no_snapshot_reason !== undefined && { no_snapshot_reason }),
       versions_stored,
       versions_unavailable,
       errors,

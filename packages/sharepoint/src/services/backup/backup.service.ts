@@ -10,6 +10,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
+import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import type {
   SharePointBackupOptions,
   SharePointBackupResult,
@@ -181,6 +182,13 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           warnings,
           healthy,
           scan.interrupted,
+          scan.interrupted
+            ? undefined
+            : await classify_empty_run({
+                previous_kind_by_file_id: tracking.previous_kind_by_file_id,
+                items_processed: scan.items_processed,
+                find_latest_snapshot: () => this._manifests.find_latest_by_site(ctx, site_id),
+              }),
         );
       } else {
         result = await this.finalize_snapshot(
