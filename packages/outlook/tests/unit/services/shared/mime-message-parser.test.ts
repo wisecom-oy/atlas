@@ -172,6 +172,11 @@ describe('parse_mime_message', () => {
   // work grows about 2x once fixed overhead is counted, and both samples run under the same
   // machine load, so the ratio survives a contended runner.
   //
+  // A measured ratio near 16 is not machine noise, it is the quadratic parser from before
+  // #408 actually running. This happened (issue #419) when `node_modules` predated the
+  // dependency bump in the lockfile, and the bare number read as flakiness. The assertion
+  // message names that cause so nobody loosens the bound instead of running `pnpm install`.
+  //
   // 50k, not more: mailsplit abandons a header block past its 1 MiB MAX_HEAD_SIZE, and
   // 'a@corp.example.com,' * 50000 is 928 KB, the largest round number that still parses.
   it('parses a recipient header in linear time', async () => {
@@ -188,8 +193,15 @@ describe('parse_mime_message', () => {
 
     const small_ms = await parse_duration_ms(12_500);
     const large_ms = await parse_duration_ms(50_000);
+    const ratio = large_ms / small_ms;
 
-    expect(large_ms / small_ms).toBeLessThan(8);
+    expect(
+      ratio,
+      `The 4x recipient step cost ${ratio.toFixed(1)}x against a linear bound of 8. A ratio ` +
+        'near 16 means the quadratic nodemailer@9.0.6 parser from before #408 is running, ' +
+        'which on a development machine almost always means node_modules is older than the ' +
+        'lockfile: run `pnpm install --frozen-lockfile` and re-check.',
+    ).toBeLessThan(8);
   }, 30_000);
 
   // Past mailsplit's 1 MiB MAX_HEAD_SIZE the header block is abandoned: no headerLines, no
