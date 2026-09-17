@@ -10,6 +10,7 @@ export type AtlasErrorCode =
   | 'ATLAS_WRONG_PASSPHRASE'
   | 'ATLAS_OBJECT_LOCK_RETAINED'
   | 'ATLAS_STORAGE_FAILURE'
+  | 'ATLAS_CONTENT_UNREADABLE'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -100,5 +101,19 @@ export class StorageError extends AtlasError {
 export class ConfigError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_CONFIG_INVALID', message, options);
+  }
+}
+
+/**
+ * Stored content exists and cannot be parsed back into the shape Atlas needs.
+ *
+ * Distinct from `StorageError`: the bytes were fetched, decrypted and checksum-verified, so
+ * storage and the key are both fine. Distinct from `WrongPassphraseError` for the same reason.
+ * Nothing about retrying changes the answer, which is why it carries its own code rather than
+ * borrowing one that reads as transient (issue #411).
+ */
+export class UnreadableContentError extends AtlasError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('ATLAS_CONTENT_UNREADABLE', message, options);
   }
 }

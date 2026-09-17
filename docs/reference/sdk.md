@@ -1000,6 +1000,7 @@ try {
 | `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested but the bucket has no Object Lock                      |
 | `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | Backend rejected the requested retention mode                                 |
 | `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | Conditional write lost a race (HTTP 412)                                      |
+| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored content was fetched and verified but cannot be parsed back             |
 
 Every error carries the underlying failure as `cause`, so the Graph or AWS SDK error is still available for logging without being what you branch on.
 
@@ -1016,7 +1017,7 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`
-- Error classes: `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError` (see [Errors](#errors))
+- Error classes: `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`, `UnreadableContentError` (see [Errors](#errors))
 
 **Graph cost types:**
 

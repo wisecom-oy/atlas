@@ -41,6 +41,24 @@ path as a release without a second workflow.
 The consequence to internalise: **bumping the version is the act of releasing.**
 Do not bump the version in an ordinary PR.
 
+## What counts as breaking
+
+A major is for a change that makes working code stop working: a removed or renamed method,
+option or flag, a changed default, a different return shape. Those are the changes `docs/migration`
+exists for.
+
+**Widening a union type is a minor.** Adding a member to `AtlasErrorCode`, or to any other
+string union on the public surface, only breaks a consumer with an exhaustive `switch` over it
+and no `default`, and only at compile time: nothing that already runs changes behaviour. New
+failure conditions get their own code in an ordinary release, because the alternative is filing a
+permanent failure under a code that reads as transient and telling a caller to retry it. Atlas
+would otherwise ship a major for every new diagnosis, which is a worse trade for everyone
+consuming it (issue #411, `ATLAS_CONTENT_UNREADABLE`).
+
+The same reasoning covers an added optional field on a result or an options object, and an added
+enum value in progress or status output. Handle the unknown case with a `default` and neither
+costs you anything.
+
 ## Cutting a release
 
 Run the **Start release** workflow from the Actions tab (or
