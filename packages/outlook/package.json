@@ -27,7 +27,7 @@
     "@wisecom/atlas-types": "workspace:*",
     "archiver": "^8.0.0",
     "inversify": "^8.2.3",
-    "mailparser": "^3.9.17",
+    "mailparser": "^3.9.28",
     "mimetext": "^3.0.28",
     "reflect-metadata": "^0.2.2"
   },
