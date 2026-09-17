@@ -5,10 +5,15 @@
  *
  * Skips (with a warning where the user should know) when:
  * - `atlas` is already a shell alias in a known rc file
- * - another `atlas` executable is already on PATH
+ * - another `atlas` executable is already on PATH and is not the Atlas CLI
+ * - `atlas` resolves to another Atlas CLI install and this is not a global install
  * - no writable bin directory exists
  * - running on Windows (npm creates .cmd shims for global installs)
  * - running inside the Atlas monorepo as a lifecycle hook (contributor installs)
+ *
+ * A global install whose `atlas` resolves to a different, usually older Atlas
+ * install takes the command over, so `atlas --version` reports the newly
+ * installed version instead of silently running the old copy (issue #423).
  *
  * Never fails the install: every exit path is code 0.
  * Opt out with ATLAS_SKIP_POSTINSTALL=1. Manual run: `node scripts/postinstall.mjs`.
@@ -73,11 +78,19 @@ function find_existing_command() {
   return null;
 }
 
-/** True when the executable resolves to this (or any) Atlas CLI install. */
+/** True when the executable resolves to this exact install (idempotent reinstall). */
+function is_this_install(executable_path) {
+  try {
+    return realpathSync(executable_path) === realpathSync(CLI_PATH);
+  } catch {
+    return false;
+  }
+}
+
+/** True when the executable resolves to this or another Atlas CLI install. */
 function is_atlas_cli(executable_path) {
   try {
-    const real = realpathSync(executable_path);
-    return real === realpathSync(CLI_PATH) || real.endsWith(OUR_CLI_SUFFIX);
+    return realpathSync(executable_path).endsWith(OUR_CLI_SUFFIX);
   } catch {
     return false;
   }
@@ -125,7 +138,27 @@ function main() {
 
   const existing = find_existing_command();
   if (existing) {
-    if (is_atlas_cli(existing)) return; // already installed - idempotent
+    if (is_this_install(existing)) return; // same install reinstalled - idempotent
+    if (is_atlas_cli(existing)) {
+      // A different (typically older) Atlas install holds the command. This used to
+      // return silently, which kept `atlas --version` reporting the old version after
+      // an upgrade (issue #423). Take the command over on a global install; a local
+      // install must not repoint a system-wide command into a project's node_modules.
+      if (process.env.npm_config_global !== 'true') {
+        warn(
+          `skipped: \`atlas\` already resolves to another Atlas CLI install at ` +
+            `${realpathSync(existing)}, not this one at ${CLI_PATH}. Upgrade that ` +
+            `install, or run it via \`npx atlas\` instead.`,
+        );
+        return;
+      }
+      const previous = realpathSync(existing);
+      chmodSync(CLI_PATH, 0o755);
+      rmSync(existing, { force: true });
+      symlinkSync(CLI_PATH, existing);
+      console.log(`[atlas postinstall] re-linked ${existing} -> ${CLI_PATH} (was ${previous})`);
+      return;
+    }
     warn(
       `skipped: \`atlas\` already exists at ${existing} and is not the Atlas CLI. ` +
         `Invoke this install via \`npx atlas\` instead.`,
