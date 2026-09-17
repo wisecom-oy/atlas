@@ -31,6 +31,7 @@ function cursor_knowing_a_file(): OneDriveDeltaCursor {
   } as OneDriveDeltaCursor;
 }
 
+/** A backup service whose drive list, cursor and manifest repository the case controls. */
 function make_service(options: {
   drives?: { drive_id: string; drive_name: string }[];
   previous_cursor?: OneDriveDeltaCursor;
