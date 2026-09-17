@@ -10,6 +10,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
+import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import type {
   BackupProgressReporter,
   OneDriveBackupOptions,
@@ -232,6 +233,16 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           warnings,
           scan_result.interrupted,
           healthy,
+          // `healthy`, not just `!interrupted`: a failed item still counts as processed, so a run
+          // whose every file failed would otherwise read as `no_changes` when the truth is that
+          // the changes did not land. An unhealthy run's reason is its errors.
+          healthy
+            ? await classify_empty_run({
+                previous_kind_by_file_id: tracking_state.previous_kind_by_file_id,
+                items_processed: scan_result.items_processed,
+                find_latest_snapshot: () => this._manifests.find_latest_by_owner(ctx, owner_id),
+              })
+            : undefined,
         );
       } else {
         const snapshot = build_snapshot_manifest(

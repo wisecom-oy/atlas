@@ -216,6 +216,17 @@ await atlas.replicateSnapshot('snapshot-id', [offsite]);
 
 Method names mirror the CLI structure: `atlas outlook backup` maps to `atlas.outlook.backup()`, `atlas onedrive backup` to `atlas.onedrive.backup()`, and so on. Every capability the CLI can reach is reachable from the SDK; the SDK exposes some the CLI does not. See [SDK Examples](/reference/examples) for production-ready patterns.
 
+A drive or site backup that creates no snapshot says why in `summary.noSnapshotReason`: `'no_changes'` when content is there and nothing moved, `'no_content'` when there is nothing to protect and no snapshot exists. Branch on it rather than on the counters, which are zero in both cases:
+
+```typescript
+const [sp] = await atlas.sharepoint.backup(site);
+if (!sp.snapshot && sp.summary.noSnapshotReason === 'no_content') {
+  // No recovery point exists for this site. Reporting it as backed up would be wrong.
+}
+```
+
+The field is absent when a snapshot was created, and absent when the run was interrupted or unhealthy, where `interrupted`, `errors` and `healthy` are the answer. See [SharePoint Backup](/sharepoint-backup) and [OneDrive Backup](/onedrive-backup) for the full table.
+
 ### Identifiers
 
 Drive methods take the same identifiers the CLI takes, and normalise them the same way.

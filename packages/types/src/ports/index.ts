@@ -47,6 +47,7 @@ export type {
   SyncResult,
   BackupSyncSummary,
   BackupSyncMode,
+  NoSnapshotReason,
   BackupProgressReporter,
   ObjectLockPolicy,
   ObjectLockMode,
