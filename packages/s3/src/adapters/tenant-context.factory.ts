@@ -71,7 +71,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       tenant_id,
       storage,
       key_service,
-      key_service.unwrap_dek(wrapped, tenant_id),
+      await key_service.unwrap_dek(wrapped, tenant_id),
     );
   }
 
@@ -85,7 +85,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
 
     if (dek_exists) {
       const wrapped = await storage.get(DEK_META_KEY);
-      return key_service.unwrap_dek(wrapped, tenant_id);
+      return await key_service.unwrap_dek(wrapped, tenant_id);
     }
     return this.create_dek_exclusively(storage, key_service, tenant_id);
   }
@@ -108,7 +108,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     const dek = key_service.generate_dek();
 
     try {
-      const wrapped = key_service.wrap_dek(dek, tenant_id);
+      const wrapped = await key_service.wrap_dek(dek, tenant_id);
       await storage.put(DEK_META_KEY, wrapped, undefined, undefined, undefined, true);
     } catch (err) {
       if (!(err instanceof PreconditionFailedError)) throw err;
@@ -118,7 +118,7 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     }
 
     const stored = await storage.get(DEK_META_KEY);
-    const stored_dek = key_service.unwrap_dek(stored, tenant_id);
+    const stored_dek = await key_service.unwrap_dek(stored, tenant_id);
     if (!stored_dek.equals(dek)) {
       logger.warn(
         `Tenant ${tenant_id}: stored key differs from the locally generated one -- using stored key`,

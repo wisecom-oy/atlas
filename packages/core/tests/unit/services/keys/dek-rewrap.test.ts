@@ -39,7 +39,7 @@ interface Harness {
 }
 
 /** A bucket holding one wrapped DEK, written with `OLD_PASSPHRASE`. */
-function make_harness(
+async function make_harness(
   options: {
     config_passphrase?: string;
     seed?: boolean;
@@ -54,11 +54,11 @@ function make_harness(
     /** Fails the rollback write, so the bucket is left in an unknown state. */
     reject_second_put?: boolean;
   } = {},
-): Harness {
+): Promise<Harness> {
   const writer = new EnvelopeKeyService(OLD_PASSPHRASE);
   const dek = writer.generate_dek();
   const objects = new Map<string, Buffer>();
-  if (options.seed !== false) objects.set(DEK_KEY, writer.wrap_dek(dek, TENANT));
+  if (options.seed !== false) objects.set(DEK_KEY, await writer.wrap_dek(dek, TENANT));
   let writes = 0;
   let reads = 0;
 
@@ -113,26 +113,28 @@ function make_harness(
 
 describe('re-wrapping a tenant data key', () => {
   it('round-trips: the new passphrase opens the same key', async () => {
-    const { service, objects, dek } = make_harness();
+    const { service, objects, dek } = await make_harness();
 
     const result = await service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE);
 
     expect(result.passphrase_changed).toBe(true);
     const reader = new EnvelopeKeyService(NEW_PASSPHRASE);
-    expect(reader.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
+    expect(await reader.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
   });
 
   it('leaves the old passphrase unable to open it', async () => {
-    const { service, objects } = make_harness();
+    const { service, objects } = await make_harness();
 
     await service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE);
 
     const stale = new EnvelopeKeyService(OLD_PASSPHRASE);
-    expect(() => stale.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toThrow(WrongPassphraseError);
+    await expect(stale.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).rejects.toThrow(
+      WrongPassphraseError,
+    );
   });
 
   it('re-wraps under the configured passphrase with a fresh salt when none is given', async () => {
-    const { service, objects, dek } = make_harness();
+    const { service, objects, dek } = await make_harness();
     const before = objects.get(DEK_KEY)!;
 
     const result = await service.rewrap_tenant_dek(TENANT);
@@ -141,11 +143,11 @@ describe('re-wrapping a tenant data key', () => {
     const after = objects.get(DEK_KEY)!;
     // A different blob, because the salt is fresh, holding the same key.
     expect(after.equals(before)).toBe(false);
-    expect(new EnvelopeKeyService(OLD_PASSPHRASE).unwrap_dek(after, TENANT)).toEqual(dek);
+    expect(await new EnvelopeKeyService(OLD_PASSPHRASE).unwrap_dek(after, TENANT)).toEqual(dek);
   });
 
   it('refuses, and writes nothing, when the current passphrase is wrong', async () => {
-    const { service, objects } = make_harness({ config_passphrase: 'not-the-passphrase' });
+    const { service, objects } = await make_harness({ config_passphrase: 'not-the-passphrase' });
     const before = objects.get(DEK_KEY)!;
 
     await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toBeInstanceOf(
@@ -155,13 +157,13 @@ describe('re-wrapping a tenant data key', () => {
   });
 
   it('refuses when the tenant has no wrapped key', async () => {
-    const { service } = make_harness({ seed: false });
+    const { service } = await make_harness({ seed: false });
 
     await expect(service.rewrap_tenant_dek(TENANT)).rejects.toBeInstanceOf(DekWrapperMissingError);
   });
 
   it('rejects a new passphrase the SDK would refuse at construction', async () => {
-    const { service, objects } = make_harness();
+    const { service, objects } = await make_harness();
     const before = objects.get(DEK_KEY)!;
 
     // `createAtlasInstance` enforces 14 bytes; rewrapDataKey reaches the wrap without it, so an
@@ -174,8 +176,8 @@ describe('re-wrapping a tenant data key', () => {
     // Someone else's valid wrapper is what is stored when this run reads back. Rolling back
     // here would silently undo their rotation and leave them believing it took.
     const rival = new EnvelopeKeyService(NEW_PASSPHRASE);
-    const rival_blob = rival.wrap_dek(rival.generate_dek(), TENANT);
-    const { service, objects } = make_harness({ store_instead: rival_blob });
+    const rival_blob = await rival.wrap_dek(rival.generate_dek(), TENANT);
+    const { service, objects } = await make_harness({ store_instead: rival_blob });
 
     await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toBeInstanceOf(
       DekWrapperChangedError,
@@ -186,18 +188,20 @@ describe('re-wrapping a tenant data key', () => {
   it('restores the previous wrapper when what landed opens with neither passphrase', async () => {
     // A mangled write: nobody can back out of this, so putting the old wrapper back is strictly
     // an improvement over leaving the tenant unopenable.
-    const { service, objects, dek } = make_harness({ store_instead: Buffer.from('not a wrapper') });
+    const { service, objects, dek } = await make_harness({
+      store_instead: Buffer.from('not a wrapper'),
+    });
 
     await expect(service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE)).rejects.toThrow(
       /opened with neither passphrase/,
     );
 
     const restored = new EnvelopeKeyService(OLD_PASSPHRASE);
-    expect(restored.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
+    expect(await restored.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
   });
 
   it('names the state of the bucket when the restore itself fails', async () => {
-    const { service } = make_harness({
+    const { service } = await make_harness({
       store_instead: Buffer.from('not a wrapper'),
       reject_second_put: true,
     });
@@ -209,8 +213,8 @@ describe('re-wrapping a tenant data key', () => {
 
   it('refuses the write when the wrapper changed between the read and the write', async () => {
     const rival = new EnvelopeKeyService(NEW_PASSPHRASE);
-    const rival_blob = rival.wrap_dek(rival.generate_dek(), TENANT);
-    const { service, objects } = make_harness({ rival_after_read: rival_blob });
+    const rival_blob = await rival.wrap_dek(rival.generate_dek(), TENANT);
+    const { service, objects } = await make_harness({ rival_after_read: rival_blob });
 
     // The read saw the original blob, so the unwrap succeeds; the compare-and-swap on the write
     // is what catches that the object moved underneath this run.
