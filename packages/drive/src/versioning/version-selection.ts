@@ -1,4 +1,5 @@
 import type { DriveVersionRestoreOptions } from '@wisecom/atlas-types';
+import { trim_trailing_slashes } from '@wisecom/atlas-core/services/shared/trim-slashes';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { resolve_file_id, version_logical_path } from '@/versioning/version-reference';
 
@@ -163,7 +164,7 @@ function normalize_prefix(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
   const unified = raw.replace(/\\/g, '/').trim();
   const rooted = unified.startsWith('/') ? unified : `/${unified}`;
-  const trimmed = rooted.replace(/\/+$/, '');
+  const trimmed = trim_trailing_slashes(rooted);
   return (trimmed === '' ? '/' : trimmed).normalize('NFC');
 }
 

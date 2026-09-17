@@ -6,8 +6,10 @@
  * can type will match it (issue #299). One helper because the manifest filter and the version
  * index build the same string from different record shapes.
  */
+import { trim_trailing_slashes } from '@wisecom/atlas-core/services/shared/trim-slashes';
+
 export function join_drive_path(parent_path: string, file_name: string): string {
-  const base = parent_path.replace(/\/+$/, '');
+  const base = trim_trailing_slashes(parent_path);
   if (base === '') return `/${file_name}`;
   return `${base}/${file_name}`;
 }

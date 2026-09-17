@@ -8,6 +8,7 @@
  * from live data and reversible by deleting one folder, which is what Outlook restores have always
  * done. The timestamp format matches `create_restore_root` so the two workloads read alike.
  */
+import { trim_slashes } from '@/services/shared/trim-slashes';
 
 /** Caller's choice of restore destination; both fields absent means the generated root. */
 export interface RestoreDestinationOptions {
@@ -52,6 +53,6 @@ export function assert_renameable(rename_to: string | undefined, file_count: num
 }
 
 function normalize_root(path: string): string {
-  const trimmed = path.replace(/^\/+|\/+$/g, '');
+  const trimmed = trim_slashes(path);
   return trimmed.length === 0 ? '' : `/${trimmed}`;
 }
