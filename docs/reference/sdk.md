@@ -225,7 +225,7 @@ if (!sp.snapshot && sp.summary.noSnapshotReason === 'no_content') {
 }
 ```
 
-The field is absent when a snapshot was created, and absent when the run was interrupted, where `interrupted` is the answer. See [SharePoint Backup](/sharepoint-backup) and [OneDrive Backup](/onedrive-backup) for the full table.
+The field is absent when a snapshot was created, and absent when the run was interrupted or unhealthy, where `interrupted`, `errors` and `healthy` are the answer. See [SharePoint Backup](/sharepoint-backup) and [OneDrive Backup](/onedrive-backup) for the full table.
 
 ### Identifiers
 

@@ -182,13 +182,16 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           warnings,
           healthy,
           scan.interrupted,
-          scan.interrupted
-            ? undefined
-            : await classify_empty_run({
+          // `healthy`, not just `!interrupted`: a failed item still counts as processed, so a run
+          // whose every file failed would otherwise read as `no_changes` when the truth is that
+          // the changes did not land. An unhealthy run's reason is its errors.
+          healthy
+            ? await classify_empty_run({
                 previous_kind_by_file_id: tracking.previous_kind_by_file_id,
                 items_processed: scan.items_processed,
                 find_latest_snapshot: () => this._manifests.find_latest_by_site(ctx, site_id),
-              }),
+              })
+            : undefined,
         );
       } else {
         result = await this.finalize_snapshot(

@@ -77,6 +77,26 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
     expect(manifests.find_latest_by_site).not.toHaveBeenCalled();
   });
 
+  it('leaves the reason unset when every processed item failed', async () => {
+    // A failed item still counts as processed, so the run walked something and stored nothing.
+    // Calling that `no_changes` would report a site as covered whose changes never landed.
+    const connector = make_connector({
+      fetch_delta: vi.fn().mockResolvedValue({
+        drive_id: 'drive-1',
+        delta_link: 'https://delta-link',
+        items: [make_file_item('f1')],
+        reset_detected: false,
+      }),
+      download_file_content: vi.fn().mockRejectedValue(new Error('download failed')),
+    });
+
+    const result = await make_service({ connector }).backup_site('tenant-1', 'site-1');
+
+    expect(result.snapshot).toBeUndefined();
+    expect(result.summary.healthy).toBe(false);
+    expect(result.summary.no_snapshot_reason).toBeUndefined();
+  });
+
   it('leaves the reason unset when a snapshot was created', async () => {
     const connector = make_connector({
       fetch_delta: vi.fn().mockResolvedValue({

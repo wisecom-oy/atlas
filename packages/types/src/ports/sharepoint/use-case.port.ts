@@ -19,8 +19,9 @@ export interface SharePointBackupSummary {
   readonly cursor_updated: boolean;
   readonly snapshot_created: boolean;
   /**
-   * Set only when a completed run created no snapshot, saying which of the two reasons it was.
-   * Absent when a snapshot was created, and on a run interrupted before it could tell.
+   * Set only when a cleanly completed run created no snapshot, saying which reason it was.
+   * Absent when a snapshot was created, and on an interrupted or unhealthy run, where `errors`
+   * and `healthy` say what happened instead.
    */
   readonly no_snapshot_reason?: NoSnapshotReason | undefined;
   readonly versions_stored: number;

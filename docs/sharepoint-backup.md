@@ -206,7 +206,7 @@ A run creates a snapshot only when something changed, so two very different outc
 | `no_changes` | The site holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
 | `no_content` | The site holds nothing to protect, and no snapshot exists for it. | None. |
 
-The field is set only on a completed run that wrote no snapshot. It is absent when a snapshot was created, and absent on a run that was interrupted before it could tell, where `interrupted` is the answer instead.
+The field is set only on a run that completed cleanly and wrote no snapshot. It is absent when a snapshot was created, and absent when the run was interrupted or ended **UNHEALTHY**, because a run whose items failed did have changes and they did not land: `errors` and `healthy` are the answer there, not a reason. A failed item still counts as processed, so classifying it as `no_changes` would report the site as covered when nothing was stored.
 
 Before this existed, both cases returned `snapshot: undefined` with zero counters and `healthy: true`, so a consumer had no way to separate an empty site from a covered one and reported both as backed up. An empty site reporting success is the failure mode that matters here: nothing can be restored from it.
 
