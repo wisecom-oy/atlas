@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { createAtlasInstance } from '@/atlas-instance.adapter';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import type {
   AtlasInstance,
@@ -131,12 +132,8 @@ vi.mock('@/container', () => ({
   })),
 }));
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-imports
-let createAtlasInstance: typeof import('@/atlas-instance.adapter').createAtlasInstance;
-
-beforeEach(async () => {
+beforeEach(() => {
   vi.clearAllMocks();
-  createAtlasInstance = (await import('@/atlas-instance.adapter')).createAtlasInstance;
 });
 
 describe('createAtlasInstance', () => {
