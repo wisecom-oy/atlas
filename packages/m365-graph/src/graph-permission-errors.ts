@@ -1,4 +1,4 @@
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
+import { AuthError, MailboxNotLicensedError, NotFoundError } from '@wisecom/atlas-types';
 
 /**
  * Graph failures that an operator has to act on rather than retry: a missing application
@@ -55,6 +55,34 @@ export function rethrow_if_mailbox_not_licensed(err: unknown): void {
       { cause: err },
     );
   }
+}
+
+/**
+ * Detects a 404 from a OneDrive lookup and rethrows it as a `NotFoundError`.
+ *
+ * Graph answers `GET /users/{id}/drives` and `/users/{id}/drive` with 404 "User's mysite not
+ * found." when the user has never opened OneDrive, which is the normal state of every admin and
+ * service account in a tenant. Left untyped it reached consumers as a bare Graph error with no
+ * class and no code, so retry policies treated a permanent answer as transient and re-asked it
+ * once per attempt (issue #403). Reported as a missing grant it sent operators to Entra to grant
+ * permissions they already held (issue #404). A missing grant is a 403, and
+ * `rethrow_if_access_denied` still owns that.
+ */
+export function rethrow_if_no_onedrive(err: unknown, owner_id: string): void {
+  if (as_error_fields(err).statusCode !== 404) return;
+  throw new NotFoundError(no_onedrive_message(owner_id), { cause: err });
+}
+
+/** The message both the 404 path and the empty-drive-id path report. */
+export function no_onedrive_message(owner_id: string): string {
+  return (
+    `No OneDrive is provisioned for ${owner_id}.\n` +
+    `Microsoft Graph answers 404 for a user who has never opened OneDrive, which is normal for ` +
+    `admin and service accounts.\n` +
+    `This is not a permissions problem: a missing grant is reported as 403 ErrorAccessDenied. ` +
+    `Provision the drive by signing in to OneDrive once as that user, or exclude the account ` +
+    `from the run.`
+  );
 }
 
 /**

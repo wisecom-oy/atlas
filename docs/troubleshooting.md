@@ -69,6 +69,26 @@ Atlas could not resolve the owner to a licensed OneDrive.
 - Verify the email/UPN in `-o` exists in the tenant and has a licensed OneDrive.
 - Confirm `User.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
 
+### OneDrive: no drive is provisioned for the user
+
+```
+No OneDrive is provisioned for john.doe@example.com.
+Microsoft Graph answers 404 for a user who has never opened OneDrive, which is normal for admin
+and service accounts.
+```
+
+The account exists and the grants are fine. A user's OneDrive is created the first time they open
+it, so an account that never has looks the same to Graph as one that does not exist: `GET
+/users/{id}/drives` answers `404 User's mysite not found`.
+
+Nothing to grant and nothing to retry. Either sign in to OneDrive once as that user to provision
+the drive, or leave the account out of the run. The SDK reports it as `NotFoundError` with code
+`ATLAS_NOT_FOUND`, so a caller iterating a tenant can skip the owner instead of failing the run.
+
+A missing permission is a `403` and still reports as one, naming the grants to add. The two are
+worth keeping apart: before this, a 404 here was reported as missing `Files.Read.All` and
+`Sites.Read.All`, which sent operators to re-check consent they already had.
+
 ### SharePoint: site not found
 
 ```

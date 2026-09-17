@@ -5,6 +5,8 @@ import {
   list_drive_item_versions,
   GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
+  no_onedrive_message,
+  rethrow_if_no_onedrive,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import type {
@@ -17,6 +19,7 @@ import type {
   OneDriveDrive,
   OneDriveFileVersion,
 } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
 import { stream_to_buffer } from '@/adapters/graph-onedrive-connector-stream';
 import {
@@ -28,7 +31,6 @@ import {
   download_with_fallback,
   resolve_download_url,
   rethrow_if_access_denied,
-  throw_missing_permissions,
 } from '@/adapters/graph-onedrive-download-executor';
 import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
@@ -77,6 +79,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       return await this.fallback_default_drive(owner_id);
     } catch (err) {
       rethrow_if_access_denied(err);
+      rethrow_if_no_onedrive(err, owner_id);
       throw err;
     }
   }
@@ -224,11 +227,12 @@ export class GraphOneDriveConnector implements OneDriveConnector {
             .get() as Promise<GraphDriveRecord>,
       );
     } catch (err) {
-      const status = (err as Record<string, unknown>).statusCode;
-      if (status === 404) throw_missing_permissions('read');
+      // 404 here means the drive does not exist, not that a grant is missing. Reporting it as a
+      // permission fault sent operators to Entra to grant what they already had (issue #404).
+      rethrow_if_no_onedrive(err, owner_id);
       throw err;
     }
-    if (!default_drive.id) throw_missing_permissions('read');
+    if (!default_drive.id) throw new NotFoundError(no_onedrive_message(owner_id));
     return [{ drive_id: default_drive.id, drive_name: default_drive.name ?? 'default' }];
   }
 
