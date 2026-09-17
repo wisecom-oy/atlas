@@ -89,6 +89,10 @@ node tools/perf/dist/cli.js profile --flamegraph -- backup -m user@example.com
 
 This produces the `.cpuprofile` text report and an interactive HTML flamegraph in `.perf-output/`.
 
+### The `elliptic` audit finding
+
+`0x` pulls a browserify chain to render its HTML output, and `pnpm audit` reports one low-severity advisory from the bottom of it: `tools/perf > 0x > browserify > crypto-browserify > browserify-sign > elliptic` (GHSA-848j-6mx2-7j84). It is accepted rather than fixed. The advisory has no patched version to move to, and `elliptic` is only reachable when a developer renders a flamegraph on their own machine: no published package depends on it, and Atlas never loads it at runtime. Any other advisory `pnpm audit` reports is a real finding and belongs in an issue.
+
 ## Limitations
 
 **CPU profiles only capture compute time.** Network I/O (waiting for Graph API responses, waiting for S3 uploads to acknowledge) appears as idle time and is NOT reflected in the profile. The profile answers "what is burning CPU?" not "what is the process waiting on?"

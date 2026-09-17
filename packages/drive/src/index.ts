@@ -13,6 +13,7 @@
 export * from '@/drive-ports';
 export { download_with_retry, type DownloadRetryOptions } from '@/backup/download-retry';
 export { classify_drive_change } from '@/backup/change-classifier';
+export { classify_empty_run, type EmptyRunEvidence } from '@/backup/empty-run-classifier';
 export { process_drive_backup_file, type FileProcessResult } from '@/backup/file-processor';
 export {
   process_large_drive_file,

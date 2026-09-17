@@ -8,6 +8,20 @@ export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';
 
 /**
+ * Why a run that completed cleanly created no snapshot.
+ *
+ * `no_content` means the resource holds nothing to protect and no snapshot exists for it, so
+ * there is no recovery point at all. `no_changes` means content is there and nothing about it
+ * moved since the last run. Both produced an identical empty result before, which told a
+ * consumer that an empty site was backed up when nothing could be restored from it (issue #405).
+ *
+ * Never set on an interrupted or unhealthy run: a failed item still counts as processed, so a
+ * run whose items all failed did have changes that did not land, and `errors` and `healthy`
+ * describe that rather than either reason here.
+ */
+export type NoSnapshotReason = 'no_content' | 'no_changes';
+
+/**
  * Requested Object Lock protection for the objects a run writes. Any policy carrying
  * `retain_until` is enforced fail-closed by the storage adapter: a bucket without
  * versioning or Object Lock, or one that cannot honour the mode, rejects the write

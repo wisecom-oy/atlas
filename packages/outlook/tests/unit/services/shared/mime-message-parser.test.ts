@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parse_mime_message } from '@/services/shared/mime-message-parser';
+import { AtlasError, UnreadableContentError } from '@wisecom/atlas-types';
 
 const ATTACHMENT_BYTES = Buffer.from('Atlas,MIME,restore\n1,2,3\n', 'utf-8');
 
@@ -159,5 +160,62 @@ describe('parse_mime_message', () => {
     expect(parsed.to).toEqual([]);
     expect(parsed.cc).toEqual([]);
     expect(parsed.attachments).toEqual([]);
+  });
+
+  // nodemailer 9.0.6 accumulated addresses with `concat` in a per-address loop, so parsing
+  // a recipient list was quadratic: 50k recipients blocked the event loop for 1.7 s instead
+  // of 100 ms (issue #408). Restore parses every message it re-uploads, so one bulk header
+  // in a mailbox was minutes of pegged CPU.
+  //
+  // Scaling, not a wall-clock budget: an absolute bound fails when the whole workspace runs
+  // vitest in parallel. Quadruple the input and quadratic work grows about 16x while linear
+  // work grows about 2x once fixed overhead is counted, and both samples run under the same
+  // machine load, so the ratio survives a contended runner.
+  //
+  // 50k, not more: mailsplit abandons a header block past its 1 MiB MAX_HEAD_SIZE, and
+  // 'a@corp.example.com,' * 50000 is 928 KB, the largest round number that still parses.
+  it('parses a recipient header in linear time', async () => {
+    const parse_duration_ms = async (recipients: number): Promise<number> => {
+      const mime = Buffer.from(
+        `From: nora@partner.example\r\nTo: ${'a@corp.example.com,'.repeat(recipients)}\r\nSubject: bulk\r\n\r\nbody\r\n`,
+        'utf-8',
+      );
+      const started = performance.now();
+      const parsed = await parse_mime_message(mime);
+      expect(parsed.to).toHaveLength(recipients);
+      return performance.now() - started;
+    };
+
+    const small_ms = await parse_duration_ms(12_500);
+    const large_ms = await parse_duration_ms(50_000);
+
+    expect(large_ms / small_ms).toBeLessThan(8);
+  }, 30_000);
+
+  // Past mailsplit's 1 MiB MAX_HEAD_SIZE the header block is abandoned: no headerLines, no
+  // headers, no addresses, no subject. Reading `.map` off that reported `TypeError: Cannot read
+  // properties of undefined (reading 'map')` next to a message id, which named neither the cause
+  // nor the fact that the message was left out of the restore (issue #411).
+  describe('a header block over 1 MiB', () => {
+    const oversized = Buffer.from(
+      `From: nora@partner.example\r\nTo: ${'a@corp.example.com,'.repeat(100_000)}\r\nSubject: bulk\r\n\r\nbody\r\n`,
+      'utf-8',
+    );
+
+    it('fails with a classifiable Atlas error rather than a TypeError', async () => {
+      const err = await parse_mime_message(oversized).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnreadableContentError);
+      expect(err).toBeInstanceOf(AtlasError);
+      expect((err as AtlasError).code).toBe('ATLAS_CONTENT_UNREADABLE');
+    });
+
+    it('names the limit and says the stored message is intact', async () => {
+      const err = await parse_mime_message(oversized).catch((e: unknown) => e);
+
+      expect((err as Error).message).toContain('1 MiB');
+      expect((err as Error).message).toContain('stored and intact');
+      expect((err as Error).message).not.toContain('map');
+    });
   });
 });

@@ -7,6 +7,7 @@ import {
   ObjectLockRetainedError,
   StorageError,
   ThrottledError,
+  UnreadableContentError,
   WrongPassphraseError,
 } from '@wisecom/atlas-types';
 import { handle_fatal_error } from '@/fatal-error';
@@ -125,6 +126,14 @@ describe('fatal CLI errors', () => {
     const cause = Object.assign(new Error('Connection failed'), { code: 'ETIMEDOUT' });
     handle_fatal_error(new ConfigError('Configuration unavailable', { cause }));
     expect(process.exitCode).toBe(6);
+  });
+
+  it('gives unreadable stored content its own category rather than the unclassified one', () => {
+    // Exit 1 would tell a script to treat it as unexplained and worth another run, and no number
+    // of runs parses the same bytes differently (issue #411).
+    handle_fatal_error(new UnreadableContentError('Header block exceeds the 1 MiB limit'));
+    expect(process.exitCode).toBe(9);
+    expect(diagnostics.join('\n')).toContain('ATLAS_CONTENT_UNREADABLE');
   });
 
   it('classifies AWS server errors as retryable without treating every 5xx as transient', () => {

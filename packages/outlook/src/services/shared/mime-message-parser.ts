@@ -1,5 +1,6 @@
 import { simpleParser } from 'mailparser';
 import type { AddressObject, Attachment, EmailAddress, ParsedMail } from 'mailparser';
+import { UnreadableContentError } from '@wisecom/atlas-types';
 
 export interface MimeAddress {
   readonly name: string;
@@ -35,6 +36,7 @@ export interface ParsedMimeMessage {
 /** Parses RFC 5322 MIME bytes into the fields Atlas needs for restore and display. */
 export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessage> {
   const parsed: ParsedMail = await simpleParser(mime);
+  assert_header_block_parsed(parsed, mime);
   const from = flatten_addresses(parsed.from)[0];
 
   return {
@@ -49,6 +51,34 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
     headers: flatten_header_lines(parsed),
     attachments: parsed.attachments.map(normalize_attachment),
   };
+}
+
+/**
+ * Rejects a message whose header block mailsplit refused to parse.
+ *
+ * Past its 1 MiB `MAX_HEAD_SIZE` (`@zone-eu/mailsplit/lib/message-splitter.js`), mailsplit
+ * abandons the block and `simpleParser` returns no `headerLines`, no `headers`, no addresses and
+ * no subject. `flatten_header_lines` then read `.map` off `undefined` and the restore reported
+ * `TypeError: Cannot read properties of undefined (reading 'map')` next to a message id, which
+ * told an operator nothing about the cause (issue #411).
+ *
+ * Failing is the deliberate answer rather than restoring what did parse. Every address, the
+ * subject, the date and every header line are gone, so a body-only restore would put a message
+ * in the mailbox that is not the one that was backed up, and it would look like a success. The
+ * restore already isolates a failed entry and carries on with the rest, so the cost of failing
+ * is one reported message rather than the run.
+ *
+ * Only the size cap produces this: an empty buffer, a garbage buffer and a body-only message all
+ * still parse to one header line.
+ */
+function assert_header_block_parsed(parsed: ParsedMail, mime: Buffer): void {
+  if (parsed.headerLines !== undefined) return;
+  throw new UnreadableContentError(
+    `The message header block exceeds the 1 MiB limit the MIME parser enforces, so none of the ` +
+      `headers could be read (message size ${mime.length} bytes). The message is stored and ` +
+      `intact; it cannot be restored, because its addresses, subject and headers are ` +
+      `unreadable. Extract the raw bytes with \`atlas outlook save\` to recover its content.`,
+  );
 }
 
 /**

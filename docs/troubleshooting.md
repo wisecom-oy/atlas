@@ -69,6 +69,26 @@ Atlas could not resolve the owner to a licensed OneDrive.
 - Verify the email/UPN in `-o` exists in the tenant and has a licensed OneDrive.
 - Confirm `User.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
 
+### OneDrive: no drive is provisioned for the user
+
+```
+No OneDrive is provisioned for john.doe@example.com.
+Microsoft Graph answers 404 for a user who has never opened OneDrive, which is normal for admin
+and service accounts.
+```
+
+The account exists and the grants are fine. A user's OneDrive is created the first time they open
+it, so an account that never has looks the same to Graph as one that does not exist: `GET
+/users/{id}/drives` answers `404 User's mysite not found`.
+
+Nothing to grant and nothing to retry. Either sign in to OneDrive once as that user to provision
+the drive, or leave the account out of the run. The SDK reports it as `NotFoundError` with code
+`ATLAS_NOT_FOUND`, so a caller iterating a tenant can skip the owner instead of failing the run.
+
+A missing permission is a `403` and still reports as one, naming the grants to add. The two are
+worth keeping apart: before this, a 404 here was reported as missing `Files.Read.All` and
+`Sites.Read.All`, which sent operators to re-check consent they already had.
+
 ### SharePoint: site not found
 
 ```
@@ -192,3 +212,20 @@ The bucket exists and has versioning, but Object Lock was not enabled at creatio
 ::: tip Pre-flight check
 Run `atlas storage-check --lock-mode governance --retention-days 30` before your first immutable backup. It reports versioning and Object Lock status without writing any data, so you catch configuration problems before they affect a backup job.
 :::
+
+## Restore Content Errors
+
+### Outlook: a message header block over 1 MiB
+
+```
+<message-id>: The message header block exceeds the 1 MiB limit the MIME parser enforces, so
+none of the headers could be read (message size 1600026 bytes).
+```
+
+The MIME parser stops reading a header block once it passes 1 MiB and then reports no headers at all: no addresses, no subject, no date. Atlas refuses the entry rather than restoring the body on its own, because a message with none of its headers is not the message that was backed up, and restoring it would look like a success.
+
+A block that large is almost always a distribution list expanded into `To` or `Cc`, or a long `Received` chain on a message that crossed many hops. The backup itself is fine: the raw bytes are stored, encrypted and checksum-verified, and `atlas outlook save` writes them out as a file you can open in a mail client directly.
+
+How it is reported depends on what was asked for. A mailbox or snapshot restore fails this entry on its own: every other message restores, this one is listed in the errors, and the run exits `2` for a partial rather than `0`, so the gap is visible instead of silent. A single-message restore (`--message`) has nothing else to report, so the failure is the result: it exits `9`, the category for stored content that cannot be parsed.
+
+In the SDK the failure is an `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`, which is permanent. Retrying re-reads the same bytes and fails the same way.

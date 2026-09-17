@@ -37,9 +37,10 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly sharepoint: SharePointApi;
 
   /**
-   * Checks existing tenant-bucket access and Graph token issuance without provisioning storage.
-   * Rejects with StorageError for S3 failures or AuthError for token failures.
-   * Does not verify workload permissions or the encryption passphrase.
+   * Checks tenant-bucket access, the existing wrapped key when present, and Graph token issuance.
+   * Rejects with StorageError for S3 failures, WrongPassphraseError when the configured
+   * passphrase cannot unwrap an existing tenant key, or AuthError for token failures. A fresh
+   * tenant with no wrapped key still passes; validation never provisions storage or key material.
    */
   validate(): Promise<void>;
   checkStorage(request?: Camelize<StorageCheckRequest>): Promise<Camelize<StorageCheckResult>>;

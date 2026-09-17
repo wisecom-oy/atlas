@@ -130,7 +130,10 @@ function make_harness(options: {
       return Promise.resolve();
     }),
   };
-  const manifests = { save: vi.fn(() => void save_order.push('manifest')) };
+  const manifests = {
+    save: vi.fn(() => void save_order.push('manifest')),
+    find_latest_by_owner: vi.fn(),
+  };
 
   const service = new OneDriveBackupService(
     factory,

@@ -198,6 +198,10 @@ async function report_site_backup(result: SharePointBackupResult): Promise<void>
       counters.push({ label: 'deleted', value: result.summary.deleted_items, color: 'red' });
     }
     await render_static_view(<ResultSummary entries={counters} />);
+  } else if (result.summary.no_snapshot_reason === 'no_content') {
+    // "No changes" on a site that holds nothing reads as backed up, and there is no recovery
+    // point at all (issue #405).
+    logger.warn('No SharePoint content found. Nothing was backed up and no snapshot exists.');
   } else {
     logger.info('No SharePoint changes detected. Snapshot skipped.');
   }

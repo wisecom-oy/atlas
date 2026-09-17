@@ -92,6 +92,7 @@ function make_harness(options: {
     }),
   };
   const manifests = {
+    find_latest_by_owner: vi.fn(),
     save: vi.fn(() => {
       save_order.push('manifest');
       return options.manifest_error

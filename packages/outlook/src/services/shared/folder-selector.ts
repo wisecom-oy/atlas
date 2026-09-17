@@ -4,6 +4,7 @@
  */
 
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
+import { trim_slashes } from '@wisecom/atlas-core/services/shared/trim-slashes';
 import type { ExcludedFolder, MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 
 /**
@@ -15,10 +16,7 @@ import type { ExcludedFolder, MailboxConnector, MailFolder } from '@wisecom/atla
  * `--folder Inbox` covers `Inbox/Projects/2026`.
  */
 export function folder_matches_selector(folder_path: string, selector: string): boolean {
-  const wanted = selector
-    .toLowerCase()
-    .replace(/^\/+|\/+$/g, '')
-    .trim();
+  const wanted = trim_slashes(selector.toLowerCase()).trim();
   if (!wanted) return false;
 
   const segments = folder_path.toLowerCase().split(FOLDER_PATH_SEPARATOR);
