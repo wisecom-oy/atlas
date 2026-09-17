@@ -192,3 +192,18 @@ The bucket exists and has versioning, but Object Lock was not enabled at creatio
 ::: tip Pre-flight check
 Run `atlas storage-check --lock-mode governance --retention-days 30` before your first immutable backup. It reports versioning and Object Lock status without writing any data, so you catch configuration problems before they affect a backup job.
 :::
+
+## Restore Content Errors
+
+### Outlook: a message header block over 1 MiB
+
+```
+<message-id>: The message header block exceeds the 1 MiB limit the MIME parser enforces, so
+none of the headers could be read (message size 1600026 bytes).
+```
+
+The MIME parser stops reading a header block once it passes 1 MiB and then reports no headers at all: no addresses, no subject, no date. Atlas refuses the entry rather than restoring the body on its own, because a message with none of its headers is not the message that was backed up, and restoring it would look like a success.
+
+A block that large is almost always a distribution list expanded into `To` or `Cc`, or a long `Received` chain on a message that crossed many hops. The backup itself is fine: the raw bytes are stored, encrypted and checksum-verified, and `atlas outlook save` writes them out as a file you can open in a mail client directly.
+
+The rest of the restore is unaffected. Each entry fails on its own, so the run restores every other message, lists this one in its errors, and exits `2` for a partial run rather than `0`, so the gap is visible instead of silent. In the SDK the failure is an `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`, which is permanent: retrying re-reads the same bytes and fails the same way.

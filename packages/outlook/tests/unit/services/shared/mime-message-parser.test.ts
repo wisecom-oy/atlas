@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parse_mime_message } from '@/services/shared/mime-message-parser';
+import { AtlasError, UnreadableContentError } from '@wisecom/atlas-types';
 
 const ATTACHMENT_BYTES = Buffer.from('Atlas,MIME,restore\n1,2,3\n', 'utf-8');
 
@@ -190,4 +191,31 @@ describe('parse_mime_message', () => {
 
     expect(large_ms / small_ms).toBeLessThan(8);
   }, 30_000);
+
+  // Past mailsplit's 1 MiB MAX_HEAD_SIZE the header block is abandoned: no headerLines, no
+  // headers, no addresses, no subject. Reading `.map` off that reported `TypeError: Cannot read
+  // properties of undefined (reading 'map')` next to a message id, which named neither the cause
+  // nor the fact that the message was left out of the restore (issue #411).
+  describe('a header block over 1 MiB', () => {
+    const oversized = Buffer.from(
+      `From: nora@partner.example\r\nTo: ${'a@corp.example.com,'.repeat(100_000)}\r\nSubject: bulk\r\n\r\nbody\r\n`,
+      'utf-8',
+    );
+
+    it('fails with a classifiable Atlas error rather than a TypeError', async () => {
+      const err = await parse_mime_message(oversized).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(UnreadableContentError);
+      expect(err).toBeInstanceOf(AtlasError);
+      expect((err as AtlasError).code).toBe('ATLAS_CONTENT_UNREADABLE');
+    });
+
+    it('names the limit and says the stored message is intact', async () => {
+      const err = await parse_mime_message(oversized).catch((e: unknown) => e);
+
+      expect((err as Error).message).toContain('1 MiB');
+      expect((err as Error).message).toContain('stored and intact');
+      expect((err as Error).message).not.toContain('map');
+    });
+  });
 });

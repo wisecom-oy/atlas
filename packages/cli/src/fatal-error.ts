@@ -10,6 +10,9 @@ const ATLAS_EXIT_CODES = {
   ATLAS_WRONG_PASSPHRASE: 5,
   ATLAS_OBJECT_LOCK_RETAINED: 8,
   ATLAS_STORAGE_FAILURE: 1,
+  // Its own category rather than 1: the bytes are intact and the command cannot proceed, so a
+  // script should stop re-running it and reach for `save` instead (issue #411).
+  ATLAS_CONTENT_UNREADABLE: 9,
   ATLAS_CONFIG_INVALID: 6,
 } satisfies Record<AtlasErrorCode, number>;
 
