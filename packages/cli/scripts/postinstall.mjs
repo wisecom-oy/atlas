@@ -30,7 +30,7 @@ import {
   symlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CLI_PATH = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url));
@@ -118,6 +118,30 @@ function pick_bin_dir() {
   }
 }
 
+/**
+ * True when this install lives in a package manager's global tree rather than a
+ * project's node_modules. npm sets `npm_config_global`; Bun and pnpm do not set
+ * it reliably (Bun also blocks lifecycle scripts for untrusted packages and
+ * links `bin` entries itself), so the known global directories are checked by
+ * path as well. This also covers a manual `node scripts/postinstall.mjs` run,
+ * which has no manager environment at all.
+ */
+function is_global_install() {
+  if (process.env.npm_config_global === 'true') return true;
+  const real = realpathSync(CLI_PATH);
+  const bun_root = process.env.BUN_INSTALL ?? join(homedir(), '.bun');
+  const pnpm_root = process.env.PNPM_HOME ?? join(
+    process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'),
+    'pnpm',
+  );
+  const global_roots = [
+    join(bun_root, 'install', 'global'),
+    join(pnpm_root, 'global'),
+    ...(process.env.npm_config_prefix ? [join(process.env.npm_config_prefix, 'lib', 'node_modules')] : []),
+  ];
+  return global_roots.some((dir) => real.startsWith(`${dir}${sep}`));
+}
+
 /** Installs the `atlas` symlink unless the name is taken or the environment opts out. */
 function main() {
   if (process.env.ATLAS_SKIP_POSTINSTALL || process.env.CI) return;
@@ -144,7 +168,7 @@ function main() {
       // return silently, which kept `atlas --version` reporting the old version after
       // an upgrade (issue #423). Take the command over on a global install; a local
       // install must not repoint a system-wide command into a project's node_modules.
-      if (process.env.npm_config_global !== 'true') {
+      if (!is_global_install()) {
         warn(
           `skipped: \`atlas\` already resolves to another Atlas CLI install at ` +
             `${realpathSync(existing)}, not this one at ${CLI_PATH}. Upgrade that ` +
