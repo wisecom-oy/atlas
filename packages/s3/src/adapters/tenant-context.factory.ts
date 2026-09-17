@@ -9,6 +9,7 @@ import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import type { AtlasConfig } from '@wisecom/atlas-core';
+import { NotFoundError } from '@wisecom/atlas-types';
 import type {
   TenantContext,
   TenantContextFactory,
@@ -60,7 +61,9 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
       wrapped = await storage.get(DEK_META_KEY);
     } catch (err) {
       key_service.destroy();
-      if (is_absent_object_error(err)) throw new Error(`No backups found for tenant ${tenant_id}`);
+      if (is_absent_object_error(err)) {
+        throw new NotFoundError(`No backups found for tenant ${tenant_id}`, { cause: err });
+      }
       throw err;
     }
 

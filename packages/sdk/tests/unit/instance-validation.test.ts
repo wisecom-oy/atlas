@@ -1,13 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthError, StorageError } from '@wisecom/atlas-types';
+import { AuthError, NotFoundError, StorageError, WrongPassphraseError } from '@wisecom/atlas-types';
 import { createAtlasInstance } from '@/atlas-instance.adapter';
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   get_access_token: vi.fn(),
   create_context: vi.fn(),
+  create_readonly_context: vi.fn(),
+  destroy_context: vi.fn(),
   log: vi.fn(),
 }));
 
@@ -20,7 +22,10 @@ vi.mock('@/container', () => ({
         case 'GraphAuthProvider':
           return { getAccessToken: mocks.get_access_token };
         case 'TenantContextFactory':
-          return { create: mocks.create_context };
+          return {
+            create: mocks.create_context,
+            create_readonly: mocks.create_readonly_context,
+          };
         default:
           return {};
       }
@@ -50,10 +55,13 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.send.mockResolvedValue({});
   mocks.get_access_token.mockResolvedValue(randomUUID());
+  mocks.create_readonly_context.mockRejectedValue(
+    new NotFoundError('No backups found for tenant tenant-example'),
+  );
 });
 
 describe('atlas.validate', () => {
-  it('is opt-in, checks only the existing bucket before token issuance, and exposes no token', async () => {
+  it('is opt-in, checks the bucket and optional key before token issuance, and exposes no token', async () => {
     const atlas = create_instance();
     expect(mocks.send).not.toHaveBeenCalled();
     expect(mocks.get_access_token).not.toHaveBeenCalled();
@@ -70,8 +78,41 @@ describe('atlas.validate', () => {
     expect(command).toBeInstanceOf(HeadBucketCommand);
     expect(command.input).toEqual({ Bucket: 'atlas-tenant-example' });
     expect(mocks.get_access_token).toHaveBeenCalledTimes(1);
+    expect(mocks.create_readonly_context).toHaveBeenCalledTimes(1);
     expect(mocks.create_context).not.toHaveBeenCalled();
     expect(mocks.log).not.toHaveBeenCalled();
+  });
+
+  it('passes for a fresh tenant whose wrapped key does not exist yet', async () => {
+    await expect(create_instance().validate()).resolves.toBeUndefined();
+
+    expect(mocks.create_readonly_context).toHaveBeenCalledTimes(1);
+    expect(mocks.create_context).not.toHaveBeenCalled();
+    expect(mocks.get_access_token).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails specifically on a wrong existing passphrase and does not acquire a Graph token', async () => {
+    const cause = new WrongPassphraseError('The configured passphrase does not open this key');
+    mocks.create_readonly_context.mockRejectedValue(cause);
+
+    const error = await create_instance()
+      .validate()
+      .catch((error: unknown) => error);
+
+    expect(error).toBe(cause);
+    expect(mocks.create_readonly_context).toHaveBeenCalledTimes(1);
+    expect(mocks.create_context).not.toHaveBeenCalled();
+    expect(mocks.get_access_token).not.toHaveBeenCalled();
+    expect(mocks.log).not.toHaveBeenCalled();
+  });
+
+  it('destroys the temporary context after an existing key opens', async () => {
+    mocks.create_readonly_context.mockResolvedValue({ destroy: mocks.destroy_context });
+
+    await expect(create_instance().validate()).resolves.toBeUndefined();
+
+    expect(mocks.destroy_context).toHaveBeenCalledTimes(1);
+    expect(mocks.get_access_token).toHaveBeenCalledTimes(1);
   });
 
   it('reports S3 denial as a storage failure and does not acquire a Graph token', async () => {
