@@ -1,5 +1,19 @@
-import { randomBytes, scryptSync } from 'node:crypto';
+import { randomBytes, scrypt as scrypt_callback } from 'node:crypto';
+import { promisify } from 'node:util';
 import { logger } from '@/utils/logger';
+
+/**
+ * Async scrypt: runs on the libuv threadpool, so the ~64 MiB allocation and the
+ * ~90-110 ms of work at N=65536, r=8 never block the event loop (issue #400).
+ * Node's default threadpool of 4 also bounds concurrent derivations, capping
+ * peak scrypt memory at roughly 4 x 64 MiB.
+ */
+const scrypt = promisify(scrypt_callback) as (
+  passphrase: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
 
 /** KDF identifier for scrypt (versioned DEK blob v1). */
 export const KDF_SCRYPT = 0x01;
@@ -27,7 +41,7 @@ export const SCRYPT_PARAMS_LENGTH = 38;
  */
 export interface KdfStrategy {
   readonly kdf_id: number;
-  derive_kek(passphrase: Buffer, params: Buffer, tenant_id: string): Buffer;
+  derive_kek(passphrase: Buffer, params: Buffer, tenant_id: string): Promise<Buffer>;
   /** Produces a fresh params block for `wrap_dek` (includes random salt). Warns if passphrase is too short for this KDF. */
   generate_params(passphrase_length: number): Buffer;
 }
@@ -37,7 +51,7 @@ export class ScryptKdfStrategy implements KdfStrategy {
   readonly kdf_id = KDF_SCRYPT;
 
   /** @inheritdoc */
-  derive_kek(passphrase: Buffer, params: Buffer, tenant_id: string): Buffer {
+  async derive_kek(passphrase: Buffer, params: Buffer, tenant_id: string): Promise<Buffer> {
     if (params.length !== SCRYPT_PARAMS_LENGTH) {
       throw new Error(
         `Invalid scrypt params length: expected ${SCRYPT_PARAMS_LENGTH}, got ${params.length}`,
@@ -49,7 +63,7 @@ export class ScryptKdfStrategy implements KdfStrategy {
     validate_scrypt_params(N, r, p);
     const salt = params.subarray(6, SCRYPT_PARAMS_LENGTH);
     const effective_salt = build_domain_salt(tenant_id, salt);
-    return scryptSync(passphrase, effective_salt, KEY_LENGTH, { N, r, p, maxmem: SCRYPT_MAXMEM });
+    return scrypt(passphrase, effective_salt, KEY_LENGTH, { N, r, p, maxmem: SCRYPT_MAXMEM });
   }
 
   /** @inheritdoc */

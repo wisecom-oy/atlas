@@ -45,7 +45,13 @@ export class EnvelopeKeyService {
     this._passphrase_buf = Buffer.from(passphrase, 'utf-8');
   }
 
-  /** Zeros the passphrase buffer. Call after the DEK has been loaded/created. */
+  /**
+   * Zeros the passphrase buffer. Call after the DEK has been loaded/created.
+   *
+   * Must not be called while a `wrap_dek`/`unwrap_dek` is still in flight: those now
+   * derive on the libuv threadpool (issue #400), and zeroing the buffer under a running
+   * derivation would derive a wrong key instead of failing loudly.
+   */
   destroy(): void {
     this._passphrase_buf.fill(0);
   }
@@ -121,24 +127,28 @@ export class EnvelopeKeyService {
    * and a per-wrap random salt. The versioned header is authenticated as AAD,
    * so version/KDF/params cannot be tampered with or downgraded.
    */
-  wrap_dek(dek: Buffer, tenant_id: string): Buffer {
+  async wrap_dek(dek: Buffer, tenant_id: string): Promise<Buffer> {
     const strategy = DEFAULT_KDF_STRATEGY;
     const params = strategy.generate_params(this._passphrase_buf.length);
     const header: DekBlobHeader = { kdf_id: strategy.kdf_id, kdf_params: params };
     const header_bytes = build_header_bytes(header);
-    const kek = strategy.derive_kek(this._passphrase_buf, params, tenant_id);
-    const encrypted = aes_gcm_encrypt(dek, kek, header_bytes);
-    return Buffer.concat([header_bytes, encrypted]);
+    const kek = await strategy.derive_kek(this._passphrase_buf, params, tenant_id);
+    try {
+      const encrypted = aes_gcm_encrypt(dek, kek, header_bytes);
+      return Buffer.concat([header_bytes, encrypted]);
+    } finally {
+      kek.fill(0);
+    }
   }
 
   /** Decrypts (unwraps) a wrapped DEK using the passphrase, tenant_id, and blob metadata. */
-  unwrap_dek(wrapped: Buffer, tenant_id: string): Buffer {
+  async unwrap_dek(wrapped: Buffer, tenant_id: string): Promise<Buffer> {
     const { header, header_bytes, encrypted_dek } = parse_dek_blob(wrapped);
     const strategy = KDF_STRATEGIES.get(header.kdf_id);
     if (!strategy) {
       throw new Error(`Unknown KDF id in wrapped DEK: ${header.kdf_id}`);
     }
-    const kek = strategy.derive_kek(this._passphrase_buf, header.kdf_params, tenant_id);
+    const kek = await strategy.derive_kek(this._passphrase_buf, header.kdf_params, tenant_id);
     try {
       return aes_gcm_decrypt(encrypted_dek, kek, header_bytes);
     } catch (err) {
@@ -152,6 +162,8 @@ export class EnvelopeKeyService {
           'against the tenant this snapshot belongs to.',
         { cause: err },
       );
+    } finally {
+      kek.fill(0);
     }
   }
 }
