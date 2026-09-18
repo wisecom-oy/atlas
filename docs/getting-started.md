@@ -11,7 +11,7 @@ Atlas ships as two npm packages that share the same engine:
 | **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Shell operations, cron/systemd jobs, operator workflows. Reads `.env` automatically.     |
 | **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk`        | Node.js apps, custom schedulers, multi-tenant SaaS, portals. Explicit config, typed API. |
 
-This guide uses the CLI. A local (non-global) install still gets an `atlas` command: a postinstall hook links it onto your PATH, skipping with a warning if the name is already an alias or another command. See the [CLI reference](/reference/cli) for details.
+This guide uses the CLI. A local (non-global) install still gets an `atlas` command: a postinstall hook links it onto your PATH, skipping with a warning if the name is already an alias or another command. See the [CLI reference](/reference/cli) for details. If you install with Bun, run `bun pm -g trust @wisecom/atlas-cli` afterwards, since Bun blocks install scripts for untrusted packages.
 
 ## Start an S3-Compatible Backend
 
