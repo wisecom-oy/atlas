@@ -60,10 +60,10 @@ export class DekRewrapService implements DekRewrapUseCase {
     try {
       // A wrong current passphrase fails here, before anything is written. `unwrap_dek` raises
       // WrongPassphraseError, which already says what to check.
-      const dek = current.unwrap_dek(stored, tenant_id);
+      const dek = await current.unwrap_dek(stored, tenant_id);
       const previous_kdf_id = parse_dek_blob(stored).header.kdf_id;
 
-      const rewrapped = next.wrap_dek(dek, tenant_id);
+      const rewrapped = await next.wrap_dek(dek, tenant_id);
       try {
         await storage.put(DEK_KEY, rewrapped, undefined, undefined, stored_etag);
       } catch (err) {
@@ -77,7 +77,13 @@ export class DekRewrapService implements DekRewrapUseCase {
       // someone else just established is worse than the failure being reported. So the stored
       // blob is classified first, and only a blob nobody can open is replaced.
       const written = await storage.get_with_etag(DEK_KEY);
-      const verdict = classify_written_wrapper(written.data, rewrapped, current, next, tenant_id);
+      const verdict = await classify_written_wrapper(
+        written.data,
+        rewrapped,
+        current,
+        next,
+        tenant_id,
+      );
 
       if (verdict === 'foreign') {
         throw new DekWrapperChangedError(DEK_KEY, undefined);
@@ -91,7 +97,7 @@ export class DekRewrapService implements DekRewrapUseCase {
         );
       }
 
-      assert_rewrap_opens(written.data, next, tenant_id, dek);
+      await assert_rewrap_opens(written.data, next, tenant_id, dek);
 
       logger.info(`Re-wrapped the data key for ${tenant_id}; no data object was touched`);
       return {
@@ -114,15 +120,15 @@ export class DekRewrapService implements DekRewrapUseCase {
  * wrap that cannot be unwrapped is an unopenable bucket, and the operator would find out at the
  * next backup rather than now.
  */
-function assert_rewrap_opens(
+async function assert_rewrap_opens(
   written: Buffer,
   next: EnvelopeKeyService,
   tenant_id: string,
   expected_dek: Buffer,
-): void {
+): Promise<void> {
   let read_back: Buffer;
   try {
-    read_back = next.unwrap_dek(written, tenant_id);
+    read_back = await next.unwrap_dek(written, tenant_id);
   } catch (err) {
     throw new DekRewrapVerificationError('the new wrapper could not be unwrapped', err);
   }
@@ -140,23 +146,23 @@ function assert_rewrap_opens(
  * `unusable` opens with neither, so it is garbage nobody can back out of and replacing it can
  * only improve matters.
  */
-function classify_written_wrapper(
+async function classify_written_wrapper(
   written: Buffer,
   rewrapped: Buffer,
   current: EnvelopeKeyService,
   next: EnvelopeKeyService,
   tenant_id: string,
-): 'ours' | 'foreign' | 'unusable' {
+): Promise<'ours' | 'foreign' | 'unusable'> {
   if (written.equals(rewrapped)) return 'ours';
-  return opens(written, current, tenant_id) || opens(written, next, tenant_id)
+  return (await opens(written, current, tenant_id)) || (await opens(written, next, tenant_id))
     ? 'foreign'
     : 'unusable';
 }
 
 /** Whether this key service can unwrap the blob at all. */
-function opens(blob: Buffer, keys: EnvelopeKeyService, tenant_id: string): boolean {
+async function opens(blob: Buffer, keys: EnvelopeKeyService, tenant_id: string): Promise<boolean> {
   try {
-    keys.unwrap_dek(blob, tenant_id);
+    await keys.unwrap_dek(blob, tenant_id);
     return true;
   } catch {
     return false;
@@ -182,7 +188,7 @@ async function restore_previous_wrapper(
 ): Promise<void> {
   try {
     await storage.put(DEK_KEY, previous, undefined, undefined, unusable_etag);
-    current.unwrap_dek(await storage.get(DEK_KEY), tenant_id);
+    await current.unwrap_dek(await storage.get(DEK_KEY), tenant_id);
     logger.warn(
       `Re-wrap produced an unopenable wrapper for ${tenant_id}; restored the previous one, ` +
         `which still opens with the passphrase in use. Nothing changed.`,

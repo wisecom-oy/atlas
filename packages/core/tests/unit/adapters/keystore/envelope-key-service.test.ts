@@ -59,68 +59,64 @@ describe('EnvelopeKeyService', () => {
   });
 
   describe('wrap / unwrap DEK', () => {
-    it('round-trips a DEK through wrap and unwrap', () => {
+    it('round-trips a DEK through wrap and unwrap', async () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
 
-      const wrapped = svc.wrap_dek(dek, tenant_id);
-      const unwrapped = svc.unwrap_dek(wrapped, tenant_id);
+      const wrapped = await svc.wrap_dek(dek, tenant_id);
+      const unwrapped = await svc.unwrap_dek(wrapped, tenant_id);
       expect(unwrapped.equals(dek)).toBe(true);
     });
 
-    it('produces v1 blob with version and scrypt kdf id', () => {
+    it('produces v1 blob with version and scrypt kdf id', async () => {
       const svc = new EnvelopeKeyService(passphrase);
-      const wrapped = svc.wrap_dek(svc.generate_dek(), tenant_id);
+      const wrapped = await svc.wrap_dek(svc.generate_dek(), tenant_id);
       expect(wrapped[0]).toBe(DEK_BLOB_VERSION);
       expect(wrapped[1]).toBe(KDF_SCRYPT);
     });
 
-    it('wrapped blob is 102 bytes for a 256-bit DEK', () => {
+    it('wrapped blob is 102 bytes for a 256-bit DEK', async () => {
       const svc = new EnvelopeKeyService(passphrase);
-      const wrapped = svc.wrap_dek(svc.generate_dek(), tenant_id);
+      const wrapped = await svc.wrap_dek(svc.generate_dek(), tenant_id);
       expect(wrapped.length).toBe(102);
     });
 
-    it('uses different salts on successive wraps', () => {
+    it('uses different salts on successive wraps', async () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
-      const w1 = svc.wrap_dek(dek, tenant_id);
-      const w2 = svc.wrap_dek(dek, tenant_id);
+      const w1 = await svc.wrap_dek(dek, tenant_id);
+      const w2 = await svc.wrap_dek(dek, tenant_id);
       const p1 = parse_dek_blob(w1).header.kdf_params.subarray(6);
       const p2 = parse_dek_blob(w2).header.kdf_params.subarray(6);
       expect(p1.equals(p2)).toBe(false);
     });
 
-    it('wrapped DEK does not contain the plaintext DEK', () => {
+    it('wrapped DEK does not contain the plaintext DEK', async () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
-      const wrapped = svc.wrap_dek(dek, tenant_id);
+      const wrapped = await svc.wrap_dek(dek, tenant_id);
 
       expect(wrapped.includes(dek)).toBe(false);
     });
 
-    it('cannot unwrap with wrong passphrase', () => {
+    it('cannot unwrap with wrong passphrase', async () => {
       const svc_a = new EnvelopeKeyService(passphrase);
       const svc_b = new EnvelopeKeyService('other-passphrase');
       const dek = svc_a.generate_dek();
 
-      const wrapped = svc_a.wrap_dek(dek, tenant_id);
-      expect(() => svc_b.unwrap_dek(wrapped, tenant_id)).toThrow(WrongPassphraseError);
+      const wrapped = await svc_a.wrap_dek(dek, tenant_id);
+      await expect(svc_b.unwrap_dek(wrapped, tenant_id)).rejects.toThrow(WrongPassphraseError);
     });
 
-    it('names the passphrase rather than surfacing the raw GCM failure (issue #40)', () => {
+    it('names the passphrase rather than surfacing the raw GCM failure (issue #40)', async () => {
       const svc_a = new EnvelopeKeyService(passphrase);
       const svc_b = new EnvelopeKeyService('other-passphrase');
-      const wrapped = svc_a.wrap_dek(svc_a.generate_dek(), tenant_id);
+      const wrapped = await svc_a.wrap_dek(svc_a.generate_dek(), tenant_id);
 
-      const failure = (() => {
-        try {
-          svc_b.unwrap_dek(wrapped, tenant_id);
-          return undefined;
-        } catch (err) {
-          return err as WrongPassphraseError;
-        }
-      })();
+      const failure = await svc_b.unwrap_dek(wrapped, tenant_id).then(
+        () => undefined,
+        (err) => err as WrongPassphraseError,
+      );
 
       // "Unsupported state or unable to authenticate data" reads like a corrupt backup, which
       // sent operators looking for data loss when they had mistyped a passphrase.
@@ -129,44 +125,44 @@ describe('EnvelopeKeyService', () => {
       expect((failure?.cause as Error).message).toMatch(/authenticate|unsupported state/i);
     });
 
-    it('throws on unknown KDF id in blob', () => {
+    it('throws on unknown KDF id in blob', async () => {
       const svc = new EnvelopeKeyService(passphrase);
-      const wrapped = svc.wrap_dek(svc.generate_dek(), tenant_id);
+      const wrapped = await svc.wrap_dek(svc.generate_dek(), tenant_id);
       wrapped[1] = 0xff;
-      expect(() => svc.unwrap_dek(wrapped, tenant_id)).toThrow('Unknown KDF id');
+      await expect(svc.unwrap_dek(wrapped, tenant_id)).rejects.toThrow('Unknown KDF id');
     });
 
-    it('rejects tampered blob header (AAD protects header)', () => {
+    it('rejects tampered blob header (AAD protects header)', async () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
-      const wrapped = svc.wrap_dek(dek, tenant_id);
+      const wrapped = await svc.wrap_dek(dek, tenant_id);
 
       const { header } = parse_dek_blob(wrapped);
       header.kdf_params[0] ^= 0x01;
       // Not a WrongPassphraseError: flipping a KDF parameter breaks key derivation itself, which
       // fails before any ciphertext is read.
-      expect(() => svc.unwrap_dek(wrapped, tenant_id)).toThrow();
+      await expect(svc.unwrap_dek(wrapped, tenant_id)).rejects.toThrow();
     });
 
-    it('cannot unwrap with wrong tenant_id (cross-tenant isolation)', () => {
+    it('cannot unwrap with wrong tenant_id (cross-tenant isolation)', async () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
-      const wrapped = svc.wrap_dek(dek, 'tenant-a');
+      const wrapped = await svc.wrap_dek(dek, 'tenant-a');
 
       // Same class as a wrong passphrase: from the crypto's point of view a wrong tenant is a
       // wrong key, and the remediation an operator has is to check both.
-      expect(() => svc.unwrap_dek(wrapped, 'tenant-b')).toThrow(WrongPassphraseError);
+      await expect(svc.unwrap_dek(wrapped, 'tenant-b')).rejects.toThrow(WrongPassphraseError);
     });
   });
 
   describe('destroy', () => {
-    it('zeros the passphrase buffer', () => {
+    it('zeros the passphrase buffer', async () => {
       const svc = new EnvelopeKeyService(passphrase);
       const dek = svc.generate_dek();
-      const wrapped = svc.wrap_dek(dek, tenant_id);
+      const wrapped = await svc.wrap_dek(dek, tenant_id);
 
       svc.destroy();
-      expect(() => svc.unwrap_dek(wrapped, tenant_id)).toThrow();
+      await expect(svc.unwrap_dek(wrapped, tenant_id)).rejects.toThrow();
     });
   });
 

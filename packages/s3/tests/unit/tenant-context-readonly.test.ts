@@ -38,10 +38,10 @@ function make_s3(objects: Map<string, Buffer>) {
   return { send };
 }
 
-function stored_dek(): { objects: Map<string, Buffer>; plaintext: Buffer } {
+async function stored_dek(): Promise<{ objects: Map<string, Buffer>; plaintext: Buffer }> {
   const key_service = new EnvelopeKeyService(CONFIG.encryption_passphrase);
   const dek = key_service.generate_dek();
-  const objects = new Map([['_meta/dek.enc', key_service.wrap_dek(dek, TENANT_ID)]]);
+  const objects = new Map([['_meta/dek.enc', await key_service.wrap_dek(dek, TENANT_ID)]]);
   key_service.destroy();
   return { objects, plaintext: dek };
 }
@@ -53,7 +53,7 @@ describe('read-only tenant context (issue #93)', () => {
   });
 
   it('loads an existing tenant without CreateBucket, HeadBucket, or PutObject', async () => {
-    const { objects } = stored_dek();
+    const { objects } = await stored_dek();
     const s3 = make_s3(objects);
     const ctx = await new DefaultTenantContextFactory(s3 as never, CONFIG, buckets).create_readonly(
       TENANT_ID,
@@ -65,7 +65,7 @@ describe('read-only tenant context (issue #93)', () => {
   });
 
   it('decrypts data encrypted with the tenant DEK', async () => {
-    const { objects } = stored_dek();
+    const { objects } = await stored_dek();
     const factory = new DefaultTenantContextFactory(make_s3(objects) as never, CONFIG, buckets);
     const ctx = await factory.create_readonly(TENANT_ID);
 
@@ -110,7 +110,7 @@ describe('read-only tenant context (issue #93)', () => {
   });
 
   it('uses one GET and preserves WrongPassphraseError for an existing wrapper', async () => {
-    const { objects } = stored_dek();
+    const { objects } = await stored_dek();
     const s3 = make_s3(objects);
     const wrong_config = {
       ...CONFIG,

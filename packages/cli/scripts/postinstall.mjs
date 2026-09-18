@@ -5,10 +5,15 @@
  *
  * Skips (with a warning where the user should know) when:
  * - `atlas` is already a shell alias in a known rc file
- * - another `atlas` executable is already on PATH
+ * - another `atlas` executable is already on PATH and is not the Atlas CLI
+ * - `atlas` resolves to another Atlas CLI install and this is not a global install
  * - no writable bin directory exists
  * - running on Windows (npm creates .cmd shims for global installs)
  * - running inside the Atlas monorepo as a lifecycle hook (contributor installs)
+ *
+ * A global install whose `atlas` resolves to a different, usually older Atlas
+ * install takes the command over, so `atlas --version` reports the newly
+ * installed version instead of silently running the old copy (issue #423).
  *
  * Never fails the install: every exit path is code 0.
  * Opt out with ATLAS_SKIP_POSTINSTALL=1. Manual run: `node scripts/postinstall.mjs`.
@@ -25,7 +30,7 @@ import {
   symlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CLI_PATH = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url));
@@ -73,11 +78,19 @@ function find_existing_command() {
   return null;
 }
 
-/** True when the executable resolves to this (or any) Atlas CLI install. */
+/** True when the executable resolves to this exact install (idempotent reinstall). */
+function is_this_install(executable_path) {
+  try {
+    return realpathSync(executable_path) === realpathSync(CLI_PATH);
+  } catch {
+    return false;
+  }
+}
+
+/** True when the executable resolves to this or another Atlas CLI install. */
 function is_atlas_cli(executable_path) {
   try {
-    const real = realpathSync(executable_path);
-    return real === realpathSync(CLI_PATH) || real.endsWith(OUR_CLI_SUFFIX);
+    return realpathSync(executable_path).endsWith(OUR_CLI_SUFFIX);
   } catch {
     return false;
   }
@@ -105,6 +118,30 @@ function pick_bin_dir() {
   }
 }
 
+/**
+ * True when this install lives in a package manager's global tree rather than a
+ * project's node_modules. npm sets `npm_config_global`; Bun and pnpm do not set
+ * it reliably (Bun also blocks lifecycle scripts for untrusted packages and
+ * links `bin` entries itself), so the known global directories are checked by
+ * path as well. This also covers a manual `node scripts/postinstall.mjs` run,
+ * which has no manager environment at all.
+ */
+function is_global_install() {
+  if (process.env.npm_config_global === 'true') return true;
+  const real = realpathSync(CLI_PATH);
+  const bun_root = process.env.BUN_INSTALL ?? join(homedir(), '.bun');
+  const pnpm_root = process.env.PNPM_HOME ?? join(
+    process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'),
+    'pnpm',
+  );
+  const global_roots = [
+    join(bun_root, 'install', 'global'),
+    join(pnpm_root, 'global'),
+    ...(process.env.npm_config_prefix ? [join(process.env.npm_config_prefix, 'lib', 'node_modules')] : []),
+  ];
+  return global_roots.some((dir) => real.startsWith(`${dir}${sep}`));
+}
+
 /** Installs the `atlas` symlink unless the name is taken or the environment opts out. */
 function main() {
   if (process.env.ATLAS_SKIP_POSTINSTALL || process.env.CI) return;
@@ -125,7 +162,27 @@ function main() {
 
   const existing = find_existing_command();
   if (existing) {
-    if (is_atlas_cli(existing)) return; // already installed - idempotent
+    if (is_this_install(existing)) return; // same install reinstalled - idempotent
+    if (is_atlas_cli(existing)) {
+      // A different (typically older) Atlas install holds the command. This used to
+      // return silently, which kept `atlas --version` reporting the old version after
+      // an upgrade (issue #423). Take the command over on a global install; a local
+      // install must not repoint a system-wide command into a project's node_modules.
+      if (!is_global_install()) {
+        warn(
+          `skipped: \`atlas\` already resolves to another Atlas CLI install at ` +
+            `${realpathSync(existing)}, not this one at ${CLI_PATH}. Upgrade that ` +
+            `install, or run it via \`npx atlas\` instead.`,
+        );
+        return;
+      }
+      const previous = realpathSync(existing);
+      chmodSync(CLI_PATH, 0o755);
+      rmSync(existing, { force: true });
+      symlinkSync(CLI_PATH, existing);
+      console.log(`[atlas postinstall] re-linked ${existing} -> ${CLI_PATH} (was ${previous})`);
+      return;
+    }
     warn(
       `skipped: \`atlas\` already exists at ${existing} and is not the Atlas CLI. ` +
         `Invoke this install via \`npx atlas\` instead.`,

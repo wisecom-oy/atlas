@@ -74,7 +74,7 @@ export class DefaultStorageTarget implements StorageTarget {
 
     if (has_dek) {
       const key_service = new EnvelopeKeyService(this._passphrase);
-      const dek = key_service.unwrap_dek(await storage.get(DEK_META_KEY), tenant_id);
+      const dek = await key_service.unwrap_dek(await storage.get(DEK_META_KEY), tenant_id);
       return {
         tenant_id,
         storage,

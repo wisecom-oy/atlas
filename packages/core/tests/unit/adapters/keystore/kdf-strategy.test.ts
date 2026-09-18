@@ -20,10 +20,10 @@ describe('ScryptKdfStrategy', () => {
     expect(params.readUInt8(5)).toBe(1);
   });
 
-  it('derive_kek matches scryptSync with length-prefixed tenant domain salt', () => {
+  it('derive_kek matches scryptSync with length-prefixed tenant domain salt', async () => {
     const strategy = new ScryptKdfStrategy();
     const params = strategy.generate_params(passphrase.length);
-    const derived = strategy.derive_kek(passphrase, params, tenant_id);
+    const derived = await strategy.derive_kek(passphrase, params, tenant_id);
 
     const salt = params.subarray(6, SCRYPT_PARAMS_LENGTH);
     const tid = Buffer.from(tenant_id, 'utf-8');
@@ -39,11 +39,33 @@ describe('ScryptKdfStrategy', () => {
     expect(derived.equals(expected)).toBe(true);
   });
 
-  it('different tenant_ids produce different KEKs from the same params', () => {
+  it('derive_kek does not block the event loop', async () => {
     const strategy = new ScryptKdfStrategy();
     const params = strategy.generate_params(passphrase.length);
-    const kek_a = strategy.derive_kek(passphrase, params, 'tenant-a');
-    const kek_b = strategy.derive_kek(passphrase, params, 'tenant-b');
+
+    // An ordering probe, not a duration: the callback is queued before the call and can only
+    // run while the derivation is pending. Synchronous scrypt would finish its whole ~90-110 ms
+    // block inside this turn, so the awaiting continuation (a microtask) would win the race
+    // and the callback would not have run yet. On the libuv threadpool the event loop keeps
+    // turning while the derivation waits, so the callback fires first.
+    let loop_ran = false;
+    const probe = setImmediate(() => {
+      loop_ran = true;
+    });
+    const kek = await strategy.derive_kek(passphrase, params, tenant_id);
+    clearImmediate(probe);
+
+    expect(kek.length).toBe(32);
+    expect(loop_ran).toBe(true);
+  });
+
+  it('different tenant_ids produce different KEKs from the same params', async () => {
+    const strategy = new ScryptKdfStrategy();
+    const params = strategy.generate_params(passphrase.length);
+    const [kek_a, kek_b] = await Promise.all([
+      strategy.derive_kek(passphrase, params, 'tenant-a'),
+      strategy.derive_kek(passphrase, params, 'tenant-b'),
+    ]);
     expect(kek_a.equals(kek_b)).toBe(false);
   });
 
@@ -58,41 +80,49 @@ describe('ScryptKdfStrategy', () => {
     expect(DEFAULT_KDF_STRATEGY.kdf_id).toBe(KDF_SCRYPT);
   });
 
-  it('rejects N that is not a power of 2', () => {
+  it('rejects N that is not a power of 2', async () => {
     const strategy = new ScryptKdfStrategy();
     const params = strategy.generate_params(passphrase.length);
     params.writeUInt32BE(12345, 0);
-    expect(() => strategy.derive_kek(passphrase, params, tenant_id)).toThrow('power of 2');
+    await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow('power of 2');
   });
 
-  it('rejects N below the minimum (2^14)', () => {
+  it('rejects N below the minimum (2^14)', async () => {
     const strategy = new ScryptKdfStrategy();
     const params = strategy.generate_params(passphrase.length);
     params.writeUInt32BE(2, 0);
-    expect(() => strategy.derive_kek(passphrase, params, tenant_id)).toThrow('below minimum');
+    await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow(
+      'below minimum',
+    );
   });
 
-  it('rejects N above the safety ceiling (2^20)', () => {
+  it('rejects N above the safety ceiling (2^20)', async () => {
     const strategy = new ScryptKdfStrategy();
     const params = strategy.generate_params(passphrase.length);
     params.writeUInt32BE(1 << 21, 0);
-    expect(() => strategy.derive_kek(passphrase, params, tenant_id)).toThrow('exceeds maximum');
+    await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow(
+      'exceeds maximum',
+    );
   });
 
-  it('rejects r=0 and p=0', () => {
+  it('rejects r=0 and p=0', async () => {
     const strategy = new ScryptKdfStrategy();
     const params = strategy.generate_params(passphrase.length);
     params.writeUInt8(0, 4);
-    expect(() => strategy.derive_kek(passphrase, params, tenant_id)).toThrow('r out of range');
+    await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow(
+      'r out of range',
+    );
 
     const params2 = strategy.generate_params(passphrase.length);
     params2.writeUInt8(0, 5);
-    expect(() => strategy.derive_kek(passphrase, params2, tenant_id)).toThrow('p out of range');
+    await expect(strategy.derive_kek(passphrase, params2, tenant_id)).rejects.toThrow(
+      'p out of range',
+    );
   });
 
-  it('rejects wrong params buffer length', () => {
+  it('rejects wrong params buffer length', async () => {
     const strategy = new ScryptKdfStrategy();
-    expect(() => strategy.derive_kek(passphrase, Buffer.alloc(10), tenant_id)).toThrow(
+    await expect(strategy.derive_kek(passphrase, Buffer.alloc(10), tenant_id)).rejects.toThrow(
       'Invalid scrypt params length',
     );
   });
