@@ -26,8 +26,8 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
-  rmSync,
   symlinkSync,
+  unlinkSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, sep } from 'node:path';
@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 const CLI_PATH = fileURLToPath(new URL('../dist/cli.mjs', import.meta.url));
 const WORKSPACE_MARKER = fileURLToPath(new URL('../../../pnpm-workspace.yaml', import.meta.url));
 const OUR_CLI_SUFFIX = join('@wisecom', 'atlas-cli', 'dist', 'cli.mjs');
+const LEGACY_CLI_SUFFIX = join('packages', 'cli', 'dist', 'cli.mjs');
 const RC_FILES = [
   '.bashrc',
   '.bash_aliases',
@@ -90,7 +91,10 @@ function is_this_install(executable_path) {
 /** True when the executable resolves to this or another Atlas CLI install. */
 function is_atlas_cli(executable_path) {
   try {
-    return realpathSync(executable_path).endsWith(OUR_CLI_SUFFIX);
+    const real = realpathSync(executable_path);
+    // The legacy shape is what pre-workspace-guard postinstall runs linked for
+    // contributor installs; upgrades over one must take the command over too.
+    return real.endsWith(OUR_CLI_SUFFIX) || real.endsWith(LEGACY_CLI_SUFFIX);
   } catch {
     return false;
   }
@@ -139,7 +143,15 @@ function is_global_install() {
     join(pnpm_root, 'global'),
     ...(process.env.npm_config_prefix ? [join(process.env.npm_config_prefix, 'lib', 'node_modules')] : []),
   ];
-  return global_roots.some((dir) => real.startsWith(`${dir}${sep}`));
+  return global_roots.some((dir) => {
+    // Both sides through realpath: the install path is already resolved, and
+    // the root may sit behind a symlinked prefix (macOS /tmp -> /private/tmp).
+    try {
+      return real.startsWith(`${realpathSync(dir)}${sep}`);
+    } catch {
+      return false; // root does not exist - nothing is installed under it
+    }
+  });
 }
 
 /** Installs the `atlas` symlink unless the name is taken or the environment opts out. */
@@ -178,7 +190,13 @@ function main() {
       }
       const previous = realpathSync(existing);
       chmodSync(CLI_PATH, 0o755);
-      rmSync(existing, { force: true });
+      // unlinkSync, not rmSync: rmSync(force) silently no-ops on a symlink
+      // whose target is gone, and the create below would fail with EEXIST.
+      try {
+        unlinkSync(existing);
+      } catch {
+        // The scanned link vanished between the scan and the take over.
+      }
       symlinkSync(CLI_PATH, existing);
       console.log(`[atlas postinstall] re-linked ${existing} -> ${CLI_PATH} (was ${previous})`);
       return;
@@ -198,7 +216,13 @@ function main() {
 
   chmodSync(CLI_PATH, 0o755);
   const link = join(target.dir, 'atlas');
-  rmSync(link, { force: true }); // clear a stale/broken symlink missed by the X_OK scan
+  // unlinkSync, not rmSync: rmSync(force) silently no-ops on a broken symlink,
+  // and the create below would fail with EEXIST.
+  try {
+    unlinkSync(link);
+  } catch {
+    // Nothing to clear.
+  }
   symlinkSync(CLI_PATH, link);
   console.log(`[atlas postinstall] linked ${link} -> ${CLI_PATH}`);
   if (!target.on_path) {

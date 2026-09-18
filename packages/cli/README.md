@@ -20,6 +20,8 @@ Beta releases use the `beta` dist-tag:
 npm install -g @wisecom/atlas-cli@beta
 ```
 
+Bun blocks install scripts for untrusted packages, which skips the postinstall hook that links `atlas` onto your PATH. Run `bun pm -g trust @wisecom/atlas-cli` after installing to run it.
+
 ## Quick start
 
 Configure credentials in a `.env` file (see [Configuration](https://wisecom-oy.github.io/atlas/configuration)):
