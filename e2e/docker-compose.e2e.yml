@@ -8,15 +8,20 @@
 # Two endpoints, not two buckets: Atlas derives the bucket name from the tenant id, so a
 # replication target has to be a different endpoint.
 #
-# `quay.io`, not Docker Hub: Docker Hub denies anonymous pulls of `minio/minio`, which killed
-# every nightly run from 2026-09-12 onward at this step, before the first Graph call (issue #406).
+# `cgr.dev/chainguard`, not Docker Hub or quay.io: both now deny anonymous pulls of
+# `minio/minio` (Docker Hub from 2026-09-12, quay.io from 2026-09-24), which killed the nightly
+# at this step, before the first Graph call (issues #406 and #429). Chainguard rebuilds upstream
+# MinIO and serves it anonymously; the image ships `mc`, so the healthchecks below are unchanged.
 #
-# A pinned release, not `latest`: with `latest` the storage backend under the immutability
-# assertions could change between two runs with no commit to point at. Bumping the tag is now a
-# reviewable diff, and `test_00_preflight` is what proves the new release is still `lock-capable`.
+# A digest, not `latest`: Chainguard publishes only a moving `latest` tag, so pinning by digest
+# is what keeps the storage backend under the immutability assertions from changing between two
+# runs with no commit to point at. Bumping the digest is a reviewable diff; the comment records
+# which MinIO release the digest resolves to, and `test_00_preflight` proves a bumped image is
+# still `lock-capable`.
+# Digest `sha256:bd014394…` = MinIO RELEASE.2026-09-22T19-25-18Z.
 services:
   minio-primary:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
     container_name: atlas-e2e-minio-primary
     # `/data/{1...4}`: the four drives must exist, so they live under one mounted volume.
     command: server /data/{1...4} --console-address ":9001"
@@ -35,7 +40,7 @@ services:
       retries: 20
 
   minio-replica:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
     container_name: atlas-e2e-minio-replica
     command: server /data/{1...4} --console-address ":9001"
     ports:
