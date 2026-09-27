@@ -34,6 +34,10 @@ def test_01_readonly_commands_provision_nothing(cli: Cli, s3: Any) -> None:
     key material. A typo, or a tenant belonging to another environment, silently provisioned
     infrastructure -- and in a bucket-per-tenant layout that is billable storage plus a key nobody
     tracks. `ListBuckets` before and after is the ground truth here; the CLI's own message is not.
+
+    Exit 7 is the documented code for `ATLAS_NOT_FOUND` (`docs/reference/cli.md`). A missing tenant
+    bucket raises the typed `NotFoundError`, so the CLI must say so with 7, not with a bare
+    unclassified 1 and not with a 0 that would claim success.
     """
     before = {b["Name"] for b in s3.list_buckets()["Buckets"]}
 
@@ -45,8 +49,7 @@ def test_01_readonly_commands_provision_nothing(cli: Cli, s3: Any) -> None:
         result = cli.run(*argv)
         after = {b["Name"] for b in s3.list_buckets()["Buckets"]}
         assert after == before, f"`atlas {' '.join(argv)}` provisioned: {sorted(after - before)}"
-        # A read-only command against nothing must say so, not crash and not claim success.
-        assert result.code in (0, 1), result.describe()
+        assert result.code == 7, result.describe()
 
 
 def test_02_corrupt_ciphertext_is_reported_as_tampering(
