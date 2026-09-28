@@ -13,6 +13,12 @@ import { CONTACT_FIELDS } from '@/shared/contact-fields';
 
 const IMMUTABLE_IDS = 'IdType="ImmutableId"';
 const CONTACT_SELECT = `?$select=id,${CONTACT_FIELDS.join(',')}`;
+const CONTACT_READ_PERMISSIONS = [
+  'Contacts.Read          -- contact backup; restore requires Contacts.ReadWrite',
+] as const;
+const CONTACT_WRITE_PERMISSIONS = [
+  'Contacts.ReadWrite     -- restore contact folders, contacts, and photos',
+] as const;
 type Page = { value: unknown; '@odata.nextLink'?: string; '@odata.deltaLink'?: string };
 
 function records(page: Page): Record<string, unknown>[] {
@@ -38,7 +44,7 @@ export class GraphContactConnector implements ContactConnector {
         ),
       );
     } catch (err) {
-      rethrow_if_access_denied(err);
+      rethrow_if_access_denied(err, CONTACT_READ_PERMISSIONS);
       throw err;
     }
   }
@@ -47,7 +53,7 @@ export class GraphContactConnector implements ContactConnector {
     try {
       return await run_with_graph_operation({ pool: 'outlook', request_type: kind }, operation);
     } catch (err) {
-      rethrow_if_access_denied(err);
+      rethrow_if_access_denied(err, CONTACT_WRITE_PERMISSIONS);
       throw err;
     }
   }
@@ -55,7 +61,10 @@ export class GraphContactConnector implements ContactConnector {
   private async collect(url: string, kind: string): Promise<Record<string, unknown>[]> {
     const all: Record<string, unknown>[] = [];
     let next: string | undefined = url;
+    const seen = new Set<string>();
     while (next) {
+      if (seen.has(next)) throw new Error('Graph contacts response repeated a next link');
+      seen.add(next);
       const page: Page = await this.request<Page>(next, kind);
       all.push(...records(page));
       const candidate = page['@odata.nextLink'];
@@ -134,7 +143,10 @@ export class GraphContactConnector implements ContactConnector {
       reset: boolean,
     ): Promise<{ delta_link?: string; reset: boolean }> => {
       let next: string | undefined = start;
+      const seen = new Set<string>();
       while (next) {
+        if (seen.has(next)) throw new Error('Contact delta response repeated a next link');
+        seen.add(next);
         const page: Page = await this.request<Page>(next, 'contact_delta');
         const changes: ContactChange[] = records(page).map((item) => {
           if (typeof item.id !== 'string' || !item.id)
@@ -204,7 +216,7 @@ export class GraphContactConnector implements ContactConnector {
     } catch (err) {
       if (err && typeof err === 'object' && 'statusCode' in err && err.statusCode === 404)
         return undefined;
-      rethrow_if_access_denied(err);
+      rethrow_if_access_denied(err, CONTACT_READ_PERMISSIONS);
       throw err;
     }
   }

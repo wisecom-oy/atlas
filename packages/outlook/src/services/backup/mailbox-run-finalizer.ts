@@ -13,6 +13,7 @@ import type {
   SyncOptions,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import { build_manifest } from '@/services/backup/snapshot-manifest-builder';
 import {
   persist_mailbox_run,
@@ -65,28 +66,40 @@ function manifest_object_lock_policy(options: SyncOptions): ManifestObjectLockPo
   };
 }
 
+interface RequestedContactCapture {
+  readonly result?: ContactSyncResult;
+  readonly error?: string;
+}
+
 async function capture_requested_contacts(
   input: MailboxRunFinalizationInput,
-): Promise<ContactSyncResult | undefined> {
-  if (!input.options.include_contacts || input.should_interrupt()) return undefined;
+): Promise<RequestedContactCapture> {
+  if (!input.options.include_contacts || input.should_interrupt()) return {};
   if (!input.connector) throw new Error('Contact connector is not configured');
-  return sync_contacts_with_history(
-    input.ctx,
-    input.connector,
-    input.manifests,
-    input.tenant_id,
-    input.owner_id,
-    {
-      previous_links: input.contact_links,
-      previous_folders: input.contact_folders,
-      failed: input.failed_contacts,
-      force_full: input.options.force_full === true,
-      should_interrupt: input.should_interrupt,
-      ...(input.options.object_lock_policy
-        ? { object_lock_policy: input.options.object_lock_policy }
-        : {}),
-    },
-  );
+  try {
+    return {
+      result: await sync_contacts_with_history(
+        input.ctx,
+        input.connector,
+        input.manifests,
+        input.tenant_id,
+        input.owner_id,
+        {
+          previous_links: input.contact_links,
+          previous_folders: input.contact_folders,
+          failed: input.failed_contacts,
+          force_full: input.options.force_full === true,
+          should_interrupt: input.should_interrupt,
+          ...(input.options.object_lock_policy
+            ? { object_lock_policy: input.options.object_lock_policy }
+            : {}),
+        },
+      ),
+    };
+  } catch (err) {
+    if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
+    return { error: `Contacts: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 function contact_object_totals(contacts: ContactSyncResult | undefined): {
@@ -107,7 +120,8 @@ function contact_object_totals(contacts: ContactSyncResult | undefined): {
 export async function finalize_mailbox_run(
   input: MailboxRunFinalizationInput,
 ): Promise<MailboxRunFinalization> {
-  const contacts = await capture_requested_contacts(input);
+  const capture = await capture_requested_contacts(input);
+  const contacts = capture.result;
   const totals = contact_object_totals(contacts);
   const base = build_manifest(
     input.owner_id,
@@ -149,7 +163,7 @@ export async function finalize_mailbox_run(
     manifest,
     persisted,
     contact_stored_objects: contacts?.stored ?? 0,
-    contact_errors: contacts?.errors ?? [],
+    contact_errors: capture.error ? [capture.error] : (contacts?.errors ?? []),
     ...(contacts ? { contact_count: totals.count } : {}),
   };
 }

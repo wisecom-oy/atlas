@@ -221,4 +221,28 @@ describe('opt-in contact backup', () => {
       custom: 'old-custom',
     });
   });
+
+  it('keeps the mail snapshot and previous contact cursor after a transient contact failure', async () => {
+    const harness = create_mailbox_sync_harness();
+    vi.mocked(harness.mock_contacts.list_contact_folders).mockRejectedValue(
+      new Error('Graph unavailable'),
+    );
+    vi.mocked(harness.mock_cursors.load).mockResolvedValue({
+      owner_id: owner,
+      delta_links: {},
+      contact_delta_links: { default: 'old-default' },
+      contact_folders: folders,
+      updated_at: '2026-09-01T00:00:00Z',
+    });
+
+    const result = await harness.service.sync_mailbox('test-tenant', owner, {
+      include_contacts: true,
+    });
+
+    expect(harness.mock_manifests.save).toHaveBeenCalledOnce();
+    expect(result.summary.folder_errors).toEqual(['Contacts: Graph unavailable']);
+    expect(vi.mocked(harness.mock_cursors.save).mock.calls[0]?.[1].contact_delta_links).toEqual({
+      default: 'old-default',
+    });
+  });
 });

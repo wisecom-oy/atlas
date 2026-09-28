@@ -133,6 +133,25 @@ describe('Graph contacts', () => {
     );
   });
 
+  it('stops instead of fetching the same contact page forever', async () => {
+    const { graph, connector } = fixture();
+    graph.get.mockResolvedValue({ value: [], '@odata.nextLink': '/same-page' });
+    await expect(connector.list_contacts('tenant', 'owner', 'folder')).rejects.toThrow(
+      'repeated a next link',
+    );
+    expect(graph.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('names contact permissions for denied contact reads and writes', async () => {
+    const { graph, connector } = fixture();
+    graph.get.mockRejectedValueOnce({ statusCode: 403 });
+    await expect(connector.fetch_contact('tenant', 'owner', 'c1')).rejects.toThrow('Contacts.Read');
+    graph.post.mockRejectedValueOnce({ statusCode: 403 });
+    await expect(connector.create_contact('tenant', 'owner', 'folder', {})).rejects.toThrow(
+      'Contacts.ReadWrite',
+    );
+  });
+
   it('treats a missing photo as absence, but propagates other failures', async () => {
     const { graph, connector } = fixture();
     graph.get.mockRejectedValueOnce({ statusCode: 404 });
