@@ -6,6 +6,7 @@ import type {
   Snapshot,
   TenantContext,
 } from '@wisecom/atlas-types';
+import type { ContactFolder, FailedItemLedger, MailboxDeltaCursor } from '@wisecom/atlas-types';
 import {
   mark_snapshot_completed,
   resolve_saved_delta_links,
@@ -18,6 +19,9 @@ export interface MailboxResumeState {
   readonly saved_links: Record<string, string>;
   readonly previous_entry_count: number;
   readonly mode: BackupSyncMode;
+  readonly contact_links: Record<string, string>;
+  readonly contact_folders: ContactFolder[];
+  readonly failed_contacts: FailedItemLedger;
 }
 
 /**
@@ -33,24 +37,19 @@ export async function resolve_resume_state(
   owner_id: string,
   force_full: boolean,
 ): Promise<MailboxResumeState> {
-  if (force_full) {
-    return {
-      previous: undefined,
-      saved_links: {},
-      previous_entry_count: 0,
-      mode: resolve_sync_mode(true, {}),
-    };
-  }
-
   const previous = await deps.manifests.find_latest_by_owner(ctx, owner_id);
   const cursor = await deps.cursors.load(ctx, owner_id);
-  const saved_links = cursor?.delta_links ?? resolve_saved_delta_links(previous);
-
+  const saved_links = force_full
+    ? {}
+    : (cursor?.delta_links ?? resolve_saved_delta_links(previous));
   return {
-    previous,
+    previous: force_full ? undefined : previous,
     saved_links,
-    previous_entry_count: previous?.total_objects ?? 0,
-    mode: resolve_sync_mode(false, saved_links),
+    previous_entry_count: force_full ? 0 : (previous?.total_objects ?? 0),
+    mode: resolve_sync_mode(force_full, saved_links),
+    contact_links: cursor?.contact_delta_links ?? previous?.contact_delta_links ?? {},
+    contact_folders: cursor?.contact_folders ?? previous?.contact_folders ?? [],
+    failed_contacts: cursor?.failed_contacts ?? {},
   };
 }
 
@@ -84,13 +83,19 @@ export async function persist_mailbox_run(
   snapshot: Snapshot,
   previous: Manifest | undefined,
   entry_count: number,
+  contact_state?: Pick<
+    MailboxDeltaCursor,
+    'contact_delta_links' | 'contact_folders' | 'failed_contacts'
+  >,
+  has_contact_changes = false,
 ): Promise<MailboxRunOutcome> {
-  const wrote_snapshot = entry_count > 0 || previous === undefined;
+  const wrote_snapshot = entry_count > 0 || has_contact_changes || previous === undefined;
   if (wrote_snapshot) await deps.manifests.save(ctx, manifest);
 
   await deps.cursors.save(ctx, {
     owner_id: manifest.owner_id,
     delta_links: manifest.delta_links,
+    ...contact_state,
     updated_at: new Date().toISOString(),
   });
 

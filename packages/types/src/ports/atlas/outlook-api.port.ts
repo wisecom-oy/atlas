@@ -1,6 +1,10 @@
 import type { SyncOptions, SyncResult } from '@/ports/backup/use-case.port';
 import type { VerificationOptions, VerificationResult } from '@/ports/verification/use-case.port';
-import type { RestoreOptions, RestoreResult } from '@/ports/restore/use-case.port';
+import type {
+  RestoreOptions,
+  RestoreResult,
+  ContactsRestoreResult,
+} from '@/ports/restore/use-case.port';
 import type { SaveOptions, SaveResult } from '@/ports/save/use-case.port';
 import type { MailboxSummary, ReadMessageResult } from '@/ports/catalog/use-case.port';
 import type { Manifest } from '@/domain/manifest';
@@ -48,6 +52,7 @@ export type OutlookSaveOptions = Camelize<
 export type OutlookBackupResult = Camelize<SyncResult>;
 export type OutlookVerificationResult = Camelize<VerificationResult>;
 export type OutlookRestoreResult = Camelize<RestoreResult>;
+export type OutlookContactsRestoreResult = Camelize<ContactsRestoreResult>;
 export type OutlookSaveResult = Camelize<SaveResult>;
 export type OutlookMailboxSummary = Camelize<MailboxSummary>;
 export type OutlookSnapshotManifest = Camelize<Manifest>;
@@ -66,6 +71,10 @@ export interface OutlookApi {
   ): Promise<OutlookVerificationResult>;
   restore(snapshotId: string, options?: OutlookRestoreOptions): Promise<OutlookRestoreResult>;
   restoreMailbox(mailboxId: string, options?: OutlookRestoreOptions): Promise<OutlookRestoreResult>;
+  restoreContacts(
+    snapshotId: string,
+    options?: Pick<OutlookRestoreOptions, 'targetMailbox' | 'signal'>,
+  ): Promise<OutlookContactsRestoreResult>;
   save(snapshotId: string, options?: OutlookSaveOptions): Promise<OutlookSaveResult>;
   saveMailbox(mailboxId: string, options?: OutlookSaveOptions): Promise<OutlookSaveResult>;
   listMailboxes(): Promise<OutlookMailboxSummary[]>;

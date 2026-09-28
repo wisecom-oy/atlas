@@ -82,12 +82,15 @@ export interface SyncOptions extends OperationControlOptions {
    * default because on a mailbox under hold it can rival the mailbox in size.
    */
   readonly include_recoverable_items?: boolean | undefined;
+  /** Contacts need Contacts.Read consent; opt in to keep mail-only installations working. */
+  readonly include_contacts?: boolean | undefined;
 }
 
 export interface BackupSyncSummary {
   readonly stored: number;
   readonly deduplicated: number;
   readonly attachments_stored: number;
+  readonly contacts_stored?: number;
   readonly processed: number;
   readonly folder_errors: string[];
   readonly warnings: string[];

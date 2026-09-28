@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { StoredContactEntry } from '@wisecom/atlas-types';
 import type {
   VerificationOptions,
   VerificationResult,
@@ -10,6 +11,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
+import { resolve_contact_snapshot } from '@/services/shared/contact-snapshot-chain';
 import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
 import {
   begin_operation_progress,
@@ -66,7 +68,10 @@ export class VerificationService implements VerificationUseCase {
     try {
       const chain = await this.load_manifest_chain(ctx, snapshot_id);
       const entries = merge_snapshot_entries(chain);
-      const { items, unverifiable } = collect_check_items(entries);
+      const { items, unverifiable } = collect_check_items(
+        entries,
+        resolve_contact_snapshot(chain).entries,
+      );
       emit_operation_progress(options, {
         operation: 'verify',
         workload: 'outlook',
@@ -196,7 +201,10 @@ export class VerificationService implements VerificationUseCase {
  * Flattens manifest entries into verifiable objects (message blob plus each
  * attachment), separating out entries that have no stored blob at all.
  */
-function collect_check_items(entries: ManifestEntry[]): {
+function collect_check_items(
+  entries: ManifestEntry[],
+  contacts: StoredContactEntry[],
+): {
   items: CheckItem[];
   unverifiable: string[];
 } {
@@ -217,6 +225,21 @@ function collect_check_items(entries: ManifestEntry[]): {
       } else {
         items.push({ id: att_id, storage_key: att.storage_key, checksum: att.checksum });
       }
+    }
+  }
+
+  for (const contact of contacts) {
+    items.push({
+      id: `contact/${contact.contact_id}`,
+      storage_key: contact.storage_key,
+      checksum: contact.checksum,
+    });
+    if (contact.photo) {
+      items.push({
+        id: `contact/${contact.contact_id}/photo`,
+        storage_key: contact.photo.storage_key,
+        checksum: contact.photo.checksum,
+      });
     }
   }
 

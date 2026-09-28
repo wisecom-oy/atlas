@@ -52,7 +52,7 @@ exit "$status"
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                                | Correct the configuration or its storage access.                                                                                  |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                           | Check the selected resource and identifiers.                                                                                      |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                           | Respect retention or legal hold; repeating the same deletion cannot bypass it.                                                    |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                             | The stored bytes are intact but cannot be parsed back. Repeating the command cannot help; extract the raw content with `save`.     |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                             | The stored bytes are intact but cannot be parsed back. Repeating the command cannot help; extract the raw content with `save`.    |
 
 Fatal exceptions use this category mapping. Existing command-reported failures remain `1`, including failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial remain `2`; their messages are not reclassified.
 
@@ -116,6 +116,7 @@ Back up one mailbox from an M365 tenant to object storage, with a per-folder pro
 ```bash
 atlas outlook backup -m user@company.com                      # incremental backup
 atlas outlook backup -m user@company.com --full                # force full sync (ignore delta state)
+atlas outlook backup -m user@company.com --include-contacts    # include contacts and photos
 atlas outlook backup -m user@company.com -f Inbox -f "Sent Items"   # specific folders only
 atlas outlook backup -m user@company.com -P 50                 # larger page size for fewer API round-trips
 atlas outlook backup -m user@company.com --retention-days 30 --lock-mode governance
@@ -134,6 +135,7 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 | `-t, --tenant <id>`           | Override tenant ID from config                                               |
 | `--exclude-junk`              | Skip the Junk Email folder and its subfolders                                |
 | `--include-recoverable-items` | Also back up hard-deleted and hold-retained mail (see below)                 |
+| `--include-contacts`          | Capture contact folders, contacts, and photos; requires `Contacts.Read`      |
 
 `--lock-mode` only means something alongside `--retention-days`: the mode selects how retention is enforced, it does not request retention on its own. Passing it alone is rejected rather than ignored, so a run that was meant to be immutable cannot exit `0` with unprotected data. Retention without a mode defaults to `governance`.
 
@@ -233,9 +235,18 @@ Recursion is bounded at 300 levels, matching Exchange's own folder-depth limit; 
 `--retention-days` makes the backup immutable-requested. Atlas resolves retention to an internal UTC `retain_until`, probes bucket capability (versioning + Object Lock), and fails fast when unsupported instead of silently downgrading to mutable writes.
 :::
 
+#### Contact folders and photos
+
+```bash
+atlas outlook backup -m john.doe@example.com --include-contacts
+atlas outlook contacts restore -s <snapshot-id> -T jane.roe@example.com
+```
+
+Contact backup is opt-in. It includes the default Contacts folder and nested custom folders, and advances a separate delta cursor for each folder. A failed contact is reported as partial and retried on later runs. Restoring contacts uses `Contacts.ReadWrite` and does not occur during `atlas outlook restore`, which restores mail only. See [Outlook Backup](/outlook-backup).
+
 ### `atlas outlook verify`
 
-Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object, message bodies and attachments**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
+Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object, message bodies, attachments, contacts, and contact photos**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
 
 ```bash
 atlas outlook verify -m user@company.com -s <snapshot-id>
@@ -257,6 +268,23 @@ Both message blobs and `attachments` are checked (storage key + checksum). Entri
 
 `--fast` trades depth for cost: it only confirms every referenced object exists in the bucket, which catches the most common real-world damage (lifecycle deletion, failed replication, manual cleanup) at near-zero bandwidth. Scheduled deep verification should use full mode, which also validates ciphertext integrity via the GCM authentication tag.
 :::
+
+### `atlas outlook contacts restore`
+
+Restore contact folders, contacts, and photos through one snapshot's delta chain.
+
+```bash
+atlas outlook contacts restore -s <snapshot-id>
+atlas outlook contacts restore -s <snapshot-id> -T jane.roe@example.com
+```
+
+| Option                 | Description                                   |
+| ---------------------- | --------------------------------------------- |
+| `-s, --snapshot <id>`  | Snapshot whose contacts to restore (required) |
+| `-T, --target <email>` | Target mailbox (defaults to snapshot owner)   |
+| `-t, --tenant <id>`    | Override tenant ID from config                |
+
+Requires `Contacts.ReadWrite`. An existing contact with the same first email address is updated in place if its writable fields differ. The command does not delete contacts already in the target mailbox. See [Outlook Backup](/outlook-backup) for collision and fidelity limits.
 
 ### `atlas outlook restore`
 
@@ -980,14 +1008,14 @@ atlas keys rewrap --new-passphrase      # prompt for a new passphrase, twice, wi
 atlas keys rewrap --new-passphrase < secret.txt   # non-interactive, for a scripted rotation
 ```
 
-| Subcommand      | Description                                                                    |
-| --------------- | ------------------------------------------------------------------------------ |
-| `keys rewrap`   | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
+| Subcommand    | Description                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| `keys rewrap` | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
 
-| Option              | Description                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one              |
-| `-t, --tenant <id>` | Override tenant ID from config                                                     |
+| Option              | Description                                                           |
+| ------------------- | --------------------------------------------------------------------- |
+| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one |
+| `-t, --tenant <id>` | Override tenant ID from config                                        |
 
 The data key itself does not change. Nothing in the bucket is re-encrypted, every existing
 snapshot stays readable, and the run writes exactly one object. What changes is the wrapper: the

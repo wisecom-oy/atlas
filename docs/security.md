@@ -181,6 +181,7 @@ either way, by comparing the manifest checksum before anything is written.
 | ------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`                                                   |
 | Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
+| Outlook contacts and photos                | Yes       | Graph JSON and photo bytes under `contacts/data/{mailbox}/{sha256}` and `contacts/photos/{mailbox}/{sha256}`           |
 | Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                                                                 |
 | OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                         |
 | OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                         |
@@ -190,6 +191,8 @@ either way, by comparing the manifest checksum before anything is written.
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
 Manifests deserve special attention: they contain email subjects, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines and folder names are never exposed at rest in the S3 bucket.
+
+Contact folder names, contact JSON, photo references, and per-folder delta links are encrypted inside manifests and the mailbox cursor. Contact object names are not confidential: their owner segment can identify a mailbox, and their unkeyed SHA-256 suffix permits confirmation of known plaintext by someone who can list the bucket (tracked in [#446](https://github.com/wisecom-oy/atlas/issues/446)). `Contacts.ReadWrite` application consent also permits modifying contacts across the tenant. Keep it separate from backup-only credentials where possible.
 
 ### OneDrive blobs and sidecars
 
@@ -201,7 +204,7 @@ OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version 
 
 **OneDrive (CLI `atlas onedrive`)** always resolves interactive owner inputs that look like email/UPN to an Entra object ID (`GET /users/{email}` with `id` selected) before computing S3 prefixes. Passing a bare UUID to `--owner` skips resolution and must match the user's directory object ID.
 
-**Mailbox backup** still namespaces `data/`, `attachments/`, and `manifests/` by the mailbox identifier wired into the sync job (today this is commonly the primary SMTP address from discovery). That is a separate layout from OneDrive's object-ID paths. Operators who rely on privacy through opaque IDs should prefer object IDs for new automation and be aware older mailbox prefixes may still contain human-readable addresses.
+**Mailbox backup** still namespaces `data/`, `attachments/`, `contacts/data/`, `contacts/photos/`, and `manifests/` by the mailbox identifier wired into the sync job (today this is commonly the primary SMTP address from discovery). That is a separate layout from OneDrive's object-ID paths. Operators who rely on privacy through opaque IDs should prefer object IDs for new automation and be aware older mailbox prefixes may still contain human-readable addresses.
 
 There is **no built-in S3 object rename** between email-keyed and ID-keyed mailbox prefixes in the open-source CLI as shipped; migrating layout is an operational exercise (re-backup, copy, or custom tooling) if you need to align naming.
 

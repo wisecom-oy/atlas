@@ -1,9 +1,10 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
-import { inject, injectable } from 'inversify';
+import { inject, injectable, optional } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
-import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { ContactConnector } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
@@ -12,17 +13,12 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
-import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
+import { finalize_mailbox_run } from '@/services/backup/mailbox-run-finalizer';
+import { resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
-import {
-  build_manifest,
-  create_pending_snapshot,
-  mark_snapshot_completed,
-  resolve_saved_delta_links,
-  resolve_sync_mode,
-} from '@/services/backup/snapshot-manifest-builder';
+import { create_pending_snapshot } from '@/services/backup/snapshot-manifest-builder';
 import {
   build_interrupted_result,
   mark_progress_interrupted,
@@ -38,8 +34,8 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  CONTACT_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const always_false = (): boolean => false;
 
@@ -51,6 +47,7 @@ export class MailboxSyncService implements BackupUseCase {
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
     @inject(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: MailboxDeltaCursorRepository,
+    @inject(CONTACT_CONNECTOR_TOKEN) @optional() private readonly _contacts?: ContactConnector,
   ) {}
 
   /** Orchestrates a full or incremental mailbox backup across all (or filtered) folders. */
@@ -77,7 +74,15 @@ export class MailboxSyncService implements BackupUseCase {
       const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
-      const { previous, saved_links, previous_entry_count, mode } = await resolve_resume_state(
+      const {
+        previous,
+        saved_links,
+        previous_entry_count,
+        mode,
+        contact_links,
+        contact_folders,
+        failed_contacts,
+      } = await resolve_resume_state(
         { manifests: this._manifests, cursors: this._cursors },
         ctx,
         owner_id,
@@ -173,22 +178,29 @@ export class MailboxSyncService implements BackupUseCase {
         total: global_total,
       });
 
-      const merged_links = { ...saved_links, ...new_delta_links };
-      const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
-        previous_total_objects: previous_entry_count,
-        object_lock: this.build_manifest_object_lock_policy(options),
-        mailbox_purpose,
-        excluded_folders,
-      });
-
-      const persisted = await persist_mailbox_run(
-        { manifests: this._manifests, cursors: this._cursors },
+      const finalized = await finalize_mailbox_run({
         ctx,
-        manifest,
+        connector: this._contacts,
+        manifests: this._manifests,
+        cursors: this._cursors,
+        tenant_id,
+        owner_id,
         snapshot,
         previous,
-        all_entries.length,
-      );
+        entries: all_entries,
+        saved_links,
+        new_links: new_delta_links,
+        contact_links,
+        contact_folders,
+        failed_contacts,
+        previous_entry_count,
+        mailbox_purpose,
+        excluded_folders,
+        options,
+        should_interrupt,
+      });
+      stored += finalized.contact_stored_objects;
+      folder_errors.push(...finalized.contact_errors);
 
       interrupted ||= should_interrupt();
       emit_operation_progress(options, {
@@ -199,16 +211,19 @@ export class MailboxSyncService implements BackupUseCase {
         total: global_total,
       });
 
-      const completed = persisted.snapshot;
+      const completed = finalized.persisted.snapshot;
       return {
         snapshot: completed,
-        manifest,
+        manifest: finalized.manifest,
         mode,
         interrupted,
         summary: {
           stored,
           deduplicated,
           attachments_stored,
+          ...(finalized.contact_count !== undefined
+            ? { contacts_stored: finalized.contact_count }
+            : {}),
           processed: global_processed,
           folder_errors,
           warnings,
@@ -303,21 +318,5 @@ export class MailboxSyncService implements BackupUseCase {
         error: msg,
       };
     }
-  }
-
-  private build_manifest_object_lock_policy(
-    options: SyncOptions,
-  ): ManifestObjectLockPolicy | undefined {
-    if (!options.object_lock_policy) return undefined;
-    return {
-      requested: {
-        mode: options.object_lock_request?.mode,
-        retention_days: options.object_lock_request?.retention_days,
-      },
-      effective: {
-        mode: options.object_lock_policy.mode,
-        retain_until: options.object_lock_policy.retain_until,
-      },
-    };
   }
 }

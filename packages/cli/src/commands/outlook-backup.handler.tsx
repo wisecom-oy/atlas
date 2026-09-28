@@ -25,6 +25,7 @@ export interface OutlookBackupOptions {
   lockMode?: string;
   excludeJunk?: boolean;
   includeRecoverableItems?: boolean;
+  includeContacts?: boolean;
 }
 
 /** Resolves the tenant ID from CLI flag or config. */
@@ -47,6 +48,7 @@ function build_sync_options(options: OutlookBackupOptions): SyncOptions {
     object_lock_policy,
     exclude_junk: options.excludeJunk ?? false,
     include_recoverable_items: options.includeRecoverableItems ?? false,
+    include_contacts: options.includeContacts ?? false,
   };
 }
 
@@ -90,7 +92,10 @@ async function backup_single_mailbox(
   logger.success(
     `Snapshot ${result.snapshot.id} -- ` +
       `${result.manifest.total_objects} objects, ` +
-      format_bytes(result.manifest.total_size_bytes),
+      format_bytes(result.manifest.total_size_bytes) +
+      (result.summary.contacts_stored !== undefined
+        ? `, ${result.summary.contacts_stored} contacts`
+        : ''),
   );
   report_excluded_folders(result.summary.excluded_folders);
   report_run_outcome(
@@ -99,7 +104,7 @@ async function backup_single_mailbox(
       warnings: result.summary.warnings,
       interrupted: result.summary.interrupted,
     },
-    'folder',
+    sync_options.include_contacts ? 'item' : 'folder',
   );
 }
 

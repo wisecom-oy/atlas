@@ -5,6 +5,7 @@ export interface TenantBackupOptions {
   concurrency?: number | undefined;
   force_full?: boolean | undefined;
   page_size?: number | undefined;
+  include_contacts?: boolean | undefined;
   /** Object Lock retention request applied to every mailbox in the run. */
   object_lock_request?: ObjectLockRequest | undefined;
   object_lock_policy?: ObjectLockPolicy | undefined;

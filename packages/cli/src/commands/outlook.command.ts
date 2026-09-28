@@ -28,6 +28,7 @@ import {
   type OutlookStatusOptions,
   type OutlookMailboxesOptions,
 } from '@/commands/outlook-mgmt.handler';
+import { execute_outlook_contacts_restore } from '@/commands/outlook-contacts-restore.handler';
 import {
   reject_retired_short,
   with_folder,
@@ -58,6 +59,7 @@ export function register_outlook_command(program: Command, get_container: Contai
   register_outlook_delete(group, get_container);
   register_outlook_status(group, get_container);
   register_outlook_mailboxes(group, get_container);
+  register_outlook_contacts(group, get_container);
 }
 
 function register_outlook_backup(group: Command, get_container: ContainerFactory): void {
@@ -71,7 +73,11 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
       '--include-recoverable-items',
       'also back up hard-deleted and hold-retained mail from Recoverable Items',
     )
-    .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10');
+    .option('-P, --page-size <n>', 'Graph API page size per delta request (1-100)', '10')
+    .option(
+      '--include-contacts',
+      'also capture contact folders, contacts, and photos (requires Contacts.Read)',
+    );
   with_repeatable_folder(
     command,
     'folder to back up; repeat for more (e.g. -f Inbox -f "Sent Items")',
@@ -162,6 +168,18 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
   reject_retired_short(command, '-o', '--output');
   with_tenant(command).action((options: OutlookSaveOptions) =>
     execute_outlook_save(get_container(), options),
+  );
+}
+
+function register_outlook_contacts(group: Command, get_container: ContainerFactory): void {
+  const contacts = group.command('contacts').description('Contact restore operations');
+  const restore = contacts
+    .command('restore')
+    .description('Restore contact folders and contacts from a snapshot')
+    .option('-T, --target <email>', 'target mailbox (defaults to snapshot owner)');
+  with_required_snapshot(restore, 'snapshot containing contacts');
+  with_tenant(restore).action((options: { snapshot: string; tenant?: string; target?: string }) =>
+    execute_outlook_contacts_restore(get_container(), options),
   );
 }
 

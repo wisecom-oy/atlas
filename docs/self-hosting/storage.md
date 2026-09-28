@@ -204,6 +204,8 @@ Buckets created by earlier Atlas versions still hold legacy per-file index objec
 
 Content blobs stay one object per file, addressed by SHA-256 (`onedrive/data/<owner_id>/<sha256>`). Packing multiple files into one blob object is deliberately not implemented: S3 Object Lock applies to the pack rather than to the individual files inside it, and doing it safely needs ranged reads, compaction, and retention design first.
 
+Opt-in Outlook contact backup stores one encrypted JSON object per changed contact and a separate object for each available photo under `contacts/data/` and `contacts/photos/`. Unchanged runs create no new objects. On providers with a minimum billable object size, plan for roughly two billed objects per photographed contact on the initial capture. See [Storage Layout](/operations/storage-layout#contact-objects).
+
 | Provider                                                     | Minimum billable object size              | Note                                                                                                                                     |
 | ------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Hetzner Object Storage                                       | 64 KB                                     | API calls are free, so trading requests for fewer objects costs nothing ([pricing](https://www.hetzner.com/storage/object-storage/))     |

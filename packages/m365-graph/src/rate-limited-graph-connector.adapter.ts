@@ -18,6 +18,8 @@ import type {
   DeltaPageCallback,
   MessageAttachment,
 } from '@wisecom/atlas-types/ports/mail/connector.port';
+import type { ContactConnector } from '@wisecom/atlas-types/ports/mail/contact-connector.port';
+import type { ContactChange, ContactFolder } from '@wisecom/atlas-types/domain/contact';
 import type { MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
 import type {
   MailboxRateLimiter,
@@ -35,16 +37,23 @@ const DELTA_WITH_TOKEN_COST = 1;
 const DELTA_WITHOUT_TOKEN_COST = 2;
 const DEFAULT_REQUEST_COST = 1;
 
-export class RateLimitedGraphConnector implements MailboxConnector {
+export class RateLimitedGraphConnector implements MailboxConnector, ContactConnector {
   private readonly _inner: MailboxConnector;
   private readonly _factory: MailboxRateLimiterFactory;
   private readonly _fence: ThrottleFence;
+  private readonly _contacts: ContactConnector | undefined;
   private readonly _limiters = new Map<string, MailboxRateLimiter>();
 
-  constructor(inner: MailboxConnector, factory: MailboxRateLimiterFactory, fence: ThrottleFence) {
+  constructor(
+    inner: MailboxConnector,
+    factory: MailboxRateLimiterFactory,
+    fence: ThrottleFence,
+    contacts?: ContactConnector,
+  ) {
     this._inner = inner;
     this._factory = factory;
     this._fence = fence;
+    this._contacts = contacts;
   }
 
   async list_mailboxes(tenant_id: string): Promise<string[]> {
@@ -161,6 +170,112 @@ export class RateLimitedGraphConnector implements MailboxConnector {
         this._inner.fetch_mime!(tenant_id, owner_id, message_id),
       ),
     );
+  }
+
+  async list_contact_folders(tenant_id: string, owner_id: string): Promise<ContactFolder[]> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().list_contact_folders(tenant_id, owner_id),
+    );
+  }
+
+  async fetch_contact_delta(
+    tenant_id: string,
+    owner_id: string,
+    folder_id: string,
+    delta_link: string | undefined,
+    on_page: (changes: ContactChange[]) => Promise<boolean>,
+  ): Promise<{ delta_link?: string; reset: boolean }> {
+    return this.rateLimited(
+      owner_id,
+      delta_link ? DELTA_WITH_TOKEN_COST : DELTA_WITHOUT_TOKEN_COST,
+      () =>
+        this.contactConnector().fetch_contact_delta(
+          tenant_id,
+          owner_id,
+          folder_id,
+          delta_link,
+          on_page,
+        ),
+    );
+  }
+
+  async fetch_contact(
+    tenant_id: string,
+    owner_id: string,
+    contact_id: string,
+  ): Promise<Record<string, unknown>> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().fetch_contact(tenant_id, owner_id, contact_id),
+    );
+  }
+
+  async fetch_contact_photo(
+    tenant_id: string,
+    owner_id: string,
+    contact_id: string,
+  ): Promise<Buffer | undefined> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().fetch_contact_photo(tenant_id, owner_id, contact_id),
+    );
+  }
+
+  async create_contact_folder(
+    tenant_id: string,
+    owner_id: string,
+    name: string,
+    parent_folder_id?: string,
+  ): Promise<string> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().create_contact_folder(tenant_id, owner_id, name, parent_folder_id),
+    );
+  }
+
+  async list_contacts(
+    tenant_id: string,
+    owner_id: string,
+    folder_id: string,
+  ): Promise<Record<string, unknown>[]> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().list_contacts(tenant_id, owner_id, folder_id),
+    );
+  }
+
+  async create_contact(
+    tenant_id: string,
+    owner_id: string,
+    folder_id: string,
+    data: Record<string, unknown>,
+  ): Promise<string> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().create_contact(tenant_id, owner_id, folder_id, data),
+    );
+  }
+
+  async update_contact(
+    tenant_id: string,
+    owner_id: string,
+    contact_id: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().update_contact(tenant_id, owner_id, contact_id, data),
+    );
+  }
+
+  async set_contact_photo(
+    tenant_id: string,
+    owner_id: string,
+    contact_id: string,
+    data: Buffer,
+  ): Promise<void> {
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      this.contactConnector().set_contact_photo(tenant_id, owner_id, contact_id, data),
+    );
+  }
+
+  private contactConnector(): ContactConnector {
+    if (!this._contacts) throw new Error('Contact connector is not configured');
+    return this._contacts;
   }
 
   /** Shuts down all per-mailbox limiters. */

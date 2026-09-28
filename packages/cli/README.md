@@ -36,6 +36,10 @@ Run your first backup:
 # Outlook, single mailbox
 atlas outlook backup --mailbox user@company.com
 
+# Opt-in contact folders, contacts, and photos (Contacts.Read application permission)
+atlas outlook backup --mailbox user@company.com --include-contacts
+atlas outlook contacts restore --snapshot <snapshot-id> # requires Contacts.ReadWrite
+
 # OneDrive
 atlas onedrive backup -o user@company.com
 
@@ -45,16 +49,17 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 
 ## Common commands
 
-| Command | Description |
-| ------- | ----------- |
-| `atlas outlook backup` | Back up mailboxes to object storage |
-| `atlas outlook restore` | Restore from a snapshot |
-| `atlas outlook verify` | Verify snapshot integrity |
-| `atlas onedrive backup` | Back up a user's OneDrive |
-| `atlas sharepoint backup` | Back up a SharePoint site |
-| `atlas stats` | Storage statistics |
-| `atlas storage-check` | Validate S3 Object Lock readiness |
-| `atlas replicate` | Replicate snapshots to a secondary target |
+| Command                          | Description                                          |
+| -------------------------------- | ---------------------------------------------------- |
+| `atlas outlook backup`           | Back up mailboxes to object storage                  |
+| `atlas outlook restore`          | Restore from a snapshot                              |
+| `atlas outlook contacts restore` | Restore contact folders and contacts from a snapshot |
+| `atlas outlook verify`           | Verify snapshot integrity                            |
+| `atlas onedrive backup`          | Back up a user's OneDrive                            |
+| `atlas sharepoint backup`        | Back up a SharePoint site                            |
+| `atlas stats`                    | Storage statistics                                   |
+| `atlas storage-check`            | Validate S3 Object Lock readiness                    |
+| `atlas replicate`                | Replicate snapshots to a secondary target            |
 
 Run `atlas --help` or `atlas <command> --help` for full flag reference.
 

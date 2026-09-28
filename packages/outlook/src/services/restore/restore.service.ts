@@ -1,9 +1,10 @@
-import { inject, injectable } from 'inversify';
+import { inject, injectable, optional } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { ContactConnector, ContactsRestoreResult } from '@wisecom/atlas-types';
 import {
   build_folder_map,
   create_restore_root,
@@ -18,6 +19,7 @@ import {
   backfill_missing_folder_ids,
 } from '@/services/restore/restore-execution-orchestrator';
 import { execute_restore_loop } from '@/services/restore/restore-loop-executor';
+import { restore_contact_snapshot } from '@/services/restore/restore-contact-snapshot';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atlas-types';
@@ -26,6 +28,7 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
+  CONTACT_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
 import {
   begin_operation_progress,
@@ -40,7 +43,27 @@ export class RestoreService implements RestoreUseCase {
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
     @inject(MAILBOX_CONNECTOR_TOKEN) private readonly _connector: MailboxConnector,
     @inject(RESTORE_CONNECTOR_TOKEN) private readonly _restore_connector: RestoreConnector,
+    @inject(CONTACT_CONNECTOR_TOKEN) @optional() private readonly _contacts?: ContactConnector,
   ) {}
+
+  /** Restores contacts as a separate operation so a mail restore never writes an address book implicitly. */
+  async restore_contacts(
+    tenant_id: string,
+    snapshot_id: string,
+    options: Pick<RestoreOptions, 'target_mailbox' | 'should_interrupt'> = {},
+  ): Promise<ContactsRestoreResult> {
+    return restore_contact_snapshot(
+      {
+        tenant_factory: this._tenant_factory,
+        manifests: this._manifests,
+        mailbox_connector: this._connector,
+        contact_connector: this._contacts,
+      },
+      tenant_id,
+      snapshot_id,
+      options,
+    );
+  }
 
   /**
    * Restores messages from a snapshot back to the mailbox via Graph API.

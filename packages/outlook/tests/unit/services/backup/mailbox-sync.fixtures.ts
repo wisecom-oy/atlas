@@ -4,11 +4,13 @@ import { Container } from 'inversify';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import {
   MAILBOX_CONNECTOR_TOKEN,
+  CONTACT_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailMessage, DeltaSyncResult } from '@wisecom/atlas-types';
+import type { ContactConnector } from '@wisecom/atlas-types';
 import type { ManifestRepository, MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { ObjectStorage } from '@wisecom/atlas-types';
@@ -81,6 +83,7 @@ function make_mock_context(storage?: ObjectStorage): TenantContext {
 export interface MailboxSyncHarness {
   readonly service: MailboxSyncService;
   readonly mock_connector: MailboxConnector;
+  readonly mock_contacts: ContactConnector;
   readonly mock_context: TenantContext;
   readonly mock_manifests: ManifestRepository;
   readonly mock_cursors: MailboxDeltaCursorRepository;
@@ -103,6 +106,21 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
     fetch_message: vi.fn(),
     fetch_attachments: vi.fn().mockResolvedValue([]),
   };
+  const mock_contacts: ContactConnector = {
+    list_contact_folders: vi
+      .fn()
+      .mockResolvedValue([{ folder_id: 'default', display_name: 'Contacts', is_default: true }]),
+    fetch_contact_delta: vi
+      .fn()
+      .mockResolvedValue({ delta_link: 'https://delta/contacts', reset: false }),
+    fetch_contact: vi.fn(),
+    fetch_contact_photo: vi.fn().mockResolvedValue(undefined),
+    create_contact_folder: vi.fn(),
+    list_contacts: vi.fn().mockResolvedValue([]),
+    create_contact: vi.fn(),
+    update_contact: vi.fn(),
+    set_contact_photo: vi.fn(),
+  };
 
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
@@ -124,6 +142,7 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
 
   const container = new Container();
   container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
+  container.bind(CONTACT_CONNECTOR_TOKEN).toConstantValue(mock_contacts);
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(mock_cursors);
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
@@ -132,6 +151,7 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
   return {
     service: container.get(MailboxSyncService),
     mock_connector,
+    mock_contacts,
     mock_context,
     mock_manifests,
     mock_cursors,

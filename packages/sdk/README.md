@@ -39,6 +39,9 @@ const atlas = createAtlasInstance({
 
 // Outlook backup
 await atlas.outlook.backup('user@company.com');
+// Opt-in contact backup (Contacts.Read), then restore (Contacts.ReadWrite)
+const contactBackup = await atlas.outlook.backup('user@company.com', { includeContacts: true });
+await atlas.outlook.restoreContacts(contactBackup.snapshot.id);
 
 // OneDrive backup
 await atlas.onedrive.backup('user@company.com');
@@ -57,16 +60,16 @@ Exports can stream instead of writing a file: `atlas.outlook.save(snapshotId, { 
 
 ## API overview
 
-| Namespace / method          | Purpose                                  |
-| --------------------------- | ---------------------------------------- |
-| `atlas.outlook`             | Mailbox backup, restore, verify, catalog |
-| `atlas.onedrive`            | OneDrive backup and verification         |
-| `atlas.sharepoint`          | SharePoint site backup and restore       |
-| `atlas.getBucketStats()`    | Storage statistics                       |
-| `atlas.checkStorage()`      | S3 Object Lock readiness                 |
-| `atlas.validate()`          | S3 access, existing key and Graph token validation |
-| `atlas.replicateSnapshot()` | Cross-region replication                 |
-| `createStorageTarget()`     | Configure secondary S3 targets           |
+| Namespace / method          | Purpose                                                   |
+| --------------------------- | --------------------------------------------------------- |
+| `atlas.outlook`             | Mailbox backup, opt-in contacts, restore, verify, catalog |
+| `atlas.onedrive`            | OneDrive backup and verification                          |
+| `atlas.sharepoint`          | SharePoint site backup and restore                        |
+| `atlas.getBucketStats()`    | Storage statistics                                        |
+| `atlas.checkStorage()`      | S3 Object Lock readiness                                  |
+| `atlas.validate()`          | S3 access, existing key and Graph token validation        |
+| `atlas.replicateSnapshot()` | Cross-region replication                                  |
+| `createStorageTarget()`     | Configure secondary S3 targets                            |
 
 The SDK exports named public option/result types, error classes and `GRAPH_SERVICE_LIMITS`. Internal ports, DI tokens and container factories are not public API.
 

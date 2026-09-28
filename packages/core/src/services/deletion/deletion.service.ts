@@ -56,8 +56,11 @@ export class DeletionService implements DeletionUseCase {
       manifest_prefix,
       ...snapshot_pointers,
       `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${owner_id}/`,
+      `_meta/outlook-cursors/${owner_id}.json`,
       `data/${owner_id}/`,
       `attachments/${owner_id}/`,
+      `contacts/data/${owner_id}/`,
+      `contacts/photos/${owner_id}/`,
     ]);
   }
 
