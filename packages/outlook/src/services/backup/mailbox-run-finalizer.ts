@@ -3,6 +3,9 @@ import type {
   ContactFolder,
   ExcludedFolder,
   FailedItemLedger,
+  MailboxConfigConnector,
+  MailboxConfigRef,
+  MailFolder,
   MailboxDeltaCursorRepository,
   MailboxPurpose,
   Manifest,
@@ -21,18 +24,29 @@ import {
 } from '@/services/backup/mailbox-run-persister';
 import { sync_contacts_with_history } from '@/services/backup/contact-backup-orchestration';
 import type { ContactSyncResult } from '@/services/backup/contact-sync';
+import {
+  capture_mailbox_config,
+  type MailboxConfigCapture,
+} from '@/services/backup/mailbox-config-capture';
 
 export interface MailboxRunFinalization {
   readonly manifest: Manifest;
   readonly persisted: MailboxRunOutcome;
   readonly contact_count?: number;
   readonly contact_stored_objects: number;
-  readonly contact_errors: string[];
+  /** Contact and configuration failures that leave the run partial. */
+  readonly errors: string[];
+  readonly config_stored_objects: number;
+  readonly config_warnings: string[];
 }
 
 export interface MailboxRunFinalizationInput {
   readonly ctx: TenantContext;
   readonly connector?: ContactConnector | undefined;
+  readonly config_connector?: MailboxConfigConnector | undefined;
+  /** Every folder enumerated this run, to record rule folder paths. */
+  readonly folders: MailFolder[];
+  readonly mailbox_config: MailboxConfigRef | undefined;
   readonly manifests: ManifestRepository;
   readonly cursors: MailboxDeltaCursorRepository;
   readonly tenant_id: string;
@@ -116,11 +130,35 @@ function contact_object_totals(contacts: ContactSyncResult | undefined): {
   return { count, bytes };
 }
 
-/** Captures requested contacts, then writes the manifest before advancing either cursor. */
+async function capture_requested_config(
+  input: MailboxRunFinalizationInput,
+): Promise<MailboxConfigCapture> {
+  if (!input.config_connector || input.should_interrupt()) {
+    return {
+      ref: input.mailbox_config,
+      changed: false,
+      stored_objects: 0,
+      warnings: [],
+      errors: [],
+    };
+  }
+  return capture_mailbox_config({
+    ctx: input.ctx,
+    connector: input.config_connector,
+    tenant_id: input.tenant_id,
+    owner_id: input.owner_id,
+    folders: input.folders,
+    previous: input.mailbox_config,
+    object_lock_policy: input.options.object_lock_policy,
+  });
+}
+
+/** Captures contacts and configuration, then writes the manifest before advancing the cursor. */
 export async function finalize_mailbox_run(
   input: MailboxRunFinalizationInput,
 ): Promise<MailboxRunFinalization> {
   const capture = await capture_requested_contacts(input);
+  const config = await capture_requested_config(input);
   const contacts = capture.result;
   const totals = contact_object_totals(contacts);
   const base = build_manifest(
@@ -135,7 +173,7 @@ export async function finalize_mailbox_run(
       excluded_folders: input.excluded_folders,
     },
   );
-  const manifest = contacts
+  const with_contacts = contacts
     ? {
         ...base,
         total_objects: Math.max(base.total_objects, input.entries.length + totals.count),
@@ -145,6 +183,7 @@ export async function finalize_mailbox_run(
         contact_delta_links: contacts.delta_links,
       }
     : base;
+  const manifest = config.ref ? { ...with_contacts, mailbox_config: config.ref } : with_contacts;
   const persisted = await persist_mailbox_run(
     { manifests: input.manifests, cursors: input.cursors },
     input.ctx,
@@ -156,14 +195,17 @@ export async function finalize_mailbox_run(
       contact_delta_links: contacts?.delta_links ?? input.contact_links,
       contact_folders: contacts?.folders ?? input.contact_folders,
       failed_contacts: contacts?.failed ?? input.failed_contacts,
+      ...(config.ref ? { mailbox_config: config.ref } : {}),
     },
-    contacts?.changed ?? false,
+    (contacts?.changed ?? false) || config.changed,
   );
   return {
     manifest,
     persisted,
     contact_stored_objects: contacts?.stored ?? 0,
-    contact_errors: capture.error ? [capture.error] : (contacts?.errors ?? []),
+    errors: [...(capture.error ? [capture.error] : (contacts?.errors ?? [])), ...config.errors],
+    config_stored_objects: config.stored_objects,
+    config_warnings: config.warnings,
     ...(contacts ? { contact_count: totals.count } : {}),
   };
 }

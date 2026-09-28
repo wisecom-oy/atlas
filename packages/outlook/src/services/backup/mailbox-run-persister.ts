@@ -6,7 +6,12 @@ import type {
   Snapshot,
   TenantContext,
 } from '@wisecom/atlas-types';
-import type { ContactFolder, FailedItemLedger, MailboxDeltaCursor } from '@wisecom/atlas-types';
+import type {
+  ContactFolder,
+  FailedItemLedger,
+  MailboxConfigRef,
+  MailboxDeltaCursor,
+} from '@wisecom/atlas-types';
 import {
   mark_snapshot_completed,
   resolve_saved_delta_links,
@@ -22,6 +27,7 @@ export interface MailboxResumeState {
   readonly contact_links: Record<string, string>;
   readonly contact_folders: ContactFolder[];
   readonly failed_contacts: FailedItemLedger;
+  readonly mailbox_config: MailboxConfigRef | undefined;
 }
 
 /**
@@ -50,6 +56,7 @@ export async function resolve_resume_state(
     contact_links: cursor?.contact_delta_links ?? previous?.contact_delta_links ?? {},
     contact_folders: cursor?.contact_folders ?? previous?.contact_folders ?? [],
     failed_contacts: cursor?.failed_contacts ?? {},
+    mailbox_config: cursor?.mailbox_config ?? previous?.mailbox_config,
   };
 }
 
@@ -83,19 +90,19 @@ export async function persist_mailbox_run(
   snapshot: Snapshot,
   previous: Manifest | undefined,
   entry_count: number,
-  contact_state?: Pick<
+  cursor_state?: Pick<
     MailboxDeltaCursor,
-    'contact_delta_links' | 'contact_folders' | 'failed_contacts'
+    'contact_delta_links' | 'contact_folders' | 'failed_contacts' | 'mailbox_config'
   >,
-  has_contact_changes = false,
+  has_non_mail_changes = false,
 ): Promise<MailboxRunOutcome> {
-  const wrote_snapshot = entry_count > 0 || has_contact_changes || previous === undefined;
+  const wrote_snapshot = entry_count > 0 || has_non_mail_changes || previous === undefined;
   if (wrote_snapshot) await deps.manifests.save(ctx, manifest);
 
   await deps.cursors.save(ctx, {
     owner_id: manifest.owner_id,
     delta_links: manifest.delta_links,
-    ...contact_state,
+    ...cursor_state,
     updated_at: new Date().toISOString(),
   });
 

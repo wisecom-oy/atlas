@@ -75,6 +75,15 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
+    async restoreMailboxConfig(snapshot_id, options) {
+      const target = options?.targetMailbox;
+      const [result, cost_result] = await run_with_cost_tracking(() =>
+        restore.restore_mailbox_config(tenant_id, snapshot_id, {
+          ...(target ? { target_mailbox: target } : {}),
+        }),
+      );
+      return camelize({ ...result, graph_cost: cost_result });
+    },
     async save(snapshot_id, options) {
       return camelize(
         await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),

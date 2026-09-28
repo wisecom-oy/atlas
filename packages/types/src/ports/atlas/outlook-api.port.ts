@@ -4,6 +4,7 @@ import type {
   RestoreOptions,
   RestoreResult,
   ContactsRestoreResult,
+  MailboxConfigRestoreResult,
 } from '@/ports/restore/use-case.port';
 import type { SaveOptions, SaveResult } from '@/ports/save/use-case.port';
 import type { MailboxSummary, ReadMessageResult } from '@/ports/catalog/use-case.port';
@@ -53,6 +54,7 @@ export type OutlookBackupResult = Camelize<SyncResult>;
 export type OutlookVerificationResult = Camelize<VerificationResult>;
 export type OutlookRestoreResult = Camelize<RestoreResult>;
 export type OutlookContactsRestoreResult = Camelize<ContactsRestoreResult>;
+export type OutlookMailboxConfigRestoreResult = Camelize<MailboxConfigRestoreResult>;
 export type OutlookSaveResult = Camelize<SaveResult>;
 export type OutlookMailboxSummary = Camelize<MailboxSummary>;
 export type OutlookSnapshotManifest = Camelize<Manifest>;
@@ -75,6 +77,11 @@ export interface OutlookApi {
     snapshotId: string,
     options?: Pick<OutlookRestoreOptions, 'targetMailbox' | 'signal'>,
   ): Promise<OutlookContactsRestoreResult>;
+  /** Restores categories, mailbox settings, and inbox rules; `targetMailbox` overwrites another mailbox's settings. */
+  restoreMailboxConfig(
+    snapshotId: string,
+    options?: Pick<OutlookRestoreOptions, 'targetMailbox'>,
+  ): Promise<OutlookMailboxConfigRestoreResult>;
   save(snapshotId: string, options?: OutlookSaveOptions): Promise<OutlookSaveResult>;
   saveMailbox(mailboxId: string, options?: OutlookSaveOptions): Promise<OutlookSaveResult>;
   listMailboxes(): Promise<OutlookMailboxSummary[]>;

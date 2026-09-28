@@ -182,6 +182,7 @@ either way, by comparing the manifest checksum before anything is written.
 | Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`                                                   |
 | Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
 | Outlook contacts and photos                | Yes       | Graph JSON and photo bytes under `contacts/data/{mailbox}/{sha256}` and `contacts/photos/{mailbox}/{sha256}`           |
+| Outlook mailbox configuration              | Yes       | Inbox rules, categories, and mailbox settings as one Graph JSON document under `mailbox-config/{mailbox}/{sha256}`     |
 | Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                                                                 |
 | OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                         |
 | OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                         |
@@ -193,6 +194,8 @@ Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics.
 Manifests deserve special attention: they contain email subjects, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines and folder names are never exposed at rest in the S3 bucket.
 
 Contact folder names, contact JSON, photo references, and per-folder delta links are encrypted inside manifests and the mailbox cursor. Contact object names are not confidential: their owner segment can identify a mailbox, and their unkeyed SHA-256 suffix permits confirmation of known plaintext by someone who can list the bucket (tracked in [#446](https://github.com/wisecom-oy/atlas/issues/446)). `Contacts.ReadWrite` application consent also permits modifying contacts across the tenant. Keep it separate from backup-only credentials where possible.
+
+The mailbox configuration document holds automatic reply text and inbox rules, which can name forwarding addresses. It is encrypted like a message, but its key has the same unkeyed SHA-256 suffix as contact objects. `MailboxSettings.ReadWrite`, which `atlas outlook config restore` needs, lets the application create forwarding rules and change automatic replies in every mailbox it can access. Keep it off backup-only credentials. Restoring into another mailbox with `-T` copies the source mailbox's rules, including any forwarding, so review the source configuration first.
 
 ### OneDrive blobs and sidecars
 

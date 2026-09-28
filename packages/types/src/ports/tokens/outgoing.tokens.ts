@@ -1,6 +1,7 @@
 export const OBJECT_STORAGE_TOKEN = Symbol.for('ObjectStorage');
 export const MAILBOX_CONNECTOR_TOKEN = Symbol.for('MailboxConnector');
 export const CONTACT_CONNECTOR_TOKEN = Symbol.for('ContactConnector');
+export const MAILBOX_CONFIG_CONNECTOR_TOKEN = Symbol.for('MailboxConfigConnector');
 export const MANIFEST_REPOSITORY_TOKEN = Symbol.for('ManifestRepository');
 export const MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('MailboxDeltaCursorRepository');
 export const KEY_SERVICE_TOKEN = Symbol.for('KeyService');

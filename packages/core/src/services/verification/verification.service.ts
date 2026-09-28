@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
-import type { StoredContactEntry } from '@wisecom/atlas-types';
+import type { MailboxConfigRef, StoredContactEntry } from '@wisecom/atlas-types';
 import type {
   VerificationOptions,
   VerificationResult,
@@ -71,6 +71,7 @@ export class VerificationService implements VerificationUseCase {
       const { items, unverifiable } = collect_check_items(
         entries,
         resolve_contact_snapshot(chain).entries,
+        chain.find((manifest) => manifest.mailbox_config)?.mailbox_config,
       );
       emit_operation_progress(options, {
         operation: 'verify',
@@ -204,6 +205,7 @@ export class VerificationService implements VerificationUseCase {
 function collect_check_items(
   entries: ManifestEntry[],
   contacts: StoredContactEntry[],
+  mailbox_config: MailboxConfigRef | undefined,
 ): {
   items: CheckItem[];
   unverifiable: string[];
@@ -241,6 +243,14 @@ function collect_check_items(
         checksum: contact.photo.checksum,
       });
     }
+  }
+
+  if (mailbox_config) {
+    items.push({
+      id: 'mailbox-config',
+      storage_key: mailbox_config.storage_key,
+      checksum: mailbox_config.checksum,
+    });
   }
 
   return { items, unverifiable };

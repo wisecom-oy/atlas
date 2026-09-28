@@ -4,7 +4,7 @@ import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
-import type { ContactConnector } from '@wisecom/atlas-types';
+import type { ContactConnector, MailboxConfigConnector } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
@@ -35,6 +35,7 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   CONTACT_CONNECTOR_TOKEN,
+  MAILBOX_CONFIG_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
 
 const always_false = (): boolean => false;
@@ -48,6 +49,9 @@ export class MailboxSyncService implements BackupUseCase {
     @inject(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: MailboxDeltaCursorRepository,
     @inject(CONTACT_CONNECTOR_TOKEN) @optional() private readonly _contacts?: ContactConnector,
+    @inject(MAILBOX_CONFIG_CONNECTOR_TOKEN)
+    @optional()
+    private readonly _mailbox_config?: MailboxConfigConnector,
   ) {}
 
   /** Orchestrates a full or incremental mailbox backup across all (or filtered) folders. */
@@ -74,20 +78,13 @@ export class MailboxSyncService implements BackupUseCase {
       const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
-      const {
-        previous,
-        saved_links,
-        previous_entry_count,
-        mode,
-        contact_links,
-        contact_folders,
-        failed_contacts,
-      } = await resolve_resume_state(
+      const resume = await resolve_resume_state(
         { manifests: this._manifests, cursors: this._cursors },
         ctx,
         owner_id,
         options.force_full === true,
       );
+      const { saved_links, previous_entry_count, mode } = resume;
 
       const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
         folder_filter: options.folder_filter,
@@ -179,28 +176,26 @@ export class MailboxSyncService implements BackupUseCase {
       });
 
       const finalized = await finalize_mailbox_run({
+        ...resume,
         ctx,
         connector: this._contacts,
+        config_connector: this._mailbox_config,
+        folders: folder_selection.all_folders,
         manifests: this._manifests,
         cursors: this._cursors,
         tenant_id,
         owner_id,
         snapshot,
-        previous,
         entries: all_entries,
-        saved_links,
         new_links: new_delta_links,
-        contact_links,
-        contact_folders,
-        failed_contacts,
-        previous_entry_count,
         mailbox_purpose,
         excluded_folders,
         options,
         should_interrupt,
       });
-      stored += finalized.contact_stored_objects;
-      folder_errors.push(...finalized.contact_errors);
+      stored += finalized.contact_stored_objects + finalized.config_stored_objects;
+      folder_errors.push(...finalized.errors);
+      warnings.push(...finalized.config_warnings);
 
       interrupted ||= should_interrupt();
       emit_operation_progress(options, {

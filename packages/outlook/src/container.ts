@@ -2,6 +2,7 @@ import { type Container } from 'inversify';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   CONTACT_CONNECTOR_TOKEN,
+  MAILBOX_CONFIG_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
   BACKUP_USE_CASE_TOKEN,
@@ -13,6 +14,7 @@ import {
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import { GraphRestoreConnector } from '@/adapters/graph-restore-connector.adapter';
 import { GraphContactConnector } from '@/adapters/graph-contact-connector.adapter';
+import { GraphMailboxConfigConnector } from '@/adapters/graph-mailbox-config-connector.adapter';
 import { GraphMailboxDiscoveryAdapter } from '@/adapters/graph-mailbox-discovery.adapter';
 import { CostTrackingRestoreConnector } from '@/adapters/cost-tracking-restore-connector.adapter';
 import { RateLimitedGraphConnector } from '@wisecom/atlas-m365-graph';
@@ -48,6 +50,9 @@ export function bind_outlook(container: Container): void {
     .bind(CONTACT_CONNECTOR_TOKEN)
     .toDynamicValue((ctx) => ctx.get<RateLimitedGraphConnector>(MAILBOX_CONNECTOR_TOKEN))
     .inSingletonScope();
+  // ponytail: not behind the per-mailbox limiter; three reads per run after mail sync finishes,
+  // with with_graph_retry honouring Retry-After. Wrap it if config traffic grows.
+  container.bind(MAILBOX_CONFIG_CONNECTOR_TOKEN).to(GraphMailboxConfigConnector).inSingletonScope();
   container.bind(GraphRestoreConnector).toSelf().inSingletonScope();
   container
     .bind(RESTORE_CONNECTOR_TOKEN)

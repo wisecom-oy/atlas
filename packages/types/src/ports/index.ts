@@ -21,6 +21,7 @@ export type {
   MessageAttachment,
 } from './mail/connector.port';
 export type { ContactConnector } from './mail/contact-connector.port';
+export type { MailboxConfigConnector } from './mail/mailbox-config-connector.port';
 
 export type {
   TenantMailbox,
@@ -75,6 +76,8 @@ export type {
   RestoreResult,
   RestoreOptions,
   ContactsRestoreResult,
+  MailboxConfigRestoreResult,
+  SkippedMessageRule,
 } from './restore/use-case.port';
 
 export type { CatalogUseCase, MailboxSummary, ReadMessageResult } from './catalog/use-case.port';
@@ -130,6 +133,7 @@ export type {
   OutlookRestoreOptions,
   OutlookRestoreResult,
   OutlookContactsRestoreResult,
+  OutlookMailboxConfigRestoreResult,
   OutlookSaveOptions,
   OutlookSaveResult,
   OutlookMailboxSummary,

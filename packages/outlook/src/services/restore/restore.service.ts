@@ -1,10 +1,16 @@
+import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import { inject, injectable, optional } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
-import type { ContactConnector, ContactsRestoreResult } from '@wisecom/atlas-types';
+import type {
+  ContactConnector,
+  ContactsRestoreResult,
+  MailboxConfigConnector,
+  MailboxConfigRestoreResult,
+} from '@wisecom/atlas-types';
 import {
   build_folder_map,
   create_restore_root,
@@ -20,6 +26,7 @@ import {
 } from '@/services/restore/restore-execution-orchestrator';
 import { execute_restore_loop } from '@/services/restore/restore-loop-executor';
 import { restore_contact_snapshot } from '@/services/restore/restore-contact-snapshot';
+import { restore_mailbox_config_snapshot } from '@/services/restore/restore-mailbox-config-snapshot';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atlas-types';
@@ -29,6 +36,7 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
   CONTACT_CONNECTOR_TOKEN,
+  MAILBOX_CONFIG_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
 import {
   begin_operation_progress,
@@ -44,6 +52,9 @@ export class RestoreService implements RestoreUseCase {
     @inject(MAILBOX_CONNECTOR_TOKEN) private readonly _connector: MailboxConnector,
     @inject(RESTORE_CONNECTOR_TOKEN) private readonly _restore_connector: RestoreConnector,
     @inject(CONTACT_CONNECTOR_TOKEN) @optional() private readonly _contacts?: ContactConnector,
+    @inject(MAILBOX_CONFIG_CONNECTOR_TOKEN)
+    @optional()
+    private readonly _mailbox_config?: MailboxConfigConnector,
   ) {}
 
   /** Restores contacts as a separate operation so a mail restore never writes an address book implicitly. */
@@ -65,6 +76,21 @@ export class RestoreService implements RestoreUseCase {
     );
   }
 
+  /** Restores categories, then settings, then rules; a different target needs an explicit flag. */
+  async restore_mailbox_config(
+    tenant_id: string,
+    snapshot_id: string,
+    options: Pick<RestoreOptions, 'target_mailbox'> = {},
+  ): Promise<MailboxConfigRestoreResult> {
+    const deps = {
+      tenant_factory: this._tenant_factory,
+      manifests: this._manifests,
+      mailbox_connector: this._connector,
+      config_connector: this._mailbox_config,
+    };
+    return restore_mailbox_config_snapshot(deps, tenant_id, snapshot_id, options);
+  }
+
   /**
    * Restores messages from a snapshot back to the mailbox via Graph API.
    * Supports full snapshot, single folder, or single message scope.
@@ -83,7 +109,7 @@ export class RestoreService implements RestoreUseCase {
       const source_mailbox = manifest.owner_id;
       const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
 
-      await this.assert_mailbox_exists(tenant_id, target_mailbox);
+      await assert_mailbox_exists(this._connector, tenant_id, target_mailbox);
 
       const entries = await this.resolve_entries(ctx, manifest, source_mailbox, tenant_id, options);
       if (entries.length === 0) {
@@ -155,7 +181,7 @@ export class RestoreService implements RestoreUseCase {
     try {
       const target = options.target_mailbox?.toLowerCase() ?? owner_id;
 
-      await this.assert_mailbox_exists(tenant_id, target);
+      await assert_mailbox_exists(this._connector, tenant_id, target);
 
       const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
       if (manifests.length === 0) {
@@ -299,17 +325,6 @@ export class RestoreService implements RestoreUseCase {
       dashboard,
       options,
     );
-  }
-
-  /** Fails fast if the target mailbox does not exist in the tenant. */
-  private async assert_mailbox_exists(tenant_id: string, owner_id: string): Promise<void> {
-    const exists = await this._connector.mailbox_exists(tenant_id, owner_id);
-    if (!exists) {
-      throw new Error(
-        `Mailbox "${owner_id}" does not exist in the tenant. ` +
-          `Verify the email address and try again.`,
-      );
-    }
   }
 
   private finish_empty_result(snapshot_id: string, options: RestoreOptions): RestoreResult {

@@ -246,7 +246,7 @@ Contact backup is opt-in. It includes the default Contacts folder and nested cus
 
 ### `atlas outlook verify`
 
-Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object, message bodies, attachments, contacts, and contact photos**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
+Verify the full restorable state of a backup snapshot. Resolves the snapshot's merged manifest chain (delta manifests are not self-contained, so verification walks the same merged view a restore would draw from), then checks **every referenced object, message bodies, attachments, contacts, contact photos, and the mailbox configuration document**: each is downloaded, decrypted (which validates the AES-256-GCM authentication tag against tampering), re-hashed with SHA-256, and compared against the manifest checksum using constant-time comparison (`timingSafeEqual`).
 
 ```bash
 atlas outlook verify -m user@company.com -s <snapshot-id>
@@ -285,6 +285,23 @@ atlas outlook contacts restore -s <snapshot-id> -T jane.roe@example.com
 | `-t, --tenant <id>`    | Override tenant ID from config                |
 
 Requires `Contacts.ReadWrite`. An existing contact with the same first email address is updated in place if its writable fields differ. The command does not delete contacts already in the target mailbox. See [Outlook Backup](/outlook-backup) for collision and fidelity limits.
+
+### `atlas outlook config restore`
+
+Restore master categories, then mailbox settings, then inbox rules from the newest configuration at or before a snapshot.
+
+```bash
+atlas outlook config restore -s <snapshot-id>
+atlas outlook config restore -s <snapshot-id> -T jane.roe@example.com
+```
+
+| Option                 | Description                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `-s, --snapshot <id>`  | Snapshot whose configuration to restore (required)                             |
+| `-T, --target <email>` | Restore into another mailbox, overwriting its settings (defaults to the owner) |
+| `-t, --tenant <id>`    | Override tenant ID from config                                                 |
+
+Requires `MailboxSettings.ReadWrite`. Backup captures the configuration on every run with `MailboxSettings.Read`; there is no flag. Rule folder actions are remapped by folder path, and rules whose folder is missing in the target are skipped by name with a reason. Skipped rules or failed writes exit `2`. Nothing in the target is deleted. See [Outlook Backup](/outlook-backup#mailbox-configuration).
 
 ### `atlas outlook restore`
 

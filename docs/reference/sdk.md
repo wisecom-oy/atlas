@@ -323,24 +323,25 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 
 ## Outlook API Reference
 
-| Method                                  | CLI equivalent                      | Description                                                                                        |
-| --------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `backup(mailboxId, options?)`           | `atlas outlook backup -m`           | Backup a single mailbox                                                                            |
-| `verify(snapshotId, options?)`          | `atlas outlook verify`              | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
-| `restore(snapshotId, options?)`         | `atlas outlook restore -s`          | Restore from a snapshot                                                                            |
-| `restoreContacts(snapshotId, options?)` | `atlas outlook contacts restore -s` | Restore contact folders, contacts, and photos through the snapshot chain                           |
-| `restoreMailbox(mailboxId, options?)`   | `atlas outlook restore -m`          | Restore all snapshots for a mailbox                                                                |
-| `save(snapshotId, options?)`            | `atlas outlook save -s`             | Export snapshot as EML zip                                                                         |
-| `saveMailbox(mailboxId, options?)`      | `atlas outlook save -m`             | Export all snapshots as EML zip                                                                    |
-| `listMailboxes()`                       | `atlas outlook list`                | List backed-up mailboxes                                                                           |
-| `listSnapshots(mailboxId)`              | `atlas outlook list -m`             | List snapshots for a mailbox                                                                       |
-| `readMessage(snapshotId, messageRef)`   | `atlas outlook read`                | Read a single message                                                                              |
-| `checkMailboxStatus(mailboxId)`         | `atlas outlook status`              | Fast delta peek (pending changes)                                                                  |
-| `listAvailableMailboxes(options?)`      | _(discovery)_                       | List all tenant mailboxes via Graph                                                                |
-| `deleteMailboxData(mailboxId)`          | `atlas outlook delete -m`           | Delete all data for a mailbox                                                                      |
-| `deleteSnapshot(snapshotId)`            | `atlas outlook delete -s`           | Delete a single snapshot manifest                                                                  |
-| `purgeTenantData()`                     | `atlas delete --purge`              | Purge entire tenant bucket                                                                         |
-| `getMailboxStats(mailboxId)`            | `atlas stats -m`                    | Mailbox-level statistics                                                                           |
+| Method                                       | CLI equivalent                      | Description                                                                                        |
+| -------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`                | `atlas outlook backup -m`           | Backup a single mailbox                                                                            |
+| `verify(snapshotId, options?)`               | `atlas outlook verify`              | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
+| `restore(snapshotId, options?)`              | `atlas outlook restore -s`          | Restore from a snapshot                                                                            |
+| `restoreContacts(snapshotId, options?)`      | `atlas outlook contacts restore -s` | Restore contact folders, contacts, and photos through the snapshot chain                           |
+| `restoreMailboxConfig(snapshotId, options?)` | `atlas outlook config restore -s`   | Restore categories, mailbox settings, then inbox rules                                             |
+| `restoreMailbox(mailboxId, options?)`        | `atlas outlook restore -m`          | Restore all snapshots for a mailbox                                                                |
+| `save(snapshotId, options?)`                 | `atlas outlook save -s`             | Export snapshot as EML zip                                                                         |
+| `saveMailbox(mailboxId, options?)`           | `atlas outlook save -m`             | Export all snapshots as EML zip                                                                    |
+| `listMailboxes()`                            | `atlas outlook list`                | List backed-up mailboxes                                                                           |
+| `listSnapshots(mailboxId)`                   | `atlas outlook list -m`             | List snapshots for a mailbox                                                                       |
+| `readMessage(snapshotId, messageRef)`        | `atlas outlook read`                | Read a single message                                                                              |
+| `checkMailboxStatus(mailboxId)`              | `atlas outlook status`              | Fast delta peek (pending changes)                                                                  |
+| `listAvailableMailboxes(options?)`           | _(discovery)_                       | List all tenant mailboxes via Graph                                                                |
+| `deleteMailboxData(mailboxId)`               | `atlas outlook delete -m`           | Delete all data for a mailbox                                                                      |
+| `deleteSnapshot(snapshotId)`                 | `atlas outlook delete -s`           | Delete a single snapshot manifest                                                                  |
+| `purgeTenantData()`                          | `atlas delete --purge`              | Purge entire tenant bucket                                                                         |
+| `getMailboxStats(mailboxId)`                 | `atlas stats -m`                    | Mailbox-level statistics                                                                           |
 
 ```typescript
 const backup = await atlas.outlook.backup('john.doe@example.com', { includeContacts: true });
@@ -350,7 +351,9 @@ const result = await atlas.outlook.restoreContacts(backup.snapshot.id, {
 if (result.errors.length) console.error(result.errors);
 ```
 
-Contact backup requires `Contacts.Read` application permission; contact restore requires `Contacts.ReadWrite`. `restoreContacts` accepts `targetMailbox` and `signal` and returns `restoredCount`, `errors`, and `interrupted`. `verify` checks contact JSON and photo objects when present. `save`, `restore`, and `restoreMailbox` remain mail-only; see [Outlook Backup](/outlook-backup).
+Contact backup requires `Contacts.Read` application permission; contact restore requires `Contacts.ReadWrite`. `restoreContacts` accepts `targetMailbox` and `signal` and returns `restoredCount`, `errors`, and `interrupted`. `verify` checks contact JSON, photo, and mailbox configuration objects when present. `save`, `restore`, and `restoreMailbox` remain mail-only; see [Outlook Backup](/outlook-backup).
+
+Every backup captures inbox rules, categories, and mailbox settings with `MailboxSettings.Read`. `restoreMailboxConfig` needs `MailboxSettings.ReadWrite`, accepts `targetMailbox`, and returns `categoriesRestored`, `settingsRestored`, `rulesRestored`, `skippedRules` (`{ name, reason }`), and `errors`. Passing `targetMailbox` overwrites that mailbox's settings. See [Outlook Backup](/outlook-backup#mailbox-configuration).
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
