@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { VerificationService } from '@/services/verification/verification.service';
 import type {
-  Manifest,
-  ManifestEntry,
   TenantContext,
   TenantContextFactory,
   ManifestRepository,
@@ -11,54 +9,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
-
-function make_entry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-  return {
-    object_id: 'obj-1',
-    storage_key: 'data/mailbox/key-1',
-    checksum: '',
-    size_bytes: 0,
-    ...overrides,
-  };
-}
-
-function make_manifest(entries: ManifestEntry[]): Manifest {
-  return {
-    id: 'manifest-1',
-    tenant_id: 'tenant-1',
-    owner_id: 'mailbox-1',
-    snapshot_id: 'snapshot-1',
-    created_at: new Date('2026-01-01T00:00:00.000Z'),
-    total_objects: entries.length,
-    total_size_bytes: entries.reduce((sum, entry) => sum + entry.size_bytes, 0),
-    delta_links: {},
-    entries,
-  };
-}
-
-function make_storage(): ObjectStorage {
-  return {
-    put: vi.fn(),
-    get: vi.fn(),
-    delete: vi.fn(),
-    delete_version: vi.fn(),
-    exists: vi.fn(),
-    list_stale: vi.fn(async () => []),
-    list: vi.fn(),
-    list_versions: vi.fn(),
-    begin_multipart_upload: vi.fn().mockResolvedValue({
-      upload_part: vi.fn(),
-      complete: vi.fn(),
-      abort: vi.fn(),
-    }),
-    copy: vi.fn(),
-    get_with_etag: vi.fn(),
-    get_stream: vi.fn(),
-    apply_default_retention: vi.fn(),
-    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
-    probe_immutability: vi.fn(),
-  };
-}
+import { make_entry, make_manifest, make_storage } from './verification.fixtures';
 
 describe('VerificationService', () => {
   let storage: ObjectStorage;
@@ -242,6 +193,29 @@ describe('VerificationService', () => {
     expect(result.total_checked).toBe(2);
     expect(result.failed).toEqual(['contact/contact-1/photo']);
     expect(result.passed).toBe(1);
+  });
+
+  it('fails when the configuration inherited from an earlier snapshot is corrupt', async () => {
+    const config = Buffer.from('{"message_rules":[]}');
+    const older = {
+      ...make_manifest([]),
+      snapshot_id: 'snap-1',
+      mailbox_config: {
+        storage_key: 'mailbox-config/one',
+        checksum: createHash('sha256').update(config).digest('hex'),
+        size_bytes: config.length,
+        captured_at: '2026-01-01T00:00:00Z',
+      },
+    };
+    const target = { ...make_manifest([]), created_at: new Date('2026-02-01T00:00:00Z') };
+    vi.mocked(manifests.find_by_snapshot).mockResolvedValue(target);
+    vi.mocked(manifests.list_all_manifests).mockResolvedValue([target, older]);
+    vi.mocked(storage.get).mockResolvedValue(Buffer.from('tampered'));
+
+    const result = await service.verify_snapshot_integrity('tenant-1', 'snap-2');
+
+    expect(result.total_checked).toBe(1);
+    expect(result.failed).toEqual(['mailbox-config']);
   });
 
   it('excludes manifests newer than the target and other owners from the chain', async () => {

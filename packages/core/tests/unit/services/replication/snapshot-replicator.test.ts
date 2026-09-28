@@ -177,6 +177,26 @@ describe('replicate_snapshot_to_target', () => {
     );
   });
 
+  it('copies the mailbox configuration object with its snapshot', async () => {
+    const config_ref = {
+      storage_key: 'mailbox-config/mailbox-1/hash',
+      checksum: 'hash',
+      size_bytes: 2,
+      captured_at: '2026-01-01T00:00:00Z',
+    };
+    const manifest = { ...make_manifest([]), mailbox_config: config_ref };
+    vi.mocked(target_storage.exists).mockResolvedValue(false);
+    vi.mocked(source_storage.get).mockResolvedValue(Buffer.from('encrypted-config'));
+    vi.mocked(target_storage.get).mockResolvedValue(Buffer.from('encrypted-config'));
+
+    await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
+
+    expect(target_storage.put).toHaveBeenCalledWith(
+      config_ref.storage_key,
+      Buffer.from('encrypted-config'),
+    );
+  });
+
   it('skips objects that already exist on target', async () => {
     const entry = make_entry({ storage_key: 'data/mailbox-1/hash-1' });
     const manifest = make_manifest([entry]);

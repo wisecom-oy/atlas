@@ -29,6 +29,7 @@ import {
   type OutlookMailboxesOptions,
 } from '@/commands/outlook-mgmt.handler';
 import { execute_outlook_contacts_restore } from '@/commands/outlook-contacts-restore.handler';
+import { execute_outlook_config_restore } from '@/commands/outlook-config-restore.handler';
 import {
   reject_retired_short,
   with_folder,
@@ -60,6 +61,7 @@ export function register_outlook_command(program: Command, get_container: Contai
   register_outlook_status(group, get_container);
   register_outlook_mailboxes(group, get_container);
   register_outlook_contacts(group, get_container);
+  register_outlook_config(group, get_container);
 }
 
 function register_outlook_backup(group: Command, get_container: ContainerFactory): void {
@@ -180,6 +182,23 @@ function register_outlook_contacts(group: Command, get_container: ContainerFacto
   with_required_snapshot(restore, 'snapshot containing contacts');
   with_tenant(restore).action((options: { snapshot: string; tenant?: string; target?: string }) =>
     execute_outlook_contacts_restore(get_container(), options),
+  );
+}
+
+function register_outlook_config(group: Command, get_container: ContainerFactory): void {
+  const config = group
+    .command('config')
+    .description('Mailbox configuration (inbox rules, categories, settings) operations');
+  const restore = config
+    .command('restore')
+    .description('Restore categories, then mailbox settings, then inbox rules from a snapshot')
+    .option(
+      '-T, --target <email>',
+      'restore into another mailbox, overwriting its settings (defaults to snapshot owner)',
+    );
+  with_required_snapshot(restore, 'snapshot containing mailbox configuration');
+  with_tenant(restore).action((options: { snapshot: string; tenant?: string; target?: string }) =>
+    execute_outlook_config_restore(get_container(), options),
   );
 }
 

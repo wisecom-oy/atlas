@@ -1,6 +1,7 @@
 import type { ExcludedFolder } from '@/ports/mail/connector.port';
 import type { ContactFolder, ContactManifestEntry } from '@/domain/contact';
 import type { FailedItemLedger } from '@/domain/failed-item';
+import type { MailboxConfigRef } from '@/domain/mailbox-config';
 /** Mailbox purpose from Graph mailboxSettings.userPurpose. 'shared' identifies shared mailboxes. */
 export type MailboxPurpose = 'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others';
 
@@ -51,6 +52,8 @@ export interface Manifest {
   readonly contact_folders?: ContactFolder[];
   /** Contact changes are separate from message entries and carry their own tombstones. */
   readonly contact_entries?: ContactManifestEntry[];
+  /** Inbox rules, master categories, and mailbox settings captured by this run. */
+  readonly mailbox_config?: MailboxConfigRef;
   readonly entries: ManifestEntry[];
 }
 
@@ -114,5 +117,7 @@ export interface MailboxDeltaCursor {
   readonly contact_delta_links?: Record<string, string>;
   readonly contact_folders?: ContactFolder[];
   readonly failed_contacts?: FailedItemLedger;
+  /** Last captured configuration, so an unchanged configuration writes no snapshot. */
+  readonly mailbox_config?: MailboxConfigRef;
   readonly updated_at: string;
 }

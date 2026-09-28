@@ -61,6 +61,7 @@ export class DeletionService implements DeletionUseCase {
       `attachments/${owner_id}/`,
       `contacts/data/${owner_id}/`,
       `contacts/photos/${owner_id}/`,
+      `mailbox-config/${owner_id}/`,
     ]);
   }
 

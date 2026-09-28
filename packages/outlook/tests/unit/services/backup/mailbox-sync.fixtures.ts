@@ -8,9 +8,10 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  MAILBOX_CONFIG_CONNECTOR_TOKEN,
 } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailMessage, DeltaSyncResult } from '@wisecom/atlas-types';
-import type { ContactConnector } from '@wisecom/atlas-types';
+import type { ContactConnector, MailboxConfigConnector } from '@wisecom/atlas-types';
 import type { ManifestRepository, MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { ObjectStorage } from '@wisecom/atlas-types';
@@ -89,7 +90,10 @@ export interface MailboxSyncHarness {
   readonly mock_cursors: MailboxDeltaCursorRepository;
 }
 
-export function create_mailbox_sync_harness(): MailboxSyncHarness {
+/** Builds the service with mocked ports; a config connector is bound only when one is passed. */
+export function create_mailbox_sync_harness(
+  mailbox_config?: MailboxConfigConnector,
+): MailboxSyncHarness {
   const mock_context = make_mock_context();
   const mock_connector: MailboxConnector = {
     list_mailboxes: vi.fn().mockResolvedValue([]),
@@ -146,6 +150,9 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(mock_cursors);
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+  if (mailbox_config) {
+    container.bind(MAILBOX_CONFIG_CONNECTOR_TOKEN).toConstantValue(mailbox_config);
+  }
   container.bind(MailboxSyncService).toSelf();
 
   return {

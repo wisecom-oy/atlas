@@ -39,6 +39,7 @@ atlas outlook backup --mailbox user@company.com
 # Opt-in contact folders, contacts, and photos (Contacts.Read application permission)
 atlas outlook backup --mailbox user@company.com --include-contacts
 atlas outlook contacts restore --snapshot <snapshot-id> # requires Contacts.ReadWrite
+atlas outlook config restore --snapshot <snapshot-id>   # rules, categories, settings; requires MailboxSettings.ReadWrite
 
 # OneDrive
 atlas onedrive backup -o user@company.com
@@ -54,6 +55,7 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 | `atlas outlook backup`           | Back up mailboxes to object storage                  |
 | `atlas outlook restore`          | Restore from a snapshot                              |
 | `atlas outlook contacts restore` | Restore contact folders and contacts from a snapshot |
+| `atlas outlook config restore`   | Restore inbox rules, categories, and settings        |
 | `atlas outlook verify`           | Verify snapshot integrity                            |
 | `atlas onedrive backup`          | Back up a user's OneDrive                            |
 | `atlas sharepoint backup`        | Back up a SharePoint site                            |

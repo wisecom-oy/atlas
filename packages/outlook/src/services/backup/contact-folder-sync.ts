@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   clear_item_failure,
   record_item_failure,
@@ -14,6 +13,7 @@ import type {
   StoredContactEntry,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { store_content_addressed_blob as store_blob } from '@/services/backup/content-addressed-blob';
 
 export interface ContactFolderSyncOptions {
   should_interrupt?: (() => boolean) | undefined;
@@ -43,26 +43,6 @@ interface FolderState {
   readonly seen: Set<string>;
   failed: FailedItemLedger;
   stored: number;
-}
-
-interface StoredContactBlob {
-  readonly storage_key: string;
-  readonly checksum: string;
-  readonly size_bytes: number;
-  readonly new_object: boolean;
-}
-
-async function store_blob(
-  ctx: TenantContext,
-  prefix: string,
-  payload: Buffer,
-  policy?: ObjectLockPolicy,
-): Promise<StoredContactBlob> {
-  const checksum = createHash('sha256').update(payload).digest('hex');
-  const storage_key = `${prefix}/${checksum}`;
-  const exists = await ctx.storage.exists(storage_key);
-  if (!exists) await ctx.storage.put(storage_key, ctx.encrypt(payload, storage_key), {}, policy);
-  return { storage_key, checksum, size_bytes: payload.length, new_object: !exists };
 }
 
 async function store_contact(

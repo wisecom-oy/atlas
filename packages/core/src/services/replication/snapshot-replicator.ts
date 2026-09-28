@@ -33,6 +33,7 @@ export function collect_storage_keys(manifest: Manifest): string[] {
     keys.push(contact.storage_key);
     if (contact.photo) keys.push(contact.photo.storage_key);
   }
+  if (manifest.mailbox_config) keys.push(manifest.mailbox_config.storage_key);
   return keys;
 }
 

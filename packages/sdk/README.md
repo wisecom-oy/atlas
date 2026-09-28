@@ -42,6 +42,8 @@ await atlas.outlook.backup('user@company.com');
 // Opt-in contact backup (Contacts.Read), then restore (Contacts.ReadWrite)
 const contactBackup = await atlas.outlook.backup('user@company.com', { includeContacts: true });
 await atlas.outlook.restoreContacts(contactBackup.snapshot.id);
+// Inbox rules, categories, and settings are captured on every backup (MailboxSettings.ReadWrite to restore)
+await atlas.outlook.restoreMailboxConfig(contactBackup.snapshot.id);
 
 // OneDrive backup
 await atlas.onedrive.backup('user@company.com');

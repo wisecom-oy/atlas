@@ -23,6 +23,7 @@ export type {
   OutlookRestoreOptions,
   OutlookRestoreResult,
   OutlookContactsRestoreResult,
+  OutlookMailboxConfigRestoreResult,
   OutlookSaveOptions,
   OutlookSaveResult,
   OutlookMailboxSummary,

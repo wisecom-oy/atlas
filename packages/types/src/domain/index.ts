@@ -10,6 +10,11 @@ export type {
   StoredContactEntry,
 } from './contact';
 export type {
+  MailboxConfigSource,
+  MailboxConfigDocument,
+  MailboxConfigRef,
+} from './mailbox-config';
+export type {
   Manifest,
   MailboxDeltaCursor,
   MailboxPurpose,

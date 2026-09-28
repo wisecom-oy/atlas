@@ -52,17 +52,18 @@ For managed service providers backing up multiple tenants, this isolation means 
 
 ### Outlook
 
-| Prefix                                         | Contents                                                        | Security notes                                                             |
-| ---------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                    | **Most critical object.** Losing it means losing access to all tenant data |
-| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
-| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
-| `_meta/outlook-cursors/{mailbox}.json`         | Encrypted mail and contact delta links, contact retry ledger    | Saved after its manifest so no captured change is skipped                  |
-| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
-| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
-| `contacts/data/{mailbox}/`                     | Encrypted Graph contact JSON when opted in                      | Plaintext hash and mailbox identifier are visible in object keys           |
-| `contacts/photos/{mailbox}/`                   | Encrypted contact photos when available                         | Plaintext hash and mailbox identifier are visible in object keys           |
-| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, folder names, and delta URLs, all encrypted             |
+| Prefix                                         | Contents                                                                       | Security notes                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                                   | **Most critical object.** Losing it means losing access to all tenant data |
+| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest                                         | Encrypted; updated after each successful manifest upload                   |
+| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                                   | Encrypted; avoids a tenant-wide manifest listing                           |
+| `_meta/outlook-cursors/{mailbox}.json`         | Encrypted mail and contact delta links, contact retry ledger, config reference | Saved after its manifest so no captured change is skipped                  |
+| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256                | Content is encrypted; S3 metadata is not                                   |
+| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256                     | Content is encrypted; S3 metadata is not                                   |
+| `contacts/data/{mailbox}/`                     | Encrypted Graph contact JSON when opted in                                     | Plaintext hash and mailbox identifier are visible in object keys           |
+| `contacts/photos/{mailbox}/`                   | Encrypted contact photos when available                                        | Plaintext hash and mailbox identifier are visible in object keys           |
+| `mailbox-config/{mailbox}/`                    | Encrypted inbox rules, categories, and mailbox settings                        | Plaintext hash and mailbox identifier are visible in object keys           |
+| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                                            | Contains subjects, folder names, and delta URLs, all encrypted             |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
 
@@ -79,6 +80,10 @@ If Graph cannot produce MIME for a single item, that message falls back to the l
 #### Contact objects
 
 Contact and photo blobs use their plaintext SHA-256 as the object key. The manifest records contact changes, deletion tombstones, and a full contact-folder inventory, including empty folders. The encrypted mailbox cursor tracks separate mail and contact delta links and a retry ledger for contacts that could not be captured. Contact objects are replicated with their snapshot manifests, and `atlas outlook delete -m` removes contact blobs and the mailbox cursor along with mail.
+
+#### Mailbox configuration objects
+
+Each backup run captures inbox rules, master categories, and mailbox settings as one JSON document keyed by its plaintext SHA-256. A run whose configuration is unchanged writes no object. The manifest and cursor carry a reference (key, checksum, size, capture time) to the current document, so a snapshot inherits the configuration of the newest earlier run that captured one. Configuration objects are verified and replicated with their snapshots and deleted by `atlas outlook delete -m`.
 
 #### Shared mailbox tracking
 

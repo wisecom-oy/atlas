@@ -63,6 +63,8 @@ export interface ResolvedBackupFolders {
   readonly warnings: string[];
   /** Folders the connector pruned, for the manifest and the run summary. */
   readonly excluded: ExcludedFolder[];
+  /** Every enumerated folder before `--folder` narrowing, for resolving rule folder paths. */
+  readonly all_folders: MailFolder[];
 }
 
 /**
@@ -91,5 +93,10 @@ export async function resolve_backup_folders(
   });
 
   const selection = apply_folder_filter(all_folders, options.folder_filter);
-  return { folders: selection.folders, warnings: selection.warnings, excluded };
+  return {
+    folders: selection.folders,
+    all_folders,
+    warnings: selection.warnings,
+    excluded,
+  };
 }

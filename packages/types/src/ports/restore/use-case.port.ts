@@ -23,6 +23,25 @@ export interface ContactsRestoreResult {
   readonly graph_cost?: OperationCost;
 }
 
+/** A rule restore could not recreate, with the reason an operator needs to fix it by hand. */
+export interface SkippedMessageRule {
+  readonly name: string;
+  readonly reason: string;
+}
+
+export interface MailboxConfigRestoreResult {
+  readonly snapshot_id: string;
+  /** Categories created, or whose colour was changed to match the snapshot. */
+  readonly categories_restored: number;
+  /** True when the target's mailbox settings were changed. */
+  readonly settings_restored: boolean;
+  /** Rules created, or updated to match the snapshot. */
+  readonly rules_restored: number;
+  readonly skipped_rules: SkippedMessageRule[];
+  readonly errors: string[];
+  readonly graph_cost?: OperationCost;
+}
+
 export interface RestoreOptions extends OperationControlOptions {
   readonly folder_name?: string;
   readonly message_ref?: string;
@@ -58,4 +77,10 @@ export interface RestoreUseCase {
     snapshot_id: string,
     options?: Pick<RestoreOptions, 'target_mailbox' | 'should_interrupt'>,
   ): Promise<ContactsRestoreResult>;
+  /** Restores the snapshot's categories, then mailbox settings, then inbox rules. */
+  restore_mailbox_config(
+    tenant_id: string,
+    snapshot_id: string,
+    options?: Pick<RestoreOptions, 'target_mailbox'>,
+  ): Promise<MailboxConfigRestoreResult>;
 }
