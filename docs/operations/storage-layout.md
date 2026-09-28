@@ -9,6 +9,7 @@ atlas-{tenant_id}/
 │   ├── outlook-manifests/                   # encrypted Outlook lookup pointers
 │   │   ├── owners/{mailbox_id}/latest.json  # latest manifest key for incremental backup
 │   │   └── snapshots/{snapshot_id}.json     # manifest key for direct snapshot lookup
+│   ├── outlook-cursors/{mailbox_id}.json   # encrypted mail and contact delta links, contact retry ledger
 │   └── replication/                         # replication status sidecars
 │       ├── {mailbox_id}/                    # Outlook replication status
 │       ├── onedrive/{owner_id}/             # OneDrive replication status
@@ -19,6 +20,9 @@ atlas-{tenant_id}/
 ├── attachments/
 │   └── {mailbox_id}/
 │       └── {sha256}                         # encrypted attachment (legacy JSON entries only)
+├── contacts/
+│   ├── data/{mailbox_id}/{sha256}           # encrypted Graph contact JSON
+│   └── photos/{mailbox_id}/{sha256}         # encrypted contact photo bytes
 ├── manifests/
 │   └── {mailbox_id}/
 │       └── {snapshot_id}.json               # encrypted Outlook manifest
@@ -53,8 +57,11 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                    | **Most critical object.** Losing it means losing access to all tenant data |
 | `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
 | `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
+| `_meta/outlook-cursors/{mailbox}.json`         | Encrypted mail and contact delta links, contact retry ledger    | Saved after its manifest so no captured change is skipped                  |
 | `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
 | `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
+| `contacts/data/{mailbox}/`                     | Encrypted Graph contact JSON when opted in                      | Plaintext hash and mailbox identifier are visible in object keys           |
+| `contacts/photos/{mailbox}/`                   | Encrypted contact photos when available                         | Plaintext hash and mailbox identifier are visible in object keys           |
 | `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, folder names, and delta URLs, all encrypted             |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
@@ -68,6 +75,10 @@ Snapshots taken by this version store the message's original RFC 5322 MIME, fetc
 Legacy snapshots store a Graph JSON payload with each attachment as a separate content-addressed object under `attachments/{mailbox}/{sha256}`. Their manifest entries have no `payload_format` field. Nothing about them changes: they stay readable, restorable, verifiable, and exportable exactly as before, and a mailbox whose history spans the upgrade will contain both kinds in the same snapshot chain.
 
 If Graph cannot produce MIME for a single item, that message falls back to the legacy JSON form inside an otherwise MIME snapshot. `payload_format` is how an operator tells the two apart.
+
+#### Contact objects
+
+Contact and photo blobs use their plaintext SHA-256 as the object key. The manifest records contact changes, deletion tombstones, and a full contact-folder inventory, including empty folders. The encrypted mailbox cursor tracks separate mail and contact delta links and a retry ledger for contacts that could not be captured. Contact objects are replicated with their snapshot manifests, and `atlas outlook delete -m` removes contact blobs and the mailbox cursor along with mail.
 
 #### Shared mailbox tracking
 

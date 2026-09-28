@@ -1,4 +1,6 @@
 import type { ExcludedFolder } from '@/ports/mail/connector.port';
+import type { ContactFolder, ContactManifestEntry } from '@/domain/contact';
+import type { FailedItemLedger } from '@/domain/failed-item';
 /** Mailbox purpose from Graph mailboxSettings.userPurpose. 'shared' identifies shared mailboxes. */
 export type MailboxPurpose = 'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others';
 
@@ -32,6 +34,7 @@ export interface Manifest {
   readonly total_size_bytes: number;
   /** Maps folder_id -> full @odata.deltaLink URL for the next incremental sync. */
   readonly delta_links: Record<string, string>;
+  readonly contact_delta_links?: Record<string, string>;
   /**
    * ID format the delta links and entry IDs were captured with. Absent means
    * legacy mutable IDs — the next sync must restart full (issue #48).
@@ -44,6 +47,10 @@ export interface Manifest {
    * answer "was folder X captured?" without knowing which flags were passed.
    */
   readonly excluded_folders?: ExcludedFolder[];
+  /** Full folder inventory for this snapshot, including empty contact folders. */
+  readonly contact_folders?: ContactFolder[];
+  /** Contact changes are separate from message entries and carry their own tombstones. */
+  readonly contact_entries?: ContactManifestEntry[];
   readonly entries: ManifestEntry[];
 }
 
@@ -103,5 +110,9 @@ export interface MailboxDeltaCursor {
   readonly owner_id: string;
   /** Delta link per Graph folder id, for folders whose last pass completed. */
   readonly delta_links: Record<string, string>;
+  /** Contact links are independent of mail folder links. */
+  readonly contact_delta_links?: Record<string, string>;
+  readonly contact_folders?: ContactFolder[];
+  readonly failed_contacts?: FailedItemLedger;
   readonly updated_at: string;
 }

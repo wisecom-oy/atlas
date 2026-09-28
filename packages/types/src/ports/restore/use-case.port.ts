@@ -15,6 +15,13 @@ export interface RestoreResult {
   readonly graph_cost?: OperationCost;
   readonly interrupted: boolean;
 }
+export interface ContactsRestoreResult {
+  readonly snapshot_id: string;
+  readonly restored_count: number;
+  readonly errors: string[];
+  readonly interrupted: boolean;
+  readonly graph_cost?: OperationCost;
+}
 
 export interface RestoreOptions extends OperationControlOptions {
   readonly folder_name?: string;
@@ -45,4 +52,10 @@ export interface RestoreUseCase {
     owner_id: string,
     options?: RestoreOptions,
   ): Promise<RestoreResult>;
+  /** Restores contact entries through the requested snapshot's delta chain. */
+  restore_contacts(
+    tenant_id: string,
+    snapshot_id: string,
+    options?: Pick<RestoreOptions, 'target_mailbox' | 'should_interrupt'>,
+  ): Promise<ContactsRestoreResult>;
 }

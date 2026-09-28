@@ -65,11 +65,11 @@ try {
 
 `atlas.validate(): Promise<void>` is opt-in. It checks three stages, in order: `HeadBucket` for `atlas-{tenantId}`, the existing wrapped tenant key when one is present, then a Graph token from the instance's shared authentication provider with `https://graph.microsoft.com/.default` scope. A cached valid token may be reused. Success resolves without returning a token, key material or other data.
 
-| Validation stage | Failure | Operator action |
-| ---------------- | ------- | --------------- |
-| S3 `HeadBucket` | `StorageError`, `ATLAS_STORAGE_FAILURE` | Check endpoint, region, credentials, bucket existence and `s3:ListBucket` access. A missing bucket fails; provision it separately. |
+| Validation stage                               | Failure                                          | Operator action                                                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| S3 `HeadBucket`                                | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check endpoint, region, credentials, bucket existence and `s3:ListBucket` access. A missing bucket fails; provision it separately.     |
 | `_meta/dek.enc` unwrap, when the object exists | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, verify that the tenant row and passphrase row match. |
-| Graph token acquisition | `AuthError`, `ATLAS_AUTH_DENIED` | Check tenant ID, client ID, client secret and connectivity to Microsoft Entra ID. |
+| Graph token acquisition                        | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check tenant ID, client ID, client secret and connectivity to Microsoft Entra ID.                                                      |
 
 These codes identify the failed validation stage, not necessarily bad credentials: DNS, TLS and transport failures can also cause rejection. Stages stop on the first failure, so Graph is not probed after an S3 or passphrase failure. Each error retains the original failure as `cause`. Do not publish raw provider diagnostics without redacting tenant and credential details.
 
@@ -263,10 +263,10 @@ if (result.interrupted) {
 }
 ```
 
-| Option       | Type                                      | Description                                                                                     |
-| ------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.            |
-| `signal`     | `AbortSignal`                             | Requests cancellation. The transfer in flight is ended and the run stops at a safe boundary.    |
+| Option       | Type                                      | Description                                                                                  |
+| ------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.         |
+| `signal`     | `AbortSignal`                             | Requests cancellation. The transfer in flight is ended and the run stops at a safe boundary. |
 
 `atlas.outlook.backup` accepts a third option, `hardStopSignal`, for the case where graceful is not fast enough. This is the escalation the CLI wires to a second Ctrl+C:
 
@@ -323,23 +323,34 @@ The callback is optional and runs inline with the operation. Keep it fast; move 
 
 ## Outlook API Reference
 
-| Method                                | CLI equivalent             | Description                                                                                        |
-| ------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Backup a single mailbox                                                                            |
-| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
-| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                            |
-| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox                                                                |
-| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export snapshot as EML zip                                                                         |
-| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots as EML zip                                                                    |
-| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                           |
-| `listSnapshots(mailboxId)`            | `atlas outlook list -m`    | List snapshots for a mailbox                                                                       |
-| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read a single message                                                                              |
-| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Fast delta peek (pending changes)                                                                  |
-| `listAvailableMailboxes(options?)`    | _(discovery)_              | List all tenant mailboxes via Graph                                                                |
-| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                      |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete a single snapshot manifest                                                                  |
-| `purgeTenantData()`                   | `atlas delete --purge`     | Purge entire tenant bucket                                                                         |
-| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                           |
+| Method                                  | CLI equivalent                      | Description                                                                                        |
+| --------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`           | `atlas outlook backup -m`           | Backup a single mailbox                                                                            |
+| `verify(snapshotId, options?)`          | `atlas outlook verify`              | Verify full restorable state (chain-aware, incl. attachments); `{ fast: true }` for existence-only |
+| `restore(snapshotId, options?)`         | `atlas outlook restore -s`          | Restore from a snapshot                                                                            |
+| `restoreContacts(snapshotId, options?)` | `atlas outlook contacts restore -s` | Restore contact folders, contacts, and photos through the snapshot chain                           |
+| `restoreMailbox(mailboxId, options?)`   | `atlas outlook restore -m`          | Restore all snapshots for a mailbox                                                                |
+| `save(snapshotId, options?)`            | `atlas outlook save -s`             | Export snapshot as EML zip                                                                         |
+| `saveMailbox(mailboxId, options?)`      | `atlas outlook save -m`             | Export all snapshots as EML zip                                                                    |
+| `listMailboxes()`                       | `atlas outlook list`                | List backed-up mailboxes                                                                           |
+| `listSnapshots(mailboxId)`              | `atlas outlook list -m`             | List snapshots for a mailbox                                                                       |
+| `readMessage(snapshotId, messageRef)`   | `atlas outlook read`                | Read a single message                                                                              |
+| `checkMailboxStatus(mailboxId)`         | `atlas outlook status`              | Fast delta peek (pending changes)                                                                  |
+| `listAvailableMailboxes(options?)`      | _(discovery)_                       | List all tenant mailboxes via Graph                                                                |
+| `deleteMailboxData(mailboxId)`          | `atlas outlook delete -m`           | Delete all data for a mailbox                                                                      |
+| `deleteSnapshot(snapshotId)`            | `atlas outlook delete -s`           | Delete a single snapshot manifest                                                                  |
+| `purgeTenantData()`                     | `atlas delete --purge`              | Purge entire tenant bucket                                                                         |
+| `getMailboxStats(mailboxId)`            | `atlas stats -m`                    | Mailbox-level statistics                                                                           |
+
+```typescript
+const backup = await atlas.outlook.backup('john.doe@example.com', { includeContacts: true });
+const result = await atlas.outlook.restoreContacts(backup.snapshot.id, {
+  targetMailbox: 'jane.roe@example.com',
+});
+if (result.errors.length) console.error(result.errors);
+```
+
+Contact backup requires `Contacts.Read` application permission; contact restore requires `Contacts.ReadWrite`. `restoreContacts` accepts `targetMailbox` and `signal` and returns `restoredCount`, `errors`, and `interrupted`. `verify` checks contact JSON and photo objects when present. `save`, `restore`, and `restoreMailbox` remain mail-only; see [Outlook Backup](/outlook-backup).
 
 OneDrive and SharePoint expose parallel methods on `atlas.onedrive` and `atlas.sharepoint` (including workload-specific replication). See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for full SDK examples per workload.
 
@@ -524,14 +535,14 @@ Graph **item** IDs (`fileId`, `itemId`) are case-sensitive and never folded. `fi
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:
 
-| Option               | Type      | Description                                               |
-| -------------------- | --------- | --------------------------------------------------------- |
-| `folderName`         | `string`  | Save only this folder and its subfolders (name or path)   |
-| `messageRef`         | `string`  | Save a single message by index or ID                      |
-| `startDate`          | `Date`    | Include snapshots on or after this date                   |
-| `endDate`            | `Date`    | Include snapshots on or before this date                  |
-| `outputPath`         | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
-| `skipIntegrityCheck` | `boolean` | Skip SHA-256 verification (default: `false`)              |
+| Option               | Type       | Description                                               |
+| -------------------- | ---------- | --------------------------------------------------------- |
+| `folderName`         | `string`   | Save only this folder and its subfolders (name or path)   |
+| `messageRef`         | `string`   | Save a single message by index or ID                      |
+| `startDate`          | `Date`     | Include snapshots on or after this date                   |
+| `endDate`            | `Date`     | Include snapshots on or before this date                  |
+| `outputPath`         | `string`   | Output zip file path (default: `Restore-<timestamp>.zip`) |
+| `skipIntegrityCheck` | `boolean`  | Skip SHA-256 verification (default: `false`)              |
 | `output`             | `Writable` | Stream the archive to this destination instead of a file  |
 
 Both methods return a `SaveResult`:
@@ -559,7 +570,7 @@ import express from 'express';
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const app = express();
-const atlas = createAtlasInstance({ /* ...credentials... */ });
+const atlas = createAtlasInstance({/* ...credentials... */});
 
 app.get('/export/:snapshotId', async (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
@@ -589,13 +600,13 @@ Anything implementing Node's `Writable` works: an HTTP response, an upload strea
 
 What changes compared with a file export:
 
-| Behaviour | Stream export |
-| --------- | ------------- |
-| `outputPath` in the result | Empty string. There is no file, so Atlas reports no path. |
-| Counts, errors, `integrityFailures` | Reported exactly as for a file export. |
-| A failed run | The stream is destroyed rather than ended, including when setup fails before any bytes are written. |
-| An interrupted run | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`. |
-| `output` with `outputPath` | Rejected with `ConfigError`. Atlas writes one archive, and silently dropping the other value is how an export goes missing. |
+| Behaviour                           | Stream export                                                                                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `outputPath` in the result          | Empty string. There is no file, so Atlas reports no path.                                                                   |
+| Counts, errors, `integrityFailures` | Reported exactly as for a file export.                                                                                      |
+| A failed run                        | The stream is destroyed rather than ended, including when setup fails before any bytes are written.                         |
+| An interrupted run                  | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`.                             |
+| `output` with `outputPath`          | Rejected with `ConfigError`. Atlas writes one archive, and silently dropping the other value is how an export goes missing. |
 
 **A destroyed stream is the point.** Ending a failed or interrupted stream would hand the consumer a short archive that opens like a complete one, which is the failure mode file exports avoid by staging. Over HTTP the client sees the transfer break, so treat a body that arrived without a completed request as a failed export rather than a partial one. Headers are already sent by then, so the status code cannot report the failure: check the result, or the absence of one, on the server.
 
@@ -750,12 +761,12 @@ Re-wraps the tenant's stored data key. Called with no argument it re-wraps under
 passphrase with current KDF parameters, which is how a tenant bootstrapped with weaker scrypt
 parameters is brought forward.
 
-| Field              | Type      | Description                                                    |
-| ------------------ | --------- | -------------------------------------------------------------- |
-| `tenantId`         | `string`  | Tenant whose key was re-wrapped                                |
-| `passphraseChanged`| `boolean` | False when the call re-wrapped under the configured passphrase |
-| `previousKdfId`    | `number`  | KDF the wrapper used before the call                           |
-| `kdfId`            | `number`  | KDF the new wrapper uses                                       |
+| Field               | Type      | Description                                                    |
+| ------------------- | --------- | -------------------------------------------------------------- |
+| `tenantId`          | `string`  | Tenant whose key was re-wrapped                                |
+| `passphraseChanged` | `boolean` | False when the call re-wrapped under the configured passphrase |
+| `previousKdfId`     | `number`  | KDF the wrapper used before the call                           |
+| `kdfId`             | `number`  | KDF the new wrapper uses                                       |
 
 The data key is unchanged, so nothing in the bucket is re-encrypted and every snapshot stays
 readable. **This rotates the wrapper, not the key**: an attacker who already holds the data key
@@ -1026,13 +1037,13 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 
 **Graph cost types:**
 
-| Export                    | Kind  | Description                                                                 |
-| ------------------------- | ----- | --------------------------------------------------------------------------- |
-| `OperationCost`           | type  | Per-operation cost breakdown                                                |
-| `ServicePoolCost`         | type  | Cost for a single service pool                                              |
-| `GraphServicePool`        | type  | Pool identifier union type                                                  |
-| `GraphServiceLimits`      | type  | Type for the full limits constant                                           |
-| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                             |
-| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                       |
-| `OutlookBackupResult`     | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                       |
-| `OutlookRestoreResult`    | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`)    |
+| Export                 | Kind  | Description                                                                 |
+| ---------------------- | ----- | --------------------------------------------------------------------------- |
+| `OperationCost`        | type  | Per-operation cost breakdown                                                |
+| `ServicePoolCost`      | type  | Cost for a single service pool                                              |
+| `GraphServicePool`     | type  | Pool identifier union type                                                  |
+| `GraphServiceLimits`   | type  | Type for the full limits constant                                           |
+| `GRAPH_SERVICE_LIMITS` | value | Frozen official limits constant                                             |
+| `getGraphCost`         | value | Reads the cost burned before a failed operation threw                       |
+| `OutlookBackupResult`  | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                     |
+| `OutlookRestoreResult` | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`) |

@@ -143,6 +143,40 @@ describe('replicate_snapshot_to_target', () => {
     );
   });
 
+  it('does not publish a contact snapshot when its photo cannot be copied', async () => {
+    const manifest = {
+      ...make_manifest([]),
+      contact_entries: [
+        {
+          contact_id: 'c1',
+          folder_id: 'default',
+          change_type: 'stored' as const,
+          storage_key: 'contacts/data/mailbox-1/contact',
+          checksum: 'hash',
+          size_bytes: 7,
+          photo: {
+            storage_key: 'contacts/photos/mailbox-1/photo',
+            checksum: 'photo-hash',
+            size_bytes: 4,
+          },
+        },
+      ],
+    };
+    vi.mocked(target_storage.exists).mockResolvedValue(false);
+    vi.mocked(source_storage.get).mockImplementation(async (key) => {
+      if (key === 'contacts/photos/mailbox-1/photo') throw new Error('photo unavailable');
+      return Buffer.from('encrypted-contact');
+    });
+
+    const result = await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
+
+    expect(result.objects_failed).toBe(1);
+    expect(target_storage.put).not.toHaveBeenCalledWith(
+      'manifests/mailbox-1/snapshot-1.json',
+      expect.any(Buffer),
+    );
+  });
+
   it('skips objects that already exist on target', async () => {
     const entry = make_entry({ storage_key: 'data/mailbox-1/hash-1' });
     const manifest = make_manifest([entry]);

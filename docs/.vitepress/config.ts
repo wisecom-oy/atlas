@@ -52,6 +52,7 @@ export default defineConfig({
       {
         text: 'Workloads',
         items: [
+          { text: 'Outlook Backup', link: '/outlook-backup' },
           { text: 'OneDrive Backup', link: '/onedrive-backup' },
           { text: 'SharePoint Backup', link: '/sharepoint-backup' },
         ],

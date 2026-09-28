@@ -69,6 +69,12 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
+    async restoreContacts(snapshot_id, options) {
+      const [result, cost_result] = await run_with_cost_tracking(() =>
+        restore.restore_contacts(tenant_id, snapshot_id, adapt_operation_options(options)),
+      );
+      return camelize({ ...result, graph_cost: cost_result });
+    },
     async save(snapshot_id, options) {
       return camelize(
         await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),

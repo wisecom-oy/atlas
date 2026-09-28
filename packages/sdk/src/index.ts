@@ -22,6 +22,7 @@ export type {
   OutlookVerificationResult,
   OutlookRestoreOptions,
   OutlookRestoreResult,
+  OutlookContactsRestoreResult,
   OutlookSaveOptions,
   OutlookSaveResult,
   OutlookMailboxSummary,

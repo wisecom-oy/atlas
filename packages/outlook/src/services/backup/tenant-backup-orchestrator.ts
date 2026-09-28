@@ -67,6 +67,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
           const result = await this._backup.sync_mailbox(tenant_id, mailbox_id, {
             force_full: options.force_full,
             page_size: options.page_size,
+            include_contacts: options.include_contacts,
             object_lock_request: options.object_lock_request,
             object_lock_policy: options.object_lock_policy,
             should_interrupt,

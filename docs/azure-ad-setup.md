@@ -12,9 +12,12 @@ In the Azure Portal, register an application with the following **Application** 
 | `Mail.ReadWrite`       | Restore messages and create folders in target mailboxes                              | Restore only                          |
 | `User.Read.All`        | Enumerate users and resolve mailbox IDs                                              | User discovery                        |
 | `MailboxSettings.Read` | Read mailbox metadata and folder structure; shared-mailbox detection (`userPurpose`) | Folder enumeration, mailbox discovery |
+| `Contacts.Read`        | Read contact folders, contact JSON, and photos when `--include-contacts` is set      | Opt-in contact backup                 |
+| `Contacts.ReadWrite`   | Create or update contacts, folders, and photos                                       | Contact restore only                  |
 
 ::: tip Start with Read-Only
 If you only need backups (no restore), grant `Mail.Read` instead of `Mail.ReadWrite`. This limits the application's ability to modify mailbox contents, reducing the blast radius if the client secret is compromised. Add `Mail.ReadWrite` later, only when restore functionality is needed.
+Contact permissions are not needed for mail-only backup and restore. `Contacts.ReadWrite` grants the application the ability to modify contacts in every mailbox it can access. Grant it only to installations that run `atlas outlook contacts restore`.
 :::
 
 ## Grant Admin Consent

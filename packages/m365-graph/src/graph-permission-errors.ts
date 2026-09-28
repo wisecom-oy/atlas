@@ -1,5 +1,12 @@
 import { AuthError, MailboxNotLicensedError, NotFoundError } from '@wisecom/atlas-types';
 
+const MAIL_PERMISSIONS = [
+  'Mail.Read              -- read mailbox messages',
+  'Mail.ReadWrite         -- delta sync and full message fetch',
+  'User.Read.All          -- list tenant users / mailboxes',
+  'MailboxSettings.Read   -- enumerate mail folders',
+] as const;
+
 /**
  * Graph failures that an operator has to act on rather than retry: a missing application
  * permission and an unlicensed mailbox. Both carry the remediation steps in the message and a
@@ -9,16 +16,12 @@ import { AuthError, MailboxNotLicensedError, NotFoundError } from '@wisecom/atla
  * Detects 403 ErrorAccessDenied from Graph and rethrows with
  * actionable guidance about which API permissions to grant.
  */
-export function rethrow_if_access_denied(err: unknown): void {
+export function rethrow_if_access_denied(
+  err: unknown,
+  required: readonly string[] = MAIL_PERMISSIONS,
+): void {
   const graph_err = as_error_fields(err);
   if (graph_err.statusCode !== 403) return;
-
-  const required = [
-    'Mail.Read              -- read mailbox messages',
-    'Mail.ReadWrite         -- delta sync and full message fetch',
-    'User.Read.All          -- list tenant users / mailboxes',
-    'MailboxSettings.Read   -- enumerate mail folders',
-  ];
 
   const hint =
     `Microsoft Graph returned 403 Forbidden (ErrorAccessDenied).\n` +

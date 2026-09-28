@@ -200,6 +200,50 @@ describe('VerificationService', () => {
     expect(result.failed).toEqual(['obj-old']);
   });
 
+  it('checks contacts and photos inherited from an earlier snapshot', async () => {
+    const contact = Buffer.from('{\"displayName\":\"John Doe\"}');
+    const checksum = createHash('sha256').update(contact).digest('hex');
+    const photo = Buffer.from('photo');
+    const photo_checksum = createHash('sha256').update(photo).digest('hex');
+    const older = {
+      ...make_manifest([]),
+      snapshot_id: 'snap-1',
+      contact_folders: [{ folder_id: 'default', display_name: 'Contacts', is_default: true }],
+      contact_entries: [
+        {
+          contact_id: 'contact-1',
+          folder_id: 'default',
+          change_type: 'stored' as const,
+          storage_key: 'contacts/data/one',
+          checksum,
+          size_bytes: contact.length,
+          photo: {
+            storage_key: 'contacts/photos/one',
+            checksum: photo_checksum,
+            size_bytes: photo.length,
+          },
+        },
+      ],
+    };
+    const target = {
+      ...make_manifest([]),
+      snapshot_id: 'snap-2',
+      created_at: new Date('2026-02-01T00:00:00Z'),
+    };
+    vi.mocked(manifests.find_by_snapshot).mockResolvedValue(target);
+    vi.mocked(manifests.list_all_manifests).mockResolvedValue([target, older]);
+    vi.mocked(storage.get).mockImplementation(async (key) => {
+      if (key === 'contacts/photos/one') throw new Error('NoSuchKey');
+      return contact;
+    });
+
+    const result = await service.verify_snapshot_integrity('tenant-1', 'snap-2');
+
+    expect(result.total_checked).toBe(2);
+    expect(result.failed).toEqual(['contact/contact-1/photo']);
+    expect(result.passed).toBe(1);
+  });
+
   it('excludes manifests newer than the target and other owners from the chain', async () => {
     const plaintext = Buffer.from('current');
     const checksum = createHash('sha256').update(plaintext).digest('hex');

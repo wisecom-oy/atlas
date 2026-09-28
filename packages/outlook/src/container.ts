@@ -1,6 +1,7 @@
 import { type Container } from 'inversify';
 import {
   MAILBOX_CONNECTOR_TOKEN,
+  CONTACT_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
   BACKUP_USE_CASE_TOKEN,
@@ -11,6 +12,7 @@ import {
 } from '@wisecom/atlas-types';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import { GraphRestoreConnector } from '@/adapters/graph-restore-connector.adapter';
+import { GraphContactConnector } from '@/adapters/graph-contact-connector.adapter';
 import { GraphMailboxDiscoveryAdapter } from '@/adapters/graph-mailbox-discovery.adapter';
 import { CostTrackingRestoreConnector } from '@/adapters/cost-tracking-restore-connector.adapter';
 import { RateLimitedGraphConnector } from '@wisecom/atlas-m365-graph';
@@ -28,14 +30,24 @@ export function bind_outlook(container: Container): void {
   const limiter_factory = new DefaultMailboxRateLimiterFactory(fence);
 
   container.bind(GraphMailboxConnector).toSelf().inSingletonScope();
+  container.bind(GraphContactConnector).toSelf().inSingletonScope();
   container
     .bind(MAILBOX_CONNECTOR_TOKEN)
     .toDynamicValue((ctx) => {
       const inner = ctx.get(GraphMailboxConnector);
-      return new RateLimitedGraphConnector(inner, limiter_factory, fence);
+      return new RateLimitedGraphConnector(
+        inner,
+        limiter_factory,
+        fence,
+        ctx.get(GraphContactConnector),
+      );
     })
     .inSingletonScope();
 
+  container
+    .bind(CONTACT_CONNECTOR_TOKEN)
+    .toDynamicValue((ctx) => ctx.get<RateLimitedGraphConnector>(MAILBOX_CONNECTOR_TOKEN))
+    .inSingletonScope();
   container.bind(GraphRestoreConnector).toSelf().inSingletonScope();
   container
     .bind(RESTORE_CONNECTOR_TOKEN)

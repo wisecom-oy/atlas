@@ -28,6 +28,11 @@ export function collect_storage_keys(manifest: Manifest): string[] {
       }
     }
   }
+  for (const contact of manifest.contact_entries ?? []) {
+    if (contact.change_type !== 'stored') continue;
+    keys.push(contact.storage_key);
+    if (contact.photo) keys.push(contact.photo.storage_key);
+  }
   return keys;
 }
 
