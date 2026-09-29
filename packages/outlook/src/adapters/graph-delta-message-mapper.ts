@@ -3,7 +3,7 @@
  * list, response shapes, and conversion of raw Graph messages into MailMessage.
  */
 
-import type { MailMessage } from '@wisecom/atlas-types';
+import type { MailAddress, MailMessage } from '@wisecom/atlas-types';
 import type { GraphUserRecord, GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
 
 /**
@@ -48,6 +48,7 @@ export interface GraphDeltaMessage {
   body?: { contentType?: string; content?: string };
   hasAttachments?: boolean;
   receivedDateTime?: string;
+  from?: { emailAddress?: { name?: unknown; address?: unknown } };
   parentFolderId?: string;
   '@removed'?: { reason: string };
   [key: string]: unknown;
@@ -61,10 +62,19 @@ export function graph_message_to_mail_message(msg: GraphDeltaMessage): MailMessa
     folder_id: (msg.parentFolderId as string) ?? '',
     subject: (msg.subject as string) ?? '',
     received_at: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
+    ...parse_sender(msg.from),
     size_bytes: body_buffer.length,
     raw_body: body_buffer,
     has_attachments: msg.hasAttachments === true,
   };
+}
+
+/** Reads Graph `from`; drafts and some system items have none, so the field is omitted. */
+function parse_sender(from: GraphDeltaMessage['from']): { from?: MailAddress } {
+  const address = from?.emailAddress?.address;
+  if (typeof address !== 'string' || address === '') return {};
+  const name = from?.emailAddress?.name;
+  return { from: typeof name === 'string' && name !== '' ? { name, address } : { address } };
 }
 
 /** Separates delta page items into live messages and removed message IDs. */

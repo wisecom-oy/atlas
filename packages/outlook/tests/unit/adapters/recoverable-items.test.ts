@@ -73,6 +73,18 @@ describe('enumerate_recoverable_items', () => {
     expect(folders.every((f) => f.is_recoverable_items === true)).toBe(true);
   });
 
+  it('tags only the anchor folder with its well-known name, without another request', async () => {
+    const read_folder = make_reader();
+
+    const folders = await enumerate_recoverable_items(read_folder, async () => FULL_DUMPSTER);
+
+    const tagged = folders.filter((f) => f.well_known_name !== undefined);
+    expect(tagged.map((f) => [f.display_name, f.well_known_name])).toEqual([
+      ['Deletions', 'recoverableitemsdeletions'],
+    ]);
+    expect(read_folder).toHaveBeenCalledTimes(1);
+  });
+
   it('reports the non-mail subfolders as skipped rather than dropping them', async () => {
     const excluded: ExcludedFolder[] = [];
 

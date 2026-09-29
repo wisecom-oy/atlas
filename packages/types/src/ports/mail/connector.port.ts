@@ -1,4 +1,20 @@
-import type { MailboxPurpose } from '@/domain/manifest';
+import type { MailAddress, MailboxPurpose } from '@/domain/manifest';
+
+/**
+ * Graph well-known mail folder names Atlas records on {@link MailFolder}.
+ * Display names are localized, so these are the only reliable folder roles.
+ */
+export type WellKnownMailFolder =
+  | 'inbox'
+  | 'drafts'
+  | 'sentitems'
+  | 'deleteditems'
+  | 'junkemail'
+  | 'archive'
+  | 'outbox'
+  | 'conversationhistory'
+  | 'searchfolders'
+  | 'recoverableitemsdeletions';
 
 export interface MailFolder {
   readonly folder_id: string;
@@ -22,6 +38,8 @@ export interface MailFolder {
    * put deleted mail back by accident (issue #141).
    */
   readonly is_recoverable_items?: boolean;
+  /** Graph well-known folder name when this folder is one, e.g. `inbox`, `sentitems`. */
+  readonly well_known_name?: WellKnownMailFolder | undefined;
 }
 
 /**
@@ -72,6 +90,8 @@ export interface MailMessage {
   readonly folder_id: string;
   readonly subject: string;
   readonly received_at: Date;
+  /** Graph `from`; absent when Graph reports no sender address. */
+  readonly from?: MailAddress | undefined;
   readonly size_bytes: number;
   readonly raw_body: Buffer;
   readonly has_attachments: boolean;
