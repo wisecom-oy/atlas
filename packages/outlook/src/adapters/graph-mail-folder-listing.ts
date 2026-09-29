@@ -74,28 +74,23 @@ async function tag_well_known_folders(
   const name_by_id = new Map<string, WellKnownMailFolder>();
   // Sequential on purpose: Exchange allows four concurrent requests per mailbox.
   for (const name of VISIBLE_WELL_KNOWN_FOLDERS) {
-    const folder_id = await resolve_well_known_folder_id(read_folder, name);
-    if (folder_id) name_by_id.set(folder_id, name);
+    try {
+      const folder_id = (await read_folder(name))?.id;
+      if (folder_id) name_by_id.set(folder_id, name);
+    } catch (err) {
+      // The role is a label for browsing, so a failure must not fail the backup. It stops the
+      // remaining lookups too: each one would spend a full retry budget on the same outage.
+      const reason = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `Well-known folder lookup for ${name} failed; later roles left untagged: ${reason}`,
+      );
+      break;
+    }
   }
   return folders.map((folder) => {
     const well_known_name = name_by_id.get(folder.folder_id);
     return well_known_name ? { ...folder, well_known_name } : folder;
   });
-}
-
-/** Resolves one well-known name to a folder id; undefined when the mailbox has no such folder. */
-async function resolve_well_known_folder_id(
-  read_folder: FolderReader,
-  name: WellKnownMailFolder,
-): Promise<string | undefined> {
-  try {
-    return (await read_folder(name))?.id;
-  } catch (err) {
-    // The role is a label for browsing. Failing the listing over it would fail the backup.
-    const reason = err instanceof Error ? err.message : String(err);
-    logger.warn(`Well-known folder lookup for ${name} failed; folder left untagged: ${reason}`);
-    return undefined;
-  }
 }
 
 /** Builds the folder-collection URL for the mailbox root or one parent folder. */

@@ -54,7 +54,7 @@ describe('list_mail_folder_tree well-known folder roles', () => {
     expect(large).toHaveBeenCalledTimes(small.mock.calls.length);
   });
 
-  it('keeps the listing when a lookup fails with something other than 404', async () => {
+  it('keeps the listing and stops looking up roles after a non-404 failure', async () => {
     const get_one = vi.fn(async (url: string) => {
       if (url.includes('/mailFolders/inbox?')) return { id: 'f-0' };
       throw Object.assign(new Error('ErrorInvalidRequest'), { statusCode: 400 });
@@ -68,5 +68,7 @@ describe('list_mail_folder_tree well-known folder roles', () => {
     );
 
     expect(result.map((f) => f.well_known_name)).toEqual(['inbox', undefined]);
+    // inbox resolved, drafts failed; no further lookup spends another retry budget.
+    expect(get_one).toHaveBeenCalledTimes(2);
   });
 });
