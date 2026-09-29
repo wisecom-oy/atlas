@@ -179,6 +179,7 @@ export class MailboxSyncService implements BackupUseCase {
         object_lock: this.build_manifest_object_lock_policy(options),
         mailbox_purpose,
         excluded_folders,
+        folders,
       });
 
       const persisted = await persist_mailbox_run(

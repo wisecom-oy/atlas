@@ -112,6 +112,19 @@ describe('store_single_message payload selection', () => {
     expect(manifest_entry.payload_format).toBeUndefined();
     expect(manifest_entry.received_at).toBeUndefined();
   });
+
+  it('records the sender on JSON and MIME entries, and omits it when unknown', async () => {
+    const { ctx } = make_ctx();
+    const from = { name: 'Ada Example', address: 'ada@example.com' };
+
+    const json = await store_single_message(ctx, make_message({ from }), 'o');
+    const mime = await store_single_message(ctx, make_message({ from }), 'o', undefined, MIME);
+    const unknown = await store_single_message(ctx, make_message(), 'o');
+
+    expect(json.manifest_entry.from).toEqual(from);
+    expect(mime.manifest_entry.from).toEqual(from);
+    expect(unknown.manifest_entry).not.toHaveProperty('from');
+  });
 });
 
 interface SyncOutcome {

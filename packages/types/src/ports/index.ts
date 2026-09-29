@@ -13,6 +13,7 @@ export type {
   MailboxConnector,
   MailMessage,
   MailFolder,
+  WellKnownMailFolder,
   MailFolderListOptions,
   ExcludedFolder,
   FolderExclusionReason,

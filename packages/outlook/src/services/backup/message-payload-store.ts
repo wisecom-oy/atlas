@@ -78,6 +78,7 @@ export async function store_single_message(
     size_bytes: payload.length,
     subject: message.subject,
     folder_id: message.folder_id,
+    ...(message.from ? { from: message.from } : {}),
     ...(mime
       ? { payload_format: 'mime' as const, received_at: message.received_at.toISOString() }
       : {}),

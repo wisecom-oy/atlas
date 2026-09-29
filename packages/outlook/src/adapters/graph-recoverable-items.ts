@@ -70,8 +70,14 @@ export async function enumerate_recoverable_items(
   fetch_children: (parent_folder_id: string) => Promise<GraphFolderRecord[]>,
   options: MailFolderListOptions = {},
 ): Promise<MailFolder[]> {
-  const root_id = await resolve_recoverable_items_root(read_folder);
-  if (!root_id) return [];
+  const anchor = await read_folder(RECOVERABLE_ITEMS_ANCHOR);
+  const root_id = anchor?.parentFolderId;
+  if (!root_id) {
+    logger.debug(
+      'Recoverable Items root could not be resolved; the mailbox reports no Deletions folder.',
+    );
+    return [];
+  }
 
   const children = await fetch_children(root_id);
   const captured: MailFolder[] = [];
@@ -93,6 +99,8 @@ export async function enumerate_recoverable_items(
       parent_folder_id: root_id,
       total_item_count: child.totalItemCount ?? 0,
       is_recoverable_items: true,
+      // The anchor was read by its well-known name, so its role costs no extra request.
+      ...(child.id === anchor?.id ? { well_known_name: RECOVERABLE_ITEMS_ANCHOR } : {}),
       ...(child.isHidden === true ? { is_hidden: true } : {}),
     });
 
@@ -110,20 +118,6 @@ export async function enumerate_recoverable_items(
   }
 
   return captured;
-}
-
-/** Locates the subtree root through the anchor folder's parent. */
-async function resolve_recoverable_items_root(
-  read_folder: FolderReader,
-): Promise<string | undefined> {
-  const anchor = await read_folder(RECOVERABLE_ITEMS_ANCHOR);
-  if (!anchor?.parentFolderId) {
-    logger.debug(
-      'Recoverable Items root could not be resolved; the mailbox reports no Deletions folder.',
-    );
-    return undefined;
-  }
-  return anchor.parentFolderId;
 }
 
 /**

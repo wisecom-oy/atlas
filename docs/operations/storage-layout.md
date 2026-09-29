@@ -55,7 +55,7 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
 | `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
 | `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
-| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, folder names, and delta URLs, all encrypted             |
+| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, senders, folder names, and delta URLs, all encrypted    |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
 

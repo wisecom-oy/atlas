@@ -46,6 +46,7 @@ describe('GraphMailboxConnector - delta and message APIs', () => {
         importance: 'normal',
         receivedDateTime: '2025-03-01T12:00:00Z',
         parentFolderId: 'f-inbox',
+        from: { emailAddress: { name: 'Ada Example', address: 'ada@example.com' } },
       };
 
       mock_client._chain.get.mockResolvedValueOnce({
@@ -60,6 +61,25 @@ describe('GraphMailboxConnector - delta and message APIs', () => {
       const stored = JSON.parse(result.messages[0]!.raw_body.toString('utf-8'));
       expect(stored.body.content).toBe('<p>Hello</p>');
       expect(stored.importance).toBe('normal');
+      // The sender comes from the same delta record: no extra request per message.
+      expect(result.messages[0]!.from).toEqual({ name: 'Ada Example', address: 'ada@example.com' });
+    });
+
+    it('omits the sender when Graph reports none or an empty address', async () => {
+      mock_client._chain.get.mockResolvedValueOnce({
+        value: [
+          { id: 'draft', parentFolderId: 'f-drafts' },
+          { id: 'blank', from: { emailAddress: { name: 'No Address', address: '' } } },
+          { id: 'nameless', from: { emailAddress: { address: 'bob@example.com' } } },
+        ],
+        '@odata.deltaLink': 'https://graph.microsoft.com/delta?token=x',
+      });
+
+      const { messages } = await connector.fetch_delta('tenant-1', 'user-1', 'f-drafts');
+
+      expect(messages[0]).not.toHaveProperty('from');
+      expect(messages[1]).not.toHaveProperty('from');
+      expect(messages[2]!.from).toEqual({ address: 'bob@example.com' });
     });
 
     it('uses prev_delta_link directly for incremental sync', async () => {

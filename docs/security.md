@@ -181,7 +181,7 @@ either way, by comparing the manifest checksum before anything is written.
 | ------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`                                                   |
 | Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
-| Manifests                                  | Yes       | Contains subjects, folder names, delta URLs, checksums                                                                 |
+| Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                        |
 | OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                         |
 | OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                         |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                              |
@@ -189,7 +189,7 @@ either way, by comparing the manifest checksum before anything is written.
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
-Manifests deserve special attention: they contain email subjects, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines and folder names are never exposed at rest in the S3 bucket.
+Manifests deserve special attention: they contain email subjects, sender names and addresses, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines, senders, and folder names are never exposed at rest in the S3 bucket. The sender is recorded so a snapshot can be browsed by who sent a message without decrypting any message body.
 
 ### OneDrive blobs and sidecars
 

@@ -82,19 +82,19 @@ individually on the same schedule.
 
 ### Atlas operations in the Outlook pool
 
-| Operation               | Graph endpoint                                                   | Cost                     |
-| ----------------------- | ---------------------------------------------------------------- | ------------------------ |
-| `list_mail_folders`     | `GET /users/{id}/mailFolders`                                    | 1 request                |
-| `fetch_delta`           | `GET /users/{id}/mailFolders/{id}/messages/delta`                | 1 request per page       |
-| `fetch_message`         | `GET /users/{id}/messages/{id}`                                  | 1 request                |
-| `fetch_attachments`     | `GET /users/{id}/messages/{id}/attachments`                      | 1 request                |
-| `create_mail_folder`    | `POST /users/{id}/mailFolders`                                   | 1 request                |
-| `create_message`        | `POST /users/{id}/mailFolders/{id}/messages`                     | 1 request                |
-| `add_attachment`        | `POST /users/{id}/messages/{id}/attachments`                     | 1 request + upload bytes |
-| `create_upload_session` | `POST /users/{id}/messages/{id}/attachments/createUploadSession` | 1 request                |
-| `upload_chunk`          | `PUT {upload_url}`                                               | 1 request + upload bytes |
-| `count_folder_messages` | `GET /users/{id}/mailFolders/{id}?$select=totalItemCount`        | 1 request                |
-| `list_folder_messages`  | `GET /users/{id}/mailFolders/{id}/messages`                      | 1 request                |
+| Operation               | Graph endpoint                                                   | Cost                                                            |
+| ----------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `list_mail_folders`     | `GET /users/{id}/mailFolders`, `/mailFolders/{wellKnownName}`    | 1 request per folder page, plus up to 9 well-known folder reads |
+| `fetch_delta`           | `GET /users/{id}/mailFolders/{id}/messages/delta`                | 1 request per page                                              |
+| `fetch_message`         | `GET /users/{id}/messages/{id}`                                  | 1 request                                                       |
+| `fetch_attachments`     | `GET /users/{id}/messages/{id}/attachments`                      | 1 request                                                       |
+| `create_mail_folder`    | `POST /users/{id}/mailFolders`                                   | 1 request                                                       |
+| `create_message`        | `POST /users/{id}/mailFolders/{id}/messages`                     | 1 request                                                       |
+| `add_attachment`        | `POST /users/{id}/messages/{id}/attachments`                     | 1 request + upload bytes                                        |
+| `create_upload_session` | `POST /users/{id}/messages/{id}/attachments/createUploadSession` | 1 request                                                       |
+| `upload_chunk`          | `PUT {upload_url}`                                               | 1 request + upload bytes                                        |
+| `count_folder_messages` | `GET /users/{id}/mailFolders/{id}?$select=totalItemCount`        | 1 request                                                       |
+| `list_folder_messages`  | `GET /users/{id}/mailFolders/{id}/messages`                      | 1 request                                                       |
 
 ### Why Outlook is the most parallelizable pool
 

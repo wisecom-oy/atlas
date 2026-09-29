@@ -1,4 +1,4 @@
-import type { ExcludedFolder } from '@/ports/mail/connector.port';
+import type { ExcludedFolder, MailFolder } from '@/ports/mail/connector.port';
 /** Mailbox purpose from Graph mailboxSettings.userPurpose. 'shared' identifies shared mailboxes. */
 export type MailboxPurpose = 'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others';
 
@@ -44,7 +44,21 @@ export interface Manifest {
    * answer "was folder X captured?" without knowing which flags were passed.
    */
   readonly excluded_folders?: ExcludedFolder[];
+  /**
+   * Folders this run selected for capture, with path and well-known role, so
+   * a snapshot can be browsed by folder without the live mailbox. An
+   * incremental manifest lists this run's folders; entries carried from older
+   * snapshots may name a folder only an older manifest lists. Absent on
+   * manifests written before the field.
+   */
+  readonly folders?: MailFolder[] | undefined;
   readonly entries: ManifestEntry[];
+}
+
+/** A mail address as Graph `emailAddress` reports it. */
+export interface MailAddress {
+  readonly name?: string | undefined;
+  readonly address: string;
 }
 
 export interface AttachmentEntry {
@@ -65,6 +79,12 @@ export interface ManifestEntry {
   readonly size_bytes: number;
   readonly subject?: string;
   readonly folder_id?: string;
+  /**
+   * Graph `from`, the sender Outlook shows, including for delegated and
+   * send-as mail. Absent when Graph reports none (drafts, some system items)
+   * and on entries written before the field existed.
+   */
+  readonly from?: MailAddress | undefined;
   /**
    * File attachments stored as separate content-addressed objects. Only JSON
    * entries carry these; MIME entries embed their attachments in the blob.
