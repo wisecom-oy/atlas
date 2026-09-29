@@ -55,7 +55,7 @@ describe('list_mail_folder_tree recoverable-items opt-in', () => {
     { id: 'f-inbox', displayName: 'Inbox', totalItemCount: 42 },
   ];
 
-  it('spends no extra request when the flag is off', async () => {
+  it('spends no Recoverable Items request when the flag is off', async () => {
     const fetch_page = vi.fn(async () => visible);
     const read_folder = vi.fn(async () => undefined);
 
@@ -63,7 +63,7 @@ describe('list_mail_folder_tree recoverable-items opt-in', () => {
 
     expect(folders.map((f) => f.display_name)).toEqual(['Inbox']);
     // Issue #141 requires request volume to be unchanged with the flag off.
-    expect(read_folder).not.toHaveBeenCalled();
+    expect(read_folder).not.toHaveBeenCalledWith('recoverableitemsdeletions');
     expect(fetch_page).toHaveBeenCalledTimes(1);
   });
 

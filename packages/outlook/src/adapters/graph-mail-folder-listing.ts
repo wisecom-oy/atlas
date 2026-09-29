@@ -1,10 +1,27 @@
-import type { MailFolder, MailFolderListOptions } from '@wisecom/atlas-types';
+import type { MailFolder, MailFolderListOptions, WellKnownMailFolder } from '@wisecom/atlas-types';
 import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
 import { enumerate_recoverable_items, type FolderReader } from '@/adapters/graph-recoverable-items';
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const FOLDER_SELECT = 'id,displayName,parentFolderId,totalItemCount,childFolderCount,isHidden';
 const FOLDER_PAGE_SIZE = 250;
+
+/**
+ * Well-known names that can resolve to a folder in the visible tree. Graph
+ * v1.0 has no `wellKnownName` property, so each is resolved with one GET.
+ */
+const VISIBLE_WELL_KNOWN_FOLDERS = [
+  'inbox',
+  'drafts',
+  'sentitems',
+  'deleteditems',
+  'junkemail',
+  'archive',
+  'outbox',
+  'conversationhistory',
+  'searchfolders',
+] as const satisfies readonly WellKnownMailFolder[];
 
 /** Fetches every page of one Graph collection, retrying each page on its own. */
 export type FolderPageFetcher = (url: string) => Promise<GraphFolderRecord[]>;
@@ -26,13 +43,16 @@ export async function list_mail_folder_tree(
 ): Promise<MailFolder[]> {
   // Per-page retry lives inside the fetcher; wrapping the whole enumeration
   // would put every page under one 60s timeout.
-  const visible = await enumerate_folder_tree(
+  const listed = await enumerate_folder_tree(
     (parent_folder_id) => fetch_page(folder_url(owner_id, parent_folder_id)),
     options,
   );
+  if (!read_folder) return listed;
+
+  const visible = await tag_well_known_folders(listed, read_folder);
 
   // Off by default, and when off this costs not one extra request.
-  if (options?.include_recoverable_items !== true || !read_folder) return visible;
+  if (options?.include_recoverable_items !== true) return visible;
 
   const recoverable = await enumerate_recoverable_items(
     read_folder,
@@ -40,6 +60,42 @@ export async function list_mail_folder_tree(
     options,
   );
   return [...visible, ...recoverable];
+}
+
+/**
+ * Marks the folders that are a well-known folder. Display names are localized,
+ * so the id Graph resolves for each name is the only reliable role. Costs one
+ * GET per name, whatever the folder count.
+ */
+async function tag_well_known_folders(
+  folders: MailFolder[],
+  read_folder: FolderReader,
+): Promise<MailFolder[]> {
+  const name_by_id = new Map<string, WellKnownMailFolder>();
+  // Sequential on purpose: Exchange allows four concurrent requests per mailbox.
+  for (const name of VISIBLE_WELL_KNOWN_FOLDERS) {
+    const folder_id = await resolve_well_known_folder_id(read_folder, name);
+    if (folder_id) name_by_id.set(folder_id, name);
+  }
+  return folders.map((folder) => {
+    const well_known_name = name_by_id.get(folder.folder_id);
+    return well_known_name ? { ...folder, well_known_name } : folder;
+  });
+}
+
+/** Resolves one well-known name to a folder id; undefined when the mailbox has no such folder. */
+async function resolve_well_known_folder_id(
+  read_folder: FolderReader,
+  name: WellKnownMailFolder,
+): Promise<string | undefined> {
+  try {
+    return (await read_folder(name))?.id;
+  } catch (err) {
+    // The role is a label for browsing. Failing the listing over it would fail the backup.
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.warn(`Well-known folder lookup for ${name} failed; folder left untagged: ${reason}`);
+    return undefined;
+  }
 }
 
 /** Builds the folder-collection URL for the mailbox root or one parent folder. */

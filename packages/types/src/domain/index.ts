@@ -8,6 +8,7 @@ export type {
   MailboxDeltaCursor,
   MailboxPurpose,
   ManifestEntry,
+  MailAddress,
   AttachmentEntry,
   ManifestObjectLockMode,
   ManifestObjectLockPolicy,

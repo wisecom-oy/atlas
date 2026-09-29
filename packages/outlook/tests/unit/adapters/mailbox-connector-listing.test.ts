@@ -202,7 +202,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
 
       await connector.list_mail_folders('tenant-1', 'user-1');
 
-      expect(mock_client.api).toHaveBeenCalledTimes(1);
+      expect(mock_client.api).not.toHaveBeenCalledWith(expect.stringContaining('/childFolders'));
     });
 
     it('prunes the subtree of a folder the caller excluded', async () => {
@@ -215,7 +215,7 @@ describe('GraphMailboxConnector - listing APIs', () => {
       });
 
       expect(result).toEqual([]);
-      expect(mock_client.api).toHaveBeenCalledTimes(1);
+      expect(mock_client.api).not.toHaveBeenCalledWith(expect.stringContaining('/childFolders'));
     });
 
     it('asks Graph for hidden folders, which it omits by default', async () => {
@@ -226,6 +226,19 @@ describe('GraphMailboxConnector - listing APIs', () => {
       const url = mock_client.api.mock.calls[0]?.[0] as string;
       expect(url).toContain('includeHiddenFolders=true');
       expect(url).toContain('isHidden');
+    });
+
+    it('reads well-known folders with immutable ids, the format the listing returns', async () => {
+      mock_client._chain.get
+        .mockResolvedValueOnce({ value: [{ id: 'f-inbox', displayName: 'Saapuneet' }] })
+        .mockResolvedValueOnce({ id: 'f-inbox' });
+
+      const [inbox] = await connector.list_mail_folders('tenant-1', 'user-1');
+
+      expect(inbox?.well_known_name).toBe('inbox');
+      expect(mock_client.api).toHaveBeenCalledWith(expect.stringContaining('/mailFolders/inbox?'));
+      expect(mock_client._chain.header).toHaveBeenCalledTimes(mock_client.api.mock.calls.length);
+      expect(mock_client._chain.header).toHaveBeenCalledWith('Prefer', 'IdType="ImmutableId"');
     });
   });
 });

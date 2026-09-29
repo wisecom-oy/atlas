@@ -3,6 +3,7 @@ import type { Snapshot } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 import type {
   ExcludedFolder,
+  MailFolder,
   MailboxPurpose,
   Manifest,
   ManifestEntry,
@@ -53,6 +54,8 @@ export interface ManifestBuildExtras {
   readonly mailbox_purpose?: MailboxPurpose | undefined;
   /** Folders this run did not capture, with why. */
   readonly excluded_folders?: ExcludedFolder[] | undefined;
+  /** Folders this run selected for capture. */
+  readonly folders?: MailFolder[] | undefined;
 }
 
 /**
@@ -87,6 +90,7 @@ export function build_manifest(
     ...(extras.excluded_folders && extras.excluded_folders.length > 0
       ? { excluded_folders: extras.excluded_folders }
       : {}),
+    ...(extras.folders && extras.folders.length > 0 ? { folders: extras.folders } : {}),
     entries,
   };
 }

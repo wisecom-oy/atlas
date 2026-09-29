@@ -458,6 +458,38 @@ With the option off, request volume is identical to a run before it existed.
 Storing purged mail has compliance consequences: see
 [Recoverable Items and legal hold](/security#recoverable-items-and-legal-hold).
 
+### Snapshot folders
+
+Outlook manifests carry `folders`, the folders the run selected for capture, so a client can build a folder pane from a snapshot alone:
+
+```typescript
+const snapshot = await atlas.outlook.getSnapshotDetail('snapshot-id');
+
+const inbox = snapshot?.folders?.find((folder) => folder.wellKnownName === 'inbox');
+const inboxEntries = snapshot?.entries.filter((entry) => entry.folderId === inbox?.folderId);
+```
+
+Each record has `folderId`, `displayName`, `folderPath`, `parentFolderId`, `totalItemCount`, and, when set, `isHidden`, `isRecoverableItems`, and `wellKnownName`.
+
+`wellKnownName` is the Graph well-known name of the folder (`inbox`, `drafts`, `sentitems`, `deleteditems`, `junkemail`, `archive`, `outbox`, `conversationhistory`, `searchfolders`, or `recoverableitemsdeletions`) and is absent on every other folder. Display names are localized (a Finnish Inbox is `Saapuneet`), and a user folder may reuse any name, so match on `wellKnownName`, never on `displayName`. Graph v1.0 has no `wellKnownName` property, so Atlas resolves each name to a folder ID with one `GET /users/{id}/mailFolders/{wellKnownName}` per backup: nine requests per mailbox whatever its folder count, in the `outlook` pool. A name the mailbox does not have (no archive folder, for example) answers 404 and leaves no folder tagged. The Recoverable Items Deletions folder is tagged from the lookup Atlas already makes to find that subtree.
+
+An incremental manifest lists only the folders its own run selected, and with a folder filter only the matching ones. Entries carried in from earlier snapshots can name a folder that only an older manifest lists, and manifests written before Atlas 5.2.3 have no `folders` at all.
+
+### Message sender
+
+Outlook manifest entries carry `from`, the sender Outlook displays, including for delegated and send-as mail. It comes from the delta page Atlas already fetches, so it costs no extra Graph request:
+
+```typescript
+const snapshot = await atlas.outlook.getSnapshotDetail('snapshot-id');
+
+for (const entry of snapshot?.entries ?? []) {
+  entry.from?.address; // 'ada@example.com'
+  entry.from?.name; // 'Ada Example', absent when Graph reports no display name
+}
+```
+
+`from` is absent on drafts and system items that have no sender, and on entries written before Atlas 5.2.3. Treat a missing field as an unknown sender. The value is personal data in the same class as `subject` and is encrypted inside the manifest with it, so a snapshot can be listed by sender without decrypting any message body.
+
 ### Shared mailbox identity
 
 Three result types carry an optional `mailboxPurpose` field (`'user' | 'linked' | 'shared' | 'room' | 'equipment' | 'others'`), sourced from the Graph `mailboxSettings.userPurpose` property. A value of `'shared'` identifies a shared mailbox:

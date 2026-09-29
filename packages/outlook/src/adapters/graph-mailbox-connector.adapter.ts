@@ -104,7 +104,11 @@ export class GraphMailboxConnector implements MailboxConnector {
         owner_id,
         options,
         create_folder_reader(
-          (url) => with_graph_retry(() => this._client.api(url).get()),
+          // Folder reads resolve ids compared against the listing, so they need the same format.
+          (url) =>
+            with_graph_retry(() =>
+              this._client.api(url).header('Prefer', IMMUTABLE_ID_PREFER).get(),
+            ),
           owner_id,
         ),
       );
