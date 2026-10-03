@@ -63,4 +63,18 @@ describe('manifest metadata for an updated delta item (issue #459)', () => {
     expect(manifest_entry.from).toEqual({ address: 'graph@example.com' });
     expect(manifest_entry.received_at).toBe('2026-03-11T08:00:00.000Z');
   });
+
+  it('keeps an empty subject Graph reports rather than reading the MIME header', async () => {
+    const message = graph_message_to_mail_message({ id: 'msg-1', subject: '' });
+
+    const { manifest_entry } = await store_single_message(
+      ctx,
+      message,
+      'o',
+      undefined,
+      mime_with('Tue, 10 Mar 2026 14:30:22 +0000'),
+    );
+
+    expect(manifest_entry.subject).toBe('');
+  });
 });

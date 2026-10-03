@@ -111,10 +111,12 @@ async function resolve_message_metadata(
   mime: Buffer | undefined,
 ): Promise<MessageMetadata> {
   const { subject, from, received_at } = message;
-  if (!mime || (subject && from && received_at)) return { subject, from, received_at };
+  if (!mime || (subject !== undefined && from && received_at)) {
+    return { subject: subject ?? '', from, received_at };
+  }
   const envelope = await read_mime_envelope(message.message_id, mime);
   return {
-    subject: subject || envelope.subject || '',
+    subject: subject ?? envelope.subject ?? '',
     from: from ?? to_mail_address(envelope.from),
     received_at: received_at ?? envelope.date,
   };
