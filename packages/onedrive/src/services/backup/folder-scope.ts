@@ -42,6 +42,11 @@ export function is_within_folder_scope(
   const path = item.deleted
     ? (previous_path_by_file_id[item.item_id] ?? item.parent_path)
     : item.parent_path;
+  return is_path_within_folder_scope(path, scope);
+}
+
+/** True when a `parent_path` is the scope folder itself or lies beneath it. */
+export function is_path_within_folder_scope(path: string, scope: string): boolean {
   return path === scope || path.startsWith(`${scope}/`);
 }
 

@@ -133,6 +133,7 @@ function make_harness(options: {
   const manifests = {
     save: vi.fn(() => void save_order.push('manifest')),
     find_latest_by_owner: vi.fn(),
+    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
   };
 
   const service = new OneDriveBackupService(

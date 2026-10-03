@@ -17,6 +17,7 @@ import type {
   VersionStatsState,
 } from '@/services/backup/library-item-processor';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
+import type { DriveRecrawl } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 
 export interface SharePointLibraryScanResult {
   entries: SharePointManifestEntry[];
@@ -32,6 +33,8 @@ export interface SharePointLibraryScanResult {
   libraries_scanned: number;
   items_processed: number;
   interrupted: boolean;
+  /** Libraries whose full enumeration finished this run, for the re-crawl tombstones. */
+  recrawls: DriveRecrawl[];
 }
 
 interface SharePointLibraryScanParams {
@@ -83,6 +86,7 @@ export async function scan_all_libraries({
     items_processed: 0,
     interrupted: false,
     version_rows: versions.rows,
+    recrawls: [],
   };
 
   for (const library of libraries) {
@@ -124,6 +128,7 @@ export async function scan_all_libraries({
       result.files_stored += library_result.files_stored;
       result.files_deduplicated += library_result.files_deduplicated;
       result.deleted_items += library_result.deleted_items;
+      if (library_result.recrawl) result.recrawls.push(library_result.recrawl);
       if (library_result.interrupted) {
         result.interrupted = true;
         break;

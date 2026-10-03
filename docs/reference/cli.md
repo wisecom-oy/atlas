@@ -52,7 +52,7 @@ exit "$status"
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                                | Correct the configuration or its storage access.                                                                                  |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                           | Check the selected resource and identifiers.                                                                                      |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                           | Respect retention or legal hold; repeating the same deletion cannot bypass it.                                                    |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                             | The stored bytes are intact but cannot be parsed back. Repeating the command cannot help; extract the raw content with `save`.     |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                             | The stored bytes are intact but cannot be parsed back. Repeating the command cannot help; extract the raw content with `save`.    |
 
 Fatal exceptions use this category mapping. Existing command-reported failures remain `1`, including failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial remain `2`; their messages are not reclassified.
 
@@ -545,6 +545,8 @@ Back up and verify OneDrive files per user using Graph delta sync. Blobs and man
 
 A snapshot is a delta: its manifest lists only what changed in that run. `restore`, `save` and `verify` therefore resolve the snapshot's **manifest chain**, the target manifest plus every older manifest for the same owner, merged newest-first and deduplicated by drive item. Restoring the newest snapshot gives the whole drive as it stood at that moment, not just the last few changed files. A file whose newest entry is a deletion stays deleted: the tombstone wins over the older stored version, so a restore never resurrects a file the user removed.
 
+A full crawl needs one extra step to keep that promise. `--full`, a changed `--folder`, and a delta link Graph no longer accepts all replace the incremental delta with an enumeration of the drive, and an enumeration lists only what exists. After a drive's enumeration finishes, Atlas compares it with the newest entry of every file the previous chain holds for that drive, and writes a tombstone for each stored file the enumeration no longer returned. The comparison is limited to the drive that was re-crawled and to the `--folder` scope when one is set. A drive whose run was interrupted gets no tombstones, because a listing that stopped early proves nothing about absence. SharePoint applies the same rule per document library. The comparison reads the owner's manifests once, and only on a run that re-crawled; incremental runs read none.
+
 ```bash
 atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full
@@ -980,14 +982,14 @@ atlas keys rewrap --new-passphrase      # prompt for a new passphrase, twice, wi
 atlas keys rewrap --new-passphrase < secret.txt   # non-interactive, for a scripted rotation
 ```
 
-| Subcommand      | Description                                                                    |
-| --------------- | ------------------------------------------------------------------------------ |
-| `keys rewrap`   | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
+| Subcommand    | Description                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| `keys rewrap` | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
 
-| Option              | Description                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one              |
-| `-t, --tenant <id>` | Override tenant ID from config                                                     |
+| Option              | Description                                                           |
+| ------------------- | --------------------------------------------------------------------- |
+| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one |
+| `-t, --tenant <id>` | Override tenant ID from config                                        |
 
 The data key itself does not change. Nothing in the bucket is re-encrypted, every existing
 snapshot stays readable, and the run writes exactly one object. What changes is the wrapper: the

@@ -69,7 +69,10 @@ function run_backup(
     }),
     list_file_versions: vi.fn().mockResolvedValue([]),
   };
-  const manifests = { save: vi.fn().mockResolvedValue(undefined) };
+  const manifests = {
+    save: vi.fn().mockResolvedValue(undefined),
+    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+  };
   const file_indexes = {
     load_version_watermarks: vi.fn().mockResolvedValue({}),
     write_run_index: vi.fn(),

@@ -41,6 +41,10 @@ import {
   summarize_processed_package_items,
   type PackageReportTotals,
 } from '@/services/backup/package-report';
+import {
+  completed_recrawl,
+  type DriveRecrawl,
+} from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 
 export interface SingleDriveResult {
   entries: OneDriveManifestEntry[];
@@ -71,6 +75,8 @@ export interface DriveScanAccumulators {
   package_report: PackageReportTotals;
   /** Version rows captured during this run, per file id; written as one index object at finalize time. */
   version_rows: Map<string, OneDriveFileVersionRecord[]>;
+  /** Drives whose full enumeration finished this run, for the re-crawl tombstones (issue #435). */
+  recrawls: DriveRecrawl[];
 }
 
 /**
@@ -114,6 +120,7 @@ export async function scan_all_drives(
     interrupted: false,
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
     version_rows: versions.rows,
+    recrawls: [],
   };
 
   const totals: ScanProgressTotals = { processed: 0, total: 0, started_at: Date.now() };
@@ -177,7 +184,13 @@ export async function scan_all_drives(
       // whose items failed is exactly the one whose notebooks came through
       // incomplete, so it is folded in for every drive, failed or not.
       accumulate_package_report(accumulators.package_report, drive_result.package_report);
-      accumulate_drive_result(accumulators, delta_link_by_drive, drive, drive_result);
+      accumulate_drive_result(
+        accumulators,
+        delta_link_by_drive,
+        drive,
+        drive_result,
+        completed_recrawl(drive.drive_id, delta, prev_delta, drive_result.interrupted),
+      );
       accumulators.drives_scanned++;
 
       if (!drive_result.interrupted) {
@@ -211,7 +224,9 @@ function accumulate_drive_result(
   delta_link_by_drive: Record<string, string>,
   drive: OneDriveDrive,
   drive_result: SingleDriveResult,
+  recrawl: DriveRecrawl | undefined,
 ): void {
+  if (recrawl) accumulators.recrawls.push(recrawl);
   accumulators.entries.push(...drive_result.entries);
   accumulators.files_stored += drive_result.files_stored;
   accumulators.files_deduplicated += drive_result.files_deduplicated;
