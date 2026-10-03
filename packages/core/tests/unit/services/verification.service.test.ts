@@ -189,7 +189,7 @@ describe('VerificationService', () => {
     vi.mocked(manifests.list_all_manifests).mockResolvedValue([target, older]);
     vi.mocked(storage.exists).mockImplementation(async (key: string) => key !== 'data/k-old');
     vi.mocked(storage.get).mockImplementation(async (key: string) => {
-      if (key === 'data/k-old') throw new Error('NoSuchKey');
+      if (key === 'data/k-old') throw Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' });
       return plaintext;
     });
 
