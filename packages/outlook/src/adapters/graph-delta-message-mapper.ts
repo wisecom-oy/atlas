@@ -61,7 +61,7 @@ export function graph_message_to_mail_message(msg: GraphDeltaMessage): MailMessa
     message_id: msg.id ?? '',
     folder_id: (msg.parentFolderId as string) ?? '',
     subject: (msg.subject as string) ?? '',
-    received_at: msg.receivedDateTime ? new Date(msg.receivedDateTime) : new Date(),
+    ...(msg.receivedDateTime ? { received_at: new Date(msg.receivedDateTime) } : {}),
     ...parse_sender(msg.from),
     size_bytes: body_buffer.length,
     raw_body: body_buffer,
