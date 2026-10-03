@@ -1,5 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { stream_sha256_from_storage } from '@wisecom/atlas-core/services/shared/stream-decrypt';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
+import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
@@ -156,16 +158,23 @@ function entry_claims_blob(entry: DriveManifestEntry): boolean {
   );
 }
 
+/**
+ * True when the blob is absent, fails its AES-GCM tag, or mismatches its checksum. Any other
+ * failure propagates: a 403 or a 503 says nothing about the backup, and counting it as damage
+ * sent operators to investigate intact data (issue #439).
+ */
 async function is_blob_corrupt(ctx: TenantContext, entry: DriveManifestEntry): Promise<boolean> {
   const storage_key = entry.storage_key;
   const expected = entry.checksum;
   if (!storage_key || !expected) return true;
+  if (!(await ctx.storage.exists(storage_key))) return true;
   try {
-    if (!(await ctx.storage.exists(storage_key))) return true;
     const actual = await stream_sha256_from_storage(ctx, storage_key);
     return is_checksum_mismatch(actual, expected);
-  } catch {
-    return true;
+  } catch (err) {
+    // The stream mixes storage reads with decryption, so the error itself has to say which.
+    if (is_absent_object_error(err) || is_gcm_auth_failure(err)) return true;
+    throw err;
   }
 }
 

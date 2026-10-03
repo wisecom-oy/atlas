@@ -52,7 +52,7 @@ exit "$status"
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                                | Correct the configuration or its storage access.                                                                                  |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                           | Check the selected resource and identifiers.                                                                                      |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                           | Respect retention or legal hold; repeating the same deletion cannot bypass it.                                                    |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                             | The stored bytes are intact but cannot be parsed back. Repeating the command cannot help; extract the raw content with `save`.     |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                             | The stored bytes are intact but cannot be parsed back. Repeating the command cannot help; extract the raw content with `save`.    |
 
 Fatal exceptions use this category mapping. Existing command-reported failures remain `1`, including failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial remain `2`; their messages are not reclassified.
 
@@ -256,6 +256,8 @@ Verification covers the **merged entry set of the snapshot's manifest chain**: t
 Both message blobs and `attachments` are checked (storage key + checksum). Entries with no stored blob at all (e.g. large attachments skipped by pre-v2.1.0 backups) are reported as **unverifiable** and fail the run with a non-zero exit code, because they represent content a restore cannot reproduce.
 
 `--fast` trades depth for cost: it only confirms every referenced object exists in the bucket, which catches the most common real-world damage (lifecycle deletion, failed replication, manual cleanup) at near-zero bandwidth. Scheduled deep verification should use full mode, which also validates ciphertext integrity via the GCM authentication tag.
+
+Only damage counts as a failed object: a key the bucket reports as absent (`NoSuchKey` or `NotFound`), ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run on the first occurrence and exits with its own category: `4` for a `403`, `3` for a `503` or a network error. An expired credential or an outage says nothing about the backup, so it is never reported as a list of failed objects.
 :::
 
 ### `atlas outlook restore`
@@ -741,6 +743,8 @@ Files larger than 4 MiB use streaming decryption to avoid buffering the full cip
 | `-s, --snapshot <id>` | OneDrive snapshot id (required)          |
 | `-t, --tenant <id>`   | Override tenant ID from config           |
 
+Failed objects and storage errors are classified as for [`atlas outlook verify`](#atlas-outlook-verify): an absent blob, a failed GCM tag, or a checksum mismatch fails that file, and any other storage error stops the run with its own exit category.
+
 **`atlas onedrive status`**
 
 Reports pending Graph changes per drive by replaying the saved delta links from the latest manifest chain. Reads only: no backup runs and nothing is written.
@@ -904,6 +908,8 @@ atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s
 | `-s, --snapshot <id>` | SharePoint snapshot ID (required)               |
 | `-t, --tenant <id>`   | Override tenant ID from config                  |
 
+Failed objects and storage errors are classified as for [`atlas outlook verify`](#atlas-outlook-verify).
+
 **`atlas sharepoint status`**
 
 Reports pending Graph changes per document library from the saved delta links. Reads only.
@@ -980,14 +986,14 @@ atlas keys rewrap --new-passphrase      # prompt for a new passphrase, twice, wi
 atlas keys rewrap --new-passphrase < secret.txt   # non-interactive, for a scripted rotation
 ```
 
-| Subcommand      | Description                                                                    |
-| --------------- | ------------------------------------------------------------------------------ |
-| `keys rewrap`   | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
+| Subcommand    | Description                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| `keys rewrap` | Re-wrap `_meta/dek.enc` under a new passphrase, current KDF parameters, or both |
 
-| Option              | Description                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one              |
-| `-t, --tenant <id>` | Override tenant ID from config                                                     |
+| Option              | Description                                                           |
+| ------------------- | --------------------------------------------------------------------- |
+| `--new-passphrase`  | Prompt for a new passphrase; omit to re-wrap under the configured one |
+| `-t, --tenant <id>` | Override tenant ID from config                                        |
 
 The data key itself does not change. Nothing in the bucket is re-encrypted, every existing
 snapshot stays readable, and the run writes exactly one object. What changes is the wrapper: the
