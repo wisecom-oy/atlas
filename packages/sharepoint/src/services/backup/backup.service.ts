@@ -11,6 +11,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
+import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import type {
   SharePointBackupOptions,
   SharePointBackupResult,
@@ -131,6 +132,9 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         delta_link_by_drive,
         ctx,
       });
+      await append_recrawl_tombstones(scan, () =>
+        this._manifests.list_snapshots_by_site(ctx, site_id),
+      );
 
       emit_operation_progress(options, {
         operation: 'backup',
