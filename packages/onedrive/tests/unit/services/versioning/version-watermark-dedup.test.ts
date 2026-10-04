@@ -88,7 +88,10 @@ function make_harness(
   const service = new OneDriveBackupService(
     factory,
     connector as never,
-    { save: vi.fn().mockResolvedValue(undefined) } as never,
+    {
+      save: vi.fn().mockResolvedValue(undefined),
+      list_snapshots_by_owner: async () => [],
+    } as never,
     file_indexes as never,
     cursors as never,
   );

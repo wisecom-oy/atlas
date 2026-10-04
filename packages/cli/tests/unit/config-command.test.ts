@@ -102,7 +102,9 @@ describe('atlas config set', () => {
   });
 
   it('rejects a passphrase below the minimum length', async () => {
-    await expect(run(['set', 'encryption.passphrase', 'short'])).rejects.toThrow(/at least 12/);
+    await expect(run(['set', 'encryption.passphrase', 'thirteen-byte'])).rejects.toThrow(
+      /at least 14 UTF-8 bytes/,
+    );
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });

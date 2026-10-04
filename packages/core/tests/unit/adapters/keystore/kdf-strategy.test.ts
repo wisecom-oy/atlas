@@ -13,7 +13,7 @@ describe('ScryptKdfStrategy', () => {
 
   it('generate_params produces 38-byte blocks with N=65536', () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     expect(params.length).toBe(SCRYPT_PARAMS_LENGTH);
     expect(params.readUInt32BE(0)).toBe(65536);
     expect(params.readUInt8(4)).toBe(8);
@@ -22,7 +22,7 @@ describe('ScryptKdfStrategy', () => {
 
   it('derive_kek matches scryptSync with length-prefixed tenant domain salt', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     const derived = await strategy.derive_kek(passphrase, params, tenant_id);
 
     const salt = params.subarray(6, SCRYPT_PARAMS_LENGTH);
@@ -41,7 +41,7 @@ describe('ScryptKdfStrategy', () => {
 
   it('derive_kek does not block the event loop', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
 
     // An ordering probe, not a duration: the callback is queued before the call and can only
     // run while the derivation is pending. Synchronous scrypt would finish its whole ~90-110 ms
@@ -61,7 +61,7 @@ describe('ScryptKdfStrategy', () => {
 
   it('different tenant_ids produce different KEKs from the same params', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     const [kek_a, kek_b] = await Promise.all([
       strategy.derive_kek(passphrase, params, 'tenant-a'),
       strategy.derive_kek(passphrase, params, 'tenant-b'),
@@ -71,8 +71,8 @@ describe('ScryptKdfStrategy', () => {
 
   it('generate_params uses different salts across calls', () => {
     const strategy = new ScryptKdfStrategy();
-    const p1 = strategy.generate_params(passphrase.length);
-    const p2 = strategy.generate_params(passphrase.length);
+    const p1 = strategy.generate_params();
+    const p2 = strategy.generate_params();
     expect(p1.subarray(6).equals(p2.subarray(6))).toBe(false);
   });
 
@@ -82,14 +82,14 @@ describe('ScryptKdfStrategy', () => {
 
   it('rejects N that is not a power of 2', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     params.writeUInt32BE(12345, 0);
     await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow('power of 2');
   });
 
   it('rejects N below the minimum (2^14)', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     params.writeUInt32BE(2, 0);
     await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow(
       'below minimum',
@@ -98,7 +98,7 @@ describe('ScryptKdfStrategy', () => {
 
   it('rejects N above the safety ceiling (2^20)', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     params.writeUInt32BE(1 << 21, 0);
     await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow(
       'exceeds maximum',
@@ -107,13 +107,13 @@ describe('ScryptKdfStrategy', () => {
 
   it('rejects r=0 and p=0', async () => {
     const strategy = new ScryptKdfStrategy();
-    const params = strategy.generate_params(passphrase.length);
+    const params = strategy.generate_params();
     params.writeUInt8(0, 4);
     await expect(strategy.derive_kek(passphrase, params, tenant_id)).rejects.toThrow(
       'r out of range',
     );
 
-    const params2 = strategy.generate_params(passphrase.length);
+    const params2 = strategy.generate_params();
     params2.writeUInt8(0, 5);
     await expect(strategy.derive_kek(passphrase, params2, tenant_id)).rejects.toThrow(
       'p out of range',

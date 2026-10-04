@@ -63,7 +63,9 @@ The lookup pointers keep incremental backup reads constant as snapshot history g
 
 Objects under `data/{mailbox}/` hold one of two formats, and the manifest entry says which.
 
-Snapshots taken by this version store the message's original RFC 5322 MIME, fetched from `GET /users/{id}/messages/{id}/$value`. Because MIME carries its own attachments, these entries write **no** objects under `attachments/{mailbox}/` and their manifest entries list no attachment records. They do carry `payload_format: "mime"` and a `received_at` timestamp, the latter because there is no JSON payload left to read a receive time from.
+Snapshots taken by this version store the message's original RFC 5322 MIME, fetched from `GET /users/{id}/messages/{id}/$value`. Because MIME carries its own attachments, these entries write **no** objects under `attachments/{mailbox}/` and their manifest entries list no attachment records. They do carry `payload_format: "mime"`, and a `received_at` timestamp whenever Graph or the MIME `Date` header supplies one, because there is no JSON payload left to read a receive time from.
+
+The `subject`, `from` and `received_at` fields come from the Graph delta item. A delta item for an updated message can arrive without them, so a field the delta item lacks is read from the captured MIME headers instead: `Subject`, `From`, and `Date`. `Date` is the time the sender stamped, which can differ from the mailbox receive time. When neither source has a valid time, the entry omits `received_at` rather than recording the backup time.
 
 Legacy snapshots store a Graph JSON payload with each attachment as a separate content-addressed object under `attachments/{mailbox}/{sha256}`. Their manifest entries have no `payload_format` field. Nothing about them changes: they stay readable, restorable, verifiable, and exportable exactly as before, and a mailbox whose history spans the upgrade will contain both kinds in the same snapshot chain.
 

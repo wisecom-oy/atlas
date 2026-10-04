@@ -65,11 +65,11 @@ try {
 
 `atlas.validate(): Promise<void>` is opt-in. It checks three stages, in order: `HeadBucket` for `atlas-{tenantId}`, the existing wrapped tenant key when one is present, then a Graph token from the instance's shared authentication provider with `https://graph.microsoft.com/.default` scope. A cached valid token may be reused. Success resolves without returning a token, key material or other data.
 
-| Validation stage | Failure | Operator action |
-| ---------------- | ------- | --------------- |
-| S3 `HeadBucket` | `StorageError`, `ATLAS_STORAGE_FAILURE` | Check endpoint, region, credentials, bucket existence and `s3:ListBucket` access. A missing bucket fails; provision it separately. |
+| Validation stage                               | Failure                                          | Operator action                                                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| S3 `HeadBucket`                                | `StorageError`, `ATLAS_STORAGE_FAILURE`          | Check endpoint, region, credentials, bucket existence and `s3:ListBucket` access. A missing bucket fails; provision it separately.     |
 | `_meta/dek.enc` unwrap, when the object exists | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, verify that the tenant row and passphrase row match. |
-| Graph token acquisition | `AuthError`, `ATLAS_AUTH_DENIED` | Check tenant ID, client ID, client secret and connectivity to Microsoft Entra ID. |
+| Graph token acquisition                        | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check tenant ID, client ID, client secret and connectivity to Microsoft Entra ID.                                                      |
 
 These codes identify the failed validation stage, not necessarily bad credentials: DNS, TLS and transport failures can also cause rejection. Stages stop on the first failure, so Graph is not probed after an S3 or passphrase failure. Each error retains the original failure as `cause`. Do not publish raw provider diagnostics without redacting tenant and credential details.
 
@@ -263,10 +263,10 @@ if (result.interrupted) {
 }
 ```
 
-| Option       | Type                                      | Description                                                                                     |
-| ------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.            |
-| `signal`     | `AbortSignal`                             | Requests cancellation. The transfer in flight is ended and the run stops at a safe boundary.    |
+| Option       | Type                                      | Description                                                                                  |
+| ------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `onProgress` | `(event: OperationProgressEvent) => void` | Receives discovery, per-item processing, finalization, and terminal progress events.         |
+| `signal`     | `AbortSignal`                             | Requests cancellation. The transfer in flight is ended and the run stops at a safe boundary. |
 
 `atlas.outlook.backup` accepts a third option, `hardStopSignal`, for the case where graceful is not fast enough. This is the escalation the CLI wires to a second Ctrl+C:
 
@@ -556,14 +556,14 @@ Graph **item** IDs (`fileId`, `itemId`) are case-sensitive and never folded. `fi
 
 `atlas.outlook.save` and `atlas.outlook.saveMailbox` accept the following options:
 
-| Option               | Type      | Description                                               |
-| -------------------- | --------- | --------------------------------------------------------- |
-| `folderName`         | `string`  | Save only this folder and its subfolders (name or path)   |
-| `messageRef`         | `string`  | Save a single message by index or ID                      |
-| `startDate`          | `Date`    | Include snapshots on or after this date                   |
-| `endDate`            | `Date`    | Include snapshots on or before this date                  |
-| `outputPath`         | `string`  | Output zip file path (default: `Restore-<timestamp>.zip`) |
-| `skipIntegrityCheck` | `boolean` | Skip SHA-256 verification (default: `false`)              |
+| Option               | Type       | Description                                               |
+| -------------------- | ---------- | --------------------------------------------------------- |
+| `folderName`         | `string`   | Save only this folder and its subfolders (name or path)   |
+| `messageRef`         | `string`   | Save a single message by index or ID                      |
+| `startDate`          | `Date`     | Include snapshots on or after this date                   |
+| `endDate`            | `Date`     | Include snapshots on or before this date                  |
+| `outputPath`         | `string`   | Output zip file path (default: `Restore-<timestamp>.zip`) |
+| `skipIntegrityCheck` | `boolean`  | Skip SHA-256 verification (default: `false`)              |
 | `output`             | `Writable` | Stream the archive to this destination instead of a file  |
 
 Both methods return a `SaveResult`:
@@ -591,7 +591,7 @@ import express from 'express';
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const app = express();
-const atlas = createAtlasInstance({ /* ...credentials... */ });
+const atlas = createAtlasInstance({/* ...credentials... */});
 
 app.get('/export/:snapshotId', async (req, res) => {
   res.setHeader('Content-Type', 'application/zip');
@@ -621,13 +621,13 @@ Anything implementing Node's `Writable` works: an HTTP response, an upload strea
 
 What changes compared with a file export:
 
-| Behaviour | Stream export |
-| --------- | ------------- |
-| `outputPath` in the result | Empty string. There is no file, so Atlas reports no path. |
-| Counts, errors, `integrityFailures` | Reported exactly as for a file export. |
-| A failed run | The stream is destroyed rather than ended, including when setup fails before any bytes are written. |
-| An interrupted run | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`. |
-| `output` with `outputPath` | Rejected with `ConfigError`. Atlas writes one archive, and silently dropping the other value is how an export goes missing. |
+| Behaviour                           | Stream export                                                                                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `outputPath` in the result          | Empty string. There is no file, so Atlas reports no path.                                                                   |
+| Counts, errors, `integrityFailures` | Reported exactly as for a file export.                                                                                      |
+| A failed run                        | The stream is destroyed rather than ended, including when setup fails before any bytes are written.                         |
+| An interrupted run                  | The stream is destroyed without finalizing the archive. The result reports `interrupted: true`.                             |
+| `output` with `outputPath`          | Rejected with `ConfigError`. Atlas writes one archive, and silently dropping the other value is how an export goes missing. |
 
 **A destroyed stream is the point.** Ending a failed or interrupted stream would hand the consumer a short archive that opens like a complete one, which is the failure mode file exports avoid by staging. Over HTTP the client sees the transfer break, so treat a body that arrived without a completed request as a failed export rather than a partial one. Headers are already sent by then, so the status code cannot report the failure: check the result, or the absence of one, on the server.
 
@@ -782,12 +782,12 @@ Re-wraps the tenant's stored data key. Called with no argument it re-wraps under
 passphrase with current KDF parameters, which is how a tenant bootstrapped with weaker scrypt
 parameters is brought forward.
 
-| Field              | Type      | Description                                                    |
-| ------------------ | --------- | -------------------------------------------------------------- |
-| `tenantId`         | `string`  | Tenant whose key was re-wrapped                                |
-| `passphraseChanged`| `boolean` | False when the call re-wrapped under the configured passphrase |
-| `previousKdfId`    | `number`  | KDF the wrapper used before the call                           |
-| `kdfId`            | `number`  | KDF the new wrapper uses                                       |
+| Field               | Type      | Description                                                    |
+| ------------------- | --------- | -------------------------------------------------------------- |
+| `tenantId`          | `string`  | Tenant whose key was re-wrapped                                |
+| `passphraseChanged` | `boolean` | False when the call re-wrapped under the configured passphrase |
+| `previousKdfId`     | `number`  | KDF the wrapper used before the call                           |
+| `kdfId`             | `number`  | KDF the new wrapper uses                                       |
 
 The data key is unchanged, so nothing in the bucket is re-encrypted and every snapshot stays
 readable. **This rotates the wrapper, not the key**: an attacker who already holds the data key
@@ -1022,24 +1022,26 @@ try {
 }
 ```
 
-| Class                               | `code`                       | Meaning                                                                       |
-| ----------------------------------- | ---------------------------- | ----------------------------------------------------------------------------- |
-| `AtlasError`                        | any of the below             | Base class; catch this to separate deliberate failures from bugs              |
-| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call for lack of permission or admin consent     |
-| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph will not serve the mailbox               |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site or object does not exist                       |
-| `ThrottledError`                    | `ATLAS_THROTTLED`            | Service throttled the call and the retry budget was spent; see `retryAfterMs` |
-| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                                  |
-| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold; `key` names it                     |
-| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason that is not permission, retention or absence      |
-| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase or tenant is missing or unusable            |
-| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested but bucket versioning is off                           |
-| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested but the bucket has no Object Lock                      |
-| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | Backend rejected the requested retention mode                                 |
-| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | Conditional write lost a race (HTTP 412)                                      |
-| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored content was fetched and verified but cannot be parsed back             |
+| Class                               | `code`                       | Meaning                                                                   |
+| ----------------------------------- | ---------------------------- | ------------------------------------------------------------------------- |
+| `AtlasError`                        | any of the below             | Base class; catch this to separate deliberate failures from bugs          |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call for lack of permission or admin consent |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph will not serve the mailbox           |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site or object does not exist                   |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph kept returning 429 through all 12 retries; see `retry_after_ms`     |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                              |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold; `key` names it                 |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason that is not permission, retention or absence  |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase or tenant is missing or unusable        |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested but bucket versioning is off                       |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested but the bucket has no Object Lock                  |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | Backend rejected the requested retention mode                             |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | Conditional write lost a race (HTTP 412)                                  |
+| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored content was fetched and verified but cannot be parsed back         |
 
 Every error carries the underlying failure as `cause`, so the Graph or AWS SDK error is still available for logging without being what you branch on.
+
+Errors are thrown as Atlas raises them, without the camelCase conversion results get, so `ThrottledError` exposes the last `Retry-After` the service sent as `retry_after_ms` (milliseconds, `undefined` when Graph sent none). It is raised once a request has been throttled through its whole retry budget of 12 attempts, about 23 minutes; the CLI exits `3` for it.
 
 `WrongPassphraseError` deserves a note. AES-GCM cannot tell a wrong key from damaged ciphertext: both are one authentication failure. Atlas names the passphrase because that is the likelier cause and the only one an operator can act on, and keeps the raw crypto error as `cause`. If the passphrase is definitely correct for that tenant, treat it as a possible integrity problem and run `atlas verify` against the snapshot.
 
@@ -1058,13 +1060,13 @@ Every error carries the underlying failure as `cause`, so the Graph or AWS SDK e
 
 **Graph cost types:**
 
-| Export                    | Kind  | Description                                                                 |
-| ------------------------- | ----- | --------------------------------------------------------------------------- |
-| `OperationCost`           | type  | Per-operation cost breakdown                                                |
-| `ServicePoolCost`         | type  | Cost for a single service pool                                              |
-| `GraphServicePool`        | type  | Pool identifier union type                                                  |
-| `GraphServiceLimits`      | type  | Type for the full limits constant                                           |
-| `GRAPH_SERVICE_LIMITS`    | value | Frozen official limits constant                                             |
-| `getGraphCost`            | value | Reads the cost burned before a failed operation threw                       |
-| `OutlookBackupResult`     | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                       |
-| `OutlookRestoreResult`    | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`)    |
+| Export                 | Kind  | Description                                                                 |
+| ---------------------- | ----- | --------------------------------------------------------------------------- |
+| `OperationCost`        | type  | Per-operation cost breakdown                                                |
+| `ServicePoolCost`      | type  | Cost for a single service pool                                              |
+| `GraphServicePool`     | type  | Pool identifier union type                                                  |
+| `GraphServiceLimits`   | type  | Type for the full limits constant                                           |
+| `GRAPH_SERVICE_LIMITS` | value | Frozen official limits constant                                             |
+| `getGraphCost`         | value | Reads the cost burned before a failed operation threw                       |
+| `OutlookBackupResult`  | type  | Result of `atlas.outlook.backup` (includes `graphCost`)                     |
+| `OutlookRestoreResult` | type  | Result of `atlas.outlook.restore` / `restoreMailbox` (includes `graphCost`) |

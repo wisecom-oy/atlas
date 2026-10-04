@@ -88,8 +88,10 @@ export interface MailFolderListOptions {
 export interface MailMessage {
   readonly message_id: string;
   readonly folder_id: string;
-  readonly subject: string;
-  readonly received_at: Date;
+  /** Graph `subject`; absent when the delta item omits it, and `''` when the message has none. */
+  readonly subject?: string | undefined;
+  /** Graph `receivedDateTime`; absent when the delta item omits it, never substituted. */
+  readonly received_at?: Date | undefined;
   /** Graph `from`; absent when Graph reports no sender address. */
   readonly from?: MailAddress | undefined;
   readonly size_bytes: number;

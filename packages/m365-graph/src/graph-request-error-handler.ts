@@ -1,6 +1,7 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { get_active_fence } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { parse_retry_after_ms } from '@/graph-retry-after';
+import { ThrottledError } from '@wisecom/atlas-types';
 
 /**
  * Statuses Graph recovers from on its own, per Microsoft's throttling and
@@ -60,8 +61,12 @@ export function is_invalid_delta_error(err: unknown): boolean {
   );
 }
 
-/** Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504). */
+/**
+ * Returns true when the error carries a transient HTTP status (429, 500, 502, 503, 504), or is the
+ * `ThrottledError` an exhausted 429 becomes, so an outer retry loop still sees a throttle.
+ */
 export function is_transient_error(err: unknown): boolean {
+  if (err instanceof ThrottledError) return true;
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
 }
@@ -118,7 +123,8 @@ export async function with_graph_retry<T>(
     try {
       return await race_timeout(fn(), timeout_ms);
     } catch (err) {
-      if (!is_retryable_error(err) || attempt === MAX_RETRIES) throw err;
+      if (!is_retryable_error(err)) throw err;
+      if (attempt === MAX_RETRIES) throw as_exhausted_failure(err);
 
       const retry_after = extract_retry_after(err);
       // Raise on the response that carried the 429, not after the budget is
@@ -137,6 +143,20 @@ export async function with_graph_retry<T>(
     }
   }
   throw new Error('with_graph_retry: unreachable');
+}
+
+/**
+ * Turns a 429 that outlasted the retry budget into the documented `ThrottledError`, keeping the
+ * Graph error as `cause`. Other exhausted failures are rethrown unchanged (issue #440).
+ */
+function as_exhausted_failure(err: unknown): unknown {
+  if ((err as Record<string, unknown>).statusCode !== 429) return err;
+  return new ThrottledError(
+    `Microsoft Graph kept throttling the request through ${MAX_RETRIES} retries: ` +
+      describe_graph_error(err),
+    extract_retry_after(err),
+    { cause: err },
+  );
 }
 
 /**
