@@ -53,6 +53,41 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
   };
 }
 
+export interface MimeEnvelope {
+  readonly subject?: string;
+  readonly from?: MimeAddress;
+  readonly date?: Date;
+}
+
+/** Reads Subject, From and Date from the header block alone, without decoding body parts. */
+export async function parse_mime_envelope(mime: Buffer): Promise<MimeEnvelope> {
+  const parsed: ParsedMail = await simpleParser(slice_header_block(mime));
+  const from = flatten_addresses(parsed.from)[0];
+  const date = read_date_header(parsed);
+  return {
+    ...(parsed.subject ? { subject: parsed.subject } : {}),
+    ...(from ? { from } : {}),
+    ...(date ? { date } : {}),
+  };
+}
+
+/** Returns the bytes before the first blank line, which RFC 5322 defines as the header block. */
+function slice_header_block(mime: Buffer): Buffer {
+  const ends = [mime.indexOf('\r\n\r\n'), mime.indexOf('\n\n')].filter((at) => at >= 0);
+  return ends.length === 0 ? mime : mime.subarray(0, Math.min(...ends));
+}
+
+/**
+ * Parses the raw Date header. `parsed.date` is not used because mailparser substitutes the
+ * current time for an unparseable Date, and a parse time must never pass as a receive time.
+ */
+function read_date_header(parsed: ParsedMail): Date | undefined {
+  const header = (parsed.headerLines ?? []).find(({ key }) => key === 'date');
+  if (!header) return undefined;
+  const date = new Date(unfold_header_value(header.line.slice(header.line.indexOf(':') + 1)));
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 /**
  * Rejects a message whose header block mailsplit refused to parse.
  *
