@@ -165,11 +165,13 @@ describe('SharePointVerificationService', () => {
     expect(result.passed).toBe(0);
   });
 
-  it('reports blob corrupt when storage.exists returns false', async () => {
+  it('reports a blob absent from storage as corrupt', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
     vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
-    vi.mocked(mocks.ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    vi.mocked(mocks.ctx.storage.get_stream as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' }),
+    );
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 

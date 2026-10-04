@@ -11,6 +11,7 @@ import type {
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
+import { is_absent_object_error } from '@/services/shared/absent-object';
 import {
   begin_operation_progress,
   emit_operation_progress,
@@ -135,14 +136,17 @@ export class VerificationService implements VerificationUseCase {
   ): Promise<{ failed: string[]; checked: number }> {
     const semaphore = new ConcurrencySemaphore(VERIFY_CONCURRENCY);
     let checked = 0;
+    // Set by the first storage failure, so the queued checks stop instead of each meeting the
+    // same 403 or outage after the run has already failed.
+    let halted = false;
     const corrupt = await Promise.all(
       items.map(async (item) => {
         await semaphore.acquire();
         try {
-          if (options.should_interrupt?.() === true) return undefined;
+          if (halted || options.should_interrupt?.() === true) return undefined;
           const failed =
             options.fast === true
-              ? !(await this.object_exists(ctx, item))
+              ? !(await ctx.storage.exists(item.storage_key))
               : await this.is_item_corrupt(ctx, item);
           checked++;
           emit_operation_progress(options, {
@@ -154,6 +158,9 @@ export class VerificationService implements VerificationUseCase {
             current: item.id,
           });
           return failed;
+        } catch (err) {
+          halted = true;
+          throw err;
         } finally {
           semaphore.release();
         }
@@ -165,27 +172,23 @@ export class VerificationService implements VerificationUseCase {
     };
   }
 
-  /** Existence-only probe for fast mode; any error counts as missing. */
-  private async object_exists(ctx: TenantContext, item: CheckItem): Promise<boolean> {
-    try {
-      return await ctx.storage.exists(item.storage_key);
-    } catch {
-      return false;
-    }
-  }
-
   /**
-   * Downloads, decrypts, and hashes a single object. A missing object
-   * surfaces as a storage error (no separate HEAD round trip -- GET already
-   * fails on absent keys). Returns true if the object is missing, decryption
-   * fails (tampered), or the checksum mismatches.
+   * Downloads, decrypts, and hashes a single object. True when the object is absent, fails to
+   * decrypt (tampered or truncated), or mismatches its checksum. Any other storage failure, such
+   * as a 403 or a 503, propagates: it says nothing about the backup, and counting it as damage
+   * sent operators to investigate intact data (issue #439).
    */
   private async is_item_corrupt(ctx: TenantContext, item: CheckItem): Promise<boolean> {
+    let ciphertext: Buffer;
     try {
-      const ciphertext = await ctx.storage.get(item.storage_key);
+      ciphertext = await ctx.storage.get(item.storage_key);
+    } catch (err) {
+      if (is_absent_object_error(err)) return true;
+      throw err;
+    }
+    try {
       const plaintext = ctx.decrypt(ciphertext, item.storage_key);
-      const actual_checksum = compute_sha256(plaintext);
-      return is_checksum_mismatch(actual_checksum, item.checksum);
+      return is_checksum_mismatch(compute_sha256(plaintext), item.checksum);
     } catch {
       return true;
     }
