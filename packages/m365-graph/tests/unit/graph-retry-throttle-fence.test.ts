@@ -131,7 +131,7 @@ describe('with_graph_retry and the throttle fence', () => {
     const promise = with_graph_retry(fn).catch((e: unknown) => e);
     await vi.advanceTimersByTimeAsync(60 * 60_000);
 
-    expect(await promise).toMatchObject({ statusCode: 429 });
+    expect(await promise).toMatchObject({ cause: { statusCode: 429 } });
     expect(attempts).toBe(MAX_ATTEMPTS);
   });
 

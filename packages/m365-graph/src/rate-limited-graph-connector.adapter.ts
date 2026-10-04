@@ -28,7 +28,7 @@ import {
   run_with_graph_operation,
   run_with_throttle_fence,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
+import { GRAPH_SERVICE_LIMITS, ThrottledError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const DELTA_WITH_TOKEN_COST = 1;
@@ -194,8 +194,10 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   }
 
   private handleThrottle(err: unknown): void {
-    const graph_err = err as Record<string, unknown>;
-    if (graph_err.statusCode !== 429) return;
+    // An exhausted 429 arrives as ThrottledError; the Graph response with its headers is the cause.
+    const graph_err = (err instanceof ThrottledError ? err.cause : err) as
+      Record<string, unknown> | undefined;
+    if (graph_err?.statusCode !== 429) return;
 
     const headers = graph_err.headers as Record<string, string> | undefined;
     const raw = headers?.['retry-after'] ?? headers?.['Retry-After'];

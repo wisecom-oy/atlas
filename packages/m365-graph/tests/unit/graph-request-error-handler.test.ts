@@ -6,6 +6,7 @@ import {
   is_retryable_error,
   with_graph_retry,
 } from '@/graph-request-error-handler';
+import { ThrottledError } from '@wisecom/atlas-types';
 
 describe('is_invalid_delta_error', () => {
   it('detects syncStateNotFound', () => {
@@ -83,6 +84,10 @@ describe('is_retryable_error', () => {
 
   it('returns true for network errors', () => {
     expect(is_retryable_error({ code: 'ETIMEDOUT' })).toBe(true);
+  });
+
+  it('keeps an exhausted throttle retryable for an outer loop, as the raw 429 was', () => {
+    expect(is_retryable_error(new ThrottledError('throttled', 1000))).toBe(true);
   });
 
   it('returns false for non-retryable errors', () => {
@@ -166,8 +171,8 @@ describe('with_graph_retry', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it('throws after exhausting all retries', async () => {
-    const err = { statusCode: 429, message: 'Too Many Requests' };
+  it('raises ThrottledError with the Graph error as cause when a 429 outlasts the budget', async () => {
+    const err = { statusCode: 429, message: 'Too Many Requests', headers: { 'retry-after': '2' } };
     const fn = vi.fn().mockRejectedValue(err);
 
     const promise = with_graph_retry(fn).catch((e: unknown) => e);
@@ -176,8 +181,21 @@ describe('with_graph_retry', () => {
     }
 
     const result = await promise;
-    expect(result).toEqual(err);
+    expect(result).toBeInstanceOf(ThrottledError);
+    expect(result).toMatchObject({ code: 'ATLAS_THROTTLED', retry_after_ms: 2000, cause: err });
     expect(fn).toHaveBeenCalledTimes(13);
+  });
+
+  it('rethrows any other exhausted failure unchanged', async () => {
+    const err = { statusCode: 503, message: 'Service Unavailable' };
+    const fn = vi.fn().mockRejectedValue(err);
+
+    const promise = with_graph_retry(fn).catch((e: unknown) => e);
+    for (let i = 0; i < 13; i++) {
+      await vi.advanceTimersByTimeAsync(300_000);
+    }
+
+    expect(await promise).toBe(err);
   });
 
   it('retries on "terminated" error and succeeds', async () => {
