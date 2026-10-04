@@ -1,6 +1,5 @@
 import { randomBytes, scrypt as scrypt_callback } from 'node:crypto';
 import { promisify } from 'node:util';
-import { logger } from '@/utils/logger';
 
 /**
  * Async scrypt: runs on the libuv threadpool, so the ~64 MiB allocation and the
@@ -28,7 +27,12 @@ const SCRYPT_P = 1;
 const SCRYPT_MAXMEM = 128 * 1024 * 1024;
 /** OWASP minimum for sensitive workloads (2^14). */
 const SCRYPT_N_MIN = 1 << 14;
-const MIN_PASSPHRASE_LENGTH = 14;
+/**
+ * Minimum passphrase length, in UTF-8 bytes, for wrapping a tenant key. The wrapped key sits in the
+ * bucket with its KDF parameters in the clear, so bucket read access allows offline guessing and
+ * the passphrase is the whole defence (issue #447). Every wrap path and config check reads this.
+ */
+export const MIN_PASSPHRASE_BYTES = 14;
 /** Upper bound for N to prevent a crafted blob from allocating unbounded memory. */
 const SCRYPT_N_MAX = 1 << 20;
 
@@ -42,8 +46,8 @@ export const SCRYPT_PARAMS_LENGTH = 38;
 export interface KdfStrategy {
   readonly kdf_id: number;
   derive_kek(passphrase: Buffer, params: Buffer, tenant_id: string): Promise<Buffer>;
-  /** Produces a fresh params block for `wrap_dek` (includes random salt). Warns if passphrase is too short for this KDF. */
-  generate_params(passphrase_length: number): Buffer;
+  /** Produces a fresh params block for `wrap_dek` (includes random salt). */
+  generate_params(): Buffer;
 }
 
 /** scrypt-based KEK derivation with per-wrap random salt stored in the blob. */
@@ -67,14 +71,7 @@ export class ScryptKdfStrategy implements KdfStrategy {
   }
 
   /** @inheritdoc */
-  generate_params(passphrase_length: number): Buffer {
-    if (passphrase_length < MIN_PASSPHRASE_LENGTH) {
-      logger.warn(
-        `Encryption passphrase is shorter than ${MIN_PASSPHRASE_LENGTH} characters. ` +
-          'With scrypt (N=65536), short passphrases are vulnerable to brute-force. ' +
-          'Use at least 5 random words or 20+ random characters for production.',
-      );
-    }
+  generate_params(): Buffer {
     const salt = randomBytes(32);
     const buf = Buffer.alloc(SCRYPT_PARAMS_LENGTH);
     buf.writeUInt32BE(SCRYPT_N, 0);

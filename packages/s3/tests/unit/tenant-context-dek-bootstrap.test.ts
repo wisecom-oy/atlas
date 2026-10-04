@@ -2,6 +2,7 @@ import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DefaultTenantContextFactory } from '@/adapters/tenant-context.factory';
 import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ConfigError } from '@wisecom/atlas-types';
 
 // Regression tests for issue #25: two processes bootstrapping the same fresh
 // tenant concurrently must converge on one DEK - the loser of the create-only
@@ -128,5 +129,15 @@ describe('DEK bootstrap race (issue #25)', () => {
     });
     expect(dek_puts.length).toBe(1);
     expect((dek_puts[0]![0] as CommandLike).input.IfNoneMatch).toBe('*');
+  });
+
+  it('refuses to create a tenant key under a passphrase shorter than 14 bytes (issue #447)', async () => {
+    const s3 = make_racing_s3(0);
+    const short = { encryption_passphrase: 'abcd' } as AtlasConfig;
+
+    await expect(
+      new DefaultTenantContextFactory(s3 as never, short, buckets).create('tenant-new'),
+    ).rejects.toBeInstanceOf(ConfigError);
+    expect(s3.objects.size).toBe(0);
   });
 });

@@ -54,7 +54,7 @@ Plaintext files and environment variables are readable by any process running as
 
 The 256-bit store key never sits next to the ciphertext. It lives in the **macOS Keychain** (via `security`) or **libsecret** on Linux (via `secret-tool`). Only when neither keyring is available does Atlas fall back to a `~/.atlas/config.key` file (mode `0600`), and it warns loudly when it does.
 
-Values are validated on save: format checks per key (GUID, URL, minimum passphrase length), plus a live connectivity probe (Graph token request, S3 `ListBuckets`) as soon as a credential group is complete.
+Values are validated on save: format checks per key (GUID, URL, and a passphrase of at least 14 UTF-8 bytes; see [Security](/security#kek-derivation-scrypt) for why and for keys created under shorter ones), plus a live connectivity probe (Graph token request, S3 `ListBuckets`) as soon as a credential group is complete.
 
 Because environment variables still win, `atlas config` warns when a saved value is currently shadowed by an `ATLAS_*` variable.
 

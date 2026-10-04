@@ -5,8 +5,13 @@ import {
   type CipherGCM,
   type DecipherGCM,
 } from 'node:crypto';
-import { WrongPassphraseError } from '@wisecom/atlas-types';
-import { DEFAULT_KDF_STRATEGY, KDF_STRATEGIES } from '@/adapters/keystore/kdf-strategy';
+import { ConfigError, WrongPassphraseError } from '@wisecom/atlas-types';
+import {
+  DEFAULT_KDF_STRATEGY,
+  KDF_STRATEGIES,
+  MIN_PASSPHRASE_BYTES,
+} from '@/adapters/keystore/kdf-strategy';
+import { logger } from '@/utils/logger';
 import { parse_dek_blob, build_header_bytes } from '@/adapters/keystore/dek-blob-codec';
 import type { DekBlobHeader } from '@/adapters/keystore/dek-blob-codec';
 import {
@@ -126,10 +131,20 @@ export class EnvelopeKeyService {
    * Encrypts (wraps) a DEK with a KEK derived from the passphrase, tenant_id,
    * and a per-wrap random salt. The versioned header is authenticated as AAD,
    * so version/KDF/params cannot be tampered with or downgraded.
+   *
+   * Refuses a passphrase under `MIN_PASSPHRASE_BYTES` with `ConfigError`. A new tenant key and a
+   * re-wrap both pass through here, so no entry point can create a weakly protected key (#447).
    */
   async wrap_dek(dek: Buffer, tenant_id: string): Promise<Buffer> {
+    if (this._passphrase_buf.length < MIN_PASSPHRASE_BYTES) {
+      throw new ConfigError(
+        `The encryption passphrase is ${this._passphrase_buf.length} UTF-8 bytes; wrapping a ` +
+          `tenant key requires at least ${MIN_PASSPHRASE_BYTES}. Nothing was written. Keys ` +
+          `already wrapped under a shorter passphrase still open.`,
+      );
+    }
     const strategy = DEFAULT_KDF_STRATEGY;
-    const params = strategy.generate_params(this._passphrase_buf.length);
+    const params = strategy.generate_params();
     const header: DekBlobHeader = { kdf_id: strategy.kdf_id, kdf_params: params };
     const header_bytes = build_header_bytes(header);
     const kek = await strategy.derive_kek(this._passphrase_buf, params, tenant_id);
@@ -141,8 +156,18 @@ export class EnvelopeKeyService {
     }
   }
 
-  /** Decrypts (unwraps) a wrapped DEK using the passphrase, tenant_id, and blob metadata. */
+  /**
+   * Decrypts (unwraps) a wrapped DEK using the passphrase, tenant_id, and blob metadata. A short
+   * passphrase still opens the key it was used for, with a warning, so older backups stay readable.
+   */
   async unwrap_dek(wrapped: Buffer, tenant_id: string): Promise<Buffer> {
+    if (this._passphrase_buf.length < MIN_PASSPHRASE_BYTES) {
+      logger.warn(
+        `Encryption passphrase is shorter than ${MIN_PASSPHRASE_BYTES} UTF-8 bytes; anyone with ` +
+          `read access to the bucket can guess it offline. Move to a longer one with ` +
+          `\`atlas keys rewrap\`: at least 5 random words or 20 random characters.`,
+      );
+    }
     const { header, header_bytes, encrypted_dek } = parse_dek_blob(wrapped);
     const strategy = KDF_STRATEGIES.get(header.kdf_id);
     if (!strategy) {
