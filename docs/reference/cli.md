@@ -1059,7 +1059,7 @@ atlas config validate                                             # live Graph +
 
 Each verb is a subcommand, so `atlas config set --help` documents itself. Before v5.0.0 the key and value were positional and `list`, `unset` and `validate` were recognised as key names, which left `atlas config list --help` documenting nothing.
 
-Keys: `tenant.id`, `client.id`, `client.secret`, `s3.endpoint`, `s3.access-key`, `s3.secret-key`, `s3.region`, `encryption.passphrase`. Each value is format-checked on save (GUIDs, URL scheme, 12-character passphrase minimum), and once a credential group is complete the matching live probe runs automatically. Note that `ATLAS_*` environment variables still override stored values; the command warns when a saved value is shadowed.
+Keys: `tenant.id`, `client.id`, `client.secret`, `s3.endpoint`, `s3.access-key`, `s3.secret-key`, `s3.region`, `encryption.passphrase`. Each value is format-checked on save (GUIDs, URL scheme, a passphrase of at least 14 UTF-8 bytes), and once a credential group is complete the matching live probe runs automatically. Note that `ATLAS_*` environment variables still override stored values; the command warns when a saved value is shadowed.
 
 ## `atlas replicate`
 

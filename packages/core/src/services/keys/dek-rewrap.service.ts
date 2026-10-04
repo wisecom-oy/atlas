@@ -9,6 +9,7 @@ import type {
 import { ConfigError, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { parse_dek_blob } from '@/adapters/keystore/dek-blob-codec';
+import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
 import { ATLAS_CONFIG_TOKEN, type AtlasConfig } from '@/utils/config';
 import { logger } from '@/utils/logger';
 import {
@@ -20,9 +21,6 @@ import {
 } from '@/services/keys/dek-rewrap.errors';
 
 const DEK_KEY = '_meta/dek.enc';
-
-/** Matches the minimum `createAtlasInstance` enforces on `encryptionPassphrase` (issue #45). */
-const MIN_PASSPHRASE_BYTES = 14;
 
 /**
  * Re-wraps a tenant's stored DEK under a new passphrase, new KDF parameters, or both.

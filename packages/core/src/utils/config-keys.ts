@@ -1,8 +1,8 @@
 import type { AtlasConfig } from '@/utils/config';
+import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
 
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DOMAIN_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
-const MIN_PASSPHRASE_LENGTH = 12;
 
 export interface ConfigKeySpec {
   /** Dotted CLI key, e.g. "tenant.id". */
@@ -84,9 +84,9 @@ export const CONFIG_KEYS: readonly ConfigKeySpec[] = [
     secret: true,
     description: 'Passphrase protecting the per-tenant encryption keys',
     validate: (v) =>
-      v.length >= MIN_PASSPHRASE_LENGTH
+      Buffer.byteLength(v, 'utf8') >= MIN_PASSPHRASE_BYTES
         ? null
-        : `must be at least ${MIN_PASSPHRASE_LENGTH} characters`,
+        : `must contain at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes`,
   },
 ];
 

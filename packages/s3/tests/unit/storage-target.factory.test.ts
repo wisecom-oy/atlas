@@ -44,7 +44,7 @@ describe('create_storage_target', () => {
     s3Endpoint: 'http://offsite:9000',
     s3AccessKey: 'access',
     s3SecretKey: 'secret',
-    encryptionPassphrase: 'test-pass',
+    encryptionPassphrase: 'test-passphrase',
   };
 
   it('creates a storage target with auto-derived target_id', () => {
@@ -65,7 +65,7 @@ describe('create_storage_target', () => {
   });
 
   it('creates a context with working crypto when DEK exists', async () => {
-    const svc = new EnvelopeKeyService('test-pass');
+    const svc = new EnvelopeKeyService('test-passphrase');
     const dek = svc.generate_dek();
     crypto_state.wrapped_dek = Buffer.from(await svc.wrap_dek(dek, 'tenant-1'));
     mock_exists_returns = true;

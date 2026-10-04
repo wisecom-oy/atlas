@@ -48,9 +48,11 @@ describe('config-keys', () => {
     expect(validate('s3.endpoint', 'localhost:9000')).toMatch(/http/);
   });
 
-  it('enforces a minimum passphrase length', () => {
-    expect(validate('encryption.passphrase', 'short')).toMatch(/12/);
-    expect(validate('encryption.passphrase', 'a-long-enough-passphrase')).toBeNull();
+  it('enforces a minimum of 14 UTF-8 bytes, not characters', () => {
+    expect(validate('encryption.passphrase', 'thirteen-byte')).toMatch(/14 UTF-8 bytes/);
+    expect(validate('encryption.passphrase', 'fourteen-bytes')).toBeNull();
+    // Seven two-byte characters: 7 characters, 14 bytes.
+    expect(validate('encryption.passphrase', 'äääääää')).toBeNull();
   });
 
   it('masks secrets keeping only the tail, fully masking short ones', () => {
