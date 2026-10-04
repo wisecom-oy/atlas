@@ -167,12 +167,12 @@ async function is_blob_corrupt(ctx: TenantContext, entry: DriveManifestEntry): P
   const storage_key = entry.storage_key;
   const expected = entry.checksum;
   if (!storage_key || !expected) return true;
-  if (!(await ctx.storage.exists(storage_key))) return true;
   try {
     const actual = await stream_sha256_from_storage(ctx, storage_key);
     return is_checksum_mismatch(actual, expected);
   } catch (err) {
-    // The stream mixes storage reads with decryption, so the error itself has to say which.
+    // The stream mixes storage reads with decryption, so the error itself has to say which. An
+    // absent key surfaces here as `NoSuchKey` from the read, so no separate HEAD is needed.
     if (is_absent_object_error(err) || is_gcm_auth_failure(err)) return true;
     throw err;
   }

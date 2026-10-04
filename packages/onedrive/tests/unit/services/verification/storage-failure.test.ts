@@ -59,19 +59,22 @@ describe('drive verify separates damage from storage failures (issue #439)', () 
     const blob_of = (key: string): Buffer | undefined => blobs[key.split('/').pop()!];
 
     const result = await verify(['absent', 'tampered', 'intact'].map(make_entry), {
-      exists: async (key: string) => blob_of(key) !== undefined,
-      get_stream: async (key: string) => store.stream(blob_of(key)!),
+      get_stream: async (key: string) => {
+        const blob = blob_of(key);
+        if (!blob) throw Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' });
+        return store.stream(blob);
+      },
     });
 
     expect(result.failed_file_ids).toEqual(['absent', 'tampered']);
     expect(result.passed).toBe(1);
   });
 
-  it('propagates a 403 from the existence check', async () => {
+  it('propagates a 403 from the read', async () => {
     const denied = Object.assign(new Error('AccessDenied'), { $metadata: { httpStatusCode: 403 } });
 
     await expect(
-      verify([make_entry('a')], { exists: vi.fn().mockRejectedValue(denied) }),
+      verify([make_entry('a')], { get_stream: vi.fn().mockRejectedValue(denied) }),
     ).rejects.toBe(denied);
   });
 
@@ -79,10 +82,7 @@ describe('drive verify separates damage from storage failures (issue #439)', () 
     const reset = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
 
     await expect(
-      verify([make_entry('a')], {
-        exists: async () => true,
-        get_stream: vi.fn().mockRejectedValue(reset),
-      }),
+      verify([make_entry('a')], { get_stream: vi.fn().mockRejectedValue(reset) }),
     ).rejects.toBe(reset);
   });
 });

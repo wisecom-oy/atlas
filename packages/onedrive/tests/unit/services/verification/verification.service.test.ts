@@ -179,7 +179,9 @@ describe('OneDriveVerificationService', () => {
   it('reports a blob that is absent from storage', async () => {
     const entry = make_entry();
     given_snapshot([entry]);
-    vi.mocked(mocks.ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    vi.mocked(mocks.ctx.storage.get_stream as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' }),
+    );
 
     const result = await verify();
 
@@ -265,7 +267,9 @@ describe('OneDriveVerificationService', () => {
 
   it('reports every blob failing as zero passed', async () => {
     given_snapshot([make_entry({ file_id: 'a' }), make_entry({ file_id: 'b' })]);
-    vi.mocked(mocks.ctx.storage.exists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    vi.mocked(mocks.ctx.storage.get_stream as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' }),
+    );
 
     const result = await verify();
 
