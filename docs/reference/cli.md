@@ -547,6 +547,8 @@ Back up and verify OneDrive files per user using Graph delta sync. Blobs and man
 
 A snapshot is a delta: its manifest lists only what changed in that run. `restore`, `save` and `verify` therefore resolve the snapshot's **manifest chain**, the target manifest plus every older manifest for the same owner, merged newest-first and deduplicated by drive item. Restoring the newest snapshot gives the whole drive as it stood at that moment, not just the last few changed files. A file whose newest entry is a deletion stays deleted: the tombstone wins over the older stored version, so a restore never resurrects a file the user removed.
 
+A full crawl needs one extra step to keep that promise. `--full`, a changed `--folder`, and a delta link Graph no longer accepts all replace the incremental delta with an enumeration of the drive, and an enumeration lists only what exists. After a drive's enumeration finishes, Atlas compares it with the newest entry of every file the previous chain holds for that drive, and writes a tombstone for each stored file the enumeration no longer returned. The comparison is limited to the drive that was re-crawled and to the `--folder` scope when one is set. A drive whose run was interrupted gets no tombstones, because a listing that stopped early proves nothing about absence. SharePoint applies the same rule per document library. The comparison reads the owner's manifests once, and only on a run that re-crawled; incremental runs read none.
+
 ```bash
 atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full

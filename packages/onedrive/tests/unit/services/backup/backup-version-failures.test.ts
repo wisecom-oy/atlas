@@ -58,7 +58,10 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
   const service = new OneDriveBackupService(
     factory,
     connector as never,
-    { save: vi.fn().mockResolvedValue(undefined) } as never,
+    {
+      save: vi.fn().mockResolvedValue(undefined),
+      list_snapshots_by_owner: async () => [],
+    } as never,
     {
       load_version_watermarks: vi.fn().mockResolvedValue({}),
       write_run_index: vi.fn(),

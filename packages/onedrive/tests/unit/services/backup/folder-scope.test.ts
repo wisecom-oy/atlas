@@ -122,7 +122,7 @@ function make_harness(options: {
   const service = new OneDriveBackupService(
     factory,
     connector as never,
-    { save: vi.fn() } as never,
+    { save: vi.fn(), list_snapshots_by_owner: async () => [] } as never,
     { load_version_watermarks: vi.fn().mockResolvedValue({}), write_run_index: vi.fn() } as never,
     {
       load: vi.fn().mockResolvedValue(options.stored_cursor),

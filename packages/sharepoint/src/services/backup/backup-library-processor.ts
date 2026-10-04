@@ -20,6 +20,10 @@ import {
   summarize_package_items,
   type PackageReport,
 } from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import {
+  completed_recrawl,
+  type DriveRecrawl,
+} from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 
 export interface LibraryProcessingResult {
   entries: SharePointManifestEntry[];
@@ -31,6 +35,8 @@ export interface LibraryProcessingResult {
   failed_items: FailedItemLedger;
   interrupted: boolean;
   package_report: PackageReport;
+  /** Set when this library's full enumeration finished, for the re-crawl tombstones (issue #435). */
+  recrawl: DriveRecrawl | undefined;
 }
 
 /**
@@ -177,6 +183,7 @@ export async function process_single_library(
     files_deduplicated: library_state.library_files_deduplicated,
     deleted_items: library_state.library_deleted_items,
     ...(interrupted ? {} : { delta_link: delta.delta_link }),
+    recrawl: completed_recrawl(library.drive_id, delta, prev_delta, interrupted),
     interrupted,
     failed_items: library_state.failed_items,
     package_report,

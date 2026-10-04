@@ -42,7 +42,11 @@ import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
 import type { PackageReportTotals } from '@/services/backup/package-report';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
-import { normalize_folder_scope } from '@/services/backup/folder-scope';
+import {
+  is_path_within_folder_scope,
+  normalize_folder_scope,
+} from '@/services/backup/folder-scope';
+import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -169,6 +173,13 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         progress,
         options,
         folder_scope,
+      );
+      await append_recrawl_tombstones(
+        scan_result,
+        () => this._manifests.list_snapshots_by_owner(ctx, owner_id),
+        (entry) =>
+          folder_scope === undefined ||
+          is_path_within_folder_scope(entry.parent_path, folder_scope),
       );
       const processed = scan_result.items_processed;
       emit_operation_progress(options, {
