@@ -8,6 +8,7 @@ export const RESTORE_CONNECTOR_TOKEN = Symbol.for('RestoreConnector');
 export const MAILBOX_DISCOVERY_TOKEN = Symbol.for('MailboxDiscoveryService');
 export const DEK_VALIDATION_FN_TOKEN = Symbol.for('DekValidationFn');
 export const STORAGE_TARGET_FACTORY_TOKEN = Symbol.for('StorageTargetFactory');
+export const STORAGE_INVENTORY_FACTORY_TOKEN = Symbol.for('StorageInventoryFactory');
 export const USER_IDENTITY_RESOLVER_TOKEN = Symbol.for('UserIdentityResolver');
 export const IDENTITY_REGISTRY_REPOSITORY_TOKEN = Symbol.for('IdentityRegistryRepository');
 export const ONEDRIVE_CONNECTOR_TOKEN = Symbol.for('OneDriveConnector');

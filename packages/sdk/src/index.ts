@@ -95,7 +95,16 @@ export type {
   ServicePoolCost,
   GraphServiceLimits,
   ObjectLockRequest,
+  StorageUsage,
+  StorageUsageTotals,
+  StorageOwnerUsage,
 } from './public-types';
+export type {
+  StorageUsageOptions,
+  StorageUsageBreakdown,
+  StorageUsageWorkload,
+  LogicalWorkload,
+} from '@wisecom/atlas-types';
 
 export {
   AtlasError,

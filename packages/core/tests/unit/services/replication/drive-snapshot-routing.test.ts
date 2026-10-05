@@ -112,6 +112,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
       target_id: 'offsite',
       endpoint: 'http://offsite:9000',
       create_context: vi.fn().mockResolvedValue(make_context(storage)),
+      open_inventory: vi.fn(),
     };
 
     onedrive = {

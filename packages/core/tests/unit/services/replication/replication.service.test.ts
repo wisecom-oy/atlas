@@ -162,6 +162,7 @@ describe('ReplicationService', () => {
       target_id: 'offsite',
       endpoint: 'http://offsite:9000',
       create_context: vi.fn().mockResolvedValue(target_ctx),
+      open_inventory: vi.fn(),
     };
 
     validate_dek = vi.fn().mockResolvedValue(undefined) as unknown as DekValidationFn;
@@ -237,6 +238,7 @@ describe('ReplicationService', () => {
       target_id: 'offsite',
       endpoint: 'http://offsite:9000',
       create_context: vi.fn().mockResolvedValue(target_ctx),
+      open_inventory: vi.fn(),
     };
 
     vi.mocked(target_storage.exists).mockResolvedValue(false);
@@ -276,6 +278,7 @@ describe('ReplicationService', () => {
       target_id: 'offsite',
       endpoint: 'http://offsite:9000',
       create_context: vi.fn().mockResolvedValue(target_ctx),
+      open_inventory: vi.fn(),
     };
 
     const result = await service.rehydrate_tenant('tenant-1', source_target);
@@ -311,6 +314,7 @@ describe('ReplicationService', () => {
       target_id: 'offsite',
       endpoint: 'http://offsite:9000',
       create_context: vi.fn().mockResolvedValue(target_ctx),
+      open_inventory: vi.fn(),
     };
 
     const result = await service.rehydrate_tenant('tenant-1', source_target);

@@ -76,3 +76,4 @@ export type {
   DriveFileSystemInfo,
   StoredBlobRef,
 } from '@/domain/drive-item-metadata';
+export type * from '@/domain/storage-usage';
