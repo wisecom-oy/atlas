@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   UploadPartCopyCommand,
 } from '@aws-sdk/client-s3';
@@ -77,6 +78,18 @@ describe('observe_storage_requests', () => {
       keyClass: 'manifests',
       bytes: 5,
     });
+  });
+
+  it('reports no bytes for a HEAD, whose ContentLength is the stored size, not a transfer', async () => {
+    const { fake, events } = await observed(OK);
+
+    const head = await fake.client.send(
+      new HeadObjectCommand({ Bucket: BUCKET, Key: `data/${OWNER}/abc` }),
+    );
+
+    expect(head.ContentLength).toBe(5);
+    expect(events[0]).toMatchObject({ command: 'HeadObject', statusCode: 200 });
+    expect(events[0]).not.toHaveProperty('bytes');
   });
 
   it('reports the copied range length for a server-side part copy', async () => {

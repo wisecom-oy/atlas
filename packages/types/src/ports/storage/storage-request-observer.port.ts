@@ -44,7 +44,10 @@ export interface StorageRequestEvent {
   readonly networkMs?: number;
   /** Whether the final attempt reused a keep-alive connection. Absent where `socketWaitMs` is. */
   readonly connectionReused?: boolean;
-  /** Request body length for uploads, or the response `ContentLength` for reads. */
+  /**
+   * Payload bytes: the request body for uploads, the copied range for part copies, the response
+   * `ContentLength` for `GetObject`. Absent for requests that carry no body, `HeadObject` included.
+   */
   readonly bytes?: number;
   readonly statusCode?: number;
   /** Error name when the request failed, e.g. `SlowDown`, `NoSuchKey`, `TimeoutError`. */

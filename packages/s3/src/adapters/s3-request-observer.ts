@@ -105,9 +105,13 @@ function build_event(
   const { workload, key_class } = classify_storage_key(
     typeof pending.key === 'string' ? pending.key : undefined,
   );
-  const bytes =
-    pending.request_bytes ??
-    (typeof response?.ContentLength === 'number' ? response.ContentLength : undefined);
+  // HeadObject also answers with ContentLength, but that is the stored size, not bytes that
+  // crossed the wire; counting it would add a phantom transfer to every existence check.
+  const received =
+    pending.command === 'GetObject' && typeof response?.ContentLength === 'number'
+      ? response.ContentLength
+      : undefined;
+  const bytes = pending.request_bytes ?? received;
   return {
     command: pending.command,
     ...(typeof pending.operation === 'string' ? { operation: pending.operation } : {}),

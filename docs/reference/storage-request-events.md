@@ -58,23 +58,23 @@ Without `onStorageRequest` nothing is installed and the storage path is unchange
 
 One event is reported per logical S3 request, after it settles, whether it succeeded or failed.
 
-| Field              | Type       | Description                                                                                                                    |
-| ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `command`          | `string`   | S3 operation: `PutObject`, `UploadPart`, `GetObject`, `HeadObject`, `ListObjectsV2`, and so on                                 |
-| `operation`        | `string?`  | SDK method in progress, such as `backup` or `replicateSnapshot`. Absent outside an SDK method                                  |
-| `workload`         | `string`   | `outlook`, `onedrive`, `sharepoint`, `shared` (keys under `_meta/` or unknown root keys) or `bucket`                           |
-| `keyClass`         | `string`   | `data`, `attachments`, `manifests`, `index`, `staging`, `_meta` or `other`                                                     |
-| `target`           | `string`   | `primary`, or the replication target's `targetId`                                                                              |
-| `startTime`        | `number`   | When the request started, epoch milliseconds                                                                                   |
-| `durationMs`       | `number`   | The whole request, including SDK retries and the sleeps between them                                                           |
-| `attempts`         | `number`   | Attempts the SDK made, including the first. The SDK default allows 3                                                           |
-| `retryDelayMs`     | `number`   | Time slept between attempts                                                                                                    |
-| `socketWaitMs`     | `number?`  | Time waiting for a free connection in the SDK pool, summed over attempts                                                       |
-| `networkMs`        | `number?`  | Time from obtaining a connection to response headers, summed over attempts                                                     |
-| `connectionReused` | `boolean?` | Whether the final attempt used a kept-alive connection                                                                         |
-| `bytes`            | `number?`  | Request body length for uploads, copied range length for part copies, response `ContentLength` for reads                       |
-| `statusCode`       | `number?`  | HTTP status of the final attempt                                                                                               |
-| `errorType`        | `string?`  | Error name on failure: the S3 error code (`SlowDown`, `NoSuchKey`, `PreconditionFailed`) or a transport error (`TimeoutError`) |
+| Field              | Type       | Description                                                                                                                                                                      |
+| ------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`          | `string`   | S3 operation: `PutObject`, `UploadPart`, `GetObject`, `HeadObject`, `ListObjectsV2`, and so on                                                                                   |
+| `operation`        | `string?`  | SDK method in progress, such as `backup` or `replicateSnapshot`. Absent outside an SDK method                                                                                    |
+| `workload`         | `string`   | `outlook`, `onedrive`, `sharepoint`, `shared` (keys under `_meta/` or unknown root keys) or `bucket`                                                                             |
+| `keyClass`         | `string`   | `data`, `attachments`, `manifests`, `index`, `staging`, `_meta` or `other`                                                                                                       |
+| `target`           | `string`   | `primary`, or the replication target's `targetId`                                                                                                                                |
+| `startTime`        | `number`   | When the request started, epoch milliseconds                                                                                                                                     |
+| `durationMs`       | `number`   | The whole request, including SDK retries and the sleeps between them                                                                                                             |
+| `attempts`         | `number`   | Attempts the SDK made, including the first. The SDK default allows 3                                                                                                             |
+| `retryDelayMs`     | `number`   | Time slept between attempts                                                                                                                                                      |
+| `socketWaitMs`     | `number?`  | Time waiting for a free connection in the SDK pool, summed over attempts                                                                                                         |
+| `networkMs`        | `number?`  | Time from obtaining a connection to response headers, summed over attempts                                                                                                       |
+| `connectionReused` | `boolean?` | Whether the final attempt used a kept-alive connection                                                                                                                           |
+| `bytes`            | `number?`  | Payload bytes: request body length for uploads, copied range length for part copies, response `ContentLength` for `GetObject`. Absent for bodiless requests such as `HeadObject` |
+| `statusCode`       | `number?`  | HTTP status of the final attempt                                                                                                                                                 |
+| `errorType`        | `string?`  | Error name on failure: the S3 error code (`SlowDown`, `NoSuchKey`, `PreconditionFailed`) or a transport error (`TimeoutError`)                                                   |
 
 Durations are fractional milliseconds. `workload` and `keyClass` come from an allowlist applied to the first segments of the object key or listing prefix, following the [storage layout](/operations/storage-layout); bucket-level commands such as `HeadBucket` report `bucket`.
 
