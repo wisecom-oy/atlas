@@ -48,7 +48,7 @@ atlas stats storage --max-requests 1000 --continue "$(jq -r .continuation_token 
 
 `--max-requests` stops the run once that many requests were made and prints a continuation token. Passing the token back resumes where the counts end, so a resumed run never counts an object twice and ends with exactly the totals a single run would report. A page of incomplete uploads lists the parts of each upload on it, so that page can take the run past the allowance. The SDK accepts `maxListRequests` and an `AbortSignal` for the same purpose.
 
-A token is bound to the tenant, the target and the breakdown it was issued for, and is refused anywhere else. It is base64url-encoded JSON holding the counts so far and the listing position, which is an object key: treat it like the report itself.
+A token is bound to the tenant, the target and the breakdown it was issued for, and is refused anywhere else. It is base64url-encoded JSON, not encrypted: it holds the tenant ID, the counts so far, and the listing position, which is an object key containing a mailbox, owner or site ID. Treat it like the report itself and keep it out of shared logs and tickets.
 
 ## Permissions
 
