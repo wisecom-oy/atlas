@@ -127,7 +127,10 @@ function build_event(
       : {}),
     ...(bytes !== undefined ? { bytes } : {}),
     ...(metadata?.httpStatusCode !== undefined ? { statusCode: metadata.httpStatusCode } : {}),
-    ...(err !== undefined ? { errorType: error_type(err) } : {}),
+    // The S3 error code for service errors (`SlowDown`), the error class name otherwise.
+    ...(err !== undefined
+      ? { errorType: err instanceof Error && err.name ? err.name : 'Error' }
+      : {}),
   };
 }
 
@@ -142,12 +145,6 @@ function request_body_bytes(input: ObservedInput): number | undefined {
   const range = typeof input.CopySourceRange === 'string' ? input.CopySourceRange : undefined;
   const bounds = range ? /^bytes=(\d+)-(\d+)$/.exec(range) : null;
   return bounds ? Number(bounds[2]) - Number(bounds[1]) + 1 : undefined;
-}
-
-/** The S3 error code for service errors (`SlowDown`), the error class name otherwise. */
-function error_type(err: unknown): string {
-  const name = (err as { name?: unknown } | null)?.name;
-  return typeof name === 'string' && name.length > 0 ? name : 'Error';
 }
 
 /**
