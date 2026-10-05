@@ -1,4 +1,5 @@
 import type { TenantContext } from '@/ports/tenant/context.port';
+import type { StorageRequestObserver } from '@/ports/storage/storage-request-observer.port';
 
 /**
  * camelCase, matching `AtlasInstanceConfig`. The factory is bound in the DI container by symbol,
@@ -12,6 +13,8 @@ export interface StorageTargetConfig {
   readonly s3SecretKey: string;
   readonly s3Region?: string;
   readonly encryptionPassphrase: string;
+  /** Receives one event per S3 request sent to this target, reported with `target: targetId`. */
+  readonly onStorageRequest?: StorageRequestObserver;
 }
 
 export interface StorageTarget {

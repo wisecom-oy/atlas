@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
-import type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
+import { ConfigError, type StorageTarget, type StorageTargetConfig } from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
+import { observe_storage_requests } from '@/adapters/s3-request-observer';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
@@ -57,6 +58,12 @@ export class DefaultStorageTarget implements StorageTarget {
       },
       forcePathStyle: true,
     });
+    if (config.onStorageRequest !== undefined) {
+      if (typeof config.onStorageRequest !== 'function') {
+        throw new ConfigError('onStorageRequest must be a function.');
+      }
+      observe_storage_requests(this._client, config.onStorageRequest, this.target_id);
+    }
   }
 
   /**
