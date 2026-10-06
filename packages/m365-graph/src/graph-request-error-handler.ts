@@ -47,18 +47,23 @@ export interface GraphRetryOptions {
   readonly timeout_ms?: number;
 }
 
+const INVALID_DELTA_CODES = ['syncstatenotfound', 'resyncrequired', 'syncstateinvalid'];
+
 /**
- * Detects Graph errors that indicate an invalid/expired delta token.
- * Matches Corso's pattern: syncStateNotFound, resyncRequired, syncStateInvalid.
+ * Detects Graph errors that indicate an invalid/expired delta token: syncStateNotFound,
+ * resyncRequired or syncStateInvalid (Corso's set).
+ *
+ * The SDK's `GraphError` keeps Graph's error code on `code` and Graph's prose as the message, and
+ * the prose does not repeat the code: a rejected drive token arrives as code `resyncRequired` with
+ * the message "Resync required. Replace any local items...". Matching the message alone missed it,
+ * so the delta failed instead of re-enumerating. Both are read: the code for a `GraphError`, the
+ * message for errors that carry the code only there.
  */
 export function is_invalid_delta_error(err: unknown): boolean {
+  const code = err !== null && typeof err === 'object' && 'code' in err ? err.code : undefined;
   const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
-  return (
-    lower.includes('syncstatenotfound') ||
-    lower.includes('resyncrequired') ||
-    lower.includes('syncstateinvalid')
-  );
+  const text = `${typeof code === 'string' ? code : ''} ${message}`.toLowerCase();
+  return INVALID_DELTA_CODES.some((known) => text.includes(known));
 }
 
 /**

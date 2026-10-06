@@ -94,7 +94,7 @@ Either path uses the same open engine and the same storage format, so self-hosti
 pnpm install
 pnpm run build           # compile all packages
 pnpm run test            # vitest unit tests
-pnpm run test:coverage   # with v8 coverage
+pnpm run test:coverage   # merged v8 coverage, one row per package
 pnpm run lint            # eslint
 pnpm run docs:dev        # local docs site
 ```
