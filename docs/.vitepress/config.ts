@@ -81,6 +81,7 @@ export default defineConfig({
           { text: 'CLI Commands', link: '/reference/cli' },
           { text: 'CLI Recovery & Management', link: '/reference/cli-recovery' },
           { text: 'Programmatic SDK', link: '/reference/sdk' },
+          { text: 'Storage Request Events', link: '/reference/storage-request-events' },
           { text: 'Examples', link: '/reference/examples' },
           { text: 'Migrating to v5', link: '/migration/v5' },
         ],
