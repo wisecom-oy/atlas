@@ -138,6 +138,7 @@ describe('tenant-wide workload rehydration', () => {
       target_id: 'replica',
       endpoint: 'http://replica:9000',
       create_context: vi.fn().mockResolvedValue(source_ctx),
+      open_inventory: vi.fn(),
     };
   });
 

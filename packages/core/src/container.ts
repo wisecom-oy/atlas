@@ -5,6 +5,7 @@ import {
   DEK_REWRAP_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
   STATS_USE_CASE_TOKEN,
+  STORAGE_USAGE_USE_CASE_TOKEN,
   REPLICATION_USE_CASE_TOKEN,
   SHAREPOINT_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
@@ -22,6 +23,7 @@ import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.s
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
 import { VerificationService } from '@/services/verification/verification.service';
 import { StatsService } from '@/services/stats/stats.service';
+import { StorageUsageService } from '@/services/stats/storage-usage.service';
 import { ReplicationService } from '@/services/replication/replication.service';
 import { SharePointReplicationService } from '@/services/replication/sharepoint-replication.service';
 import { OneDriveReplicationService } from '@/services/replication/onedrive-replication.service';
@@ -45,6 +47,8 @@ export function bind_core_services(container: Container): void {
   container.bind(VERIFICATION_USE_CASE_TOKEN).toService(VerificationService);
   container.bind(StatsService).toSelf();
   container.bind(STATS_USE_CASE_TOKEN).toService(StatsService);
+  container.bind(StorageUsageService).toSelf();
+  container.bind(STORAGE_USAGE_USE_CASE_TOKEN).toService(StorageUsageService);
   container.bind(ReplicationService).toSelf();
   container.bind(REPLICATION_USE_CASE_TOKEN).toService(ReplicationService);
   container.bind(SharePointReplicationService).toSelf();

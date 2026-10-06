@@ -38,6 +38,7 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
     get_onedrive_stats: resolved({}),
     get_sharepoint_stats: resolved({}),
   },
+  StorageUsageUseCase: { measure_storage_usage: resolved({}) },
   StatusUseCase: { check_mailbox_status: resolved({}) },
   MailboxDiscoveryService: { list_tenant_mailboxes: resolved([]) },
   ReplicationUseCase: {
@@ -109,6 +110,7 @@ describe('createAtlasInstance — async contract', () => {
       target_id: 'src-target',
       endpoint: 'http://src:9000',
       create_context: vi.fn().mockResolvedValue(undefined),
+      open_inventory: vi.fn(),
     };
     const targets = [source];
     for (const call of [
@@ -160,6 +162,7 @@ describe('createAtlasInstance — async contract', () => {
       () => atlas.sharepoint.getStats('site'),
       () => atlas.checkStorage(),
       () => atlas.getBucketStats(),
+      () => atlas.getStorageUsage(),
       () => atlas.resolveUser('alice@test.com'),
       () => atlas.listUsers(),
       () => atlas.replicateSnapshot('s', targets),

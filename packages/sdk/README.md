@@ -65,6 +65,7 @@ Pass `onStorageRequest` to receive one event per S3 request with its latency, co
 | `atlas.onedrive`            | OneDrive backup and verification         |
 | `atlas.sharepoint`          | SharePoint site backup and restore       |
 | `atlas.getBucketStats()`    | Storage statistics                       |
+| `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
 | `atlas.checkStorage()`      | S3 Object Lock readiness                 |
 | `atlas.validate()`          | S3 access, existing key and Graph token validation |
 | `atlas.replicateSnapshot()` | Cross-region replication                 |

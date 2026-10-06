@@ -71,6 +71,7 @@ export default defineConfig({
           { text: 'Immutability & Object Lock', link: '/operations/immutability' },
           { text: 'Delta Sync', link: '/operations/delta-sync' },
           { text: 'Storage Layout', link: '/operations/storage-layout' },
+          { text: 'Storage Usage', link: '/operations/storage-usage' },
           { text: 'Replication', link: '/operations/replication' },
           { text: 'Graph API Rate Limits', link: '/operations/graph-rate-limits' },
         ],

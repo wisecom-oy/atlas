@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
-import { ConfigError, type StorageTarget, type StorageTargetConfig } from '@wisecom/atlas-types';
+import {
+  ConfigError,
+  type StorageInventory,
+  type StorageTarget,
+  type StorageTargetConfig,
+} from '@wisecom/atlas-types';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
+import { S3StorageInventory } from '@/adapters/s3-storage-inventory';
 import { observe_storage_requests } from '@/adapters/s3-request-observer';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
@@ -64,6 +70,11 @@ export class DefaultStorageTarget implements StorageTarget {
       }
       observe_storage_requests(this._client, config.onStorageRequest, this.target_id);
     }
+  }
+
+  /** Lists the tenant's bucket on this target; never creates it, never reads the DEK. */
+  open_inventory(tenant_id: string): StorageInventory {
+    return new S3StorageInventory(this._client, tenant_bucket_name(tenant_id));
   }
 
   /**

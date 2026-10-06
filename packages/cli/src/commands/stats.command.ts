@@ -10,6 +10,7 @@ import { resolve_owner } from '@/commands/onedrive-command.handlers';
 import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats-outlook.view';
 import { print_drive_stats } from '@/commands/stats-drive.view';
 import { reject_retired_short, with_tenant, STATS_SERVICES } from '@/commands/shared-options';
+import { register_stats_storage_command } from '@/commands/stats-storage.command';
 
 type ContainerFactory = () => Container;
 type StatsServiceName = 'outlook' | 'onedrive' | 'sharepoint';
@@ -44,6 +45,7 @@ export function register_stats_command(program: Command, get_container: Containe
   // `-s` was this command's own spelling of --site while it meant --snapshot everywhere else.
   reject_retired_short(command, '-s', '--site');
   with_tenant(command).action((options: StatsOptions) => execute_stats(get_container(), options));
+  register_stats_storage_command(command, get_container);
 }
 
 /** Collects stats for every selected service, then prints tables or a single JSON payload. */

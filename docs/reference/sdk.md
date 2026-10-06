@@ -235,6 +235,7 @@ const spStats = await atlas.sharepoint.getStats(site); // omit the site for ever
 // --- Cross-cutting (tenant scope) ---
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retentionDays: 30 });
 const stats = await atlas.getBucketStats();
+const usage = await atlas.getStorageUsage({ breakdown: 'owner' });
 await atlas.replicateSnapshot('snapshot-id', [offsite]);
 ```
 
@@ -261,6 +262,62 @@ Drive methods take the same identifiers the CLI takes, and normalise them the sa
 | `atlas.sharepoint.*` | A site URL or hostname, or a composite `host,siteGuid,webGuid` id | An argument without commas is resolved through Graph; anything else is used as is |
 
 Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance, and `atlas.onedrive.backup` records the resolved email and display name with the snapshot, which is what makes owners readable in later listings. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
+
+### Storage usage
+
+```typescript
+const usage = await atlas.getStorageUsage();
+console.log(usage.storedBytes, usage.totals.noncurrent.bytes, usage.logicalBytesReferenced);
+
+// A replica, split into slices of 1,000 list requests
+let part = await atlas.getStorageUsage({ target: offsite, maxListRequests: 1000 });
+while (!part.complete) {
+  part = await atlas.getStorageUsage({
+    target: offsite,
+    maxListRequests: 1000,
+    continuationToken: part.continuationToken,
+  });
+}
+```
+
+`getStorageUsage(options?)` lists the tenant bucket and returns a `StorageUsage`: the bytes the bucket physically holds, as opposed to the logical sizes `getBucketStats()` and the workload `getStats()` methods report. See [Storage Usage](/operations/storage-usage) for the categories, the request cost and the permissions it needs.
+
+| Option              | Type                    | Description                                                                                               |
+| ------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------- |
+| `target`            | `StorageTarget`         | Measure this replication target instead of the primary storage                                            |
+| `breakdown`         | `'workload' \| 'owner'` | `owner` adds `byOwner`, one row per mailbox, OneDrive owner or site. The workload rows are always present |
+| `maxListRequests`   | `number`                | Stop once this many S3 requests were made and return a continuation token                                 |
+| `continuationToken` | `string`                | Resume a measurement that stopped early                                                                   |
+| `signal`            | `AbortSignal`           | Stop at the next page boundary and return a continuation token instead of throwing                        |
+
+| Field                                         | Description                                                                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `totals`                                      | `current`, `noncurrent`, `staging` and `incompleteUploads` as `{ objects, bytes }`, plus `deleteMarkers`                   |
+| `byWorkload`                                  | The same per `outlook`, `onedrive`, `sharepoint`, `meta` and `other`; the rows sum to `totals`                             |
+| `byOwner`                                     | With `breakdown: 'owner'`, `{ workload, ownerId, totals }` rows, largest first                                             |
+| `storedBytes`                                 | Current plus noncurrent plus incomplete upload parts                                                                       |
+| `logicalBytesReferenced`                      | Logical bytes every manifest references, on a complete run whose manifests could be read                                   |
+| `logicalBytesByWorkload`                      | The same per workload                                                                                                      |
+| `versionsVisible`, `incompleteUploadsVisible` | False when the credentials could not list versions, or multipart uploads or their parts; those figures are then incomplete |
+| `complete`, `continuationToken`               | Whether the run finished; the token to resume it when it did not                                                           |
+| `listRequests`                                | S3 requests made so far, across resumed calls                                                                              |
+| `target`, `startedAt`, `measuredAt`           | `primary` or the target's `targetId`; when the first call started and this one finished                                    |
+
+A stopped run returns rather than throws, so a scheduler can store the token and continue on its next tick. A run that fails on an S3 error throws that error, carrying a token for the last page counted:
+
+```typescript
+import { getStorageUsageToken } from '@wisecom/atlas-sdk';
+
+let continuationToken: string | undefined;
+try {
+  usage = await atlas.getStorageUsage({ continuationToken, maxListRequests: 1000 });
+} catch (err) {
+  continuationToken = getStorageUsageToken(err) ?? continuationToken;
+  throw err;
+}
+```
+
+Invalid options and a token issued for another tenant, target or breakdown throw `ConfigError` before any request, and carry no token.
 
 ## Progress and Cancellation
 
@@ -1073,6 +1130,7 @@ Errors are thrown as Atlas raises them, without the camelCase conversion results
 - Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
 - Workload options and results: the named `Outlook*`, `OneDriveSdk*` and `SharePointSdk*` types used by each API
 - Storage targets: `StorageTarget`, `StorageTargetConfig`
+- Storage usage: `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`, and `getStorageUsageToken` for resuming a failed run (see [Storage usage](#storage-usage))
 - Storage request events: `StorageRequestEvent`, `StorageRequestObserver`, `StorageRequestWorkload`, `StorageKeyClass` (see [Storage Request Events](/reference/storage-request-events))
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`

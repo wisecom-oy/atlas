@@ -9,8 +9,15 @@ import {
   STORAGE_CHECK_USE_CASE_TOKEN,
   STORAGE_DISPOSER_TOKEN,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
+  STORAGE_INVENTORY_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import type { StorageDisposer, StorageTargetFactory } from '@wisecom/atlas-types';
+import type {
+  StorageDisposer,
+  StorageInventoryFactory,
+  StorageTargetFactory,
+} from '@wisecom/atlas-types';
+import { S3StorageInventory } from '@/adapters/s3-storage-inventory';
+import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { create_s3_client, S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
 import { S3MailboxDeltaCursorRepository } from '@/adapters/s3-mailbox-delta-cursor-repository.adapter';
@@ -42,6 +49,11 @@ export function bind_s3_storage(container: Container, config: S3Config & CryptoC
   container
     .bind<StorageTargetFactory>(STORAGE_TARGET_FACTORY_TOKEN)
     .toConstantValue(create_storage_target);
+  container
+    .bind<StorageInventoryFactory>(STORAGE_INVENTORY_FACTORY_TOKEN)
+    .toConstantValue(
+      (tenant_id: string) => new S3StorageInventory(s3_client, tenant_bucket_name(tenant_id)),
+    );
 
   container.bind(StorageCheckService).toSelf();
   container.bind(STORAGE_CHECK_USE_CASE_TOKEN).toService(StorageCheckService);
