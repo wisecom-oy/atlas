@@ -1,4 +1,6 @@
 import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
+import type { S3Client } from '@aws-sdk/client-s3';
+import { observe_storage_requests, S3_CLIENT_TOKEN } from '@wisecom/atlas-s3';
 import { create_container_from_config } from '@/container';
 import type {
   AtlasInstance,
@@ -34,6 +36,10 @@ import { validate_instance } from '@/instance-validation';
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
   const atlas_config = normalize_config(config);
   const container = create_container_from_config(atlas_config);
+  if (config.onStorageRequest) {
+    const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
+    observe_storage_requests(s3_client, config.onStorageRequest, 'primary');
+  }
   const tenant_id = atlas_config.tenant_id;
 
   const storage_check = container.get<StorageCheckUseCase>(STORAGE_CHECK_USE_CASE_TOKEN);

@@ -13,6 +13,12 @@ export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './publ
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
 export type { LogSink, LogFields } from '@wisecom/atlas-types';
+export type {
+  StorageRequestEvent,
+  StorageRequestObserver,
+  StorageRequestWorkload,
+  StorageKeyClass,
+} from '@wisecom/atlas-types';
 
 export type {
   OutlookApi,

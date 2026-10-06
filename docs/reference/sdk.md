@@ -134,6 +134,25 @@ relied on that output has to pass a `logger` to keep seeing it. The CLI is
 unaffected and its output is unchanged.
 :::
 
+### Storage request events
+
+```typescript
+const atlas = createAtlasInstance({
+  /* ...credentials... */
+  onStorageRequest: (event) =>
+    storageLatency.record(event.networkMs ?? event.durationMs, {
+      command: event.command,
+      keyClass: event.keyClass,
+    }),
+});
+```
+
+`onStorageRequest` receives one `StorageRequestEvent` per S3 request the instance sends, with its duration, the split between connection-pool queueing (`socketWaitMs`) and backend time (`networkMs`), SDK retries and backoff, payload size and outcome. It is omitted by default, in which case nothing is measured and the storage path is unchanged. The same option on [`createStorageTarget`](#replication) reports requests to a replication target.
+
+The callback runs synchronously on the storage path, so it should only record. A throw or a rejected promise is ignored. A value that is not a function throws `ConfigError` at construction. Events never carry object keys, bucket names or endpoint hosts.
+
+See [Storage Request Events](/reference/storage-request-events) for the field reference, an OpenTelemetry example, and how to read latency, queueing and throttling from the events.
+
 ### Instance lifecycle
 
 An instance owns an S3 client with keep-alive socket pools and a cache of what
@@ -818,14 +837,15 @@ console.log(recovery.total.status);
 
 `createStorageTarget` accepts a `StorageTargetConfig`:
 
-| Option                 | Type     | Description                                                      |
-| ---------------------- | -------- | ---------------------------------------------------------------- |
-| `targetId`             | `string` | Stable human-readable ID (auto-derived from endpoint if omitted) |
-| `s3Endpoint`           | `string` | S3 endpoint URL                                                  |
-| `s3AccessKey`          | `string` | S3 access key                                                    |
-| `s3SecretKey`          | `string` | S3 secret key                                                    |
-| `s3Region`             | `string` | S3 region (default: `us-east-1`)                                 |
-| `encryptionPassphrase` | `string` | Must match the primary passphrase (shared encryption model)      |
+| Option                 | Type                                   | Description                                                                                                                                                       |
+| ---------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `targetId`             | `string`                               | Stable human-readable ID (auto-derived from endpoint if omitted)                                                                                                  |
+| `s3Endpoint`           | `string`                               | S3 endpoint URL                                                                                                                                                   |
+| `s3AccessKey`          | `string`                               | S3 access key                                                                                                                                                     |
+| `s3SecretKey`          | `string`                               | S3 secret key                                                                                                                                                     |
+| `s3Region`             | `string`                               | S3 region (default: `us-east-1`)                                                                                                                                  |
+| `encryptionPassphrase` | `string`                               | Must match the primary passphrase (shared encryption model)                                                                                                       |
+| `onStorageRequest`     | `(event: StorageRequestEvent) => void` | Optional. Receives one event per S3 request sent to this target, with `target` set to `targetId`. See [Storage Request Events](/reference/storage-request-events) |
 
 ## Key Re-wrap
 
@@ -1111,6 +1131,7 @@ Errors are thrown as Atlas raises them, without the camelCase conversion results
 - Workload options and results: the named `Outlook*`, `OneDriveSdk*` and `SharePointSdk*` types used by each API
 - Storage targets: `StorageTarget`, `StorageTargetConfig`
 - Storage usage: `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`, and `getStorageUsageToken` for resuming a failed run (see [Storage usage](#storage-usage))
+- Storage request events: `StorageRequestEvent`, `StorageRequestObserver`, `StorageRequestWorkload`, `StorageKeyClass` (see [Storage Request Events](/reference/storage-request-events))
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`

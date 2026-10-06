@@ -55,6 +55,8 @@ After provisioning the tenant bucket, call `await atlas.validate()` for an optio
 
 Exports can stream instead of writing a file: `atlas.outlook.save(snapshotId, { output: res })` pipes the archive to any Node `Writable`, so an HTTP download never stages on local disk. See [exporting to a stream](https://wisecom-oy.github.io/atlas/reference/sdk#exporting-to-a-stream).
 
+Pass `onStorageRequest` to receive one event per S3 request with its latency, connection-pool queueing, retries, payload size and outcome, for example to feed OpenTelemetry histograms. It works against any S3-compatible backend and never carries object keys, bucket names or hostnames. See [storage request events](https://wisecom-oy.github.io/atlas/reference/storage-request-events).
+
 ## API overview
 
 | Namespace / method          | Purpose                                  |

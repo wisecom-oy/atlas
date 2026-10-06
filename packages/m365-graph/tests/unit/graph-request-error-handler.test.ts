@@ -17,6 +17,23 @@ describe('is_invalid_delta_error', () => {
     expect(is_invalid_delta_error(new Error('resyncRequired'))).toBe(true);
   });
 
+  it.each([
+    ['resyncRequired', "Resync required. Replace any local items with the server's version."],
+    ['syncStateNotFound', 'The sync state generation is not found.'],
+    ['SyncStateInvalid', 'Sync state is invalid.'],
+  ])('detects a GraphError whose code is %s while its message is prose', (code, message) => {
+    const graph_error = Object.assign(new Error(message), { statusCode: 410, code });
+    expect(is_invalid_delta_error(graph_error)).toBe(true);
+  });
+
+  it('does not treat every 410 as an invalid token', () => {
+    const gone = Object.assign(new Error('The resource is gone.'), {
+      statusCode: 410,
+      code: 'gone',
+    });
+    expect(is_invalid_delta_error(gone)).toBe(false);
+  });
+
   it('returns false for unrelated errors', () => {
     expect(is_invalid_delta_error(new Error('timeout'))).toBe(false);
   });

@@ -8,7 +8,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:watch": "vitest",
-    "test:coverage": "turbo run test -- --coverage",
+    "test:coverage": "vitest run --coverage && node tools/test-coverage/package-summary.mjs",
     "lint": "turbo run lint",
     "release:version": "pnpm -r --filter './packages/*' exec npm version --no-git-tag-version",
     "link-cli": "pnpm --filter @wisecom/atlas-cli run build && pnpm --filter @wisecom/atlas-cli run link-cli",

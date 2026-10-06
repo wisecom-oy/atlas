@@ -14,3 +14,4 @@ export { DefaultTenantContextFactory } from './tenant-context.factory';
 export { create_storage_target, DefaultStorageTarget } from './storage-target.factory';
 export { S3IdentityRegistryRepository } from './s3-identity-registry-repository.adapter';
 export { BucketCache } from './bucket-cache';
+export { observe_storage_requests } from './s3-request-observer';
