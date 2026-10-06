@@ -92,3 +92,33 @@ def retention(s3: Any, bucket: str, key: str) -> dict[str, Any] | None:
         if code in {"NoSuchObjectLockConfiguration", "ObjectLockConfigurationNotFoundError"}:
             return None
         raise
+
+
+def physical_usage(s3: Any, bucket: str) -> dict[str, Any]:
+    """What the bucket holds, read straight from the version and multipart listings.
+
+    The same categories `stats storage --json` reports under `totals`, computed independently so
+    the CLI is checked against S3 rather than against itself.
+    """
+    usage: dict[str, Any] = {
+        "current": {"objects": 0, "bytes": 0},
+        "noncurrent": {"objects": 0, "bytes": 0},
+        "delete_markers": 0,
+        "incomplete_uploads": {"objects": 0, "bytes": 0},
+    }
+    for page in s3.get_paginator("list_object_versions").paginate(Bucket=bucket):
+        for version in page.get("Versions", []):
+            category = usage["current"] if version.get("IsLatest") else usage["noncurrent"]
+            category["objects"] += 1
+            category["bytes"] += version.get("Size", 0)
+        usage["delete_markers"] += len(page.get("DeleteMarkers", []))
+    for page in s3.get_paginator("list_multipart_uploads").paginate(Bucket=bucket):
+        for upload in page.get("Uploads", []):
+            parts = s3.get_paginator("list_parts").paginate(
+                Bucket=bucket, Key=upload["Key"], UploadId=upload["UploadId"]
+            )
+            usage["incomplete_uploads"]["objects"] += 1
+            usage["incomplete_uploads"]["bytes"] += sum(
+                part.get("Size", 0) for parts_page in parts for part in parts_page.get("Parts", [])
+            )
+    return usage

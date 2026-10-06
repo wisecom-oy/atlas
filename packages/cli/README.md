@@ -53,6 +53,7 @@ atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 | `atlas onedrive backup` | Back up a user's OneDrive |
 | `atlas sharepoint backup` | Back up a SharePoint site |
 | `atlas stats` | Storage statistics |
+| `atlas stats storage` | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
 | `atlas storage-check` | Validate S3 Object Lock readiness |
 | `atlas replicate` | Replicate snapshots to a secondary target |
 

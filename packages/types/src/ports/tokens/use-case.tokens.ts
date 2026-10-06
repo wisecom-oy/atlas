@@ -7,6 +7,7 @@ export const STORAGE_CHECK_USE_CASE_TOKEN = Symbol.for('StorageCheckUseCase');
 export const DEK_REWRAP_USE_CASE_TOKEN = Symbol.for('DekRewrapUseCase');
 export const SAVE_USE_CASE_TOKEN = Symbol.for('SaveUseCase');
 export const STATS_USE_CASE_TOKEN = Symbol.for('StatsUseCase');
+export const STORAGE_USAGE_USE_CASE_TOKEN = Symbol.for('StorageUsageUseCase');
 export const STATUS_USE_CASE_TOKEN = Symbol.for('StatusUseCase');
 export const TENANT_ORCHESTRATOR_TOKEN = Symbol.for('TenantBackupOrchestrator');
 export const REPLICATION_USE_CASE_TOKEN = Symbol.for('ReplicationUseCase');

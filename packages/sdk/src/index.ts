@@ -8,11 +8,17 @@
  */
 export { createAtlasInstance } from './atlas-instance.adapter';
 export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
-export { getGraphCost, GRAPH_SERVICE_LIMITS } from './public-values';
+export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
 
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
 export type { LogSink, LogFields } from '@wisecom/atlas-types';
+export type {
+  StorageRequestEvent,
+  StorageRequestObserver,
+  StorageRequestWorkload,
+  StorageKeyClass,
+} from '@wisecom/atlas-types';
 
 export type {
   OutlookApi,
@@ -95,7 +101,16 @@ export type {
   ServicePoolCost,
   GraphServiceLimits,
   ObjectLockRequest,
+  StorageUsage,
+  StorageUsageTotals,
+  StorageOwnerUsage,
 } from './public-types';
+export type {
+  StorageUsageOptions,
+  StorageUsageBreakdown,
+  StorageUsageWorkload,
+  LogicalWorkload,
+} from '@wisecom/atlas-types';
 
 export {
   AtlasError,

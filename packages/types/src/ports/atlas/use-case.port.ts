@@ -1,6 +1,9 @@
 import type { LogSink } from '@/ports/atlas/log-sink.port';
+import type { StorageRequestObserver } from '@/ports/storage/storage-request-observer.port';
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
 import type { BucketStats } from '@/domain/stats';
+import type { StorageUsage } from '@/domain/storage-usage';
+import type { StorageUsageOptions } from '@/ports/storage-usage/use-case.port';
 import type {
   ReplicationResult,
   ReplicationStatusRecord,
@@ -29,6 +32,11 @@ export interface AtlasInstanceConfig {
    * writes nothing to the host's stdout unless the host asks for it (issue #41).
    */
   readonly logger?: LogSink;
+  /**
+   * Receives one event per S3 request this instance sends, with timing, retry, size and outcome.
+   * Omitted means nothing is measured and the storage path is unchanged.
+   */
+  readonly onStorageRequest?: StorageRequestObserver;
 }
 
 export interface AtlasInstance extends AsyncDisposable {
@@ -45,6 +53,12 @@ export interface AtlasInstance extends AsyncDisposable {
   validate(): Promise<void>;
   checkStorage(request?: Camelize<StorageCheckRequest>): Promise<Camelize<StorageCheckResult>>;
   getBucketStats(): Promise<Camelize<BucketStats>>;
+  /**
+   * Lists the tenant bucket, or a replication target's copy of it, and reports the bytes it
+   * physically holds: current and noncurrent versions, delete markers, staging and incomplete
+   * uploads, per workload and optionally per owner.
+   */
+  getStorageUsage(options?: StorageUsageOptions): Promise<Camelize<StorageUsage>>;
   resolveUser(email: string): Promise<Camelize<ResolvedUserIdentity>>;
   listUsers(): Promise<Camelize<IdentityRegistry> | undefined>;
   replicateSnapshot(

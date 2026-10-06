@@ -39,6 +39,10 @@ _SHAREPOINT_HOST = re.compile(
 )
 # Graph drive ids (`b!<base64>`) embed the site and web GUIDs.
 _DRIVE_ID = re.compile(r"\bb![A-Za-z0-9_-]{20,}")
+# Base64url-encoded JSON (`{"` encodes to `eyJ`): JWTs and Atlas continuation tokens. A
+# `stats storage` token carries the tenant id and object keys, and neither is visible to the
+# literal or GUID rules once encoded.
+_OPAQUE_TOKEN = re.compile(r"\beyJ[A-Za-z0-9_-]{16,}")
 
 
 def scrub(text: str, settings: Settings) -> str:
@@ -50,6 +54,7 @@ def scrub(text: str, settings: Settings) -> str:
     # part that must not survive even in fragments.
     text = _TEMPAUTH.sub(r"\1<token>", text)
     text = _BEARER.sub(r"\1<token>", text)
+    text = _OPAQUE_TOKEN.sub("<opaque-token>", text)
     text = _SHAREPOINT_HOST.sub("<sharepoint-url>", text)
     text = _DRIVE_ID.sub("<drive-id>", text)
     text = _EMAIL.sub("<upn>", text)

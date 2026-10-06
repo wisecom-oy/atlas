@@ -291,6 +291,7 @@ describe('createAtlasInstance', () => {
           target_id: 'replica',
           endpoint: 'http://replica:9000',
           create_context: vi.fn().mockResolvedValue(undefined),
+          open_inventory: vi.fn(),
         },
       ];
       const replication_result = [{ snapshot_id: 'snap-1', status: 'completed' }];

@@ -978,6 +978,34 @@ atlas stats --json                     # raw JSON output
 
 Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards. With multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
 
+### `atlas stats storage`
+
+Measure the bytes the tenant bucket, or a replica's copy of it, physically holds, by listing it. `atlas stats` reports logical sizes from the manifests; this reports what the bucket stores and a provider bills: current and noncurrent versions, delete markers, staging objects and incomplete multipart uploads, per workload and optionally per owner. See [Storage Usage](/operations/storage-usage) for what each figure means and what a run costs in list requests.
+
+```bash
+atlas stats storage                                   # the tenant bucket, per workload
+atlas stats storage --by owner --top 10               # the ten largest owners and sites
+atlas stats storage --target-config replica.json      # a replica
+atlas stats storage --max-requests 1000 --json        # stop after 1,000 requests, print a token
+atlas stats storage --continue <token> --json         # resume from that token
+```
+
+| Option                      | Description                                                                             |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `--by <breakdown>`          | `workload` (default) or `owner`, which adds one row per mailbox, OneDrive owner or site |
+| `--target-endpoint <url>`   | Measure a replica at this S3 endpoint instead of the primary storage                    |
+| `--target-access-key <key>` | Replica S3 access key                                                                   |
+| `--target-secret-key <key>` | Replica S3 secret key; `-` reads it from stdin                                          |
+| `--target-region <region>`  | Replica S3 region                                                                       |
+| `--target-config <path>`    | JSON file with replica credentials, the same format `atlas replicate` takes             |
+| `--max-requests <n>`        | Stop once this many S3 requests were made and print a continuation token                |
+| `--continue <token>`        | Resume a measurement from its continuation token                                        |
+| `--top <n>`                 | Maximum owner rows with `--by owner` (default 20)                                       |
+| `--json`                    | Output raw JSON instead of formatted tables                                             |
+| `-t, --tenant <id>`         | Override tenant ID from config                                                          |
+
+The JSON carries `totals`, `by_workload`, `by_owner` with `--by owner`, `stored_bytes`, `list_requests`, `complete`, and on a complete run with readable manifests `logical_bytes_referenced`. When credentials cannot list versions, multipart uploads or their parts, the report says so in `versions_visible` and `incomplete_uploads_visible`, the tables show `n/a` for those columns, and stored totals read as a lower bound. A run that fails on an S3 error prints a continuation token to stderr, so the next run resumes instead of starting over. Any `--target-*` flag selects a replica, and one without `--target-endpoint` or `--target-config` is refused rather than measuring primary storage. The command is read-only: it creates no bucket and no key material, and a replica without the tenant bucket fails with `NoSuchBucket`. `--top` and `--json` are shared with `atlas stats` and may be given before or after `storage`.
+
 ## `atlas keys`
 
 Manage the tenant data key. One verb so far.

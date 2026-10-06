@@ -172,7 +172,8 @@ async function replicate_owner_scope(
   await report_results(results);
 }
 
-function build_target(container: Container, options: ReplicateOptions): StorageTarget {
+/** Builds the secondary storage target from the `--target-*` flags or `--target-config`. */
+export function build_target(container: Container, options: ReplicateOptions): StorageTarget {
   const config = container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN);
 
   if (options.targetConfig) {

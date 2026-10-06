@@ -582,6 +582,23 @@ Atlas writes a marker file (`_meta/replica.marker`) on each target during first 
 
 Replication status sidecar files stored under `_meta/replication/` in the primary bucket are encrypted with the tenant DEK. Target endpoints, checksums, and error messages are not exposed at rest in S3.
 
+## Storage Request Events
+
+An SDK host can pass `onStorageRequest` to receive one event per S3 request (see [Storage Request Events](/reference/storage-request-events)). Hosts export these to metrics systems that are usually less protected than the backup bucket, so the event is restricted to values that identify nothing:
+
+| Contained                                                                           | Never contained                                    |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------- |
+| S3 command name, SDK method name                                                    | Object keys, listing prefixes, upload IDs          |
+| `workload` and `keyClass`, from an allowlist over the first key segments            | Bucket names, which contain the tenant ID          |
+| `target`: `primary` or the host-chosen replication `targetId`                       | Endpoint hostnames, URLs, credentials, signatures  |
+| Timings, attempt count, retry delay, payload byte count, HTTP status, S3 error code | Tenant, mailbox, owner or site IDs, content hashes |
+
+Keys are never classified by pattern matching on their contents. The allowlist maps a known leading segment (`data`, `manifests`, `onedrive/staging`, ...) to a class, and anything else becomes `other`, so an unexpected key layout cannot leak an identifier into a label.
+
+The observer is host code running inside the Atlas process, on the storage path. Atlas catches a throw and a rejected promise so a faulty observer cannot fail a backup, but it cannot defend against an observer that blocks the event loop or retains the event objects. Byte counts are ciphertext sizes. Across many requests they reveal the size distribution of a tenant's stored objects, which the backend operator already sees; treat exported metrics accordingly.
+
+Socket timing uses the process-wide `http.client.request.created` diagnostics channel. Atlas ignores every request it did not issue itself, so the host's other HTTP traffic is neither observed nor reported.
+
 ## S3 Permissions by Command Class
 
 Atlas splits its storage access in two, so a browsing operator never needs write credentials:
@@ -589,6 +606,7 @@ Atlas splits its storage access in two, so a browsing operator never needs write
 | Command class                                                                                                                            | S3 actions required                                                                                                         | Provisioning |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------ |
 | Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                             | None         |
+| Storage usage: `stats storage`                                                                                                           | the read-only row plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`              | None         |
 | Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                                   | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
 
 Read-only commands load the tenant context without provisioning: the bucket is never created and a missing `_meta/dek.enc` is never generated. Browsing a tenant that has never been backed up — a mistyped `-t`, or a tenant id from another environment — fails with `No backups found for tenant <id>` instead of leaving behind a lifecycle-configured bucket containing nothing but key material. That matters for two reasons: a wrapped DEK written on a read path is an audit-log surprise in a compliance-facing product, and buckets born from typos are indistinguishable from real tenants when reviewing storage.

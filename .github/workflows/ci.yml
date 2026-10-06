@@ -52,8 +52,10 @@ jobs:
       - name: Format check
         run: pnpm run format:check
 
+      # One Vitest run over every package's project, so each source file is measured against every
+      # test that reaches it. A per-package run undercounts shared code (issue #445).
       - name: Test with coverage
-        run: pnpm run test -- --coverage
+        run: pnpm run test:coverage
 
       - name: Upload coverage artifact
         if: always()
@@ -61,9 +63,8 @@ jobs:
         with:
           name: coverage-report
           path: |
-            packages/*/coverage/
+            coverage/
           retention-days: 30
-
 
   e2e-python:
     name: E2E suite lint, format & types

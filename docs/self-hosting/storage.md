@@ -238,3 +238,11 @@ takes effect for a multipart destination.
 
 The practical ceiling is therefore S3's own 5 TB per object, which is far above what Microsoft 365
 will serve: OneDrive and SharePoint cap a single file at 250 GB.
+
+## Measuring a Storage Backend
+
+Atlas runs against any S3-compatible service, and bring-your-own-storage deployments rarely expose provider metrics to the operator running Atlas. An SDK host can measure the backend from the Atlas side instead with [storage request events](/reference/storage-request-events): one event per S3 request with its latency, the time spent queued for a connection, SDK retries and backoff after throttling, and the payload size.
+
+Two readings matter most for capacity decisions. `networkMs` on small requests such as `HeadObject` and manifest reads is the backend's latency as Atlas experiences it, including the network path. `retryDelayMs` with `errorType: 'SlowDown'` shows the backend throttling Atlas, which means concurrency should come down or the backend needs more capacity. A high `socketWaitMs` with normal `networkMs` means the backend is fine and Atlas is queueing requests behind its own 50-connection pool.
+
+The CLI does not report these events.

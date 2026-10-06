@@ -3,6 +3,7 @@ import type { GraphServiceLimits as InternalGraphServiceLimits } from '@wisecom/
 import type { OperationCost as InternalOperationCost } from '@wisecom/atlas-types';
 import { camelize, type Camelize } from '@wisecom/atlas-types/public/case-convert';
 import { get_graph_cost as read_internal_graph_cost } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { get_storage_usage_token } from '@wisecom/atlas-core/services/stats/storage-usage.service';
 
 /**
  * The published Graph limits, per pool, in the public camelCase form.
@@ -44,4 +45,12 @@ export type ServicePoolCost = NonNullable<
 export function getGraphCost(err: unknown): OperationCost | undefined {
   const cost = read_internal_graph_cost(err);
   return cost === undefined ? undefined : camelize(cost);
+}
+
+/**
+ * The continuation token a failed `getStorageUsage` call left on its error. Passing it back as
+ * `continuationToken` resumes from the last page counted instead of listing the bucket again.
+ */
+export function getStorageUsageToken(err: unknown): string | undefined {
+  return get_storage_usage_token(err);
 }

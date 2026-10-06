@@ -9,6 +9,8 @@ Run with `uv run python -m atlas_e2e.self_check`.
 
 from __future__ import annotations
 
+import base64
+import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -65,6 +67,19 @@ def check_scrub_redacts_every_secret() -> None:
     leaked = [value for value in _SECRET_VALUES if value in cleaned]
     assert not leaked, f"scrub left {len(leaked)} secret value(s) intact"
     assert "sharepoint.com" not in cleaned, "scrub left a tenant hostname intact"
+
+
+def check_scrub_redacts_encoded_tokens() -> None:
+    """A continuation token is base64url JSON holding the tenant id and object keys.
+
+    Encoded, neither matches a literal or the GUID shape, so the token itself has to go. The e2e
+    storage usage test passes one on the command line, and argv is logged.
+    """
+    payload = json.dumps({"tenant_id": _FAKE.tenant_id, "cursor": "data/owner/abc"}).encode()
+    token = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+    cleaned = scrub(f"atlas stats storage --continue {token}", _FAKE)
+    assert token not in cleaned, "scrub left a continuation token intact"
+    assert "<opaque-token>" in cleaned, "the token was mangled rather than replaced"
 
 
 def check_result_streams_are_scrubbed() -> None:
@@ -239,6 +254,7 @@ def check_cleanup_spares_an_operator_restore_root() -> None:
 CHECKS = (
     check_settings_repr_hides_secrets,
     check_scrub_redacts_every_secret,
+    check_scrub_redacts_encoded_tokens,
     check_result_streams_are_scrubbed,
     check_transcript_never_holds_output,
     check_cleanup_never_deletes_unmarked_items,

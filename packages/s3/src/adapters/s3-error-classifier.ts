@@ -12,6 +12,15 @@ export function is_precondition_failed(err: unknown): boolean {
 }
 
 /**
+ * The credentials lack a permission. Checked on the 403 status as well as the code, because some
+ * S3-compatible backends answer a missing list permission with a bare 403.
+ */
+export function is_access_denied(err: unknown): boolean {
+  if (err instanceof S3ServiceException && err.$metadata.httpStatusCode === 403) return true;
+  return err instanceof Error && err.name === 'AccessDenied';
+}
+
+/**
  * True only for errors that name Object Lock as the reason a delete was refused.
  *
  * Backends word it differently: MinIO raises `InvalidRequest` "Object is WORM protected and

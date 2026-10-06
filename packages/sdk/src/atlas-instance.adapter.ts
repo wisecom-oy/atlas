@@ -1,4 +1,6 @@
 import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
+import type { S3Client } from '@aws-sdk/client-s3';
+import { observe_storage_requests, S3_CLIENT_TOKEN } from '@wisecom/atlas-s3';
 import { create_container_from_config } from '@/container';
 import type {
   AtlasInstance,
@@ -9,6 +11,7 @@ import type {
   UserIdentityResolver,
   IdentityRegistryRepository,
   DekRewrapUseCase,
+  StorageUsageUseCase,
 } from '@wisecom/atlas-types';
 import {
   STORAGE_CHECK_USE_CASE_TOKEN,
@@ -18,6 +21,7 @@ import {
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   DEK_REWRAP_USE_CASE_TOKEN,
+  STORAGE_USAGE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
@@ -32,10 +36,15 @@ import { validate_instance } from '@/instance-validation';
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
   const atlas_config = normalize_config(config);
   const container = create_container_from_config(atlas_config);
+  if (config.onStorageRequest) {
+    const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
+    observe_storage_requests(s3_client, config.onStorageRequest, 'primary');
+  }
   const tenant_id = atlas_config.tenant_id;
 
   const storage_check = container.get<StorageCheckUseCase>(STORAGE_CHECK_USE_CASE_TOKEN);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
+  const storage_usage = container.get<StorageUsageUseCase>(STORAGE_USAGE_USE_CASE_TOKEN);
   const replication = container.get<ReplicationUseCase>(REPLICATION_USE_CASE_TOKEN);
   const identity_resolver = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
   const identity_registry = container.get<IdentityRegistryRepository>(
@@ -62,6 +71,17 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     },
     async getBucketStats() {
       return camelize(await stats.get_bucket_stats(tenant_id));
+    },
+    async getStorageUsage(options = {}) {
+      return camelize(
+        await storage_usage.measure_storage_usage(tenant_id, {
+          target: options.target,
+          breakdown: options.breakdown,
+          continuation_token: options.continuationToken,
+          max_list_requests: options.maxListRequests,
+          abort_signal: options.signal,
+        }),
+      );
     },
     async resolveUser(email) {
       return camelize(await identity_resolver.resolve_user(tenant_id, email));

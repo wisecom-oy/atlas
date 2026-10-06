@@ -22,6 +22,9 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
       `encryptionPassphrase must contain at least ${MIN_PASSPHRASE_BYTES} UTF-8 bytes.`,
     );
   }
+  if (config.onStorageRequest !== undefined && typeof config.onStorageRequest !== 'function') {
+    throw new ConfigError('onStorageRequest must be a function.');
+  }
 
   return {
     tenant_id: config.tenantId,

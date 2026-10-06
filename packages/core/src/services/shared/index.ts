@@ -1,4 +1,3 @@
-export * from '@/services/shared/owner-id-migration';
 export {
   ArchiveDestinationError,
   create_file_archive,
