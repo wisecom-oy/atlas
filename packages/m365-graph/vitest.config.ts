@@ -18,7 +18,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    root: '.',
+    root: root_dir,
     include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',

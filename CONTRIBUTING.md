@@ -173,7 +173,7 @@ Key rules:
 ```bash
 pnpm run test           # run tests
 pnpm run test:watch     # watch mode
-pnpm run test:coverage  # with coverage report
+pnpm run test:coverage  # merged coverage, one row per package (docs/development/test-coverage.md)
 ```
 
 ## Pull request guidelines
