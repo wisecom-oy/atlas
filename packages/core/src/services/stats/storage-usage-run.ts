@@ -20,7 +20,9 @@ export interface RunLimits {
  * Advances `state` page by page until every phase is done or a limit stops it.
  *
  * Counts are added only after a whole page was listed, and the cursor moves with them, so a run
- * that stops at any page boundary resumes exactly where its counts end.
+ * that stops at any page boundary resumes exactly where its counts end. That holds for a failed
+ * request too: the page it was fetching is not counted, its cursor has not moved, and the error is
+ * thrown with `state` at the last boundary.
  */
 export async function run_usage_listing(
   state: UsageState,
@@ -38,7 +40,7 @@ export async function run_usage_listing(
   await discover_prefixes(state, inventory, should_stop);
   if (state.discovery.done) await list_prefixes(state, inventory, should_stop);
   if (state.discovery.done && state.prefixes.length === 0) {
-    await list_incomplete_uploads(state, inventory, should_stop);
+    await size_incomplete_uploads(state, inventory, should_stop);
   }
 }
 
@@ -61,7 +63,12 @@ async function discover_prefixes(
   }
 }
 
-/** Lists the queued prefixes in parallel; a prefix leaves the queue once its last page is in. */
+/**
+ * Lists the queued prefixes in parallel; a prefix leaves the queue once its last page is in.
+ *
+ * The first failed request stops every worker before its next page, so nothing keeps listing for
+ * a run that is already lost, and the failure is rethrown once the pages in flight have settled.
+ */
 async function list_prefixes(
   state: UsageState,
   inventory: StorageInventory,
@@ -69,20 +76,28 @@ async function list_prefixes(
 ): Promise<void> {
   const queue = [...state.prefixes];
   const finished = new Set<PendingPrefix>();
-
+  let failure: { error: unknown } | undefined;
   let in_flight = 0;
+  const stop = (): boolean => failure !== undefined || should_stop(in_flight);
+
   const worker = async (): Promise<void> => {
-    for (let entry = queue.shift(); entry && !should_stop(in_flight); entry = queue.shift()) {
+    for (let entry = queue.shift(); entry && !stop(); entry = queue.shift()) {
       const pending = entry;
-      while (!should_stop(in_flight)) {
+      while (!stop()) {
         in_flight++;
-        const page = await inventory
-          .list_object_page({
+        let page: StorageObjectPage;
+        try {
+          page = await inventory.list_object_page({
             prefix: pending.prefix,
             mode: pending.mode ?? state.mode,
             cursor: pending.cursor,
-          })
-          .finally(() => in_flight--);
+          });
+        } catch (error) {
+          failure ??= { error };
+          return;
+        } finally {
+          in_flight--;
+        }
         absorb_page(state, page);
         pending.mode = page.mode;
         if (!page.next) {
@@ -96,20 +111,68 @@ async function list_prefixes(
   await Promise.all(Array.from({ length: PREFIX_CONCURRENCY }, worker));
 
   state.prefixes = state.prefixes.filter((entry) => !finished.has(entry));
+  if (failure) throw failure.error;
 }
 
-async function list_incomplete_uploads(
+/**
+ * Lists incomplete uploads and sizes each from its parts, one request per step: a page of uploads
+ * can hold a hundred, and sizing them all at once would run far past a request allowance.
+ */
+async function size_incomplete_uploads(
   state: UsageState,
   inventory: StorageInventory,
   should_stop: () => boolean,
 ): Promise<void> {
-  while (!state.uploads.done && !should_stop()) {
-    const page = await inventory.list_incomplete_upload_page(state.uploads.cursor);
-    state.requests += page.requests;
-    for (const upload of page.uploads) tally_upload(state, upload);
-    state.uploads = page.next
-      ? { done: false, visible: page.visible, cursor: page.next }
-      : { done: true, visible: page.visible };
+  const uploads = state.uploads;
+  while (!(uploads.listed && uploads.pending.length === 0) && !should_stop()) {
+    if (uploads.pending.length === 0) await list_next_upload_page(state, inventory);
+    else await size_next_upload(state, inventory);
+  }
+}
+
+/** Queues one page of uploads for sizing, or counts them unsized once parts were refused. */
+async function list_next_upload_page(
+  state: UsageState,
+  inventory: StorageInventory,
+): Promise<void> {
+  const uploads = state.uploads;
+  const page = await inventory.list_incomplete_upload_page(uploads.cursor);
+  state.requests++;
+  if (!page.visible) uploads.visible = false;
+  for (const upload of page.uploads) {
+    // Without part access the upload still counts; only its bytes are unknown.
+    if (uploads.parts_denied) tally_upload(state, upload.key, 0);
+    else uploads.pending.push({ ...upload, bytes: 0 });
+  }
+  uploads.cursor = page.next;
+  uploads.listed = page.next === undefined;
+}
+
+/** Reads one page of the first queued upload's parts, counting the upload once it is sized. */
+async function size_next_upload(state: UsageState, inventory: StorageInventory): Promise<void> {
+  const uploads = state.uploads;
+  const [current] = uploads.pending;
+  if (!current) return;
+  const parts = await inventory.list_upload_parts_page(current, current.part_marker);
+  state.requests++;
+
+  if (parts.status === 'denied') {
+    // The figure is incomplete from here on: say so, and keep counting what can be counted.
+    uploads.visible = false;
+    uploads.parts_denied = true;
+    for (const upload of uploads.pending.splice(0)) tally_upload(state, upload.key, upload.bytes);
+    return;
+  }
+  if (parts.status === 'gone') {
+    // Completed or aborted since it was listed: it holds no parts any more.
+    uploads.pending.shift();
+    return;
+  }
+  current.bytes += parts.bytes;
+  current.part_marker = parts.next_part_marker;
+  if (parts.next_part_marker === undefined) {
+    tally_upload(state, current.key, current.bytes);
+    uploads.pending.shift();
   }
 }
 

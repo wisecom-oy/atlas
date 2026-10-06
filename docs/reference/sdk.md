@@ -271,20 +271,34 @@ while (!part.complete) {
 | `continuationToken` | `string`                | Resume a measurement that stopped early                                                                   |
 | `signal`            | `AbortSignal`           | Stop at the next page boundary and return a continuation token instead of throwing                        |
 
-| Field                                         | Description                                                                                              |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `totals`                                      | `current`, `noncurrent`, `staging` and `incompleteUploads` as `{ objects, bytes }`, plus `deleteMarkers` |
-| `byWorkload`                                  | The same per `outlook`, `onedrive`, `sharepoint`, `meta` and `other`; the rows sum to `totals`           |
-| `byOwner`                                     | With `breakdown: 'owner'`, `{ workload, ownerId, totals }` rows, largest first                           |
-| `storedBytes`                                 | Current plus noncurrent plus incomplete upload parts                                                     |
-| `logicalBytesReferenced`                      | Logical bytes every manifest references, on a complete run whose manifests could be read                 |
-| `logicalBytesByWorkload`                      | The same per workload                                                                                    |
-| `versionsVisible`, `incompleteUploadsVisible` | False when the credentials could not list versions or multipart uploads                                  |
-| `complete`, `continuationToken`               | Whether the run finished; the token to resume it when it did not                                         |
-| `listRequests`                                | S3 requests made so far, across resumed calls                                                            |
-| `target`, `startedAt`, `measuredAt`           | `primary` or the target's `targetId`; when the first call started and this one finished                  |
+| Field                                         | Description                                                                                                                |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `totals`                                      | `current`, `noncurrent`, `staging` and `incompleteUploads` as `{ objects, bytes }`, plus `deleteMarkers`                   |
+| `byWorkload`                                  | The same per `outlook`, `onedrive`, `sharepoint`, `meta` and `other`; the rows sum to `totals`                             |
+| `byOwner`                                     | With `breakdown: 'owner'`, `{ workload, ownerId, totals }` rows, largest first                                             |
+| `storedBytes`                                 | Current plus noncurrent plus incomplete upload parts                                                                       |
+| `logicalBytesReferenced`                      | Logical bytes every manifest references, on a complete run whose manifests could be read                                   |
+| `logicalBytesByWorkload`                      | The same per workload                                                                                                      |
+| `versionsVisible`, `incompleteUploadsVisible` | False when the credentials could not list versions, or multipart uploads or their parts; those figures are then incomplete |
+| `complete`, `continuationToken`               | Whether the run finished; the token to resume it when it did not                                                           |
+| `listRequests`                                | S3 requests made so far, across resumed calls                                                                              |
+| `target`, `startedAt`, `measuredAt`           | `primary` or the target's `targetId`; when the first call started and this one finished                                    |
 
-A stopped run returns rather than throws, so a scheduler can store the token and continue on its next tick. Invalid options and a token issued for another tenant, target or breakdown throw `ConfigError`.
+A stopped run returns rather than throws, so a scheduler can store the token and continue on its next tick. A run that fails on an S3 error throws that error, carrying a token for the last page counted:
+
+```typescript
+import { getStorageUsageToken } from '@wisecom/atlas-sdk';
+
+let continuationToken: string | undefined;
+try {
+  usage = await atlas.getStorageUsage({ continuationToken, maxListRequests: 1000 });
+} catch (err) {
+  continuationToken = getStorageUsageToken(err) ?? continuationToken;
+  throw err;
+}
+```
+
+Invalid options and a token issued for another tenant, target or breakdown throw `ConfigError` before any request, and carry no token.
 
 ## Progress and Cancellation
 
@@ -1096,7 +1110,7 @@ Errors are thrown as Atlas raises them, without the camelCase conversion results
 - Sub-API types: `OutlookApi`, `OneDriveApi`, `SharePointApi`
 - Workload options and results: the named `Outlook*`, `OneDriveSdk*` and `SharePointSdk*` types used by each API
 - Storage targets: `StorageTarget`, `StorageTargetConfig`
-- Storage usage: `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload` (see [Storage usage](#storage-usage))
+- Storage usage: `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`, and `getStorageUsageToken` for resuming a failed run (see [Storage usage](#storage-usage))
 - Factory functions: `createAtlasInstance`, `createStorageTarget`
 - Operation control types: `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - Cost helpers: `getGraphCost`

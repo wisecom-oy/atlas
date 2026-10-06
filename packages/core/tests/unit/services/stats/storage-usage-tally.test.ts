@@ -57,7 +57,7 @@ describe('tally_object and tally_upload', () => {
       is_latest: true,
       is_delete_marker: false,
     });
-    tally_upload(tally, { key: 'onedrive/staging/o1/y', bytes: 6000 });
+    tally_upload(tally, 'onedrive/staging/o1/y', 6000);
 
     const expected = {
       current: { objects: 2, bytes: 150 },

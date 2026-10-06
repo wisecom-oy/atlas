@@ -19,6 +19,27 @@ export interface PendingPrefix {
   mode?: StorageListingMode;
 }
 
+/** An incomplete upload being sized one part page at a time. */
+export interface PendingUpload {
+  readonly key: string;
+  readonly upload_id: string;
+  bytes: number;
+  part_marker?: string | undefined;
+}
+
+/** Listing incomplete uploads, then sizing each from its parts, one request per step. */
+export interface UploadsPhase {
+  /** The upload listing has returned its last page. */
+  listed: boolean;
+  /** False once uploads or their parts were refused; the upload figures are then incomplete. */
+  visible: boolean;
+  /** Parts were refused, so later uploads are counted without their bytes. */
+  parts_denied: boolean;
+  cursor?: StorageUploadCursor | undefined;
+  /** Uploads listed but not yet fully sized, in listing order. */
+  pending: PendingUpload[];
+}
+
 /**
  * Everything a measurement needs to resume without counting anything twice: which phase it is
  * in, where each unfinished listing stops, and what has been counted so far.
@@ -34,7 +55,7 @@ export interface UsageState extends UsageTally {
   /** The root listing that counts root-level keys and finds the top-level prefixes. */
   discovery: { done: boolean; cursor?: StorageListingCursor };
   prefixes: PendingPrefix[];
-  uploads: { done: boolean; visible: boolean; cursor?: StorageUploadCursor };
+  uploads: UploadsPhase;
   requests: number;
 }
 
@@ -54,7 +75,7 @@ export function fresh_state(identity: StateIdentity, now: Date): UsageState {
     versions_visible: true,
     discovery: { done: false },
     prefixes: [],
-    uploads: { done: false, visible: true },
+    uploads: { listed: false, visible: true, parts_denied: false, pending: [] },
     requests: 0,
     by_workload: {},
     ...(identity.breakdown === 'owner' ? { by_owner: {} } : {}),
@@ -63,7 +84,12 @@ export function fresh_state(identity: StateIdentity, now: Date): UsageState {
 
 /** True once every phase has run to its end. */
 export function is_complete(state: UsageState): boolean {
-  return state.discovery.done && state.prefixes.length === 0 && state.uploads.done;
+  return (
+    state.discovery.done &&
+    state.prefixes.length === 0 &&
+    state.uploads.listed &&
+    state.uploads.pending.length === 0
+  );
 }
 
 export function encode_state(state: UsageState): string {
@@ -97,8 +123,7 @@ export function decode_state(token: string, identity: StateIdentity): UsageState
     typeof state.versions_visible !== 'boolean' ||
     !is_count(state.requests) ||
     !is_phase(state.discovery) ||
-    !is_phase(state.uploads) ||
-    typeof state.uploads.visible !== 'boolean' ||
+    !is_uploads_phase(state.uploads) ||
     !Array.isArray(state.prefixes) ||
     !state.prefixes.every(
       (entry) =>
@@ -136,6 +161,25 @@ function is_cursor(value: unknown): boolean {
 
 function is_phase(value: unknown): value is { done: boolean; cursor?: unknown } {
   return is_record(value) && typeof value['done'] === 'boolean' && is_cursor(value['cursor']);
+}
+
+function is_uploads_phase(value: unknown): value is UploadsPhase {
+  return (
+    is_record(value) &&
+    typeof value['listed'] === 'boolean' &&
+    typeof value['visible'] === 'boolean' &&
+    typeof value['parts_denied'] === 'boolean' &&
+    is_cursor(value['cursor']) &&
+    Array.isArray(value['pending']) &&
+    value['pending'].every(
+      (upload) =>
+        is_record(upload) &&
+        typeof upload['key'] === 'string' &&
+        typeof upload['upload_id'] === 'string' &&
+        is_count(upload['bytes']) &&
+        (upload['part_marker'] === undefined || typeof upload['part_marker'] === 'string'),
+    )
+  );
 }
 
 function is_counts_map(value: unknown): value is Record<string, UsageCounts> {

@@ -59,6 +59,10 @@ export class StorageUsageService implements StorageUsageUseCase {
   /**
    * Lists the bucket (or the target's copy of it) and reports what it holds. Stops early on the
    * request allowance or the abort signal and returns a continuation token instead of throwing.
+   *
+   * A request that fails mid-run is rethrown, carrying the token for the last page boundary as
+   * `continuation_token` (read it with {@link get_storage_usage_token}), so a transient S3 error
+   * on a long listing costs the failed page rather than everything counted before it.
    */
   async measure_storage_usage(
     tenant_id: string,
@@ -77,10 +81,15 @@ export class StorageUsageService implements StorageUsageUseCase {
       ? request.target.open_inventory(tenant_id)
       : this._open_inventory(tenant_id);
 
-    await run_usage_listing(state, inventory, {
-      max_requests: request.max_list_requests,
-      signal: request.abort_signal,
-    });
+    try {
+      await run_usage_listing(state, inventory, {
+        max_requests: request.max_list_requests,
+        signal: request.abort_signal,
+      });
+    } catch (err) {
+      attach_continuation_token(err, encode_state(state));
+      throw err;
+    }
 
     const complete = is_complete(state);
     const logical = complete ? await this.read_logical_bytes(tenant_id, request.target) : undefined;
@@ -136,6 +145,23 @@ function validate_request(request: StorageUsageRequest): void {
   ) {
     throw new ConfigError('continuationToken must be a nonempty string.');
   }
+}
+
+/** Non-enumerable, so logging and serialising the error stay unchanged. */
+function attach_continuation_token(err: unknown, token: string): void {
+  if (typeof err !== 'object' || err === null || !Object.isExtensible(err)) return;
+  Object.defineProperty(err, 'continuation_token', {
+    value: token,
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+/** The token to resume a measurement that failed with `err`, if it carries one. */
+export function get_storage_usage_token(err: unknown): string | undefined {
+  if (typeof err !== 'object' || err === null || !('continuation_token' in err)) return undefined;
+  return typeof err.continuation_token === 'string' ? err.continuation_token : undefined;
 }
 
 function build_report(

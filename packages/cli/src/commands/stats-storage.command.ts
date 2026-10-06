@@ -4,7 +4,12 @@ import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import { STORAGE_USAGE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import type { StorageUsageBreakdown, StorageUsageUseCase } from '@wisecom/atlas-types';
+import type {
+  StorageUsage,
+  StorageUsageBreakdown,
+  StorageUsageUseCase,
+} from '@wisecom/atlas-types';
+import { get_storage_usage_token } from '@wisecom/atlas-core/services/stats/storage-usage.service';
 import { build_target } from '@/commands/replicate.command';
 import { print_storage_usage } from '@/commands/stats-storage.view';
 
@@ -64,21 +69,47 @@ async function execute_storage_usage(
   options: StorageUsageCommandOptions,
 ): Promise<void> {
   const tenant_id = options.tenant ?? container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
-  const wants_replica = Boolean(options.targetEndpoint || options.targetConfig);
-  const usage = await container
-    .get<StorageUsageUseCase>(STORAGE_USAGE_USE_CASE_TOKEN)
-    .measure_storage_usage(tenant_id, {
-      ...(wants_replica ? { target: build_target(container, options) } : {}),
-      breakdown: options.by,
-      continuation_token: options.continue,
-      max_list_requests: parse_positive(options.maxRequests, '--max-requests'),
-    });
+  // Parsed before listing: a bad flag must not cost a full listing of the bucket first.
+  const top = options.json ? 20 : (parse_positive(options.top, '--top') ?? 20);
+  const max_list_requests = parse_positive(options.maxRequests, '--max-requests');
+  const target = wants_replica(options) ? build_target(container, options) : undefined;
+
+  let usage: StorageUsage;
+  try {
+    usage = await container
+      .get<StorageUsageUseCase>(STORAGE_USAGE_USE_CASE_TOKEN)
+      .measure_storage_usage(tenant_id, {
+        ...(target ? { target } : {}),
+        breakdown: options.by,
+        continuation_token: options.continue,
+        max_list_requests,
+      });
+  } catch (err) {
+    const token = get_storage_usage_token(err);
+    if (token)
+      console.error(`Measurement failed; resume with the same flags plus:\n--continue ${token}`);
+    throw err;
+  }
 
   if (options.json) {
     console.log(JSON.stringify(usage, null, 2));
     return;
   }
-  await print_storage_usage(usage, parse_positive(options.top, '--top') ?? 20);
+  await print_storage_usage(usage, top);
+}
+
+/**
+ * Any replica flag asks for a replica. Without an endpoint or a config file `build_target`
+ * refuses, rather than the run quietly measuring primary storage instead.
+ */
+function wants_replica(options: StorageUsageCommandOptions): boolean {
+  return [
+    options.targetEndpoint,
+    options.targetAccessKey,
+    options.targetSecretKey,
+    options.targetRegion,
+    options.targetConfig,
+  ].some((value) => value !== undefined);
 }
 
 function parse_positive(raw: string | undefined, flag: string): number | undefined {

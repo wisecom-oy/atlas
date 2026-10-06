@@ -1,5 +1,4 @@
 import type {
-  StorageIncompleteUpload,
   StorageListedObject,
   StorageOwnerUsage,
   StorageUsageTotals,
@@ -86,11 +85,11 @@ export function tally_object(tally: UsageTally, object: StorageListedObject): vo
   }
 }
 
-/** Adds one incomplete multipart upload to its workload and owner. */
-export function tally_upload(tally: UsageTally, upload: StorageIncompleteUpload): void {
-  for (const counts of counts_for(tally, upload.key)) {
+/** Adds one incomplete multipart upload, holding `bytes` in its parts, to its workload and owner. */
+export function tally_upload(tally: UsageTally, key: string, bytes: number): void {
+  for (const counts of counts_for(tally, key)) {
     counts.upload_count++;
-    counts.upload_bytes += upload.bytes;
+    counts.upload_bytes += bytes;
   }
 }
 

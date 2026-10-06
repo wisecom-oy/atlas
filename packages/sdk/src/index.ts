@@ -8,7 +8,7 @@
  */
 export { createAtlasInstance } from './atlas-instance.adapter';
 export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
-export { getGraphCost, GRAPH_SERVICE_LIMITS } from './public-values';
+export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
 
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';

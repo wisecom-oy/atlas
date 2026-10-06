@@ -103,31 +103,23 @@ describe('S3StorageInventory.list_object_page', () => {
 });
 
 describe('S3StorageInventory.list_incomplete_upload_page', () => {
-  it('sizes each upload across paginated part listings and skips vanished uploads', async () => {
-    const { inventory } = inventory_with((command) => {
-      const input = command.input;
-      if (command.constructor.name === 'ListMultipartUploadsCommand') {
-        return {
-          Uploads: [
-            { Key: 'onedrive/staging/o/a', UploadId: 'u1' },
-            { Key: 'onedrive/staging/o/b', UploadId: 'gone' },
-          ],
-          IsTruncated: false,
-        };
-      }
-      if (input['UploadId'] === 'gone') throw s3_error('NoSuchUpload', 404);
-      return input['PartNumberMarker'] === undefined
-        ? { Parts: [{ Size: 5 }, { Size: 6 }], IsTruncated: true, NextPartNumberMarker: '2' }
-        : { Parts: [{ Size: 1 }], IsTruncated: false };
-    });
+  it('lists one bounded page of uploads in a single request, without sizing them', async () => {
+    const { inventory, send } = inventory_with(() => ({
+      Uploads: [{ Key: 'onedrive/staging/o/a', UploadId: 'u1' }, { Key: 'onedrive/staging/o/b' }],
+      IsTruncated: true,
+      NextKeyMarker: 'onedrive/staging/o/a',
+      NextUploadIdMarker: 'u1',
+    }));
 
-    const page = await inventory.list_incomplete_upload_page();
+    const page = await inventory.list_incomplete_upload_page({ key_marker: 'k0' });
 
     expect(page).toEqual({
       visible: true,
-      uploads: [{ key: 'onedrive/staging/o/a', bytes: 12 }],
-      requests: 4,
+      uploads: [{ key: 'onedrive/staging/o/a', upload_id: 'u1' }],
+      next: { key_marker: 'onedrive/staging/o/a', upload_id_marker: 'u1' },
     });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0].input).toMatchObject({ KeyMarker: 'k0', MaxUploads: 100 });
   });
 
   it('reports a refused upload listing as not visible rather than as no uploads', async () => {
@@ -138,7 +130,62 @@ describe('S3StorageInventory.list_incomplete_upload_page', () => {
     await expect(inventory.list_incomplete_upload_page()).resolves.toEqual({
       visible: false,
       uploads: [],
-      requests: 1,
+    });
+  });
+});
+
+describe('S3StorageInventory.list_upload_parts_page', () => {
+  const UPLOAD = { key: 'onedrive/staging/o/a', upload_id: 'u1' };
+
+  it('sums one page of parts and returns the marker for the next', async () => {
+    const { inventory, send } = inventory_with(() => ({
+      Parts: [{ Size: 5 }, { Size: 6 }],
+      IsTruncated: true,
+      NextPartNumberMarker: '2',
+    }));
+
+    await expect(inventory.list_upload_parts_page(UPLOAD, '0')).resolves.toEqual({
+      status: 'listed',
+      bytes: 11,
+      next_part_marker: '2',
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0].input).toMatchObject({
+      Key: UPLOAD.key,
+      UploadId: 'u1',
+      PartNumberMarker: '0',
+    });
+  });
+
+  it('reports an upload completed or aborted since listing as gone', async () => {
+    const { inventory } = inventory_with(() => {
+      throw s3_error('NoSuchUpload', 404);
+    });
+
+    await expect(inventory.list_upload_parts_page(UPLOAD)).resolves.toEqual({
+      status: 'gone',
+      bytes: 0,
+    });
+  });
+
+  it('reports refused part listing as denied instead of failing the report', async () => {
+    const { inventory } = inventory_with(() => {
+      throw s3_error('AccessDenied', 403);
+    });
+
+    await expect(inventory.list_upload_parts_page(UPLOAD)).resolves.toEqual({
+      status: 'denied',
+      bytes: 0,
+    });
+  });
+
+  it('propagates any other failure', async () => {
+    const { inventory } = inventory_with(() => {
+      throw s3_error('InternalError', 500);
+    });
+
+    await expect(inventory.list_upload_parts_page(UPLOAD)).rejects.toMatchObject({
+      name: 'InternalError',
     });
   });
 });

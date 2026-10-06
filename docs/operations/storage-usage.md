@@ -35,7 +35,7 @@ A complete report includes `logical_bytes_referenced`, the logical total `atlas 
 
 ## Request cost
 
-The report is exact because it lists everything, and listing costs requests: one `ListObjectVersions` request per 1,000 versions, plus one `ListMultipartUploads` request per 1,000 incomplete uploads and a `ListParts` request for each of those uploads. A tenant with two million stored versions costs about 2,000 list requests per run. On providers that bill list requests (AWS charges them at the PUT, COPY, POST, LIST rate), check that figure against how often you schedule the report. `list_requests` in the output is the exact count for the run.
+The report is exact because it lists everything, and listing costs requests: one `ListObjectVersions` request per 1,000 versions, one `ListMultipartUploads` request per 100 incomplete uploads, and one or more `ListParts` requests for each of those uploads (one per 1,000 parts). A tenant with two million stored versions costs about 2,000 list requests per run. On providers that bill list requests (AWS charges them at the PUT, COPY, POST, LIST rate), check that figure against how often you schedule the report. `list_requests` in the output is the exact count for the run.
 
 Atlas lists up to four top-level prefixes in parallel. Memory stays constant regardless of object count: pages are counted and discarded, never collected. With `--by owner` memory grows with the number of owners and sites, not with objects.
 
@@ -46,18 +46,20 @@ atlas stats storage --max-requests 1000 --json > part1.json
 atlas stats storage --max-requests 1000 --continue "$(jq -r .continuation_token part1.json)"
 ```
 
-`--max-requests` stops the run once that many requests were made and prints a continuation token. Passing the token back resumes where the counts end, so a resumed run never counts an object twice and ends with exactly the totals a single run would report. A page of incomplete uploads lists the parts of each upload on it, so that page can take the run past the allowance. The SDK accepts `maxListRequests` and an `AbortSignal` for the same purpose.
+`--max-requests` stops the run once that many requests were made and prints a continuation token. Every step of the run, including sizing an incomplete upload, is one request, so a run never makes more requests than the allowance. Passing the token back resumes where the counts end, so a resumed run never counts an object twice and ends with exactly the totals a single run would report. The SDK accepts `maxListRequests` and an `AbortSignal` for the same purpose.
+
+A request that fails part way through, such as a `503 SlowDown` or a connection reset after the SDK's own retries, stops the run without losing it. The other parallel listings stop before their next page, and the error is raised carrying a continuation token for the last page that was counted. The CLI prints that token to stderr before exiting; the SDK exposes it through `getStorageUsageToken(err)`. Resuming from it repeats only the page that failed.
 
 A token is bound to the tenant, the target and the breakdown it was issued for, and is refused anywhere else. It is base64url-encoded JSON, not encrypted: it holds the tenant ID, the counts so far, and the listing position, which is an object key containing a mailbox, owner or site ID. Treat it like the report itself and keep it out of shared logs and tickets.
 
 ## Permissions
 
-| Action                          | Needed for                                                                                                                 |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `s3:ListBucket`                 | Live objects                                                                                                               |
-| `s3:ListBucketVersions`         | Noncurrent versions and delete markers. Without it, the report counts live objects only and says `versions_visible: false` |
-| `s3:ListBucketMultipartUploads` | Incomplete uploads. Without it, the report says `incomplete_uploads_visible: false` rather than reporting none             |
-| `s3:ListMultipartUploadParts`   | Sizing each incomplete upload                                                                                              |
-| `s3:GetObject`                  | `_meta/dek.enc` and the manifests, for the logical figure only                                                             |
+| Action                          | Needed for                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `s3:ListBucket`                 | Live objects                                                                                                                         |
+| `s3:ListBucketVersions`         | Noncurrent versions and delete markers. Without it, the report counts live objects only and says `versions_visible: false`           |
+| `s3:ListBucketMultipartUploads` | Incomplete uploads. Without it, the report says `incomplete_uploads_visible: false` rather than reporting none                       |
+| `s3:ListMultipartUploadParts`   | Sizing each incomplete upload. Without it, uploads are still counted, their bytes are not, and `incomplete_uploads_visible` is false |
+| `s3:GetObject`                  | `_meta/dek.enc` and the manifests, for the logical figure only                                                                       |
 
 The report never writes, never creates a bucket, and never generates key material, so a monitoring principal with the read-only permissions in [Security](/security#s3-permissions-by-command-class) plus the version and multipart list actions can run it. Measuring a replica whose bucket does not exist fails with `NoSuchBucket` instead of creating it.

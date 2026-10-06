@@ -44,7 +44,10 @@ function synthetic_inventory(): StorageInventory {
       };
     },
     async list_incomplete_upload_page() {
-      return { visible: true, uploads: [], requests: 1 };
+      return { visible: true, uploads: [] };
+    },
+    async list_upload_parts_page() {
+      return { status: 'gone', bytes: 0 };
     },
   };
 }

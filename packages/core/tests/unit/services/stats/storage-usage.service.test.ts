@@ -10,7 +10,10 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { StorageUsageService } from '@/services/stats/storage-usage.service';
+import {
+  get_storage_usage_token,
+  StorageUsageService,
+} from '@/services/stats/storage-usage.service';
 import {
   fake_inventory,
   MIXED_BUCKET,
@@ -126,13 +129,92 @@ describe('StorageUsageService', () => {
         continuation_token: usage?.continuation_token,
       });
       slices++;
-      // An upload page also lists its parts, so only list pages are held to exactly one.
-      if (usage.totals.incomplete_uploads.objects === 0)
-        expect(inventory.requests() - before).toBe(1);
+      // Upload listing and part sizing included: every slice is held to its allowance.
+      expect(inventory.requests() - before).toBe(1);
     } while (!usage.complete && slices < 50);
 
     expect(slices).toBeGreaterThan(5);
     expect(comparable(usage)).toEqual(comparable(one_shot));
+  });
+
+  it('sizes an upload across part pages and drops one that disappeared before sizing', async () => {
+    const { service } = harness();
+
+    const usage = await service.measure_storage_usage(TENANT);
+
+    expect(usage.totals.incomplete_uploads).toEqual({ objects: 1, bytes: 6000 });
+    expect(usage.incomplete_uploads_visible).toBe(true);
+  });
+
+  it('counts uploads but reports them not visible when their parts may not be listed', async () => {
+    const { service } = harness({ ...MIXED_BUCKET, deny_parts: true });
+
+    const usage = await service.measure_storage_usage(TENANT);
+
+    expect(usage.complete).toBe(true);
+    expect(usage.incomplete_uploads_visible).toBe(false);
+    expect(usage.totals.incomplete_uploads).toEqual({ objects: 2, bytes: 0 });
+    expect(usage.totals.current.objects).toBe(8);
+  });
+
+  it.each([1, 3, 7, 12])(
+    'rethrows a failure on request %i with a token that resumes without double counting',
+    async (failing_request) => {
+      const one_shot = await harness().service.measure_storage_usage(TENANT, {
+        breakdown: 'owner',
+      });
+      const { service, inventory } = harness();
+      let token: string | undefined;
+      let failures = 0;
+      let usage: StorageUsage | undefined;
+      // Fail exactly once, at the chosen request, then let the run continue from the token.
+      const original = inventory.requests;
+      const arm = (): void => {
+        if (original() === failing_request - 1) inventory.fail_next();
+      };
+      while (!usage) {
+        arm();
+        try {
+          usage = await service.measure_storage_usage(TENANT, {
+            breakdown: 'owner',
+            max_list_requests: 1,
+            continuation_token: token,
+          });
+          if (!usage.complete) {
+            token = usage.continuation_token;
+            usage = undefined;
+          }
+        } catch (err) {
+          failures++;
+          expect(err).toMatchObject({ name: 'SlowDown' });
+          token = get_storage_usage_token(err);
+          expect(token).toEqual(expect.any(String));
+          expect(Object.keys(err as object)).not.toContain('continuation_token');
+        }
+      }
+
+      expect(failures).toBe(1);
+      expect(usage.totals).toEqual(one_shot.totals);
+      expect(usage.by_owner).toEqual(one_shot.by_owner);
+    },
+  );
+
+  it('stops the other prefix listings once one fails, rather than listing on for a lost run', async () => {
+    // One entry per page, so each prefix takes several requests and would keep a worker busy.
+    const { service, inventory } = harness({ ...MIXED_BUCKET, page_size: 1 });
+    // The root listing has seven entries, so seven requests finish discovery and queue prefixes.
+    const discovered = await service.measure_storage_usage(TENANT, { max_list_requests: 7 });
+    const before = inventory.requests();
+    inventory.fail_next();
+
+    // The service settles only after every worker has: the count afterwards is final.
+    const failure = await service
+      .measure_storage_usage(TENANT, { continuation_token: discovered.continuation_token })
+      .catch((err: unknown) => err);
+
+    expect(get_storage_usage_token(failure)).toEqual(expect.any(String));
+    // The four workers start one page each; none starts another after the failure.
+    expect(inventory.requests() - before).toBeLessThanOrEqual(4);
   });
 
   it('stops before any request when already aborted, and resumes from the token', async () => {

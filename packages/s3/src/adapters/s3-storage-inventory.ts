@@ -11,10 +11,14 @@ import type {
   StorageListedObject,
   StorageListingRequest,
   StorageObjectPage,
+  StoragePartsPage,
   StorageUploadCursor,
   StorageUploadPage,
 } from '@wisecom/atlas-types';
 import { is_access_denied } from '@/adapters/s3-error-classifier';
+
+/** Uploads per listing page; AWS allows up to 1,000. */
+const UPLOADS_PER_PAGE = 100;
 
 /**
  * Lists one tenant bucket with object sizes, for measuring what it physically holds.
@@ -44,7 +48,10 @@ export class S3StorageInventory implements StorageInventory {
     }
   }
 
-  /** One page of incomplete uploads, each sized by listing its parts. */
+  /**
+   * One page of incomplete uploads, without sizes: each upload's parts are listed separately, one
+   * request at a time, so sizing a page of uploads cannot run past a request allowance.
+   */
   async list_incomplete_upload_page(cursor?: StorageUploadCursor): Promise<StorageUploadPage> {
     let response;
     try {
@@ -53,30 +60,27 @@ export class S3StorageInventory implements StorageInventory {
           Bucket: this._bucket,
           KeyMarker: cursor?.key_marker,
           UploadIdMarker: cursor?.upload_id_marker,
+          // Bounds the uploads a continuation token carries while they wait to be sized.
+          MaxUploads: UPLOADS_PER_PAGE,
         }),
       );
     } catch (err) {
-      if (is_access_denied(err)) return { visible: false, uploads: [], requests: 1 };
+      if (is_access_denied(err)) return { visible: false, uploads: [] };
       throw err;
     }
 
-    let requests = 1;
     const uploads: StorageIncompleteUpload[] = [];
     for (const upload of response.Uploads ?? []) {
-      if (!upload.Key || !upload.UploadId) continue;
-      const sized = await this.sum_upload_parts(upload.Key, upload.UploadId);
-      requests += sized.requests;
-      // Completed or aborted between the two listings: it no longer holds parts.
-      if (sized.bytes !== undefined) uploads.push({ key: upload.Key, bytes: sized.bytes });
+      if (upload.Key && upload.UploadId)
+        uploads.push({ key: upload.Key, upload_id: upload.UploadId });
     }
-
     const next = response.IsTruncated
       ? require_marker(
           { key_marker: response.NextKeyMarker, upload_id_marker: response.NextUploadIdMarker },
           response.NextKeyMarker,
         )
       : undefined;
-    return { visible: true, uploads, requests, ...(next ? { next } : {}) };
+    return { visible: true, uploads, ...(next ? { next } : {}) };
   }
 
   private async list_versions_page(request: StorageListingRequest): Promise<StorageObjectPage> {
@@ -160,35 +164,32 @@ export class S3StorageInventory implements StorageInventory {
     };
   }
 
-  /** Sums the sizes of an upload's parts, or `undefined` when the upload is gone. */
-  private async sum_upload_parts(
-    key: string,
-    upload_id: string,
-  ): Promise<{ bytes: number | undefined; requests: number }> {
-    let bytes = 0;
-    let requests = 0;
-    let marker: string | undefined;
-    do {
-      requests++;
-      let response;
-      try {
-        response = await this._client.send(
-          new ListPartsCommand({
-            Bucket: this._bucket,
-            Key: key,
-            UploadId: upload_id,
-            PartNumberMarker: marker,
-          }),
-        );
-      } catch (err) {
-        if (err instanceof Error && err.name === 'NoSuchUpload')
-          return { bytes: undefined, requests };
-        throw err;
-      }
-      for (const part of response.Parts ?? []) bytes += part.Size ?? 0;
-      marker = response.IsTruncated ? response.NextPartNumberMarker : undefined;
-    } while (marker);
-    return { bytes, requests };
+  /** One page of an upload's parts; `gone` once the upload completed or was aborted. */
+  async list_upload_parts_page(
+    upload: StorageIncompleteUpload,
+    part_marker?: string,
+  ): Promise<StoragePartsPage> {
+    let response;
+    try {
+      response = await this._client.send(
+        new ListPartsCommand({
+          Bucket: this._bucket,
+          Key: upload.key,
+          UploadId: upload.upload_id,
+          PartNumberMarker: part_marker,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof Error && err.name === 'NoSuchUpload') return { status: 'gone', bytes: 0 };
+      // Listing uploads and listing their parts are separate permissions.
+      if (is_access_denied(err)) return { status: 'denied', bytes: 0 };
+      throw err;
+    }
+    const bytes = (response.Parts ?? []).reduce((sum, part) => sum + (part.Size ?? 0), 0);
+    const next = response.IsTruncated
+      ? require_marker(response.NextPartNumberMarker, response.NextPartNumberMarker)
+      : undefined;
+    return { status: 'listed', bytes, ...(next ? { next_part_marker: next } : {}) };
   }
 }
 

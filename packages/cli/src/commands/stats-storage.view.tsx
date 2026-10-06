@@ -23,34 +23,38 @@ export async function print_storage_usage(usage: StorageUsage, top: number): Pro
     name: `${owner.workload}/${owner.owner_id || '-'}`,
     totals: owner.totals,
   }));
+  const visible = { versions: usage.versions_visible, uploads: usage.incomplete_uploads_visible };
   await render_static_view(
     <Box flexDirection="column">
       <Banner title="Storage Usage" subtitle={`Target: ${usage.target}`} />
       <Text bold>Overview</Text>
       <KeyValueList items={build_overview_items(usage)} />
-      <UsageTable heading="By workload" rows={workloads} />
-      {owners.length > 0 ? <UsageTable heading="By owner" rows={owners} /> : undefined}
+      <UsageTable heading="By workload" rows={workloads} visible={visible} />
+      {owners.length > 0 ? (
+        <UsageTable heading="By owner" rows={owners} visible={visible} />
+      ) : undefined}
       {usage.complete ? undefined : <ResumeHint token={usage.continuation_token ?? ''} />}
     </Box>,
   );
 }
 
+const NOT_VISIBLE = 'not visible to these credentials';
+
 function build_overview_items(usage: StorageUsage): KeyValueItem[] {
   const { totals } = usage;
+  const partial = !usage.versions_visible || !usage.incomplete_uploads_visible;
   const items: KeyValueItem[] = [
-    { label: 'Stored', value: format_bytes(usage.stored_bytes) },
+    { label: 'Stored', value: (partial ? 'at least ' : '') + format_bytes(usage.stored_bytes) },
     { label: 'Current', value: tally(totals.current) },
+    { label: 'Noncurrent', value: usage.versions_visible ? tally(totals.noncurrent) : NOT_VISIBLE },
     {
-      label: 'Noncurrent',
-      value: usage.versions_visible ? tally(totals.noncurrent) : 'not visible to these credentials',
+      label: 'Delete markers',
+      value: usage.versions_visible ? String(totals.delete_markers) : NOT_VISIBLE,
     },
-    { label: 'Delete markers', value: String(totals.delete_markers) },
     { label: 'Staging', value: tally(totals.staging) },
     {
       label: 'Incomplete uploads',
-      value: usage.incomplete_uploads_visible
-        ? tally(totals.incomplete_uploads)
-        : 'not visible to these credentials',
+      value: usage.incomplete_uploads_visible ? tally(totals.incomplete_uploads) : NOT_VISIBLE,
     },
   ];
   if (usage.logical_bytes_referenced !== undefined) {
@@ -58,7 +62,8 @@ function build_overview_items(usage: StorageUsage): KeyValueItem[] {
       label: 'Logical referenced',
       value: format_bytes(usage.logical_bytes_referenced),
     });
-    if (usage.stored_bytes > 0) {
+    // A ratio over a partial stored figure would overstate what deduplication saves.
+    if (usage.stored_bytes > 0 && !partial) {
       const ratio = usage.logical_bytes_referenced / usage.stored_bytes;
       items.push({ label: 'Logical / stored', value: `${ratio.toFixed(2)}x` });
     }
@@ -78,7 +83,7 @@ interface UsageRow {
   name: string;
   current: string;
   noncurrent: string;
-  markers: number;
+  markers: string;
   staging: string;
   uploads: string;
   stored: string;
@@ -94,17 +99,34 @@ const USAGE_COLUMNS: TableColumn<UsageRow>[] = [
   { key: 'stored', header: 'Stored', align: 'right' },
 ];
 
-function UsageTable({ heading, rows }: { heading: string; rows: NamedTotals[] }): ReactElement {
+/** What the credentials could list. A refused category reads `n/a`, never `0 B`. */
+interface Visibility {
+  readonly versions: boolean;
+  readonly uploads: boolean;
+}
+
+function UsageTable({
+  heading,
+  rows,
+  visible,
+}: {
+  heading: string;
+  rows: NamedTotals[];
+  visible: Visibility;
+}): ReactElement {
+  const partial = !visible.versions || !visible.uploads;
   const table_rows: UsageRow[] = rows.map(({ name, totals }) => ({
     name,
     current: format_bytes(totals.current.bytes),
-    noncurrent: format_bytes(totals.noncurrent.bytes),
-    markers: totals.delete_markers,
+    noncurrent: visible.versions ? format_bytes(totals.noncurrent.bytes) : 'n/a',
+    markers: visible.versions ? String(totals.delete_markers) : 'n/a',
     staging: format_bytes(totals.staging.bytes),
-    uploads: format_bytes(totals.incomplete_uploads.bytes),
-    stored: format_bytes(
-      totals.current.bytes + totals.noncurrent.bytes + totals.incomplete_uploads.bytes,
-    ),
+    uploads: visible.uploads ? format_bytes(totals.incomplete_uploads.bytes) : 'n/a',
+    stored:
+      (partial ? '>= ' : '') +
+      format_bytes(
+        totals.current.bytes + totals.noncurrent.bytes + totals.incomplete_uploads.bytes,
+      ),
   }));
   return (
     <Box flexDirection="column" marginTop={1}>
