@@ -13,6 +13,7 @@ import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { S3StorageInventory } from '@/adapters/s3-storage-inventory';
 import { observe_storage_requests } from '@/adapters/s3-request-observer';
+import { warn_if_plaintext_endpoint } from '@/adapters/plaintext-endpoint-warning';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
@@ -55,6 +56,7 @@ export class DefaultStorageTarget implements StorageTarget {
     this._passphrase = config.encryptionPassphrase;
     this._region = config.s3Region ?? 'us-east-1';
 
+    warn_if_plaintext_endpoint(config.s3Endpoint);
     this._client = new S3Client({
       endpoint: config.s3Endpoint,
       region: this._region,
