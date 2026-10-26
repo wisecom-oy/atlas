@@ -66,6 +66,7 @@ describe('RestoreService', () => {
       find_by_snapshot: vi.fn(),
       find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     const folders: MailFolder[] = [

@@ -574,6 +574,8 @@ Three result types carry an optional `mailboxPurpose` field (`'user' | 'linked' 
 - `MailboxSummary.mailboxPurpose` (from `listMailboxes()`; taken from the newest manifest that recorded one, so a transient lookup failure in the latest backup does not blank the field)
 - `Manifest.mailboxPurpose` (from `backup()`, `listSnapshots()`, `getSnapshotDetail()`; recorded at backup time)
 
+When the `mailboxSettings` lookup fails during discovery, `TenantMailbox.purposeLookupError` carries the Graph error message instead. A mailbox with that field set may be shared; it is not the same as an unlicensed user mailbox, and should not be treated as one when deciding what to back up.
+
 The field is absent when the purpose was never resolved (pre-feature manifests, lookup failures):
 
 ```typescript
