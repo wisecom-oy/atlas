@@ -73,6 +73,10 @@ describe('deletion prefixes ignore identifier case', () => {
   });
 
   it('addresses one snapshot manifest regardless of spelling', async () => {
+    storage.list_versions.mockResolvedValueOnce([
+      { key: `onedrive/manifests/${LOWER}/snap-1.json`, version_id: 'v1', is_delete_marker: false },
+    ]);
+
     await container.get(OneDriveDeletionService).delete_snapshot('t', UPPER, 'snap-1');
 
     expect(swept()).toEqual([`onedrive/manifests/${LOWER}/snap-1.json`]);

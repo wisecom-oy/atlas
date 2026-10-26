@@ -1,4 +1,5 @@
 import type { Manifest, ManifestRepository, TenantContext } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 
 /**
  * Loads a snapshot's manifest plus every older manifest of the same mailbox, target first, then
@@ -11,7 +12,7 @@ export async function load_snapshot_chain(
   snapshot_id: string,
 ): Promise<Manifest[]> {
   const target = await manifests.find_by_snapshot(ctx, snapshot_id);
-  if (!target) throw new Error(`No manifest found for snapshot ${snapshot_id}`);
+  if (!target) throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
 
   const target_time = new Date(target.created_at).getTime();
   const all = await manifests.list_all_manifests(ctx);

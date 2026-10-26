@@ -21,6 +21,7 @@ import {
 import { execute_restore_loop } from '@/services/restore/restore-loop-executor';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -67,7 +68,7 @@ export class RestoreService implements RestoreUseCase {
       );
       const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
 
-      await this.assert_mailbox_exists(tenant_id, target_mailbox);
+      await assert_mailbox_exists(this._connector, tenant_id, target_mailbox);
 
       if (entries.length === 0) {
         logger.warn('No entries to restore');
@@ -138,7 +139,7 @@ export class RestoreService implements RestoreUseCase {
     try {
       const target = options.target_mailbox?.toLowerCase() ?? owner_id;
 
-      await this.assert_mailbox_exists(tenant_id, target);
+      await assert_mailbox_exists(this._connector, tenant_id, target);
 
       const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
       if (manifests.length === 0) {
@@ -238,17 +239,6 @@ export class RestoreService implements RestoreUseCase {
       dashboard,
       options,
     );
-  }
-
-  /** Fails fast if the target mailbox does not exist in the tenant. */
-  private async assert_mailbox_exists(tenant_id: string, owner_id: string): Promise<void> {
-    const exists = await this._connector.mailbox_exists(tenant_id, owner_id);
-    if (!exists) {
-      throw new Error(
-        `Mailbox "${owner_id}" does not exist in the tenant. ` +
-          `Verify the email address and try again.`,
-      );
-    }
   }
 
   private finish_empty_result(snapshot_id: string, options: RestoreOptions): RestoreResult {

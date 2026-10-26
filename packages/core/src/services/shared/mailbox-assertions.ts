@@ -1,4 +1,5 @@
 import type { MailboxConnector } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 
 /** Fails fast if the mailbox does not exist in the tenant. */
 export async function assert_mailbox_exists(
@@ -8,7 +9,7 @@ export async function assert_mailbox_exists(
 ): Promise<void> {
   const exists = await connector.mailbox_exists(tenant_id, owner_id);
   if (!exists) {
-    throw new Error(
+    throw new NotFoundError(
       `Mailbox "${owner_id}" does not exist in the tenant. ` +
         `Verify the email address and try again.`,
     );

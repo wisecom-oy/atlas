@@ -6,7 +6,7 @@ import type {
   DeletionResult,
 } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
-import { delete_scopes } from '@/services/deletion/shared/prefix-deleter';
+import { delete_scopes, delete_snapshot_manifest } from '@/services/deletion/shared/prefix-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 
 @injectable()
@@ -50,6 +50,11 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
   ): Promise<DeletionResult> {
     owner_id = normalize_owner_id(owner_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_scopes(storage, [`onedrive/manifests/${owner_id}/${snapshot_id}.json`]);
+    return delete_snapshot_manifest(
+      storage,
+      `onedrive/manifests/${owner_id}/${snapshot_id}.json`,
+      'OneDrive',
+      snapshot_id,
+    );
   }
 }

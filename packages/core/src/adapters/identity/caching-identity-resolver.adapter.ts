@@ -7,6 +7,7 @@ import type {
   UserIdentityResolver,
 } from '@wisecom/atlas-types';
 import {
+  NotFoundError,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
@@ -70,7 +71,7 @@ export class CachingIdentityResolver implements UserIdentityResolver {
       };
     }
 
-    throw new Error(
+    throw new NotFoundError(
       `Cannot resolve "${email}": user not found in Microsoft Graph and no cached identity exists. ` +
         'The user may have never been backed up.',
     );
