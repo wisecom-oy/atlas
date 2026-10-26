@@ -1034,8 +1034,9 @@ forward by running this with no flags.
 :::: danger This rotates the wrapper, not the key
 If the data key or the plaintext has already been captured, re-wrapping changes nothing for the
 attacker: they do not need the passphrase any more. This is the answer to a **leaked passphrase**,
-not to a compromised bucket. The answer to that is replicating to a fresh target under a new
-passphrase and retiring the old bucket, which re-encrypts every object.
+not to a compromised bucket. Replication cannot help either: it copies ciphertext under the same
+key. A compromised data key needs a new one, which means a new bucket and a fresh backup; see
+[Rotating the data key](/security#rotating-the-data-key).
 ::::
 
 :::: warning The old passphrase stays live until the replaced version expires
