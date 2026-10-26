@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
 import type { OneDriveDeltaCursor, TenantContext } from '@wisecom/atlas-types';
 import { S3OneDriveDeltaCursorRepository } from '@/adapters/s3-onedrive-delta-cursor-repository.adapter';
 
@@ -81,31 +82,37 @@ describe('S3OneDriveDeltaCursorRepository', () => {
     expect(ctx.storage.get).not.toHaveBeenCalled();
   });
 
-  it('reads an undecryptable cursor as absent rather than throwing', async () => {
-    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor() });
-    // The object reads back fine and fails to decrypt, which is the case a wrong or rotated key
-    // produces. Failing the read instead would exercise the storage path, not this one.
+  it('raises UnreadableContentError for a cursor that fails to decrypt', async () => {
+    const { ctx, put } = make_ctx({ [CURSOR_KEY]: make_cursor() });
     (ctx as unknown as { decrypt: () => Buffer }).decrypt = () => {
       throw new Error('unable to authenticate data');
     };
 
-    // A full re-enumeration is recoverable; a crash on every run is not.
+    // Reading it as absent would re-enumerate the drive and overwrite it (issue #438).
+    await expect(repo.load(ctx, OWNER)).rejects.toBeInstanceOf(UnreadableContentError);
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('raises StorageError with the cause for a cursor that cannot be fetched', async () => {
+    const reset = new Error('connection reset');
+    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor() }, { [CURSOR_KEY]: reset });
+
+    const err = await repo.load(ctx, OWNER).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(StorageError);
+    expect(err instanceof StorageError && err.cause).toBe(reset);
+  });
+
+  it('reports a cursor deleted between exists and get as absent', async () => {
+    const gone = Object.assign(new Error('gone'), { name: 'NoSuchKey' });
+    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor() }, { [CURSOR_KEY]: gone });
+
     await expect(repo.load(ctx, OWNER)).resolves.toBeUndefined();
   });
 
-  it('reads a cursor whose object cannot be fetched as absent rather than throwing', async () => {
-    const { ctx } = make_ctx(
-      { [CURSOR_KEY]: make_cursor() },
-      { [CURSOR_KEY]: new Error('connection reset') },
-    );
-
-    await expect(repo.load(ctx, OWNER)).resolves.toBeUndefined();
-  });
-
-  it('reads an unparseable cursor as absent rather than throwing', async () => {
+  it('raises UnreadableContentError for an unparseable cursor', async () => {
     const { ctx } = make_ctx({ [CURSOR_KEY]: 'not-json' });
 
-    await expect(repo.load(ctx, OWNER)).resolves.toBeUndefined();
+    await expect(repo.load(ctx, OWNER)).rejects.toBeInstanceOf(UnreadableContentError);
   });
 
   it('encrypts the cursor before it is stored', async () => {

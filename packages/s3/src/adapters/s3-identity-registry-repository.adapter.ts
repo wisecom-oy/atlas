@@ -4,6 +4,7 @@ import type {
   IdentityRegistryRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 
 const REGISTRY_KEY = 'identity-registry.json';
 
@@ -13,16 +14,9 @@ const REGISTRY_KEY = 'identity-registry.json';
  */
 @injectable()
 export class S3IdentityRegistryRepository implements IdentityRegistryRepository {
+  /** Loads the registry; undefined only if none exists, throws if it exists and cannot be read. */
   async load(ctx: TenantContext): Promise<IdentityRegistry | undefined> {
-    try {
-      const exists = await ctx.storage.exists(REGISTRY_KEY);
-      if (!exists) return undefined;
-      const encrypted = await ctx.storage.get(REGISTRY_KEY);
-      const json = ctx.decrypt(encrypted, REGISTRY_KEY);
-      return JSON.parse(json.toString('utf-8')) as IdentityRegistry;
-    } catch {
-      return undefined;
-    }
+    return load_encrypted_json<IdentityRegistry>(ctx, REGISTRY_KEY);
   }
 
   async save(ctx: TenantContext, registry: IdentityRegistry): Promise<void> {

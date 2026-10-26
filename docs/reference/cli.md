@@ -298,6 +298,8 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 
 Exactly one of `--snapshot` or `--mailbox` is required; passing both exits `1`, as described under [`atlas outlook`](#atlas-outlook). `-T, --target` works in either mode. In mailbox mode, entries are deduplicated across snapshots (newest version of each message wins). Cross-mailbox restores preserve the original folder names from the source mailbox. Nested source folders are recreated as nested subfolders under the `Restore-{timestamp}` root, so `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026` instead of collapsing into one flat level.
 
+An Outlook snapshot manifest records only what changed in that backup run, so snapshot mode reads the snapshot's whole delta chain: the target plus every older snapshot of the same mailbox, with the newest version of each message taking precedence. Snapshots taken after the target and snapshots of other mailboxes are excluded. This is the set `atlas outlook verify -s` checks, so a snapshot that verifies restores the same messages. A `--message` `#` index counts the target snapshot's own messages, as `atlas outlook list -s` prints them; a full message ID matches anywhere in the chain.
+
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
 Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path rather than imported as MIME. That is a deliberate choice: Graph's MIME import always marks the created message as a draft, and neither an `X-Unsent: 0` header nor a `PR_MESSAGE_FLAGS` patch clears the flag, so importing would hand the user thousands of drafts. The restored copy is therefore normal mail with its original timestamps, but it does not carry the original `Received:` chain. The archived object still does -- use [`atlas outlook save`](#atlas-outlook-save) when you need the original bytes.
@@ -327,6 +329,8 @@ atlas outlook list -s <snapshot-id> -S          # reveal email subjects
 | `--all`                 | Show all messages (default caps at 50)                        |
 | `-S, --subjects`        | Reveal email subjects (hidden by default for data protection) |
 | `-t, --tenant <id>`     | Override tenant ID                                            |
+
+`list -s` shows only the messages recorded by that backup run, not the whole delta chain that `restore -s` and `save -s` draw from. Its `#` index is what `--message` resolves against.
 
 ### `atlas outlook read`
 
@@ -1034,8 +1038,9 @@ forward by running this with no flags.
 :::: danger This rotates the wrapper, not the key
 If the data key or the plaintext has already been captured, re-wrapping changes nothing for the
 attacker: they do not need the passphrase any more. This is the answer to a **leaked passphrase**,
-not to a compromised bucket. The answer to that is replicating to a fresh target under a new
-passphrase and retiring the old bucket, which re-encrypts every object.
+not to a compromised bucket. Replication cannot help either: it copies ciphertext under the same
+key. A compromised data key needs a new one, which means a new bucket and a fresh backup; see
+[Rotating the data key](/security#rotating-the-data-key).
 ::::
 
 :::: warning The old passphrase stays live until the replaced version expires

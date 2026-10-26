@@ -249,7 +249,7 @@ describe('tenant-wide workload rehydration', () => {
   });
 
   it('rehydrate_all_sites recovers every site found on the replica', async () => {
-    vi.mocked(rehydrate_manifests).mockResolvedValue({
+    const per_site = {
       snapshot_id: 'sp',
       target_id: 'replica',
       status: ReplicationStatus.COMPLETED,
@@ -261,7 +261,10 @@ describe('tenant-wide workload rehydration', () => {
       elapsed_ms: 4,
       errors: [],
       verification_status: 'SKIPPED',
-    } as never);
+    } as never;
+    // Once per site: clearAllMocks keeps implementations, so a persistent override would leak
+    // into later tests and break them under a shuffled order (issue #443).
+    vi.mocked(rehydrate_manifests).mockResolvedValueOnce(per_site).mockResolvedValueOnce(per_site);
 
     const manifests: SharePointManifestRepository = {
       save: vi.fn(),
