@@ -229,3 +229,16 @@ A block that large is almost always a distribution list expanded into `To` or `C
 How it is reported depends on what was asked for. A mailbox or snapshot restore fails this entry on its own: every other message restores, this one is listed in the errors, and the run exits `2` for a partial rather than `0`, so the gap is visible instead of silent. A single-message restore (`--message`) has nothing else to report, so the failure is the result: it exits `9`, the category for stored content that cannot be parsed.
 
 In the SDK the failure is an `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`, which is permanent. Retrying re-reads the same bytes and fails the same way.
+
+## Backup State Errors
+
+### A delta cursor or the identity registry cannot be read
+
+```
+The state object at onedrive/_meta/<owner>/delta.json is corrupt or tampered
+Could not read the state object at identity-registry.json
+```
+
+OneDrive and SharePoint keep a delta cursor per owner or site, and the tenant keeps one identity registry. When one of them exists and cannot be read, the run stops before it writes anything. Treating it as "no state yet" would re-download the whole drive, drop deletion tracking, and save fresh state over the object it could not read, which for the registry erases the cached identities of departed users.
+
+A `Could not read` message is a storage failure (`ATLAS_STORAGE_FAILURE`, exit `1`): retry once the bucket answers. A `corrupt or tampered` message means the object failed AES-256-GCM authentication or JSON parsing (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Retrying does not help. Investigate it as possible tampering first; if the object is only damaged, restore an earlier version from bucket versioning, or delete it to force a full re-enumeration on the next run.
