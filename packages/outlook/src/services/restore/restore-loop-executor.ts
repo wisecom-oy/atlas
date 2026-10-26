@@ -104,10 +104,11 @@ export async function execute_restore_loop(
       global_restored += result.restored;
       global_att += result.attachments;
       global_errors += result.errors.length;
-      all_errors.push(...result.errors, ...result.attachment_errors);
+      append_all(all_errors, result.errors);
+      append_all(all_errors, result.attachment_errors);
       global_att_errors += result.attachment_errors.length;
-      messages.push(...result.messages);
-      warnings.push(...result.warnings);
+      append_all(messages, result.messages);
+      append_all(warnings, result.warnings);
 
       const rate = calc_rate(global_restored, Date.now() - start);
       const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
@@ -146,4 +147,13 @@ export async function execute_restore_loop(
   } finally {
     process.removeListener('SIGINT', on_sigint);
   }
+}
+
+/**
+ * Appends without spreading. `push(...items)` passes every element as a call argument, so a folder
+ * with more messages than the engine's argument limit would throw after its restore already ran,
+ * and the caller would get no result for messages that are in the mailbox.
+ */
+function append_all<T>(target: T[], items: readonly T[]): void {
+  for (const item of items) target.push(item);
 }
