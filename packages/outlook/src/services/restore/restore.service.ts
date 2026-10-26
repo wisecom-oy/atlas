@@ -265,6 +265,7 @@ export class RestoreService implements RestoreUseCase {
       attachment_error_count: 0,
       errors: [],
       verification_warnings: [],
+      messages: [],
       restore_folder_name: '',
       interrupted,
     };

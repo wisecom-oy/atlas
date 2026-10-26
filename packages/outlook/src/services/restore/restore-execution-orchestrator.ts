@@ -2,7 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
-import type { RestoreResult } from '@wisecom/atlas-types';
+import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
 import {
   decrypt_and_parse_message,
   decrypt_and_parse_mime,
@@ -14,6 +14,11 @@ import {
   restore_entry_attachments,
   restore_parsed_attachments,
 } from '@/services/restore/restore-attachment-writer';
+import type { AttachmentRestoreResult } from '@/services/restore/restore-attachment-writer';
+import {
+  attachment_shortfall_warning,
+  count_attachment_kinds,
+} from '@/services/restore/restored-message-report';
 import {
   build_folder_map,
   create_restore_root,
@@ -49,6 +54,27 @@ export async function restore_one_entry(
 export interface EntryRestoreOutcome {
   readonly att: number;
   readonly attachment_errors: string[];
+  readonly report: RestoredMessageReport;
+}
+
+/** Builds the outcome of one created message from what it should hold and what was uploaded. */
+function entry_outcome(
+  object_id: string,
+  expected: readonly { readonly is_inline: boolean }[],
+  result?: AttachmentRestoreResult,
+): EntryRestoreOutcome {
+  const uploaded = result?.uploaded ?? { file: 0, inline: 0 };
+  const attachment_errors = result?.errors ?? [];
+  return {
+    att: uploaded.file + uploaded.inline,
+    attachment_errors,
+    report: {
+      object_id,
+      attachments_expected: count_attachment_kinds(expected),
+      attachments_uploaded: uploaded,
+      attachments_failed: attachment_errors.length,
+    },
+  };
 }
 
 /** Restores a legacy Graph JSON entry, pulling attachments back from storage. */
@@ -69,18 +95,17 @@ async function restore_json_entry(
     sanitized,
   );
 
-  if (!entry.attachments || entry.attachments.length === 0) {
-    return { att: 0, attachment_errors: [] };
-  }
+  const expected = entry.attachments ?? [];
+  if (expected.length === 0) return entry_outcome(entry.object_id, expected);
   const result = await restore_entry_attachments(
     ctx,
     restore_connector,
     tenant_id,
     owner_id,
     new_msg_id,
-    entry.attachments,
+    expected,
   );
-  return { att: result.restored, attachment_errors: result.errors };
+  return entry_outcome(entry.object_id, expected, result);
 }
 
 /**
@@ -105,7 +130,7 @@ async function restore_mime_entry(
     build_restore_payload_from_mime(parsed),
   );
 
-  if (parsed.attachments.length === 0) return { att: 0, attachment_errors: [] };
+  if (parsed.attachments.length === 0) return entry_outcome(entry.object_id, []);
 
   const result = await restore_parsed_attachments(
     restore_connector,
@@ -114,7 +139,7 @@ async function restore_mime_entry(
     new_msg_id,
     parsed.attachments,
   );
-  return { att: result.restored, attachment_errors: result.errors };
+  return entry_outcome(entry.object_id, parsed.attachments, result);
 }
 
 /** Restores all entries for a single folder, updating dashboard per-message. */
@@ -137,11 +162,15 @@ export async function restore_folder_entries(
   attachments: number;
   errors: string[];
   attachment_errors: string[];
+  messages: RestoredMessageReport[];
+  warnings: string[];
 }> {
   let restored = 0;
   let attachments = 0;
   const errors: string[] = [];
   const attachment_errors: string[] = [];
+  const messages: RestoredMessageReport[] = [];
+  const warnings: string[] = [];
 
   for (const entry of entries) {
     if (is_interrupted()) break;
@@ -160,6 +189,9 @@ export async function restore_folder_entries(
       // The message landed, so this is not an entry failure, but the mailbox is missing content
       // the snapshot holds. Reporting it keeps the run out of a clean exit (issue #341).
       attachment_errors.push(...outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`));
+      messages.push(outcome.report);
+      const shortfall = attachment_shortfall_warning(outcome.report);
+      if (shortfall) warnings.push(shortfall);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${entry.object_id}: ${msg}`);
@@ -186,7 +218,7 @@ export async function restore_folder_entries(
     });
   }
 
-  return { restored, attachments, errors, attachment_errors };
+  return { restored, attachments, errors, attachment_errors, messages, warnings };
 }
 
 /** Restores a single message with its attachments. No dashboard needed. */
@@ -224,6 +256,7 @@ export async function restore_single_message(
     entry,
   );
   const att_count = outcome.att;
+  const shortfall = attachment_shortfall_warning(outcome.report);
 
   logger.success(`Restored 1 message${att_count > 0 ? ` + ${att_count} attachments` : ''}`);
   for (const failure of outcome.attachment_errors) logger.warn(`Attachment failed: ${failure}`);
@@ -234,7 +267,8 @@ export async function restore_single_message(
     error_count: 0,
     attachment_error_count: outcome.attachment_errors.length,
     errors: outcome.attachment_errors,
-    verification_warnings: [],
+    verification_warnings: shortfall ? [shortfall] : [],
+    messages: [outcome.report],
     restore_folder_name: root.display_name,
     interrupted: false,
   };

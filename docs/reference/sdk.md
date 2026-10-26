@@ -749,18 +749,31 @@ interface RestoreResult {
   attachmentErrorCount: number;
   errors: string[];
   verificationWarnings: string[];
+  messages: RestoredMessageReport[];
   restoreFolderName: string;
   graphCost?: OperationCost; // SDK only
   interrupted: boolean;
 }
+
+interface RestoredMessageReport {
+  objectId: string;
+  attachmentsExpected: { file: number; inline: number };
+  attachmentsUploaded: { file: number; inline: number };
+  attachmentsFailed: number;
+}
 ```
 
-| Field                  | Description                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| `errorCount`           | Message-level failures. Matches `errors.length`.                                            |
-| `attachmentErrorCount` | Attachment-level failures (count only; details are logged during restore).                  |
-| `errors`               | Human-readable detail for each message-level failure.                                       |
-| `verificationWarnings` | Per-folder verification warnings, including API failures that prevented count confirmation. |
+| Field                  | Description                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `errorCount`           | Message-level failures. Matches `errors.length`.                                                                                                                               |
+| `attachmentErrorCount` | Attachment-level failures (count only; details are logged during restore).                                                                                                     |
+| `errors`               | Human-readable detail for each message-level failure.                                                                                                                          |
+| `verificationWarnings` | Per-folder verification warnings, including API failures that prevented count confirmation. Also one line per message that received fewer attachments than its snapshot holds. |
+| `messages`             | One report per message created in the target mailbox, with attachment counts only (no names or content).                                                                       |
+
+A message's expected attachments are what its snapshot holds: the manifest's attachment list for an entry backed up as Graph JSON, or the parts parsed from the stored MIME for a MIME entry. `inline` counts parts embedded in the body (`isInline: true` on Graph); `file` counts attachments Outlook lists. Compare `attachmentsUploaded` with `attachmentsExpected` to find a message that lost attachments. `attachmentsFailed` counts upload errors, which also appear in `errors`; a legacy attachment whose content was never stored is skipped without an error and shows only as the gap between the two counts.
+
+The split comes from the same MIME parse that drives the upload, so it shows what Atlas restored, not whether that parse classified each part correctly.
 
 ## Object Lock
 

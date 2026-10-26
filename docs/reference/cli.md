@@ -302,6 +302,8 @@ An Outlook snapshot manifest records only what changed in that backup run, so sn
 
 Restored messages retain their original received/sent timestamps, appear as received mail (not drafts), and include all backed-up attachments. Large attachments (>3 MB) use Graph upload sessions with chunked transfer.
 
+A message that receives fewer attachments than its snapshot holds is listed as a warning, for example `<message-id>: 1 of 2 attachments restored`. A failed upload also counts as an error and exits `2`; a legacy attachment whose content was never backed up is skipped with the warning only.
+
 Messages archived as RFC 5322 MIME are parsed at restore time and recreated through Graph's JSON message-create path rather than imported as MIME. That is a deliberate choice: Graph's MIME import always marks the created message as a draft, and neither an `X-Unsent: 0` header nor a `PR_MESSAGE_FLAGS` patch clears the flag, so importing would hand the user thousands of drafts. The restored copy is therefore normal mail with its original timestamps, but it does not carry the original `Received:` chain. The archived object still does -- use [`atlas outlook save`](#atlas-outlook-save) when you need the original bytes.
 
 ::: details `-f` and pre-2.1.0 MIME snapshots
