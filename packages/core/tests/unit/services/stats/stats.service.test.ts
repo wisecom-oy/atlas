@@ -91,6 +91,7 @@ describe('StatsService', () => {
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     mock_od_manifests = {

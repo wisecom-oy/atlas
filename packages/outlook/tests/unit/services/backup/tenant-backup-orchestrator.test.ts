@@ -2,7 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup-orchestrator';
-import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
+import {
+  MAILBOX_DISCOVERY_TOKEN,
+  MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
+import type { ManifestRepository, TenantContextFactory } from '@wisecom/atlas-types';
 import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import type { MailboxDiscoveryService, MailboxPurpose, TenantMailbox } from '@wisecom/atlas-types';
 import type { BackupUseCase, SyncResult, BackupSyncSummary } from '@wisecom/atlas-types';
@@ -10,13 +15,19 @@ import type { Manifest } from '@wisecom/atlas-types';
 import type { Snapshot } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 
-function make_mailbox(mail: string, licensed = true, purpose?: MailboxPurpose): TenantMailbox {
+function make_mailbox(
+  mail: string,
+  licensed = true,
+  purpose?: MailboxPurpose,
+  purpose_lookup_error?: string,
+): TenantMailbox {
   return {
     user_id: `uid-${mail}`,
     mail,
     display_name: mail,
     has_exchange_license: licensed,
     ...(purpose ? { mailbox_purpose: purpose } : {}),
+    ...(purpose_lookup_error ? { purpose_lookup_error } : {}),
   };
 }
 
@@ -56,6 +67,7 @@ describe('DefaultTenantBackupOrchestrator', () => {
   let container: Container;
   let mock_discovery: MailboxDiscoveryService;
   let mock_backup: BackupUseCase;
+  let owners_with_history: string[];
 
   beforeEach(() => {
     container = new Container();
@@ -78,6 +90,13 @@ describe('DefaultTenantBackupOrchestrator', () => {
 
     container.bind(MAILBOX_DISCOVERY_TOKEN).toConstantValue(mock_discovery);
     container.bind(BACKUP_USE_CASE_TOKEN).toConstantValue(mock_backup);
+    owners_with_history = [];
+    container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue({
+      list_owner_ids: vi.fn(async () => owners_with_history),
+    } as unknown as ManifestRepository);
+    container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue({
+      create_storage_only: vi.fn(async () => ({})),
+    } as unknown as TenantContextFactory);
     container.bind(DefaultTenantBackupOrchestrator).toSelf();
   });
 
@@ -109,6 +128,27 @@ describe('DefaultTenantBackupOrchestrator', () => {
     expect(backed_up).toContain('shared@t.com');
     expect(backed_up).not.toContain('unlicensed@t.com');
     expect(result.total_mailboxes).toBe(2);
+  });
+
+  it('fails an excluded mailbox that has existing backups, naming it and the reason (#480)', async () => {
+    vi.mocked(mock_discovery.list_tenant_mailboxes).mockResolvedValue([
+      make_mailbox('licensed@t.com', true),
+      make_mailbox('converted@t.com', false),
+      make_mailbox('lookup@t.com', false, undefined, '403 Forbidden'),
+      make_mailbox('never@t.com', false),
+    ]);
+    owners_with_history = ['licensed@t.com', 'converted@t.com', 'lookup@t.com'];
+
+    const orch = container.get(DefaultTenantBackupOrchestrator);
+    const result = await orch.backup_tenant('t1');
+
+    expect(result.failed).toBe(2);
+    expect(result.succeeded).toBe(1);
+    const errors = new Map(result.outcomes.map((o) => [o.owner_id, o.error]));
+    expect(errors.get('converted@t.com')).toContain('no Exchange Online license');
+    expect(errors.get('lookup@t.com')).toContain('mailboxSettings lookup failed (403 Forbidden)');
+    // Never backed up and unlicensed: still a quiet skip.
+    expect(errors.has('never@t.com')).toBe(false);
   });
 
   it('captures errors per mailbox without aborting', async () => {
