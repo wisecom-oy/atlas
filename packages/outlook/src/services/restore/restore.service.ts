@@ -13,6 +13,7 @@ import {
 } from '@/services/restore/folder-restore-planner';
 import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
 import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
+import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import {
   restore_single_message,
   backfill_missing_folder_ids,
@@ -56,13 +57,18 @@ export class RestoreService implements RestoreUseCase {
     }
     const ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const manifest = await this.load_manifest(ctx, snapshot_id);
-      const source_mailbox = manifest.owner_id;
+      const { owner_id: source_mailbox, entries } = await resolve_snapshot_entries(
+        ctx,
+        this._manifests,
+        this._connector,
+        tenant_id,
+        snapshot_id,
+        options,
+      );
       const target_mailbox = options.target_mailbox?.toLowerCase() ?? source_mailbox;
 
       await this.assert_mailbox_exists(tenant_id, target_mailbox);
 
-      const entries = await this.resolve_entries(ctx, manifest, source_mailbox, tenant_id, options);
       if (entries.length === 0) {
         logger.warn('No entries to restore');
         return this.finish_empty_result(snapshot_id, options);
@@ -188,50 +194,6 @@ export class RestoreService implements RestoreUseCase {
       return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
     }
     return allowed;
-  }
-
-  /** Loads and validates the manifest for a given snapshot. */
-  private async load_manifest(ctx: TenantContext, snapshot_id: string): Promise<Manifest> {
-    const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-    if (!manifest) throw new Error(`No manifest found for snapshot ${snapshot_id}`);
-    return manifest;
-  }
-
-  /** Determines which entries to restore based on options. */
-  private async resolve_entries(
-    ctx: TenantContext,
-    manifest: Manifest,
-    owner_id: string,
-    tenant_id: string,
-    options: RestoreOptions,
-  ): Promise<ManifestEntry[]> {
-    const allowed = apply_recoverable_items_policy(
-      manifest.entries,
-      options.include_recoverable_items,
-    );
-
-    if (options.message_ref) {
-      // Indexes are 1-based over the manifest, so resolve against the full list
-      // and then apply the policy, or `-r 5` would silently mean a different
-      // message once anything is filtered out.
-      const entry = this.resolve_single_entry(manifest, options.message_ref);
-      return entry && allowed.includes(entry) ? [entry] : [];
-    }
-
-    if (options.folder_name) {
-      await backfill_missing_folder_ids(ctx, allowed);
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
-    }
-
-    return allowed;
-  }
-
-  /** Resolves a single entry by 1-based index or object_id. */
-  private resolve_single_entry(manifest: Manifest, ref: string): ManifestEntry | undefined {
-    const index = Number(ref);
-    if (Number.isInteger(index) && index >= 1) return manifest.entries[index - 1];
-    return manifest.entries.find((e) => e.object_id === ref);
   }
 
   /** Restores a batch of messages with dashboard progress. */
