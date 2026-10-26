@@ -4,24 +4,15 @@ import type {
   OneDriveDeltaCursorRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { onedrive_delta_cursor_key } from '@/services/shared/storage-keys';
 
 /** Persists the delta sync cursor (delta links + change tracking state) in S3. */
 @injectable()
 export class S3OneDriveDeltaCursorRepository implements OneDriveDeltaCursorRepository {
-  /** Loads the cursor; returns undefined if no cursor exists yet. */
+  /** Loads the cursor; undefined only if none exists, throws if one exists and cannot be read. */
   async load(ctx: TenantContext, owner_id: string): Promise<OneDriveDeltaCursor | undefined> {
-    const key = onedrive_delta_cursor_key(owner_id);
-    const exists = await ctx.storage.exists(key);
-    if (!exists) return undefined;
-
-    try {
-      const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload, key).toString('utf-8');
-      return JSON.parse(json) as OneDriveDeltaCursor;
-    } catch {
-      return undefined;
-    }
+    return load_encrypted_json<OneDriveDeltaCursor>(ctx, onedrive_delta_cursor_key(owner_id));
   }
 
   /** Encrypts and stores the cursor state. */

@@ -87,6 +87,20 @@ describe('CachingIdentityResolver', () => {
     });
   });
 
+  it('never persists a registry it could not load', async () => {
+    const graph = make_graph_resolver({
+      resolve_user: vi
+        .fn()
+        .mockResolvedValue({ object_id: 'obj-1', display_name: 'A', email: 'a@company.com' }),
+    });
+    const { resolver, registry_repo } = build_resolver({ graph });
+    vi.mocked(registry_repo.load).mockRejectedValue(new Error('unreadable'));
+
+    // Saving the in-memory list here would replace every stored entry (issue #438).
+    await expect(resolver.resolve_user(TENANT, 'a@company.com')).rejects.toThrow('unreadable');
+    expect(registry_repo.save).not.toHaveBeenCalled();
+  });
+
   describe('resolve_user - Graph success, known user', () => {
     it('returns result without re-registering if object_id matches', async () => {
       const existing = make_entry('alice@company.com', 'obj-111');

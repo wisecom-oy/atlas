@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
 import type { SharePointDeltaCursor, TenantContext } from '@wisecom/atlas-types';
 import { S3SharePointDeltaCursorRepository } from '@/adapters/s3-sharepoint-delta-cursor-repository.adapter';
 
@@ -81,31 +82,29 @@ describe('S3SharePointDeltaCursorRepository', () => {
     expect(ctx.storage.get).not.toHaveBeenCalled();
   });
 
-  it('reads an undecryptable cursor as absent rather than throwing', async () => {
+  it('raises UnreadableContentError for a cursor that fails to decrypt', async () => {
     const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor() });
-    // The object reads back fine and fails to decrypt, which is the case a wrong or rotated key
-    // produces. Failing the read instead would exercise the storage path, not this one.
     (ctx as unknown as { decrypt: () => Buffer }).decrypt = () => {
       throw new Error('unable to authenticate data');
     };
 
-    // A full re-enumeration is recoverable; a crash on every run is not.
-    await expect(repo.load(ctx, SITE)).resolves.toBeUndefined();
+    // Reading it as absent would re-enumerate the site and overwrite it (issue #438).
+    await expect(repo.load(ctx, SITE)).rejects.toBeInstanceOf(UnreadableContentError);
   });
 
-  it('reads a cursor whose object cannot be fetched as absent rather than throwing', async () => {
+  it('raises StorageError for a cursor that cannot be fetched', async () => {
     const { ctx } = make_ctx(
       { [CURSOR_KEY]: make_cursor() },
       { [CURSOR_KEY]: new Error('connection reset') },
     );
 
-    await expect(repo.load(ctx, SITE)).resolves.toBeUndefined();
+    await expect(repo.load(ctx, SITE)).rejects.toBeInstanceOf(StorageError);
   });
 
-  it('reads an unparseable cursor as absent rather than throwing', async () => {
+  it('raises UnreadableContentError for an unparseable cursor', async () => {
     const { ctx } = make_ctx({ [CURSOR_KEY]: 'not-json' });
 
-    await expect(repo.load(ctx, SITE)).resolves.toBeUndefined();
+    await expect(repo.load(ctx, SITE)).rejects.toBeInstanceOf(UnreadableContentError);
   });
 
   it('encrypts the cursor before it is stored', async () => {
