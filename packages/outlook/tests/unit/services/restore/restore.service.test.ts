@@ -1,29 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Container } from 'inversify';
-import 'reflect-metadata';
 import { RestoreService } from '@/services/restore/restore.service';
-import {
-  MAILBOX_CONNECTOR_TOKEN,
-  MANIFEST_REPOSITORY_TOKEN,
-  TENANT_CONTEXT_FACTORY_TOKEN,
-  RESTORE_CONNECTOR_TOKEN,
-} from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
-import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
-import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import {
   make_restore_entry as make_entry,
   make_restore_manifest as make_manifest,
-  make_stored_message,
+  make_restore_harness,
   STORED_PAYLOAD_CHECKSUM,
 } from './restore.service.fixtures';
 
 describe('RestoreService', () => {
-  let container: Container;
   let mock_context: TenantContext;
   let mock_manifests: ManifestRepository;
   let mock_connector: MailboxConnector;
@@ -31,84 +20,8 @@ describe('RestoreService', () => {
   let service: RestoreService;
 
   beforeEach(() => {
-    mock_context = {
-      tenant_id: 'test-tenant',
-      storage: {
-        put: vi.fn(),
-        get: vi.fn().mockImplementation(() => Promise.resolve(make_stored_message('f1'))),
-        delete: vi.fn(),
-        delete_version: vi.fn(),
-        exists: vi.fn(),
-        list_stale: vi.fn(async () => []),
-        list: vi.fn(),
-        list_versions: vi.fn().mockResolvedValue([]),
-        begin_multipart_upload: vi.fn().mockResolvedValue({
-          upload_part: vi.fn(),
-          complete: vi.fn(),
-          abort: vi.fn(),
-        }),
-        copy: vi.fn(),
-        get_with_etag: vi.fn(),
-        get_stream: vi.fn(),
-        apply_default_retention: vi.fn(),
-        abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
-        probe_immutability: vi.fn(),
-      },
-      encrypt: vi.fn(),
-      decrypt: vi.fn((data: Buffer) => data.subarray(1)),
-      create_cipher: stub_tenant_create_cipher,
-      create_decipher: stub_tenant_create_decipher,
-      destroy: vi.fn(),
-    };
-
-    mock_manifests = {
-      save: vi.fn(),
-      find_by_snapshot: vi.fn(),
-      find_latest_by_owner: vi.fn(),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
-    };
-
-    const folders: MailFolder[] = [
-      { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox', total_item_count: 10 },
-      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent', total_item_count: 5 },
-    ];
-
-    mock_connector = {
-      list_mailboxes: vi.fn(),
-      mailbox_exists: vi.fn().mockResolvedValue(true),
-      list_mail_folders: vi.fn().mockResolvedValue(folders),
-      fetch_delta: vi.fn(),
-      fetch_message: vi.fn(),
-      fetch_attachments: vi.fn(),
-    };
-
-    mock_restore = {
-      create_mail_folder: vi.fn().mockResolvedValue({
-        folder_id: 'restore-root',
-        display_name: 'Restore-2026-03-08',
-        folder_path: 'Restore-2026-03-08',
-        total_item_count: 0,
-      }),
-      create_message: vi.fn().mockResolvedValue('new-msg-id'),
-      add_attachment: vi.fn(),
-      create_upload_session: vi.fn(),
-      upload_attachment_chunk: vi.fn(),
-      count_folder_messages: vi.fn().mockResolvedValue(0),
-      list_folder_messages: vi.fn().mockResolvedValue([]),
-    };
-
-    container = new Container();
-    container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue({
-      create: vi.fn().mockResolvedValue(mock_context),
-      create_readonly: vi.fn().mockResolvedValue(mock_context),
-      create_storage_only: vi.fn().mockResolvedValue(mock_context),
-    } as unknown as TenantContextFactory);
-    container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
-    container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
-    container.bind(RESTORE_CONNECTOR_TOKEN).toConstantValue(mock_restore);
-    container.bind(RestoreService).toSelf();
-
-    service = container.get(RestoreService);
+    ({ service, mock_context, mock_manifests, mock_connector, mock_restore } =
+      make_restore_harness());
   });
 
   it('throws when target mailbox does not exist', async () => {
