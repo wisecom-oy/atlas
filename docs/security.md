@@ -623,6 +623,26 @@ The observer is host code running inside the Atlas process, on the storage path.
 
 Socket timing uses the process-wide `http.client.request.created` diagnostics channel. Atlas ignores every request it did not issue itself, so the host's other HTTP traffic is neither observed nor reported.
 
+## Transport to Storage
+
+```bash
+ATLAS_S3_ENDPOINT="https://s3.example.com"   # any endpoint that is not on this machine
+ATLAS_S3_ENDPOINT="http://localhost:9000"    # local MinIO only
+```
+
+Atlas accepts a plain `http://` S3 endpoint because local MinIO needs it. Over plain HTTP the content stays protected: every object is AES-256-GCM ciphertext bound to its key, and SigV4 signs requests without ever sending the secret key. The traffic around the content is exposed to anyone on the network path:
+
+| Exposed over plain HTTP   | Why it matters                                                                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every object key          | Outlook keys carry mailbox addresses ([User identity in storage paths](#user-identity-in-storage-paths)), and content-addressed keys carry content hashes |
+| The access key id         | Identifies the account; the secret key is not sent                                                                                                        |
+| The request pattern       | Which owners are backed up, when, and how much data                                                                                                       |
+| Unauthenticated responses | A forged `200` to a `PutObject` makes the backup report success for an object that was never stored. Only the next `verify` finds it                      |
+
+Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`), for the primary endpoint and for replication targets alike. It does not refuse such an endpoint, because a self-hosted setup can terminate TLS elsewhere on a trusted network. Use `https://` for any endpoint that is not on the same machine.
+
+The Graph side is stricter. Atlas refuses to call Microsoft Graph at all when `NODE_TLS_REJECT_UNAUTHORIZED=0` disables certificate validation. There is no equivalent check on the storage side.
+
 ## S3 Permissions by Command Class
 
 Atlas splits its storage access in two, so a browsing operator never needs write credentials:

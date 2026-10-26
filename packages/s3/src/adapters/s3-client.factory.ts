@@ -1,10 +1,12 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import type { S3Config } from '@wisecom/atlas-core';
+import { warn_if_plaintext_endpoint } from '@/adapters/plaintext-endpoint-warning';
 
 export const S3_CLIENT_TOKEN = Symbol.for('S3Client');
 
 /** Creates an S3Client configured for the endpoint and credentials in S3Config. */
 export function create_s3_client(config: S3Config): S3Client {
+  warn_if_plaintext_endpoint(config.s3_endpoint);
   return new S3Client({
     endpoint: config.s3_endpoint,
     region: config.s3_region,
