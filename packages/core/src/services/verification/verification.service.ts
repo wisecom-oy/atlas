@@ -2,7 +2,7 @@ import { inject, injectable } from 'inversify';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import type {
   VerificationOptions,
   VerificationResult,
@@ -10,6 +10,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
+import { load_snapshot_chain } from '@/services/shared/manifest-chain';
 import { ConcurrencySemaphore } from '@/services/shared/concurrency-semaphore';
 import { is_absent_object_error } from '@/services/shared/absent-object';
 import {
@@ -65,7 +66,7 @@ export class VerificationService implements VerificationUseCase {
     }
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const chain = await this.load_manifest_chain(ctx, snapshot_id);
+      const chain = await load_snapshot_chain(this._manifests, ctx, snapshot_id);
       const entries = merge_snapshot_entries(chain);
       const { items, unverifiable } = collect_check_items(entries);
       emit_operation_progress(options, {
@@ -96,30 +97,6 @@ export class VerificationService implements VerificationUseCase {
     } finally {
       ctx.destroy();
     }
-  }
-
-  /**
-   * Loads the target manifest plus every older manifest of the same mailbox,
-   * sorted newest-first -- the delta chain a restore of this snapshot draws
-   * from. Delta manifests are not self-contained; verifying only the target
-   * manifest would skip every object carried over from earlier runs.
-   */
-  private async load_manifest_chain(ctx: TenantContext, snapshot_id: string): Promise<Manifest[]> {
-    const target = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-    if (!target) {
-      throw new Error(`No manifest found for snapshot ${snapshot_id}`);
-    }
-
-    const all = await this._manifests.list_all_manifests(ctx);
-    const older = all.filter(
-      (m) =>
-        m.snapshot_id !== target.snapshot_id &&
-        m.owner_id === target.owner_id &&
-        new Date(m.created_at).getTime() <= new Date(target.created_at).getTime(),
-    );
-    return [target, ...older].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
   }
 
   /**

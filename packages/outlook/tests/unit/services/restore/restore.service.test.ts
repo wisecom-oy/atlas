@@ -185,6 +185,21 @@ describe('RestoreService', () => {
     expect(mock_restore.create_mail_folder).toHaveBeenCalledTimes(3);
   });
 
+  it('restores messages captured by earlier snapshots in the chain (#432)', async () => {
+    const first = { ...make_manifest([make_entry('msg-1', 'f1')]), created_at: new Date(1) };
+    const delta = {
+      ...make_manifest([make_entry('msg-2', 'f1')]),
+      snapshot_id: 'snap-2',
+      created_at: new Date(2),
+    };
+    vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(delta);
+    vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([first, delta]);
+
+    const result = await service.restore_snapshot('test-tenant', 'snap-2');
+
+    expect(result.restored_count).toBe(2);
+  });
+
   it('returns partial counts and stops before the next message when interrupted', async () => {
     const manifest = make_manifest([
       make_entry('msg-1', 'f1'),
