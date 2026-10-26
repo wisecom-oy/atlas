@@ -1,7 +1,7 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { RestoreResult } from '@wisecom/atlas-types';
+import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import {
   emit_operation_progress,
@@ -33,6 +33,8 @@ export async function execute_restore_loop(
   let global_errors = 0;
   let global_att_errors = 0;
   const all_errors: string[] = [];
+  const messages: RestoredMessageReport[] = [];
+  const warnings: string[] = [];
   const start = Date.now();
   const global_total = [...groups.values()].reduce((s, g) => s + g.length, 0);
 
@@ -102,8 +104,11 @@ export async function execute_restore_loop(
       global_restored += result.restored;
       global_att += result.attachments;
       global_errors += result.errors.length;
-      all_errors.push(...result.errors, ...result.attachment_errors);
+      append_all(all_errors, result.errors);
+      append_all(all_errors, result.attachment_errors);
       global_att_errors += result.attachment_errors.length;
+      append_all(messages, result.messages);
+      append_all(warnings, result.warnings);
 
       const rate = calc_rate(global_restored, Date.now() - start);
       const eta = rate > 0 ? (global_total - global_restored) / rate : 0;
@@ -134,11 +139,21 @@ export async function execute_restore_loop(
       error_count: global_errors,
       attachment_error_count: global_att_errors,
       errors: all_errors,
-      verification_warnings: [],
+      verification_warnings: warnings,
+      messages,
       restore_folder_name: root.display_name,
       interrupted: was_interrupted,
     };
   } finally {
     process.removeListener('SIGINT', on_sigint);
   }
+}
+
+/**
+ * Appends without spreading. `push(...items)` passes every element as a call argument, so a folder
+ * with more messages than the engine's argument limit would throw after its restore already ran,
+ * and the caller would get no result for messages that are in the mailbox.
+ */
+function append_all<T>(target: T[], items: readonly T[]): void {
+  for (const item of items) target.push(item);
 }

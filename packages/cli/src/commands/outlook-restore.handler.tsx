@@ -151,7 +151,9 @@ async function execute_mailbox_restore(
  * (issue #359).
  */
 async function report_restore_result(result: RestoreResult): Promise<void> {
-  if (result.errors.length === 0 && !result.interrupted) {
+  const clean =
+    result.errors.length === 0 && result.verification_warnings.length === 0 && !result.interrupted;
+  if (clean) {
     const entries: SummaryEntry[] = [
       { label: 'messages restored', value: result.restored_count, color: 'green' },
     ];
