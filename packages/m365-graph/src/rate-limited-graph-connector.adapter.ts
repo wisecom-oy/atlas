@@ -13,6 +13,7 @@
 import type {
   MailboxConnector,
   MailFolder,
+  MailFolderListOptions,
   MailMessage,
   DeltaSyncResult,
   DeltaPageCallback,
@@ -91,10 +92,14 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     );
   }
 
-  async list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]> {
+  async list_mail_folders(
+    tenant_id: string,
+    owner_id: string,
+    options?: MailFolderListOptions,
+  ): Promise<MailFolder[]> {
     return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
       run_with_graph_operation({ pool: 'outlook', request_type: 'list_folders' }, () =>
-        this._inner.list_mail_folders(tenant_id, owner_id),
+        this._inner.list_mail_folders(tenant_id, owner_id, options),
       ),
     );
   }

@@ -190,6 +190,12 @@ Everything not captured is reported at the end of the run with its reason, and a
 subfolder Atlas does not recognise is reported rather than guessed at, so a new
 Exchange subfolder produces a visible gap instead of a silent one.
 
+::: danger Versions 4.1.0 through 5.3.0 ignored these flags
+From v4.1.0 through v5.3.0, `--include-recoverable-items` and `--exclude-junk` had no effect on `atlas outlook backup` or the SDK equivalents (`includeRecoverableItems`, `excludeJunk`). The folder options never reached Graph, so no Recoverable Items were captured, Junk Email was backed up anyway, and the run still exited `0`. Manifests written in that window also carry no `excluded_folders`, even where hidden system folders were skipped.
+
+If you relied on `--include-recoverable-items` for a hold or retention case, run a backup with the flag on a fixed version as soon as possible. Snapshots from the affected window contain no Recoverable Items, and anything that left the dumpster since is not recoverable from them.
+:::
+
 Off by default on purpose. On a mailbox under litigation hold the dumpster can
 rival the mailbox in size, and that cost should be a decision. With the flag off
 the request volume is identical to a run before this existed: locating the
