@@ -60,7 +60,7 @@ def test_01b_unknown_snapshot_exits_not_found(cli: Cli, settings: Settings) -> N
     is missing, so this reaches the manifest lookup rather than the unknown-tenant path above.
     """
     unknown_snapshot = str(uuid.UUID(int=0))
-    commands = [("outlook", "restore", "-s", unknown_snapshot)]
+    commands: list[tuple[str, ...]] = [("outlook", "restore", "-s", unknown_snapshot)]
     if settings.onedrive_owner:
         commands.append(
             ("onedrive", "verify", "-o", settings.onedrive_owner, "-s", unknown_snapshot)
