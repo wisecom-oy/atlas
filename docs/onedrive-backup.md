@@ -22,7 +22,7 @@ Add these application permissions to your app registration, in addition to the O
 | --------------------- | ----------- | ----------------------------------------------- |
 | `Files.Read.All`      | Application | Read all users' OneDrive files (backup, verify) |
 | `Files.ReadWrite.All` | Application | Write to OneDrive (restore only)                |
-| `User.Read.All`       | Application | Resolve `users/{email}` to object ID for `-o`   |
+| `User.Read.All`       | Application | Resolve `users/{email}` for `-o` and `-m`       |
 
 Outlook backup already expects application permissions such as `Mail.Read` and `Mail.ReadBasic.All`. Keep those for mailbox workflows.
 
@@ -150,13 +150,13 @@ Atlas stores OneDrive data under **Entra object IDs** (opaque UUIDs). Typical be
 - **Breach resilience.** With a storage-only compromise, object keys and metadata tags refer to Graph file IDs and hashes, not mailbox email addresses in the path.
 - **Stability.** Object IDs are stable when the user's UPN or primary email changes.
 
-If `--owner` contains `@`, the CLI resolves it via `GraphUserIdentityResolver`: `GET /users/{email}` with `select=id,displayName,mail,userPrincipalName`, then uses `id` as `owner_id`. Values **without** `@` are treated as object IDs and passed through unchanged.
+If `--owner` contains `@`, the CLI resolves it via `GraphUserIdentityResolver`: `GET /users/{email}` with `select=id,displayName,mail,userPrincipalName`, then uses `id` as `owner_id`. Values **without** `@` are treated as object IDs and passed through unchanged. Outlook `-m` follows the same rule.
 
-Mailbox backup currently keys `data/` and `manifests/` by the mailbox identifier supplied to sync, often the primary SMTP address. OneDrive is intentionally keyed by object ID after resolution, so operators should not assume the same string appears in both trees for a given person.
+Outlook backup keys `data/`, `attachments/`, and `manifests/` by the same object ID, so both workloads share one convention and the mail address is display metadata only. Outlook keys written before that change are not reachable under the new keys; see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys).
 
 ### Identifier Case
 
-Object IDs, mailbox addresses, and SharePoint site IDs are all case-insensitive to Microsoft Graph and case-sensitive to S3, so Atlas lowercases them before they become key segments. Two spellings of one identifier therefore address one tree.
+Object IDs and SharePoint site IDs are case-insensitive to Microsoft Graph and case-sensitive to S3, so Atlas lowercases them before they become key segments. Two spellings of one identifier therefore address one tree.
 
 This matters most for deletion. Before 2.1.0-beta, `deleteOwnerData` given an uppercase object ID swept an empty prefix, reported the objects it deleted there, and left the real data untouched. That is an erasure that reported success while every byte stayed retrievable. Graph returns these identifiers lowercase, so the gap only opened for callers supplying their own: an operator pasting an object ID from a portal, or an SDK embedder holding one in application state.
 

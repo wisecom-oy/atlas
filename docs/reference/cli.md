@@ -82,7 +82,7 @@ A short flag means one thing across the whole CLI. Before v5.0.0 three of them m
 | `-o` | `--owner`                                     | A drive owner; `--output` has no short flag on any command                         |
 | `-f` | `--folder` on Outlook, `--file` on the drives | One value each; repeat `-f` to name several Outlook folders                        |
 | `-t` | `--tenant`                                    | Every command                                                                      |
-| `-m` | `--mailbox`                                   | Every command that acts on a mailbox                                               |
+| `-m` | `--mailbox`                                   | Every command that acts on a mailbox; email address or Entra object ID             |
 
 A retired spelling is rejected rather than reinterpreted, naming its replacement:
 
@@ -96,6 +96,8 @@ error: option '-s <value>' argument 'https://...' is invalid. -s no longer means
 ## `atlas outlook`
 
 Outlook mailbox backup, restore, and management commands. All mailbox operations live under this group; cross-cutting storage and replication commands remain at the root level.
+
+Mailboxes are identified by Entra object ID. `-m` takes either an email address or an object ID. An address (any value containing `@`) is resolved via `GET /users/{email}` before any storage key is built, and an object ID is used as given. Backups are keyed by object ID, so the address appears only as display metadata. See [Outlook backups keyed by object ID](/migration/outlook-object-id-keys) for the change from earlier releases.
 
 ::: warning Scope flags: `-s` beats `-m`
 `restore`, `list` and `save` all select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox). When both are passed, `-s` wins, matching `atlas replicate`. A snapshot id names exactly one thing, so it is the narrower request, and Atlas never silently widens it.
@@ -125,7 +127,7 @@ atlas outlook backup -t <tenant-id> -m user@company.com        # explicit tenant
 
 | Option                        | Description                                                                  |
 | ----------------------------- | ---------------------------------------------------------------------------- |
-| `-m, --mailbox <id>`          | Mailbox to back up (required)                                                |
+| `-m, --mailbox <id>`          | Mailbox email address or Entra object ID to back up (required)               |
 | `-f, --folder <name>`         | Filter to one folder by name or path; repeat for several (see below)         |
 | `--full`                      | Ignore saved delta links, run full enumeration                               |
 | `-P, --page-size <n>`         | Graph API page size per delta request (1--100, default 10)                   |
@@ -249,12 +251,12 @@ atlas outlook verify -m user@company.com -s <snapshot-id> -t <tenant-id>
 atlas outlook verify -m user@company.com -s <snapshot-id> --fast
 ```
 
-| Option                  | Description                                                                                    |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `-m, --mailbox <email>` | Mailbox that owns the snapshot (required)                                                      |
-| `-s, --snapshot <id>`   | Snapshot identifier to verify (required)                                                       |
-| `-t, --tenant <id>`     | Override tenant ID from config                                                                 |
-| `--fast`                | Existence-only checks (`HeadObject` per referenced key), with no download, decrypt, or hashing |
+| Option                        | Description                                                                                    |
+| ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| `-m, --mailbox <email-or-id>` | Mailbox that owns the snapshot (required)                                                      |
+| `-s, --snapshot <id>`         | Snapshot identifier to verify (required)                                                       |
+| `-t, --tenant <id>`           | Override tenant ID from config                                                                 |
+| `--fast`                      | Existence-only checks (`HeadObject` per referenced key), with no download, decrypt, or hashing |
 
 ::: details What exactly is verified?
 Verification covers the **merged entry set of the snapshot's manifest chain**: the target delta manifest plus every older manifest of the same mailbox, deduplicated newest-first. It is the same routine restore uses, so the two views cannot drift. A corrupt or missing object from an _older_ backup run fails verification of every later snapshot that still references it.
@@ -293,7 +295,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | Option                        | Description                                                           |
 | ----------------------------- | --------------------------------------------------------------------- |
 | `-s, --snapshot <id>`         | Restore from a specific snapshot                                      |
-| `-m, --mailbox <email>`       | Restore from all snapshots for this mailbox                           |
+| `-m, --mailbox <email-or-id>` | Restore from all snapshots for this mailbox                           |
 | `-T, --target <email>`        | Target mailbox for cross-mailbox restore (defaults to source)         |
 | `-f, --folder <name>`         | Restore only messages from this folder or its subfolders              |
 | `--message <ref>`             | Restore a single message by `#` index from `atlas outlook list`       |
@@ -330,13 +332,13 @@ atlas outlook list -s <snapshot-id> --all       # all messages
 atlas outlook list -s <snapshot-id> -S          # reveal email subjects
 ```
 
-| Option                  | Description                                                   |
-| ----------------------- | ------------------------------------------------------------- |
-| `-m, --mailbox <email>` | Show snapshots for this mailbox                               |
-| `-s, --snapshot <id>`   | Show messages inside this snapshot                            |
-| `--all`                 | Show all messages (default caps at 50)                        |
-| `-S, --subjects`        | Reveal email subjects (hidden by default for data protection) |
-| `-t, --tenant <id>`     | Override tenant ID                                            |
+| Option                        | Description                                                   |
+| ----------------------------- | ------------------------------------------------------------- |
+| `-m, --mailbox <email-or-id>` | Show snapshots for this mailbox                               |
+| `-s, --snapshot <id>`         | Show messages inside this snapshot                            |
+| `--all`                       | Show all messages (default caps at 50)                        |
+| `-S, --subjects`              | Reveal email subjects (hidden by default for data protection) |
+| `-t, --tenant <id>`           | Override tenant ID                                            |
 
 `list -s` shows only the messages recorded by that backup run, not the whole delta chain that `restore -s` and `save -s` draw from. Its `#` index is what `--message` resolves against.
 
@@ -401,7 +403,7 @@ atlas outlook save -m user@company.com --start-date 2026-01-01 --end-date 2026-0
 | Option                        | Description                                                           |
 | ----------------------------- | --------------------------------------------------------------------- |
 | `-s, --snapshot <id>`         | Save from a specific snapshot                                         |
-| `-m, --mailbox <email>`       | Save from all snapshots for this mailbox                              |
+| `-m, --mailbox <email-or-id>` | Save from all snapshots for this mailbox                              |
 | `-f, --folder <name>`         | Save only messages from this folder or its subfolders                 |
 | `--message <ref>`             | Save a single message by `#` index from `atlas outlook list`          |
 | `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                       |
@@ -442,12 +444,12 @@ atlas outlook delete -s <snapshot-id>           # delete one snapshot manifest (
 atlas outlook delete -m user@company.com -y     # skip confirmation prompt
 ```
 
-| Option                  | Description                                               |
-| ----------------------- | --------------------------------------------------------- |
-| `-m, --mailbox <email>` | Delete all data, attachments, and manifests for a mailbox |
-| `-s, --snapshot <id>`   | Delete a single snapshot manifest (data objects retained) |
-| `-y, --yes`             | Skip confirmation prompt                                  |
-| `-t, --tenant <id>`     | Override tenant ID                                        |
+| Option                        | Description                                               |
+| ----------------------------- | --------------------------------------------------------- |
+| `-m, --mailbox <email-or-id>` | Delete all data, attachments, and manifests for a mailbox |
+| `-s, --snapshot <id>`         | Delete a single snapshot manifest (data objects retained) |
+| `-y, --yes`                   | Skip confirmation prompt                                  |
+| `-t, --tenant <id>`           | Override tenant ID                                        |
 
 When Object Lock retention protects objects, delete commands return non-zero and report retained items separately from generic failures. "Retained" means a backend named Object Lock as the reason and the object becomes deletable when retention expires. Anything else, such as an IAM denial or an unreachable endpoint, is reported as a failure, because it will not resolve on its own.
 
@@ -470,10 +472,10 @@ atlas outlook status -m user@company.com
 atlas outlook status -m user@company.com -t <tenant-id>
 ```
 
-| Option                  | Description                    |
-| ----------------------- | ------------------------------ |
-| `-m, --mailbox <email>` | Mailbox to check (required)    |
-| `-t, --tenant <id>`     | Override tenant ID from config |
+| Option                        | Description                    |
+| ----------------------------- | ------------------------------ |
+| `-m, --mailbox <email-or-id>` | Mailbox to check (required)    |
+| `-t, --tenant <id>`           | Override tenant ID from config |
 
 Example output:
 
@@ -496,7 +498,7 @@ Archive     never backed up        -
 
 ### `atlas outlook mailboxes`
 
-List tenant mailboxes directly from Microsoft Graph (live data, not from the backup catalog). Shows email address, display name, Exchange Online license status, account status, mailbox type, creation date, and optionally mailbox size and In-Place Archive state.
+List tenant mailboxes directly from Microsoft Graph (live data, not from the backup catalog). Shows the Entra object ID (the value to pass to `-m`), email address, display name, Exchange Online license status, account status, mailbox type, creation date, and optionally mailbox size and In-Place Archive state.
 
 ```bash
 atlas outlook mailboxes
@@ -978,15 +980,15 @@ atlas stats --top 5                    # limit owner/site tables to 5 rows
 atlas stats --json                     # raw JSON output
 ```
 
-| Option                    | Description                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------ |
-| `-m, --mailbox <email>`   | Outlook statistics for a specific mailbox (implies `--service outlook`)                    |
-| `-o, --owner <email\|id>` | OneDrive statistics for a specific owner (implies `--service onedrive`)                    |
-| `--site <url\|id>`        | SharePoint statistics for a specific site (implies `--service sharepoint`)                 |
-| `--service <name>`        | Limit output to one service: `outlook`, `onedrive`, `sharepoint`, or `all` (default `all`) |
-| `--top <n>`               | Maximum owner/site rows in OneDrive/SharePoint tables (default 20)                         |
-| `--json`                  | Output raw JSON instead of formatted tables                                                |
-| `-t, --tenant <id>`       | Override tenant ID from config                                                             |
+| Option                        | Description                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------ |
+| `-m, --mailbox <email-or-id>` | Outlook statistics for a specific mailbox (implies `--service outlook`)                    |
+| `-o, --owner <email\|id>`     | OneDrive statistics for a specific owner (implies `--service onedrive`)                    |
+| `--site <url\|id>`            | SharePoint statistics for a specific site (implies `--service sharepoint`)                 |
+| `--service <name>`            | Limit output to one service: `outlook`, `onedrive`, `sharepoint`, or `all` (default `all`) |
+| `--top <n>`                   | Maximum owner/site rows in OneDrive/SharePoint tables (default 20)                         |
+| `--json`                      | Output raw JSON instead of formatted tables                                                |
+| `-t, --tenant <id>`           | Override tenant ID from config                                                             |
 
 Only one of `--mailbox`, `--owner`, or `--site` may be used at a time; each scopes the output to its service. OneDrive and SharePoint sections list per-owner and per-site rollups (snapshots, files, size, last backup time) sorted by size descending, so the heaviest consumers surface first. `--owner` accepts an email (resolved via Graph to the owner object ID) or a raw object ID; `--site` accepts a site URL or composite site ID. Use `--json` for programmatic consumption in monitoring scripts or dashboards. With multiple services the payload is an object keyed by service name, with a single service it is that service's stats object.
 
@@ -1127,18 +1129,18 @@ atlas replicate status --site https://contoso.sharepoint.com/sites/Engineering
 atlas replicate status -o user@company.com
 ```
 
-| Option                      | Description                                                |
-| --------------------------- | ---------------------------------------------------------- |
-| `-s, --snapshot <id>`       | Replicate a specific snapshot, any workload                |
-| `-m, --mailbox <email>`     | Replicate all unreplicated snapshots for a mailbox         |
-| `--site <url-or-id>`        | Replicate all unreplicated snapshots for a SharePoint site |
-| `-o, --owner <email-or-id>` | Replicate all unreplicated snapshots for a OneDrive owner  |
-| `--target-endpoint <url>`   | Target S3 endpoint URL                                     |
-| `--target-access-key <key>` | Target S3 access key                                       |
-| `--target-secret-key <key>` | Target S3 secret key; `-` reads it from stdin              |
-| `--target-region <region>`  | Target S3 region (default: `us-east-1`)                    |
-| `--target-config <path>`    | Path to JSON file with target S3 credentials               |
-| `-t, --tenant <id>`         | Override tenant ID                                         |
+| Option                        | Description                                                |
+| ----------------------------- | ---------------------------------------------------------- |
+| `-s, --snapshot <id>`         | Replicate a specific snapshot, any workload                |
+| `-m, --mailbox <email-or-id>` | Replicate all unreplicated snapshots for a mailbox         |
+| `--site <url-or-id>`          | Replicate all unreplicated snapshots for a SharePoint site |
+| `-o, --owner <email-or-id>`   | Replicate all unreplicated snapshots for a OneDrive owner  |
+| `--target-endpoint <url>`     | Target S3 endpoint URL                                     |
+| `--target-access-key <key>`   | Target S3 access key                                       |
+| `--target-secret-key <key>`   | Target S3 secret key; `-` reads it from stdin              |
+| `--target-region <region>`    | Target S3 region (default: `us-east-1`)                    |
+| `--target-config <path>`      | Path to JSON file with target S3 credentials               |
+| `-t, --tenant <id>`           | Override tenant ID                                         |
 
 ::: tip Target Config File
 The target config file is a JSON object with `s3_endpoint`, `s3_access_key`, `s3_secret_key`, and optionally `s3_region` and `target_id`. The encryption passphrase is shared from the main Atlas configuration.
@@ -1177,23 +1179,23 @@ atlas rehydrate -o user@company.com --source-config ./offsite.json
 atlas rehydrate -o user@company.com -s od-snap-1735689600000-a1b2c3 --source-config ./offsite.json
 ```
 
-| Option                      | Description                                                  |
-| --------------------------- | ------------------------------------------------------------ |
-| `-s, --snapshot <id>`       | Recover a specific snapshot from the replica                 |
-| `-m, --mailbox <email>`     | Recover all snapshots for a mailbox from the replica         |
-| `--site <url-or-id>`        | Recover all SharePoint snapshots for a site from the replica |
-| `-o, --owner <email-or-id>` | Recover all OneDrive snapshots for an owner from the replica |
-| `--all`                     | Recover every workload: Outlook, OneDrive, and SharePoint    |
-| `--source-endpoint <url>`   | Source replica S3 endpoint URL                               |
-| `--source-access-key <key>` | Source replica S3 access key                                 |
-| `--source-secret-key <key>` | Source replica S3 secret key; `-` reads it from stdin        |
-| `--source-region <region>`  | Source replica S3 region (default: `us-east-1`)              |
-| `--source-config <path>`    | Path to JSON file with source S3 credentials                 |
-| `-t, --tenant <id>`         | Override tenant ID                                           |
+| Option                        | Description                                                  |
+| ----------------------------- | ------------------------------------------------------------ |
+| `-s, --snapshot <id>`         | Recover a specific snapshot from the replica                 |
+| `-m, --mailbox <email-or-id>` | Recover all snapshots for a mailbox from the replica         |
+| `--site <url-or-id>`          | Recover all SharePoint snapshots for a site from the replica |
+| `-o, --owner <email-or-id>`   | Recover all OneDrive snapshots for an owner from the replica |
+| `--all`                       | Recover every workload: Outlook, OneDrive, and SharePoint    |
+| `--source-endpoint <url>`     | Source replica S3 endpoint URL                               |
+| `--source-access-key <key>`   | Source replica S3 access key                                 |
+| `--source-secret-key <key>`   | Source replica S3 secret key; `-` reads it from stdin        |
+| `--source-region <region>`    | Source replica S3 region (default: `us-east-1`)              |
+| `--source-config <path>`      | Path to JSON file with source S3 credentials                 |
+| `-t, --tenant <id>`           | Override tenant ID                                           |
 
 Scopes are matched in the order `--site`, `-o/--owner`, `-s/--snapshot`, `-m/--mailbox`, `--all`. `-s/--snapshot` works for all three workloads: the snapshot id says which one it belongs to (`od-snap-*` OneDrive, `sp-snap-*` SharePoint, `snap-*` Outlook), and the owning owner or site is resolved from storage, so it does not have to be named again. Combining `--site` or `-o/--owner` with `-s/--snapshot` addresses the same single snapshot explicitly. Owner and site identifiers are lowercased before they become storage keys, so any casing addresses the same tree.
 
-`-o/--owner` accepts an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only. Unlike `atlas onedrive` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
+`-o/--owner` and `-m/--mailbox` accept an email or a raw Entra ID object ID. Recovery resolves an email through Microsoft Graph only. Unlike `atlas onedrive` and `atlas outlook` commands it does not write the resolved identity back to primary, because that write would bootstrap a fresh encryption key in the target bucket and block the replica's key from being copied (see _Encryption Key Safety_ below). Pass the object ID directly when Graph is unreachable or the user has been deleted from the directory.
 
 ::: warning Keep the secret key out of argv
 `--source-secret-key` accepts `-`, which reads the value from stdin so it never reaches the shell history file or the process table:

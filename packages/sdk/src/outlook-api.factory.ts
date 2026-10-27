@@ -10,6 +10,8 @@ import type {
   StatsUseCase,
   StatusUseCase,
   MailboxDiscoveryService,
+  UserIdentityResolver,
+  ResolvedUserIdentity,
 } from '@wisecom/atlas-types';
 import {
   BACKUP_USE_CASE_TOKEN,
@@ -21,9 +23,11 @@ import {
   STATS_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options } from '@/operation-options';
+import { resolve_owner_identity, resolve_owner_object_id } from '@/owner-resolution';
 import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
 import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/object-lock-policy';
 import type { OutlookBackupOptions } from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
@@ -40,11 +44,16 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
   const status = container.get<StatusUseCase>(STATUS_USE_CASE_TOKEN);
   const discovery = container.get<MailboxDiscoveryService>(MAILBOX_DISCOVERY_TOKEN);
+  const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
+  const resolve_object_id = (mailbox: string) =>
+    resolve_owner_object_id(identity, tenant_id, mailbox);
 
   return {
-    async backup(mailbox_id, options) {
+    async backup(mailbox, options) {
+      const resolved = await resolve_owner_identity(identity, tenant_id, mailbox);
+      const sync_options = with_resolved_identity(adapt_backup_options(options), resolved);
       const [result, cost_result] = await run_with_cost_tracking(() =>
-        backup.sync_mailbox(tenant_id, mailbox_id, adapt_backup_options(options)),
+        backup.sync_mailbox(tenant_id, resolved?.object_id ?? mailbox, sync_options),
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
@@ -63,7 +72,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
-    async restoreMailbox(mailbox_id, options) {
+    async restoreMailbox(mailbox, options) {
+      const mailbox_id = await resolve_object_id(mailbox);
       const [result, cost_result] = await run_with_cost_tracking(() =>
         restore.restore_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
       );
@@ -74,7 +84,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
         await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
       );
     },
-    async saveMailbox(mailbox_id, options) {
+    async saveMailbox(mailbox, options) {
+      const mailbox_id = await resolve_object_id(mailbox);
       return camelize(
         await save.save_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
       );
@@ -82,7 +93,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     async listMailboxes() {
       return camelize(await catalog.list_mailboxes(tenant_id));
     },
-    async listSnapshots(mailbox_id) {
+    async listSnapshots(mailbox) {
+      const mailbox_id = await resolve_object_id(mailbox);
       return camelize(await catalog.list_snapshots(tenant_id, mailbox_id));
     },
     async getSnapshotDetail(snapshot_id) {
@@ -91,7 +103,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     async readMessage(snapshot_id, message_ref) {
       return camelize(await catalog.read_message(tenant_id, snapshot_id, message_ref));
     },
-    async deleteMailboxData(mailbox_id) {
+    async deleteMailboxData(mailbox) {
+      const mailbox_id = await resolve_object_id(mailbox);
       return camelize(await deletion.delete_mailbox_data(tenant_id, mailbox_id));
     },
     async deleteSnapshot(snapshot_id) {
@@ -100,10 +113,12 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     async purgeTenantData() {
       return camelize(await deletion.purge_tenant(tenant_id));
     },
-    async getMailboxStats(mailbox_id) {
+    async getMailboxStats(mailbox) {
+      const mailbox_id = await resolve_object_id(mailbox);
       return camelize(await stats.get_mailbox_stats(tenant_id, mailbox_id));
     },
-    async checkMailboxStatus(mailbox_id) {
+    async checkMailboxStatus(mailbox) {
+      const mailbox_id = await resolve_object_id(mailbox);
       const [result, cost_result] = await run_with_cost_tracking(() =>
         status.check_mailbox_status(tenant_id, mailbox_id),
       );
@@ -113,6 +128,15 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize(await discovery.list_tenant_mailboxes(tenant_id, snakeize(options)));
     },
   };
+}
+
+/** Forwards the resolved address as display metadata unless the caller already supplied one. */
+function with_resolved_identity(
+  adapted: SyncOptions | undefined,
+  resolved: ResolvedUserIdentity | undefined,
+): SyncOptions | undefined {
+  if (!resolved || adapted?.owner_email !== undefined) return adapted;
+  return { ...adapted, owner_email: resolved.email, owner_display_name: resolved.display_name };
 }
 
 /**

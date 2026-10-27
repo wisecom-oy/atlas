@@ -11,7 +11,6 @@ import type {
   OneDriveReplicationUseCase,
   OneDriveStatusUseCase,
   UserIdentityResolver,
-  ResolvedUserIdentity,
   StatsUseCase,
 } from '@wisecom/atlas-types';
 import {
@@ -29,6 +28,7 @@ import {
 } from '@wisecom/atlas-types';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
+import { resolve_owner_identity, resolve_owner_object_id } from '@/owner-resolution';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
@@ -51,23 +51,11 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
 
   const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
 
-  /**
-   * Mirrors the CLI: an owner containing `@` is an email and is resolved to an Entra object ID,
-   * anything else already is one. Without this the same input addresses a non-existent owner and
-   * the call returns an empty result instead of failing.
-   */
-  async function resolve_owner(owner: string): Promise<ResolvedUserIdentity | undefined> {
-    if (!owner.includes('@')) return undefined;
-    return await identity.resolve_user(tenant_id, owner);
-  }
-
-  async function resolve_owner_id(owner: string): Promise<string> {
-    return (await resolve_owner(owner))?.object_id ?? owner;
-  }
+  const resolve_owner_id = (owner: string) => resolve_owner_object_id(identity, tenant_id, owner);
 
   return {
     async backup(owner_input, options) {
-      const resolved = await resolve_owner(owner_input);
+      const resolved = await resolve_owner_identity(identity, tenant_id, owner_input);
       const adapted = adapt_operation_options(options);
       // Forward the resolved identity so the registry learns the email, as the CLI does.
       return camelize(

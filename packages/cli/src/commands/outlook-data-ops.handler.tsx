@@ -21,6 +21,7 @@ import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list'
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { create_transfer_progress } from '@/ui/dashboards/transfer-progress-factory';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 export interface OutlookSaveOptions {
   snapshot?: string;
@@ -80,7 +81,7 @@ export async function execute_outlook_save(
     return execute_snapshot_save(save_service, tenant_id, options, save_options);
   }
 
-  return execute_mailbox_save(save_service, tenant_id, options, save_options);
+  return execute_mailbox_save(container, save_service, tenant_id, options, save_options);
 }
 
 /** Routes to the correct mail deletion scope and asks for confirmation. */
@@ -97,14 +98,17 @@ export async function execute_outlook_delete(
     return;
   }
 
+  const owner = options.mailbox
+    ? await resolve_owner(container, tenant_id, options.mailbox)
+    : undefined;
   const description = options.mailbox
     ? `This will delete all data and manifests for ${options.mailbox}`
     : `This will delete snapshot ${options.snapshot} (data objects are retained for other snapshots)`;
   if (!(await confirm_deletion(description, options.yes))) return;
 
   const deletion = container.get<DeletionUseCase>(DELETION_USE_CASE_TOKEN);
-  const result = options.mailbox
-    ? await deletion.delete_mailbox_data(tenant_id, options.mailbox)
+  const result = owner
+    ? await deletion.delete_mailbox_data(tenant_id, owner.object_id)
     : await deletion.delete_snapshot(tenant_id, options.snapshot!);
   print_delete_result(result);
 }
@@ -158,19 +162,20 @@ async function execute_snapshot_save(
 }
 
 async function execute_mailbox_save(
+  container: Container,
   service: SaveUseCase,
   tenant_id: string,
   cli_options: OutlookSaveOptions,
   save_options: SaveOptions,
 ): Promise<void> {
-  const mailbox_id = cli_options.mailbox!.toLowerCase();
-  const items: KeyValueItem[] = [{ label: 'Mailbox', value: mailbox_id }];
+  const owner = await resolve_owner(container, tenant_id, cli_options.mailbox!);
+  const items: KeyValueItem[] = [{ label: 'Mailbox', value: cli_options.mailbox! }];
   if (cli_options.startDate) items.push({ label: 'Start date', value: cli_options.startDate });
   if (cli_options.endDate) items.push({ label: 'End date', value: cli_options.endDate });
   if (cli_options.folder) items.push({ label: 'Folder filter', value: cli_options.folder });
   await render_static_view(<KeyValueList items={items} />);
 
-  const result = await service.save_mailbox(tenant_id, mailbox_id, save_options);
+  const result = await service.save_mailbox(tenant_id, owner.object_id, save_options);
   await report_save_result(result);
 }
 

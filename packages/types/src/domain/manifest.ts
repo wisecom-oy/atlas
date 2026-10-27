@@ -24,6 +24,10 @@ export interface Manifest {
   readonly tenant_id: string;
   /** Entra object ID (UUID) of the mailbox owner; used as the storage partition key. */
   readonly owner_id: string;
+  /** Mailbox address at backup time; display metadata only, never part of a storage key. */
+  readonly owner_email?: string;
+  /** Mailbox display name at backup time; display metadata only. */
+  readonly owner_display_name?: string;
   /** Graph mailboxSettings.userPurpose at backup time; 'shared' = shared mailbox. Absent on pre-feature manifests or when the lookup failed. */
   readonly mailbox_purpose?: MailboxPurpose;
   readonly snapshot_id: string;

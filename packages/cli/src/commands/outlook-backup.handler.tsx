@@ -14,6 +14,7 @@ import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 export interface OutlookBackupOptions {
   tenant?: string;
@@ -70,7 +71,12 @@ export async function execute_outlook_backup(
     </Box>,
   );
 
-  await backup_single_mailbox(container, tenant_id, mailbox, build_sync_options(options));
+  const owner = await resolve_owner(container, tenant_id, mailbox);
+  await backup_single_mailbox(container, tenant_id, owner.object_id, {
+    ...build_sync_options(options),
+    owner_email: owner.email,
+    owner_display_name: owner.display_name,
+  });
 }
 
 /** Runs a single-mailbox backup and logs the outcome. */

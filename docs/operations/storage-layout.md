@@ -7,20 +7,20 @@ atlas-{tenant_id}/
 ├── _meta/
 │   ├── dek.enc                              # wrapped DEK (encrypted with KEK)
 │   ├── outlook-manifests/                   # encrypted Outlook lookup pointers
-│   │   ├── owners/{mailbox_id}/latest.json  # latest manifest key for incremental backup
+│   │   ├── owners/{owner_id}/latest.json    # latest manifest key for incremental backup
 │   │   └── snapshots/{snapshot_id}.json     # manifest key for direct snapshot lookup
 │   └── replication/                         # replication status sidecars
-│       ├── {mailbox_id}/                    # Outlook replication status
+│       ├── {owner_id}/                      # Outlook replication status
 │       ├── onedrive/{owner_id}/             # OneDrive replication status
 │       └── sharepoint/{site_id}/            # SharePoint replication status
 ├── data/
-│   └── {mailbox_id}/
+│   └── {owner_id}/
 │       └── {sha256}                         # encrypted message: RFC 5322 MIME (Graph JSON in legacy snapshots)
 ├── attachments/
-│   └── {mailbox_id}/
+│   └── {owner_id}/
 │       └── {sha256}                         # encrypted attachment (legacy JSON entries only)
 ├── manifests/
-│   └── {mailbox_id}/
+│   └── {owner_id}/
 │       └── {snapshot_id}.json               # encrypted Outlook manifest
 ├── onedrive/
 │   ├── data/{owner_id}/{sha256}             # encrypted file blobs
@@ -51,23 +51,23 @@ For managed service providers backing up multiple tenants, this isolation means 
 | Prefix                                         | Contents                                                        | Security notes                                                             |
 | ---------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                    | **Most critical object.** Losing it means losing access to all tenant data |
-| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
+| `_meta/outlook-manifests/owners/{owner_id}/`   | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
 | `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
-| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
-| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
-| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, senders, folder names, and delta URLs, all encrypted    |
+| `data/{owner_id}/`                             | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
+| `attachments/{owner_id}/`                      | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
+| `manifests/{owner_id}/`                        | Encrypted snapshot manifests (JSON)                             | Contains subjects, senders, folder names, and delta URLs, all encrypted    |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
 
 #### Message payload formats
 
-Objects under `data/{mailbox}/` hold one of two formats, and the manifest entry says which.
+Objects under `data/{owner_id}/` hold one of two formats, and the manifest entry says which.
 
-Snapshots taken by this version store the message's original RFC 5322 MIME, fetched from `GET /users/{id}/messages/{id}/$value`. Because MIME carries its own attachments, these entries write **no** objects under `attachments/{mailbox}/` and their manifest entries list no attachment records. They do carry `payload_format: "mime"`, and a `received_at` timestamp whenever Graph or the MIME `Date` header supplies one, because there is no JSON payload left to read a receive time from.
+Snapshots taken by this version store the message's original RFC 5322 MIME, fetched from `GET /users/{id}/messages/{id}/$value`. Because MIME carries its own attachments, these entries write **no** objects under `attachments/{owner_id}/` and their manifest entries list no attachment records. They do carry `payload_format: "mime"`, and a `received_at` timestamp whenever Graph or the MIME `Date` header supplies one, because there is no JSON payload left to read a receive time from.
 
 The `subject`, `from` and `received_at` fields come from the Graph delta item. A delta item for an updated message can arrive without them, so a field the delta item lacks is read from the captured MIME headers instead: `Subject`, `From`, and `Date`. `Date` is the time the sender stamped, which can differ from the mailbox receive time. When neither source has a valid time, the entry omits `received_at` rather than recording the backup time.
 
-Legacy snapshots store a Graph JSON payload with each attachment as a separate content-addressed object under `attachments/{mailbox}/{sha256}`. Their manifest entries have no `payload_format` field. Nothing about them changes: they stay readable, restorable, verifiable, and exportable exactly as before, and a mailbox whose history spans the upgrade will contain both kinds in the same snapshot chain.
+Legacy snapshots store a Graph JSON payload with each attachment as a separate content-addressed object under `attachments/{owner_id}/{sha256}`. Their manifest entries have no `payload_format` field. Nothing about them changes: they stay readable, restorable, verifiable, and exportable exactly as before, and a mailbox whose history spans the upgrade will contain both kinds in the same snapshot chain.
 
 If Graph cannot produce MIME for a single item, that message falls back to the legacy JSON form inside an otherwise MIME snapshot. `payload_format` is how an operator tells the two apart.
 
@@ -75,7 +75,7 @@ If Graph cannot produce MIME for a single item, that message falls back to the l
 
 Each Outlook manifest records an optional `mailbox_purpose` field, the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, ...) at backup time. Shared mailboxes are typically unlicensed and therefore invisible to license-based inventories, so this flag is what identifies them in the backup catalog.
 
-Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the `manifests/{mailbox}/` prefix stays stable across the conversion. Manifests written before the conversion read `user`, later ones read `shared`, and content blobs under `data/{mailbox}/` (addressed by SHA-256) are shared across both, so message data is stored once. Manifests written before the field existed simply omit it.
+Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the `manifests/{owner_id}/` prefix stays stable across the conversion. Manifests written before the conversion read `user`, later ones read `shared`, and content blobs under `data/{owner_id}/` (addressed by SHA-256) are shared across both, so message data is stored once. Manifests written before the field existed simply omit it.
 
 ### OneDrive
 
@@ -123,7 +123,7 @@ If `_meta/dek.enc` is deleted or corrupted, all data in the bucket becomes perma
 
 ## Content-addressed storage
 
-Messages and attachments use their **SHA-256 hash** as the object key (for example `data/{mailbox}/a1b2c3d4...`). The hash is taken over the **plaintext** content, before encryption.
+Messages and attachments use their **SHA-256 hash** as the object key (for example `data/{owner_id}/a1b2c3d4...`). The hash is taken over the **plaintext** content, before encryption.
 
 This gives automatic deduplication: if the same email appears in multiple snapshots, which is common with incremental backups, it is stored once. The manifest references the hash, and every snapshot containing that message points to the same S3 object.
 

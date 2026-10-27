@@ -34,7 +34,7 @@ export function register_stats_command(program: Command, get_container: Containe
   const command = program
     .command('stats')
     .description('Show storage statistics for Outlook, OneDrive, and SharePoint backups')
-    .option('-m, --mailbox <email>', 'Outlook statistics for a specific mailbox')
+    .option('-m, --mailbox <email|id>', 'Outlook statistics for a specific mailbox')
     .option('-o, --owner <email|id>', 'OneDrive statistics for a specific owner')
     .option('--site <url|id>', 'SharePoint statistics for a specific site')
     .addOption(
@@ -103,9 +103,9 @@ async function collect_service_stats(
   options: StatsOptions,
 ): Promise<ServiceStats> {
   if (service === 'outlook') {
-    return options.mailbox
-      ? stats.get_mailbox_stats(tenant_id, options.mailbox)
-      : stats.get_bucket_stats(tenant_id);
+    if (!options.mailbox) return stats.get_bucket_stats(tenant_id);
+    const owner = await resolve_owner(container, tenant_id, options.mailbox);
+    return stats.get_mailbox_stats(tenant_id, owner.object_id);
   }
   if (service === 'onedrive') {
     if (!options.owner) return stats.get_onedrive_stats(tenant_id);

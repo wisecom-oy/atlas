@@ -85,6 +85,7 @@ export default defineConfig({
           { text: 'Storage Request Events', link: '/reference/storage-request-events' },
           { text: 'Examples', link: '/reference/examples' },
           { text: 'Migrating to v5', link: '/migration/v5' },
+          { text: 'Outlook backups keyed by object ID', link: '/migration/outlook-object-id-keys' },
         ],
       },
       {

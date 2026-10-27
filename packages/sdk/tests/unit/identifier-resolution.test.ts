@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Container } from 'inversify';
 import type { Mock } from 'vitest';
 import {
+  BACKUP_USE_CASE_TOKEN,
+  CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CATALOG_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
@@ -11,6 +13,7 @@ import {
   USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { create_onedrive_api } from '@/onedrive-api.factory';
+import { create_outlook_api } from '@/outlook-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
 
 const TENANT_ID = 'tenant-1';
@@ -199,5 +202,62 @@ describe('SharePoint site resolution (issue #181)', () => {
     expect(resolve_site).toHaveBeenCalledTimes(1);
     expect(get_sharepoint_stats).toHaveBeenNthCalledWith(1, TENANT_ID, SITE_ID);
     expect(get_sharepoint_stats).toHaveBeenNthCalledWith(2, TENANT_ID, undefined);
+  });
+});
+
+describe('Outlook owner resolution (issue #479)', () => {
+  it('resolves an address to an object id and forwards it as display metadata', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({});
+    const resolver = identity_resolver();
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with(
+        [BACKUP_USE_CASE_TOKEN, { sync_mailbox }],
+        [USER_IDENTITY_RESOLVER_TOKEN, resolver],
+      ),
+    );
+
+    await api.backup(EMAIL);
+
+    expect(resolver.resolve_user).toHaveBeenCalledWith(TENANT_ID, EMAIL);
+    expect(sync_mailbox).toHaveBeenCalledWith(
+      TENANT_ID,
+      OBJECT_ID,
+      expect.objectContaining({ owner_email: EMAIL, owner_display_name: 'John Doe' }),
+    );
+  });
+
+  it('passes an object id through without calling the resolver', async () => {
+    const sync_mailbox = vi.fn().mockResolvedValue({});
+    const resolver = identity_resolver();
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with(
+        [BACKUP_USE_CASE_TOKEN, { sync_mailbox }],
+        [USER_IDENTITY_RESOLVER_TOKEN, resolver],
+      ),
+    );
+
+    await api.backup(OBJECT_ID);
+
+    expect(resolver.resolve_user).not.toHaveBeenCalled();
+    expect(sync_mailbox.mock.calls[0]![1]).toBe(OBJECT_ID);
+    expect(sync_mailbox.mock.calls[0]![2]?.owner_email).toBeUndefined();
+  });
+
+  it('resolves an address before listing snapshots', async () => {
+    const list_snapshots = vi.fn().mockResolvedValue([]);
+    const resolver = identity_resolver();
+    const api = create_outlook_api(
+      TENANT_ID,
+      container_with(
+        [CATALOG_USE_CASE_TOKEN, { list_snapshots }],
+        [USER_IDENTITY_RESOLVER_TOKEN, resolver],
+      ),
+    );
+
+    await api.listSnapshots(EMAIL);
+
+    expect(list_snapshots).toHaveBeenCalledWith(TENANT_ID, OBJECT_ID);
   });
 });

@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container } from 'inversify';
 import { Command } from 'commander';
 import { register_outlook_command } from '@/commands/outlook.command';
-import { RESTORE_USE_CASE_TOKEN, SAVE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import {
+  RESTORE_USE_CASE_TOKEN,
+  SAVE_USE_CASE_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
+} from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import { EXIT_PARTIAL } from '@/command-run-outcome';
 
@@ -69,6 +73,13 @@ describe('outlook save and restore exit codes', () => {
       restore_mailbox: vi.fn().mockResolvedValue(make_restore_result()),
     });
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-1' });
+    container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue({
+      resolve_user: vi.fn().mockResolvedValue({
+        object_id: '9a1f4d2e-6b3c-4a5e-8d7f-2e3a4b5c6d7e',
+        email: 'john.doe@example.com',
+        display_name: 'John Doe',
+      }),
+    });
 
     program = new Command();
     register_outlook_command(program, () => container);

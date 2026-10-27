@@ -124,9 +124,9 @@ describe('DefaultTenantBackupOrchestrator', () => {
     expect(mock_discovery.list_tenant_mailboxes).toHaveBeenCalledWith('t1');
     expect(mock_backup.sync_mailbox).toHaveBeenCalledTimes(2);
     const backed_up = vi.mocked(mock_backup.sync_mailbox).mock.calls.map((c) => c[1]);
-    expect(backed_up).toContain('licensed@t.com');
-    expect(backed_up).toContain('shared@t.com');
-    expect(backed_up).not.toContain('unlicensed@t.com');
+    expect(backed_up).toContain('uid-licensed@t.com');
+    expect(backed_up).toContain('uid-shared@t.com');
+    expect(backed_up).not.toContain('uid-unlicensed@t.com');
     expect(result.total_mailboxes).toBe(2);
   });
 
@@ -137,7 +137,7 @@ describe('DefaultTenantBackupOrchestrator', () => {
       make_mailbox('lookup@t.com', false, undefined, '403 Forbidden'),
       make_mailbox('never@t.com', false),
     ]);
-    owners_with_history = ['licensed@t.com', 'converted@t.com', 'lookup@t.com'];
+    owners_with_history = ['uid-licensed@t.com', 'uid-converted@t.com', 'uid-lookup@t.com'];
 
     const orch = container.get(DefaultTenantBackupOrchestrator);
     const result = await orch.backup_tenant('t1');
@@ -145,16 +145,18 @@ describe('DefaultTenantBackupOrchestrator', () => {
     expect(result.failed).toBe(2);
     expect(result.succeeded).toBe(1);
     const errors = new Map(result.outcomes.map((o) => [o.owner_id, o.error]));
-    expect(errors.get('converted@t.com')).toContain('no Exchange Online license');
-    expect(errors.get('lookup@t.com')).toContain('mailboxSettings lookup failed (403 Forbidden)');
+    expect(errors.get('uid-converted@t.com')).toContain('no Exchange Online license');
+    expect(errors.get('uid-lookup@t.com')).toContain(
+      'mailboxSettings lookup failed (403 Forbidden)',
+    );
     // Never backed up and unlicensed: still a quiet skip.
-    expect(errors.has('never@t.com')).toBe(false);
+    expect(errors.has('uid-never@t.com')).toBe(false);
   });
 
   it('captures errors per mailbox without aborting', async () => {
     (mock_backup.sync_mailbox as ReturnType<typeof vi.fn>).mockImplementation(
       (_tid: string, mid: string) => {
-        if (mid === 'b@t.com') return Promise.reject(new Error('boom'));
+        if (mid === 'uid-b@t.com') return Promise.reject(new Error('boom'));
         return Promise.resolve(make_sync_result(mid));
       },
     );
@@ -164,7 +166,7 @@ describe('DefaultTenantBackupOrchestrator', () => {
 
     expect(result.succeeded).toBe(2);
     expect(result.failed).toBe(1);
-    const failed = result.outcomes.find((o) => o.owner_id === 'b@t.com');
+    const failed = result.outcomes.find((o) => o.owner_id === 'uid-b@t.com');
     expect(failed?.error).toBe('boom');
   });
 
@@ -217,5 +219,16 @@ describe('DefaultTenantBackupOrchestrator', () => {
       });
       expect(sync_options?.object_lock_policy?.mode).toBe('COMPLIANCE');
     }
+  });
+
+  it('keys every mailbox by object ID and forwards the address as display metadata', async () => {
+    const orch = container.get(DefaultTenantBackupOrchestrator);
+    await orch.backup_tenant('t1', { concurrency: 1 });
+
+    expect(mock_backup.sync_mailbox).toHaveBeenCalledWith(
+      't1',
+      'uid-a@t.com',
+      expect.objectContaining({ owner_email: 'a@t.com', owner_display_name: 'a@t.com' }),
+    );
   });
 });

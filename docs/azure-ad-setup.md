@@ -10,7 +10,7 @@ In the Azure Portal, register an application with the following **Application** 
 | ---------------------- | ------------------------------------------------------------------------------------ | ------------------------------------- |
 | `Mail.Read`            | Read mailbox contents via Graph API                                                  | Backup, list, read, save, verify      |
 | `Mail.ReadWrite`       | Restore messages and create folders in target mailboxes                              | Restore only                          |
-| `User.Read.All`        | Enumerate users and resolve mailbox IDs                                              | User discovery                        |
+| `User.Read.All`        | Enumerate users; resolve `-m` and `-o` addresses to object IDs                       | User discovery                        |
 | `MailboxSettings.Read` | Read mailbox metadata and folder structure; shared-mailbox detection (`userPurpose`) | Folder enumeration, mailbox discovery |
 
 ::: tip Start with Read-Only

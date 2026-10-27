@@ -109,6 +109,27 @@ describe('CatalogService', () => {
       expect(result[0]!.mailbox_purpose).toBe('shared');
     });
 
+    it('reports owner_email from the newest manifest that recorded one', async () => {
+      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+        make_manifest({
+          owner_id: '00000000-0000-0000-0000-000000000001',
+          snapshot_id: 's1',
+          created_at: new Date('2026-03-01'),
+          owner_email: 'alice@example.com',
+        }),
+        // Latest backup predates the address being recorded -- field absent.
+        make_manifest({
+          owner_id: '00000000-0000-0000-0000-000000000001',
+          snapshot_id: 's2',
+          created_at: new Date('2026-03-05'),
+        }),
+      ]);
+
+      const result = await service.list_mailboxes('t');
+
+      expect(result[0]!.owner_email).toBe('alice@example.com');
+    });
+
     it('returns summaries sorted alphabetically by owner_id', async () => {
       vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
         make_manifest({ owner_id: 'zara@test.com', snapshot_id: 's1' }),

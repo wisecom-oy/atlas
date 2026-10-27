@@ -15,6 +15,8 @@ export interface TenantBackupOptions {
 
 export interface MailboxBackupOutcome {
   readonly owner_id: string;
+  /** Mailbox address for display; `owner_id` is the Entra object ID. */
+  readonly owner_email?: string;
   readonly result?: SyncResult;
   readonly error?: string;
 }
