@@ -3,6 +3,7 @@ import type { Snapshot } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 import type {
   ExcludedFolder,
+  FolderExclusionReason,
   MailFolder,
   MailboxPurpose,
   Manifest,
@@ -105,16 +106,35 @@ export function build_manifest(
 }
 
 /**
- * Returns the run's removals when it captured every folder, otherwise `undefined`. A move shows up
- * as a removal from one folder and an entry in another, so a run that filtered or failed to finish
- * a folder could record the removal without the new location and hide a live message (issue #512).
+ * Whether a user can move mail into a folder pruned for this reason. Junk Email takes moved mail;
+ * an unrecognised Recoverable Items subfolder might. Client-state and non-mail folders cannot.
+ */
+const EXCLUSION_CAN_RECEIVE_MAIL: Record<FolderExclusionReason, boolean> = {
+  'junk-excluded': true,
+  'recoverable-items-unrecognised': true,
+  'hidden-system-folder': false,
+  'recoverable-items-not-mail': false,
+};
+
+/**
+ * Returns the run's removals when it captured every folder mail could have moved to, otherwise
+ * `undefined`. A move shows up as a removal from one folder and an entry in another, so a run that
+ * filtered, excluded, or failed to finish such a folder could record the removal without the new
+ * location and hide a live message (issues #512, #534).
  */
 export function select_recordable_removals(
   removed_ids: string[],
   folder_filter: readonly string[] | undefined,
-  folders: { readonly completed: number; readonly selected: number },
+  folders: {
+    readonly completed: number;
+    readonly selected: number;
+    readonly excluded: readonly ExcludedFolder[];
+  },
 ): string[] | undefined {
-  const captured_every_folder = !folder_filter?.length && folders.completed === folders.selected;
+  const captured_every_folder =
+    !folder_filter?.length &&
+    folders.completed === folders.selected &&
+    !folders.excluded.some((folder) => EXCLUSION_CAN_RECEIVE_MAIL[folder.reason]);
   return captured_every_folder ? removed_ids : undefined;
 }
 

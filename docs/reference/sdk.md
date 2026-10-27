@@ -244,7 +244,7 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 | `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                       |
 | `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                             |
 
-`restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
+`restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, excluded Junk Email, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
 
 ### OneDrive and SharePoint
 
