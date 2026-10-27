@@ -20,7 +20,7 @@ const TENANT_ID = 'tenant-1';
 const OBJECT_ID = '00000000-0000-0000-0000-000000000000';
 const EMAIL = 'john.doe@example.com';
 const SITE_URL = 'https://contoso.sharepoint.com/sites/Example';
-const SITE_ID = `contoso.sharepoint.com,${OBJECT_ID},11111111-1111-1111-1111-111111111111`;
+const SITE_ID = `${OBJECT_ID},11111111-1111-1111-1111-111111111111`;
 
 function container_with(...entries: [symbol, unknown][]): Container {
   const services = new Map(entries);
@@ -143,7 +143,7 @@ describe('OneDrive owner resolution (issue #181)', () => {
 });
 
 describe('SharePoint site resolution (issue #181)', () => {
-  it('resolves a site URL to a composite id before calling the use case', async () => {
+  it('resolves a site URL to a site id before calling the use case', async () => {
     const backup_site_tree = vi.fn().mockResolvedValue([]);
     const resolve_site = vi.fn().mockResolvedValue({
       site_id: SITE_ID,
@@ -164,7 +164,7 @@ describe('SharePoint site resolution (issue #181)', () => {
     expect(backup_site_tree.mock.calls[0]![1]).toBe(SITE_ID);
   });
 
-  it('passes a composite id straight through', async () => {
+  it('drops the hostname from a composite id without calling Graph', async () => {
     const backup_site_tree = vi.fn().mockResolvedValue([]);
     const resolve_site = vi.fn();
     const api = create_sharepoint_api(
@@ -175,7 +175,7 @@ describe('SharePoint site resolution (issue #181)', () => {
       ),
     );
 
-    await api.backup(SITE_ID);
+    await api.backup(`contoso.sharepoint.com,${SITE_ID}`);
 
     expect(resolve_site).not.toHaveBeenCalled();
     expect(backup_site_tree.mock.calls[0]![1]).toBe(SITE_ID);

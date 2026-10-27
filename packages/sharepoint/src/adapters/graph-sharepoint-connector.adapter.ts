@@ -41,6 +41,7 @@ import {
   stream_to_buffer,
 } from '@/adapters/graph-sharepoint-stream-utils';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
+import { canonical_site_id } from '@/services/shared/site-id';
 
 interface GraphSiteRecord {
   id?: string;
@@ -76,7 +77,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       for (const raw of page.value ?? []) {
         if (!raw.id) continue;
         sites.push({
-          site_id: raw.id,
+          site_id: canonical_site_id(raw.id),
           site_url: raw.webUrl ?? '',
           display_name: raw.displayName ?? '',
         });
@@ -109,7 +110,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     }
 
     return {
-      site_id: raw.id,
+      site_id: canonical_site_id(raw.id),
       site_url: raw.webUrl ?? '',
       display_name: raw.displayName ?? '',
     };

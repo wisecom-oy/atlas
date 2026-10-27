@@ -3,14 +3,15 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { StatsUseCase, SharePointSiteConnector } from '@wisecom/atlas-types';
-import { STATS_USE_CASE_TOKEN, SHAREPOINT_CONNECTOR_TOKEN } from '@wisecom/atlas-types';
+import type { StatsUseCase } from '@wisecom/atlas-types';
+import { STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types';
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
 import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats-outlook.view';
 import { print_drive_stats } from '@/commands/stats-drive.view';
 import { reject_retired_short, with_tenant, STATS_SERVICES } from '@/commands/shared-options';
 import { register_stats_storage_command } from '@/commands/stats-storage.command';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
 import { run_with_log_scope } from '@wisecom/atlas-core/utils/log-context';
 import type { LogSink } from '@wisecom/atlas-types';
 
@@ -132,9 +133,10 @@ async function collect_service_stats(
     return stats.get_onedrive_stats(tenant_id, owner.object_id);
   }
   if (!options.site) return stats.get_sharepoint_stats(tenant_id);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
-  return stats.get_sharepoint_stats(tenant_id, site.site_id);
+  return stats.get_sharepoint_stats(
+    tenant_id,
+    await resolve_site_id(container, tenant_id, options.site),
+  );
 }
 
 /** Dispatches to the matching view based on the result shape. */

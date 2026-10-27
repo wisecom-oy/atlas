@@ -28,6 +28,7 @@ import {
 } from '@wisecom/atlas-types';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
+import { canonical_site_id } from '@wisecom/atlas-sharepoint';
 
 /** Builds the SharePointApi sub-namespace from the DI container. */
 export function create_sharepoint_api(tenant_id: string, container: Container): SharePointApi {
@@ -57,7 +58,7 @@ export function create_sharepoint_api(tenant_id: string, container: Container): 
    * non-existent site and returns an empty result instead of failing.
    */
   async function resolve_site_id(site: string): Promise<string> {
-    if (site.includes(',')) return site;
+    if (site.includes(',')) return canonical_site_id(site);
     return (await connector.resolve_site(tenant_id, site)).site_id;
   }
 

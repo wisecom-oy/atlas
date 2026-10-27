@@ -12,10 +12,9 @@ import type {
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
-// A Graph composite site id: hostname,site-guid,web-guid. The SDK treats anything without
-// commas as a URL and resolves it first, so pass-through cases need a realistic id.
-const SITE_ID =
-  'contoso.sharepoint.com,00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
+// A canonical site id: site-guid,web-guid. The SDK treats anything without commas as a URL
+// and resolves it first, so pass-through cases need a realistic id.
+const SITE_ID = '00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: TENANT_ID,
   clientId: 'cid',

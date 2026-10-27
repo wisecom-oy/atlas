@@ -46,7 +46,7 @@ Snapshot IDs are generated as `sp-snap-<milliseconds>-<6-hex>` (for example `sp-
 
 ## How It Works
 
-1. **Site resolution.** The `--site` flag accepts either a SharePoint site URL (`https://contoso.sharepoint.com/sites/Engineering`) or a Graph site ID (`contoso.sharepoint.com,site-guid,web-guid`). URLs are resolved via `GET /sites/{hostname}:/{path}` to obtain the canonical site ID used for all storage keys.
+1. **Site resolution.** The `--site` flag accepts a SharePoint site URL (`https://contoso.sharepoint.com/sites/Engineering`) or a Graph site ID, with or without the hostname (`contoso.sharepoint.com,site-guid,web-guid` or `site-guid,web-guid`). URLs are resolved via `GET /sites/{hostname}:/{path}`. Atlas drops the hostname from every site ID it receives, so storage keys and Graph calls use `site-guid,web-guid`.
 2. **Library discovery.** Atlas calls `GET /sites/{site_id}/drives?$filter=driveType eq 'documentLibrary'` to discover all document libraries within the site. Each library has its own delta cursor, allowing independent incremental tracking.
 3. **Delta sync.** For each document library, Atlas follows `GET /drives/{drive_id}/root/delta`, or the stored OData `deltaLink`, to discover changed files since the last backup. Invalid or expired delta tokens trigger a full delta reset on the next attempt. A file that fails to download does not discard the rest of the library: successful entries are kept, the delta link advances, and the failure is recorded for retry (see [Failed Items and Delta Progress](#failed-items-and-delta-progress)). A library that fails outright, before any delta could be read, leaves its link untouched so the next run retries it cleanly. The delta cursor is saved incrementally after each successfully completed library.
 4. **Content-addressed storage.** Each file is SHA-256 hashed over the plaintext before encryption. If the same content already exists for that site, the blob is deduplicated (no second upload).
@@ -68,7 +68,11 @@ atlas-{tenant_id}/
     _meta/{site_id}/delta.json           # Encrypted delta link + per-library cursor state
 ```
 
-Object keys use the **Graph site ID** (for example `contoso.sharepoint.com,aaa-bbb,ccc-ddd`). The CLI resolves site URLs to site IDs automatically.
+Object keys use the **site ID without its hostname** (for example `aaa-bbb,ccc-ddd`). The two GUIDs never change for the life of a site, while the hostname changes when the tenant renames its SharePoint domain (`contoso.sharepoint.com` to `fabrikam.sharepoint.com`). Keying by the GUIDs keeps one backup history across such a rename instead of starting a second one under the new hostname. Renaming a site's URL path or title does not change either GUID. The CLI resolves site URLs to site IDs automatically.
+
+::: warning Upgrading from a version that kept the hostname
+Earlier versions keyed SharePoint storage by the full `hostname,site-guid,web-guid` ID, and there is no migration. Site commands look under the new key only, so they do not find those backups, and the first backup of each site after upgrading is a full backup under the new key. Tenant-wide `atlas stats` and `atlas stats storage` still count an old prefix, as a separate site. Old objects stay in the bucket until something deletes them; Object Lock expiry only makes them deletable. To remove them, run `atlas sharepoint delete --site <url> -y` with the previous version before upgrading.
+:::
 
 Ciphertext is stored at the key name shown above. There is no separate `.enc` filename suffix, because encryption is applied by the storage layer.
 
@@ -201,10 +205,10 @@ Versions the service reports as gone (`404` or `410`, content purged by the site
 
 A run creates a snapshot only when something changed, so two very different outcomes both end without one, and they mean opposite things:
 
-| `summary.noSnapshotReason` | Meaning | Recovery point |
-| -------------------------- | ------- | -------------- |
-| `no_changes` | The site holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
-| `no_content` | The site holds nothing to protect, and no snapshot exists for it. | None. |
+| `summary.noSnapshotReason` | Meaning                                                               | Recovery point                 |
+| -------------------------- | --------------------------------------------------------------------- | ------------------------------ |
+| `no_changes`               | The site holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
+| `no_content`               | The site holds nothing to protect, and no snapshot exists for it.     | None.                          |
 
 The field is set only on a run that completed cleanly and wrote no snapshot. It is absent when a snapshot was created, and absent when the run was interrupted or ended **UNHEALTHY**, because a run whose items failed did have changes and they did not land: `errors` and `healthy` are the answer there, not a reason. A failed item still counts as processed, so classifying it as `no_changes` would report the site as covered when nothing was stored.
 

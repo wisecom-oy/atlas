@@ -15,8 +15,8 @@ import {
   render_delete_banner,
 } from '@/commands/deletion-presenter';
 import { print_drive_status } from '@/commands/drive-status-presenter';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
 import {
-  resolve_site_id,
   resolve_tenant_id,
   type SharePointTenantOptions,
 } from '@/commands/sharepoint-command.handlers';

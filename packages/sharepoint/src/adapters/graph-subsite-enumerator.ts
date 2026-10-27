@@ -13,6 +13,7 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { SharePointSite, SharePointSubsiteTree } from '@wisecom/atlas-types';
+import { canonical_site_id } from '@/services/shared/site-id';
 
 interface GraphSiteRecord {
   id?: string;
@@ -42,7 +43,7 @@ export async function fetch_direct_subsites(
     for (const raw of page.value ?? []) {
       if (!raw.id) continue;
       sites.push({
-        site_id: raw.id,
+        site_id: canonical_site_id(raw.id),
         site_url: raw.webUrl ?? '',
         display_name: raw.displayName ?? '',
       });
