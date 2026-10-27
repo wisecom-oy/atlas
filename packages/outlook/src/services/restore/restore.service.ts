@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -132,6 +133,7 @@ export class RestoreService implements RestoreUseCase {
     owner_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    owner_id = normalize_owner_id(owner_id);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);
     }

@@ -56,6 +56,13 @@ export interface Manifest {
    * manifests written before the field.
    */
   readonly folders?: MailFolder[] | undefined;
+  /**
+   * Message IDs the run's delta reported as deleted or moved out of a folder. In a snapshot chain
+   * they hide the same IDs in older manifests, so a message deleted before this snapshot is not
+   * restored from it (issue #512). Recorded only by a run that finished every folder without a
+   * folder filter; absent otherwise and on older manifests.
+   */
+  readonly removed_object_ids?: string[] | undefined;
   readonly entries: ManifestEntry[];
 }
 
