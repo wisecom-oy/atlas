@@ -25,6 +25,8 @@ export interface ParsedMimeMessage {
   readonly from?: MimeAddress;
   readonly to: MimeAddress[];
   readonly cc: MimeAddress[];
+  readonly bcc: MimeAddress[];
+  readonly reply_to: MimeAddress[];
   readonly date?: string;
   readonly message_id?: string;
   readonly text?: string;
@@ -48,6 +50,8 @@ export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessag
     ...(from ? { from } : {}),
     to: flatten_addresses(parsed.to),
     cc: flatten_addresses(parsed.cc),
+    bcc: flatten_addresses(parsed.bcc),
+    reply_to: flatten_addresses(parsed.replyTo),
     ...(parsed.date ? { date: parsed.date.toISOString() } : {}),
     ...(parsed.messageId ? { message_id: parsed.messageId } : {}),
     ...(parsed.text ? { text: parsed.text } : {}),

@@ -2,7 +2,11 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 import { parse_mime_message } from '@/services/shared/mime-message-parser';
-import type { MimeAddress, ParsedMimeMessage } from '@/services/shared/mime-message-parser';
+import type {
+  MimeAddress,
+  MimeHeader,
+  ParsedMimeMessage,
+} from '@/services/shared/mime-message-parser';
 
 /**
  * Read-only fields that Graph returns on GET but rejects on POST.
@@ -186,8 +190,43 @@ export function build_restore_payload_from_mime(
 
   if (parsed.from) payload['from'] = to_graph_recipient(parsed.from);
   if (parsed.message_id) payload['internetMessageId'] = parsed.message_id;
+  if (parsed.bcc.length > 0) payload['bccRecipients'] = parsed.bcc.map(to_graph_recipient);
+  if (parsed.reply_to.length > 0) payload['replyTo'] = parsed.reply_to.map(to_graph_recipient);
+
+  const importance = read_importance(parsed.headers);
+  if (importance) payload['importance'] = importance;
+  const categories = read_categories(parsed.headers);
+  if (categories.length > 0) payload['categories'] = categories;
 
   return payload;
+}
+
+/** Returns the value of the first header with this name, compared case-insensitively. */
+function find_header(headers: readonly MimeHeader[], name: string): string | undefined {
+  return headers.find((h) => h.name.toLowerCase() === name)?.value;
+}
+
+/**
+ * Maps `Importance`, or `X-Priority` when it is absent, to Graph's importance. X-Priority runs
+ * 1 (highest) to 5 (lowest) and often carries a label, as in `1 (Highest)` (issue #477).
+ */
+function read_importance(headers: readonly MimeHeader[]): 'low' | 'normal' | 'high' | undefined {
+  const importance = find_header(headers, 'importance')?.trim().toLowerCase();
+  if (importance === 'low' || importance === 'normal' || importance === 'high') return importance;
+
+  const priority = Number.parseInt(find_header(headers, 'x-priority') ?? '', 10);
+  if (priority === 1 || priority === 2) return 'high';
+  if (priority === 3) return 'normal';
+  if (priority === 4 || priority === 5) return 'low';
+  return undefined;
+}
+
+/** Reads Outlook categories, which Exchange writes into the comma-separated `Keywords` header. */
+function read_categories(headers: readonly MimeHeader[]): string[] {
+  return (find_header(headers, 'keywords') ?? '')
+    .split(',')
+    .map((category) => category.trim())
+    .filter((category) => category.length > 0);
 }
 
 /** Wraps a parsed MIME address in Graph's recipient envelope. */
