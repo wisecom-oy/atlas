@@ -123,6 +123,7 @@ async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): 
 
   interface MailboxRow {
     mailbox: string;
+    object_id: string;
     type: string;
     snapshots: string;
     objects: string;
@@ -131,6 +132,7 @@ async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): 
   }
   const columns: TableColumn<MailboxRow>[] = [
     { key: 'mailbox', header: 'Mailbox' },
+    { key: 'object_id', header: 'Owner ID' },
     { key: 'type', header: 'Type' },
     { key: 'snapshots', header: 'Snapshots' },
     { key: 'objects', header: 'Objects' },
@@ -138,7 +140,8 @@ async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): 
     { key: 'last_backup', header: 'Last backup' },
   ];
   const rows = mailboxes.map((m: MailboxSummary) => ({
-    mailbox: m.owner_email ?? m.owner_id,
+    mailbox: m.owner_email ?? '--',
+    object_id: m.owner_id,
     type: m.mailbox_purpose ?? '--',
     snapshots: String(m.snapshot_count),
     objects: String(m.total_objects),

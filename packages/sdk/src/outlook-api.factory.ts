@@ -50,11 +50,12 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
 
   return {
     async backup(mailbox, options) {
-      const resolved = await resolve_owner_identity(identity, tenant_id, mailbox);
-      const sync_options = with_resolved_identity(adapt_backup_options(options), resolved);
-      const [result, cost_result] = await run_with_cost_tracking(() =>
-        backup.sync_mailbox(tenant_id, resolved?.object_id ?? mailbox, sync_options),
-      );
+      // Resolution is a Graph call too, so it runs inside the tracked scope and counts in graphCost.
+      const [result, cost_result] = await run_with_cost_tracking(async () => {
+        const resolved = await resolve_owner_identity(identity, tenant_id, mailbox);
+        const sync_options = with_resolved_identity(adapt_backup_options(options), resolved);
+        return backup.sync_mailbox(tenant_id, resolved?.object_id ?? mailbox, sync_options);
+      });
       return camelize({ ...result, graph_cost: cost_result });
     },
     async verify(snapshot_id, options) {
@@ -73,9 +74,12 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize({ ...result, graph_cost: cost_result });
     },
     async restoreMailbox(mailbox, options) {
-      const mailbox_id = await resolve_object_id(mailbox);
-      const [result, cost_result] = await run_with_cost_tracking(() =>
-        restore.restore_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
+      const [result, cost_result] = await run_with_cost_tracking(async () =>
+        restore.restore_mailbox(
+          tenant_id,
+          await resolve_object_id(mailbox),
+          adapt_operation_options(options),
+        ),
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
@@ -118,9 +122,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize(await stats.get_mailbox_stats(tenant_id, mailbox_id));
     },
     async checkMailboxStatus(mailbox) {
-      const mailbox_id = await resolve_object_id(mailbox);
-      const [result, cost_result] = await run_with_cost_tracking(() =>
-        status.check_mailbox_status(tenant_id, mailbox_id),
+      const [result, cost_result] = await run_with_cost_tracking(async () =>
+        status.check_mailbox_status(tenant_id, await resolve_object_id(mailbox)),
       );
       return camelize({ ...result, graph_cost: cost_result });
     },

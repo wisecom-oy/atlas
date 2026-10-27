@@ -227,7 +227,7 @@ OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version 
 
 **Mailbox backup** namespaces `data/`, `attachments/`, and `manifests/` by the mailbox owner's Entra object ID, the same as OneDrive. The SMTP address is recorded only as display metadata on snapshots, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs. Backups keyed by an address in earlier releases are not reachable under the new keys; see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys).
 
-Old address-keyed objects are not renamed or aliased. They stay in the bucket under their old prefixes until they are deleted or their Object Lock retention ends. The migration page describes how to remove them.
+Old address-keyed objects are not renamed or aliased. They stay in the bucket under their old prefixes until something deletes them: Object Lock expiry only makes them deletable, it does not remove them. The migration page describes how to remove them.
 
 ## Backup Fidelity
 

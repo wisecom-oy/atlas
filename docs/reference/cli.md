@@ -968,7 +968,7 @@ atlas storage-check --lock-mode compliance --retention-days 365
 
 ## `atlas stats`
 
-Show storage statistics across all backed-up services. By default the command reports Outlook, OneDrive, and SharePoint in one pass: per-service snapshot counts, item counts (messages or files), total encrypted storage size, and a monthly breakdown. Statistics are computed purely from the encrypted snapshot manifests in the bucket. No Microsoft Graph calls are made unless you scope to a OneDrive owner or SharePoint site that needs identity resolution.
+Show storage statistics across all backed-up services. By default the command reports Outlook, OneDrive, and SharePoint in one pass: per-service snapshot counts, item counts (messages or files), total encrypted storage size, and a monthly breakdown. Statistics are computed from the encrypted snapshot manifests in the bucket. The only Microsoft Graph call is identity resolution when `-m`, `-o`, or `--site` is given as an address or URL; pass the mailbox or owner object ID, or the site ID, to make no Graph call at all. With `--json`, log lines from that resolution go to stderr so stdout carries only the JSON.
 
 ```bash
 atlas stats                            # all services: Outlook, OneDrive, SharePoint

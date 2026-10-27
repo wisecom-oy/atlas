@@ -11,10 +11,20 @@ import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats-outloo
 import { print_drive_stats } from '@/commands/stats-drive.view';
 import { reject_retired_short, with_tenant, STATS_SERVICES } from '@/commands/shared-options';
 import { register_stats_storage_command } from '@/commands/stats-storage.command';
+import { run_with_log_scope } from '@wisecom/atlas-core/utils/log-context';
+import type { LogSink } from '@wisecom/atlas-types';
 
 type ContainerFactory = () => Container;
 type StatsServiceName = 'outlook' | 'onedrive' | 'sharepoint';
 type ServiceStats = BucketStats | MailboxStats | DriveStats;
+
+/** Writes every log line to stderr, keeping stdout for the JSON payload. */
+const STDERR_SINK: LogSink = {
+  debug: () => {},
+  info: (message) => console.error(message),
+  warn: (message) => console.error(message),
+  error: (message) => console.error(message),
+};
 
 interface StatsOptions {
   tenant?: string;
@@ -55,11 +65,20 @@ async function execute_stats(container: Container, options: StatsOptions): Promi
   const top = parse_top(options.top ?? DEFAULT_TOP);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
-  const collected: [StatsServiceName, ServiceStats][] = [];
-  for (const service of services) {
-    const result = await collect_service_stats(container, stats, tenant_id, service, options);
-    collected.push([service, result]);
-  }
+  const collect = async (): Promise<[StatsServiceName, ServiceStats][]> => {
+    const collected: [StatsServiceName, ServiceStats][] = [];
+    for (const service of services) {
+      collected.push([
+        service,
+        await collect_service_stats(container, stats, tenant_id, service, options),
+      ]);
+    }
+    return collected;
+  };
+  // Resolving -m/-o logs a line; under --json it must not land in front of the payload.
+  const collected = options.json
+    ? await run_with_log_scope({ sink: STDERR_SINK }, collect)
+    : await collect();
 
   if (options.json) {
     const [first] = collected;

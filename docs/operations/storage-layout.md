@@ -57,7 +57,7 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `attachments/{owner_id}/`                      | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
 | `manifests/{owner_id}/`                        | Encrypted snapshot manifests (JSON)                             | Contains subjects, senders, folder names, and delta URLs, all encrypted    |
 
-The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
+The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets that already use object-ID owner keys remain compatible: their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. Address-keyed Outlook backups from before object-ID keys are not part of the new owner's chain, so the first backup after that upgrade is a full backup under the object-ID prefix (see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys)). The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
 
 #### Message payload formats
 

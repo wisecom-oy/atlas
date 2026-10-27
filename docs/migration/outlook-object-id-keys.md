@@ -10,7 +10,7 @@ Outlook backups are keyed by the mailbox's Entra object ID instead of its primar
 | `-m` / `--mailbox` | Address, used as the key | Address or object ID; an address is resolved first |
 | Address in storage | Key segment              | Display metadata on snapshots only                 |
 
-An address (any value containing `@`) is resolved with `GET /users/{email}` before any key is built. Any other value is used as an object ID with no Graph call.
+An address (any value containing `@`) is resolved before any key is built: first as a UPN with `GET /users/{address}`, then, when that returns 404, as a primary SMTP address with `GET /users?$filter=mail eq '{address}'`. A secondary alias (a proxy address that is neither the UPN nor `mail`) does not resolve; pass the object ID instead. Any value without `@` is used as an object ID with no Graph call.
 
 ## Why
 
@@ -18,9 +18,10 @@ Object IDs do not change when the primary address is renamed, and a shared mailb
 
 ## What to expect after upgrading
 
-- Backups written under an address prefix are not reachable. Passing the address to the new version does not find them.
+- Mailbox-scoped commands (`-m`) do not find backups written under an address prefix, because an address now resolves to the object ID.
+- Snapshot-scoped commands still read them. `atlas outlook list` shows each old prefix as its own row with the address in the **Owner ID** column; `atlas outlook list -m <address>` lists only the new history. Find the old snapshot ID in the manifest key `manifests/{address}/{snapshot_id}.json`, then pass it with `-s` and without `-m`, for example `atlas outlook save -s <snapshot_id>` or `atlas outlook restore -s <snapshot_id> -T user@company.com`.
 - The first backup of each mailbox is a full backup under the object ID prefix. Content is deduplicated per owner prefix, so the new copy is stored in full.
-- Old objects stay in the bucket until they are deleted or their Object Lock retention ends.
+- Old objects stay in the bucket until they are deleted. Object Lock expiry only permits deletion; it does not remove anything.
 
 ## Steps
 
@@ -43,4 +44,4 @@ Object IDs do not change when the primary address is renamed, and a shared mailb
 
    `-m` also accepts the object ID directly, which skips the Graph lookup.
 
-Restore and `-T` / `--target` are unchanged. They still accept an address or an ID because they only address the Graph target mailbox.
+For restore, `-m` or `-s` selects the backup to read, and `-T` / `--target` selects the mailbox to write into. `-T` accepts an address or an object ID because it only addresses the Graph target mailbox.
