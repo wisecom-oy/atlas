@@ -35,3 +35,6 @@ __pycache__/
 
 # Staged at publish time by .github/workflows/publish.yml, never committed
 packages/*/LICENSE
+
+# PR review exports (pr501-review.md, pr501-inline.md): scratch, never committed
+/pr[0-9]*-*.md
