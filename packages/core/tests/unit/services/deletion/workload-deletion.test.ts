@@ -15,7 +15,7 @@ import {
 } from '@wisecom/atlas-types';
 import type { DeletionStorage } from '@/services/deletion/shared/prefix-deleter';
 
-const OWNER = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
+const OWNER = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
 
 type PurgeStorage = DeletionStorage & {

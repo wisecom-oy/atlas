@@ -15,7 +15,7 @@ import { ATLAS_CONFIG_TOKEN, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atla
 import type { ReplicationResult } from '@wisecom/atlas-types';
 
 const OWNER_EMAIL = 'user@example.com';
-const OWNER_OBJECT_ID = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
+const OWNER_OBJECT_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 
 const RESULT: ReplicationResult = {
   snapshot_id: 'od-snap-1',
