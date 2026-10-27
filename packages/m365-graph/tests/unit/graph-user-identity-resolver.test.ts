@@ -155,6 +155,17 @@ describe('GraphUserIdentityResolver.resolve_user', () => {
     ).rejects.toBe(not_found);
   });
 
+  it('rejects a malformed mail filter page instead of reading it as no match', async () => {
+    const { client } = client_with(
+      () => Promise.reject(graph_error(404, 'Request_ResourceNotFound')),
+      () => Promise.resolve({ value: USER }),
+    );
+
+    await expect(
+      new GraphUserIdentityResolver(client).resolve_user('t', 'john.doe@example.com'),
+    ).rejects.toThrow('Graph /users response has a non-array value');
+  });
+
   it('does not mask a 403 behind the mail fallback', async () => {
     const by_mail = vi.fn();
     const { client } = client_with(() => Promise.reject(graph_error(403)), by_mail);

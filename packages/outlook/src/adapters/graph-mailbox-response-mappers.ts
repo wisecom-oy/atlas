@@ -113,13 +113,21 @@ export function parse_mailbox_settings_purpose(response: unknown): MailboxPurpos
   return parse_mailbox_purpose(response.userPurpose);
 }
 
-/** Narrows an untyped /users page; a non-object page reads as empty. */
+/**
+ * Narrows an untyped /users page. A malformed page throws rather than reading as empty,
+ * because an empty page would end discovery with a partial mailbox list reported as complete.
+ */
 export function parse_user_page(page: unknown): GraphUserPage {
-  if (typeof page !== 'object' || page === null) return {};
+  if (typeof page !== 'object' || page === null) {
+    throw new Error('Graph /users response is not an object');
+  }
   const value: unknown = 'value' in page ? page.value : undefined;
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new Error('Graph /users response has a non-array value');
+  }
   const next: unknown = '@odata.nextLink' in page ? page['@odata.nextLink'] : undefined;
   return {
-    ...(Array.isArray(value) ? { value: value as GraphUserRecord[] } : {}),
+    ...(value ? { value: value as GraphUserRecord[] } : {}),
     ...(typeof next === 'string' ? { '@odata.nextLink': next } : {}),
   };
 }

@@ -39,11 +39,13 @@ function parse_user_record(raw: unknown): GraphUserRecord {
   };
 }
 
-/** Narrows an untyped Graph /users page to its user records. */
+/** Narrows an untyped Graph /users page to its user records; a malformed page throws. */
 function parse_user_page(raw: unknown): GraphUserRecord[] {
-  if (typeof raw !== 'object' || raw === null || !('value' in raw)) return [];
-  const items: unknown[] = Array.isArray(raw.value) ? raw.value : [];
-  return items.map(parse_user_record);
+  if (typeof raw !== 'object' || raw === null)
+    throw new Error('Graph /users response is not an object');
+  if (!('value' in raw)) return [];
+  if (!Array.isArray(raw.value)) throw new Error('Graph /users response has a non-array value');
+  return raw.value.map(parse_user_record);
 }
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
