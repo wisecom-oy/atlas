@@ -88,7 +88,7 @@ function parse_config_file(file_path: string): Partial<AtlasConfig> {
     throw new Error(`Config file ${file_path} must contain a JSON object`);
   }
 
-  return parsed as Partial<AtlasConfig>;
+  return parsed;
 }
 
 /** Warns if a config file has group- or world-readable permissions (Unix only). */

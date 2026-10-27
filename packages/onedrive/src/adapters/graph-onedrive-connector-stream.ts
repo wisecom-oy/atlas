@@ -12,10 +12,10 @@ export async function stream_to_buffer(
   timeout_ms: number,
 ): Promise<Buffer> {
   const readable = stream as Readable;
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array[] = [];
   const read_stream = async (): Promise<void> => {
-    for await (const chunk of readable) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    for await (const chunk of readable as AsyncIterable<Uint8Array | string>) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     }
   };
   let timer: NodeJS.Timeout | undefined;

@@ -9,9 +9,43 @@ const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
 
 interface GraphUserRecord {
   id: string;
-  displayName?: string;
-  mail?: string;
-  userPrincipalName?: string;
+  displayName?: string | undefined;
+  mail?: string | undefined;
+  userPrincipalName?: string | undefined;
+}
+
+/** Reads a string field from an untyped Graph payload; undefined when absent or not a string. */
+function optional_string(raw: object, key: string): string | undefined {
+  const value: unknown = Reflect.get(raw, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Narrows an untyped Graph user payload. A payload without a string id is a contract break. */
+function parse_user_record(raw: unknown): GraphUserRecord {
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('id' in raw) ||
+    typeof raw.id !== 'string' ||
+    raw.id === ''
+  ) {
+    throw new Error('Graph user response has no id');
+  }
+  return {
+    id: raw.id,
+    displayName: optional_string(raw, 'displayName'),
+    mail: optional_string(raw, 'mail'),
+    userPrincipalName: optional_string(raw, 'userPrincipalName'),
+  };
+}
+
+/** Narrows an untyped Graph /users page to its user records; a malformed page throws. */
+function parse_user_page(raw: unknown): GraphUserRecord[] {
+  if (typeof raw !== 'object' || raw === null)
+    throw new Error('Graph /users response is not an object');
+  if (!('value' in raw)) return [];
+  if (!Array.isArray(raw.value)) throw new Error('Graph /users response has a non-array value');
+  return raw.value.map(parse_user_record);
 }
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
@@ -42,19 +76,20 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
   }
 
   private async get_user_by_upn(upn: string): Promise<GraphUserRecord> {
-    return (await this._client
+    const raw: unknown = await this._client
       .api(`/users/${encodeURIComponent(upn)}`)
       .select(USER_FIELDS)
-      .get()) as GraphUserRecord;
+      .get();
+    return parse_user_record(raw);
   }
 
   private async find_user_by_mail(mail: string): Promise<GraphUserRecord | undefined> {
-    const page = (await this._client
+    const raw: unknown = await this._client
       .api('/users')
       .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
       .select(USER_FIELDS)
-      .get()) as { value?: GraphUserRecord[] };
-    return page.value?.[0];
+      .get();
+    return parse_user_page(raw)[0];
   }
 
   /**
@@ -71,10 +106,11 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
     object_id: string,
   ): Promise<ResolvedUserIdentity | undefined> {
     try {
-      const response = await this._client
+      const raw: unknown = await this._client
         .api(`/users/${encodeURIComponent(object_id)}`)
         .select('id,displayName,mail,userPrincipalName')
         .get();
+      const response = parse_user_record(raw);
       return {
         object_id: response.id,
         display_name: response.displayName ?? object_id,
