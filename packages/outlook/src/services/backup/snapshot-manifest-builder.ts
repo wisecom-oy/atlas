@@ -9,7 +9,7 @@ import type {
   ManifestEntry,
   ManifestObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import type { BackupSyncMode } from '@wisecom/atlas-types';
+import type { BackupSyncMode, SyncOptions } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface OwnerIdentityHint {
@@ -142,4 +142,21 @@ export function resolve_saved_delta_links(previous: Manifest | undefined): Recor
     return {};
   }
   return previous.delta_links;
+}
+
+/** Records the Object Lock retention the run asked for next to the one it applied. */
+export function build_manifest_object_lock_policy(
+  options: SyncOptions,
+): ManifestObjectLockPolicy | undefined {
+  if (!options.object_lock_policy) return undefined;
+  return {
+    requested: {
+      mode: options.object_lock_request?.mode,
+      retention_days: options.object_lock_request?.retention_days,
+    },
+    effective: {
+      mode: options.object_lock_policy.mode,
+      retain_until: options.object_lock_policy.retain_until,
+    },
+  };
 }

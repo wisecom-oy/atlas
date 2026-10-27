@@ -3,6 +3,12 @@ import type { MailboxConnector } from '@wisecom/atlas-types/ports/mail/connector
 import { RateLimitedGraphConnector } from '@/rate-limited-graph-connector.adapter';
 import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
 import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
+import { logger } from '@wisecom/atlas-core/utils/logger';
+
+function wrap(inner: MailboxConnector): RateLimitedGraphConnector {
+  const fence = new ThrottleFence();
+  return new RateLimitedGraphConnector(inner, new DefaultMailboxRateLimiterFactory(fence), fence);
+}
 
 /**
  * Issue #455. The decorator's `list_mail_folders` took two parameters, which still satisfies the
@@ -13,18 +19,31 @@ import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/s
 describe('RateLimitedGraphConnector.list_mail_folders', () => {
   it('forwards the folder options to the inner connector unchanged', async () => {
     const list_mail_folders = vi.fn(async () => []);
-    const inner = { list_mail_folders } as unknown as MailboxConnector;
-    const fence = new ThrottleFence();
-    const connector = new RateLimitedGraphConnector(
-      inner,
-      new DefaultMailboxRateLimiterFactory(fence),
-      fence,
-    );
+    const connector = wrap({ list_mail_folders } as unknown as MailboxConnector);
     const options = { exclude_junk: true, include_recoverable_items: true, on_excluded: vi.fn() };
 
     await connector.list_mail_folders('t', 'o', options);
 
     expect(list_mail_folders).toHaveBeenCalledWith('t', 'o', options);
+    connector.shutdown();
+  });
+});
+
+/**
+ * Issue #513. A connector that cannot read reactions used to drop them without a word, so a
+ * misconfigured connector looked like a mailbox nobody reacts in.
+ */
+describe('RateLimitedGraphConnector.fetch_reaction_properties', () => {
+  it('says once that reactions are not captured when the inner connector cannot read them', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const connector = wrap({} as MailboxConnector);
+
+    await expect(connector.fetch_reaction_properties('t', 'o', ['m1'])).resolves.toBeUndefined();
+    await connector.fetch_reaction_properties('t', 'o', ['m2']);
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('reactions'));
+    warn.mockRestore();
     connector.shutdown();
   });
 });

@@ -1,7 +1,7 @@
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { ExtendedProperty, TenantContext } from '@wisecom/atlas-types';
 import {
   capture_mime_payload,
-  capture_reaction_properties,
+  capture_page_reactions,
   store_single_message,
 } from '@/services/backup/message-payload-store';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
@@ -36,6 +36,8 @@ export interface FolderSyncResult {
    */
   attachment_errors: string[];
   folder_processed: number;
+  /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
+  warnings: string[];
 }
 
 export interface FolderSyncParams {
@@ -62,7 +64,7 @@ export interface FolderSyncParams {
 /**
  * Processes a single message: capture MIME, dedup check, encrypt, store.
  * MIME embeds its attachments, so only a JSON fallback queues a separate
- * attachment fetch.
+ * attachment fetch. Reactions were read for the whole page beforehand (issue #513).
  */
 async function process_message(
   ctx: TenantContext,
@@ -70,13 +72,13 @@ async function process_message(
   tenant_id: string,
   owner_id: string,
   message: MailMessage,
+  reactions: ExtendedProperty[],
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending_attachments: PendingAttachment[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
   const mime = await capture_mime_payload(connector, tenant_id, owner_id, message);
-  const reactions = await capture_reaction_properties(connector, tenant_id, owner_id, message);
   const entry = await store_single_message(
     ctx,
     message,
@@ -120,7 +122,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   const previous_manifest_entries = params.previous_manifest_entries ?? 0;
 
   const entries: ManifestEntry[] = [];
-  const stats = { stored: 0, deduplicated: 0, att_stored: 0 };
+  const stats = { stored: 0, deduplicated: 0, att_stored: 0, reactions_failed: 0 };
   const pending_attachments: PendingAttachment[] = [];
   const attachment_errors: string[] = [];
   let folder_processed = 0;
@@ -152,6 +154,10 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       return false;
     }
 
+    // Read for the page, not per message: reactions belong to the manifest entry, so a message
+    // whose content dedups still needs them, and the batch costs one round trip per 20.
+    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, page_messages);
+    stats.reactions_failed += reactions.failed;
     for (const message of page_messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -163,6 +169,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
+        reactions.by_message.get(message.message_id) ?? [],
         entries,
         stats,
         pending_attachments,
@@ -229,6 +236,8 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   }
 
   if (!streamed) {
+    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, delta.messages);
+    stats.reactions_failed += reactions.failed;
     for (const message of delta.messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -240,6 +249,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
+        reactions.by_message.get(message.message_id) ?? [],
         entries,
         stats,
         pending_attachments,
@@ -287,5 +297,11 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     attachments_stored: stats.att_stored,
     attachment_errors,
     folder_processed,
+    warnings:
+      stats.reactions_failed > 0
+        ? [
+            `reactions not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
+          ]
+        : [],
   };
 }

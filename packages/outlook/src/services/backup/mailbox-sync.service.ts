@@ -3,7 +3,7 @@ import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
-import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
@@ -18,6 +18,7 @@ import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
 import {
   build_manifest,
+  build_manifest_object_lock_policy,
   create_pending_snapshot,
   mark_snapshot_completed,
   resolve_saved_delta_links,
@@ -145,6 +146,7 @@ export class MailboxSyncService implements BackupUseCase {
         folder_errors.push(
           ...outcome.attachment_errors.map((line) => `${folder.folder_path}: ${line}`),
         );
+        warnings.push(...outcome.warnings.map((line) => `${folder.folder_path}: ${line}`));
 
         all_entries.push(...outcome.entries);
         removed_ids.push(...outcome.removed_ids);
@@ -179,7 +181,7 @@ export class MailboxSyncService implements BackupUseCase {
       const merged_links = { ...saved_links, ...new_delta_links };
       const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
         previous_total_objects: previous_entry_count,
-        object_lock: this.build_manifest_object_lock_policy(options),
+        object_lock: build_manifest_object_lock_policy(options),
         mailbox_purpose,
         excluded_folders,
         folders,
@@ -290,6 +292,7 @@ export class MailboxSyncService implements BackupUseCase {
         attachments_stored: result.attachments_stored,
         attachment_errors: result.attachment_errors,
         folder_processed: result.folder_processed,
+        warnings: result.warnings,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -303,24 +306,9 @@ export class MailboxSyncService implements BackupUseCase {
         attachments_stored: 0,
         attachment_errors: [],
         folder_processed: 0,
+        warnings: [],
         error: msg,
       };
     }
-  }
-
-  private build_manifest_object_lock_policy(
-    options: SyncOptions,
-  ): ManifestObjectLockPolicy | undefined {
-    if (!options.object_lock_policy) return undefined;
-    return {
-      requested: {
-        mode: options.object_lock_request?.mode,
-        retention_days: options.object_lock_request?.retention_days,
-      },
-      effective: {
-        mode: options.object_lock_policy.mode,
-        retain_until: options.object_lock_policy.retain_until,
-      },
-    };
   }
 }

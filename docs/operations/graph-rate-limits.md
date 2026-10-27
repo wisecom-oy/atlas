@@ -60,7 +60,7 @@ Outlook limits apply per app ID per mailbox. Each request costs 1, whatever the 
 
 Atlas's per-mailbox limiter caps each window at 9,600 requests, 96% of Microsoft's limit, which leaves headroom for requests in flight. It also allows four concurrent requests per mailbox.
 
-Graph processes at most four requests from a batch at a time. A `dependsOn` chain in a batch runs them one at a time.
+Graph processes at most four requests from a batch at a time. A `dependsOn` chain in a batch runs them one at a time. Each request inside a batch counts against the window on its own, so Atlas charges its limiter one unit per request in the batch, not one per round trip.
 
 ### Throttle handling
 
@@ -84,6 +84,8 @@ SharePoint and OneDrive calls back off individually, on the same retry schedule,
 | `list_mail_folders`     | `GET /users/{id}/mailFolders`, `/mailFolders/{wellKnownName}`     | 1 per folder page, plus well-known folder reads |
 | `fetch_delta`           | `GET /users/{id}/mailFolders/{id}/messages/delta`                 | 1 per page                       |
 | `fetch_message`         | `GET /users/{id}/messages/{id}`                                   | 1                                |
+| `fetch_mime`            | `GET /users/{id}/messages/{id}/$value`                            | 1                                |
+| `fetch_reaction_properties` | `POST /$batch` of up to 20 chained `GET /users/{id}/messages/{id}?$expand=singleValueExtendedProperties(...)` | 1 per message, 1 round trip per 20 messages |
 | `fetch_attachments`     | `GET /users/{id}/messages/{id}/attachments`                       | 1                                |
 | `create_mail_folder`    | `POST /users/{id}/mailFolders`                                    | 1                                |
 | `create_message`        | `POST /users/{id}/mailFolders/{id}/messages`                      | 1                                |
