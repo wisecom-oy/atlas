@@ -738,3 +738,44 @@
     padding-left: calc((100vw - var(--vp-layout-max-width)) / 2 + var(--vp-sidebar-width) + 32px);
   }
 }
+/* Footer: one compact row of links and license, then a small legal line. */
+.VPFooter {
+  padding-top: 20px !important;
+  padding-bottom: 20px !important;
+}
+.VPFooter .message {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 4px 20px;
+  line-height: 20px;
+}
+.wc-foot-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 20px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.VPFooter .wc-foot-links a {
+  color: var(--vp-c-text-1);
+  text-decoration: none;
+}
+.VPFooter .wc-foot-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.wc-foot-license {
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+}
+.VPFooter .copyright {
+  margin-top: 6px;
+  line-height: 16px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--vp-c-text-3);
+}
