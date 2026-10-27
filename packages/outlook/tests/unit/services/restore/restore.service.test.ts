@@ -218,6 +218,25 @@ describe('RestoreService', () => {
       expect(mock_restore.create_message).toHaveBeenCalledTimes(3);
     });
 
+    it('reads the lowercase storage prefix for an upper-case object ID (#511)', async () => {
+      const manifest = {
+        ...make_manifest([make_entry('msg-1', 'f1')]),
+        owner_id: '00000000-0000-0000-0000-00000000abcd',
+      };
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([manifest]);
+
+      const result = await service.restore_mailbox(
+        'test-tenant',
+        '00000000-0000-0000-0000-00000000ABCD',
+      );
+
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(
+        mock_context,
+        '00000000-0000-0000-0000-00000000abcd',
+      );
+      expect(result.restored_count).toBe(1);
+    });
+
     it('filters by date range', async () => {
       const old_manifest = {
         ...make_manifest([make_entry('msg-old', 'f1')]),

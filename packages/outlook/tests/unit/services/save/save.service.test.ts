@@ -239,6 +239,17 @@ describe('SaveService', () => {
       expect(result.saved_count).toBe(2);
     });
 
+    it('reads the lowercase storage prefix for an upper-case object ID (#511)', async () => {
+      const owner_id = '00000000-0000-0000-0000-00000000abcd';
+      const manifest = make_manifest([make_entry('msg-1', 'f1')], { owner_id });
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([manifest]);
+
+      const result = await service.save_mailbox('test-tenant', owner_id.toUpperCase());
+
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(mock_context, owner_id);
+      expect(result.saved_count).toBe(2);
+    });
+
     it('returns empty result when no snapshots', async () => {
       vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([]);
 

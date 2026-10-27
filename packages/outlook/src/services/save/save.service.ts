@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -96,6 +97,7 @@ export class SaveService implements SaveUseCase {
     owner_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    owner_id = normalize_owner_id(owner_id);
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
       if (begin_operation_progress(options, 'save', 'outlook')) {
