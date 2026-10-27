@@ -80,8 +80,7 @@ export class StatsService implements StatsUseCase {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const all = await this._manifests.list_all_manifests(ctx);
-      const filtered = all.filter((m) => m.owner_id === owner_id);
+      const filtered = await this._manifests.list_by_owner(ctx, owner_id);
       return timed(() => aggregate_mailbox_stats(owner_id, filtered));
     } finally {
       ctx.destroy();

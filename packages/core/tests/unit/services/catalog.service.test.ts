@@ -126,21 +126,18 @@ describe('CatalogService', () => {
   // ---------------------------------------------------------------------------
 
   describe('list_snapshots', () => {
-    it('returns only snapshots for the specified mailbox', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({ owner_id: 'alice@test.com', snapshot_id: 's1' }),
-        make_manifest({ owner_id: 'bob@test.com', snapshot_id: 's2' }),
-        make_manifest({ owner_id: 'alice@test.com', snapshot_id: 's3' }),
-      ]);
+    it('reads only the requested mailbox, under its lowercased owner id', async () => {
+      await service.list_snapshots('t', 'Alice@Test.com');
 
-      const result = await service.list_snapshots('t', 'alice@test.com');
-
-      expect(result).toHaveLength(2);
-      expect(result.every((m) => m.owner_id === 'alice@test.com')).toBe(true);
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(
+        expect.anything(),
+        'alice@test.com',
+      );
+      expect(mock_manifests.list_all_manifests).not.toHaveBeenCalled();
     });
 
     it('sorts snapshots newest-first', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
         make_manifest({
           owner_id: 'a@t.com',
           snapshot_id: 'old',
@@ -160,10 +157,6 @@ describe('CatalogService', () => {
     });
 
     it('returns empty array when mailbox has no snapshots', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({ owner_id: 'other@test.com' }),
-      ]);
-
       const result = await service.list_snapshots('t', 'missing@test.com');
       expect(result).toEqual([]);
     });

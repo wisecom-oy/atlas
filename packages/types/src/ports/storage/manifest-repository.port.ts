@@ -9,6 +9,9 @@ export interface ManifestRepository {
   /** Returns the newest manifest for the given mailbox owner (storage prefix `manifests/{owner_id}/`). */
   find_latest_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest | undefined>;
 
+  /** Downloads and decrypts one mailbox owner's manifests (storage prefix `manifests/{owner_id}/`). */
+  list_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest[]>;
+
   /** Downloads and decrypts every manifest in the tenant bucket. */
   list_all_manifests(ctx: TenantContext): Promise<Manifest[]>;
 }

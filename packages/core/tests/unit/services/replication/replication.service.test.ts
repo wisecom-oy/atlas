@@ -143,6 +143,7 @@ describe('ReplicationService', () => {
     manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
@@ -218,7 +219,7 @@ describe('ReplicationService', () => {
     const m1 = make_manifest('snap-1', 'mbx-1', [make_entry('a')]);
     const m2 = make_manifest('snap-2', 'mbx-1', [make_entry('b')]);
 
-    vi.mocked(manifests.list_all_manifests).mockResolvedValue([m1, m2]);
+    vi.mocked(manifests.list_by_owner).mockResolvedValue([m1, m2]);
     vi.mocked(target_storage.list).mockResolvedValue(['manifests/mbx-1/snap-1.json']);
     vi.mocked(source_storage.get).mockResolvedValue(Buffer.from('data'));
     vi.mocked(target_storage.get).mockResolvedValue(Buffer.from('data'));

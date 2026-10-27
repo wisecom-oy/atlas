@@ -88,6 +88,7 @@ describe('VerificationService', () => {
     manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };

@@ -33,10 +33,10 @@ export async function list_mailbox_manifests(
   ctx: TenantContext,
   owner_id: string,
 ): Promise<Manifest[]> {
-  const all = await repo.list_all_manifests(ctx);
-  return all
-    .filter((m) => m.owner_id === owner_id)
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const manifests = await repo.list_by_owner(ctx, owner_id);
+  return manifests.sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
 }
 
 /** Finds manifests present on the source but missing from the target. */
