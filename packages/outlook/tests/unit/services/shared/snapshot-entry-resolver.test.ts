@@ -53,14 +53,24 @@ const SNAP_2 = manifest('snap-2', 2, [entry('C'), entry('B', { subject: 'new' })
 const SNAP_3 = manifest('snap-3', 3, [entry('D')]);
 const OTHER = manifest('other', 1, [entry('X')], 'jane.doe@example.com');
 
-async function resolve(snapshot_id: string, filter = {}): Promise<ManifestEntry[]> {
+function make_repo(): ManifestRepository {
   const all = [SNAP_1, SNAP_2, SNAP_3, OTHER];
-  const repo = {
+  return {
     find_by_snapshot: vi.fn(async (_c: TenantContext, id: string) =>
       all.find((m) => m.snapshot_id === id),
     ),
+    list_by_owner: vi.fn(async (_c: TenantContext, owner_id: string) =>
+      all.filter((m) => m.owner_id === owner_id),
+    ),
     list_all_manifests: vi.fn(async () => all),
   } as unknown as ManifestRepository;
+}
+
+async function resolve(
+  snapshot_id: string,
+  filter = {},
+  repo = make_repo(),
+): Promise<ManifestEntry[]> {
   const connector = {
     list_mail_folders: vi.fn(async () => [
       { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox' },
@@ -73,6 +83,15 @@ async function resolve(snapshot_id: string, filter = {}): Promise<ManifestEntry[
 }
 
 describe('resolve_snapshot_entries', () => {
+  it('reads only the target mailbox prefix, never every manifest in the tenant (#510)', async () => {
+    const repo = make_repo();
+
+    await resolve('snap-2', {}, repo);
+
+    expect(repo.list_by_owner).toHaveBeenCalledWith(expect.anything(), SNAP_2.owner_id);
+    expect(repo.list_all_manifests).not.toHaveBeenCalled();
+  });
+
   it('includes older messages of the same mailbox and excludes newer and foreign ones', async () => {
     const ids = (await resolve('snap-2')).map((e) => e.object_id).sort();
 

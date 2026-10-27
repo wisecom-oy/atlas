@@ -134,7 +134,7 @@ describe('SaveService', () => {
         created_at: new Date('2026-01-02'),
       });
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(delta);
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([first, delta]);
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([first, delta]);
 
       await service.save_snapshot('test-tenant', 'snap-2');
 

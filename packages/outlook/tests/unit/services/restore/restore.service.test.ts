@@ -106,7 +106,7 @@ describe('RestoreService', () => {
       created_at: new Date(2),
     };
     vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(delta);
-    vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([first, delta]);
+    vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([first, delta]);
 
     const result = await service.restore_snapshot('test-tenant', 'snap-2');
 

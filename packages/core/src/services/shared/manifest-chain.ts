@@ -5,6 +5,7 @@ import { NotFoundError } from '@wisecom/atlas-types';
  * Loads a snapshot's manifest plus every older manifest of the same mailbox, target first, then
  * newest-first. An Outlook manifest holds only that run's delta, so this chain is what a snapshot
  * actually contains. Verify, restore and save all read it, so the three cannot drift (issue #432).
+ * Only the target's own `manifests/{owner_id}/` prefix is read, never the whole tenant (issue #510).
  */
 export async function load_snapshot_chain(
   manifests: ManifestRepository,
@@ -15,14 +16,9 @@ export async function load_snapshot_chain(
   if (!target) throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
 
   const target_time = target.created_at.getTime();
-  const all = await manifests.list_all_manifests(ctx);
-  const older = all
-    .filter(
-      (m) =>
-        m.snapshot_id !== target.snapshot_id &&
-        m.owner_id === target.owner_id &&
-        m.created_at.getTime() <= target_time,
-    )
+  const for_owner = await manifests.list_by_owner(ctx, target.owner_id);
+  const older = for_owner
+    .filter((m) => m.snapshot_id !== target.snapshot_id && m.created_at.getTime() <= target_time)
     .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   return [target, ...older];
 }
