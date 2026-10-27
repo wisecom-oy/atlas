@@ -246,6 +246,8 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, excluded Junk Email, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
 
+`MailboxSummary.totalObjects` from `listMailboxes()` counts the messages in the latest snapshot's chain, after those removals. `Manifest.totalObjects` is a high-water mark, the largest message count any single run of the mailbox stored, and never decreases. The stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
+
 ### OneDrive and SharePoint
 
 `atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listFileVersions`, `replicateSnapshot`, `replicateAll`, `rehydrateSnapshot`, `checkStatus`, `getStats`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()`, `resolveSite(urlOrId)`, and `rehydrateSite`. OneDrive provides `rehydrateOwner`.

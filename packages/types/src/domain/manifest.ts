@@ -32,6 +32,10 @@ export interface Manifest {
   readonly mailbox_purpose?: MailboxPurpose;
   readonly snapshot_id: string;
   readonly created_at: Date;
+  /**
+   * High-water mark: the largest entry count any run of this mailbox stored. Never decreases, so
+   * the stale-delta safeguard can tell an unchanged mailbox from one never backed up.
+   */
   readonly total_objects: number;
   readonly total_size_bytes: number;
   /** Maps folder_id -> full @odata.deltaLink URL for the next incremental sync. */

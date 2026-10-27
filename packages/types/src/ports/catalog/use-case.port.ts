@@ -7,6 +7,7 @@ export interface MailboxSummary {
   /** Purpose from the newest manifest that recorded one; 'shared' = shared mailbox. Absent when never recorded. */
   readonly mailbox_purpose?: MailboxPurpose;
   readonly snapshot_count: number;
+  /** Messages in the latest snapshot's merged chain, after recorded removals. */
   readonly total_objects: number;
   readonly total_size_bytes: number;
   readonly last_backup_at: Date;

@@ -5,6 +5,7 @@ import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { MailboxSummary, ReadMessageResult, CatalogUseCase } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
+import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 
 @injectable()
 export class CatalogService implements CatalogUseCase {
@@ -106,9 +107,9 @@ function group_by_mailbox(manifests: Manifest[]): Map<string, Manifest[]> {
 }
 
 /**
- * Builds one MailboxSummary per group. Uses the latest manifest for
- * object count and date, and sums total_size_bytes across all snapshots
- * since each incremental snapshot only contains newly arrived data.
+ * Builds one MailboxSummary per group. The object count is the latest snapshot's merged chain,
+ * so messages a later run recorded as removed are not counted (issue #536). total_size_bytes sums
+ * every snapshot, since each incremental snapshot only stores newly arrived data.
  * mailbox_purpose comes from the newest manifest that recorded one, so a
  * transient lookup failure in the latest backup does not blank the type.
  */
@@ -127,7 +128,7 @@ function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummar
       ...(owner_email ? { owner_email } : {}),
       ...(purpose ? { mailbox_purpose: purpose } : {}),
       snapshot_count: manifests.length,
-      total_objects: latest.total_objects,
+      total_objects: merge_snapshot_entries(manifests).length,
       total_size_bytes: cumulative_size,
       last_backup_at: latest.created_at,
     });

@@ -4,6 +4,15 @@ import type { CatalogService } from '@/services/catalog/catalog.service';
 import type { ManifestRepository, TenantContext } from '@wisecom/atlas-types';
 import { build_catalog_harness, make_manifest } from './catalog-service.fixtures';
 
+function entries(...object_ids: string[]) {
+  return object_ids.map((object_id) => ({
+    object_id,
+    storage_key: `data/${object_id}`,
+    checksum: object_id,
+    size_bytes: 1,
+  }));
+}
+
 describe('CatalogService', () => {
   let mock_manifests: ManifestRepository;
   let mock_context: TenantContext;
@@ -29,21 +38,21 @@ describe('CatalogService', () => {
           owner_id: 'alice@test.com',
           snapshot_id: 's1',
           created_at: new Date('2026-03-01'),
-          total_objects: 10,
+          entries: entries('a1', 'a2'),
           total_size_bytes: 1000,
         }),
         make_manifest({
           owner_id: 'alice@test.com',
           snapshot_id: 's2',
           created_at: new Date('2026-03-05'),
-          total_objects: 20,
+          entries: entries('a2', 'a3'),
           total_size_bytes: 2000,
         }),
         make_manifest({
           owner_id: 'bob@test.com',
           snapshot_id: 's3',
           created_at: new Date('2026-03-03'),
-          total_objects: 5,
+          entries: entries('b1'),
           total_size_bytes: 500,
         }),
       ]);
@@ -54,12 +63,35 @@ describe('CatalogService', () => {
 
       const alice = result.find((m) => m.owner_id === 'alice@test.com')!;
       expect(alice.snapshot_count).toBe(2);
-      expect(alice.total_objects).toBe(20);
+      expect(alice.total_objects).toBe(3);
       expect(alice.total_size_bytes).toBe(3000);
 
       const bob = result.find((m) => m.owner_id === 'bob@test.com')!;
       expect(bob.snapshot_count).toBe(1);
-      expect(bob.total_objects).toBe(5);
+      expect(bob.total_objects).toBe(1);
+    });
+
+    // Issue #536: the count followed the high-water `total_objects` and never dropped.
+    it('stops counting messages a run with no new entries recorded as removed', async () => {
+      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+        make_manifest({
+          snapshot_id: 's1',
+          created_at: new Date('2026-03-01'),
+          total_objects: 3,
+          entries: entries('m1', 'm2', 'm3'),
+        }),
+        make_manifest({
+          snapshot_id: 's2',
+          created_at: new Date('2026-03-02'),
+          total_objects: 3,
+          entries: [],
+          removed_object_ids: ['m2'],
+        }),
+      ]);
+
+      const [summary] = await service.list_mailboxes('t');
+
+      expect(summary!.total_objects).toBe(2);
     });
 
     it('reports mailbox_purpose from the latest manifest after conversion', async () => {
