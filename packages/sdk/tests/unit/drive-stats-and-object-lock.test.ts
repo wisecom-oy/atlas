@@ -74,7 +74,7 @@ describe('Object Lock policy construction through the SDK (issue #165)', () => {
 
   it('derives retain_until from an object lock request', async () => {
     const before = Date.now();
-    await atlas.outlook.backup('user@test.com', {
+    await atlas.outlook.backup('00000000-0000-0000-0000-000000000001', {
       objectLockRequest: { mode: 'COMPLIANCE', retentionDays: 30 },
     });
 
@@ -86,7 +86,7 @@ describe('Object Lock policy construction through the SDK (issue #165)', () => {
   });
 
   it('keeps a caller-supplied policy instead of recomputing it', async () => {
-    await atlas.outlook.backup('user@test.com', {
+    await atlas.outlook.backup('00000000-0000-0000-0000-000000000001', {
       objectLockRequest: { mode: 'GOVERNANCE', retentionDays: 30 },
       objectLockPolicy: {
         mode: 'GOVERNANCE',
@@ -99,7 +99,7 @@ describe('Object Lock policy construction through the SDK (issue #165)', () => {
   });
 
   it('leaves the policy unset when no retention was requested', async () => {
-    await atlas.outlook.backup('user@test.com', { forceFull: true });
+    await atlas.outlook.backup('00000000-0000-0000-0000-000000000001', { forceFull: true });
 
     const options = mock_backup.sync_mailbox.mock.calls[0]![2];
     expect(options.object_lock_policy).toBeUndefined();

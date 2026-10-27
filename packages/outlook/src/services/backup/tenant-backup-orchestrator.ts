@@ -67,8 +67,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
 
     const outcomes = await this.report_excluded_with_history(tenant_id, excluded);
     const excluded_count = outcomes.length;
-    // TODO: resolve email -> object_id via UserIdentityResolver; pending queue should hold owner IDs for storage.
-    const pending = mailboxes.map((m) => m.mail);
+    const pending = [...mailboxes];
     let done_count = 0;
     let error_count = outcomes.length;
     let global_stored = 0;
@@ -76,11 +75,13 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
 
     const run_worker = async (slot: number): Promise<void> => {
       while (pending.length > 0 && !should_interrupt()) {
-        const mailbox_id = pending.shift()!;
-        progress?.mark_mailbox_active(slot, mailbox_id);
+        const mailbox = pending.shift()!;
+        progress?.mark_mailbox_active(slot, mailbox.mail);
 
         try {
-          const result = await this._backup.sync_mailbox(tenant_id, mailbox_id, {
+          const result = await this._backup.sync_mailbox(tenant_id, mailbox.user_id, {
+            owner_email: mailbox.mail,
+            owner_display_name: mailbox.display_name,
             force_full: options.force_full,
             page_size: options.page_size,
             object_lock_request: options.object_lock_request,
@@ -95,17 +96,17 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
           done_count++;
           progress?.mark_mailbox_done(
             slot,
-            mailbox_id,
+            mailbox.mail,
             result.summary.stored,
             result.summary.deduplicated,
           );
-          outcomes.push({ owner_id: mailbox_id, result });
+          outcomes.push({ owner_id: mailbox.user_id, owner_email: mailbox.mail, result });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           error_count++;
-          progress?.mark_mailbox_error(slot, mailbox_id, msg);
-          outcomes.push({ owner_id: mailbox_id, error: msg });
-          logger.error(`Mailbox ${mailbox_id} failed: ${msg}`);
+          progress?.mark_mailbox_error(slot, mailbox.mail, msg);
+          outcomes.push({ owner_id: mailbox.user_id, owner_email: mailbox.mail, error: msg });
+          logger.error(`Mailbox ${mailbox.mail} failed: ${msg}`);
         }
 
         const elapsed = Date.now() - start;
@@ -138,7 +139,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
   }
 
   /**
-   * Fails every excluded mailbox that already has backups, by address and reason. A mailbox that
+   * Fails every excluded mailbox that already has backups, by object ID and reason. A mailbox that
    * drops out of selection (shared converted to user before licensing, or a failed userPurpose
    * lookup) would otherwise stop being backed up while the run reports success (issue #480).
    * Never-backed-up unlicensed users stay a quiet skip.
@@ -151,11 +152,11 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     const ctx = await this._tenant_factory.create_storage_only(tenant_id);
     const with_history = new Set(await this._manifests.list_owner_ids(ctx));
     return excluded
-      .filter((m) => with_history.has(normalize_owner_id(m.mail)))
+      .filter((m) => with_history.has(normalize_owner_id(m.user_id)))
       .map((m) => {
         const error = `excluded from tenant backup but has existing backups: ${exclusion_reason(m)}`;
         logger.error(`Mailbox ${m.mail} ${error}`);
-        return { owner_id: m.mail, error };
+        return { owner_id: m.user_id, owner_email: m.mail, error };
       });
   }
 }

@@ -204,7 +204,7 @@ skip creating a bucket that was not there.
 `createAtlasInstance` returns an `AtlasInstance` with three workload sub-APIs and cross-cutting tenant methods:
 
 ```typescript
-// --- Outlook (mailboxes) ---
+// --- Outlook (mailbox: email or Entra object id) ---
 const result = await atlas.outlook.backup('user@company.com', { forceFull: true });
 const mailboxes = await atlas.outlook.listMailboxes();
 const snapshots = await atlas.outlook.listSnapshots('user@company.com');
@@ -254,14 +254,15 @@ The field is absent when a snapshot was created, and absent when the run was int
 
 ### Identifiers
 
-Drive methods take the same identifiers the CLI takes, and normalise them the same way.
+Drive and Outlook methods take the same identifiers the CLI takes, and normalise them the same way.
 
 | Namespace            | Accepted                                                          | Normalisation                                                                     |
 | -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `atlas.onedrive.*`   | An email or UPN, or an Entra object id                            | An argument containing `@` is resolved through Graph; anything else is used as is |
+| `atlas.outlook.*`    | An email or UPN, or an Entra object id                            | An argument containing `@` is resolved through Graph; anything else is used as is |
 | `atlas.sharepoint.*` | A site URL or hostname, or a composite `host,siteGuid,webGuid` id | An argument without commas is resolved through Graph; anything else is used as is |
 
-Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance, and `atlas.onedrive.backup` records the resolved email and display name with the snapshot, which is what makes owners readable in later listings. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
+Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance. `atlas.onedrive.backup` and `atlas.outlook.backup` record the resolved email and display name with the snapshot as display metadata, which is what makes owners readable in later listings. The storage key is always the object ID. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
 
 ### Storage usage
 
@@ -618,7 +619,7 @@ All four fields are absent on manifests written before 4.1.0.
 
 ### Identifier case
 
-Every method taking a mailbox address, an Entra object ID, or a SharePoint site ID lowercases it before it becomes a storage key segment, so two spellings of one identifier address one tree.
+Every method taking an Entra object ID or a SharePoint site ID lowercases it before it becomes a storage key segment. An address resolved to an object ID is lowercased in the same way, so two spellings of one identifier address one tree. Outlook keys written by earlier releases used the SMTP address and are not reachable under the new keys; see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys).
 
 The SDK is where this used to bite. Graph hands back these identifiers lowercase, so the CLI never saw the problem; an embedder holding an object ID in application state or reading one from a portal could. Two spellings meant two prefixes, so the same drive was backed up twice. Worse:
 

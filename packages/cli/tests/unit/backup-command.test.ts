@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Container } from 'inversify';
 import { Command } from 'commander';
 import { register_outlook_command } from '@/commands/outlook.command';
-import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { BACKUP_USE_CASE_TOKEN, USER_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 
 const mock_run_backup_with_cli_adapter = vi.fn();
@@ -11,6 +11,15 @@ vi.mock('@/adapters/backup-operation.adapter', () => ({
   run_backup_with_cli_adapter: (...args: unknown[]): unknown =>
     mock_run_backup_with_cli_adapter(...args),
 }));
+
+const OWNER_OBJECT_ID = '3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b';
+const identity_resolver = {
+  resolve_user: vi.fn().mockResolvedValue({
+    object_id: OWNER_OBJECT_ID,
+    email: 'user@example.com',
+    display_name: 'Example User',
+  }),
+};
 
 function make_sync_result(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -38,6 +47,7 @@ describe('outlook backup command immutability options', () => {
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({
       tenant_id: 'tenant-from-config',
     });
+    container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue(identity_resolver);
 
     program = new Command();
     register_outlook_command(program, () => container);
@@ -85,6 +95,15 @@ describe('outlook backup command immutability options', () => {
     expect(sync_options.object_lock_policy.mode).toBe('COMPLIANCE');
     expect(sync_options.object_lock_request.mode).toBe('COMPLIANCE');
   });
+
+  it('backs up by resolved object ID and keeps the address as display metadata', async () => {
+    await program.parseAsync(['outlook', 'backup', '-m', 'user@example.com'], { from: 'user' });
+
+    const [, , mailbox_id, sync_options] = mock_run_backup_with_cli_adapter.mock.calls[0];
+    expect(mailbox_id).toBe(OWNER_OBJECT_ID);
+    expect(sync_options.owner_email).toBe('user@example.com');
+    expect(sync_options.owner_display_name).toBe('Example User');
+  });
 });
 
 describe('outlook backup requires a mailbox (issue #166)', () => {
@@ -95,6 +114,7 @@ describe('outlook backup requires a mailbox (issue #166)', () => {
     container = new Container();
     container.bind(BACKUP_USE_CASE_TOKEN).toConstantValue({ sync_mailbox: vi.fn() });
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-from-config' });
+    container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue(identity_resolver);
 
     program = new Command();
     program.exitOverride();
@@ -119,6 +139,7 @@ describe('outlook backup single-mailbox exit code (issue #32)', () => {
     container = new Container();
     container.bind(BACKUP_USE_CASE_TOKEN).toConstantValue({ sync_mailbox: vi.fn() });
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-from-config' });
+    container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue(identity_resolver);
 
     program = new Command();
     register_outlook_command(program, () => container);

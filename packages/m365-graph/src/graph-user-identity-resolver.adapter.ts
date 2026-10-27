@@ -5,25 +5,56 @@ import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_retryable_error } from '@/graph-request-error-handler';
 
+const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
+
+interface GraphUserRecord {
+  id: string;
+  displayName?: string;
+  mail?: string;
+  userPrincipalName?: string;
+}
+
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
 @injectable()
 export class GraphUserIdentityResolver implements UserIdentityResolver {
   constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
 
-  /** Resolves a single email/UPN to the Entra ID object by querying Graph /users/{email}. */
+  /**
+   * Resolves an email to the Entra ID object. `/users/{key}` accepts a UPN, and a mailbox's
+   * primary SMTP address can differ from it, so a 404 there retries as a `mail` filter before
+   * reporting the user missing.
+   */
   async resolve_user(tenant_id: string, email: string): Promise<ResolvedUserIdentity> {
     void tenant_id;
     const normalized_email = email.toLowerCase().trim();
-    const response = await this._client
-      .api(`/users/${encodeURIComponent(normalized_email)}`)
-      .select('id,displayName,mail,userPrincipalName')
-      .get();
+    const response = await this.get_user_by_upn(normalized_email).catch(async (err: unknown) => {
+      if ((err as Record<string, unknown>).statusCode !== 404) throw err;
+      const by_mail = await this.find_user_by_mail(normalized_email);
+      if (!by_mail) throw err;
+      return by_mail;
+    });
 
     return {
       object_id: response.id,
       display_name: response.displayName ?? normalized_email,
       email: response.mail ?? response.userPrincipalName ?? normalized_email,
     };
+  }
+
+  private async get_user_by_upn(upn: string): Promise<GraphUserRecord> {
+    return (await this._client
+      .api(`/users/${encodeURIComponent(upn)}`)
+      .select(USER_FIELDS)
+      .get()) as GraphUserRecord;
+  }
+
+  private async find_user_by_mail(mail: string): Promise<GraphUserRecord | undefined> {
+    const page = (await this._client
+      .api('/users')
+      .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
+      .select(USER_FIELDS)
+      .get()) as { value?: GraphUserRecord[] };
+    return page.value?.[0];
   }
 
   /**

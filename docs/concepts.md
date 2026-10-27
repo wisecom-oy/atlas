@@ -21,7 +21,7 @@ Each workload has its own CLI namespace and storage prefix inside the tenant buc
 
 | Workload       | CLI namespace      | Target                              | Storage prefix |
 | -------------- | ------------------ | ----------------------------------- | -------------- |
-| **Outlook**    | `atlas outlook`    | Mailbox (email address or Graph ID) | `outlook/`     |
+| **Outlook**    | `atlas outlook`    | Mailbox (email or Entra object ID)  | `outlook/`     |
 | **OneDrive**   | `atlas onedrive`   | User (email/UPN or Entra object ID) | `onedrive/`    |
 | **SharePoint** | `atlas sharepoint` | Site (URL or Graph site ID)         | `sharepoint/`  |
 

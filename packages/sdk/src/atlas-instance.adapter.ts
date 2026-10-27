@@ -31,6 +31,7 @@ import { create_disposer } from '@/instance-disposal';
 import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 import { normalize_config } from '@/instance-config';
 import { validate_instance } from '@/instance-validation';
+import { resolve_owner_object_id } from '@/owner-resolution';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
@@ -97,13 +98,15 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     async replicateSnapshot(snapshot_id, targets) {
       return camelize(await replication.replicate_snapshot(tenant_id, snapshot_id, targets));
     },
-    async replicateMailbox(mailbox_id, targets) {
+    async replicateMailbox(mailbox, targets) {
+      const mailbox_id = await resolve_owner_object_id(identity_resolver, tenant_id, mailbox);
       return camelize(await replication.replicate_mailbox(tenant_id, mailbox_id, targets));
     },
     async rehydrateSnapshot(snapshot_id, source) {
       return camelize(await replication.rehydrate_snapshot(tenant_id, snapshot_id, source));
     },
-    async rehydrateMailbox(mailbox_id, source) {
+    async rehydrateMailbox(mailbox, source) {
+      const mailbox_id = await resolve_owner_object_id(identity_resolver, tenant_id, mailbox);
       return camelize(await replication.rehydrate_mailbox(tenant_id, mailbox_id, source));
     },
     async rehydrateTenant(source) {

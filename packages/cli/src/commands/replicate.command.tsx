@@ -48,7 +48,7 @@ interface ReplicateOptions {
 /** Adds the scope flags both `replicate` and `replicate status` select snapshots with. */
 function with_replication_scope(command: Command): Command {
   const scoped = command
-    .option('-m, --mailbox <id>', 'all unreplicated snapshots for a mailbox')
+    .option('-m, --mailbox <email|id>', 'all unreplicated snapshots for a mailbox')
     .option('--site <url-or-id>', 'all unreplicated snapshots for a SharePoint site')
     .option('-o, --owner <email-or-id>', 'all unreplicated snapshots for a OneDrive owner');
   return with_tenant(with_snapshot(scoped, 'a specific snapshot'));
@@ -99,7 +99,10 @@ async function execute_replicate_status(
   const site_scope = options.site
     ? await resolve_site_id(container, tenant_id, options.site)
     : undefined;
-  const scope_id = options.mailbox ?? site_scope ?? owner_scope;
+  const mailbox_scope = options.mailbox
+    ? (await resolve_owner(container, tenant_id, options.mailbox)).object_id
+    : undefined;
+  const scope_id = mailbox_scope ?? site_scope ?? owner_scope;
   await show_status(use_case, tenant_id, options.snapshot, scope_id);
 }
 
@@ -128,7 +131,8 @@ async function execute_replicate(container: Container, options: ReplicateOptions
     const results = await use_case.replicate_snapshot(tenant_id, options.snapshot, [target]);
     await report_results(results);
   } else if (options.mailbox) {
-    const results = await use_case.replicate_mailbox(tenant_id, options.mailbox, [target]);
+    const owner = await resolve_owner(container, tenant_id, options.mailbox);
+    const results = await use_case.replicate_mailbox(tenant_id, owner.object_id, [target]);
     await report_results(results);
   } else {
     logger.error(

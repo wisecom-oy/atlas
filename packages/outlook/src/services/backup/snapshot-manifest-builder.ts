@@ -48,7 +48,7 @@ export function mark_snapshot_completed(snapshot: Snapshot, object_count: number
 }
 
 /** Optional manifest facts that not every run has. */
-export interface ManifestBuildExtras {
+export interface ManifestBuildExtras extends OwnerIdentityHint {
   readonly previous_total_objects?: number | undefined;
   readonly object_lock?: ManifestObjectLockPolicy | undefined;
   readonly mailbox_purpose?: MailboxPurpose | undefined;
@@ -87,6 +87,10 @@ export function build_manifest(
     id_format: 'immutable',
     ...(extras.object_lock ? { object_lock: extras.object_lock } : {}),
     ...(extras.mailbox_purpose ? { mailbox_purpose: extras.mailbox_purpose } : {}),
+    ...(extras.owner_email !== undefined && { owner_email: extras.owner_email }),
+    ...(extras.owner_display_name !== undefined && {
+      owner_display_name: extras.owner_display_name,
+    }),
     ...(extras.excluded_folders && extras.excluded_folders.length > 0
       ? { excluded_folders: extras.excluded_folders }
       : {}),

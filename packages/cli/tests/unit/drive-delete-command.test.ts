@@ -197,7 +197,7 @@ describe('tenant-wide purge moved out of the outlook group (issue #163)', () => 
   it('still deletes a single mailbox through outlook delete', async () => {
     await h.program.parseAsync(['outlook', 'delete', '-m', OWNER_EMAIL, '-y'], { from: 'user' });
 
-    expect(h.outlook.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL);
+    expect(h.outlook.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OWNER_OBJECT_ID);
   });
 
   it('purges only when the tenant ID is typed back exactly', async () => {

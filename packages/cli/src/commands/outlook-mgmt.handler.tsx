@@ -23,6 +23,7 @@ import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 /** Archive-enabled mailboxes named individually before the warning summarises. */
 const ARCHIVE_WARNING_LIMIT = 10;
@@ -89,7 +90,8 @@ export async function execute_outlook_status(
     </Box>,
   );
 
-  const result = await status_use_case.check_mailbox_status(tenant_id, options.mailbox);
+  const owner = await resolve_owner(container, tenant_id, options.mailbox);
+  const result = await status_use_case.check_mailbox_status(tenant_id, owner.object_id);
   await print_status_result(result);
 }
 

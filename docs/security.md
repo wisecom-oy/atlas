@@ -167,7 +167,7 @@ overwriting one stored blob with another needed write access to the bucket, not 
 
 The header and the object's scope are authenticated as associated data, so a ciphertext only
 decrypts where it was written. The scope is the key's directory, which names the purpose and the
-owner: `onedrive/data/{owner_id}/`, `manifests/{mailbox}/`, `_meta/replication/{owner}/{snapshot}/`.
+owner: `onedrive/data/{owner_id}/`, `manifests/{owner_id}/`, `_meta/replication/{owner}/{snapshot}/`.
 The directory rather than the whole key, because the large-file pipeline encrypts into a staging
 key and promotes the finished object onto a content-addressed key whose checksum is unknown while
 the cipher is running. The streamed writer therefore binds the canonical directory, not the staging
@@ -201,15 +201,15 @@ either way, by comparing the manifest checksum before anything is written.
 
 ### What Is Encrypted at Rest
 
-| Data                                       | Encrypted | Notes                                                                                                                  |
-| ------------------------------------------ | --------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{mailbox}/{sha256}`                                                   |
-| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{mailbox}/{sha256}`; MIME entries embed attachments in the message object |
-| Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                        |
-| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                         |
-| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                         |
-| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                              |
-| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                             |
+| Data                                       | Encrypted | Notes                                                                                                                   |
+| ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{owner_id}/{sha256}`                                                   |
+| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{sha256}`; MIME entries embed attachments in the message object |
+| Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                         |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                          |
+| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                          |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                               |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                              |
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 
@@ -225,9 +225,9 @@ OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version 
 
 **OneDrive (CLI `atlas onedrive`)** always resolves interactive owner inputs that look like email/UPN to an Entra object ID (`GET /users/{email}` with `id` selected) before computing S3 prefixes. Passing a bare UUID to `--owner` skips resolution and must match the user's directory object ID.
 
-**Mailbox backup** still namespaces `data/`, `attachments/`, and `manifests/` by the mailbox identifier wired into the sync job (today this is commonly the primary SMTP address from discovery). That is a separate layout from OneDrive's object-ID paths. Operators who rely on privacy through opaque IDs should prefer object IDs for new automation and be aware older mailbox prefixes may still contain human-readable addresses.
+**Mailbox backup** namespaces `data/`, `attachments/`, and `manifests/` by the mailbox owner's Entra object ID, the same as OneDrive. The SMTP address is recorded only as display metadata on snapshots, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs. Backups keyed by an address in earlier releases are not reachable under the new keys; see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys).
 
-There is **no built-in S3 object rename** between email-keyed and ID-keyed mailbox prefixes in the open-source CLI as shipped; migrating layout is an operational exercise (re-backup, copy, or custom tooling) if you need to align naming.
+Old address-keyed objects are not renamed or aliased. They stay in the bucket under their old prefixes until something deletes them: Object Lock expiry only makes them deletable, it does not remove them. The migration page describes how to remove them.
 
 ## Backup Fidelity
 
@@ -261,7 +261,7 @@ There is deliberately no `--fidelity` flag. MIME is the only mode for new snapsh
 
 ### Attachments move inside the message object
 
-MIME carries its attachments, so a MIME entry stores no separate objects under `attachments/{mailbox}/{sha256}` and its manifest entry lists no attachment records. Two consequences are worth stating plainly:
+MIME carries its attachments, so a MIME entry stores no separate objects under `attachments/{owner_id}/{sha256}` and its manifest entry lists no attachment records. Two consequences are worth stating plainly:
 
 - **Attachment content is no longer deduplicated across messages within a mailbox.** A slide deck mailed to a distribution list is stored once per message that carries it, not once per distinct payload.
 - **Base64 encoding inside MIME costs roughly one third more bytes** than the raw attachment, because base64 represents three bytes of binary as four bytes of text.
@@ -647,12 +647,12 @@ ATLAS_S3_ENDPOINT="http://localhost:9000"    # local MinIO only
 
 Atlas accepts a plain `http://` S3 endpoint because local MinIO needs it. Over plain HTTP the content stays protected: every object is AES-256-GCM ciphertext bound to its key, and SigV4 signs requests without ever sending the secret key. The traffic around the content is exposed to anyone on the network path:
 
-| Exposed over plain HTTP   | Why it matters                                                                                                                                            |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every object key          | Outlook keys carry mailbox addresses ([User identity in storage paths](#user-identity-in-storage-paths)), and content-addressed keys carry content hashes |
-| The access key id         | Identifies the account; the secret key is not sent                                                                                                        |
-| The request pattern       | Which owners are backed up, when, and how much data                                                                                                       |
-| Unauthenticated responses | A forged `200` to a `PutObject` makes the backup report success for an object that was never stored. Only the next `verify` finds it                      |
+| Exposed over plain HTTP   | Why it matters                                                                                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every object key          | Outlook and OneDrive keys carry Entra object IDs ([User identity in storage paths](#user-identity-in-storage-paths)), and content-addressed keys carry content hashes |
+| The access key id         | Identifies the account; the secret key is not sent                                                                                                                    |
+| The request pattern       | Which owners are backed up, when, and how much data                                                                                                                   |
+| Unauthenticated responses | A forged `200` to a `PutObject` makes the backup report success for an object that was never stored. Only the next `verify` finds it                                  |
 
 Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`), for the primary endpoint and for replication targets alike. It does not refuse such an endpoint, because a self-hosted setup can terminate TLS elsewhere on a trusted network. Use `https://` for any endpoint that is not on the same machine.
 

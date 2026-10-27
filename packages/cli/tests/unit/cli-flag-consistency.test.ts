@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Command } from 'commander';
 import { Container } from 'inversify';
 import 'reflect-metadata';
-import { BACKUP_USE_CASE_TOKEN, STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import {
+  BACKUP_USE_CASE_TOKEN,
+  STATS_USE_CASE_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
+} from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import { register_onedrive_command } from '@/commands/onedrive.command';
 import { register_outlook_command } from '@/commands/outlook.command';
@@ -27,6 +31,13 @@ function make_container(): Container {
   container.bind(BACKUP_USE_CASE_TOKEN).toConstantValue({ sync_mailbox: vi.fn() });
   container.bind(STATS_USE_CASE_TOKEN).toConstantValue({ get_bucket_stats: vi.fn() });
   container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-from-config' });
+  container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue({
+    resolve_user: vi.fn().mockResolvedValue({
+      object_id: '3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b',
+      email: 'user@example.com',
+      display_name: 'Example User',
+    }),
+  });
   return container;
 }
 
@@ -114,6 +125,6 @@ describe('outlook --folder arity', () => {
     });
 
     expect(mock_run_backup.mock.calls[0]![3].folder_filter).toEqual(['Inbox']);
-    expect(mock_run_backup.mock.calls[0]![2]).toBe('user@test.com');
+    expect(mock_run_backup.mock.calls[0]![2]).toBe('3f2b8c1e-5a4d-4e6f-9b7a-1c2d3e4f5a6b');
   });
 });

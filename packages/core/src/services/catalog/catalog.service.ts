@@ -121,10 +121,12 @@ function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummar
     manifests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const latest = manifests[0]!;
     const purpose = manifests.find((m) => m.mailbox_purpose)?.mailbox_purpose;
+    const owner_email = manifests.find((m) => m.owner_email)?.owner_email;
     const cumulative_size = manifests.reduce((sum, m) => sum + m.total_size_bytes, 0);
 
     summaries.push({
       owner_id,
+      ...(owner_email ? { owner_email } : {}),
       ...(purpose ? { mailbox_purpose: purpose } : {}),
       snapshot_count: manifests.length,
       total_objects: latest.total_objects,

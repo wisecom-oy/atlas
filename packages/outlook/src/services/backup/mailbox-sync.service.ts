@@ -180,6 +180,8 @@ export class MailboxSyncService implements BackupUseCase {
         mailbox_purpose,
         excluded_folders,
         folders,
+        owner_email: options.owner_email,
+        owner_display_name: options.owner_display_name,
       });
 
       const persisted = await persist_mailbox_run(

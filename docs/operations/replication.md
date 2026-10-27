@@ -94,7 +94,7 @@ Status is persisted as encrypted sidecar files in the primary tenant bucket. The
 atlas-{tenant_id}/
 └── _meta/
     └── replication/
-        ├── {mailbox_id}/                          # Outlook
+        ├── {owner_id}/                            # Outlook
         │   └── {snapshot_id}/
         │       └── {target_id}.json
         ├── onedrive/{owner_id}/                   # OneDrive
