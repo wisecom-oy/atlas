@@ -18,14 +18,21 @@ const scrypt = promisify(scrypt_callback) as (
 export const KDF_SCRYPT = 0x01;
 
 const KEY_LENGTH = 32;
-/** OWASP-recommended cost for sensitive workloads (2^16). */
+/**
+ * Cost for new wraps: N=2^16 (64 MiB at r=8), p=1. This is below the OWASP Password Storage Cheat
+ * Sheet's p=1 row (N=2^17, 128 MiB); OWASP lists N=2^16 only with p=2. Each blob records its own
+ * N, so raising this changes new wraps only.
+ */
 const SCRYPT_N = 65536;
 const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 
 /** OpenSSL default maxmem (32 MiB) is too small for N=65536, r=8 (~64 MiB required). */
 const SCRYPT_MAXMEM = 128 * 1024 * 1024;
-/** OWASP minimum for sensitive workloads (2^14). */
+/**
+ * Lowest N accepted on unwrap (2^14, 16 MiB). N is read from the blob, so this floor stops a
+ * tampered blob from downgrading the derivation. Not an OWASP value: OWASP lists 2^14 only with p=5.
+ */
 const SCRYPT_N_MIN = 1 << 14;
 /**
  * Minimum passphrase length, in UTF-8 bytes, for wrapping a tenant key. The wrapped key sits in the
