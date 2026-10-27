@@ -100,34 +100,10 @@ export function map_users_to_tenant_mailboxes(users: GraphUserRecord[]): TenantM
     });
 }
 
-export interface GraphUserPage {
-  value?: GraphUserRecord[];
-  '@odata.nextLink'?: string;
-}
-
 /** Reads userPurpose from an untyped mailboxSettings response. */
 export function parse_mailbox_settings_purpose(response: unknown): MailboxPurpose | undefined {
   if (typeof response !== 'object' || response === null || !('userPurpose' in response)) {
     return undefined;
   }
   return parse_mailbox_purpose(response.userPurpose);
-}
-
-/**
- * Narrows an untyped /users page. A malformed page throws rather than reading as empty,
- * because an empty page would end discovery with a partial mailbox list reported as complete.
- */
-export function parse_user_page(page: unknown): GraphUserPage {
-  if (typeof page !== 'object' || page === null) {
-    throw new Error('Graph /users response is not an object');
-  }
-  const value: unknown = 'value' in page ? page.value : undefined;
-  if (value !== undefined && !Array.isArray(value)) {
-    throw new Error('Graph /users response has a non-array value');
-  }
-  const next: unknown = '@odata.nextLink' in page ? page['@odata.nextLink'] : undefined;
-  return {
-    ...(value ? { value: value as GraphUserRecord[] } : {}),
-    ...(typeof next === 'string' ? { '@odata.nextLink': next } : {}),
-  };
 }
