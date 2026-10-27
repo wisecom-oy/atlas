@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ObjectLockRetainedError } from '@wisecom/atlas-types';
+import { NotFoundError, ObjectLockRetainedError } from '@wisecom/atlas-types';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { DeletionService } from '@/services/deletion/deletion.service';
@@ -215,12 +215,9 @@ describe('DeletionService', () => {
       expect(mock_context.storage.delete).toHaveBeenCalledTimes(3);
     });
 
-    it('returns zeros when snapshot is not found', async () => {
-      const result = await service.delete_snapshot('t', 'missing');
+    it('raises NotFoundError and deletes nothing when the snapshot does not exist', async () => {
+      await expect(service.delete_snapshot('t', 'missing')).rejects.toThrow(NotFoundError);
 
-      expect(result.deleted_objects).toBe(0);
-      expect(result.deleted_manifests).toBe(0);
-      expect(result.failed_manifests).toBe(0);
       expect(mock_context.storage.delete).not.toHaveBeenCalled();
     });
 
@@ -243,7 +240,11 @@ describe('DeletionService', () => {
     });
 
     it('uses create instead of create_storage_only', async () => {
-      await service.delete_snapshot('t', 'missing');
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+        make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
+      );
+
+      await service.delete_snapshot('t', 'snap-42');
 
       expect(mock_factory.create).toHaveBeenCalledWith('t');
       expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
