@@ -15,7 +15,7 @@ import {
   onedrive_delta_cursor_key,
 } from '@/services/shared/storage-keys';
 
-const LOWER = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
+const LOWER = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const UPPER = LOWER.toUpperCase();
 
 describe('owner segment normalization', () => {

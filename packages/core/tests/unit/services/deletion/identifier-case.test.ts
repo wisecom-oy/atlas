@@ -10,7 +10,7 @@ import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
 
-const LOWER = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
+const LOWER = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const UPPER = LOWER.toUpperCase();
 const SITE_LOWER = 'contoso.sharepoint.com,site-guid,web-guid';
 

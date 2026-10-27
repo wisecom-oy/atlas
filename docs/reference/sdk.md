@@ -625,7 +625,7 @@ The SDK is where this used to bite. Graph hands back these identifiers lowercase
 ```typescript
 // Before 2.1.0-beta: swept an empty prefix, reported what it deleted there,
 // and left the real data behind -- a successful-looking erasure of nothing.
-await atlas.onedrive.deleteOwnerData('75A21B57-4D82-4F42-9CCC-7C231C30F78C');
+await atlas.onedrive.deleteOwnerData('A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D');
 ```
 
 Graph **item** IDs (`fileId`, `itemId`) are case-sensitive and never folded. `fileFilter` compares them case-insensitively, so an ID copied from `listFileVersions()` matches whatever case you send it in.
