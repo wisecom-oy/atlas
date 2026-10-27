@@ -213,19 +213,19 @@ export async function execute_sharepoint_restore(
   options: SharePointRestoreCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
-  logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
+  // The source names stored backups, so a site id needs no Graph call; only the target is live.
+  const site_id = await resolve_site_id(container, tenant_id, options.site);
 
   let target_site_id: string | undefined;
   if (options.targetSite) {
+    const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
     const target = await connector.resolve_site(tenant_id, options.targetSite);
     logger.info(`Target site: ${target.display_name} (${target.site_id})`);
     target_site_id = target.site_id;
   }
 
   const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
-  const result = await restore.restore_sharepoint(tenant_id, site.site_id, {
+  const result = await restore.restore_sharepoint(tenant_id, site_id, {
     snapshot_id: options.snapshot,
     ...(target_site_id ? { target_site_id } : {}),
     ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
@@ -261,12 +261,10 @@ export async function execute_sharepoint_save(
   options: SharePointSaveCommandOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
-  logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
+  const site_id = await resolve_site_id(container, tenant_id, options.site);
 
   const save_uc = container.get<SharePointSaveUseCase>(SHAREPOINT_SAVE_USE_CASE_TOKEN);
-  const result = await save_uc.save_snapshot(tenant_id, site.site_id, {
+  const result = await save_uc.save_snapshot(tenant_id, site_id, {
     snapshot_id: options.snapshot,
     ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
     ...(options.output ? { output_path: options.output } : {}),
@@ -301,18 +299,12 @@ export async function execute_sharepoint_verify(
   options: SharePointVerifyOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
-  logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
+  const site_id = await resolve_site_id(container, tenant_id, options.site);
 
   const verifier = container.get<SharePointVerificationUseCase>(
     SHAREPOINT_VERIFICATION_USE_CASE_TOKEN,
   );
-  const result = await verifier.verify_sharepoint_snapshot(
-    tenant_id,
-    site.site_id,
-    options.snapshot,
-  );
+  const result = await verifier.verify_sharepoint_snapshot(tenant_id, site_id, options.snapshot);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Verify')} />);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {

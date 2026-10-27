@@ -71,7 +71,7 @@ atlas-{tenant_id}/
 Object keys use the **site ID without its hostname** (for example `aaa-bbb,ccc-ddd`). The two GUIDs never change for the life of a site, while the hostname changes when the tenant renames its SharePoint domain (`contoso.sharepoint.com` to `fabrikam.sharepoint.com`). Keying by the GUIDs keeps one backup history across such a rename instead of starting a second one under the new hostname. Renaming a site's URL path or title does not change either GUID. The CLI resolves site URLs to site IDs automatically.
 
 ::: warning Upgrading from a version that kept the hostname
-Earlier versions keyed SharePoint storage by the full `hostname,site-guid,web-guid` ID. This version does not read those prefixes and has no migration: the first backup of each site after upgrading is a full backup under the new key. Old objects stay in the bucket until deleted or until Object Lock retention ends. To remove them, run `atlas sharepoint delete --site <url> -y` with the previous version before upgrading.
+Earlier versions keyed SharePoint storage by the full `hostname,site-guid,web-guid` ID, and there is no migration. Site commands look under the new key only, so they do not find those backups, and the first backup of each site after upgrading is a full backup under the new key. Tenant-wide `atlas stats` and `atlas stats storage` still count an old prefix, as a separate site. Old objects stay in the bucket until something deletes them; Object Lock expiry only makes them deletable. To remove them, run `atlas sharepoint delete --site <url> -y` with the previous version before upgrading.
 :::
 
 Ciphertext is stored at the key name shown above. There is no separate `.enc` filename suffix, because encryption is applied by the storage layer.
