@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type {
+  IdentityRegistry,
   IdentityRegistryEntry,
   IdentityRegistryRepository,
   ResolvedUserIdentity,
@@ -163,13 +164,25 @@ export class CachingIdentityResolver implements UserIdentityResolver {
 
   private async persist(tenant_id: string): Promise<void> {
     const ctx = await this._ctx_factory.create(tenant_id);
-    await this._registry_repo.save(ctx, { tenant_id, entries: this._all_entries });
+    try {
+      await this._registry_repo.save(ctx, { tenant_id, entries: this._all_entries });
+    } finally {
+      ctx.destroy();
+    }
+  }
+
+  private async load_registry(tenant_id: string): Promise<IdentityRegistry | undefined> {
+    const ctx = await this._ctx_factory.create(tenant_id);
+    try {
+      return await this._registry_repo.load(ctx);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   private async ensure_loaded(tenant_id: string): Promise<void> {
     if (this._loaded && this._tenant_id === tenant_id) return;
-    const ctx = await this._ctx_factory.create(tenant_id);
-    const registry = await this._registry_repo.load(ctx);
+    const registry = await this.load_registry(tenant_id);
     this._active_by_email.clear();
     this._by_object_id.clear();
     this._all_entries = [];

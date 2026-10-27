@@ -6,15 +6,19 @@ import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 // retention. The service applies it before scanning; list_document_libraries
 // returning [] aborts the run right after, keeping the harness minimal.
 
-function make_harness(): {
+function make_harness(retention_error?: Error): {
   service: SharePointBackupService;
   apply_default_retention: Mock;
+  destroy: Mock;
 } {
-  const apply_default_retention = vi.fn();
+  const apply_default_retention = retention_error
+    ? vi.fn().mockRejectedValue(retention_error)
+    : vi.fn();
+  const destroy = vi.fn();
   const context = {
     tenant_id: 't',
     storage: { apply_default_retention },
-    destroy: vi.fn(),
+    destroy,
   } as unknown as TenantContext;
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(context),
@@ -30,7 +34,7 @@ function make_harness(): {
     {} as never,
     {} as never,
   );
-  return { service, apply_default_retention };
+  return { service, apply_default_retention, destroy };
 }
 
 describe('SharePoint backup object lock (issue #29)', () => {
@@ -52,5 +56,15 @@ describe('SharePoint backup object lock (issue #29)', () => {
     await service.backup_site('t', 'site-1', {}).catch(() => undefined);
 
     expect(apply_default_retention).not.toHaveBeenCalled();
+  });
+
+  it('destroys the context when applying default retention fails (issue #436)', async () => {
+    const { service, destroy } = make_harness(new Error('bucket has no Object Lock'));
+
+    await expect(
+      service.backup_site('t', 'site-1', { object_lock_request: { retention_days: 90 } }),
+    ).rejects.toThrow('bucket has no Object Lock');
+
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });
