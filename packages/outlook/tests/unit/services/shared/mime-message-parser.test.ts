@@ -152,6 +152,73 @@ describe('parse_mime_message', () => {
     expect(parsed.attachments[0]?.content_id).toBe('logo-1@example.com');
   });
 
+  // Exchange stamps a Content-ID on ordinary attachments. Uploaded as inline, Outlook hides them
+  // because the body never shows them (issue #474).
+  describe('an Exchange-style message with a referenced image and a plain attachment', () => {
+    const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const mime = (pdf_disposition: string): Buffer =>
+      Buffer.from(
+        [
+          'From: sender@example.com',
+          'Subject: report',
+          'MIME-Version: 1.0',
+          'Content-Type: multipart/mixed; boundary="MIX"',
+          '',
+          '--MIX',
+          'Content-Type: multipart/related; boundary="REL"',
+          '',
+          '--REL',
+          'Content-Type: text/html',
+          '',
+          '<p>See logo <img src="cid:logo@example.com"></p>',
+          '',
+          '--REL',
+          'Content-Type: image/png',
+          'Content-ID: <logo@example.com>',
+          'Content-Transfer-Encoding: base64',
+          '',
+          PNG.toString('base64'),
+          '',
+          '--REL--',
+          '',
+          '--MIX',
+          'Content-Type: application/pdf; name="x.pdf"',
+          ...(pdf_disposition ? [`Content-Disposition: ${pdf_disposition}`] : []),
+          'Content-ID: <ABC123@example.com>',
+          'Content-Transfer-Encoding: base64',
+          '',
+          Buffer.from('%PDF-1.7').toString('base64'),
+          '',
+          '--MIX--',
+          '',
+        ].join('\r\n'),
+        'utf-8',
+      );
+    const by_type = async (disposition: string, type: string) =>
+      (await parse_mime_message(mime(disposition))).attachments.find(
+        (a) => a.content_type === type,
+      );
+
+    it('uploads a Content-Disposition: attachment part as a regular attachment', async () => {
+      const pdf = await by_type('attachment; filename="x.pdf"', 'application/pdf');
+
+      expect(pdf?.is_inline).toBe(false);
+      expect(pdf?.content_id).toBe('ABC123@example.com');
+    });
+
+    it('treats a part with no disposition as regular unless the body references it', async () => {
+      expect((await by_type('', 'application/pdf'))?.is_inline).toBe(false);
+      expect((await by_type('', 'image/png'))?.is_inline).toBe(true);
+    });
+
+    it('still inlines the referenced image into the HTML body as a data URI', async () => {
+      const parsed = await parse_mime_message(mime('attachment'));
+
+      expect(parsed.html).toContain(`src="data:image/png;base64,${PNG.toString('base64')}"`);
+      expect(parsed.html).not.toContain('cid:');
+    });
+  });
+
   it('tolerates a bare message with no body parts or addresses', async () => {
     const parsed = await parse_mime_message(Buffer.from('Subject: ping\r\n\r\n', 'utf-8'));
 
