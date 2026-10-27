@@ -190,7 +190,7 @@ describe('VerificationService', () => {
     };
 
     vi.mocked(manifests.find_by_snapshot).mockResolvedValue(target);
-    vi.mocked(manifests.list_all_manifests).mockResolvedValue([target, older]);
+    vi.mocked(manifests.list_by_owner).mockResolvedValue([target, older]);
     vi.mocked(storage.exists).mockImplementation(async (key: string) => key !== 'data/k-old');
     vi.mocked(storage.get).mockImplementation(async (key: string) => {
       if (key === 'data/k-old') throw Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' });
@@ -204,7 +204,7 @@ describe('VerificationService', () => {
     expect(result.failed).toEqual(['obj-old']);
   });
 
-  it('excludes manifests newer than the target and other owners from the chain', async () => {
+  it('reads only the target owner prefix and excludes manifests newer than the target', async () => {
     const plaintext = Buffer.from('current');
     const checksum = createHash('sha256').update(plaintext).digest('hex');
     const target = { ...make_manifest([make_entry({ checksum })]), snapshot_id: 'snap-2' };
@@ -215,20 +215,16 @@ describe('VerificationService', () => {
       snapshot_id: 'snap-3',
       created_at: new Date('2026-02-01T00:00:00.000Z'),
     };
-    const foreign = {
-      ...make_manifest([make_entry({ object_id: 'obj-x', storage_key: 'data/k-x', checksum })]),
-      snapshot_id: 'snap-x',
-      owner_id: 'mailbox-2',
-      created_at: new Date('2025-12-01T00:00:00.000Z'),
-    };
 
     vi.mocked(manifests.find_by_snapshot).mockResolvedValue(target);
-    vi.mocked(manifests.list_all_manifests).mockResolvedValue([target, newer, foreign]);
+    vi.mocked(manifests.list_by_owner).mockResolvedValue([target, newer]);
     vi.mocked(storage.exists).mockResolvedValue(true);
     vi.mocked(storage.get).mockResolvedValue(plaintext);
 
     const result = await service.verify_snapshot_integrity('tenant-1', 'snap-2');
 
+    expect(manifests.list_by_owner).toHaveBeenCalledWith(expect.anything(), target.owner_id);
+    expect(manifests.list_all_manifests).not.toHaveBeenCalled();
     expect(result.manifests_in_chain).toBe(1);
     expect(result.total_checked).toBe(1);
   });
