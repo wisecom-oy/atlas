@@ -84,15 +84,20 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize({ ...result, graph_cost: cost_result });
     },
     async save(snapshot_id, options) {
-      return camelize(
-        await save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
+      const [result, cost_result] = await run_with_cost_tracking(() =>
+        save.save_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
       );
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async saveMailbox(mailbox, options) {
-      const mailbox_id = await resolve_object_id(mailbox);
-      return camelize(
-        await save.save_mailbox(tenant_id, mailbox_id, adapt_operation_options(options)),
+      const [result, cost_result] = await run_with_cost_tracking(async () =>
+        save.save_mailbox(
+          tenant_id,
+          await resolve_object_id(mailbox),
+          adapt_operation_options(options),
+        ),
       );
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async listMailboxes() {
       return camelize(await catalog.list_mailboxes(tenant_id));

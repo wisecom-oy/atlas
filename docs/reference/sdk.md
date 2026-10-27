@@ -607,6 +607,7 @@ interface SaveResult {
   outputPath: string;
   totalBytes: number;
   integrityFailures: string[];
+  graphCost?: OperationCost; // SDK only
   interrupted: boolean;
 }
 ```
@@ -868,7 +869,7 @@ Update the instance configuration afterwards. Nothing reads the new passphrase u
 
 ## Graph cost tracking
 
-`backup`, `restore`, `restoreMailbox`, and `checkMailboxStatus` return `graphCost`, the number of Graph requests they made, broken down by service pool. Other Graph calls such as `listAvailableMailboxes()` use quota but do not return this field. Account for them separately when budgeting.
+`backup`, `restore`, `restoreMailbox`, `save`, `saveMailbox`, and `checkMailboxStatus` return `graphCost`, the number of Graph requests they made, broken down by service pool. For a method that takes a mailbox address, the count includes the lookup that resolves the address to an object ID. Other Graph calls use quota but do not return this field. `listAvailableMailboxes()` lists users, and `listSnapshots`, `deleteMailboxData`, and `getMailboxStats` resolve an address with one lookup, cached after the first. Account for them separately when budgeting.
 
 ```typescript
 const result = await atlas.outlook.backup('user@example.com');
@@ -889,7 +890,7 @@ console.log(result.graphCost);
 // }
 ```
 
-`graphCost` is returned by `atlas.outlook.backup`, `atlas.outlook.restore`, `atlas.outlook.restoreMailbox`, and `atlas.outlook.checkMailboxStatus`. The values in the example are illustrative.
+`graphCost` is returned by `atlas.outlook.backup`, `atlas.outlook.restore`, `atlas.outlook.restoreMailbox`, `atlas.outlook.save`, `atlas.outlook.saveMailbox`, and `atlas.outlook.checkMailboxStatus`. The values in the example are illustrative.
 
 ### What counts
 
