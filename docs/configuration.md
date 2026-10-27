@@ -62,8 +62,8 @@ The SDK does not read these sources. Pass values to `createAtlasInstance` explic
   "client_id": "app-client-id",
   "client_secret": "app-client-secret",
   "s3_endpoint": "http://localhost:9000",
-  "s3_access_key": "minioadmin",
-  "s3_secret_key": "minioadmin",
+  "s3_access_key": "<access-key>",
+  "s3_secret_key": "<secret-key>",
   "encryption_passphrase": "my-secret-passphrase"
 }
 ```
