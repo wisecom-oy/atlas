@@ -122,3 +122,72 @@ describe('an outlook backup whose delta reports removed messages', () => {
     expect(saved_manifest(harness).removed_object_ids).toEqual(['msg-deleted']);
   });
 });
+
+/**
+ * Issue #531. A withheld removal is only safe when the next run sees it again, so a run that did
+ * not finish every folder keeps the previous link of each folder that reported one.
+ */
+describe('the saved cursor of a run whose removals were withheld', () => {
+  const OLD_LINKS = {
+    'folder-1': 'https://delta/inbox-old',
+    'folder-2': 'https://delta/archive-old',
+    'folder-3': 'https://delta/sent-old',
+  };
+  const ARCHIVE = {
+    ...INBOX,
+    folder_id: 'folder-2',
+    display_name: 'Archive',
+    folder_path: 'Archive',
+  };
+  const SENT = { ...INBOX, folder_id: 'folder-3', display_name: 'Sent', folder_path: 'Sent' };
+
+  function harness_resuming_from_old_links(): MailboxSyncHarness {
+    const harness = create_mailbox_sync_harness();
+    vi.mocked(harness.mock_cursors.load).mockResolvedValue({
+      owner_id: 'john.doe@example.com',
+      delta_links: OLD_LINKS,
+      updated_at: '2026-10-01T00:00:00.000Z',
+    });
+    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue({
+      snapshot_id: 'snap-head',
+      total_objects: 3,
+      delta_links: OLD_LINKS,
+      id_format: 'immutable',
+      entries: [],
+    } as unknown as Manifest);
+    return harness;
+  }
+
+  function saved_links(harness: MailboxSyncHarness): Record<string, string> {
+    return vi.mocked(harness.mock_cursors.save).mock.calls.at(-1)![1].delta_links;
+  }
+
+  it('keeps the old link of a folder that reported removals when another folder failed', async () => {
+    const harness = harness_resuming_from_old_links();
+    vi.mocked(harness.mock_connector.list_mail_folders).mockResolvedValue([INBOX, ARCHIVE, SENT]);
+    vi.mocked(harness.mock_connector.fetch_delta)
+      .mockResolvedValueOnce(delta_with_removals(['msg-deleted']))
+      .mockRejectedValueOnce(new Error('Graph 503'))
+      .mockResolvedValueOnce(delta_with_removals([]));
+
+    await harness.service.sync_mailbox('t', 'john.doe@example.com');
+
+    expect(saved_links(harness)).toEqual({
+      'folder-1': 'https://delta/inbox-old',
+      'folder-2': 'https://delta/archive-old',
+      'folder-3': 'https://delta/new',
+    });
+  });
+
+  it('advances the link of a filtered run, which can never record removals', async () => {
+    const harness = harness_resuming_from_old_links();
+    vi.mocked(harness.mock_connector.list_mail_folders).mockResolvedValue([INBOX, ARCHIVE]);
+    vi.mocked(harness.mock_connector.fetch_delta).mockResolvedValue(
+      delta_with_removals(['msg-moved-out']),
+    );
+
+    await harness.service.sync_mailbox('t', 'john.doe@example.com', { folder_filter: ['Inbox'] });
+
+    expect(saved_links(harness)['folder-1']).toBe('https://delta/new');
+  });
+});

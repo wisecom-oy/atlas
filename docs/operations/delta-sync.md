@@ -54,11 +54,13 @@ Atlas uses immutable message IDs, so a moved message keeps its ID. Graph reports
 
 Excluded hidden system folders such as `Conversation Action Settings`, and the non-mail Recoverable Items subfolders, do not block removals, because mail cannot be moved into them. An unrecognised Recoverable Items subfolder does block them, since Atlas cannot tell what it holds.
 
+Withheld removals are not always lost. When a folder fails or the run is interrupted, every folder that reported a removal keeps its previous delta link, so the next run fetches those changes again and records the removals once every folder finishes. The folder's new messages are fetched again too, and deduplicate against the objects already stored. A folder that fails on every run holds those links back until it succeeds, so fix a persistent folder error rather than leaving it. A filtered or excluded run advances its links anyway, because a mailbox backed up that way on every run would otherwise never move its cursors forward. Removals seen by such a run are dropped.
+
 Some deletions are never reported, and those messages still come back from the chain:
 
 | Case                                             | Why                                                                                                                            |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| A run that recorded no removals                  | Interrupted, filtered with `--folder`, run with `--exclude-junk`, or a folder failed. The completed folders' links still advance. |
+| A filtered or excluded run                       | `--folder` or `--exclude-junk`. Links advance, so the removals it saw are not reported again.                                  |
 | A full enumeration                               | `--full`, an expired token, or the stale-delta safeguard re-lists the folder. Graph reports what exists, not what was deleted. |
 | Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden.                                                                                     |
 

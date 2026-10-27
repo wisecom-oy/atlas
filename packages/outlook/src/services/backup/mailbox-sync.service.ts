@@ -24,6 +24,7 @@ import {
   resolve_saved_delta_links,
   resolve_sync_mode,
   select_recordable_removals,
+  withhold_links_of_unrecorded_removals,
 } from '@/services/backup/snapshot-manifest-builder';
 import {
   build_interrupted_result,
@@ -107,6 +108,7 @@ export class MailboxSyncService implements BackupUseCase {
       const all_entries: ManifestEntry[] = [];
       const new_delta_links: Record<string, string> = {};
       const removed_ids: string[] = [];
+      const removal_counts: Record<string, number> = {};
       let global_processed = 0;
       let stored = 0;
       let deduplicated = 0;
@@ -150,6 +152,7 @@ export class MailboxSyncService implements BackupUseCase {
 
         all_entries.push(...outcome.entries);
         removed_ids.push(...outcome.removed_ids);
+        removal_counts[folder.folder_id] = outcome.removed_ids.length;
         // Persist a folder's delta link only when every page was fully processed;
         // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
         if (outcome.delta_link && outcome.complete) {
@@ -178,7 +181,10 @@ export class MailboxSyncService implements BackupUseCase {
         total: global_total,
       });
 
-      const merged_links = { ...saved_links, ...new_delta_links };
+      const merged_links = {
+        ...saved_links,
+        ...withhold_links_of_unrecorded_removals(new_delta_links, removal_counts, folders.length),
+      };
       const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
         previous_total_objects: previous_entry_count,
         object_lock: build_manifest_object_lock_policy(options),
