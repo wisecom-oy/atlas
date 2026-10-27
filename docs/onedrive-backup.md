@@ -8,7 +8,7 @@ Backup is user-targeted: one run processes every drive belonging to a single use
 
 | Item                          | Coverage                                                                                                    |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Files in the user's drives    | Current content, keyed-HMAC content-addressed and deduplicated per owner |
+| Files in the user's drives    | Current content, keyed-HMAC content-addressed and deduplicated per owner                                    |
 | File version history          | Every new historical version Graph returns for an item                                                      |
 | Folder paths                  | Recorded on the manifest entry and normalized to Unicode NFC                                                |
 | OneNote notebooks             | Section files and table of contents, stored as ordinary files (see [OneNote Notebooks](#onenote-notebooks)) |
@@ -270,10 +270,10 @@ Versions the service reports as gone (`404` or `410`, content purged by the site
 
 A run creates a snapshot only when something changed, so two very different outcomes both end without one, and they mean opposite things:
 
-| `summary.noSnapshotReason` | Meaning | Recovery point |
-| -------------------------- | ------- | -------------- |
-| `no_changes` | The drive holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
-| `no_content` | The drive holds nothing to protect, and no snapshot exists for it. | None. |
+| `summary.noSnapshotReason` | Meaning                                                                | Recovery point                 |
+| -------------------------- | ---------------------------------------------------------------------- | ------------------------------ |
+| `no_changes`               | The drive holds content and nothing about it moved since the last run. | An earlier snapshot covers it. |
+| `no_content`               | The drive holds nothing to protect, and no snapshot exists for it.     | None.                          |
 
 The field is set only on a run that completed cleanly and wrote no snapshot. It is absent when a snapshot was created, and absent when the run was interrupted or ended **UNHEALTHY**, because a run whose items failed did have changes and they did not land: `errors` and `healthy` are the answer there, not a reason. A failed item still counts as processed, so classifying it as `no_changes` would report the drive as covered when nothing was stored.
 

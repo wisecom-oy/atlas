@@ -201,15 +201,15 @@ either way, by comparing the manifest checksum before anything is written.
 
 ### What Is Encrypted at Rest
 
-| Data                                       | Encrypted | Notes                                                                                                                   |
-| ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{owner_id}/{content_name}`                                             |
+| Data                                       | Encrypted | Notes                                                                                                                         |
+| ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{owner_id}/{content_name}`                                                   |
 | Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`; MIME entries embed attachments in the message object |
-| Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                         |
-| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{content_name}`, a keyed HMAC of the plaintext                                    |
-| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                          |
-| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                               |
-| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                              |
+| Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                               |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{content_name}`, a keyed HMAC of the plaintext                                           |
+| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                                |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                                     |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                                    |
 
 Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
 

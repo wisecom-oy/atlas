@@ -8,7 +8,7 @@ Backup is site-targeted: one run processes every document library in a single Sh
 
 | Item                            | Coverage                                                                                                    |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Files in every document library | Current content, keyed-HMAC content-addressed and deduplicated per site |
+| Files in every document library | Current content, keyed-HMAC content-addressed and deduplicated per site                                     |
 | File version history            | Every new historical version Graph returns for an item                                                      |
 | Library and folder paths        | Recorded on the manifest entry, one delta cursor per library                                                |
 | OneNote notebooks               | Section files and table of contents, stored as ordinary files (see [OneNote Notebooks](#onenote-notebooks)) |
