@@ -181,11 +181,10 @@ export function build_restore_payload_from_mime(
     isDraft: false,
     // ponytail: MIME carries no read state, so restored mail is marked read
     // rather than dumping thousands of unread items on the user.
-    singleValueExtendedProperties: build_mapi_overrides({
-      is_read: true,
-      received_at: parsed.date,
-      sent_at: parsed.date,
-    }),
+    singleValueExtendedProperties: [
+      ...build_mapi_overrides({ is_read: true, received_at: parsed.date, sent_at: parsed.date }),
+      ...build_threading_properties(parsed.headers),
+    ],
   };
 
   if (parsed.from) payload['from'] = to_graph_recipient(parsed.from);
@@ -199,6 +198,26 @@ export function build_restore_payload_from_mime(
   if (categories.length > 0) payload['categories'] = categories;
 
   return payload;
+}
+
+/**
+ * Graph accepts only `x-` headers in `internetMessageHeaders` on create, so the headers Exchange
+ * groups conversations by are written as their MAPI properties instead (issue #478).
+ */
+const THREADING_PROPERTIES = [
+  { header: 'in-reply-to', id: 'String 0x1042' }, // PR_IN_REPLY_TO_ID
+  { header: 'references', id: 'String 0x1039' }, // PR_INTERNET_REFERENCES
+  { header: 'thread-index', id: 'Binary 0x0071' }, // PR_CONVERSATION_INDEX, base64 like the header
+] as const;
+
+/** Maps the threading headers the MIME carries to MAPI properties; absent headers add nothing. */
+function build_threading_properties(
+  headers: readonly MimeHeader[],
+): Array<{ id: string; value: string }> {
+  return THREADING_PROPERTIES.flatMap(({ header, id }) => {
+    const value = find_header(headers, header)?.trim();
+    return value ? [{ id, value }] : [];
+  });
 }
 
 /** Returns the value of the first header with this name, compared case-insensitively. */

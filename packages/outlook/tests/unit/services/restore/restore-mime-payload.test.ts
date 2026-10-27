@@ -73,4 +73,43 @@ describe('build_restore_payload_from_mime', () => {
 
     expect(payload['categories']).toEqual(['Red category', 'Project X']);
   });
+
+  describe('conversation threading (issue #478)', () => {
+    const props = (payload: Record<string, unknown>) =>
+      payload['singleValueExtendedProperties'] as Array<{ id: string; value: string }>;
+
+    it('writes In-Reply-To, References and Thread-Index as MAPI properties', async () => {
+      const payload = await payload_for([
+        'In-Reply-To: <parent-2@example.com>',
+        'References: <root-0@example.com>',
+        ' <parent-2@example.com>',
+        'Thread-Index: AdtG3x9kQ2xVZ0pTRb2t8V1x3kF2Qw==',
+      ]);
+
+      expect(props(payload)).toEqual(
+        expect.arrayContaining([
+          { id: 'String 0x1042', value: '<parent-2@example.com>' },
+          { id: 'String 0x1039', value: '<root-0@example.com> <parent-2@example.com>' },
+          { id: 'Binary 0x0071', value: 'AdtG3x9kQ2xVZ0pTRb2t8V1x3kF2Qw==' },
+        ]),
+      );
+    });
+
+    it('keeps the read-state and timestamp overrides alongside them', async () => {
+      const ids = props(await payload_for(['In-Reply-To: <p@example.com>'])).map((p) => p.id);
+
+      expect(ids).toEqual([
+        'Integer 0x0E07',
+        'SystemTime 0x0E06',
+        'SystemTime 0x0039',
+        'String 0x1042',
+      ]);
+    });
+
+    it('adds nothing for a message that starts a conversation', async () => {
+      const ids = props(await payload_for([])).map((p) => p.id);
+
+      expect(ids).toEqual(['Integer 0x0E07', 'SystemTime 0x0E06', 'SystemTime 0x0039']);
+    });
+  });
 });

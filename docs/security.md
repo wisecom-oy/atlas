@@ -296,6 +296,21 @@ Atlas does **not** import archived MIME back into Exchange. Live testing establi
 
 `atlas outlook restore` therefore parses the archived MIME and recreates each message through Graph's JSON message-create path. The result is normal, non-draft mail with its original timestamps, but the restored copy does not carry the original `Received` chain.
 
+What the recreated message carries, by where it comes from in the archived MIME:
+
+| Restored as                                                                                     | From the MIME                                                                                                                             |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Subject, body, From, To, Cc, Bcc, Reply-To, `internetMessageId`                                 | The matching headers and body parts. Bcc survives on Sent Items copies                                                                    |
+| Received and sent time (`PR_MESSAGE_DELIVERY_TIME`, `PR_CLIENT_SUBMIT_TIME`)                    | `Date`                                                                                                                                    |
+| Importance                                                                                      | `Importance`, or `X-Priority` when it is absent (1 and 2 high, 3 normal, 4 and 5 low)                                                     |
+| Categories                                                                                      | `Keywords`, where Exchange writes them on export                                                                                          |
+| Conversation threading (`PR_IN_REPLY_TO_ID`, `PR_INTERNET_REFERENCES`, `PR_CONVERSATION_INDEX`) | `In-Reply-To`, `References`, `Thread-Index`                                                                                               |
+| Attachments, regular or inline                                                                  | The body parts. A part is inline only when its `Content-Disposition` is `inline`, or it has none and the HTML references its `Content-ID` |
+
+Graph's create call accepts only `x-` prefixed headers, which is why threading goes through MAPI properties rather than the headers themselves. Two things MIME does not carry are not restored: the follow-up flag, and read state, which is set to read so a restore does not leave thousands of unread items.
+
+Entries stored as legacy Graph JSON restore the fields Graph returned at backup time, including Bcc, Reply-To, importance, flag, categories and read state. The backup never requested `internetMessageHeaders` or `conversationIndex` for them, so they restore without threading and Outlook groups them by subject alone.
+
 The archived object keeps full fidelity either way. When an operator needs the original bytes -- for a legal hold, a forensic review, or DKIM verification -- `atlas outlook save` is the path that delivers them, and it never touches the live mailbox.
 
 ### Content Microsoft 365 refuses to release
