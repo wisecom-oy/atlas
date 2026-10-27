@@ -30,7 +30,7 @@ Atlas also runs on macOS and Windows for development and testing. The production
 
 | Resource | Minimum                    | Recommended                                                              |
 | -------- | -------------------------- | ------------------------------------------------------------------------ |
-| Node.js  | 20 or later                | Current LTS                                                              |
+| Node.js  | 22.12 or later (SDK: 22.8) | Current LTS                                                              |
 | RAM      | 1 GB                       | 2 GB or more                                                             |
 | CPU      | 1 core                     | 2 cores or more                                                          |
 | Disk     | Depends on mailbox sizes   | See [Storage setup](/self-hosting/storage)                               |
