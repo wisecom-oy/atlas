@@ -32,8 +32,8 @@ const atlas = createAtlasInstance({
   clientId: 'app-client-id',
   clientSecret: 'app-client-secret',
   s3Endpoint: 'http://localhost:9000',
-  s3AccessKey: 'minioadmin',
-  s3SecretKey: 'minioadmin',
+  s3AccessKey: '<access-key>',
+  s3SecretKey: '<secret-key>',
   encryptionPassphrase: 'my-secret-passphrase',
 });
 

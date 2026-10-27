@@ -50,9 +50,9 @@ Steps:
 3. Start MinIO with the repository's compose file (docs/self-hosting/storage.md):
    - Copy docker/.env.example to docker/.env and chmod 600 it.
    - Set MINIO_ROOT_USER=atlas-lab and MINIO_ROOT_PASSWORD to the output of
-     `openssl rand -hex 32`. The defaults are public and must not be used.
-   - Set MINIO_API_PORT=127.0.0.1:9000 and MINIO_CONSOLE_PORT=127.0.0.1:9001
-     so MinIO is reachable from this machine only.
+     `openssl rand -hex 32`. Compose refuses to start without a password.
+   - Leave MINIO_BIND_ADDRESS=127.0.0.1 so MinIO is reachable from this
+     machine only.
    - Run `docker compose up -d` in docker/ and wait until the container
      reports healthy.
    Use docker/docker-compose.yml, not docker-compose.dev.yml. The dev file

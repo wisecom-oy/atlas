@@ -412,6 +412,8 @@ Atlas accepts plain `http://` endpoints because local MinIO needs them. Content 
 
 Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). This covers the primary and replication targets. It does not refuse the endpoint, because a self-hosted setup may terminate TLS on a trusted network. Use `https://` for any endpoint on another machine.
 
+The bundled `docker/docker-compose.yml` publishes MinIO on `127.0.0.1` only and has no fallback root password, so it does not start until one is set. Root on the bucket can bypass governance-mode Object Lock and delete every backup that is not under compliance retention, which makes the root password and the bind address the two controls that decide who can reach the archive. Widening the bind address is an explicit `MINIO_BIND_ADDRESS` setting. See [Network exposure](/self-hosting/storage#network-exposure).
+
 Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_REJECT_UNAUTHORIZED=0` disables certificate validation. Storage has no equivalent check.
 
 ## S3 permissions by command class

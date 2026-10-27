@@ -30,10 +30,13 @@ If you install with Bun, run `bun pm -g trust @wisecom/atlas-cli` afterwards. Bu
 Atlas writes backups to any S3-compatible object store. For local development and testing, start MinIO with the included Docker Compose file:
 
 ```bash
-cd docker && docker compose up -d
+cd docker
+cp .env.example .env && chmod 600 .env
+openssl rand -hex 32    # set the output as MINIO_ROOT_PASSWORD in .env
+docker compose up -d
 ```
 
-MinIO listens on port **9000** (S3 API) and port **9001** (web console). For production storage, see the [self-hosting guide](./self-hosting/).
+Compose refuses to start until `MINIO_ROOT_PASSWORD` is set. MinIO then listens on `127.0.0.1` only, port **9000** (S3 API) and port **9001** (web console). Use `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` as the S3 access key and secret key below. For production storage, see the [self-hosting guide](./self-hosting/).
 
 ## Configure credentials
 
@@ -131,8 +134,8 @@ const atlas = createAtlasInstance({
   clientId: 'app-client-id',
   clientSecret: 'app-client-secret',
   s3Endpoint: 'http://localhost:9000',
-  s3AccessKey: 'minioadmin',
-  s3SecretKey: 'minioadmin',
+  s3AccessKey: '<access-key>',
+  s3SecretKey: '<secret-key>',
   encryptionPassphrase: 'my-secret-passphrase',
 });
 

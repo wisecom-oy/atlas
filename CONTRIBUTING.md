@@ -17,6 +17,7 @@ cd atlas
 pnpm install
 
 # start local MinIO (S3-compatible storage)
+cp docker/.env.example docker/.env   # then set MINIO_ROOT_PASSWORD in docker/.env
 cd docker && docker compose up -d && cd ..
 
 # copy and fill in environment variables

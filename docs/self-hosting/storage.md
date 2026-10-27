@@ -8,7 +8,14 @@ Atlas writes backups to any S3-compatible object store. For self-hosted deployme
 
 ## MinIO on Docker
 
-The repository's `docker/docker-compose.yml` starts MinIO with a named volume:
+The repository's `docker/docker-compose.yml` starts MinIO with a named volume. Copy the example environment file, set a root password, and start it:
+
+```bash
+cd docker
+cp .env.example .env && chmod 600 .env
+openssl rand -hex 32    # set the output as MINIO_ROOT_PASSWORD in .env
+docker compose up -d
+```
 
 ```yaml
 services:
@@ -16,17 +23,31 @@ services:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: atlas-minio
     ports:
-      - '${MINIO_API_PORT:-9000}:9000'
-      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+      - '${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000'
+      - '${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001'
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in docker/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in docker/.env, for example to the output of openssl rand -hex 32}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
 
 volumes:
   minio_data:
+```
+
+| Variable              | Default     | Notes                                                                                |
+| --------------------- | ----------- | ------------------------------------------------------------------------------------ |
+| `MINIO_ROOT_USER`     | none        | Required. Compose refuses to start without it                                        |
+| `MINIO_ROOT_PASSWORD` | none        | Required. Compose refuses to start while it is empty, which it is in `.env.example`  |
+| `MINIO_BIND_ADDRESS`  | `127.0.0.1` | Host address both ports are published on. See [Network exposure](#network-exposure)  |
+| `MINIO_API_PORT`      | `9000`      | Host port for the S3 API                                                             |
+| `MINIO_CONSOLE_PORT`  | `9001`      | Host port for the web console                                                        |
+
+Without a password, `docker compose up` stops before creating anything:
+
+```text
+required variable MINIO_ROOT_PASSWORD is missing a value: Set MINIO_ROOT_PASSWORD in docker/.env, for example to the output of openssl rand -hex 32
 ```
 
 A named volume is fine for development. For production, store data on a disk you choose, as described below.
@@ -44,11 +65,11 @@ services:
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: atlas-minio
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '${MINIO_BIND_ADDRESS:-127.0.0.1}:9000:9000'
+      - '${MINIO_BIND_ADDRESS:-127.0.0.1}:9001:9001'
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
     volumes:
       - /mnt/backup-drive/atlas-data:/data
     command: server /data --console-address ":9001"
@@ -113,11 +134,11 @@ Then bind-mount `/mnt/atlas-raid/atlas-data` into the MinIO container.
 
 ## Credentials and access
 
-::: danger Change the default credentials
-The default MinIO credentials (`minioadmin` / `minioadmin`) are public. Anyone who can reach the MinIO port can read, change, or delete every backup. Replace them before the service is reachable from any network.
+::: danger Root on the bucket can delete every backup
+Anyone with the MinIO root credentials can read, change, or delete every backup that is not under compliance-mode Object Lock, because root holds the permission to bypass governance-mode retention. The compose file has no fallback password and refuses to start without one, so a new deployment never runs on the public `minioadmin` / `minioadmin` pair. A `docker/.env` copied from an older `.env.example` still sets it explicitly; replace it there.
 :::
 
-Set strong credentials in `docker/.env`. Generate a unique root password for each deployment:
+Generate a unique root password for each deployment and set it in `docker/.env`:
 
 ```bash
 openssl rand -hex 32
@@ -132,6 +153,19 @@ MINIO_ROOT_PASSWORD=<output of openssl rand -hex 32>
 
 Use the root account only for administration. Give Atlas a dedicated access key, scoped to the buckets it writes, through `atlas config set s3.access-key` and `atlas config set s3.secret-key`, or through `ATLAS_S3_ACCESS_KEY` and `ATLAS_S3_SECRET_KEY`. Per-command IAM permissions are described in [Security](/security#s3-permissions-by-command-class).
 
+### Network exposure
+
+Both ports are published on `127.0.0.1` by default, so MinIO is reachable from the Docker host only. Docker writes its own firewall rules, which bypass `ufw` and `firewalld` INPUT rules, so a host firewall does not restrict published ports on its own. The bind address is the control that matters.
+
+To let Atlas on another machine reach MinIO, set the address of the interface it should listen on in `docker/.env`, and enable TLS as described below:
+
+```env
+MINIO_BIND_ADDRESS=192.168.10.20   # one LAN interface
+# MINIO_BIND_ADDRESS=0.0.0.0       # every interface
+```
+
+`MINIO_API_PORT` and `MINIO_CONSOLE_PORT` now take a port number only. An older `docker/.env` that set them to `127.0.0.1:9000` makes compose fail with `invalid IP address: 127.0.0.1:127.0.0.1`. Remove the address from those lines.
+
 ### TLS for network-reachable deployments
 
 If MinIO accepts connections from other hosts, enable TLS. Backup content is always encrypted (AES-256-GCM, with SigV4 signing that never sends the secret key), but plain HTTP still exposes the rest:
@@ -141,8 +175,6 @@ If MinIO accepts connections from other hosts, enable TLS. Backup content is alw
 - They can answer an upload with a forged `200`. The backup then reports success for an object that was never stored, and only a later `atlas outlook verify` detects it.
 
 Atlas logs one warning per run when the endpoint is plain `http://` on any host other than loopback (`localhost`, `127.0.0.0/8`, `::1`). The local Docker setup on loopback does not trigger it.
-
-Port 9000 and 9001 are published on every host interface by `docker/docker-compose.yml`. To keep MinIO reachable from the host only, set `MINIO_API_PORT=127.0.0.1:9000` and `MINIO_CONSOLE_PORT=127.0.0.1:9001` in `docker/.env`. Docker writes its own firewall rules, which bypass `ufw` and `firewalld` INPUT rules, so a host firewall does not restrict published ports on its own.
 
 MinIO supports TLS by placing certificate files in its configuration directory. See the [MinIO network encryption guide](https://min.io/docs/minio/linux/operations/network-encryption.html). Then set the endpoint to `https://`:
 
