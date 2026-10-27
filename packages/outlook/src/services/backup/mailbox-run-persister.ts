@@ -72,7 +72,9 @@ export interface MailboxRunOutcome {
  * A run that captured nothing has nothing to snapshot. Writing one anyway added a manifest
  * object per quiet run forever, only to carry the delta links, and a snapshot is immutable once
  * written so the head could not be rewritten instead. The links live in the cursor now, which
- * the run overwrites, the way the drive providers have always done it (issue #370).
+ * the run overwrites, the way the drive providers have always done it (issue #370). A run whose
+ * only change was a deletion is not quiet: its removals exist only in its manifest, and the
+ * cursor moves past them (issue #512).
  *
  * The cursor is saved after the manifest, never before. A cursor that lands first tells the next
  * run to skip changes no manifest recorded, which is what #339 was.
@@ -85,7 +87,8 @@ export async function persist_mailbox_run(
   previous: Manifest | undefined,
   entry_count: number,
 ): Promise<MailboxRunOutcome> {
-  const wrote_snapshot = entry_count > 0 || previous === undefined;
+  const captured_change = entry_count > 0 || (manifest.removed_object_ids?.length ?? 0) > 0;
+  const wrote_snapshot = captured_change || previous === undefined;
   if (wrote_snapshot) await deps.manifests.save(ctx, manifest);
 
   await deps.cursors.save(ctx, {

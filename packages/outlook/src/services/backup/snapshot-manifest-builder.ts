@@ -56,6 +56,8 @@ export interface ManifestBuildExtras extends OwnerIdentityHint {
   readonly excluded_folders?: ExcludedFolder[] | undefined;
   /** Folders this run selected for capture. */
   readonly folders?: MailFolder[] | undefined;
+  /** Message IDs this run's delta removed; recorded only when non-empty. */
+  readonly removed_object_ids?: string[] | undefined;
 }
 
 /**
@@ -95,8 +97,25 @@ export function build_manifest(
       ? { excluded_folders: extras.excluded_folders }
       : {}),
     ...(extras.folders && extras.folders.length > 0 ? { folders: extras.folders } : {}),
+    ...(extras.removed_object_ids && extras.removed_object_ids.length > 0
+      ? { removed_object_ids: extras.removed_object_ids }
+      : {}),
     entries,
   };
+}
+
+/**
+ * Returns the run's removals when it captured every folder, otherwise `undefined`. A move shows up
+ * as a removal from one folder and an entry in another, so a run that filtered or failed to finish
+ * a folder could record the removal without the new location and hide a live message (issue #512).
+ */
+export function select_recordable_removals(
+  removed_ids: string[],
+  folder_filter: readonly string[] | undefined,
+  folders: { readonly completed: number; readonly selected: number },
+): string[] | undefined {
+  const captured_every_folder = !folder_filter?.length && folders.completed === folders.selected;
+  return captured_every_folder ? removed_ids : undefined;
 }
 
 /** Resolves whether a mailbox run is full, incremental, or its initial backup. */

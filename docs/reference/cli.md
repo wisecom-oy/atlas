@@ -283,6 +283,8 @@ Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (
 
 Snapshot mode reads the snapshot's whole chain: the target plus every older snapshot of the same mailbox, with the newest version of each message winning. Snapshots taken after the target and snapshots of other mailboxes are excluded. This is the set that `atlas outlook verify -s` checks, so a snapshot that verifies restores the same messages. A `--message` index counts the target snapshot's own messages, as `atlas outlook list -s` prints them. A full message ID matches anywhere in the chain.
 
+A message deleted from the mailbox before a snapshot is not restored from it. Each backup records the message IDs Graph reported as removed, and those IDs hide older copies in the chain. Mailbox mode applies the same rule across the snapshots it reads. Removals are recorded only by a run that finished every folder without `--folder`, because a moved message appears as a removal from one folder and a new message in another. Older snapshots and runs that skip removals keep the earlier behavior, so a message deleted in those runs still comes back. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
+
 Restored messages keep their original received and sent timestamps. They appear as received mail rather than drafts, and include all backed-up attachments. Attachments larger than 3 MB use Graph upload sessions.
 
 A message that receives fewer attachments than its snapshot holds is listed as a warning, for example `<message-id>: 1 of 2 attachments restored`. A failed upload is an error and exits `2`. A legacy attachment that was never backed up is skipped with a warning only.

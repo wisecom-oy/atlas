@@ -16,6 +16,7 @@ function make_manifest(
   snapshot_id: string,
   created_at: string,
   entries: ManifestEntry[],
+  removed_object_ids?: string[],
 ): Manifest {
   return {
     id: `manifest-${snapshot_id}`,
@@ -26,6 +27,7 @@ function make_manifest(
     total_objects: entries.length,
     total_size_bytes: entries.reduce((s, e) => s + e.size_bytes, 0),
     delta_links: {},
+    ...(removed_object_ids ? { removed_object_ids } : {}),
     entries,
   };
 }
@@ -66,6 +68,30 @@ describe('merge_snapshot_entries', () => {
 
     const result = merge_snapshot_entries([m1, m2, m3]);
     expect(result).toHaveLength(3);
+  });
+
+  it('drops a message present in T1 and removed in T2 (#512)', () => {
+    const t2 = make_manifest('s2', '2026-03-08', [make_entry('b')], ['a']);
+    const t1 = make_manifest('s1', '2026-03-07', [make_entry('a'), make_entry('c')]);
+
+    expect(merge_snapshot_entries([t2, t1]).map((e) => e.object_id)).toEqual(['b', 'c']);
+  });
+
+  it('keeps a message the removing manifest also recorded, as a move between folders does', () => {
+    const t2 = make_manifest('s2', '2026-03-08', [make_entry('a', 'f-archive')], ['a']);
+    const t1 = make_manifest('s1', '2026-03-07', [make_entry('a', 'f-inbox')]);
+
+    const merged = merge_snapshot_entries([t2, t1]);
+
+    expect(merged.map((e) => [e.object_id, e.folder_id])).toEqual([['a', 'f-archive']]);
+  });
+
+  it('keeps a message a newer manifest recorded again after an older removal', () => {
+    const t3 = make_manifest('s3', '2026-03-09', [make_entry('a', 'f-inbox')]);
+    const t2 = make_manifest('s2', '2026-03-08', [], ['a']);
+    const t1 = make_manifest('s1', '2026-03-07', [make_entry('a', 'f-inbox')]);
+
+    expect(merge_snapshot_entries([t3, t2, t1]).map((e) => e.object_id)).toEqual(['a']);
   });
 });
 

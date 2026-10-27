@@ -35,6 +35,27 @@ Delta links are stored inside the encrypted manifest (Outlook) or cursor object 
 
 A full enumeration is scoped to the drive or library that triggered it. Delta links are kept per drive, so a site with several libraries, or a user with several drives, keeps working links for the rest. Files in the rebased drive are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
 
+## Deleted and moved messages (Outlook)
+
+```bash
+atlas outlook backup -m user@example.com          # records messages deleted since the last run
+atlas outlook restore -s <snapshot-id> -T user@example.com
+```
+
+An Outlook manifest holds only the messages its run stored, so `restore -s`, `save -s`, and `verify -s` read the snapshot together with every older snapshot of the mailbox. Graph's delta also reports messages deleted from, or moved out of, each folder. Atlas records those IDs in the manifest as `removed_object_ids`, and a removal hides the same message in every older snapshot of the chain. A message deleted before the snapshot is therefore not restored, saved, or verified from it.
+
+A run whose only change is a deletion still writes a snapshot, because the removal exists nowhere else once the delta link moves past it.
+
+Atlas uses immutable message IDs, so a moved message keeps its ID. Graph reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, which keeps the message at its new location. This only holds when the run captured both folders, so removals are recorded only when every selected folder finished and no `--folder` filter was given. An interrupted run, a folder error, or a filtered run records none.
+
+Some deletions are never reported, and those messages still come back from the chain:
+
+| Case                                             | Why                                                                                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| A run that recorded no removals                  | Interrupted, filtered with `--folder`, or a folder failed. The completed folders' links still advance.                         |
+| A full enumeration                               | `--full`, an expired token, or the stale-delta safeguard re-lists the folder. Graph reports what exists, not what was deleted. |
+| Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden.                                                                                     |
+
 ## Commit order for OneDrive and SharePoint
 
 OneDrive and SharePoint keep delta links in a separate cursor object, so one run performs several writes. Atlas writes them in this order:
