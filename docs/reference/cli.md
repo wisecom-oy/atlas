@@ -325,6 +325,8 @@ atlas outlook list -s <snapshot-id> -S          # reveal email subjects
 
 The mailbox overview includes a `Type` column, taken from the newest manifest that recorded a purpose (`user`, `shared`, `room`, and so on). It shows `--` when none was recorded.
 
+The overview's `Objects` column counts the messages in the latest snapshot's chain, the set `restore -s` reads, so it drops when a backup records deletions. The `Objects` column of `list -m` is each manifest's `total_objects`, a high-water mark: the largest message count any single run of the mailbox stored. It never decreases, because the stale-delta safeguard reads it to tell an unchanged mailbox from one never backed up.
+
 `list -s` shows only the messages recorded by that backup run, not the whole chain that `restore -s` and `save -s` read. Its `#` index is what `--message` resolves against.
 
 ### atlas outlook read
