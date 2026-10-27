@@ -13,7 +13,7 @@ This page follows one email or file from Microsoft 365 into your backup storage 
 
 **Only you can open the backups.** Everything is sealed with a data key, and that key is locked with your passphrase. The storage provider and anyone who copies the bucket see only sealed data. The flip side is that a lost passphrase cannot be recovered.
 
-**Nothing is stored twice.** Fingerprints let Atlas recognise content it already holds, so repeat backups upload only what is new.
+**Unchanged content is not uploaded again.** Fingerprints let Atlas recognise content it already holds for the same mailbox, drive, or site, so repeat backups upload only what is new.
 
 **Every restore is checked.** The catalogue records what each item looked like at backup time. An item that does not match is reported, not restored.
 

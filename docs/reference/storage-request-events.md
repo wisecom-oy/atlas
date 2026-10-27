@@ -121,12 +121,11 @@ Multipart uploads report one event per `UploadPart`, not one event for the whole
 An instance belongs to one tenant. A host that creates one instance per tenant can attribute events by closing over the tenant:
 
 ```typescript
-const tenant_events: Array<StorageRequestEvent & { tenant: string }> = [];
-
 function create_tenant_instance(tenant: TenantRow): AtlasInstance {
   return createAtlasInstance({
     ...tenant.credentials,
-    onStorageRequest: (event) => tenant_events.push({ ...event, tenant: tenant.id }),
+    // Forward each event to your metrics sink; do not buffer them in memory.
+    onStorageRequest: (event) => record({ ...event, tenant: tenant.id }),
   });
 }
 ```

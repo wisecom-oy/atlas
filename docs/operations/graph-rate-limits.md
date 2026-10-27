@@ -24,7 +24,8 @@ try {
 const used = graphCost?.byService.outlook?.requests ?? 0;
 // Requests from this run leave the 10-minute sliding window within one window of being sent.
 const cooldownMs = used > 0 ? GRAPH_SERVICE_LIMITS.outlook.windowDurationMs : 0;
-// Store cooldownMs before rethrowing; a failed run must still set the cooldown.
+// Store the cooldown before rethrowing, so a failed run still delays the next one.
+await saveCooldown('<mailbox-id>', Date.now() + cooldownMs); // your scheduler's store
 if (failure !== undefined) throw failure;
 ```
 

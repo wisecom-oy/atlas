@@ -11,8 +11,8 @@ The agent follows the documentation in the cloned `docs/` folder, so the lab mat
 ## Before you start
 
 - A **non-production** Microsoft 365 tenant or a test mailbox you can afford to read.
-- An Entra app registration with admin consent. See [Entra ID app registration](/azure-ad-setup). The agent asks for the tenant ID, client ID, and client secret, and cannot create the registration for you.
-- Git, Docker, and Node.js 22.12 or later. The agent checks for all three and asks before installing anything.
+- An Entra app registration with admin consent. See [Entra ID app registration](/azure-ad-setup). The agent asks for the tenant ID and client ID; you paste the client secret into `.env` yourself. It cannot create the registration for you.
+- Git, Docker, OpenSSL, and Node.js 22.22.2 or later (the repository root's `engines` range; the published CLI alone needs 22.12). The agent checks for all four and asks before installing anything.
 
 ## Prompt
 
@@ -27,12 +27,11 @@ step before moving on.
 Rules:
 1. Never print, log, or echo secrets: the Entra client secret, S3 keys, MinIO
    root password, or the encryption passphrase. Refer to them by variable name.
-2. Ask me before installing system packages (Git, Docker, Node.js), enabling
-   Corepack, or using sudo.
-3. Ask me for the Entra tenant ID, client ID, and client secret. Never invent
-   them. For the secret, ask me to paste it into the .env file myself, or to
-   pipe it through `atlas config set client.secret -`, so it stays out of
-   shell history and your output.
+2. Ask me before installing system packages (Git, Docker, Node.js, OpenSSL),
+   enabling Corepack, or using sudo.
+3. Ask me for the Entra tenant ID and client ID. Never invent them. Never ask
+   for the client secret in chat: I paste it into .env myself, so it stays
+   out of shell history and your output.
 4. Use the repository's files as they are. Configure them through their .env
    files. Edit a tracked file only when the lab cannot work otherwise, tell me
    what you changed and why, and never commit or push.
@@ -42,8 +41,9 @@ Rules:
    around a failure by disabling checks.
 
 Steps:
-1. Check prerequisites: `git --version`, `node --version` (22.12 or later),
-   and `docker compose version`. Report what is missing.
+1. Check prerequisites: `git --version`, `node --version` (22.22.2 or later,
+   the root package.json engines range), `docker compose version`, and
+   `openssl version`. Report what is missing.
 2. Clone the repository to ~/atlas-lab and work inside it from now on.
    Read docs/getting-started.md, docs/configuration.md,
    docs/self-hosting/storage.md, and docs/security.md.
@@ -63,10 +63,12 @@ Steps:
    Confirm `atlas --version` runs. If linking fails, use
    `node packages/cli/dist/cli.mjs` in place of `atlas` from here on.
 5. Copy .env.example to .env at the repository root and chmod 600 it
-   (docs/configuration.md). Fill in ATLAS_TENANT_ID, ATLAS_CLIENT_ID, and
-   ATLAS_CLIENT_SECRET (from me), ATLAS_S3_ENDPOINT=http://127.0.0.1:9000,
+   (docs/configuration.md). Fill in ATLAS_TENANT_ID and ATLAS_CLIENT_ID
+   (from me), ATLAS_S3_ENDPOINT=http://127.0.0.1:9000,
    ATLAS_S3_ACCESS_KEY and ATLAS_S3_SECRET_KEY matching docker/.env, and
    ATLAS_ENCRYPTION_PASSPHRASE generated with `openssl rand -base64 32`.
+   Then ask me to replace the ATLAS_CLIENT_SECRET placeholder myself, and
+   wait until I confirm.
    Tell me the passphrase lives in that file and that losing it makes every
    backup permanently unreadable (docs/security.md). Do not show it.
    Run every atlas command from the repository root, where .env is loaded.

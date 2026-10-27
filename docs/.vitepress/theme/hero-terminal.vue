@@ -12,6 +12,8 @@ const index = ref(0);
 const typed = ref('');
 const shown = ref(0);
 const done = ref(false);
+// Reduced motion: no playback; the whole transcript is printed at once and scrolls.
+const reduced = ref(false);
 const session = computed(() => props.sessions[index.value]!);
 let timer: ReturnType<typeof setTimeout> | undefined;
 const body = ref<HTMLElement>();
@@ -45,9 +47,7 @@ onMounted(() => {
   // Client only, so server-rendered HTML still matches the first hydration pass.
   index.value = Math.floor(Math.random() * props.sessions.length);
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    typed.value = session.value.command;
-    shown.value = session.value.lines.length;
-    done.value = true;
+    reduced.value = true;
     return;
   }
   void play();
@@ -61,7 +61,11 @@ onBeforeUnmount(() => clearTimeout(timer));
       <span class="wc-term-dots"><i /><i /><i /></span>
       <span class="wc-term-title">atlas · zsh</span>
     </div>
-    <pre ref="body" class="wc-term-body"><span class="prompt">$ </span><span>{{ typed }}</span><span v-if="shown === 0" class="cursor" />
+    <pre v-if="reduced" class="wc-term-body"><template v-for="s in sessions" :key="s.command"><span class="prompt">$ </span><span>{{ s.command }}</span>
+<template v-for="(line, i) in s.lines" :key="i"><span :class="line.cls">{{ line.text }}</span>
+</template>
+</template><span class="prompt">$ </span><span class="cursor" /></pre>
+    <pre v-else ref="body" class="wc-term-body"><span class="prompt">$ </span><span>{{ typed }}</span><span v-if="shown === 0" class="cursor" />
 <template v-for="(line, i) in session.lines.slice(0, shown)" :key="i"><span :class="line.cls">{{ line.text }}</span>
 </template><template v-if="done"><span class="prompt">$ </span><span class="cursor" /></template></pre>
     <figcaption class="wc-term-foot">

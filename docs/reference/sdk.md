@@ -1005,6 +1005,11 @@ await boss.work('backup-mailbox', async ([job]) => {
 
   await recordCost(mailboxId, result.graphCost);
 
+  // Interruptions and folder errors return normally. Fail the job so pg-boss retries it.
+  if (result.summary.interrupted || result.summary.folderErrors.length > 0) {
+    throw new Error(`Partial backup of ${mailboxId}: ${result.summary.folderErrors.join('; ')}`);
+  }
+
   // Cooldown from the Outlook pool limit, the bottleneck for mail backup
   const outlookLimits = GRAPH_SERVICE_LIMITS.outlook;
   const outlookUsed = result.graphCost?.byService.outlook?.requests ?? 0;

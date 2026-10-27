@@ -85,7 +85,7 @@ export const STEPS: Step[] = [
   },
   {
     title: 'Fingerprint and skip duplicates',
-    text: 'Every item gets a fingerprint calculated from its content and the data key. If the same content is already stored, Atlas does not upload it again. Without the data key, nobody can work out which fingerprint belongs to a file they already have.',
+    text: 'Every item gets a fingerprint calculated from its content and the data key. If the same content is already stored for that mailbox, drive, or site, Atlas does not upload it again. Without the data key, nobody can work out which fingerprint belongs to a file they already have.',
     detail:
       'HMAC-SHA256 over the plaintext, keyed with a naming key derived from the DEK (HKDF-SHA256). Identical content for one owner is stored once.',
     nodes: ['reader', 'fingerprint', 'dek'],
@@ -107,17 +107,17 @@ export const STEPS: Step[] = [
   },
   {
     title: 'Store it',
-    text: 'Only sealed data travels to your S3 storage. Whoever runs the storage sees sizes and random-looking names, never content. With Object Lock turned on, the storage itself refuses to delete or overwrite backups until the retention period ends, even for someone holding valid credentials.',
+    text: 'Only sealed data travels to your S3 storage. Whoever runs the storage sees sizes and random-looking names, never content. With Object Lock turned on, the storage itself refuses to delete or overwrite backups until the retention period ends. In compliance mode that holds even for someone with valid credentials; in the default governance mode, an account allowed to bypass governance retention can still delete.',
     detail:
-      'Content-MD5 on every upload catches corruption in transit. Object Lock runs in governance or compliance mode, set with --retention-days.',
+      'Content-MD5 on every upload catches corruption in transit. Object Lock is set with --retention-days and --lock-mode (governance by default, or compliance).',
     nodes: ['seal', 'backups'],
     edges: [{ id: 'seal-backups', kind: 'sealed' }],
   },
   {
     title: 'Write the catalogue',
-    text: 'Each backup ends with a catalogue that lists every item in the snapshot and its checksum. It contains subjects, file names and folder names, so it is sealed with the same data key as the content.',
+    text: 'Each backup that stores something ends with a catalogue entry listing what that run saved and each item\u2019s checksum. Catalogues build on the earlier ones, so a restore reads the whole chain. They contain subjects, file names and folder names, so they are sealed with the same data key as the content.',
     detail:
-      'One manifest per snapshot, holding a plain SHA-256 of each item\u2019s content alongside its storage key.',
+      'One manifest per snapshot, holding a plain SHA-256 of each item\u2019s content alongside its storage key. Outlook incremental manifests list only that run\u2019s messages.',
     nodes: ['seal', 'catalogue'],
     edges: [{ id: 'seal-catalogue', kind: 'sealed' }],
   },
