@@ -738,23 +738,26 @@
     padding-left: calc((100vw - var(--vp-layout-max-width)) / 2 + var(--vp-sidebar-width) + 32px);
   }
 }
-/* Footer: one compact row of links and license, then a small legal line. */
+/* Footer: links on the left; license and legal line on the right. Stacks on mobile. */
 .VPFooter {
   padding-top: 20px !important;
   padding-bottom: 20px !important;
 }
-.VPFooter .message {
+.VPFooter .container {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  align-items: baseline;
-  gap: 4px 20px;
-  line-height: 20px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 32px;
+}
+.VPFooter .message,
+.VPFooter .copyright {
+  margin: 0;
+  line-height: 18px;
 }
 .wc-foot-links {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 4px 20px;
   font-size: 13px;
   font-weight: 500;
@@ -767,15 +770,35 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.VPFooter .copyright {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
 .wc-foot-license {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--vp-c-text-2);
 }
-.VPFooter .copyright {
-  margin-top: 6px;
-  line-height: 16px;
+.wc-foot-legal {
   font-family: var(--vp-font-family-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--vp-c-text-3);
+}
+@media (max-width: 639px) {
+  .VPFooter .container {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .VPFooter .copyright {
+    align-items: flex-start;
+    text-align: left;
+  }
+}
+@media (min-width: 960px) {
+  .VPFooter.has-sidebar {
+    padding-right: 32px;
+  }
 }
