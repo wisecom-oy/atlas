@@ -4,6 +4,7 @@ import type { UserIdentityResolver, ResolvedUserIdentity } from '@wisecom/atlas-
 import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_retryable_error } from '@/graph-request-error-handler';
+import { parse_user_page } from '@/graph-user-page';
 
 const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
 
@@ -37,15 +38,6 @@ function parse_user_record(raw: unknown): GraphUserRecord {
     mail: optional_string(raw, 'mail'),
     userPrincipalName: optional_string(raw, 'userPrincipalName'),
   };
-}
-
-/** Narrows an untyped Graph /users page to its user records; a malformed page throws. */
-function parse_user_page(raw: unknown): GraphUserRecord[] {
-  if (typeof raw !== 'object' || raw === null)
-    throw new Error('Graph /users response is not an object');
-  if (!('value' in raw)) return [];
-  if (!Array.isArray(raw.value)) throw new Error('Graph /users response has a non-array value');
-  return raw.value.map(parse_user_record);
 }
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
@@ -89,7 +81,7 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
       .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
       .select(USER_FIELDS)
       .get();
-    return parse_user_page(raw)[0];
+    return parse_user_page(raw).users.map(parse_user_record)[0];
   }
 
   /**

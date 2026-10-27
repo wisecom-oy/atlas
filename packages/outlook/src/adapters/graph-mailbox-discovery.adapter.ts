@@ -18,9 +18,12 @@ import type { GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers'
 import {
   map_users_to_tenant_mailboxes,
   parse_mailbox_settings_purpose,
-  parse_user_page,
 } from '@/adapters/graph-mailbox-response-mappers';
-import { rethrow_if_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import {
+  parse_user_page,
+  rethrow_if_access_denied,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const USERS_SELECT = 'id,mail,displayName,createdDateTime,assignedPlans';
@@ -103,10 +106,9 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
         ),
       );
 
-      if (page.value) {
-        all.push(...page.value);
-      }
-      url = page['@odata.nextLink'];
+      // ponytail: records are cast, not narrowed; the mappers already skip a user without id or mail
+      all.push(...(page.users as GraphUserRecord[]));
+      url = page.next_link;
     }
 
     return all;

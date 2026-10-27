@@ -32,6 +32,7 @@ export type { DownloadFailureKind } from './graph-download-classification';
 export { RateLimitedGraphConnector } from './rate-limited-graph-connector.adapter';
 export { bind_graph_client } from './container';
 export { GraphUserIdentityResolver } from './graph-user-identity-resolver.adapter';
+export { parse_user_page } from './graph-user-page';
 export {
   build_upload_file_system_info,
   map_graph_file_system_info,
