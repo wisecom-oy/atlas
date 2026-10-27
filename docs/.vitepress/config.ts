@@ -166,8 +166,9 @@ export default defineConfig({
 
     footer: {
       message:
-        'Atlas is released under the Apache-2.0 License. Managed hosting: <a href="https://wisecom.fi/en/products/continuity">Wisecom Continuity</a>.',
-      copyright: '© 2026 Wisecom Oy',
+        '<span class="wc-foot-links"><a href="https://wisecom.fi">Wisecom</a><a href="https://wisecom.fi/en/products/continuity">Wisecom Continuity</a><a href="https://github.com/wisecom-oy/atlas">GitHub</a><a href="mailto:info@wisecom.fi">info@wisecom.fi</a></span>',
+      copyright:
+        '<span class="wc-foot-license">Atlas is open source under the Apache-2.0 License.</span><span class="wc-foot-legal">© 2026 Wisecom Oy · Business ID (Y-tunnus) 3629087-1</span>',
     },
 
     outline: { level: [2, 3] },
