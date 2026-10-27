@@ -56,7 +56,12 @@ export class GraphCostMiddleware implements Middleware {
 
 /** Reads the target URL from a context whose request may be a string or a Request. */
 function request_url(context: Context): string {
-  return typeof context.request === 'string' ? context.request : context.request.url;
+  const request: unknown = context.request;
+  if (typeof request === 'string') return request;
+  if (typeof request === 'object' && request !== null && 'url' in request) {
+    if (typeof request.url === 'string') return request.url;
+  }
+  throw new Error('Graph request has no URL');
 }
 
 /**

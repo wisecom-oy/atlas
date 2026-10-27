@@ -66,9 +66,7 @@ export function observe_storage_requests(
           );
           throw err;
         });
-      notify(observer, () =>
-        build_event(pending, result.output as ObservedResponse, timed_attempts && timing),
-      );
+      notify(observer, () => build_event(pending, result.output, timed_attempts && timing));
       return result;
     },
     { step: 'initialize', priority: 'high', name: 'atlasStorageRequestObserver' },

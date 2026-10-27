@@ -26,7 +26,10 @@ import type {
   GraphFolderRecord,
   GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
-import { extract_user_ids, parse_mailbox_purpose } from '@/adapters/graph-mailbox-response-mappers';
+import {
+  extract_user_ids,
+  parse_mailbox_settings_purpose,
+} from '@/adapters/graph-mailbox-response-mappers';
 import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
@@ -81,10 +84,11 @@ export class GraphMailboxConnector implements MailboxConnector {
     owner_id: string,
   ): Promise<MailboxPurpose | undefined> {
     try {
-      const res = await with_graph_retry(() =>
-        this._client.api(`/users/${owner_id}/mailboxSettings?$select=userPurpose`).get(),
+      return parse_mailbox_settings_purpose(
+        await with_graph_retry(() =>
+          this._client.api(`/users/${owner_id}/mailboxSettings?$select=userPurpose`).get(),
+        ),
       );
-      return parse_mailbox_purpose((res as { userPurpose?: unknown } | undefined)?.userPurpose);
     } catch (err) {
       // ponytail: swallow-all — 403/404 on some shared/resource mailboxes is a known Graph quirk
       logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${(err as Error).message}`);

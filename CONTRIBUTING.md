@@ -112,10 +112,11 @@ Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint
 | Max 80 effective lines per function (warning)        | `max-lines-per-function` ESLint rule   |
 | Single quotes, trailing commas, 100-char print width | Prettier                               |
 | `@/` path aliases, no relative imports (warning)     | `no-restricted-imports` ESLint rule    |
+| Type-aware: promises, unsafe `any`, assertions      | `typescript-eslint` type-checked       |
 | JSDoc on all exported functions                      | Convention                             |
 
 Two rules are staged as warnings because the codebase still has existing hits:
-194 relative imports and 16 oversized functions. They move to errors once those
+190 relative imports and 19 oversized functions. They move to errors once those
 are cleared, so a new violation shows up in the lint output of the PR that
 introduces it rather than being silently accepted.
 
