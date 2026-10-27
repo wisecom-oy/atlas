@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import type { TenantContext } from '@wisecom/atlas-types';
+import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import type { MailboxConnector, MessageAttachment } from '@wisecom/atlas-types';
 import type { AttachmentEntry } from '@wisecom/atlas-types';
 import type { ObjectLockPolicy } from '@wisecom/atlas-types';
@@ -9,7 +9,7 @@ export type AttachmentProgressCallback = (done: number, total: number) => void;
 
 /**
  * Fetches attachments for a message via the connector and stores each one
- * using content-addressed keys under attachments/{owner_id}/{sha256}.
+ * using content-addressed keys under attachments/{owner_id}/{keyed content name}.
  * The optional on_progress callback fires after each attachment is processed.
  */
 export async function fetch_and_store_attachments(
@@ -39,8 +39,9 @@ async function store_single_attachment(
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<AttachmentEntry> {
   const has_content = att.content.length > 0;
-  const checksum = has_content ? createHash('sha256').update(att.content).digest('hex') : '';
-  const storage_key = has_content ? `attachments/${owner_id}/${checksum}` : '';
+  const digests = has_content ? compute_content_digests(ctx, att.content) : undefined;
+  const checksum = digests?.checksum ?? '';
+  const storage_key = digests ? `attachments/${owner_id}/${digests.content_name}` : '';
 
   if (has_content) {
     const exists = await ctx.storage.exists(storage_key);

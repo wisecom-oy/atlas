@@ -8,6 +8,7 @@ import {
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_graph_message(): Record<string, unknown> {
@@ -156,6 +157,7 @@ describe('decrypt_and_parse_message', () => {
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
       create_cipher: stub_tenant_create_cipher,
+      create_content_hmac: stub_tenant_create_content_hmac,
       create_decipher: stub_tenant_create_decipher,
       destroy: vi.fn(),
     };

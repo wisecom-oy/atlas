@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
 import type { Manifest, TenantContext } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 /**
@@ -53,6 +54,7 @@ function make_ctx(objects: Record<string, Manifest>): TenantContext {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('ENC:'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(4)),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };

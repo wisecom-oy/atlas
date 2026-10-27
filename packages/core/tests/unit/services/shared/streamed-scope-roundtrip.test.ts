@@ -56,6 +56,7 @@ function make_ctx(): { ctx: TenantContext; objects: Map<string, Buffer> } {
     encrypt: (data: Buffer, storage_key: string) => key_service.encrypt(data, dek, storage_key),
     decrypt: (data: Buffer, storage_key: string) => key_service.decrypt(data, dek, storage_key),
     create_cipher: (scope_key: string) => key_service.create_encrypt_cipher(dek, scope_key),
+    create_content_hmac: () => key_service.create_content_hmac(key_service.derive_naming_key(dek)),
     create_decipher: (iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer) =>
       key_service.create_decrypt_decipher(dek, iv, auth_tag, scope_key, header),
     destroy: () => key_service.destroy(),

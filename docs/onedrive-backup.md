@@ -24,7 +24,7 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 
 | Item | Coverage |
 | --- | --- |
-| Files | Current content of every drive the user owns, deduplicated by SHA-256 |
+| Files | Current content of every drive the user owns, deduplicated by content |
 | Version history | Earlier versions Graph returns for each file |
 | Folder structure | Paths recorded in the snapshot manifest |
 | OneNote notebooks | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |

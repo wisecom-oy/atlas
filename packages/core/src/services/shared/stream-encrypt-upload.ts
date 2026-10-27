@@ -21,6 +21,7 @@ export interface CompletedPart {
 
 export interface StreamEncryptUploadResult {
   readonly checksum: string;
+  readonly content_name: string;
   readonly handle: MultipartUploadHandle;
   readonly completed_parts: CompletedPart[];
 }
@@ -35,8 +36,8 @@ export interface ContentAddressedStreamResult {
 export interface ContentAddressedStreamTarget {
   /** Unique per-call staging key the encrypted stream lands on first. */
   readonly staging_key: string;
-  /** Builds the canonical key from the plaintext checksum. */
-  build_data_key(checksum: string): string;
+  /** Builds the canonical key from the keyed content name. */
+  build_data_key(content_name: string): string;
   /**
    * The directory the finished object lives in, which the ciphertext is bound to.
    *
@@ -51,7 +52,7 @@ export interface ContentAddressedStreamTarget {
 /**
  * Streams an encrypted byte source into content-addressed storage.
  *
- * The canonical key is the plaintext SHA-256, which is only known once the
+ * The canonical key is a keyed hash of the plaintext, which is only known once the
  * last byte has passed through, so the bytes land on a staging key first and
  * are promoted afterwards. An object that already exists is deduplicated by
  * aborting the staged upload rather than completing it.
@@ -61,14 +62,14 @@ export async function stream_to_content_addressed_storage(
   chunks: AsyncIterable<Buffer>,
   target: ContentAddressedStreamTarget,
 ): Promise<ContentAddressedStreamResult> {
-  const { checksum, handle, completed_parts } = await stream_encrypt_to_multipart(
+  const { checksum, content_name, handle, completed_parts } = await stream_encrypt_to_multipart(
     ctx,
     target.staging_key,
     chunks,
     target.data_scope,
   );
 
-  const canonical_key = target.build_data_key(checksum);
+  const canonical_key = target.build_data_key(content_name);
 
   // Everything from here to `complete()` owns an upload that exists in the bucket. A throw in
   // between, an `exists()` that fails or a completion the backend refuses, used to leave it there
@@ -86,8 +87,8 @@ export async function stream_to_content_addressed_storage(
   }
 
   // ponytail: the exists() check above races a concurrent writer, and the loser
-  // overwrites with identical bytes -- canonical_key IS the SHA-256 of the
-  // content, so the duplicate is benign. Conditional copy would make it atomic,
+  // overwrites with identical bytes. canonical_key is the keyed name of the content, so the
+  // duplicate is benign. Conditional copy would make it atomic,
   // but MinIO ignores IfNoneMatch on CopyObject, so guarding it here would only
   // look safe. Revisit if a backend honours it.
   try {
@@ -139,6 +140,7 @@ export async function stream_encrypt_to_multipart(
 ): Promise<StreamEncryptUploadResult> {
   const { cipher, iv, header } = ctx.create_cipher(scope_key);
   const hash = createHash('sha256');
+  const content_name = ctx.create_content_hmac();
   const handle = await ctx.storage.begin_multipart_upload(staging_key);
 
   try {
@@ -151,6 +153,7 @@ export async function stream_encrypt_to_multipart(
 
     for await (const chunk of chunks) {
       hash.update(chunk);
+      content_name.update(chunk);
       state.pending.push(cipher.update(chunk));
 
       while (state.pending.bytes >= PART_SIZE) {
@@ -177,7 +180,12 @@ export async function stream_encrypt_to_multipart(
 
     state.completed_parts.sort((a, b) => a.PartNumber - b.PartNumber);
 
-    return { checksum: hash.digest('hex'), handle, completed_parts: state.completed_parts };
+    return {
+      checksum: hash.digest('hex'),
+      content_name: content_name.digest('hex'),
+      handle,
+      completed_parts: state.completed_parts,
+    };
   } catch (err) {
     await safe_abort_multipart(handle, staging_key);
     throw err;

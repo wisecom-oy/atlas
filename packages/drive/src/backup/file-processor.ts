@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { is_unretryable_download_failure } from '@wisecom/atlas-m365-graph';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { download_with_retry } from '@/backup/download-retry';
@@ -10,8 +10,6 @@ import {
   type DriveLargeFileDeps,
 } from '@/backup/large-file-pipeline';
 import type { DriveContentConnector, DriveDeltaItem } from '@/drive-ports';
-
-const HASH_CHUNK_SIZE = 64 * 1024 * 1024;
 
 export interface FileProcessResult {
   storage_key: string;
@@ -58,8 +56,8 @@ export async function process_drive_backup_file(
   const raw_body = await download_with_retry(connector, item, { abort_signal });
   if (!raw_body) return undefined;
 
-  const checksum = compute_sha256_chunked(raw_body);
-  const storage_key = deps.keys.data_key(owner_id, checksum);
+  const { checksum, content_name } = compute_content_digests(ctx, raw_body);
+  const storage_key = deps.keys.data_key(owner_id, content_name);
   const exists = await ctx.storage.exists(storage_key);
 
   if (!exists) {
@@ -68,13 +66,4 @@ export async function process_drive_backup_file(
   }
 
   return { storage_key, checksum, stored: false, deduplicated: true };
-}
-
-/** Computes SHA-256 in chunks to avoid ERR_OUT_OF_RANGE on buffers > 2 GB. */
-function compute_sha256_chunked(data: Buffer): string {
-  const hash = createHash('sha256');
-  for (let offset = 0; offset < data.length; offset += HASH_CHUNK_SIZE) {
-    hash.update(data.subarray(offset, Math.min(offset + HASH_CHUNK_SIZE, data.length)));
-  }
-  return hash.digest('hex');
 }

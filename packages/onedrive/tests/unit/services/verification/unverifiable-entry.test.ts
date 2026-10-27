@@ -10,6 +10,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
 
 /**
@@ -54,6 +55,7 @@ function make_service(entries: OneDriveManifestEntry[]): OneDriveVerificationSer
     encrypt: vi.fn().mockReturnValue(stored),
     create_decipher: vi.fn().mockImplementation(store.create_decipher),
     create_cipher: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
     destroy: vi.fn(),
   } as unknown as TenantContext;
 

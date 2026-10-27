@@ -5,6 +5,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { sync_file_versions } from '@/services/versioning/version-sync';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDeltaItem {
   return {
@@ -45,6 +46,7 @@ function make_ctx(): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
     destroy: vi.fn(),
   } as unknown as TenantContext;
 }

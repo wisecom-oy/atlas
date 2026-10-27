@@ -24,7 +24,7 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 
 | Item | Coverage |
 | --- | --- |
-| Files in every document library | Current content, deduplicated by SHA-256 within the site |
+| Files in every document library | Current content, deduplicated by content within the site |
 | Version history | Earlier versions Graph returns for each file |
 | Library and folder paths | Recorded in the snapshot manifest |
 | OneNote notebooks | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
@@ -206,7 +206,7 @@ Site data lives in the per-tenant bucket, under the `sharepoint/` prefix:
 ```
 atlas-{tenant_id}/
   sharepoint/
-    data/{site_id}/{sha256}              # Encrypted file blobs (content-addressed)
+    data/{site_id}/{content_name}        # Encrypted file blobs (keyed content names)
     manifests/{site_id}/{snapshot_id}.json
     index/{site_id}/files/{file_id}.json
     staging/{site_id}/{item_id}-{rand}   # In-flight large-file uploads

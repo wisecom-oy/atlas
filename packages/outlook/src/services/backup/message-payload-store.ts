@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import type {
   MailAddress,
   MailboxConnector,
@@ -55,7 +55,7 @@ export async function capture_mime_payload(
 }
 
 /**
- * Content-addressed storage with SHA-256 dedup: hash -> check exists -> encrypt
+ * Content-addressed storage with keyed-hash dedup (issue #446): name -> check exists -> encrypt
  * -> upload. Stores `mime` when Graph produced it, otherwise the JSON payload
  * from the delta page; the manifest entry records which (issue #50).
  */
@@ -67,8 +67,8 @@ export async function store_single_message(
   mime?: Buffer,
 ): Promise<StoredMessage> {
   const payload = mime ?? message.raw_body;
-  const checksum = createHash('sha256').update(payload).digest('hex');
-  const storage_key = `data/${owner_id}/${checksum}`;
+  const { checksum, content_name } = compute_content_digests(ctx, payload);
+  const storage_key = `data/${owner_id}/${content_name}`;
 
   const already_stored = await ctx.storage.exists(storage_key);
   if (!already_stored) {
@@ -78,7 +78,6 @@ export async function store_single_message(
       ciphertext,
       {
         'x-message-id': message.message_id,
-        'x-plaintext-sha256': checksum,
       },
       object_lock_policy,
     );

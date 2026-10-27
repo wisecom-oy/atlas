@@ -111,15 +111,21 @@ Objects written before the header existed have no magic bytes and decrypt withou
 
 | Data                                       | Encrypted | Notes                                                                                 |
 | ------------------------------------------ | --------- | ------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{sha256}`                  |
-| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{sha256}`. MIME embeds them   |
+| Email messages                             | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`           |
+| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
 | Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
-| OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{sha256}`                                                   |
+| OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{content_name}`                                             |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
-OneDrive objects store no file IDs, version IDs, or plaintext checksums in unencrypted metadata. Those live inside encrypted manifests and version indexes, so `HeadObject` and `ListObjects` cannot fingerprint known content.
+Apart from `x-message-id`, objects store no item IDs, version IDs, or plaintext checksums in unencrypted metadata. Those live inside encrypted manifests and version indexes. Mailbox objects written before keyed naming also carry `x-plaintext-sha256`; see below.
+
+### What object names reveal
+
+Each content object is named by an HMAC-SHA256 over its plaintext, keyed with a naming key that Atlas derives from the tenant data key with HKDF-SHA256 (info `atlas/object-name/v1`). The name (`{content_name}`) is 64 hex characters. Anyone with read access to the bucket can see names and sizes, and can tell when two objects hold identical content, because identical content gives identical names. They cannot tell what the content is: without the data key they cannot compute a name from a known file, so a dictionary of likely documents matches nothing in the bucket.
+
+Objects written before keyed naming are named by the plain SHA-256 of their plaintext, and mailbox objects from that time also carry an `x-plaintext-sha256` metadata header. A reader holding a copy of a file can compute that name and confirm the owner stored it. Those objects stay readable through their manifest entries, and Atlas does not rename or delete them. See [Migrating to v6](./migration/v6.md#all-workloads-keyed-content-object-names) for how to remove them.
 
 ## User identity in storage paths
 

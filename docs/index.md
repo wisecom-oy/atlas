@@ -22,7 +22,7 @@ features:
     details: Each tenant gets its own AES‑256‑GCM data key, wrapped by a key derived from your passphrase. Storage never sees plaintext content.
     link: /security
   - title: Stored once
-    details: Messages, attachments and files are addressed by their SHA‑256 hash, so unchanged data is never written twice.
+    details: Messages, attachments and files are addressed by a keyed hash of their content, so unchanged data is never written twice and object names reveal nothing without your key.
     link: /concepts
   - title: Immutable by storage
     details: With `--retention-days` on an Object Lock-enabled bucket, the bucket itself enforces retention, not Atlas metadata an attacker could edit.

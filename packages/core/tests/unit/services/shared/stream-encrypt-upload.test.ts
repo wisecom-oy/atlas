@@ -1,6 +1,8 @@
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { describe, it, expect, vi } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { compute_content_digests } from '@/services/shared/content-digests';
 import {
   stream_encrypt_to_multipart,
   stream_to_content_addressed_storage,
@@ -70,6 +72,7 @@ function make_ctx(
         header: Buffer.alloc(0),
       };
     },
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 
   return { ctx, parts, ops, completed };
@@ -98,6 +101,19 @@ describe('stream_encrypt_to_multipart', () => {
     });
 
     expect(result.checksum).toBe(sha256(plaintext));
+  });
+
+  it('names the object with the same keyed hash as the buffered path', async () => {
+    const plaintext = randomBytes(1024);
+    const recorded = make_ctx();
+
+    const result = await stream_encrypt_to_multipart(recorded.ctx, 'staging/a', {
+      async *[Symbol.asyncIterator]() {
+        yield plaintext;
+      },
+    });
+
+    expect(result.content_name).toBe(compute_content_digests(recorded.ctx, plaintext).content_name);
   });
 
   it('writes an object smaller than one part as a single part', async () => {
@@ -263,9 +279,10 @@ describe('stream_to_content_addressed_storage', () => {
     );
 
     expect(result).toMatchObject({ stored: true, deduplicated: false });
-    expect(result.storage_key).toBe(`data/${result.checksum}`);
+    expect(result.storage_key).toMatch(/^data\/[0-9a-f]{64}$/);
+    expect(result.storage_key).not.toBe(`data/${result.checksum}`);
     expect(recorded.ops).toContain('complete');
-    expect(recorded.ops).toContain(`copy:staging/a->data/${result.checksum}`);
+    expect(recorded.ops).toContain(`copy:staging/a->${result.storage_key}`);
     expect(recorded.ops).toContain('delete:staging/a');
   });
 

@@ -4,6 +4,7 @@ import { process_drive_backup_file } from '@wisecom/atlas-drive/backup/file-proc
 import type { DriveContentConnector, DriveDeltaItem } from '@wisecom/atlas-drive/drive-ports';
 import type { DriveLargeFileDeps } from '@wisecom/atlas-drive/backup/large-file-pipeline';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { LARGE_FILE_THRESHOLD } from '@wisecom/atlas-drive/backup/large-file-threshold';
 
 /**
@@ -56,6 +57,7 @@ function make_ctx(): TenantContext {
       exists: vi.fn(async () => false),
     },
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 }
 

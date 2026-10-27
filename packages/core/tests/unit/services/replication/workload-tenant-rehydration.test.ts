@@ -15,6 +15,7 @@ import type {
   SharePointSnapshotManifest,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
 
@@ -76,6 +77,7 @@ function make_ctx(storage: ObjectStorage): TenantContext {
     encrypt: vi.fn((d: Buffer) => d),
     decrypt: vi.fn((d: Buffer) => d),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };

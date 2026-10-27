@@ -14,18 +14,18 @@ atlas-{tenant_id}/
 │   │   ├── onedrive/{owner_id}/                 # OneDrive
 │   │   └── sharepoint/{site_id}/                # SharePoint
 │   └── replica.marker                           # present only on replica buckets
-├── data/{owner_id}/{sha256}                     # Outlook messages
-├── attachments/{owner_id}/{sha256}              # Outlook attachments (legacy JSON entries)
+├── data/{owner_id}/{content_name}               # Outlook messages
+├── attachments/{owner_id}/{content_name}        # Outlook attachments (legacy JSON entries)
 ├── manifests/{owner_id}/{snapshot_id}.json      # Outlook manifests
 ├── onedrive/
-│   ├── data/{owner_id}/{sha256}                 # file blobs
+│   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
 │   ├── index/{owner_id}/runs/{snapshot_id}.json # version index per backup run
 │   ├── index/{owner_id}/files/{file_id}.json    # legacy per-file index
 │   ├── staging/{owner_id}/                      # temporary multipart uploads
 │   └── _meta/{owner_id}/delta.json              # delta cursors
 └── sharepoint/
-    ├── data/{site_id}/{sha256}
+    ├── data/{site_id}/{content_name}
     ├── manifests/{site_id}/{snapshot_id}.json
     ├── index/{site_id}/runs/{snapshot_id}.json
     ├── index/{site_id}/files/{file_id}.json
@@ -44,8 +44,8 @@ Each tenant has a separate bucket with its own S3 credentials, its own `dek.enc`
 | `_meta/dek.enc`                                 | Wrapped data encryption key, one per tenant                 | The most critical object. See [The DEK object](#the-dek-object). |
 | `_meta/outlook-manifests/owners/{owner_id}/`    | Pointer to the latest manifest for a mailbox                | Lets incremental backups read one manifest, not the full history. |
 | `_meta/outlook-manifests/snapshots/{snapshot}`  | Pointer from a snapshot ID to its manifest                  | Direct lookup by snapshot ID.                               |
-| `data/{owner_id}/`                              | Messages as RFC 5322 MIME, addressed by SHA-256             | Content encrypted; S3 metadata visible.                     |
-| `attachments/{owner_id}/`                       | Attachments from legacy JSON entries, addressed by SHA-256  | Content encrypted; S3 metadata visible.                     |
+| `data/{owner_id}/`                              | Messages as RFC 5322 MIME, named by keyed hash              | Content encrypted; S3 metadata visible.                     |
+| `attachments/{owner_id}/`                       | Attachments from legacy JSON entries, named by keyed hash   | Content encrypted; S3 metadata visible.                     |
 | `manifests/{owner_id}/`                         | Snapshot manifests                                          | Include subjects, senders, folder names, and delta URLs, all encrypted. |
 
 Pointers hold only an encrypted manifest key. Deleting a mailbox or snapshot removes its pointers.
@@ -67,7 +67,7 @@ Each Outlook manifest records `mailbox_purpose` (Graph's `mailboxSettings.userPu
 
 | Prefix                                  | Contents                                          | Notes                                                                 |
 | --------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
-| `onedrive/data/{owner_id}/`             | File blobs, addressed by SHA-256                  | Owner is the Entra object ID.                                         |
+| `onedrive/data/{owner_id}/`             | File blobs, named by keyed hash                   | Owner is the Entra object ID.                                         |
 | `onedrive/manifests/{owner_id}/`        | Snapshot manifests                                | Include file paths, checksums, and change types.                      |
 | `onedrive/index/{owner_id}/runs/`       | One version index per backup run                  | Maps file IDs to the versions that run captured.                      |
 | `onedrive/index/{owner_id}/files/`      | Legacy per-file version indexes                   | Still readable. Removed only by purging the owner.                    |
@@ -98,22 +98,25 @@ If the file is lost or corrupted and you have no separate copy, every object in 
 
 ## Content addressing
 
-Messages and attachments are stored under the SHA-256 of their **plaintext**, computed before encryption. Identical content is stored once, so a message that appears in several snapshots is one object, and each manifest refers to it by hash. Integrity checks decrypt the object, hash the result, and compare it with the key. A match proves the content is byte-for-byte what was backed up.
+Messages, attachments, and files are named by an HMAC-SHA256 of their **plaintext**, computed before encryption and keyed with a naming key derived from the tenant data key. Identical content within an owner gets the same name and is stored once, so a message that appears in several snapshots is one object. Each manifest records the object's key and a plain SHA-256 checksum of the plaintext. Integrity checks decrypt the object, hash the result with SHA-256, and compare it with the manifest checksum. A match proves the content is byte-for-byte what was backed up.
+
+Objects written before keyed naming are named by the plain SHA-256 of their plaintext. They stay readable through their manifest entries. See [What object names reveal](/security#what-object-names-reveal).
 
 MIME changes the deduplication boundary for messages. Two messages with the same attachment are two blobs, so the attachment is stored once per message rather than once per mailbox. MIME also encodes attachments in base64, which adds about one third to their size. Atlas accepts that cost because it keeps messages byte-exact, which matters for signed mail.
 
 ## S3 object metadata
 
-Each object carries these headers:
+Mailbox objects carry these headers:
 
 | Header                          | Value                                    | Encrypted                  |
 | ------------------------------- | ---------------------------------------- | -------------------------- |
 | `x-amz-meta-x-message-id`       | Microsoft Graph message ID               | No, visible to S3 readers  |
-| `x-amz-meta-x-plaintext-sha256` | SHA-256 of the plaintext                 | No, visible to S3 readers  |
 | `Content-MD5`                   | MD5 of the ciphertext (transport check)  | Standard S3 header         |
 
+Objects written before keyed naming also carry `x-amz-meta-x-plaintext-sha256`, the SHA-256 of the plaintext. Atlas no longer writes or reads it.
+
 ::: warning Metadata reveals existence
-Anyone with S3 read access can list Graph message IDs and plaintext hashes. The content stays encrypted, but the metadata shows which messages exist. Atlas uses it for deduplication and integrity checks without decrypting anything. If that exposure is not acceptable, limit the bucket to the Atlas service account and restrict the network path to the S3 endpoint.
+Anyone with S3 read access can list Graph message IDs. The content stays encrypted, but the metadata shows which messages exist. If that exposure is not acceptable, limit the bucket to the Atlas service account and restrict the network path to the S3 endpoint.
 :::
 
 ## See also
