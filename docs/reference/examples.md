@@ -1,12 +1,12 @@
-# SDK Examples
+# SDK examples
 
-Production-ready patterns for embedding Atlas in a Node.js application. Every example uses real SDK return types and handles the failure modes you will hit in production.
+Patterns for embedding Atlas in a Node.js application. Each example uses the SDK return types and shows how to handle the failures a scheduled job will hit. Configuration follows [createAtlasInstance](/reference/sdk#instance-lifecycle).
 
 ## Backup
 
 ### Conditional backup: check status first
 
-The most common pattern. Check which mailboxes actually have pending changes before running expensive backup operations. This avoids unnecessary Graph API calls and reduces bandwidth during scheduled runs.
+Check which mailboxes have pending changes before starting a backup. Mailboxes with no changes are skipped, which avoids unnecessary Graph API calls on scheduled runs.
 
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
@@ -27,29 +27,29 @@ for (const mailbox of mailboxes) {
   const status = await atlas.outlook.checkMailboxStatus(mailbox);
 
   if (status.isUpToDate) {
-    console.log(`[skip] ${mailbox} — no changes since last backup`);
+    console.log(`[skip] ${mailbox}: no changes since last backup`);
     continue;
   }
 
   console.log(
-    `[backup] ${mailbox} — ${status.totalPendingChanges} pending change(s) across ${status.totalFolders} folder(s)`,
+    `[backup] ${mailbox}: ${status.totalPendingChanges} pending change(s) across ${status.totalFolders} folder(s)`,
   );
 
   const result = await atlas.outlook.backup(mailbox);
 
   console.log(
-    `[done] ${mailbox} — snapshot ${result.snapshot.id}, ` +
-      `${result.summary.stored} stored, ${result.summary.deduplicated} deduped, ` +
-      `${result.summary.attachmentsStored} attachments (${result.summary.elapsedMs}ms)`,
+    `[done] ${mailbox}: snapshot ${result.snapshot.id}, ` +
+      `${result.summary.stored} stored, ${result.summary.deduplicated} deduplicated, ` +
+      `${result.summary.attachmentsStored} attachments (${result.summary.elapsedMs} ms)`,
   );
 }
 ```
 
-`atlas.outlook.checkMailboxStatus` is a lightweight delta peek. It queries Graph without consuming the delta token, so the following `atlas.outlook.backup` call still picks up from the correct sync point.
+`checkMailboxStatus` reads the Graph delta for each folder without saving the new cursor, so the following `backup` call still starts from the last sync point.
 
 ### Nightly backup job with error handling
 
-Backs up every mailbox, collects results, and exits with a code your process manager can act on (cron, systemd, an orchestration platform).
+Back up every mailbox, collect the results, and exit with a code that the process manager can act on (cron, systemd, or an orchestration platform).
 
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
@@ -73,7 +73,7 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
       const status = await atlas.outlook.checkMailboxStatus(mailbox);
 
       if (status.isUpToDate) {
-        console.log(`[skip] ${mailbox} — already current`);
+        console.log(`[skip] ${mailbox}: already current`);
         continue;
       }
 
@@ -90,21 +90,21 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
 
       if (result.summary.interrupted) {
         console.warn(
-          `[warn] ${mailbox} — backup was interrupted, ` +
+          `[warn] ${mailbox}: backup was interrupted, ` +
             `${result.summary.completedFolderCount}/${result.summary.totalFolderCount} folders completed`,
         );
       }
 
       if (result.summary.folderErrors.length > 0) {
         console.warn(
-          `[warn] ${mailbox} — ${result.summary.folderErrors.length} folder error(s): ` +
+          `[warn] ${mailbox}: ${result.summary.folderErrors.length} folder error(s): ` +
             result.summary.folderErrors.join(', '),
         );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       failed.push({ mailbox, error: message });
-      console.error(`[fail] ${mailbox} — ${message}`);
+      console.error(`[fail] ${mailbox}: ${message}`);
     }
   }
 
@@ -113,7 +113,7 @@ async function run_nightly_backup(atlas: AtlasInstance, mailboxes: string[]) {
   return { succeeded, failed };
 }
 
-// --- entry point ---
+// Entry point
 
 const atlas = createAtlasInstance({
   tenantId: process.env.ATLAS_TENANT_ID!,
@@ -131,11 +131,11 @@ const { failed } = await run_nightly_backup(atlas, mailboxes);
 process.exit(failed.length > 0 ? 1 : 0);
 ```
 
-The non-zero exit code on failure is what cron turns into an alert email, systemd records as `FailureAction`, and CI/CD pipelines treat as a failed step.
+A non-zero exit code is what cron turns into an alert email, systemd records as a failed unit, and a CI/CD pipeline treats as a failed step.
 
 ### Backup, replicate, and report
 
-Back up each mailbox, immediately replicate the snapshot to an offsite target, and collect the results. This is the core loop for a 3-2-1 strategy. Adapt the reporting to whatever fits your stack: a webhook, a database row, a structured log, an email.
+Back up each mailbox, replicate the snapshot to an offsite target, and collect the results. This is the core loop for a 3-2-1 strategy. Adapt the reporting to your stack: a webhook, a database row, a structured log, or an email.
 
 ```typescript
 import { createAtlasInstance, createStorageTarget } from '@wisecom/atlas-sdk';
@@ -165,8 +165,8 @@ for (const mailbox of mailboxes) {
   try {
     const backup = await atlas.outlook.backup(mailbox);
 
-    // Replication is S3-to-S3 only (no Graph API calls), so fire it off
-    // concurrently while the next mailbox backup runs.
+    // Replication is S3-to-S3 only and makes no Graph API calls, so it runs
+    // in the background while the next mailbox backs up.
     replications.push(atlas.replicateSnapshot(backup.snapshot.id, [offsite]));
 
     results.push({
@@ -182,18 +182,18 @@ for (const mailbox of mailboxes) {
 
 await Promise.allSettled(replications);
 
-// results is a plain array -- send it wherever you want
+// Send results wherever your reporting needs them.
 console.log(JSON.stringify(results, null, 2));
 process.exit(results.some((r) => !r.ok) ? 1 : 0);
 ```
 
-Backups run sequentially to avoid Graph throttling, but each replication fires immediately without blocking the next backup. Replication is pure S3-to-S3 traffic, typically LAN or inter-datacenter fiber, so it runs safely in the background. `Promise.allSettled` ensures every replication finishes before the process exits.
+Backups run one after another to stay within Graph limits. Each replication starts as soon as its snapshot exists, without blocking the next backup. `Promise.allSettled` makes the process wait until every replication has finished before it exits.
 
-A crash partway through costs nothing: the next run resumes on its own, because `atlas.outlook.backup` produces a delta snapshot and `replicateSnapshot` skips objects already on the target.
+If the process crashes partway through, `replicateSnapshot` does not retry snapshots it was not given. Run `atlas.replicateMailbox(mailbox, [offsite])` for each mailbox on the next run. It copies every snapshot the target lacks.
 
 ### OneDrive and SharePoint status check
 
-Check for pending changes before running a OneDrive or SharePoint backup. This keeps scheduled jobs from burning cycles on unchanged data.
+Check for pending changes before a OneDrive or SharePoint backup. Scheduled jobs then skip owners and sites with no changes.
 
 ```typescript
 // OneDrive status check
@@ -223,7 +223,7 @@ if (spStatus.isUpToDate) {
 
 ### Multi-tenant backup
 
-Managed service providers create one Atlas instance per tenant. Each instance is cryptographically isolated, with its own KEK, its own DEK, and its own S3 bucket.
+A managed service provider creates one Atlas instance per tenant. Each tenant has its own S3 bucket and its own wrapped data key, so one tenant's data is never mixed with another's. The `await using` declaration releases the instance's storage connections at the end of each tenant's block.
 
 ```typescript
 interface TenantConfig {
@@ -242,7 +242,7 @@ async function backup_all_tenants(
   for (const tenant of tenants) {
     console.log(`\n--- Tenant: ${tenant.name} (${tenant.tenantId}) ---`);
 
-    const atlas = createAtlasInstance({
+    await using atlas = createAtlasInstance({
       tenantId: tenant.tenantId,
       clientId: tenant.clientId,
       clientSecret: tenant.clientSecret,
@@ -255,25 +255,25 @@ async function backup_all_tenants(
     for (const mailbox of tenant.mailboxes) {
       try {
         const result = await atlas.outlook.backup(mailbox);
-        console.log(`  [done] ${mailbox} — ${result.summary.stored} stored`);
+        console.log(`  [done] ${mailbox}: ${result.summary.stored} stored`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(`  [fail] ${mailbox} — ${message}`);
+        console.error(`  [fail] ${mailbox}: ${message}`);
       }
     }
   }
 }
 ```
 
-::: warning Sequential Processing Is Required
-Process tenants and mailboxes **sequentially**, not with `Promise.all`. Each backup makes hundreds or thousands of Microsoft Graph API calls. Parallel execution would trigger aggressive HTTP 429 throttling with exponential backoff, making the total runtime longer, not shorter.
+::: warning Run tenants and mailboxes sequentially
+Process tenants and mailboxes one at a time, not with `Promise.all`. Each mailbox backup makes many Microsoft Graph API calls. Running them in parallel triggers HTTP 429 throttling and exponential backoff, which makes the total runtime longer.
 :::
 
 ## Discovery and pre-flight checks
 
 ### Pre-flight storage validation
 
-Verify the bucket is correctly configured before the first immutable backup writes any data.
+Verify the bucket is configured correctly before the first immutable backup writes data.
 
 ```typescript
 async function validate_immutable_readiness(atlas: AtlasInstance) {
@@ -283,11 +283,12 @@ async function validate_immutable_readiness(atlas: AtlasInstance) {
   });
 
   console.log('Storage check results:');
-  console.log(`  Bucket exists:    ${check.bucketExists}`);
+  console.log(`  Reachable:        ${check.reachable}`);
   console.log(`  Versioning:       ${check.versioningEnabled}`);
   console.log(`  Object Lock:      ${check.objectLockEnabled}`);
+  console.log(`  Mode supported:   ${check.modeSupported}`);
 
-  if (!check.bucketExists || !check.versioningEnabled || !check.objectLockEnabled) {
+  if (!check.reachable || !check.versioningEnabled || !check.objectLockEnabled) {
     throw new Error(
       'Storage is not ready for immutable backups. ' +
         'Ensure the bucket exists with versioning and Object Lock enabled.',
@@ -300,23 +301,23 @@ async function validate_immutable_readiness(atlas: AtlasInstance) {
 
 ### Mailbox discovery and identity resolution
 
-Discover tenant mailboxes and resolve user identities before running backups. This is the basis for onboarding workflows, audit dashboards, and automated provisioning.
+Discover tenant mailboxes and resolve user identities before running backups. Use this as the basis for onboarding workflows, audit dashboards, and provisioning.
 
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({/* config */});
 
-// Discover all tenant mailboxes (licensed users + shared mailboxes)
+// Discover all tenant mailboxes (licensed users and shared mailboxes)
 const mailboxes = await atlas.outlook.listAvailableMailboxes();
 
 console.log(`Found ${mailboxes.length} mailboxes:`);
 for (const mb of mailboxes) {
   if (mb.mailboxPurpose === 'shared') {
-    console.log(`  ${mb.mail} — ${mb.displayName} (shared mailbox)`);
+    console.log(`  ${mb.mail}: ${mb.displayName} (shared mailbox)`);
   } else {
     console.log(
-      `  ${mb.mail} — ${mb.displayName} (${mb.hasExchangeLicense ? 'licensed' : 'unlicensed'})`,
+      `  ${mb.mail}: ${mb.displayName} (${mb.hasExchangeLicense ? 'licensed' : 'unlicensed'})`,
     );
   }
 }
@@ -325,16 +326,16 @@ for (const mb of mailboxes) {
 const user = await atlas.resolveUser('alice@company.com');
 console.log(`Resolved: ${user.displayName} → ${user.objectId}`);
 
-// List all users in the identity registry (previously backed-up users)
+// List the identity registry (users seen by previous backups)
 const registry = await atlas.listUsers();
 if (registry) {
   for (const entry of registry.entries) {
-    console.log(`  ${entry.email} — last seen: ${entry.lastBackupAt}`);
+    console.log(`  ${entry.email}: registered ${entry.registeredAt} (${entry.status})`);
   }
 }
 ```
 
-`listAvailableMailboxes` queries Microsoft Graph directly, so it returns every tenant mailbox whether or not it has been backed up. Diff it against `atlas.outlook.listMailboxes()`, which returns only backed-up mailboxes from the catalog, to find mailboxes that are not yet protected.
+`listAvailableMailboxes` queries Microsoft Graph directly, so it returns every tenant mailbox whether or not it has been backed up. Compare it with `atlas.outlook.listMailboxes()`, which returns only mailboxes that have a backup in the catalog, to find mailboxes that are not yet protected.
 
 ### SharePoint site discovery
 
@@ -344,22 +345,22 @@ Discover SharePoint sites and resolve site URLs before running backups, for envi
 // Discover all sites
 const sites = await atlas.sharepoint.listSites();
 for (const site of sites) {
-  console.log(`${site.displayName}: ${site.webUrl}`);
+  console.log(`${site.displayName}: ${site.siteUrl}`);
 }
 
 // Resolve a site URL to its Graph site ID
 const site = await atlas.sharepoint.resolveSite('https://contoso.sharepoint.com/sites/Engineering');
-console.log(`Site ID: ${site.id}`);
+console.log(`Site ID: ${site.siteId}`);
 
 // Back up the resolved site and every subsite beneath it
-const results = await atlas.sharepoint.backup(site.id, { includeSubsites: true });
+const results = await atlas.sharepoint.backup(site.siteId, { includeSubsites: true });
 ```
 
 ## Export and compliance
 
 ### Automated EML export
 
-Export mailbox backups as `.eml` archives on a schedule, for legal holds, compliance audits, or portable copies for departing employees.
+Export mailbox backups as archives on a schedule, for legal holds, compliance audits, or copies for departing employees.
 
 ```typescript
 async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, output_dir: string) {
@@ -372,7 +373,7 @@ async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, out
   });
 
   console.log(
-    `[export] ${mailbox} — ${result.savedCount} messages, ` +
+    `[export] ${mailbox}: ${result.savedCount} messages, ` +
       `${result.attachmentCount} attachments, ` +
       `${(result.totalBytes / 1024 ** 2).toFixed(1)} MB → ${result.outputPath}`,
   );
@@ -387,9 +388,9 @@ async function export_mailbox_archive(atlas: AtlasInstance, mailbox: string, out
 
 ### Serving an export over HTTP
 
-Hand a user their own mailbox export without staging it on the app server. The archive streams to the response as it is built, so a read-only or ephemeral filesystem is no obstacle and disk use does not scale with mailbox size.
+Give a user their own mailbox export without staging it on the application server. The archive streams to the response as it is built, so a read-only or ephemeral filesystem is not a problem, and disk use does not grow with mailbox size.
 
-The mailbox comes from the authenticated session, never from the request. A route parameter would let any caller export any mailbox in the tenant, and Atlas authenticates as an application: it has tenant-wide access and cannot tell whose request this is.
+The mailbox must come from the authenticated session, never from the request. A route parameter would let any caller export any mailbox in the tenant, because Atlas authenticates as an application with tenant-wide access and cannot tell whose request it is serving.
 
 ```typescript
 import express from 'express';
@@ -397,7 +398,7 @@ import express from 'express';
 const app = express();
 
 app.get('/exports/my-mailbox', require_authenticated_user, async (req, res) => {
-  const mailbox = req.user.mailbox; // resolved from the session, and tenant-checked
+  const mailbox = req.user.mailbox; // resolved from the session and tenant-checked
   res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Content-Disposition', `attachment; filename="${mailbox}.zip"`);
 
@@ -406,23 +407,25 @@ app.get('/exports/my-mailbox', require_authenticated_user, async (req, res) => {
     console.log(`[export] ${result.savedCount} messages, ${result.totalBytes} bytes`);
 
     if (result.integrityFailures.length > 0) {
-      // The client already has the bytes: record this rather than trying to unsend it.
+      // The client already has the bytes, so record the failure instead of retracting it.
       console.warn(`[warn] ${result.integrityFailures.length} integrity failure(s)`);
     }
   } catch (err) {
-    // Atlas destroyed the response, even if setup failed before writing any bytes.
+    // Atlas destroys the response once the export starts. Earlier failures, such as resolving the mailbox, leave it open.
     console.error('[export] failed', err);
+    if (res.headersSent) res.destroy();
+    else res.status(500).end();
   }
 });
 ```
 
-`outputPath` is empty in the result, because nothing was written to disk. An export with no messages still ends the stream with a valid empty archive. A failed setup or an interrupted run destroys it. The drive workloads take the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
+With `output` set, `outputPath` is empty in the result because nothing is written to disk. An export with no messages still ends the stream with a valid, empty archive. An interrupted run destroys the stream, so the client can tell it received an incomplete file. A failure before the export starts, such as a failed identity lookup, does not touch the response, so the handler must end it, as the example does. The drive workloads accept the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
 
 ## Maintenance and monitoring
 
 ### Periodic integrity verification
 
-Confirm that data in S3 has not been corrupted or tampered with. This is the programmatic equivalent of `atlas outlook verify`.
+Confirm that data in S3 has not been corrupted or altered. This is the programmatic equivalent of `atlas outlook verify`.
 
 ```typescript
 async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) {
@@ -430,7 +433,7 @@ async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) 
     const snapshots = await atlas.outlook.listSnapshots(mailbox);
 
     if (snapshots.length === 0) {
-      console.log(`[skip] ${mailbox} — no snapshots`);
+      console.log(`[skip] ${mailbox}: no snapshots`);
       continue;
     }
 
@@ -438,9 +441,9 @@ async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) 
     const result = await atlas.outlook.verify(latest.snapshotId);
 
     if (result.failed.length === 0) {
-      console.log(`[pass] ${mailbox} — ${result.passed}/${result.totalChecked} objects verified`);
+      console.log(`[pass] ${mailbox}: ${result.passed}/${result.totalChecked} objects verified`);
     } else {
-      console.error(`[FAIL] ${mailbox} — ${result.failed.length} integrity failure(s):`);
+      console.error(`[FAIL] ${mailbox}: ${result.failed.length} integrity failure(s):`);
       for (const failure of result.failed) {
         console.error(`  - ${failure}`);
       }
@@ -449,11 +452,11 @@ async function verify_recent_backups(atlas: AtlasInstance, mailboxes: string[]) 
 }
 ```
 
-Verification downloads every encrypted object, decrypts it (validating the GCM authentication tag), recomputes the plaintext SHA-256, and compares it against the manifest. Any mismatch indicates corruption or tampering.
+Verification downloads each encrypted object, decrypts it (which checks the AES-GCM authentication tag), recomputes the SHA-256 of the plaintext, and compares it with the manifest. A mismatch means the object was corrupted or altered.
 
 ### Storage metrics
 
-Pull storage statistics for a monitoring system such as Prometheus, Datadog, Grafana, or a dashboard of your own.
+Pull storage statistics for a monitoring system such as Prometheus, Datadog, or Grafana, or for a dashboard of your own.
 
 ```typescript
 async function collect_storage_metrics(atlas: AtlasInstance) {
@@ -462,11 +465,11 @@ async function collect_storage_metrics(atlas: AtlasInstance) {
   const metrics = {
     tenantId: stats.tenantId,
     totalMailboxes: stats.mailboxCount,
-    total_snapshots: stats.snapshotCount,
+    totalSnapshots: stats.snapshotCount,
     totalMessages: stats.totalMessages,
-    total_size_gb: (stats.totalSizeBytes / 1024 ** 3).toFixed(2),
-    total_attachments: stats.attachmentCount,
-    attachment_size_gb: (stats.attachmentSizeBytes / 1024 ** 3).toFixed(2),
+    totalSizeGb: (stats.totalSizeBytes / 1024 ** 3).toFixed(2),
+    totalAttachments: stats.attachmentCount,
+    attachmentSizeGb: (stats.attachmentSizeBytes / 1024 ** 3).toFixed(2),
   };
 
   console.log(JSON.stringify(metrics, null, 2));
@@ -481,15 +484,15 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
   const stats = await atlas.outlook.getMailboxStats(mailbox);
 
   return {
-    mailbox: stats.mailbox_id,
+    mailbox: stats.ownerId,
     snapshots: stats.snapshotCount,
     messages: stats.totalMessages,
-    size_mb: (stats.totalSizeBytes / 1024 ** 2).toFixed(1),
+    sizeMb: (stats.totalSizeBytes / 1024 ** 2).toFixed(1),
     attachments: stats.attachmentCount,
     folders: stats.folders.map((f) => ({
       id: f.folderId,
       messages: f.messageCount,
-      size_mb: (f.totalSizeBytes / 1024 ** 2).toFixed(1),
+      sizeMb: (f.totalSizeBytes / 1024 ** 2).toFixed(1),
     })),
   };
 }
@@ -497,59 +500,14 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
 
 ### Snapshot pruning
 
-Keep the last N snapshots per mailbox and delete the rest, where storage cost matters more than deep history.
+Do not prune snapshots one at a time with `deleteSnapshot`. Outlook and OneDrive manifests record only what changed in their run, and a restore folds in the older manifests of the same owner. Deleting an older manifest silently drops items that newer snapshots still need. Atlas has no chain-aware pruning. To remove an owner's data, use `atlas.outlook.deleteMailboxData` or `atlas.onedrive.deleteOwnerData`.
+
+### OneDrive replication
+
+Copy OneDrive snapshots to an offsite target.
 
 ```typescript
-async function prune_old_snapshots(atlas: AtlasInstance, mailbox: string, keep_count: number) {
-  const snapshots = await atlas.outlook.listSnapshots(mailbox);
-
-  if (snapshots.length <= keep_count) {
-    console.log(`[skip] ${mailbox} — ${snapshots.length} snapshot(s), nothing to prune`);
-    return;
-  }
-
-  const to_delete = snapshots.slice(0, snapshots.length - keep_count);
-
-  for (const snapshot of to_delete) {
-    const result = await atlas.outlook.deleteSnapshot(snapshot.snapshotId);
-    console.log(
-      `[prune] ${mailbox} — deleted snapshot ${snapshot.snapshotId} ` +
-        `(${result.deletedObjects} objects removed)`,
-    );
-  }
-
-  console.log(`[done] ${mailbox} — pruned ${to_delete.length} snapshot(s), kept ${keep_count}`);
-}
-```
-
-::: tip Snapshot Deletion vs. Data Deletion
-`atlas.outlook.deleteSnapshot` removes only the manifest file. The underlying data objects are retained because they may be referenced by other snapshots (content-addressed deduplication). To remove all data for a mailbox, use `atlas.outlook.deleteMailboxData`.
-:::
-
-### OneDrive snapshot pruning and replication
-
-Prune old OneDrive snapshots, keep the recent ones, and replicate the keepers offsite.
-
-```typescript
-async function prune_and_replicate_onedrive(
-  atlas: AtlasInstance,
-  ownerId: string,
-  keep_count: number,
-  offsite: StorageTarget,
-) {
-  const snapshots = await atlas.onedrive.listSnapshots(ownerId);
-
-  if (snapshots.length <= keep_count) {
-    console.log(`[skip] ${ownerId} — ${snapshots.length} snapshot(s), nothing to prune`);
-  } else {
-    const to_delete = snapshots.slice(0, snapshots.length - keep_count);
-    for (const snap of to_delete) {
-      await atlas.onedrive.deleteSnapshot(ownerId, snap.snapshotId);
-      console.log(`[prune] deleted ${snap.snapshotId}`);
-    }
-  }
-
-  // Replicate remaining snapshots
+async function replicate_onedrive(atlas: AtlasInstance, ownerId: string, offsite: StorageTarget) {
   await atlas.onedrive.replicateAll(ownerId, [offsite]);
   console.log(`[replicated] ${ownerId} snapshots synced to offsite`);
 }

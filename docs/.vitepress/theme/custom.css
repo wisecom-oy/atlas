@@ -1,225 +1,725 @@
+/* Wisecom monochrome. Black, white, greys. Square corners, 1px borders, no hue accents. */
+
 :root {
-  --vp-c-brand-1: #7c3aed;
-  --vp-c-brand-2: #6366f1;
-  --vp-c-brand-3: #818cf8;
-  --vp-c-brand-soft: rgba(124, 58, 237, 0.14);
-}
+  --vp-font-family-base: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --vp-font-family-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
 
-.dark {
-  --vp-c-bg: #0a0a12;
-  --vp-c-bg-alt: #10111a;
-  --vp-c-bg-elv: #141522;
-  --vp-c-bg-soft: #1a1b2e;
+  --vp-c-brand-1: #0a0a0a;
+  --vp-c-brand-2: #262626;
+  --vp-c-brand-3: #0a0a0a;
+  --vp-c-brand-soft: rgba(10, 10, 10, 0.08);
 
-  --vp-c-brand-1: #818cf8;
-  --vp-c-brand-2: #7c3aed;
-  --vp-c-brand-3: #6366f1;
-  --vp-c-brand-soft: rgba(129, 140, 248, 0.14);
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f7f7f7;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #f3f3f3;
+  --vp-c-divider: #e5e5e5;
+  --vp-c-border: #d4d4d4;
+  --vp-c-gutter: #e5e5e5;
+  --vp-c-text-1: #0a0a0a;
+  --vp-c-text-2: #525252;
+  --vp-c-text-3: #8a8a8a;
 
-  --vp-c-text-1: #e2e0ff;
-  --vp-c-text-2: #a8a5c8;
-  --vp-c-text-3: #6e6b8a;
+  --vp-c-default-soft: rgba(10, 10, 10, 0.05);
+  --vp-c-tip-1: #0a0a0a;
+  --vp-c-tip-soft: #f5f5f5;
+  --vp-c-note-1: #404040;
+  --vp-c-note-soft: #f5f5f5;
+  --vp-c-warning-1: #0a0a0a;
+  --vp-c-warning-soft: #f0f0f0;
+  --vp-c-danger-1: #0a0a0a;
+  --vp-c-danger-soft: #ebebeb;
 
-  --vp-c-divider: #2a2b45;
-  --vp-c-gutter: #1a1b2e;
-
-  --vp-c-default-1: #2a2b45;
-  --vp-c-default-2: #22233a;
-  --vp-c-default-3: #1a1b2e;
-  --vp-c-default-soft: rgba(42, 43, 69, 0.4);
-
-  --vp-c-tip-1: #818cf8;
-  --vp-c-tip-2: #6366f1;
-  --vp-c-tip-3: #4f46e5;
-  --vp-c-tip-soft: rgba(129, 140, 248, 0.14);
-
-  --vp-c-warning-1: #f59e0b;
-  --vp-c-warning-2: #d97706;
-  --vp-c-warning-3: #b45309;
-  --vp-c-warning-soft: rgba(245, 158, 11, 0.14);
-
-  --vp-c-danger-1: #f87171;
-  --vp-c-danger-2: #ef4444;
-  --vp-c-danger-3: #dc2626;
-  --vp-c-danger-soft: rgba(248, 113, 113, 0.14);
-
-  --vp-code-block-bg: #0d0d18;
-  --vp-code-line-highlight-color: rgba(129, 140, 248, 0.08);
-  --vp-code-tab-active-bar-color: #818cf8;
-  --vp-code-line-diff-add-color: rgba(16, 185, 129, 0.14);
-  --vp-code-line-diff-remove-color: rgba(244, 63, 94, 0.14);
-
-  --vp-button-brand-bg: #7c3aed;
-  --vp-button-brand-hover-bg: #6d28d9;
-  --vp-button-brand-active-bg: #5b21b6;
-  --vp-button-brand-border: transparent;
+  --vp-button-brand-bg: #0a0a0a;
+  --vp-button-brand-border: #0a0a0a;
   --vp-button-brand-text: #ffffff;
+  --vp-button-brand-hover-bg: #262626;
+  --vp-button-brand-hover-border: #262626;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-active-bg: #404040;
+  --vp-button-alt-bg: transparent;
+  --vp-button-alt-border: #d4d4d4;
+  --vp-button-alt-text: #0a0a0a;
+  --vp-button-alt-hover-bg: #f5f5f5;
+  --vp-button-alt-hover-border: #0a0a0a;
+  --vp-button-alt-hover-text: #0a0a0a;
 
-  --vp-button-alt-bg: #1a1b2e;
-  --vp-button-alt-hover-bg: #22233a;
-  --vp-button-alt-active-bg: #2a2b45;
-  --vp-button-alt-border: #2a2b45;
-  --vp-button-alt-text: #e2e0ff;
-
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(135deg, #818cf8 0%, #7c3aed 40%, #c084fc 100%);
-  --vp-home-hero-image-background-image: linear-gradient(
-    135deg,
-    rgba(124, 58, 237, 0.3) 0%,
-    rgba(99, 102, 241, 0.3) 100%
-  );
-  --vp-home-hero-image-filter: blur(56px);
-
-  --vp-nav-bg: rgba(10, 10, 18, 0.85);
-
-  --vp-sidebar-bg: #0d0d18;
-
-  --vp-carbon-ads-bg: #10111a;
-}
-
-.dark .VPNav {
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.dark .VPSidebar {
-  border-right-color: #1a1b2e;
-}
-
-.dark .VPDoc .content-container {
-  border-top-color: #1a1b2e;
-}
-
-.dark .vp-doc a {
-  color: #818cf8;
-  text-decoration: none;
-}
-
-.dark .vp-doc a:hover {
-  color: #a5b4fc;
-  text-decoration: underline;
-}
-
-.dark .VPFeature {
-  background-color: #10111a;
-  border-color: #1a1b2e;
-  transition:
-    border-color 0.25s,
-    box-shadow 0.25s;
-}
-
-.dark .VPFeature:hover {
-  border-color: #7c3aed;
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.15);
-}
-
-.dark .vp-doc h1,
-.dark .vp-doc h2,
-.dark .vp-doc h3 {
-  color: #f0eeff;
-}
-
-.dark .vp-doc h2 {
-  border-top-color: #1a1b2e;
-}
-
-.dark .vp-doc th {
-  background-color: #10111a;
-  color: #c4c0e8;
-}
-
-.dark .vp-doc tr {
-  background-color: #0a0a12;
-  border-top-color: #1a1b2e;
-}
-
-.dark .vp-doc tr:nth-child(2n) {
-  background-color: #0d0d18;
-}
-
-.dark .vp-doc table {
-  border-color: #1a1b2e;
-}
-
-.dark .vp-doc td,
-.dark .vp-doc th {
-  border-color: #1a1b2e;
-}
-
-.dark .custom-block.tip {
-  border-color: #4f46e5;
-  background-color: rgba(79, 70, 229, 0.08);
-}
-
-.dark .custom-block.warning {
-  border-color: #b45309;
-  background-color: rgba(180, 83, 9, 0.08);
-}
-
-.dark .custom-block.danger {
-  border-color: #dc2626;
-  background-color: rgba(220, 38, 38, 0.08);
-}
-
-.dark .custom-block.details {
-  border-color: #2a2b45;
-  background-color: rgba(26, 27, 46, 0.5);
-}
-
-.dark .vp-doc code {
-  background-color: rgba(129, 140, 248, 0.1);
-  color: #c4b5fd;
-}
-
-.dark .vp-doc div[class*='language-'] {
-  border: 1px solid #1a1b2e;
-}
-
-.dark .vp-doc div[class*='language-'] code {
-  background-color: transparent;
-}
-
-.dark .vp-doc div[class*='language-'] code .line {
-  background-color: transparent;
-}
-
-.dark .vp-doc div[class*='language-'] span.lang {
-  color: #6e6b8a;
-}
-
-.dark .VPLocalSearchBox .search-input {
-  background-color: #10111a;
-  border-color: #2a2b45;
-}
-
-.dark .VPNavBarSearch button.search {
-  border-color: #2a2b45;
-}
-
-.dark .vp-doc .header-anchor {
-  color: #818cf8;
-}
-
-.dark .vp-doc .header-anchor:hover {
-  color: #a5b4fc;
-}
-
-:root {
+  --vp-home-hero-name-color: var(--vp-c-text-1);
   --vp-layout-max-width: 1440px;
 }
 
-@media (min-width: 1440px) {
-  .VPDoc:not(.has-aside) .content-container {
-    max-width: 992px !important;
-  }
+.dark {
+  --vp-c-brand-1: #ffffff;
+  --vp-c-brand-2: #e5e5e5;
+  --vp-c-brand-3: #ffffff;
+  --vp-c-brand-soft: rgba(255, 255, 255, 0.1);
 
-  .VPDoc.has-aside .content-container {
-    max-width: 880px !important;
+  --vp-c-bg: #0a0a0a;
+  --vp-c-bg-alt: #0f0f0f;
+  --vp-c-bg-elv: #141414;
+  --vp-c-bg-soft: #161616;
+  --vp-c-divider: #242424;
+  --vp-c-border: #333333;
+  --vp-c-gutter: #000000;
+  --vp-c-text-1: #f5f5f5;
+  --vp-c-text-2: #a3a3a3;
+  --vp-c-text-3: #6b6b6b;
+
+  --vp-c-default-soft: rgba(255, 255, 255, 0.06);
+  --vp-c-tip-1: #ffffff;
+  --vp-c-tip-soft: #141414;
+  --vp-c-note-1: #d4d4d4;
+  --vp-c-note-soft: #141414;
+  --vp-c-warning-1: #ffffff;
+  --vp-c-warning-soft: #1a1a1a;
+  --vp-c-danger-1: #ffffff;
+  --vp-c-danger-soft: #1f1f1f;
+
+  --vp-code-block-bg: #111111;
+  --vp-code-copy-code-bg: #1a1a1a;
+
+  --vp-button-brand-bg: #f5f5f5;
+  --vp-button-brand-border: #f5f5f5;
+  --vp-button-brand-text: #0a0a0a;
+  --vp-button-brand-hover-bg: #ffffff;
+  --vp-button-brand-hover-border: #ffffff;
+  --vp-button-brand-hover-text: #0a0a0a;
+  --vp-button-brand-active-bg: #d4d4d4;
+  --vp-button-alt-border: #525252;
+  --vp-button-alt-text: #f5f5f5;
+  --vp-button-alt-hover-bg: #161616;
+  --vp-button-alt-hover-border: #f5f5f5;
+  --vp-button-alt-hover-text: #ffffff;
+
+}
+
+/* Logo: Wisecom wordmark, a hairline, then the product name. Sized to fit the 208px sidebar title column. */
+.VPNavBarTitle .title {
+  gap: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.VPNavBarTitle .logo {
+  height: 13px;
+  width: auto;
+}
+.VPNavBarTitle .title span {
+  padding-left: 12px;
+  border-left: 1px solid var(--vp-c-border);
+  line-height: 18px;
+}
+.vp-doc td code {
+  white-space: nowrap;
+}
+
+/* Square, flat surfaces. */
+.VPButton,
+.VPFeature,
+.custom-block,
+.vp-doc div[class*='language-'],
+.vp-doc :not(pre) > code,
+.VPLocalSearchBox .shell,
+.DocSearch-Button,
+.VPNavBarSearch button,
+.wc-card {
+  border-radius: 2px !important;
+}
+
+.VPButton.medium {
+  font-weight: 500;
+}
+
+/* Typography. */
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.VPHero .name,
+.VPHero .text {
+  letter-spacing: -0.025em;
+  font-weight: 650;
+}
+.vp-doc h2 {
+  border-top: 1px solid var(--vp-c-divider);
+}
+.vp-doc a {
+  color: var(--vp-c-text-1);
+  text-decoration: underline;
+  text-decoration-color: var(--vp-c-text-3);
+  text-underline-offset: 3px;
+  font-weight: 500;
+}
+.vp-doc a:hover {
+  text-decoration-color: var(--vp-c-text-1);
+}
+.vp-doc .header-anchor {
+  text-decoration: none;
+  color: var(--vp-c-text-3);
+}
+
+/* Tables. */
+.vp-doc table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+.vp-doc tr:nth-child(2n) {
+  background-color: transparent;
+}
+.vp-doc th {
+  background: var(--vp-c-bg-soft);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--vp-c-text-2);
+}
+.vp-doc th,
+.vp-doc td {
+  border: 1px solid var(--vp-c-divider);
+}
+@media (max-width: 768px) {
+  .vp-doc table {
+    display: block;
+    overflow-x: auto;
   }
 }
 
-@media (min-width: 960px) and (max-width: 1439px) {
-  .VPDoc .content-container {
-    max-width: none !important;
+/* Callouts: left rule instead of tinted fills. */
+.custom-block {
+  border: 1px solid var(--vp-c-divider);
+  border-left-width: 3px;
+}
+.custom-block.tip {
+  border-left-color: var(--vp-c-text-1);
+}
+.custom-block.info {
+  border-left-color: var(--vp-c-text-3);
+}
+.custom-block.warning {
+  border-left-color: var(--vp-c-text-2);
+}
+.custom-block.danger {
+  border-left-color: var(--vp-c-text-1);
+  border-left-width: 6px;
+}
+.custom-block .custom-block-title {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Code. */
+.vp-doc div[class*='language-'] {
+  border: 1px solid var(--vp-c-divider);
+}
+.vp-doc :not(pre) > code {
+  color: var(--vp-c-text-1);
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* Sidebar and nav. */
+.VPSidebarItem.level-0 > .item .text {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-2);
+}
+.VPSidebarItem .is-active > .item .text,
+.VPSidebarItem.is-active > .item .text {
+  font-weight: 600;
+}
+.VPNavBar.has-sidebar .content-body,
+.VPNavBar:not(.home.top) .content-body {
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+/* Home hero. */
+.VPHero .name {
+  font-size: clamp(36px, 5vw, 52px);
+  line-height: 1.05;
+}
+.VPHero .text {
+  font-size: clamp(28px, 3.6vw, 42px);
+  line-height: 1.1;
+  font-weight: 600;
+}
+.VPHero .tagline {
+  padding-top: 16px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+  max-width: 520px;
+}
+.VPHome .VPHero .name::before {
+  display: block;
+  margin-bottom: 20px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  content: 'WISECOM · OPEN SOURCE';
+  color: var(--vp-c-text-2);
+}
+/* Features: flat bordered cells. */
+.VPFeature {
+  background: transparent !important;
+  border: 1px solid var(--vp-c-divider) !important;
+  transition: border-color 0.2s;
+}
+.VPFeature:hover {
+  border-color: var(--vp-c-text-3) !important;
+}
+.VPFeature .title {
+  font-weight: 600;
+}
+.VPFeature .details {
+  text-wrap: pretty;
+}
+
+/* Continuity upsell (docs/index.md). The home content container already matches the feature grid, so no extra padding. */
+.wc-upsell {
+  margin: 80px 0 64px;
+}
+.wc-card {
+  display: grid;
+  gap: 40px;
+  padding: 48px;
+  background: #0a0a0a;
+  color: #f5f5f5;
+  border: 1px solid #262626;
+}
+@media (min-width: 960px) {
+  .wc-card {
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: center;
+  }
+}
+@media (max-width: 640px) {
+  .wc-card {
+    padding: 28px 24px;
+  }
+}
+.wc-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wc-mark {
+  height: 16px;
+  width: auto;
+}
+.wc-eyebrow {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #a3a3a3;
+}
+.vp-doc .wc-card h2 {
+  margin: 20px 0 12px;
+  padding-top: 0;
+  border-top: none;
+  font-size: clamp(28px, 3.5vw, 36px);
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  color: #ffffff;
+}
+.vp-doc .wc-card p {
+  margin: 0 0 28px;
+  color: #a3a3a3;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+.wc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.vp-doc a.wc-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid #525252;
+  border-radius: 2px;
+  color: #f5f5f5;
+  text-decoration: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+.vp-doc a.wc-btn:hover {
+  border-color: #f5f5f5;
+}
+.vp-doc a.wc-btn.primary {
+  background: #f5f5f5;
+  border-color: #f5f5f5;
+  color: #0a0a0a;
+}
+.vp-doc a.wc-btn.primary:hover {
+  background: #ffffff;
+}
+.vp-doc .wc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: #262626;
+  border: 1px solid #262626;
+}
+@media (max-width: 520px) {
+  .vp-doc .wc-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.vp-doc .wc-grid li {
+  margin: 0;
+  padding: 20px;
+  background: #0a0a0a;
+}
+.wc-grid strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.wc-grid span {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #a3a3a3;
+}
+.vp-doc .wc-note {
+  margin: 16px 8px 0;
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+  text-align: center;
+}
+
+/* Wide layout. */
+@media (min-width: 1440px) {
+  .VPDoc:not(.has-aside) .container,
+  .VPDoc.has-aside .content-container {
+    max-width: 860px;
+  }
+}
+.vp-doc .wc-card p.wc-setup {
+  margin: 14px 0 0;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: #8a8a8a;
+}
+
+/* Roadmap timeline (docs/roadmap.md). */
+.vp-doc ol.wc-roadmap {
+  list-style: none;
+  margin: 32px 0 48px 6px;
+  padding: 0 0 0 28px;
+  border-left: 1px solid var(--vp-c-divider);
+}
+.vp-doc .wc-roadmap li {
+  position: relative;
+  margin: 0 0 32px;
+}
+.vp-doc .wc-roadmap li:last-child {
+  margin-bottom: 0;
+}
+.vp-doc .wc-roadmap li::before {
+  content: '';
+  position: absolute;
+  left: -34px;
+  top: 4px;
+  width: 11px;
+  height: 11px;
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-text-3);
+}
+.vp-doc .wc-roadmap li[data-status='next']::before {
+  background: var(--vp-c-text-1);
+  border-color: var(--vp-c-text-1);
+}
+.vp-doc .wc-roadmap li[data-status='exploring']::before {
+  border-style: dashed;
+}
+.wc-roadmap-status {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-3);
+}
+.vp-doc .wc-roadmap li[data-status='next'] .wc-roadmap-status {
+  color: var(--vp-c-text-1);
+}
+.vp-doc .wc-roadmap h3 {
+  margin: 4px 0 6px;
+  font-size: 18px;
+}
+.vp-doc .wc-roadmap p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+}
+
+/* Hero terminal (theme/hero-terminal.vue). Always dark, like a real terminal. */
+.VPHero.has-image .image-container {
+  width: 100%;
+  height: auto;
+  transform: none;
+}
+.VPHero.has-image .image-bg {
+  display: none;
+}
+@media (max-width: 959px) {
+  .VPHero.has-image .container {
+    text-align: left;
+  }
+  .VPHero.has-image .actions {
+    justify-content: flex-start;
+  }
+  .VPHero.has-image .main {
+    margin: 0;
+  }
+  .VPHero.has-image .image {
+    margin: 0 0 40px;
+  }
+}
+@media (min-width: 960px) {
+  .VPHero.has-image .image {
+    flex-grow: 1;
+    order: 2;
+    margin: 0;
+    min-height: 0;
+    align-self: center;
+  }
+}
+.wc-term {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 0 0 auto;
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  text-align: left;
+}
+.wc-term-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #1f1f1f;
+  background: #111;
+}
+.wc-term-dots {
+  display: flex;
+  gap: 6px;
+}
+.wc-term-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #333;
+}
+.wc-term-title {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #6b6b6b;
+}
+.wc-term-body {
+  margin: 0;
+  padding: 16px 18px;
+  height: 316px;
+  overflow: hidden;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #d4d4d4;
+  white-space: pre;
+}
+@media (max-width: 640px) {
+  .wc-term-body {
+    font-size: 10px;
+    height: 290px;
+    padding: 12px;
+  }
+}
+.wc-term-body .prompt {
+  color: #6b6b6b;
+}
+.wc-term-body .accent,
+.wc-term-body .bold {
+  color: #ffffff;
+  font-weight: 600;
+}
+.wc-term-body .ok {
+  color: #e5e5e5;
+}
+.wc-term-body .info,
+.wc-term-body .muted {
+  color: #8a8a8a;
+}
+.wc-term-body .cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1.1em;
+  vertical-align: text-bottom;
+  background: #d4d4d4;
+  animation: wc-blink 1s steps(1) infinite;
+}
+@keyframes wc-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.wc-term-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 18px;
+  border-top: 1px solid #1f1f1f;
+  background: #111;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #8a8a8a;
+}
+.wc-term-foot a {
+  color: #f5f5f5;
+  text-decoration: none;
+}
+.wc-term-foot a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.wc-term-body .banner {
+  display: inline-block;
+  margin: 6px 0 4px;
+  padding: 2px 2ch;
+  border: 1px solid #525252;
+  border-radius: 6px;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Hero: centre both columns; tagline avoids orphans. */
+.VPHero .tagline {
+  text-wrap: pretty;
+}
+@media (min-width: 960px) {
+  .VPHero.has-image .container {
+    align-items: center;
+  }
+  .VPHero.has-image .main {
+    max-width: 560px;
+  }
+}
+
+/* Bit spacer between hero and features (theme/index.ts). Equal 64px above and below. */
+.VPHome .VPHero {
+  padding-bottom: 0 !important;
+}
+.VPHome .VPFeatures {
+  padding-top: 0 !important;
+}
+.wc-bits {
+  box-sizing: content-box;
+  max-width: 1136px;
+  margin: 64px auto;
+  padding: 0 32px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--vp-c-text-3);
+  opacity: 0.7;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  user-select: none;
+}
+@media (min-width: 640px) {
+  .wc-bits {
+    padding: 0 56px;
+  }
+}
+@media (min-width: 960px) {
+  .wc-bits {
+    padding: 0 72px;
+  }
+}
+@media (min-width: 960px) {
+  .VPHero.has-image .image {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+@media (min-width: 641px) {
+  .wc-term-body {
+    font-size: clamp(10px, 0.88vw, 12.5px);
+  }
+}
+
+/* Spacer before the upsell: same 64px rhythm. Inside .vp-doc the content box already has page padding. */
+.VPHome .VPFeatures {
+  padding-bottom: 0 !important;
+}
+.VPHome .vp-doc .wc-bits {
+  max-width: none;
+  padding: 0;
+  margin: 64px 0;
+}
+.wc-upsell {
+  margin-top: 0;
+}
+
+/* Terminal: wrap long lines instead of clipping them. */
+.wc-term-body {
+  height: auto;
+  min-height: 316px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Below 960px VitePress stacks the hero image first and centres the text. Keep text first, left aligned. */
+@media (max-width: 959px) {
+  .VPHero.has-image .image {
+    order: 2;
+    margin: 40px 0 0;
+  }
+  .VPHero.has-image .main,
+  .VPHero.has-image .heading,
+  .VPHero.has-image .tagline {
+    text-align: left;
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .VPHero.has-image .actions {
+    justify-content: flex-start;
+  }
+  .wc-term {
+    margin: 0;
+  }
+}
+@media (max-width: 959px) {
+  /* VPHero's scoped styles outrank plain selectors. */
+  .VPHero.has-image .container {
+    text-align: left !important;
+  }
+  .VPHero.has-image .name,
+  .VPHero.has-image .text {
+    margin: 0 !important;
+  }
+  .VPHero.has-image .actions {
+    justify-content: flex-start !important;
   }
 }

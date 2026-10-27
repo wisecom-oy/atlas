@@ -29,17 +29,19 @@ export async function validate_dek_match(
   if (!target_has_dek) return;
 
   const key_service = new EnvelopeKeyService(passphrase);
-  const source_dek = await key_service.unwrap_dek(
-    await source_storage.get(DEK_META_KEY),
-    tenant_id,
-  );
-  const target_dek = await key_service.unwrap_dek(
-    await target_storage.get(DEK_META_KEY),
-    tenant_id,
-  );
-  key_service.destroy();
-
-  if (source_dek.length !== target_dek.length || !timingSafeEqual(source_dek, target_dek)) {
-    throw new DekMismatchError();
+  let source_dek: Buffer | undefined;
+  let target_dek: Buffer | undefined;
+  try {
+    source_dek = await key_service.unwrap_dek(await source_storage.get(DEK_META_KEY), tenant_id);
+    target_dek = await key_service.unwrap_dek(await target_storage.get(DEK_META_KEY), tenant_id);
+    if (source_dek.length !== target_dek.length || !timingSafeEqual(source_dek, target_dek)) {
+      throw new DekMismatchError();
+    }
+  } finally {
+    // A failed second unwrap (e.g. a target written under another passphrase) must still zero
+    // the passphrase buffer and both raw keys, not leave them to GC.
+    key_service.destroy();
+    source_dek?.fill(0);
+    target_dek?.fill(0);
   }
 }

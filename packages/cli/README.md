@@ -61,9 +61,9 @@ Run `atlas --help` or `atlas <command> --help` for full flag reference.
 
 ## Exit codes
 
-v5 preserves `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures now use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource and `8` for retention.
+Atlas uses `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource and `8` for retention.
 
-Treat every nonzero code as a failure or incomplete run. Fatal diagnostics go to stderr and include both the Atlas category and the underlying provider details. See the [exit-code reference](https://wisecom-oy.github.io/atlas/reference/cli#exit-codes) and [v5 migration guide](https://wisecom-oy.github.io/atlas/migration/v5#cli-failure-exit-codes) before updating scheduled jobs.
+Treat every nonzero code as a failure or incomplete run. Fatal diagnostics go to stderr and include both the Atlas category and the underlying provider details. See the [exit-code reference](https://wisecom-oy.github.io/atlas/reference/cli#exit-codes) before updating scheduled jobs, and the [v6 migration guide](https://wisecom-oy.github.io/atlas/migration/v6) before upgrading.
 
 ## Programmatic use
 

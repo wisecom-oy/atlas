@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitepress';
 
 export default defineConfig({
-  title: 'M365 Atlas',
-  description: 'Secure, deduplicated Microsoft 365 mailbox backups to S3-compatible storage.',
+  title: 'Atlas',
+  titleTemplate: ':title · Atlas by Wisecom',
+  description:
+    'Atlas by Wisecom: open-source, encrypted Microsoft 365 backup to S3-compatible storage. CLI and Node.js SDK.',
 
   base: '/',
   cleanUrls: true,
@@ -11,97 +13,147 @@ export default defineConfig({
   // and were being published to the public site.
   srcExclude: ['superpowers/**'],
   appearance: 'dark',
+  lastUpdated: true,
 
   head: [
+    ['meta', { name: 'theme-color', content: '#0a0a0a' }],
+    [
+      'link',
+      {
+        rel: 'icon',
+        type: 'image/png',
+        href: '/favicon-dark.png',
+        media: '(prefers-color-scheme: light)',
+      },
+    ],
+    [
+      'link',
+      {
+        rel: 'icon',
+        type: 'image/png',
+        href: '/favicon-light.png',
+        media: '(prefers-color-scheme: dark)',
+      },
+    ],
     [
       'meta',
       {
         name: 'keywords',
-        content: 'm365, backup, email, microsoft 365, s3, minio, encryption, outlook',
+        content:
+          'atlas, wisecom, microsoft 365 backup, exchange online, onedrive, sharepoint, s3, object lock, encryption',
       },
     ],
   ],
 
   themeConfig: {
-    siteTitle: 'M365 Atlas',
+    logo: {
+      light: '/wisecom-wordmark-dark.png',
+      dark: '/wisecom-wordmark-light.png',
+      alt: 'Wisecom',
+    },
+    siteTitle: 'Atlas',
 
     nav: [
-      { text: 'Guide', link: '/getting-started' },
-      { text: 'Reference', link: '/reference/cli' },
       {
-        text: 'npm',
+        text: 'Guide',
+        link: '/getting-started',
+        activeMatch:
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|troubleshooting|onedrive|sharepoint|self-hosting|operations)',
+      },
+      { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
+      {
+        text: 'More',
         items: [
-          { text: '@wisecom/atlas-cli', link: 'https://www.npmjs.com/package/@wisecom/atlas-cli' },
-          { text: '@wisecom/atlas-sdk', link: 'https://www.npmjs.com/package/@wisecom/atlas-sdk' },
+          { text: 'Roadmap', link: '/roadmap' },
+          { text: 'Development', link: '/development/releases' },
+          {
+            text: '@wisecom/atlas-cli on npm',
+            link: 'https://www.npmjs.com/package/@wisecom/atlas-cli',
+          },
+          {
+            text: '@wisecom/atlas-sdk on npm',
+            link: 'https://www.npmjs.com/package/@wisecom/atlas-sdk',
+          },
         ],
       },
+      { text: 'Wisecom Continuity', link: 'https://wisecom.fi/en/products/continuity' },
     ],
 
     sidebar: [
       {
-        text: 'Guide',
+        text: 'Get started',
         items: [
-          { text: 'Getting Started', link: '/getting-started' },
+          { text: 'Quickstart', link: '/getting-started' },
           { text: 'Concepts', link: '/concepts' },
+          { text: 'Entra ID app registration', link: '/azure-ad-setup' },
           { text: 'Configuration', link: '/configuration' },
-          { text: 'Azure AD Setup', link: '/azure-ad-setup' },
-          { text: 'Security', link: '/security' },
-          { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
       {
         text: 'Workloads',
         items: [
-          { text: 'OneDrive Backup', link: '/onedrive-backup' },
-          { text: 'SharePoint Backup', link: '/sharepoint-backup' },
+          { text: 'OneDrive', link: '/onedrive-backup' },
+          { text: 'SharePoint', link: '/sharepoint-backup' },
         ],
       },
       {
-        text: 'Self-Hosting',
+        text: 'Security',
+        items: [
+          { text: 'Security model', link: '/security' },
+          { text: 'Immutability and Object Lock', link: '/operations/immutability' },
+        ],
+      },
+      {
+        text: 'Self-hosting',
         items: [
           { text: 'Overview', link: '/self-hosting/' },
-          { text: 'Storage Setup', link: '/self-hosting/storage' },
-          { text: 'Scheduling & Bandwidth', link: '/self-hosting/scheduling' },
-          { text: 'Replication Setup', link: '/self-hosting/replication' },
+          { text: 'Storage', link: '/self-hosting/storage' },
+          { text: 'Scheduling and bandwidth', link: '/self-hosting/scheduling' },
+          { text: 'Replication setup', link: '/self-hosting/replication' },
         ],
       },
       {
         text: 'Operations',
         items: [
-          { text: 'Immutability & Object Lock', link: '/operations/immutability' },
-          { text: 'Delta Sync', link: '/operations/delta-sync' },
-          { text: 'Storage Layout', link: '/operations/storage-layout' },
-          { text: 'Storage Usage', link: '/operations/storage-usage' },
+          { text: 'Delta sync', link: '/operations/delta-sync' },
+          { text: 'Storage layout', link: '/operations/storage-layout' },
+          { text: 'Storage usage', link: '/operations/storage-usage' },
           { text: 'Replication', link: '/operations/replication' },
-          { text: 'Graph API Rate Limits', link: '/operations/graph-rate-limits' },
+          { text: 'Graph rate limits', link: '/operations/graph-rate-limits' },
+          { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
       {
         text: 'Reference',
         items: [
-          { text: 'CLI Commands', link: '/reference/cli' },
-          { text: 'CLI Recovery & Management', link: '/reference/cli-recovery' },
-          { text: 'Programmatic SDK', link: '/reference/sdk' },
-          { text: 'Storage Request Events', link: '/reference/storage-request-events' },
+          { text: 'CLI', link: '/reference/cli' },
+          { text: 'CLI recovery and management', link: '/reference/cli-recovery' },
+          { text: 'SDK', link: '/reference/sdk' },
+          { text: 'Storage request events', link: '/reference/storage-request-events' },
           { text: 'Examples', link: '/reference/examples' },
-          { text: 'Migrating to v5', link: '/migration/v5' },
-          { text: 'Outlook backups keyed by object ID', link: '/migration/outlook-object-id-keys' },
-          { text: 'Keyed content object names', link: '/migration/keyed-object-names' },
         ],
       },
       {
+        text: 'Migration',
+        items: [{ text: 'Upgrading to v6', link: '/migration/v6' }],
+      },
+      {
         text: 'Development',
+        collapsed: true,
         items: [
-          { text: 'Microsoft Graph API Skill', link: '/development/msgraph-skill' },
-          { text: 'Graph Request Tracing', link: '/development/graph-tap' },
-          { text: 'Performance Profiling', link: '/development/performance-profiling' },
-          { text: 'Test Coverage', link: '/development/test-coverage' },
-          { text: 'Release Process', link: '/development/releases' },
+          { text: 'Release process', link: '/development/releases' },
+          { text: 'Test coverage', link: '/development/test-coverage' },
+          { text: 'Performance profiling', link: '/development/performance-profiling' },
+          { text: 'Graph request tracing', link: '/development/graph-tap' },
+          { text: 'Microsoft Graph skill', link: '/development/msgraph-skill' },
         ],
       },
       {
         text: 'Project',
-        items: [{ text: 'Roadmap', link: '/roadmap' }],
+        items: [
+          { text: 'Roadmap', link: '/roadmap' },
+          { text: 'Wisecom Continuity', link: 'https://wisecom.fi/en/products/continuity' },
+        ],
       },
     ],
 
@@ -113,9 +165,12 @@ export default defineConfig({
     },
 
     footer: {
-      message: 'Released under the Apache-2.0 License.',
-      copyright: 'Copyright 2026 Wisecom Oy',
+      message:
+        'Atlas is released under the Apache-2.0 License. Managed hosting: <a href="https://wisecom.fi/en/products/continuity">Wisecom Continuity</a>.',
+      copyright: '© 2026 Wisecom Oy',
     },
+
+    outline: { level: [2, 3] },
 
     search: {
       provider: 'local',

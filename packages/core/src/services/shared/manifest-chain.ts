@@ -14,15 +14,15 @@ export async function load_snapshot_chain(
   const target = await manifests.find_by_snapshot(ctx, snapshot_id);
   if (!target) throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
 
-  const target_time = new Date(target.created_at).getTime();
+  const target_time = target.created_at.getTime();
   const all = await manifests.list_all_manifests(ctx);
   const older = all
     .filter(
       (m) =>
         m.snapshot_id !== target.snapshot_id &&
         m.owner_id === target.owner_id &&
-        new Date(m.created_at).getTime() <= target_time,
+        m.created_at.getTime() <= target_time,
     )
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   return [target, ...older];
 }

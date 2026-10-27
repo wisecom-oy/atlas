@@ -34,9 +34,7 @@ export class CatalogService implements CatalogUseCase {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifests = await this._manifests.list_by_owner(ctx, owner_id);
-      return manifests.sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-      );
+      return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
     } finally {
       ctx.destroy();
     }
@@ -118,7 +116,7 @@ function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummar
   const summaries: MailboxSummary[] = [];
 
   for (const [owner_id, manifests] of groups) {
-    manifests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
     const latest = manifests[0]!;
     const purpose = manifests.find((m) => m.mailbox_purpose)?.mailbox_purpose;
     const owner_email = manifests.find((m) => m.owner_email)?.owner_email;
@@ -131,7 +129,7 @@ function build_mailbox_summaries(groups: Map<string, Manifest[]>): MailboxSummar
       snapshot_count: manifests.length,
       total_objects: latest.total_objects,
       total_size_bytes: cumulative_size,
-      last_backup_at: new Date(latest.created_at),
+      last_backup_at: latest.created_at,
     });
   }
 

@@ -56,7 +56,7 @@ export class MailboxStatusService implements StatusUseCase {
 
       return {
         owner_id,
-        last_backup_at: previous?.created_at ? new Date(previous.created_at) : undefined,
+        last_backup_at: previous?.created_at,
         last_snapshot_id: previous?.snapshot_id,
         total_folders: all_folders.length,
         folders: folder_statuses,

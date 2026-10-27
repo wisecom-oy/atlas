@@ -47,7 +47,7 @@ atlas onedrive backup -o user@example.com
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-Backups need an Entra ID app registration and an S3 bucket. [Getting Started](https://wisecom-oy.github.io/atlas/getting-started) covers both, and [Azure AD Setup](https://wisecom-oy.github.io/atlas/azure-ad-setup) lists the exact Graph permissions and why each is required.
+Backups need a Microsoft Entra ID app registration and an S3 bucket. [Getting Started](https://wisecom-oy.github.io/atlas/getting-started) covers both, and [Microsoft Entra ID setup](https://wisecom-oy.github.io/atlas/azure-ad-setup) lists the exact Graph permissions and why each is required.
 
 Restores, verification, catalogue queries, replication, and retention are documented in the [CLI reference](https://wisecom-oy.github.io/atlas/reference/cli).
 
@@ -67,7 +67,7 @@ SharePoint coverage is document libraries only. Generic lists and site pages are
 | ----------------- | -------------------------------------------------------------------- |
 | Getting Started   | [docs](https://wisecom-oy.github.io/atlas/getting-started)           |
 | Configuration     | [docs](https://wisecom-oy.github.io/atlas/configuration)             |
-| Azure AD Setup    | [docs](https://wisecom-oy.github.io/atlas/azure-ad-setup)            |
+| Entra ID Setup    | [docs](https://wisecom-oy.github.io/atlas/azure-ad-setup)            |
 | Security Model    | [docs](https://wisecom-oy.github.io/atlas/security)                  |
 | Self-Hosting      | [docs](https://wisecom-oy.github.io/atlas/self-hosting)              |
 | OneDrive Backup   | [docs](https://wisecom-oy.github.io/atlas/onedrive-backup)           |
@@ -76,7 +76,7 @@ SharePoint coverage is document libraries only. Generic lists and site pages are
 | Troubleshooting   | [docs](https://wisecom-oy.github.io/atlas/troubleshooting)           |
 | CLI Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/cli)             |
 | SDK Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/sdk)             |
-| Migrating to v5   | [docs](https://wisecom-oy.github.io/atlas/migration/v5)              |
+| Migrating to v6   | [docs](https://wisecom-oy.github.io/atlas/migration/v6)              |
 
 **Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the programmatic Node.js API.
 

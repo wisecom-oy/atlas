@@ -75,16 +75,16 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false);
     }
     const ctx = await this._tenant_factory.create(tenant_id);
-    if (options.object_lock_request?.retention_days) {
-      // Bucket default retention: every new object version (files, versions,
-      // manifests, cursors) inherits the lock - no write path can forget it.
-      await ctx.storage.apply_default_retention(
-        options.object_lock_request.mode ?? 'GOVERNANCE',
-        options.object_lock_request.retention_days,
-      );
-    }
     let progress: BackupProgressReporter | undefined;
     try {
+      if (options.object_lock_request?.retention_days) {
+        // Bucket default retention: every new object version (files, versions,
+        // manifests, cursors) inherits the lock - no write path can forget it.
+        await ctx.storage.apply_default_retention(
+          options.object_lock_request.mode ?? 'GOVERNANCE',
+          options.object_lock_request.retention_days,
+        );
+      }
       const stored_cursor = await this._cursors.load(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
       // A delta link records how far the drive was consumed, not how far the scope was, so
