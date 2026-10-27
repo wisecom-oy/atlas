@@ -45,6 +45,7 @@ import {
   completed_recrawl,
   type DriveRecrawl,
 } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { accumulate_drive_result } from '@/services/backup/drive-result-accumulator';
 
 export interface SingleDriveResult {
   entries: OneDriveManifestEntry[];
@@ -131,6 +132,10 @@ export async function scan_all_drives(
       progress?.mark_all_pending_interrupted();
       break;
     }
+    // A drive that throws loses its entries and keeps its old delta link, so the replay must
+    // see its items as unrecorded. Tracking written before the throw would make the replay skip
+    // them for good (issue #433).
+    const tracking_before = structuredClone(tracking_state);
     try {
       const prev_delta = force_full
         ? undefined
@@ -212,37 +217,11 @@ export async function scan_all_drives(
       logger.error(`Drive ${drive.drive_id} failed: ${reason}`);
       accumulators.errors.push(`Drive ${drive.drive_name} (${drive.drive_id}): ${reason}`);
       progress?.mark_error(index, reason);
+      Object.assign(tracking_state, tracking_before);
     }
   }
 
   return accumulators;
-}
-
-/** Folds one drive's outcome into the run accumulators and the delta link map. */
-function accumulate_drive_result(
-  accumulators: DriveScanAccumulators,
-  delta_link_by_drive: Record<string, string>,
-  drive: OneDriveDrive,
-  drive_result: SingleDriveResult,
-  recrawl: DriveRecrawl | undefined,
-): void {
-  if (recrawl) accumulators.recrawls.push(recrawl);
-  accumulators.entries.push(...drive_result.entries);
-  accumulators.files_stored += drive_result.files_stored;
-  accumulators.files_deduplicated += drive_result.files_deduplicated;
-  accumulators.deleted_items += drive_result.deleted_items;
-  accumulators.failed_items = drive_result.failed_items;
-  accumulators.interrupted ||= drive_result.interrupted;
-
-  if (!drive_result.interrupted && drive_result.delta_link) {
-    delta_link_by_drive[drive.drive_id] = drive_result.delta_link;
-  }
-  if (drive_result.errors.length > 0) {
-    logger.warn(
-      `Drive ${drive.drive_id}: ${drive_result.errors.length} item(s) failed; ` +
-        `delta advanced and failures recorded for retry`,
-    );
-  }
 }
 
 /**
