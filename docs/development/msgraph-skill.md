@@ -1,3 +1,7 @@
+---
+description: Use the msgraph agent skill so coding assistants look up Microsoft Graph endpoints, headers, and fields offline instead of guessing from stale training data.
+---
+
 # Microsoft Graph API Skill
 
 Atlas is built almost entirely against Microsoft Graph, and Graph carries more than

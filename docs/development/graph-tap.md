@@ -1,3 +1,7 @@
+---
+description: Record every HTTP request Atlas sends to Microsoft Graph with graph-tap, then read a one-screen report of throttling, failures, and call cost.
+---
+
 # Graph Request Tracing
 
 `graph-tap` records every HTTP request Atlas sends to Microsoft Graph and collapses

@@ -1,3 +1,8 @@
+---
+description: 'The Atlas roadmap: planned work in priority order, such as stable v6 storage keys, with shipped changes linked from GitHub releases.'
+next: false
+---
+
 # Roadmap
 
 What is planned for Atlas next. Order reflects priority, not dates. Shipped changes are listed in the [GitHub releases](https://github.com/wisecom-oy/atlas/releases).

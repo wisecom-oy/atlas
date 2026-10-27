@@ -1,3 +1,7 @@
+---
+description: How Atlas uses Microsoft Graph delta queries for incremental backups, when to pass --full, and how saved delta links cut bandwidth and run time.
+---
+
 # Delta sync
 
 Atlas uses Microsoft Graph [delta queries](https://learn.microsoft.com/en-us/graph/delta-query-messages) for incremental backups. The first backup reads everything. Later backups fetch only the messages and files that were created, changed, or deleted since the previous run. This reduces bandwidth, Graph requests, and run time.

@@ -1,3 +1,7 @@
+---
+description: Register an Entra ID (Azure AD) app for Atlas with Microsoft Graph Application permissions and a client secret for unattended Microsoft 365 backups.
+---
+
 # Entra ID app registration
 
 Atlas authenticates to Microsoft Graph with the OAuth2 client credentials flow, using `@azure/identity` `ClientSecretCredential`. The application signs in as itself, with no user involved, so the app registration's permissions and secret define what Atlas can reach.

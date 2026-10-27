@@ -1,3 +1,7 @@
+---
+description: Set Atlas tenant, storage, and credential options through environment variables, a config file, or the encrypted store managed by atlas config.
+---
+
 # Configuration
 
 The Atlas CLI reads settings from environment variables, a config file, or the encrypted store that `atlas config` manages. Each setting has the same name in all three places, so you can pick whichever fits your deployment.

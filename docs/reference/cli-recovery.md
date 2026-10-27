@@ -1,3 +1,7 @@
+---
+description: Combine Atlas verify, restore, save, delete, replicate, and rehydrate in the right order for infrequent, high-stakes recovery and management work.
+---
+
 # Recovery and management workflows
 
 The recovery commands (`verify`, `restore`, `save`, `delete`, `replicate`, and `rehydrate`) are documented flag by flag in [CLI commands](/reference/cli). This page covers how to combine them. These operations are infrequent and high stakes, so the order matters.

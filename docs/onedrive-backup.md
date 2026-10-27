@@ -1,3 +1,7 @@
+---
+description: Back up user OneDrive drives to S3 incrementally with Microsoft Graph delta queries, then restore, verify, or export from encrypted snapshots.
+---
+
 # OneDrive backup
 
 Atlas backs up user OneDrive drives incrementally with Microsoft Graph delta queries. Each file is encrypted before it leaves the machine and stored once per unique content. Every run that changes something records a snapshot, and you restore, verify, or export from those snapshots.

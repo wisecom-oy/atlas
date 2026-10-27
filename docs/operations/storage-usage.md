@@ -1,3 +1,7 @@
+---
+description: Measure how many bytes an Atlas tenant bucket holds with atlas stats storage, including object versions, delete markers, and incomplete uploads.
+---
+
 # Storage usage
 
 `atlas stats storage` reports how many bytes the tenant bucket physically holds. That includes every version kept by versioning or Object Lock, delete markers, staging objects, and incomplete multipart uploads. It works on any S3-compatible backend, because it reads the bucket listing rather than provider metrics.

@@ -1,3 +1,7 @@
+---
+description: Copy completed Atlas snapshots from your primary bucket to secondary S3-compatible targets with atlas replicate, including safety rules and disaster recovery.
+---
+
 # Replication
 
 Replication copies completed snapshots from your primary bucket to one or more secondary S3-compatible targets. It is built into Atlas and needs no external sync tool.
@@ -31,7 +35,7 @@ Replication is **idempotent**. Running it again skips objects the target already
 
 If replication stops at any point, the target holds some orphan data objects, which are harmless and can be reclaimed. No manifest references a missing object. The next run resumes where the last one stopped.
 
-A run that finishes with failures follows the same rule. If any object fails to copy, Atlas does not write the manifest. The snapshot remains unreplicated, and the next run retries it. Atlas decides whether a snapshot needs replicating by checking for its manifest on the target. A manifest written after a partial copy would make the gap permanent: later runs would report nothing to do while objects stayed missing.
+A run that finishes with failures follows the same rule. If any object fails to copy, Atlas does not write the manifest. The snapshot remains unreplicated, and the next run retries it. Mailbox, owner, and site runs decide which snapshots need replicating by checking for their manifests on the target. A manifest written after a partial copy would make the gap permanent: later runs would report nothing to do while objects stayed missing.
 
 ## Safety model
 
@@ -218,7 +222,7 @@ await atlas.sharepoint.rehydrateSnapshot('site-id', 'sp-snap-123', offsite);
 
 // Full tenant recovery across all workloads
 const recovery = await atlas.rehydrateTenant(offsite);
-recovery.workloads.forEach((w) => console.log(w.workload, w.result.objects_copied));
+recovery.workloads.forEach((w) => console.log(w.workload, w.result.objectsCopied));
 ```
 
 ## Runbook: recovering from primary failure

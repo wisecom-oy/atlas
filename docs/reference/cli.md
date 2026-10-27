@@ -1,3 +1,7 @@
+---
+description: 'Flag-by-flag reference for the Atlas CLI (@wisecom/atlas-cli): backup, restore, verification, and storage commands for shell scripts and cron jobs.'
+---
+
 # CLI commands
 
 The Atlas CLI (`@wisecom/atlas-cli`) runs backup, restore, verification, and storage operations from a shell. It suits cron jobs, operator workflows, and simple deployments. Credentials come from `.env`, environment variables, or the encrypted store that `atlas config` writes (see [Configuration](/configuration)).

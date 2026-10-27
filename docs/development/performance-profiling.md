@@ -1,3 +1,7 @@
+---
+description: Build and run the Atlas CPU profiler for backup and restore pipelines, then read its structured text reports to find bottlenecks. Not published to npm.
+---
+
 # Performance Profiling
 
 The repository includes a CPU profiler for the backup and restore pipelines (`tools/perf/`). It is not published to npm. It produces structured text reports meant for both human review and automated analysis.
