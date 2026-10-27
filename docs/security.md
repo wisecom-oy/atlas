@@ -203,10 +203,10 @@ either way, by comparing the manifest checksum before anything is written.
 
 | Data                                       | Encrypted | Notes                                                                                                                   |
 | ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{owner_id}/{sha256}`                                                   |
-| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{sha256}`; MIME entries embed attachments in the message object |
+| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{owner_id}/{content_name}`                                             |
+| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`; MIME entries embed attachments in the message object |
 | Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                         |
-| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                          |
+| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{content_name}`, a keyed HMAC of the plaintext                                    |
 | OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                          |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                              |
@@ -217,9 +217,15 @@ Manifests deserve special attention: they contain email subjects, sender names a
 
 ### OneDrive blobs and sidecars
 
-OneDrive file ciphertext uses keys such as `onedrive/data/{owner_id}/{sha256}` (see [OneDrive Backup](./onedrive-backup.md)). The `{owner_id}` segment is the **Entra object ID**, not an SMTP address, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs.
+OneDrive file ciphertext uses keys such as `onedrive/data/{owner_id}/{content_name}` (see [OneDrive Backup](./onedrive-backup.md)). The `{owner_id}` segment is the **Entra object ID**, not an SMTP address, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs.
 
-OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version identifiers, and plaintext checksums are stored exclusively inside encrypted manifests and version indexes, preventing known-plaintext fingerprinting via S3 `HeadObject`/`ListObjects` access.
+OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version identifiers, and plaintext checksums are stored exclusively inside encrypted manifests and version indexes.
+
+### What object names reveal
+
+Each content object is named by an HMAC-SHA256 over its plaintext, keyed with a naming key that Atlas derives from the tenant data key with HKDF-SHA256 (info `atlas/object-name/v1`). The name is 64 hex characters. Anyone with read access to the bucket can see names and sizes, and can tell when two objects hold identical content, because identical content gives identical names. They cannot tell what the content is: without the data key they cannot compute a name from a known file, so a dictionary of likely documents does not match anything in the bucket.
+
+Before this change, names were the plain SHA-256 of the plaintext. A reader holding a copy of a file could compute its name and confirm the owner stored it. Objects written under plain SHA-256 names stay readable through their manifest keys. The first backup after upgrading re-uploads content once under the new name. Atlas does not delete the old objects.
 
 ## User identity in storage paths
 

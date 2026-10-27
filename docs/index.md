@@ -22,7 +22,7 @@ features:
   - title: Per-Tenant Encryption
     details: Each tenant gets its own AES-256-GCM data key derived via scrypt. Data stays encrypted even if storage is breached.
   - title: Content-Addressed Deduplication
-    details: Messages, attachments, and files are keyed by SHA-256 hash, so identical content is stored once across snapshots.
+    details: Messages, attachments, and files are named by a keyed HMAC of their content, so identical content is stored once across snapshots and bucket readers cannot match names to known files.
   - title: Storage-Level Immutability
     details: S3/MinIO Object Lock with time-based retention, enforced by storage itself rather than application metadata.
   - title: Delta Sync

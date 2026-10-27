@@ -202,7 +202,7 @@ Atlas therefore writes version index data as **one object per owner or site per 
 
 Buckets created by earlier Atlas versions still hold legacy per-file index objects under `.../index/<id>/files/<file_id>.json`. They remain readable, and reads merge them with the per-run objects, until they are purged.
 
-Content blobs stay one object per file, addressed by SHA-256 (`onedrive/data/<owner_id>/<sha256>`). Packing multiple files into one blob object is deliberately not implemented: S3 Object Lock applies to the pack rather than to the individual files inside it, and doing it safely needs ranged reads, compaction, and retention design first.
+Content blobs stay one object per file, named by a keyed HMAC of their plaintext (`onedrive/data/<owner_id>/<content_name>`). Packing multiple files into one blob object is deliberately not implemented: S3 Object Lock applies to the pack rather than to the individual files inside it, and doing it safely needs ranged reads, compaction, and retention design first.
 
 | Provider                                                     | Minimum billable object size              | Note                                                                                                                                     |
 | ------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |

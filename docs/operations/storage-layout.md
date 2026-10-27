@@ -53,8 +53,8 @@ For managed service providers backing up multiple tenants, this isolation means 
 | `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                    | **Most critical object.** Losing it means losing access to all tenant data |
 | `_meta/outlook-manifests/owners/{owner_id}/`   | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
 | `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
-| `data/{owner_id}/`                             | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
-| `attachments/{owner_id}/`                      | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
+| `data/{owner_id}/`                             | Encrypted email messages as RFC 5322 MIME, named by keyed HMAC | Content is encrypted; S3 metadata is not                                   |
+| `attachments/{owner_id}/`                      | Encrypted attachments from legacy JSON entries, named by keyed HMAC | Content is encrypted; S3 metadata is not                                   |
 | `manifests/{owner_id}/`                        | Encrypted snapshot manifests (JSON)                             | Contains subjects, senders, folder names, and delta URLs, all encrypted    |
 
 The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets that already use object-ID owner keys remain compatible: their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. Address-keyed Outlook backups from before object-ID keys are not part of the new owner's chain, so the first backup after that upgrade is a full backup under the object-ID prefix (see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys)). The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
@@ -81,7 +81,7 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 
 | Prefix                                 | Contents                                   | Security notes                                                          |
 | -------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `onedrive/data/{owner_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID                 |
+| `onedrive/data/{owner_id}/`            | Encrypted file blobs, named by keyed HMAC | Content is encrypted; owner uses opaque Entra object ID                 |
 | `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types                            |
 | `onedrive/index/{owner_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run                      |
 | `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge                   |
@@ -91,7 +91,7 @@ Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the 
 
 | Prefix                                  | Contents                                   | Security notes                                                          |
 | --------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `sharepoint/data/{site_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID                           |
+| `sharepoint/data/{site_id}/`            | Encrypted file blobs, named by keyed HMAC | Content is encrypted; site uses Graph site ID                           |
 | `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types                            |
 | `sharepoint/index/{site_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run                      |
 | `sharepoint/index/{site_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge                   |
@@ -123,9 +123,9 @@ If `_meta/dek.enc` is deleted or corrupted, all data in the bucket becomes perma
 
 ## Content-addressed storage
 
-Messages and attachments use their **SHA-256 hash** as the object key (for example `data/{owner_id}/a1b2c3d4...`). The hash is taken over the **plaintext** content, before encryption.
+Messages and attachments use a **keyed HMAC-SHA256** of the plaintext as the object key (for example `data/{owner_id}/a1b2c3d4...`). The HMAC key is derived from the tenant data key, so the key cannot be computed from the content without it. The HMAC is taken over the **plaintext** content, before encryption.
 
-This gives automatic deduplication: if the same email appears in multiple snapshots, which is common with incremental backups, it is stored once. The manifest references the hash, and every snapshot containing that message points to the same S3 object.
+This gives automatic deduplication: if the same email appears in multiple snapshots, which is common with incremental backups, it is stored once. The manifest references the key, and every snapshot containing that message points to the same S3 object.
 
 Embedding attachments in MIME narrows that property for message objects. Two messages carrying the same slide deck are two distinct MIME blobs with two distinct hashes, so the deck is stored once per message rather than once per mailbox. Base64 encoding inside MIME also costs roughly one third more bytes than the raw attachment, because base64 represents three binary bytes as four text bytes. Both are the deliberate price of byte-exact fidelity, since an attachment that has been extracted and re-encoded is no longer the object the sender signed. Legacy JSON entries keep the old per-attachment deduplication.
 
@@ -141,7 +141,7 @@ Each uploaded object carries S3 metadata headers:
 | `Content-MD5`                   | MD5 of ciphertext (transport integrity) | N/A, standard S3 header      |
 
 :::: warning Metadata visibility
-S3 object metadata is **not encrypted**. Anyone with S3 read access (for example `s3:GetObject` or `s3:ListBucket` with metadata) can see Graph message IDs and plaintext hashes. The message **content** stays encrypted, but the metadata reveals that specific messages exist and what their content hashes are. That is the trade-off: metadata enables deduplication checks and integrity verification without decryption, and it leaks existence information.
+S3 object metadata is **not encrypted**. Anyone with S3 read access (for example `s3:GetObject` or `s3:ListBucket` with metadata) can see Graph message IDs. The message **content** stays encrypted. Object names are keyed HMACs, so a reader can see that two objects hold the same content but cannot tell what that content is. That is the trade-off: metadata enables deduplication checks and integrity verification without decryption, and it leaks existence and equality information.
 
 Where even metadata exposure is unacceptable, restrict S3 access to the Atlas service account only and use network-level controls (VPC, firewall rules) to limit who can reach the S3 endpoint.
 ::::

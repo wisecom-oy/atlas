@@ -51,7 +51,7 @@ Snapshot IDs differ by workload:
 
 ## Content Addressing and Deduplication
 
-Before writing a message, attachment, or file to S3, Atlas computes the SHA-256 hash of the plaintext content and uses that hash as the storage key. If an object with that key already exists in the bucket, the write is skipped and the existing object is shared.
+Before writing a message, attachment, or file to S3, Atlas computes an HMAC-SHA256 of the plaintext content, keyed with a naming key derived from the tenant data key, and uses the 64-character hex result as the storage key. If an object with that key already exists in the bucket, the write is skipped and the existing object is shared. Because the key comes from the data key, bucket readers cannot compute the name of a file they hold.
 
 - **Same message in multiple mailboxes**: a forwarded email or shared attachment is stored once, no matter how many mailboxes received it.
 - **Same message in multiple snapshots**: an unchanged message appears in both manifests but occupies storage space once.
