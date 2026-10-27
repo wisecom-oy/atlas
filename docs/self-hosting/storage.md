@@ -1,10 +1,10 @@
-# Storage Setup
+# Storage setup
 
-Atlas stores backups in any S3-compatible object storage. For self-hosted deployments, MinIO running in Docker is the recommended option.
+Atlas writes backups to any S3-compatible object store. For self-hosted deployments, run MinIO in Docker. The bucket is where your backups live, so its redundancy, permissions, and filesystem determine how safe the archive is.
 
-## Storage Backend: MinIO on Docker
+## MinIO on Docker
 
-The included `docker/docker-compose.yml` starts MinIO with a Docker named volume:
+The repository's `docker/docker-compose.yml` starts MinIO with a named volume:
 
 ```yaml
 services:
@@ -25,15 +25,14 @@ volumes:
   minio_data:
 ```
 
-That is fine for development and quick testing. Real deployments need control over where the data lands.
+A named volume is fine for development. For production, store data on a disk you choose, as described below.
 
-The image comes from `quay.io`, not Docker Hub. Docker Hub refuses anonymous pulls of `minio/minio`, so a `docker compose up` against that registry fails with `pull access denied` before MinIO ever starts. `quay.io/minio/minio` serves the same images without authentication.
+- The image comes from `quay.io`. Docker Hub refuses anonymous pulls of `minio/minio`, which makes `docker compose up` fail with `pull access denied`.
+- The tag is pinned to a release rather than `latest`. Object Lock and versioning behaviour differs between MinIO releases, and immutable backups depend on both. Bump the tag deliberately, then run `atlas storage-check` to confirm the bucket still reports `lock-capable`.
 
-The tag is a pinned release rather than `latest`. Object Lock and versioning behaviour has changed between MinIO releases, and immutable backups depend on both, so an unattended `docker compose pull` should not be able to move the storage backend under an existing archive. Bump the tag deliberately, then re-run `atlas storage-check` to confirm the new release still reports the bucket as lock-capable.
+### Bind mount to external storage
 
-### Pointing MinIO to External Storage
-
-To store backup data on a specific disk or mount point, replace the named volume with a **bind mount**. For an external drive mounted at `/mnt/backup-drive`:
+Replace the named volume with a bind mount to the disk or mount point that holds the backups. For a drive mounted at `/mnt/backup-drive`:
 
 ```yaml
 services:
@@ -51,128 +50,130 @@ services:
     command: server /data --console-address ":9001"
 ```
 
-Make sure the directory exists and has correct permissions:
+Create the directory and give the MinIO container user ownership:
 
 ```bash
 sudo mkdir -p /mnt/backup-drive/atlas-data
 sudo chown -R 1000:1000 /mnt/backup-drive/atlas-data
 ```
 
-The UID `1000` matches the default MinIO container user. If your MinIO image uses a different UID, check with `docker exec atlas-minio id`.
+UID `1000` is the default MinIO container user. If your image uses a different UID, check it with `docker exec atlas-minio id`.
 
-### Filesystem Recommendations
+### Filesystem
 
-Format the storage volume with **ext4** or **XFS**. Both are stable Linux filesystems suitable for object storage workloads:
+Format the volume with **ext4** or **XFS**:
 
-- **ext4**: the default on most Linux distributions, battle-tested, good all-around performance.
-- **XFS**: excels with large files and high-throughput sequential writes, which matches the pattern of backup data.
+- **ext4** is the default on most Linux distributions and performs well in general.
+- **XFS** handles large files and sequential writes well, which matches backup data.
 
-Avoid NTFS, FAT32, or network filesystems (NFS, CIFS) for the MinIO data directory. They lack the POSIX semantics MinIO relies on and will cause subtle corruption or performance issues.
+Do not place the MinIO data directory on NTFS, FAT32, or network filesystems such as NFS or CIFS. MinIO depends on POSIX semantics those filesystems do not provide, which can cause silent corruption or poor performance.
 
-## Single Drive vs. RAID Storage
+## Redundancy
 
-:::: danger Single Drive Warning
-Storing mailbox backups on a single external hard drive is acceptable **only for home labs and personal testing**. A single drive is a single point of failure. If it fails, all backup data is permanently lost. This setup must not be deployed in any professional or business environment.
-::::
+A single drive is acceptable only for a home lab or personal testing. A single drive failure loses every backup on it. Do not use a single drive in a professional or business environment.
 
-### Why Redundancy Matters
+Redundant storage protects against hardware failure. It does not protect against deletion, ransomware, or corruption that reaches every mirror, so pair it with a second copy in another location (see [Replication setup](/self-hosting/replication)).
 
-If your backup storage itself has no redundancy, you have not reduced risk. You have moved the single point of failure from Microsoft 365 to a USB drive on your desk.
+| RAID level                      | Minimum drives | Behaviour                                                              | Usable capacity  | Suited to                                 |
+| ------------------------------- | -------------- | ---------------------------------------------------------------------- | ---------------- | ----------------------------------------- |
+| **RAID 1** (mirror)             | 2              | Every write goes to both drives. Either drive can fail.                | 50% of total     | Small deployments (up to about 10 mailboxes) |
+| **RAID 5** (distributed parity) | 3              | Data and one parity block per stripe. One drive can fail.              | (N-1)/N of total | Medium deployments                        |
+| **RAID 6** (double parity)      | 4              | Two parity blocks per stripe. Any two drives can fail.                 | (N-2)/N of total | Large deployments with low downtime tolerance |
 
-### RAID: Redundant Array of Independent Disks
+For most Atlas deployments, RAID 1 is the practical minimum. Linux `mdadm` or a hardware controller can build it, and it survives a single drive failure.
 
-RAID combines multiple physical drives into a single logical volume with built-in redundancy. If one drive fails, the data survives on the remaining drives and you can replace the failed drive without losing anything.
-
-| RAID Level                      | Minimum Drives | How It Works                                                                             | Usable Capacity  | Recommendation                                   |
-| ------------------------------- | -------------- | ---------------------------------------------------------------------------------------- | ---------------- | ------------------------------------------------ |
-| **RAID 1** (mirror)             | 2              | Every write goes to both drives simultaneously. Either drive can fail without data loss. | 50% of total     | Small deployments (2-10 mailboxes)               |
-| **RAID 5** (distributed parity) | 3              | Data is striped across all drives with parity blocks. Any single drive can fail.         | (N-1)/N of total | Medium deployments                               |
-| **RAID 6** (double parity)      | 4              | Like RAID 5 but with two parity blocks. Any two drives can fail simultaneously.          | (N-2)/N of total | Large deployments where downtime is unacceptable |
-
-For most Atlas deployments, **RAID 1 is the practical minimum**. It is simple to set up with Linux `mdadm` or a hardware RAID controller, and it protects fully against a single drive failure.
-
-:::: warning RAID Is Not a Backup
-RAID protects against hardware failure. It does **not** protect against accidental deletion, ransomware, or corruption that propagates to all mirrors. For critical data, combine RAID with off-site replication (e.g. a second MinIO instance at another location, or periodic copies to cloud storage).
-::::
-
-### Setting Up RAID 1 on Linux
-
-A minimal RAID 1 setup with two drives:
+Example RAID 1 setup with two drives:
 
 ```bash
-# Create the RAID 1 array
+# Create the mirror
 sudo mdadm --create /dev/md0 --level=1 --raid-devices=2 /dev/sdb /dev/sdc
 
-# Format with XFS
+# Format and mount
 sudo mkfs.xfs /dev/md0
-
-# Create mount point and mount
 sudo mkdir -p /mnt/atlas-raid
 sudo mount /dev/md0 /mnt/atlas-raid
 
-# Add to /etc/fstab for persistence
+# Persist the mount and the array definition
 echo '/dev/md0 /mnt/atlas-raid xfs defaults 0 0' | sudo tee -a /etc/fstab
-
-# Save RAID configuration
 sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
 ```
 
-Then point your MinIO bind mount to `/mnt/atlas-raid/atlas-data`.
+Then bind-mount `/mnt/atlas-raid/atlas-data` into the MinIO container.
 
-## MinIO Security
+## Credentials and access
 
-:::: danger Change Default Credentials
-The default MinIO credentials (`minioadmin`/`minioadmin`) are public knowledge. Anyone who can reach your MinIO port can read, modify, or delete all backup data. **Change these immediately** in any non-development deployment.
-::::
+::: danger Change the default credentials
+The default MinIO credentials (`minioadmin` / `minioadmin`) are public. Anyone who can reach the MinIO port can read, change, or delete every backup. Replace them before the service is reachable from any network.
+:::
 
-Set strong credentials in your `docker/.env`:
+Set strong credentials in `docker/.env`:
 
 ```env
 MINIO_ROOT_USER=atlas-backup-admin
 MINIO_ROOT_PASSWORD=a-long-random-passphrase-at-least-32-characters
 ```
 
-### TLS for Non-Localhost Deployments
+Use the root account only for administration. Give Atlas a dedicated access key, scoped to the buckets it writes, through `atlas config set s3.access-key` and `atlas config set s3.secret-key`, or through `ATLAS_S3_ACCESS_KEY` and `ATLAS_S3_SECRET_KEY`. Per-command IAM permissions are described in [Security](/security#s3-permissions-by-command-class).
 
-If MinIO is reachable from the network and not just `localhost`, enable TLS. Without it, the content stays protected but the traffic around it does not. Every object is AES-256-GCM ciphertext and SigV4 signing never sends the secret key, yet anyone on the network path reads every object key in clear (Outlook and OneDrive keys carry Entra object IDs), the access key id, and which owners are backed up, when and how much. They can also answer an upload with a forged `200`, so the backup reports success for an object that was never stored, and only the next `atlas outlook verify` notices. Atlas warns once per run about a plain `http://` endpoint on any host other than loopback (`localhost`, `127.0.0.0/8`, `::1`), which is why the local Docker setup stays quiet.
+### TLS for network-reachable deployments
 
-MinIO supports TLS natively by placing certificate files in the container. See the [MinIO TLS documentation](https://min.io/docs/minio/linux/operations/network-encryption.html) for setup instructions. When TLS is enabled, update your Atlas endpoint to use `https://`:
+If MinIO accepts connections from other hosts, enable TLS. Backup content is always encrypted (AES-256-GCM, with SigV4 signing that never sends the secret key), but plain HTTP still exposes the rest:
+
+- Anyone on the network path can read object keys in clear. Outlook and OneDrive keys contain Entra object IDs.
+- They can see the access key ID and which owners are backed up, when, and how much data each run moved.
+- They can answer an upload with a forged `200`. The backup then reports success for an object that was never stored, and only a later `atlas outlook verify` detects it.
+
+Atlas logs one warning per run when the endpoint is plain `http://` on any host other than loopback (`localhost`, `127.0.0.0/8`, `::1`). The local Docker setup on loopback does not trigger it.
+
+MinIO supports TLS by placing certificate files in its configuration directory. See the [MinIO network encryption guide](https://min.io/docs/minio/linux/operations/network-encryption.html). Then set the endpoint to `https://`:
 
 ```env
-ATLAS_S3_ENDPOINT="https://minio.internal:9000"
+ATLAS_S3_ENDPOINT="https://minio.example.com:9000"
 ```
 
-## Bucket Provisioning and Object Lock
+## Bucket provisioning and Object Lock
 
-Atlas creates each tenant's bucket automatically on first backup (`atlas-{tenant_id}`), and since v2.1.0 creates it **lock-capable**: `CreateBucket` is issued with `ObjectLockEnabledForBucket: true`, which also enables versioning.
+Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}`. Since v2.1.0 it creates the bucket **lock-capable**: `CreateBucket` sets `ObjectLockEnabledForBucket: true`, which also enables versioning.
 
-This front-loading is deliberate. On both AWS S3 and MinIO, Object Lock can only be enabled at bucket creation (AWS requires a support ticket to retrofit it; MinIO refuses outright). A lock-capable bucket without a retention policy behaves exactly like a normal versioned bucket, so nothing changes until you opt into immutability with `--retention-days` on a backup command.
+This matters because Object Lock can only be enabled when a bucket is created. AWS S3 requires a support request to add it later, and MinIO does not allow it. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
 
-New buckets also receive housekeeping lifecycle rules: incomplete multipart uploads are aborted after 7 days, orphaned delete markers are removed, and noncurrent object versions expire after 30 days. Versioning leaves stale versions behind whenever a delta cursor or index is overwritten, and Atlas never reads them: its file version history is stored as first-class objects, not S3 versions.
+New buckets also receive lifecycle rules:
 
-Provisioning happens on write paths only. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never issue `CreateBucket` and never bootstrap a DEK. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot leave an empty billable bucket behind. See [Security](../security.md) for the per-command-class IAM split.
+| Rule                                 | Effect                                                                                    |
+| ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Abort incomplete multipart uploads   | Aborted after 7 days                                                                      |
+| Expire delete markers                | Orphaned delete markers are removed                                                       |
+| `atlas-expire-noncurrent-versions`   | Noncurrent object versions expire after 30 days                                           |
 
-Backends that reject `ObjectLockEnabledForBucket` get a plain bucket and a loud warning at creation time; immutability will not work there.
+Atlas does not read noncurrent versions. Its version history is stored as separate objects, so the expiry only removes superseded delta cursors and indexes.
 
-Run `atlas storage-check` to see which class a tenant's bucket is: `lock-capable`, `versioned-only (legacy)`, or `unversioned (legacy)`.
+Only write paths create buckets. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never create a bucket or a data key. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot create an empty, billable bucket.
 
-### Migrating a Legacy Bucket to Object Lock
+Check a bucket's class with `atlas storage-check -t <id>`. It reports one of:
 
-Buckets created before v2.1.0 are not lock-capable and cannot be upgraded in place. The migration is a tenant-by-tenant re-pointing, using Atlas's own replication machinery:
+- `lock-capable`: supports `--retention-days` immutability.
+- `versioned-only (legacy)`: created before v2.1.0 with versioning but without Object Lock.
+- `unversioned (legacy)`: created before versioning was enabled.
 
-1. **Create a lock-capable target bucket** manually: `aws s3api create-bucket --bucket atlas-{tenant}-v2 --object-lock-enabled-for-bucket` (MinIO: `mc mb --with-lock`).
-2. **Replicate the tenant** into it: `atlas replicate --tenant <id>` with the target configured as the replication destination. This copies the DEK first, then all snapshots, and verifies checksums. (Plain `aws s3 sync` also works; the DEK object `_meta/dek.enc` must be copied as-is.)
-3. **Repoint the tenant** at the new bucket (rename or alias so `atlas-{tenant_id}` resolves to the new bucket, e.g. delete the old bucket and rename via a final sync).
-4. **Verify**: `atlas storage-check -t <id>` should report `lock-capable`; run `atlas verify` for content integrity.
-5. **Decommission** the old bucket once a full backup cycle has succeeded against the new one.
+Backends that reject `ObjectLockEnabledForBucket` create a plain bucket and log a warning. Immutability does not work on those backends.
 
-Until migrated, backups to legacy buckets keep working. Only `--retention-days` immutability is unavailable, and the backup fails fast with `ObjectLockUnsupportedError` rather than pretending to be immutable.
+### Migrating a legacy bucket
 
-### Protecting the Tenant Encryption Key
+Legacy buckets cannot be converted in place. Migrate one tenant at a time:
 
-Each tenant bucket stores its wrapped data-encryption key at `_meta/dek.enc`. Atlas writes this object exactly once, with a create-only conditional write (`If-None-Match: *`, supported by AWS S3 and MinIO): if two processes bootstrap the same tenant concurrently, the second write fails with `412 Precondition Failed` and that process adopts the already-stored key. Overwriting a live DEK would make every object encrypted with it permanently undecryptable.
+1. **Create a lock-capable bucket** with your storage tooling: `aws s3api create-bucket --bucket <new-bucket> --object-lock-enabled-for-bucket`, or `mc mb --with-lock` for MinIO.
+2. **Replicate into it.** Run `atlas replicate -m <mailbox> --target-config ./new-bucket.json` for each mailbox, `-o <owner>` for each OneDrive owner, and `--site <site-url>` for each SharePoint site. Each run copies the data key first, then the snapshots, and verifies checksums. See [Replication](/operations/replication) for the ordering and safety rules.
+3. **Point Atlas at the new bucket.** Atlas derives the bucket name from the tenant ID, and S3 buckets cannot be renamed. Confirm how your deployment resolves the tenant's bucket before cutover.
+4. **Verify.** Run `atlas storage-check -t <id>`. It should report `lock-capable`. Then run the verify command for each workload, such as `atlas outlook verify -m <mailbox> -s <snapshot-id>`.
+5. **Retire the old bucket** after one full backup cycle has succeeded against the new one.
 
-As defense in depth, a bucket policy can _mandate_ the create-only header on the key object, so even a buggy or outdated client cannot overwrite it (AWS S3; uses the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html)):
+Until a tenant is migrated, its legacy bucket keeps working for backups. Only `--retention-days` is unavailable. The backup fails with `ObjectLockUnsupportedError` instead of appearing immutable.
+
+## Protecting the tenant data key
+
+Each tenant bucket stores its wrapped data-encryption key at `_meta/dek.enc`. Atlas writes this object once, with a create-only conditional write (`If-None-Match: *`). If two processes bootstrap the same tenant at the same time, the second write fails with `412 Precondition Failed`, and that process uses the key already stored. Overwriting a live key would make every object encrypted with it permanently unreadable.
+
+Add a bucket policy that blocks overwrites of the key object, so a buggy or outdated client cannot replace it. This example is for AWS S3, using the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html):
 
 ```json
 {
@@ -190,59 +191,58 @@ As defense in depth, a bucket policy can _mandate_ the create-only header on the
 }
 ```
 
-:::: warning S3-compatible stores
-Some S3-compatible backends (older MinIO releases, some Ceph RGW versions, various emulators) silently ignore unknown conditional headers instead of rejecting the write. On such a backend the create-only guarantee is illusory. Verify support by writing the same key twice with `If-None-Match: *` and confirming the second write fails with 412. Atlas additionally reads the stored key back after bootstrap and always proceeds with what storage actually holds, which converges concurrent bootstraps even where the header is ignored.
-::::
+::: warning Some S3-compatible stores ignore the header
+Older MinIO releases, some Ceph RGW versions, and various emulators silently ignore unknown conditional headers. On those backends the create-only guarantee does not hold. Test it by writing the same key twice with `If-None-Match: *`. The second write must fail with 412. After bootstrap, Atlas also reads back the stored key and uses it, so concurrent bootstraps still converge when the header is ignored.
+:::
 
-## Provider Minimum Billable Object Sizes
+## Object layout and billable sizes
 
-Some providers bill a small object above its stored size. A worked example: a drive with 20,000 files carries roughly 8 MB of version index data (about 400 bytes per file). Written as one object per file, which is what older Atlas versions did, those 8 MB are billed as about 1.28 GB per month on a provider with a 64 KB minimum billable size. Writing the same data as one object per backup run removes that multiplier entirely: the floor then applies to a single object instead of twenty thousand.
+Some providers bill each object at a minimum size, even when it is smaller. A drive with 20,000 files carries roughly 8 MB of version index data. Stored as one object per file, which older Atlas versions did, a 64 KB minimum bills those 8 MB as about 1.28 GB per month. Stored as one object per backup run, the minimum applies once.
 
-Atlas therefore writes version index data as **one object per owner or site per backup run**: `onedrive/index/<owner_id>/runs/<snapshot_id>.json` for OneDrive and `sharepoint/index/<site_id>/runs/<snapshot_id>.json` for SharePoint. A quiet run that stores nothing writes no index object at all.
+Atlas therefore writes version indexes as one object per owner or site per run:
 
-Buckets created by earlier Atlas versions still hold legacy per-file index objects under `.../index/<id>/files/<file_id>.json`. They remain readable, and reads merge them with the per-run objects, until they are purged.
+- OneDrive: `onedrive/index/<owner_id>/runs/<snapshot_id>.json`
+- SharePoint: `sharepoint/index/<site_id>/runs/<snapshot_id>.json`
 
-Content blobs stay one object per file, addressed by SHA-256 (`onedrive/data/<owner_id>/<sha256>`). Packing multiple files into one blob object is deliberately not implemented: S3 Object Lock applies to the pack rather than to the individual files inside it, and doing it safely needs ranged reads, compaction, and retention design first.
+A run that stores nothing writes no index object. Buckets from earlier versions keep their per-file index objects under `.../index/<id>/files/<file_id>.json`. These stay readable, and reads merge them with the per-run objects, until you purge them.
+
+Content blobs remain one object per file, addressed by SHA-256 (`onedrive/data/<owner_id>/<sha256>`). Atlas does not pack several files into one object. S3 Object Lock applies to the whole object, so a pack would lock every file in it together, and the design needs range reads and compaction first.
+
+Minimum billable sizes by provider:
 
 | Provider                                                     | Minimum billable object size              | Note                                                                                                                                     |
 | ------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Hetzner Object Storage                                       | 64 KB                                     | API calls are free, so trading requests for fewer objects costs nothing ([pricing](https://www.hetzner.com/storage/object-storage/))     |
-| Wasabi                                                       | 4 KB                                      | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq))                                                   |
+| Hetzner Object Storage                                       | 64 KB                                     | API calls are free, so fewer larger objects cost nothing ([pricing](https://www.hetzner.com/storage/object-storage/))                   |
+| Wasabi                                                       | 4 KB                                      | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq))                                                  |
 | AWS S3 Standard                                              | None                                      |                                                                                                                                          |
 | AWS S3 Standard-IA / One Zone-IA / Glacier Instant Retrieval | 128 KB                                    | Plus a 30 or 90-day minimum duration ([storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html)) |
-| AWS S3 Glacier Flexible Retrieval / Deep Archive             | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/))                                                    |
-| Cloudflare R2                                                | None documented                           | Usage is billed per GB-month; Infrequent Access has a 30-day minimum ([pricing](https://developers.cloudflare.com/r2/pricing/))          |
-| Scaleway                                                     | None documented                           | Recommends objects larger than 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/))                      |
-| Backblaze B2                                                 | None documented                           | B2's own cost guide warns some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing))          |
-| MinIO self-hosted                                            | None                                      | Filesystem block size still applies                                                                                                      |
+| AWS S3 Glacier Flexible Retrieval / Deep Archive             | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/))                                                   |
+| Cloudflare R2                                                | None documented                           | Billed per GB-month; Infrequent Access has a 30-day minimum ([pricing](https://developers.cloudflare.com/r2/pricing/))                   |
+| Scaleway                                                     | None documented                           | Recommends objects above 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/))                           |
+| Backblaze B2                                                 | None documented                           | Some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing))                                   |
+| MinIO self-hosted                                            | None                                      | The filesystem block size still applies                                                                                                  |
 
-## Per-Object Size Ceiling
+## Object size limits
 
-A large file is uploaded as a multipart stream to a staging key, then promoted to its
-content-addressed key with a server-side copy. Two S3 limits bound that:
+Large files upload as a multipart stream to a staging key, then move to their content-addressed key with a server-side copy. S3 limits bound this:
 
-| Limit                      | Value  | How Atlas stays inside it                                                    |
+| Limit                      | Value  | How Atlas stays within it                                                    |
 | -------------------------- | ------ | ---------------------------------------------------------------------------- |
-| Single `CopyObject` source | 5 GB   | A source above it is promoted with ranged `UploadPartCopy` instead           |
-| Object size                | 5 TB   | Not enforced by Atlas; a file larger than this cannot be stored in S3 at all |
-| Parts per multipart upload | 10,000 | Copy parts are 1 GiB, which reaches 10 TiB and so never runs out             |
+| Single `CopyObject` source | 5 GB   | Larger sources are promoted with ranged `UploadPartCopy` requests            |
+| Object size                | 5 TB   | Not enforced by Atlas. Larger files cannot be stored in S3                   |
+| Parts per multipart upload | 10,000 | Copy parts are 1 GiB, enough for a 10 TiB object                             |
 
-The 5 GB threshold is a constant in Atlas, not something read from the backend. MinIO does not
-enforce the AWS limit, so deciding from the backend's behaviour would mean the request that fails
-on AWS is the one never exercised locally. Both take the same branch for the same object size.
+The copy happens inside the backend. No file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
 
-The promotion is server-side either way: no byte travels back through Atlas, and the ciphertext,
-its checksum, its metadata and any Object Lock retention are identical whichever request is used.
-Retention on a ranged copy is declared when the multipart upload is created, which is where it
-takes effect for a multipart destination.
+The practical ceiling is S3's 5 TB per object. Microsoft 365 caps a single OneDrive or SharePoint file at 250 GB, so that limit is never reached.
 
-The practical ceiling is therefore S3's own 5 TB per object, which is far above what Microsoft 365
-will serve: OneDrive and SharePoint cap a single file at 250 GB.
+## Measuring a storage backend
 
-## Measuring a Storage Backend
+When you run Atlas against a storage service you do not operate, provider metrics are often unavailable. An SDK host can measure the backend directly with [storage request events](/reference/storage-request-events). Each S3 request emits one event with its latency, the time it waited for a connection, SDK retries and backoff after throttling, and the payload size. The CLI does not report these events.
 
-Atlas runs against any S3-compatible service, and bring-your-own-storage deployments rarely expose provider metrics to the operator running Atlas. An SDK host can measure the backend from the Atlas side instead with [storage request events](/reference/storage-request-events): one event per S3 request with its latency, the time spent queued for a connection, SDK retries and backoff after throttling, and the payload size.
+Two readings matter for capacity planning:
 
-Two readings matter most for capacity decisions. `networkMs` on small requests such as `HeadObject` and manifest reads is the backend's latency as Atlas experiences it, including the network path. `retryDelayMs` with `errorType: 'SlowDown'` shows the backend throttling Atlas, which means concurrency should come down or the backend needs more capacity. A high `socketWaitMs` with normal `networkMs` means the backend is fine and Atlas is queueing requests behind its own 50-connection pool.
+- **`networkMs` on small requests** (such as `HeadObject` and manifest reads) is the backend's latency as Atlas sees it, including the network path.
+- **`retryDelayMs` with `errorType: 'SlowDown'`** means the backend is throttling Atlas. Lower the concurrency or add backend capacity.
 
-The CLI does not report these events.
+A high `socketWaitMs` with normal `networkMs` means the backend is healthy and Atlas is queueing requests behind its own 50-connection pool.

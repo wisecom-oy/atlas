@@ -1,104 +1,114 @@
-# Immutability & Object Lock
+# Immutability and Object Lock
 
-Atlas supports storage-enforced immutability on AWS S3 and MinIO. When enabled, backup data becomes tamper-proof at the storage layer. Even an attacker holding full S3 credentials cannot modify or delete protected objects during the retention window.
+Atlas can store backups with S3 Object Lock, so the storage backend refuses to delete or overwrite them until a retention period ends. The protection holds even if an attacker has valid S3 credentials. It works on AWS S3 and MinIO.
 
 ```bash
-# 1. Confirm the bucket can enforce the policy you plan to use
+# 1. Check that the bucket can enforce the policy
 atlas storage-check --lock-mode governance --retention-days 30
 
-# 2. Back up with storage-enforced retention
+# 2. Back up with retention
 atlas outlook backup -m user@company.com --retention-days 30 --lock-mode governance
 ```
 
-| Option                 | Description                                     |
-| ---------------------- | ----------------------------------------------- |
-| `--retention-days <n>` | Apply Object Lock retention for `n` days        |
-| `--lock-mode <mode>`   | Object Lock mode (`governance` or `compliance`) |
+| Option                 | Description                                                                 |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `--retention-days <n>` | Retain each object for `n` days. Must be a positive integer.                |
+| `--lock-mode <mode>`   | `governance` (default) or `compliance`. Requires `--retention-days`.        |
 
-A run that asks for retention fails when the bucket cannot honour it. Versioning off, Object Lock off, or the requested mode unsupported all abort the write rather than storing unprotected data, so a backup never silently downgrades to mutable objects. Check a bucket before relying on it with `atlas storage-check --lock-mode governance --retention-days 30`.
+Atlas rejects `--lock-mode` without `--retention-days`, since a mode alone applies no retention. Without this check, a backup would look immutable and not be.
 
-## Why immutability matters
+## Why it matters
 
-Immutable backups address two threats that credential hygiene alone cannot:
+Credentials alone cannot protect backups from two threats:
 
-- **Ransomware.** An attacker who compromises your infrastructure typically destroys backups before encrypting production data. With Object Lock, backup objects cannot be deleted or overwritten even with valid S3 credentials.
-- **Insider threats.** A disgruntled administrator with full S3 access cannot silently delete or tamper with historical backups during the retention period.
+- **Ransomware.** Attackers often delete backups before they encrypt production data. Object Lock blocks that deletion, even with valid credentials.
+- **Insiders.** An administrator with full S3 access cannot quietly rewrite history during the retention period.
 
-Without immutability, your backups are only as secure as your S3 credentials. With it, the storage backend enforces the retention policy regardless of who holds the keys.
+Without Object Lock, backup security depends entirely on S3 credentials. With it, the storage backend enforces retention for everyone.
 
 ## How enforcement works
 
-- **Enforced by the storage backend.** Object Lock retention blocks overwrite and delete operations using backend rules, not application logic. Atlas cannot bypass this, and neither can any other S3 client.
-- **Recorded by Atlas.** Manifests include `object_lock.requested` and `object_lock.effective` timestamps for audit and operational tracking.
-- **Not application enforcement.** Manifest policy metadata is bookkeeping. The actual protection comes from the storage backend.
+- **The storage backend enforces the lock.** It rejects overwrites and deletes. Atlas cannot bypass the lock, and no S3 client can either.
+- **Manifests record the policy.** Each manifest stores `object_lock.requested` (what you asked for) and `object_lock.effective` (what was applied). Use these fields for audit.
+- **Manifest metadata does not protect anything.** The protection comes from the backend.
 
-### GOVERNANCE vs. COMPLIANCE mode
+### Governance and compliance modes
 
-Atlas supports both S3 Object Lock modes, and the difference is significant for operations:
+| Property         | `governance` (default)                                 | `compliance`                                              |
+| ---------------- | ------------------------------------------------------ | --------------------------------------------------------- |
+| Protection       | Blocks normal deletes and overwrites                   | Blocks all deletes and overwrites                         |
+| Override         | Principals with `s3:BypassGovernanceRetention`         | Nobody, including the root account                        |
+| Typical use      | Everyday protection with an emergency override         | Regulated data that must be kept                          |
+| Main risk        | A compromised admin with the bypass permission         | A mistaken long retention cannot be shortened             |
 
-| Property         | GOVERNANCE                                             | COMPLIANCE                                               |
-| ---------------- | ------------------------------------------------------ | -------------------------------------------------------- |
-| Protection level | Protected against normal delete/overwrite              | Protected against ALL delete/overwrite                   |
-| Override         | Users with `s3:BypassGovernanceRetention` can override | **Nobody** can override, not even the root account       |
-| Use case         | Day-to-day protection with emergency escape hatch      | Regulatory compliance where data must be preserved       |
-| Risk             | A compromised admin account can bypass it              | Accidentally set a 10-year retention? You wait 10 years. |
-
-:::: danger COMPLIANCE mode is irreversible
-Once an object is written with COMPLIANCE mode retention, it **cannot be deleted by anyone** until the retention period expires. There is no override, no support ticket, no workaround. Choose retention periods carefully, and start with GOVERNANCE mode until you understand the operational implications.
-::::
+::: danger Compliance mode cannot be undone
+An object written in compliance mode cannot be deleted by anyone until its retention expires. There is no override and no support path. Start with `governance`, and use `compliance` only after you have tested retention periods and understand the cost of a mistake.
+:::
 
 ## Bucket requirements
 
-Before enabling immutable backups, the S3 bucket must satisfy three conditions:
+Atlas checks three things before it writes any data:
 
-- The bucket exists and is reachable.
-- Bucket **versioning is enabled** (Object Lock requires versioning).
-- Bucket **Object Lock is enabled** at creation time. Most S3 implementations cannot add it retroactively.
+1. The bucket exists and is reachable.
+2. Versioning is enabled. Object Lock depends on it.
+3. Object Lock was enabled when the bucket was created. Most S3 implementations cannot turn it on later.
 
-Atlas validates all three before writing any data. If a check fails, the backup **aborts immediately** with a specific error category:
+If a check fails, the backup stops with one of these errors:
 
-| Error category                            | Fix                                                     |
-| ----------------------------------------- | ------------------------------------------------------- |
-| `versioning disabled`                     | Enable versioning on the bucket                         |
-| `Object Lock unsupported/disabled`        | Recreate the bucket with Object Lock enabled            |
-| `backend rejected requested mode/headers` | The storage backend does not support the requested mode |
+| Error                                     | Fix                                                          |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| `versioning disabled`                     | Enable versioning on the bucket.                             |
+| `Object Lock unsupported/disabled`        | Recreate the bucket with Object Lock enabled.                |
+| `backend rejected requested mode/headers` | The backend does not support the requested mode.             |
 
-The fail-fast behavior is deliberate. Atlas never silently downgrades from immutable to mutable writes, because you would not discover the gap until you needed the immutability guarantee.
+Atlas stops rather than falling back to mutable writes. Otherwise you would learn about the gap only when you needed the guarantee.
 
-Run `atlas storage-check` to validate readiness before your first immutable backup.
+Run `atlas storage-check` before your first immutable backup. It reports the bucket class:
 
-## Deduplication and retention semantics
+| Class                  | Meaning                                              |
+| ---------------------- | ---------------------------------------------------- |
+| `lock-capable`         | Versioning and Object Lock enabled. Usable for lock. |
+| `versioned-only (legacy)` | Versioned without Object Lock. Cannot enforce retention. |
+| `unversioned (legacy)` | Neither. Cannot enforce retention.                   |
 
-Atlas uses content-addressed storage (`data/{owner_id}/{sha256}`). Deduplication behaves identically with or without Object Lock: if the object already exists, Atlas skips the upload. No extra storage cost, no extra S3 versions.
+## Retention and deduplication
 
-Object Lock **prevents deletion** during the retention window but does **not auto-delete** objects after retention expires. Since Atlas never selectively deletes individual data objects (only bulk via `outlook delete --mailbox`, a workload delete, or `atlas delete --purge`), no manifest can end up referencing a deleted object.
+Objects are stored under their content hash. If an object already exists, Atlas skips the upload, with or without Object Lock. Only new content costs storage.
 
-## Deletion behavior under Object Lock
+Object Lock stops deletion during the retention window. It does not delete anything afterwards. Atlas deletes data only in bulk, through `atlas outlook delete`, the OneDrive and SharePoint delete commands, or `atlas delete --purge`. It never removes a single data object that a manifest still references.
 
-`atlas outlook delete`, the workload deletes, and `atlas delete --purge` all remove objects in a fixed order:
+## Deletion under Object Lock
 
-1. **Manifests first.** This removes the index that references data objects.
-2. **Data objects second.** These are the actual encrypted messages and attachments.
+`atlas outlook delete`, the OneDrive and SharePoint delete commands, and `atlas delete --purge` remove objects in a fixed order:
 
-The ordering is safe. If deletion is interrupted after manifests are removed but before data is cleaned up, you are left with **orphan data blobs** (harmless, cleanable later) rather than **dangling manifest references** (dangerous, pointing at missing data).
+1. **Manifests first.** This removes the index that points to data.
+2. **Data objects second.** These are the encrypted messages and files.
 
-While retention is active, delete commands partially succeed: objects past their retention window are deleted, and retained objects are reported separately. The exit code is non-zero to signal incomplete deletion.
+If deletion stops between the two steps, you are left with orphan data objects. They are harmless and can be removed later. The reverse order would leave manifests pointing at missing data, which is far worse.
+
+While retention is active, a delete removes what it can and reports what it kept. The command exits with code `8` (`ATLAS_OBJECT_LOCK_RETAINED`) to signal that deletion is incomplete. Treat a purge in an immutable bucket as "delete everything possible and list the leftovers", not as immediate destruction.
 
 ## Lifecycle rules
 
-When Atlas creates a new bucket, it attempts to configure lifecycle rules compatible with both AWS S3 and MinIO:
+When Atlas creates a bucket, it applies these lifecycle rules, which work on both AWS S3 and MinIO:
 
-| Rule                                      | Purpose                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `AbortIncompleteMultipartUpload` (7 days) | Cleans up abandoned upload parts that waste storage               |
-| `ExpiredObjectDeleteMarker`               | Removes orphaned delete markers left after version-aware deletion |
+| Rule                                      | Purpose                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| `AbortIncompleteMultipartUpload` (7 days) | Removes abandoned upload parts.                                     |
+| `ExpiredObjectDeleteMarker`               | Removes delete markers left after versioned deletes.                |
+| `atlas-expire-noncurrent-versions` (30 days) | Removes noncurrent object versions 30 days after they are replaced. |
 
-These rules are best-effort. If the storage backend does not support lifecycle configuration, Atlas continues without them.
+Atlas applies these rules on a best-effort basis. If the backend does not support lifecycle configuration, Atlas continues without them.
 
 ## Operational notes
 
-- `--retention-days` is required to enable retention-enforced immutability.
-- `--lock-mode compliance` is stronger but operationally harder to reverse, so consider starting with `governance`.
-- Purge in immutable environments means "attempt full deletion and report leftovers", not guaranteed immediate destruction.
-- Use `atlas storage-check` to validate immutable backup readiness before running a backup.
-- Monitor retained object counts after deletion attempts to understand your retention exposure.
+- `--lock-mode compliance` is stronger, but it is hard to reverse. Start with `governance`.
+- On OneDrive and SharePoint backups, `--retention-days` is described as a default that "persists on the bucket". Treat it as a bucket-level setting, not a per-run one.
+- Check retained object counts after each delete attempt to understand your retention exposure.
+- Run `atlas storage-check` before each immutable backup campaign.
+
+## See also
+
+- [Storage layout](/operations/storage-layout): which objects the lock protects
+- [Replication](/operations/replication): Object Lock on replica buckets is configured separately
+- [Storage setup](/self-hosting/storage): creating buckets with Object Lock enabled

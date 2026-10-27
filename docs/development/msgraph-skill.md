@@ -41,7 +41,7 @@ bash .agents/skills/msgraph/scripts/run.sh sample-search --query "delta query" -
 
 Output is JSON. All three run with no network access.
 
-## Why this matters for Atlas specifically
+## Why it matters for Atlas
 
 The parts of Graph that Atlas depends on are exactly the parts an assistant gets
 wrong from memory:
@@ -70,8 +70,11 @@ package. Pass `--api-version v1.0` on any `graph-call` so the tool matches what 
 
 ## Authentication: knowledge mode is the sanctioned mode
 
-The skill can also authenticate and call Graph directly. **Do not point it at a customer
-tenant.** Use it for search and knowledge only, which needs no credentials at all.
+The skill can also authenticate and call Graph directly. Use it for search and knowledge only, which needs no credentials at all.
+
+::: warning
+Do not point it at a customer tenant.
+:::
 
 This is a hard line rather than a preference. The skill is a third-party binary that runs
 with full agent permissions, its published risk assessment carries a medium-risk rating and

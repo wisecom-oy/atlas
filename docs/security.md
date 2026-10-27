@@ -1,352 +1,337 @@
-# Security Model
+# Security model
 
-Atlas uses **envelope encryption** to isolate tenants cryptographically. This page explains the full encryption architecture, what is protected, what is not, and the security properties you can rely on.
+Atlas encrypts each tenant's backup data with a key that only the tenant's passphrase can unlock, and it checks every object's integrity before restoring it. This page explains the design, what is and is not protected, and the limits you need to plan around.
 
-## Key Hierarchy
+## Key hierarchy
 
 ```
-Master passphrase (env var or SDK config)
-    |
-    v
-scrypt(passphrase, [tenant_id + per-wrap random salt], N=65536, r=8, p=1)  -->  KEK (256-bit)
-    |
-    v
-KEK wraps/unwraps a random DEK (AES-256-GCM, header authenticated as AAD)
-    |
-    v
-DEK encrypts all data + manifests for that tenant
+passphrase
+  → scrypt (tenant salt, N=65536, r=8, p=1) → KEK (256-bit)
+  → KEK wraps the DEK (AES-256-GCM, header as AAD)
+  → DEK encrypts every object and manifest for the tenant
 ```
 
-The wrapped DEK at `_meta/dek.enc` is a **versioned blob**: a self-describing header (KDF id, scrypt parameters including a 32-byte random salt) followed by the encrypted DEK. Each time the DEK is re-wrapped, a fresh salt is generated. The header is authenticated as additional data (AAD) on the GCM envelope, so version or parameter tampering is detected on unwrap.
+- **DEK (data encryption key).** A random 256-bit key generated once per tenant. It is stored wrapped at `_meta/dek.enc` in the tenant bucket and exists in plaintext only in memory during a run.
+- **KEK (key encryption key).** Derived from the passphrase. It only wraps and unwraps the DEK.
 
-### Why Envelope Encryption
+The split keeps the passphrase out of the data path. The DEK is random, so its strength does not depend on the passphrase, and changing the passphrase rewrites one small object rather than every backup. The wrapped blob is self-describing: it carries the KDF identifier, the scrypt parameters, and a 32-byte random salt. The header is authenticated as additional data, so tampering with the parameters fails on unwrap.
 
-Envelope encryption separates the key that protects your data (DEK) from the key that protects that key (KEK). This means:
+## KEK derivation: scrypt
 
-- The DEK is a random 256-bit key with maximum entropy -- it does not depend on passphrase strength.
-- The KEK is derived from your passphrase and only used to wrap/unwrap the DEK.
-- Changing the passphrase only re-encrypts the DEK wrapper, not every object in storage.
-  `atlas keys rewrap --new-passphrase` performs it, one `PutObject` against `_meta/dek.enc`.
+Atlas uses scrypt, a memory-hard function that makes GPU and ASIC guessing expensive. Parameters for new DEK wraps:
 
-### KEK Derivation: scrypt
+| Parameter           | Value                  | Purpose                                                                  |
+| ------------------- | ---------------------- | ------------------------------------------------------------------------ |
+| N (cost)            | 65536                  | CPU and memory cost (2^16)                                               |
+| r (block size)      | 8                      | Memory multiplier                                                        |
+| p (parallelism)     | 1                      | Sequential derivation                                                    |
+| Salt                | 32 random bytes        | Fresh on every wrap, including re-wraps. Combined with the tenant ID so the same passphrase yields different KEKs per tenant |
+| Output              | 32 bytes               | AES-256 key                                                              |
+| Minimum N on unwrap | 16384                  | Blobs with weaker parameters are rejected                                |
 
-The KEK is derived using **scrypt**, a memory-hard key derivation function designed to resist brute-force attacks from GPUs and custom hardware (ASICs). Unlike simpler hash functions, scrypt requires a large amount of RAM for each derivation attempt, making parallel attacks expensive.
+A re-wrap picks up the current parameters automatically. Until then, a tenant keeps the parameters it was created with.
 
-Parameters used by Atlas for **new** DEK wraps:
+Derivation runs on Node's libuv threadpool, so it does not block the host process's event loop. Each derivation uses roughly 64 MiB and takes about 90 to 110 ms. With Node's default pool of 4 threads, peak scrypt memory is about 256 MiB. Raising `UV_THREADPOOL_SIZE` raises that ceiling at the cost of more memory. The derived key is zeroed as soon as the wrap or unwrap completes.
 
-| Parameter           | Value                          | Purpose                                                                                   |
-| ------------------- | ------------------------------ | ----------------------------------------------------------------------------------------- |
-| N (cost)            | 65536                          | CPU/memory cost factor (2^16, OWASP recommendation for sensitive workloads)               |
-| r (block size)      | 8                              | Memory usage multiplier                                                                   |
-| p (parallelism)     | 1                              | Sequential derivation (no parallel lanes)                                                 |
-| Salt                | 32-byte random + tenant domain | Per-wrap random salt combined with length-prefixed `tenant_id` for cross-tenant isolation |
-| Output              | 32 bytes (256 bits)            | AES-256 key length                                                                        |
-| Minimum N on unwrap | 16384                          | Blobs with weaker parameters are rejected                                                 |
+The wrapped DEK sits next to the data with its KDF parameters in plaintext. Anyone with read access to the bucket can run an offline guessing attack, so the passphrase's length and entropy are the whole defence. Atlas refuses to wrap a key under a passphrase shorter than **14 UTF-8 bytes**. This applies to first-time key creation, `atlas keys rewrap`, the SDK `encryptionPassphrase` option, and `atlas config set encryption.passphrase`. Keys already wrapped under a shorter passphrase still open, with a warning on every run.
 
-The **tenant-domain salt** ensures that the same passphrase and random salt produce different KEKs for different tenants. A fresh random salt is generated on every DEK wrap, including a re-wrap, so `atlas keys rewrap` picks up current scrypt parameters without relying on a separate `_meta/kek_params.json` file. Until a re-wrap runs, a tenant keeps the parameters it was bootstrapped with.
+Byte length is a floor, not an entropy guarantee. For production, use at least five random words or 20 random characters.
 
-Derivation runs on Node's libuv threadpool, so the ~64 MiB working set and roughly 90-110 ms of work per derivation never block the event loop of the process hosting the SDK. The threadpool also bounds concurrency: Node's default pool size of 4 means at most four derivations run at once, capping peak scrypt memory at roughly 256 MiB even if a burst of tenant contexts is created simultaneously. Raising `UV_THREADPOOL_SIZE` increases that ceiling in exchange for proportionally more resident memory. The derived key is zeroed as soon as the wrap or unwrap completes. An existing tenant context derives once at creation rather than once per operation. Initial provisioning derives twice sequentially: the freshly generated DEK is wrapped before the conditional write, and the stored key is unwrapped again afterwards so the readback verifies what storage holds.
+::: danger A lost passphrase cannot be recovered
+There is no recovery path. Without the passphrase the DEK cannot be unwrapped, and every backup for that tenant is permanently unreadable. Changing `ATLAS_ENCRYPTION_PASSPHRASE` without re-wrapping the stored key causes authentication failures on the next run. Run `atlas keys rewrap --new-passphrase` first, and change the configured value only after it succeeds. Store the passphrase in a password manager or a secrets vault, with a second copy kept offline.
+:::
 
-The wrapped DEK sits in the bucket next to the data, with its KDF parameters in the clear, so anyone with read access to the bucket can run an offline guessing attack on the passphrase. Its length and entropy are the whole defence. Atlas therefore refuses to **wrap** a tenant key, whether creating one on a tenant's first backup or re-wrapping with `atlas keys rewrap`, under a passphrase shorter than **14 UTF-8 bytes**, and raises `ConfigError` before anything is written. The same minimum applies to SDK `encryptionPassphrase` at construction and to `atlas config set encryption.passphrase`. A key already wrapped under a shorter passphrase still **opens**, with a warning on every run, so older backups stay readable; move it to a longer passphrase with `atlas keys rewrap --new-passphrase`. Byte length is only a floor, not an entropy guarantee: use at least five random words or 20 random characters for production.
+The SDK's `validate()` method checks S3 `HeadBucket` access on the tenant bucket, unwraps the existing `_meta/dek.enc` with the configured passphrase when one exists, and acquires a Graph token. A wrong passphrase fails with `WrongPassphraseError`. A tenant with no key yet passes that step. It writes nothing and does not confirm that writes are permitted or that Graph consent is in place.
 
-The optional SDK `validate()` probe performs only S3 `HeadBucket` and Graph token acquisition. It writes no bucket or key material and returns no token. Success does not establish encryption-key correctness, object-write permissions or workload-specific Graph consent. HTTP S3 endpoints remain available for local deployments; use HTTPS across untrusted networks to protect credentials and traffic.
-
-### DEK: Data Encryption Key
-
-- **Generated once** per tenant: a cryptographically random 256-bit key.
-- **Stored wrapped** as a versioned blob at `_meta/dek.enc` in the tenant's S3 bucket (KDF parameters and encrypted DEK in one self-describing object).
-- **Never stored in plaintext** -- only exists in memory during a backup/restore run.
-- **Re-derived on every run**: Atlas reads `_meta/dek.enc`, derives the KEK from the passphrase, unwraps the DEK, and holds it in memory for the session.
-
-:::: danger A lost passphrase is still irrecoverable
-There is **no recovery path**. If you lose the passphrase, the DEK cannot be unwrapped and all
-data for that tenant is permanently inaccessible. Changing `ATLAS_ENCRYPTION_PASSPHRASE` without
-re-wrapping the stored key causes GCM authentication failures on the next unwrap of
-`_meta/dek.enc`, so use `atlas keys rewrap --new-passphrase` and change the configured value only
-after it succeeds.
-
-**Treat the passphrase as critically as the data itself.** Store it in a password manager, a
-sealed envelope in a safe, or a secrets management system, but never lose it.
-::::
-
-### Re-wrapping the data key
-
-`atlas keys rewrap` derives a new KEK, from a new passphrase or from the current KDF parameters
-with a fresh salt, and rewrites `_meta/dek.enc` under it. The DEK inside is byte-identical, so
-nothing in the bucket is re-encrypted and every existing snapshot stays readable. It is one
-object write regardless of how large the tenant is.
-
-What it is worth is bounded by that. **It rotates the wrapper, not the key.** The threat it
-answers is a leaked passphrase: whoever holds the old one can no longer derive a KEK that opens
-the current wrapper. It does nothing about an attacker who already holds the DEK itself or
-plaintext they decrypted with it, because neither needs the passphrase again. That case needs a
-new DEK, described under [Rotating the data key](#rotating-the-data-key).
-
-:::: warning Revocation is not immediate on a versioned bucket
-Atlas enables bucket versioning and expires noncurrent versions after 30 days. A re-wrap writes
-a new current `_meta/dek.enc`; it does not remove the version it replaced. Until that noncurrent
-version expires, someone holding the old passphrase **and** permission to read object versions
-can still read it and unwrap the same, unchanged DEK.
-
-Treat the re-wrap as complete only once that version is gone. Where policy and Object Lock
-allow, delete the noncurrent versions of `_meta/dek.enc` explicitly; where they do not, the old
-passphrase remains a live credential for up to 30 days, and read access to object versions is
-what stands between it and the key. Revoking the leaked reader's `s3:GetObjectVersion` closes
-the window immediately.
-::::
-
-The order matters and is enforced. The stored key is unwrapped with the current passphrase
-before anything is written, so a wrong one costs nothing. After the write, the blob is read back
-and unwrapped with the new passphrase and compared against the key that went in, because a
-wrapper that cannot be unwrapped is an unopenable bucket and the next backup is too late to find
-that out. A verification failure puts the previous wrapper back and proves it still opens before
-the error is reported, so a failed re-wrap leaves the tenant exactly as it was. Keep both
-passphrases until a read succeeds with the new one.
-
-The same command with no flags re-wraps under the configured passphrase, which is how a tenant
-bootstrapped under weaker scrypt parameters is brought forward to the current ones. Existing
-backups are unaffected either way.
-
-### Rotating the data key
+## Rewrapping the passphrase
 
 ```bash
-# 1. Point Atlas at storage where atlas-<tenant-id> does not exist yet, under a new passphrase
+atlas keys rewrap --new-passphrase
+```
+
+`atlas keys rewrap` derives a new KEK and rewrites `_meta/dek.enc` under it. The DEK inside is unchanged, so no data objects are re-encrypted and every snapshot stays readable. It is a single object write regardless of tenant size.
+
+The command rotates the wrapper, not the key. It defeats a leaked passphrase, because whoever holds the old one can no longer open the current wrapper. It does not help against someone who already has the DEK or plaintext decrypted with it. For that case, see [Rotating the data key](#rotating-the-data-key).
+
+The order of operations protects the tenant. Atlas unwraps the stored key with the current passphrase before writing anything. After the write, it reads the blob back, unwraps it with the new passphrase, and compares the result with the key it wrote. If verification fails, it restores the previous wrapper and confirms that it still opens before reporting the error. Keep both passphrases until a read succeeds with the new one.
+
+::: warning Revocation is not immediate on a versioned bucket
+Atlas enables bucket versioning and expires noncurrent versions after 30 days. A re-wrap does not remove the previous `_meta/dek.enc` version. Until that version expires, anyone holding the old passphrase and `s3:GetObjectVersion` can still unwrap the DEK.
+
+Treat a re-wrap as complete only after the old version is gone. Delete the noncurrent versions of `_meta/dek.enc` explicitly where policy and Object Lock allow it. Otherwise, revoke the leaked principal's `s3:GetObjectVersion`, which closes the window immediately.
+:::
+
+## Rotating the data key
+
+Rotating the DEK means starting a new bucket, because Atlas names the bucket `atlas-<tenant-id>` and a bucket holds one DEK.
+
+```bash
+# 1. Point Atlas at storage where atlas-<tenant-id> does not exist yet
 atlas config set s3.endpoint https://new-s3.example.com
 atlas config set s3.access-key <new-access-key>
 pbpaste | atlas config set s3.secret-key -
 pbpaste | atlas config set encryption.passphrase -
 
-# 2. Back up every mailbox, drive and site again; the first run generates the new DEK
+# 2. Back up every mailbox, drive, and site again; the first run generates the new DEK
 atlas outlook backup -m user@company.com
 ```
 
-A tenant's DEK is replaced by starting a new bucket, not by changing the existing one. Atlas names the bucket `atlas-<tenant-id>` on the configured endpoint, so the new bucket has to live on a different endpoint or S3 account. The first backup against it finds no `_meta/dek.enc`, generates a fresh random 256-bit DEK and wraps it under the new passphrase. That backup has no delta cursors or manifests to start from, so it is a full enumeration over Microsoft Graph, with the time and throttling budget of a first backup.
+The new bucket must sit on a different endpoint or S3 account. The first backup generates a random DEK and wraps it under the new passphrase. It has no delta cursors to start from, so it is a full enumeration with the time and throttling cost of a first backup.
 
-Snapshots taken before the rotation stay in the old bucket under the old DEK and restore from there: run `restore` or `save` with the old endpoint, credentials and passphrase. Nothing is re-encrypted or migrated, so the new bucket's history starts at the rotation. Once those snapshots are no longer needed, remove them with `atlas delete --purge` against the old storage. Objects under Object Lock retention cannot be deleted before their retain-until date, and the purge reports them as retained rather than failed.
+Earlier snapshots stay in the old bucket under the old DEK. Restore them with the old endpoint, credentials, and passphrase. Nothing is migrated or re-encrypted. Once the old snapshots are no longer needed, remove them with `atlas delete --purge` against the old storage. Objects under Object Lock retention cannot be deleted before their retain-until date, and the purge reports them as retained rather than failed.
 
-Replication cannot rotate the key. It copies ciphertext byte for byte and refuses a target whose DEK differs from the primary's ([DEK Mismatch Protection](#dek-mismatch-protection)), so a replica always carries the same DEK as its source.
+Replication cannot rotate the key. It copies ciphertext unchanged and refuses a target whose DEK differs from the primary's ([DEK mismatch protection](#dek-mismatch-protection)).
 
-**What rotation achieves.** The threat it answers is a DEK that has left the process: read from memory, a core dump, or a host where Atlas ran. Everything written after the rotation is encrypted under a key that attacker does not hold, and a stolen copy of the new bucket is useless to them.
+Rotation limits exposure to data written after the rotation. It targets a DEK that has left the process, through memory, a core dump, or a compromised host. Data already written under the old key remains readable with that key for as long as the old bucket exists, including noncurrent versions and Object Lock retained objects. Atlas has no in-place re-key, because that would mean rewriting a bucket while objects are split between two keys.
 
-**What it does not achieve.** Every object in the old bucket is still readable with the old DEK for as long as it exists, including noncurrent versions kept for 30 days and anything under Object Lock. Rotation limits exposure to data written before the rotation; it does not recover that data. Shorten the window by revoking the old storage credentials and, where retention allows, purging the old bucket as soon as its snapshots are no longer needed.
+## Content encryption
 
-Atlas has no in-place rotation that re-encrypts an existing bucket under a new key. It would mean a full read and write of the bucket, a resumable run that keeps the tenant openable while objects are split between two keys, and versions that Object Lock does not allow to be replaced. The procedure above gives the same protection for new data without that risk, at the cost of a fresh backup history.
-
-## Encryption Details
-
-### Algorithm: AES-256-GCM
-
-Every encrypt operation uses **AES-256-GCM** (Galois/Counter Mode), which provides both confidentiality and authenticity in a single pass:
-
-- **Confidentiality**: the plaintext is encrypted and unreadable without the key.
-- **Authenticity**: a 16-byte authentication tag is computed over the ciphertext, meaning any tampering (even a single flipped bit) is detected on decryption and causes an immediate failure.
-
-### Ciphertext Format
+Every object is encrypted with **AES-256-GCM**. The GCM tag gives confidentiality and authenticity: a single flipped bit fails decryption.
 
 ```
-[ATLS][version][12-byte IV][16-byte GCM auth tag][ciphertext]
+[ATLS][version][12-byte IV][16-byte GCM tag][ciphertext]
 ```
 
-Every encrypt operation generates a **fresh random 12-byte IV** (initialization vector). This is critical for GCM security -- reusing an IV with the same key would be catastrophic, potentially exposing the XOR of two plaintexts and compromising the authentication key. Atlas generates a new random IV for every single object it encrypts.
-
-Random IVs carry a birthday bound, so one key cannot be used an unlimited number of times. NIST SP
-800-38D caps random-IV GCM at 2^32 invocations per key, where the chance of any IV repeating is
-still about 2^-33. One DEK covers a whole tenant, and Atlas runs one encrypt per object, streamed
-objects included: a multipart upload takes a single IV for the whole object rather than one per
-part. The budget is therefore 4.3 billion distinct objects in one tenant bucket, and content is
-addressed by checksum, so backing up unchanged bytes again does not spend another one. At ten
-million new objects a year that is a four-century limit, which is why Atlas has no re-key
-threshold.
+Each object gets a fresh random 12-byte IV. Reusing an IV under the same key would break GCM, so Atlas never reuses one. Random IVs carry a birthday bound: NIST SP 800-38D caps random-IV GCM at 2^32 invocations per key, where an IV collision has a probability of about 2^-33. One DEK covers a whole tenant, and a multipart upload uses one IV for the whole object. The budget is therefore about 4.3 billion objects per tenant bucket. Content is addressed by checksum, so re-backing up unchanged bytes does not consume the budget.
 
 ### What a ciphertext is bound to
 
-One DEK encrypts every object of a tenant, so the GCM tag alone proves only that the bytes were
-produced under that tenant's key. It does not prove they are the bytes that belong at this key.
-Until the header above existed, any object therefore authenticated in any other object's place:
-overwriting one stored blob with another needed write access to the bucket, not the passphrase.
+Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
-The header and the object's scope are authenticated as associated data, so a ciphertext only
-decrypts where it was written. The scope is the key's directory, which names the purpose and the
-owner: `onedrive/data/{owner_id}/`, `manifests/{owner_id}/`, `_meta/replication/{owner}/{snapshot}/`.
-The directory rather than the whole key, because the large-file pipeline encrypts into a staging
-key and promotes the finished object onto a content-addressed key whose checksum is unknown while
-the cipher is running. The streamed writer therefore binds the canonical directory, not the staging
-one, and a reader derives the same value from the key it is reading.
+| Attack                                                        | Result                                                       |
+| ------------------------------------------------------------- | ------------------------------------------------------------ |
+| Move an object over another owner's or purpose's key          | Decryption fails: the scope no longer matches                |
+| Strip or lower the version header                             | Decryption fails: the header is authenticated                |
+| Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
+| Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
-What this does and does not cover:
+Objects written before the header existed have no magic bytes and decrypt without associated data. Existing backups stay readable with no migration step. Those objects have no scope to check, so they can be moved and still decrypt. An object gains the binding when its plaintext changes or when it is deleted and stored again. Restore still checks the manifest checksum before writing anything.
 
-| Attack                                                        | Result                                                      |
-| ------------------------------------------------------------- | ----------------------------------------------------------- |
-| Move one object over another owner's or another purpose's key | Decryption fails: the scope in the AAD no longer matches    |
-| Strip or lower the version header                             | Decryption fails: the header is inside the AAD              |
-| Move an object within its own directory                       | Not prevented; the manifest checksum comparison covers that |
-| Replay an older ciphertext of the same object                 | Not prevented; that is Object Lock's and versioning's job   |
+## What is encrypted at rest
 
-Objects written before the header existed carry no magic and are decrypted the way they always
-were, with no associated data. Every existing backup stays readable, there is no migration step and
-no configuration flag.
+| Data                                       | Encrypted | Notes                                                                                 |
+| ------------------------------------------ | --------- | ------------------------------------------------------------------------------------- |
+| Email messages                             | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{sha256}`                  |
+| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{sha256}`. MIME embeds them   |
+| Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
+| OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{sha256}`                                                   |
+| OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
+| Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
+| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
-That compatibility is also the limit of the protection. A headerless object has no scope to check,
-so the substitution above still works against one: it can be moved anywhere in the bucket and will
-decrypt. Only objects written since the binding reject a move across owners or purposes.
-
-A bucket gains the property object by object as content is encrypted, which is not the same as
-snapshot by snapshot. File content is stored by checksum, so a backup of a file whose bytes are
-already in the bucket deduplicates onto the existing object and does not rewrite it, and a forced
-full run behaves the same way. A new snapshot's manifests, indexes and cursors are bound because
-they are written fresh, while the content they point at keeps whatever protection it was written
-with. Taking a new backup therefore does not upgrade an old blob: an object becomes bound when its
-plaintext changes, or when it is deleted from the bucket and stored again. Restore covers the rest
-either way, by comparing the manifest checksum before anything is written.
-
-### What Is Encrypted at Rest
-
-| Data                                       | Encrypted | Notes                                                                                                                   |
-| ------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME (or legacy Graph JSON) under `data/{owner_id}/{sha256}`                                                   |
-| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{sha256}`; MIME entries embed attachments in the message object |
-| Manifests                                  | Yes       | Contains subjects, senders, folder names, delta URLs, checksums                                                         |
-| OneDrive file blobs                        | Yes       | Keys under `onedrive/data/{owner_id}/{sha256}`                                                                          |
-| OneDrive manifests / indexes / delta state | Yes       | Under `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                          |
-| Wrapped DEK                                | Yes       | `_meta/dek.enc` is encrypted with the KEK                                                                               |
-| S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                              |
-
-Mailbox objects carry `x-message-id` in S3 metadata for operational diagnostics. OneDrive objects no longer store file identifiers, version identifiers, or plaintext checksums in unencrypted metadata -- all such metadata is stored inside encrypted manifests and version indexes.
-
-Manifests deserve special attention: they contain email subjects, sender names and addresses, folder display names, and Microsoft Graph delta URLs. All of this metadata is encrypted with the same DEK, so subject lines, senders, and folder names are never exposed at rest in the S3 bucket. The sender is recorded so a snapshot can be browsed by who sent a message without decrypting any message body.
-
-### OneDrive blobs and sidecars
-
-OneDrive file ciphertext uses keys such as `onedrive/data/{owner_id}/{sha256}` (see [OneDrive Backup](./onedrive-backup.md)). The `{owner_id}` segment is the **Entra object ID**, not an SMTP address, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs.
-
-OneDrive data blobs carry no unencrypted S3 metadata. File identifiers, version identifiers, and plaintext checksums are stored exclusively inside encrypted manifests and version indexes, preventing known-plaintext fingerprinting via S3 `HeadObject`/`ListObjects` access.
+OneDrive objects store no file IDs, version IDs, or plaintext checksums in unencrypted metadata. Those live inside encrypted manifests and version indexes, so `HeadObject` and `ListObjects` cannot fingerprint known content.
 
 ## User identity in storage paths
 
-**OneDrive (CLI `atlas onedrive`)** always resolves interactive owner inputs that look like email/UPN to an Entra object ID (`GET /users/{email}` with `id` selected) before computing S3 prefixes. Passing a bare UUID to `--owner` skips resolution and must match the user's directory object ID.
+Storage prefixes use the Entra object ID, not the SMTP address. For OneDrive, `atlas onedrive` resolves a user principal name or email passed to `--owner` to an object ID before computing the prefix. Passing a UUID skips resolution and must match the user's directory object ID. Mailbox backups namespace `data/`, `attachments/`, and `manifests/` by the owner's object ID too. The SMTP address is recorded only as display metadata on snapshots.
 
-**Mailbox backup** namespaces `data/`, `attachments/`, and `manifests/` by the mailbox owner's Entra object ID, the same as OneDrive. The SMTP address is recorded only as display metadata on snapshots, so bucket listings do not reveal which email account owns a subtree unless an attacker can correlate Graph IDs. Backups keyed by an address in earlier releases are not reachable under the new keys; see [Outlook backups keyed by object ID](/migration/outlook-object-id-keys).
+Bucket listings therefore do not reveal which email account owns a subtree unless someone can correlate Graph IDs. Address-keyed objects written by v5 are not renamed or aliased. They stay under their old prefixes until something deletes them, and Object Lock expiry only makes them deletable. See [Migrating to v6](/migration/v6).
 
-Old address-keyed objects are not renamed or aliased. They stay in the bucket under their old prefixes until something deletes them: Object Lock expiry only makes them deletable, it does not remove them. The migration page describes how to remove them.
+## Replication security
 
-## Backup Fidelity
+Replication uses a shared encryption model. All targets share the master passphrase and the tenant DEK, and ciphertext is copied byte for byte with no decryption or re-encryption. The wrapped DEK is copied to each target on first replication.
 
-Integrity checks prove that the archived bytes are the bytes Atlas stored. Fidelity is the separate question of _which_ bytes Atlas stored in the first place, and it decides whether an archived message still carries evidentiary weight years after the mailbox is gone.
+This has two consequences:
 
-| Artifact                                                                                            | Fidelity                                                                                                                                                             |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Archived object in S3, and the `.eml` files `atlas outlook save` writes for an entry stored as MIME | **Byte-exact.** The original RFC 5322 MIME as Exchange received it                                                                                                   |
-| The `.eml` files `atlas outlook save` writes for a legacy entry stored as Graph JSON                | **Reconstructed.** Assembled from the stored JSON payload at export time, as the row below describes                                                                 |
-| A message recreated in a mailbox by `atlas outlook restore`                                         | **Reconstructed.** Rebuilt from the archived MIME through Graph's JSON message-create path; the original `Received` chain is not reproduced inside the restored copy |
-| Snapshots taken before this version                                                                 | **Reconstructed.** Graph's JSON field projection, with the `.eml` assembled at export time                                                                           |
+- **One passphrase protects every copy.** Compromising it exposes data on every target.
+- **Each target needs separate S3 credentials.** Use an independent principal per endpoint, such as a dedicated MinIO user or a scoped IAM role. A compromised target credential exposes only that target's ciphertext, and it cannot reach other targets.
+
+Replication status sidecars under `_meta/replication/` are encrypted with the DEK, so target endpoints, checksums, and errors are not exposed at rest.
+
+Atlas closes each target's context when its copy ends, on success or failure, and zeroes the passphrase buffer.
+
+A marker file, `_meta/replica.marker`, is written to each target on first replication. If `atlas outlook backup` runs against a replica, Atlas logs a warning, which guards the primary-is-truth rule.
+
+### DEK mismatch protection
+
+Before each replication or rehydration, Atlas checks that the source and target share a DEK. If the primary was purged and re-initialized with a new DEK, replication to a target that still holds the old DEK is refused with an explicit error. Without this check, objects encrypted under two keys would coexist on one target, and the older ones would become permanently unreadable.
+
+The check runs once per target per run, before the first snapshot is copied. It unwraps both DEKs, which costs two scrypt derivations. A target that fails the check receives no writes.
+
+## Integrity validation
+
+Atlas checks integrity at three independent layers:
+
+| Layer         | Mechanism                           | What it catches                                          | When                              |
+| ------------- | ----------------------------------- | -------------------------------------------------------- | --------------------------------- |
+| **Plaintext** | SHA-256 in the manifest             | Corruption before encryption, application bugs           | Backup, verify, save              |
+| **Transport** | `Content-MD5` on every S3 PUT       | Network corruption in flight                             | Every upload; S3 rejects mismatch |
+| **At rest**   | AES-256-GCM authentication tag      | Tampering or corruption in storage                       | Every decrypt                     |
+
+`atlas outlook verify` downloads each encrypted object, decrypts it, hashes the plaintext, and compares the result with the manifest checksum using a constant-time comparison (`timingSafeEqual`). For MIME entries this covers attachments, because they are part of the hashed message. Legacy JSON attachments are separate objects and are protected only by GCM during decrypt. They are not hashed against the manifest.
+
+### What the GCM tag does not prove
+
+A valid tag proves the bytes were produced under the tenant DEK. It does not prove they belong at that key, which is why the scope binding above exists. Restore therefore compares the manifest checksum before anything acts on the bytes:
+
+| Path                       | Checked before                                                |
+| -------------------------- | ------------------------------------------------------------- |
+| Outlook message restore    | `POST /messages`, for MIME and legacy JSON entries            |
+| Outlook attachment restore | Each attachment upload                                        |
+| Drive file restore         | The upload, buffered or streamed                              |
+| Snapshot manifests         | Atlas rebuilds the key from the manifest's own `owner_id` or `site_id` and `snapshot_id`, and compares it to the key it read |
+
+An entry with no recorded checksum is refused rather than restored unverified. A manifest planted under another snapshot's key is reported as corrupt, not skipped. Silently skipping it would make the snapshot look as if it was never taken.
+
+Two limits remain. Neither check stops replay of an older valid ciphertext for the same object, which Object Lock and versioning handle. A checksum recorded wrongly at backup time also goes undetected.
+
+### Authentication failures are reported everywhere
+
+A GCM failure must never look like a successful empty result. Each object type reports it as a failure:
+
+| Object                  | Reported as                                                       |
+| ----------------------- | ----------------------------------------------------------------- |
+| Outlook attachment      | An error on the restore result, counted in `attachment_error_count` |
+| Drive file in an export | An error and an integrity failure                                 |
+| Snapshot manifest       | A raised `StorageError`. Only a genuinely absent object reads as absent |
+
+Verification counts an entry as soon as it claims a stored blob. An entry that names a blob without a checksum is a verification failure. Tombstones are the only entries without a blob, so they are not counted.
+
+`--skip-integrity-check` disables the comparison for export. Use it only when recovering data matters more than proving it.
+
+### Nothing is released before it authenticates
+
+Restoring a large file streams plaintext into a Graph upload session as it decrypts. Bytes therefore leave Atlas before the tag and SHA-256 can be checked. The item is safe because the session is committed only by the chunk carrying the last byte, and Atlas holds that chunk until the decrypt stream ends without error. A failed tag or checksum abandons the session with `DELETE`, and no file is created.
+
+Atlas also refuses any chunk that would reach the declared end while the source still has data. An object longer than its recorded size would otherwise commit early. The file fails and the recorded and stored sizes are reported as disagreeing.
+
+The rule to preserve: an unverified byte may travel, but nothing may make it visible. A destination that publishes data as it arrives, such as a filesystem path or a stream handed to a caller, must use the buffered path with up-front verification.
+
+## Backup fidelity
+
+Integrity checks prove that archived bytes match what Atlas stored. Fidelity asks which bytes Atlas stored in the first place, which determines whether an archived message still has evidentiary value after the mailbox is gone.
+
+| Artifact                                                               | Fidelity                                                                          |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Archived object, and the `.eml` that `atlas outlook save` writes for a MIME entry | **Byte-exact**. The RFC 5322 message as Exchange received it       |
+| `.eml` for a legacy JSON entry                                         | **Reconstructed** from the stored JSON at export time                             |
+| Message recreated by `atlas outlook restore`                           | **Reconstructed** from the archived MIME. The original `Received` chain is not carried over |
+| Snapshots taken before MIME storage                                    | **Reconstructed** from Graph's JSON projection                                    |
 
 ### The archived object is the original message
 
-Backup fetches every new or changed message as **RFC 5322 MIME** -- the on-the-wire form of an email, every header and body part exactly as the sending and relaying servers produced them -- with `GET /users/{id}/messages/{id}/$value`, and stores those bytes as the canonical encrypted object.
+Each new or changed message is fetched as RFC 5322 MIME with `GET /users/{id}/messages/{id}/$value`, and those bytes are stored as the canonical object. Earlier versions stored about 24 selected Graph fields and rebuilt an `.eml` at export time. A rebuilt message is plausible, but it lacks the headers an investigation depends on.
 
-Earlier Atlas versions stored `JSON.stringify()` of roughly 24 selected Microsoft Graph fields and _reconstructed_ an `.eml` file at export time with the `mimetext` library. A reconstruction is a plausible email, not the original one: it carries the fields Atlas thought to select, re-encoded by a library that was never in the message's transit path. Everything an investigator would use to prove where a message came from was missing, because Graph's JSON projection never contained it.
+Stored MIME keeps the following:
 
-Storing the original bytes recovers the following. Each row is a question an operator or auditor eventually has to answer:
+| Recovered content                                           | What it answers                                                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `Received:` chain                                           | Chain of custody: which servers handled the message, in what order                                  |
+| `Authentication-Results`, `DKIM-Signature`                  | Whether the message is authentic. DKIM verifies only against the original bytes                     |
+| `In-Reply-To`, `References`                                 | Threading in any mail client                                                                        |
+| Multipart structure and transfer encodings                  | Byte-level attestation                                                                              |
+| S/MIME signed and encrypted payloads                        | Signature verification and decryption                                                               |
+| Custom `X-` and mailing-list headers                        | Gateway, DLP, and list-server annotations                                                           |
 
-| Recovered content                                                          | What it answers                                                                                                                                                   |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The `Received:` chain                                                      | Chain of custody: which servers handled the message, in what order, and when it passed each hop                                                                   |
-| `Authentication-Results` with DKIM, SPF, and ARC results, `DKIM-Signature` | Whether the message was authentic or forged. DKIM is a cryptographic signature over selected headers and the body, so it verifies only against the original bytes |
-| `In-Reply-To` and `References`                                             | Threading. Exported `.eml` files group into conversations in any mail client instead of arriving as unrelated messages                                            |
-| Original multipart structure and transfer encodings                        | Byte-level attestation: part boundaries, `Content-Transfer-Encoding`, and part order are preserved rather than regenerated                                        |
-| S/MIME signed and encrypted payloads                                       | Signature verification and decryption, both of which are only possible over the original bytes                                                                    |
-| Custom `X-` headers and mailing-list headers                               | Gateway, DLP, and list-server annotations that no Graph field exposes                                                                                             |
+There is no `--fidelity` flag. MIME is the only format for new snapshots, so the weaker format cannot be selected by accident.
 
-There is deliberately no `--fidelity` flag. MIME is the only mode for new snapshots, so an operator cannot accidentally archive a year of mail in the weaker format.
+Attachments are stored inside the MIME message. Two effects follow. Attachment content is no longer deduplicated across messages, so a file sent to a list is stored once per message. Base64 inside MIME adds about one third more bytes.
 
-### Attachments move inside the message object
+If Graph cannot return MIME for an item, that single message is stored as legacy JSON instead of being skipped. Each manifest entry records its format. Entries with `payload_format: "mime"` hold original bytes, and entries without the field hold legacy JSON. `save`, `read`, `restore`, and `verify` handle both formats in one snapshot.
 
-MIME carries its attachments, so a MIME entry stores no separate objects under `attachments/{owner_id}/{sha256}` and its manifest entry lists no attachment records. Two consequences are worth stating plainly:
+On the JSON path, attachments are separate objects, and all three Graph types are captured:
 
-- **Attachment content is no longer deduplicated across messages within a mailbox.** A slide deck mailed to a distribution list is stored once per message that carries it, not once per distinct payload.
-- **Base64 encoding inside MIME costs roughly one third more bytes** than the raw attachment, because base64 represents three bytes of binary as four bytes of text.
+| Graph type            | What Atlas stores                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `fileAttachment`      | The file bytes, inline or fetched from `/$value`                                                   |
+| `itemAttachment`      | The item's bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact       |
+| `referenceAttachment` | The link as a one-line `text/uri-list`. Graph returns `405` for a fetch, so there are no bytes     |
 
-That is the price of byte-exact fidelity. An attachment that has been re-encoded or extracted is no longer the object the sender signed.
-
-### When Graph cannot produce MIME
-
-If Graph cannot return MIME for a particular item, Atlas stores that one message in the legacy JSON form rather than skipping it. A single unusual item never costs you the rest of the mailbox.
-
-Each manifest entry records which format its object holds. Entries with `payload_format: "mime"` hold original bytes; entries with no `payload_format` field hold the legacy Graph JSON payload. Mixed snapshots are normal, and `save`, `read`, `restore`, and `verify` all handle both formats inside the same snapshot chain, so a fallback item needs no operator intervention.
-
-On that path attachments are separate objects again, and all three Graph attachment types are captured:
-
-| Graph type            | What Atlas stores                                                                                         |
-| --------------------- | --------------------------------------------------------------------------------------------------------- |
-| `fileAttachment`      | The file bytes, inline when Graph includes them, otherwise fetched from `/$value`                         |
-| `itemAttachment`      | The attached item's own bytes from `/$value`: MIME for a message, iCal for an invite, vCard for a contact |
-| `referenceAttachment` | The link, as a one-line `text/uri-list`. There are no bytes to fetch, and Graph answers `405` if asked    |
-
-An attached message therefore exports as a `message/rfc822` part that mail clients open as mail, an invite as `.ics`, and a contact as `.vcf`. The content type is decided by the bytes that arrive rather than by the attachment's name, because Graph does not say which kind of item is attached and an invite mislabelled as mail opens as broken mail.
-
-A `referenceAttachment` points at a file in OneDrive or SharePoint. The link is part of the message and is preserved; the file itself belongs to those workloads and is covered by their own backups.
+The content type comes from the bytes that arrive, not the attachment's name. An invite mislabeled as mail would open as broken mail. A reference attachment points at a file in OneDrive or SharePoint, which those workloads back up separately.
 
 ::: warning Attachment types dropped before this version
-Earlier versions kept only `fileAttachment` and discarded the other two silently, with no warning and no manifest record, while still storing the message's `has_attachments` flag. Snapshots taken then can claim attachments whose content was never captured. This affected the legacy JSON path only, which is also the only path that existed before MIME storage, so snapshots predating MIME are the ones to treat with suspicion. An attachment type Atlas does not recognise is now recorded with its metadata and warned about, so a gap is auditable instead of invisible.
+Earlier versions kept only `fileAttachment` and discarded the others silently, while still setting `has_attachments`. Snapshots from that period can claim attachments whose content was never captured. This affected the JSON path, which is the only path that existed before MIME storage, so treat those snapshots with suspicion. Unrecognized attachment types are now recorded with their metadata and a warning.
 :::
 
-### Restore is reconstruction, and that is a deliberate choice
+### Restore reconstructs messages
 
-Atlas does **not** import archived MIME back into Exchange. Live testing established why: Graph's MIME import path always marks the created message as a draft (`isDraft: true`), and that flag cannot be cleared -- neither an `X-Unsent: 0` header inside the MIME nor a `PR_MESSAGE_FLAGS` patch afterwards clears it. Restoring a mailbox that way would hand the user thousands of drafts instead of their mail.
+Atlas does not import archived MIME back into Exchange. Graph's MIME import always marks the created message as a draft (`isDraft: true`), and no header or property clears that flag. A restore would leave thousands of drafts.
 
-`atlas outlook restore` therefore parses the archived MIME and recreates each message through Graph's JSON message-create path. The result is normal, non-draft mail with its original timestamps, but the restored copy does not carry the original `Received` chain.
+`atlas outlook restore` parses the MIME and recreates each message through Graph's JSON create path. The result is normal mail with its original timestamps. The restored copy does not carry the original `Received` chain.
 
-What the recreated message carries, by where it comes from in the archived MIME:
+| Restored as                                        | Taken from the MIME                                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Subject, body, addresses, `internetMessageId`      | The matching headers and parts. Bcc survives on Sent Items copies              |
+| Received and sent times                            | `Date`                                                                         |
+| Importance                                         | `Importance`, or `X-Priority` (1 and 2 high, 3 normal, 4 and 5 low)            |
+| Categories                                         | `Keywords`, where Exchange wrote them                                          |
+| Threading                                          | `In-Reply-To`, `References`, `Thread-Index`, set as MAPI properties            |
+| Attachments, inline or regular                     | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID` |
 
-| Restored as                                                                                     | From the MIME                                                                                                                             |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Subject, body, From, To, Cc, Bcc, Reply-To, `internetMessageId`                                 | The matching headers and body parts. Bcc survives on Sent Items copies                                                                    |
-| Received and sent time (`PR_MESSAGE_DELIVERY_TIME`, `PR_CLIENT_SUBMIT_TIME`)                    | `Date`                                                                                                                                    |
-| Importance                                                                                      | `Importance`, or `X-Priority` when it is absent (1 and 2 high, 3 normal, 4 and 5 low)                                                     |
-| Categories                                                                                      | `Keywords`, where Exchange writes them on export                                                                                          |
-| Conversation threading (`PR_IN_REPLY_TO_ID`, `PR_INTERNET_REFERENCES`, `PR_CONVERSATION_INDEX`) | `In-Reply-To`, `References`, `Thread-Index`                                                                                               |
-| Attachments, regular or inline                                                                  | The body parts. A part is inline only when its `Content-Disposition` is `inline`, or it has none and the HTML references its `Content-ID` |
+Graph's create call accepts only `x-` headers, so threading uses MAPI properties. The follow-up flag is not restored. Read state is set to read, so a restore does not leave thousands of unread items.
 
-Graph's create call accepts only `x-` prefixed headers, which is why threading goes through MAPI properties rather than the headers themselves. Two things MIME does not carry are not restored: the follow-up flag, and read state, which is set to read so a restore does not leave thousands of unread items.
+Legacy JSON entries restore the fields Graph returned at backup time. They have no threading, because those requests never asked for `internetMessageHeaders` or `conversationIndex`, so Outlook groups them by subject.
 
-Entries stored as legacy Graph JSON restore the fields Graph returned at backup time, including Bcc, Reply-To, importance, flag, categories and read state. The backup never requested `internetMessageHeaders` or `conversationIndex` for them, so they restore without threading and Outlook groups them by subject alone.
+When you need the original bytes for a legal hold, forensic review, or DKIM check, use `atlas outlook save`. It never touches the live mailbox.
 
-The archived object keeps full fidelity either way. When an operator needs the original bytes -- for a legal hold, a forensic review, or DKIM verification -- `atlas outlook save` is the path that delivers them, and it never touches the live mailbox.
+### Content Microsoft 365 will not release
 
-### Content Microsoft 365 refuses to release
+Some drive content cannot be backed up because the service blocks the download. Malware-quarantined files are the main case.
 
-Some drive content cannot be archived at all, because the service will not serve it. Malware-quarantined files are the clear case: Microsoft blocks the download by policy, so no backup tool can capture the bytes.
+Atlas reads the Graph `malware` facet during delta enumeration and skips quarantined items without attempting the download. Each skipped item is recorded in the drive's failed-item ledger and reported on every run. The run is marked `UNHEALTHY` and exits non-zero, so you can always see which files are missing and why.
 
-Atlas selects the Graph `malware` facet during delta enumeration and skips a quarantined item without attempting the download. The item is then recorded in the drive's failed-item ledger, reported on every run, and the run is marked `UNHEALTHY` with a non-zero exit code. An operator can always answer which files are absent from a backup and why, which is the property that matters for an audit.
-
-Two consequences worth stating plainly:
-
-- **The quarantined file is not in your backup.** Atlas reports it rather than silently omitting it, but a restore cannot produce a file the service never released. If the content matters, it has to be cleaned or released in Microsoft 365 first.
-- **Retrying is not a workaround.** A quarantine is a policy state, so quarantined items do not consume the 5-attempt retry budget that transient failures use. Attempting the download is worse than useless: Graph aborts the transfer instead of returning a clean 403, an aborted transfer is indistinguishable from a network fault, and the request therefore inherits the full Graph retry budget of 12 attempts across roughly 23 minutes. One quarantined file could stall a whole drive backup for that long on every run.
+- **The quarantined file is not in the backup.** A restore cannot produce a file the service never released. Clean or release the file in Microsoft 365 first if its content matters.
+- **Retrying does not help.** A quarantine is a policy state, and attempting the download makes Graph abort the transfer instead of returning a clean 403. Each run would repeat the attempt on one file.
 
 ::: warning Sensitivity labels are not captured
-Atlas does not currently capture Microsoft Purview sensitivity labels or IRM protection state for drive items. Labelled files whose content Graph does serve are backed up as ciphertext like any other file, but the label itself is not recorded, so a restored copy does not carry its original classification. Treat restored content as unclassified until it is relabelled. Capturing label metadata is tracked separately; it is a metered Graph surface and is deliberately out of scope for the quarantine handling described above.
+Atlas does not record Microsoft Purview sensitivity labels or IRM protection state on drive items. Labeled files that Graph serves are backed up as ciphertext, but the label is not stored, so a restored copy loses its classification. Treat restored content as unclassified until it is relabeled.
 :::
 
-### In-Place Archive is out of scope
+## Erasure
 
-Atlas backs up the **primary mailbox**. A mailbox with an **In-Place Archive** (also called Online Archive, or the archive mailbox) has a second, separate store, and none of it is backed up.
+An erasure request answered incorrectly is a compliance failure that looks like success, so Atlas treats deletion as a security control.
 
-This is not an implementation gap Atlas can close on the current API. Microsoft states it directly in the [Outlook mail API overview](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview?view=graph-rest-1.0):
+### Versions are part of the data
 
-> The API does not support accessing in-place archive mailboxes, not on Exchange Online nor on Exchange Server.
+Every delete removes each object and its noncurrent versions, addressed by version ID. On a versioned bucket, a `DeleteObject` without a version ID writes a delete marker. The object disappears from listings, but its plaintext remains reachable through `GetObject?versionId=`. Atlas sweeps delete markers too, but does not count them as erased data, because removing one uncovers versions instead of destroying them.
 
-Every Atlas sync path is built on that API. `GET /users/{id}/mailFolders` and the per-folder `/messages/delta` calls only ever see the primary store, and no folder ID or query parameter reaches the archive.
+### A tenant purge sweeps the bucket
 
-Do not confuse this with the **`Archive` well-known folder**, the one Outlook's one-click Archive button moves mail into. That folder lives in the primary mailbox and is backed up like any other folder.
+`purge_tenant` enumerates the whole bucket instead of a fixed list of prefixes. A prefix list falls behind when a workload is added, and it then erases less than reported. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that can neither be restored nor reported as erased.
 
-::: warning Retention policies move mail out of backup scope
-This matters most where it is least visible. A Microsoft 365 retention or MRM policy that auto-moves mail to the archive after a set age silently removes that mail from backup scope, and it removes the **oldest** mail first, which is usually the most compliance-relevant. Under an aggressive policy, most of a mailbox's history can sit unprotected.
+### Retained or failed
 
-Worse, when a policy moves an already backed-up message, the folder delta reports it as removed from the primary mailbox. Depending on how you prune snapshots, that message can eventually age out of your backups while the only live copy sits in an archive Atlas cannot read.
+A refused delete counts as **retained** only when the backend names Object Lock as the reason. AWS returns `AccessDenied: Access Denied because object protected by object lock`, and MinIO returns `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when retention expires.
+
+::: danger Retained objects remain until retention expires
+Object Lock retention is enforced by the storage backend, and Atlas cannot shorten it. A purge reports locked objects as retained, and the data remains readable with the tenant key until their retain-until date. Plan erasure timelines around the longest retention period in use.
 :::
 
-**How to tell which mailboxes are affected.** `atlas outlook mailboxes` shows an `Archive` column and warns for every affected mailbox by name:
+Everything else is a **failure**, including a missing `s3:DeleteObjectVersion` permission, an unreachable endpoint, or a bucket policy. An IAM gap reported as "retained" would suggest an erasure is scheduled when nothing is. Atlas classifies uncertain cases as failures, because a false alarm costs an investigation and a false all-clear costs the erasure.
+
+## Recoverable Items and legal hold
+
+`atlas outlook backup --include-recoverable-items` reads the Exchange Recoverable Items subtree (the "dumpster"). It is off by default, and enabling it changes what a snapshot means legally as well as what it costs.
+
+A message that arrives and is hard-deleted between two backups never appears in a delta page. Its only copy is in `Deletions` or `Purges`, and it is lost for good once Exchange's retention window expires. This option is the only way a backup can cover deletions that happen between runs.
+
+The option stores `Deletions`, `Purges`, `DiscoveryHolds`, and `SubstrateHolds` as MIME, with the same encryption and layout as ordinary mail. `Versions`, `Calendar Logging`, and `Audits` are not captured, and the run reports each skipped folder by name. `Purges`, `DiscoveryHolds`, and `SubstrateHolds` contain content only because a litigation hold, In-Place Hold, or retention policy kept it.
+
+::: warning Hold-retained mail becomes a second copy
+A copy of held mail in your storage lives outside the Microsoft 365 retention machinery and outside whatever hold released it there.
+
+- **The copy outlives the hold.** Releasing a litigation hold does not touch the Atlas snapshot. Delete the copy with `atlas outlook delete` when your retention schedule requires it.
+- **The copy is discoverable.** Content in your bucket can be compelled from your bucket, even after it is gone from the tenant.
+- **Object Lock makes it undeletable on purpose.** A snapshot written with `--retention-days` cannot be deleted before retention expires, including by you. Combining Object Lock with purged mail is a deliberate decision.
+:::
+
+Entries are marked in the manifest, so the snapshot itself shows which content came from Recoverable Items. Restore excludes marked entries unless `--include-recoverable-items` is passed to `restore` or `save`. Graph has no path back into Recoverable Items, so restored items appear as normal visible mail. A restored purged message becomes live again.
+
+The subtree is read with the same `Mail.Read` permission as ordinary mail, so the option grants no new access.
+
+## In-Place Archive is out of scope
+
+Atlas backs up the primary mailbox. An In-Place Archive (also called Online Archive) is a separate store, and Atlas does not back it up.
+
+Graph does not expose archive mailboxes. Microsoft's [Outlook mail API overview](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview?view=graph-rest-1.0) states that the API does not support accessing in-place archive mailboxes on Exchange Online or Exchange Server. Every Atlas sync path is built on that API, so no folder ID or query parameter reaches the archive.
+
+The **`Archive` well-known folder**, used by Outlook's Archive button, is in the primary mailbox and is backed up normally.
+
+::: warning Retention policies can move mail out of scope
+A retention or MRM policy that moves mail to the archive after a set age removes that mail from backup scope. It removes the oldest mail first, which is often the most relevant for compliance. When a policy moves a backed-up message, the folder delta reports it as removed. If you prune old snapshots, that message can age out while its only copy sits in an archive Atlas cannot read.
+:::
+
+`atlas outlook mailboxes` warns about affected mailboxes and shows a `Has Archive` column:
 
 ```
 [!] 2 mailbox(es) have an In-Place Archive (Online Archive), which Graph cannot read
@@ -355,339 +340,107 @@ Worse, when a policy moves an already backed-up message, the folder delta report
       bob@contoso.com
 ```
 
-The signal is the `Has Archive` column of the [mailbox usage report](https://learn.microsoft.com/en-us/graph/api/reportroot-getmailboxusagedetail?view=graph-rest-1.0), which needs the optional `Reports.Read.All` application permission. Without that permission the column reads `--`, meaning **unknown**, never "no archive": Atlas will not report coverage it cannot confirm. No per-mailbox Graph property exposes archive state on either v1.0 or beta, so the tenant-wide report is the only source.
+The column comes from the [mailbox usage report](https://learn.microsoft.com/en-us/graph/api/reportroot-getmailboxusagedetail?view=graph-rest-1.0), which requires the optional `Reports.Read.All` permission. Without it, the column shows `--`, meaning unknown. Atlas does not report archive coverage it cannot confirm.
 
-**If archive content must be protected**, the mail has to leave the archive before Atlas can see it: adjust the retention policy so it stays in the primary mailbox, or move the content back. The Microsoft [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archive mailboxes, but on a different model (job-based FastTransfer export streams and a separate `MailboxImportExport.*` permission set) that is not a drop-in for per-folder delta sync.
+To protect archive content, move it back to the primary mailbox or adjust the retention policy first. Microsoft's [mailbox import and export APIs](https://learn.microsoft.com/en-us/graph/mailbox-import-export-concept-overview) do cover archives, but they use a job-based model with separate `MailboxImportExport.*` permissions, so they do not replace per-folder delta sync.
 
-### Recoverable Items and legal hold
+## What a drive restore rebuilds, and what it cannot
 
-`atlas outlook backup --include-recoverable-items` reads the Exchange
-Recoverable Items subtree, the "dumpster". It is off by default, and turning it
-on changes what a snapshot means legally as well as what it costs.
+A restored file contains the original bytes, verified against the manifest checksum. Other document properties differ:
 
-**Why it exists.** A message that arrives and is hard-deleted between two
-backups appears in no delta page, so no ordinary Atlas run can see it. Its only
-copy is in `Deletions` or `Purges`, and when Exchange's retention window expires
-it is gone from the tenant and from every snapshot. Closing that window is the
-only way a backup can cover deletion that happens between runs.
+| Property                                 | Captured | Restored                                       |
+| ---------------------------------------- | -------- | ---------------------------------------------- |
+| File content                             | Yes      | Yes, byte for byte                             |
+| Original created and modified times      | Yes      | Yes, through the `fileSystemInfo` facet        |
+| `createdBy` and `lastModifiedBy`         | Yes      | No. Kept for audit only                        |
+| Version authors                          | Yes      | No. Kept for audit only                        |
+| Sharing permissions and links            | No       | No                                             |
 
-**What lands in the snapshot.** `Deletions`, `Purges`, `DiscoveryHolds` and
-`SubstrateHolds`, stored as MIME under the same AES-256-GCM encryption and the
-same content-addressed layout as ordinary mail. `Versions`, `Calendar Logging`
-and `Audits` are not captured, and each is reported by name at the end of the
-run. `Purges`, `DiscoveryHolds` and `SubstrateHolds` exist **only** because a
-litigation hold, an In-Place Hold, or a retention policy retained them.
+Graph exposes two timestamp pairs. The `driveItem` values are set by the service, so a restored file always shows the restore time there. The `fileSystemInfo` facet holds client-reported values and is writable on upload, so Atlas restores through it. Each manifest entry records both pairs. A resumable upload carries the timestamps with the upload. A small `PUT /content` carries only bytes, so Atlas follows it with a best-effort `PATCH`. If that patch fails, the file keeps restore-time timestamps and the run logs the failure.
 
-::: warning What this means for compliance
-Copying hold-retained mail into an Atlas snapshot puts a second copy of legally
-held content in your storage, outside the Microsoft 365 retention machinery that
-created it, and outside whatever hold released it there. Three consequences:
-
-- **The copy outlives the hold.** Releasing a litigation hold in Microsoft 365
-  does not touch an Atlas snapshot. Deleting the copy is your retention
-  schedule's job, and `atlas outlook delete` is what performs it.
-- **The copy is discoverable.** Content that exists in your bucket can be
-  compelled from your bucket, whether or not it still exists in the tenant.
-- **Object Lock makes it undeletable on purpose.** A snapshot written under
-  `--retention-days` cannot be deleted until retention expires, including by
-  you. Combining Object Lock with purged mail is a deliberate decision, not a
-  default.
-
-Whether that is protection or exposure is a question for whoever owns the
-retention policy. Atlas marks these entries in the manifest so the answer is
-always visible from the snapshot itself, rather than depending on which flags a
-past run happened to carry.
-:::
-
-**Restore is opt-in separately.** Marked entries are excluded from `restore` and
-`save` unless `--include-recoverable-items` is passed there too, so an ordinary
-recovery cannot resurrect deleted mail by accident. Graph offers no path back
-into Recoverable Items, so recovered items land in the normal restore folder as
-visible mail. Restoring a purged message therefore makes it live again, which is
-usually the intent and is occasionally the last thing you want.
-
-**Permissions are unchanged.** The subtree is read with the same `Mail.Read`
-that ordinary mail needs, so enabling this grants Atlas nothing new against the
-tenant.
-
-### What a drive restore rebuilds, and what it cannot
-
-A restored file is the original bytes, verified against the manifest checksum. Everything else that defines a document in Microsoft 365 is a separate question, and the answers differ:
-
-| Property                                 | Captured | Restored                                |
-| ---------------------------------------- | -------- | --------------------------------------- |
-| File content                             | Yes      | Yes, byte-exact                         |
-| Original created and modified timestamps | Yes      | Yes, through the `fileSystemInfo` facet |
-| `createdBy` / `lastModifiedBy` authors   | Yes      | No. Recorded for audit only             |
-| Version authors                          | Yes      | No. Recorded for audit only             |
-| Sharing permissions and links            | No       | No                                      |
-
-#### Timestamps: which ones travel
-
-Graph exposes two pairs of timestamps, and only one pair is writable. The `driveItem` values are what the service saw, so after a restore they read "now" and nothing can change that. The [`fileSystemInfo`](https://learn.microsoft.com/en-us/graph/api/resources/filesysteminfo) facet holds the client-reported values, it is writable on upload, and it is therefore what Atlas restores.
-
-Both are recorded: `last_modified_at` on a manifest entry is the service-side value, `file_system_info` is the client pair. Practically, a restored file carries its original dates in the facet while the service's own created/modified columns show the restore. That is the ceiling the API imposes, not a choice.
-
-The two upload paths reach it differently. A resumable upload session accepts item metadata up front, so the timestamps travel with the upload. A small-file `PUT /content` carries bytes only, so Atlas follows it with a `PATCH`. That patch is best-effort: if it fails, the file keeps restore-time timestamps and the run logs it, because a restored file with wrong dates beats no restored file.
-
-#### Authors are captured, not restored
-
-`createdBy` and `lastModifiedBy` are recorded on every manifest entry, and `lastModifiedBy` on every version row, so "who wrote this" is answerable from a backup years later. They are not reapplied on restore: Graph attributes an upload to the identity that performed it, and rewriting authorship needs migration-grade APIs that carry their own permission set. A restored file is authored by the Atlas application identity, and the manifest is where the original author lives.
+Authors are recorded on every manifest entry and version row, so the original author is always available from the backup. Graph attributes an upload to the identity that performed it, and rewriting authorship needs separate migration APIs and permissions. A restored file is authored by the Atlas application identity.
 
 ::: warning Sharing permissions are not captured
-Atlas does not capture per-item sharing permissions or links, so a restore does not reconstruct them. A restored library inherits the destination's defaults, which are usually broader than whatever curated sharing the original had. **Treat a restored library as unshared and re-apply access before handing it back to users.**
-
-This is a cost decision, and the numbers are the argument. Permission operations cost **5 resource units** each against the SharePoint/OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)), and that pool is tenant-wide, shared with every other app. Capturing permissions for every item in a 100,000-file drive is 500,000 RU; at the 1,250 RU/minute a tenant under 1,000 seats gets, that is roughly **6.7 hours of the tenant's entire drive quota spent on metadata**, versus a few thousand RU for the delta enumeration that finds the files in the first place. It would slow every other Atlas operation and every unrelated app in the tenant.
-
-The workable shape is narrower: Graph flags shared items with a `shared` facet, which costs nothing extra in the delta `$select`, so only genuinely shared items would need a call. That plus a restore-side design for re-applying access is tracked separately rather than bolted on here.
+A restore does not rebuild per-item sharing or links. A restored library inherits the destination's defaults, which are usually broader than the original curated sharing. **Treat a restored library as unshared and reapply access before returning it to users.**
 :::
 
-## Integrity Validation
+Capturing permissions is expensive. Each permission operation costs 5 resource units from the tenant-wide SharePoint and OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)). A 100,000-file drive would need 500,000 RU. At 1,250 RU per minute, that is about 6.7 hours of the tenant's quota, which would slow every other app. Graph's `shared` facet can flag only the items that are shared, which would reduce the cost, but restore-side reapplication is not implemented.
 
-Atlas validates data integrity at three independent layers. Each layer catches a different class of failure:
+## Storage request events
 
-| Layer         | Mechanism                           | What It Catches                                          | When                                 |
-| ------------- | ----------------------------------- | -------------------------------------------------------- | ------------------------------------ |
-| **Plaintext** | SHA-256 checksum stored in manifest | Corruption before encryption, application bugs           | Backup, verify, save                 |
-| **Transport** | `Content-MD5` header on S3 PUT      | Network corruption during upload (bit flips, truncation) | Every upload (S3 rejects mismatches) |
-| **At-rest**   | AES-256-GCM authentication tag      | Storage-level tampering or corruption                    | Every decrypt operation              |
+An SDK host can pass `onStorageRequest` to receive one event per S3 request. See [Storage request events](/reference/storage-request-events). Hosts often export these to metrics systems that are less protected than the backup bucket, so the event carries only values that identify nothing:
 
-### How Verification Works
+| Contained                                                                                  | Never contained                                    |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------- |
+| S3 command and SDK method names                                                            | Object keys, listing prefixes, upload IDs          |
+| `workload` and `keyClass`, from an allowlist over the leading key segments                 | Bucket names, which contain the tenant ID          |
+| `target`: `primary` or the host-chosen replication `targetId`                              | Endpoint hostnames, URLs, credentials, signatures  |
+| Timings, attempt count, retry delay, payload byte count, HTTP status, S3 error code        | Tenant, mailbox, owner, or site IDs, content hashes |
 
-When you run `atlas outlook verify`, Atlas performs a full integrity check for a snapshot:
+Keys are never classified by pattern-matching their contents. A known leading segment such as `data` or `manifests` maps to a class, and anything else becomes `other`. An unexpected key layout therefore cannot leak an identifier into a label.
 
-1. Downloads each encrypted object from S3.
-2. Decrypts it with the tenant DEK (GCM auth tag validates ciphertext integrity).
-3. Computes SHA-256 of the decrypted plaintext.
-4. Compares against the checksum stored in the manifest using **constant-time comparison** (`timingSafeEqual`) to prevent timing attacks.
+The observer runs inside the Atlas process. Atlas catches thrown errors and rejected promises, so a faulty observer cannot fail a backup. An observer that blocks the event loop or keeps event objects can still affect the process. Byte counts are ciphertext sizes, so over many requests they reveal the size distribution of stored objects. The backend operator can already see that distribution, but treat exported metrics accordingly.
 
-`atlas outlook verify` checks the **message entries** listed in the manifest. For a MIME entry that covers the attachments too, because they are part of the message bytes being hashed. For a legacy JSON entry the separate attachment objects are not hashed against the manifest; they are protected by GCM authentication during any decrypt operation (backup, restore, save), which detects tampering but not a checksum recorded wrong at backup time.
-
-### What the GCM tag does not tell you
-
-The authentication tag proves the bytes were produced under the tenant DEK. For an object written
-before the scope binding above, it says nothing about which object those bytes belong to: a
-headerless ciphertext names no object, so any such object authenticates in any other object's
-place. Moving one blob over another needs write access to the bucket, not the key or the
-passphrase, and the swapped object still decrypts cleanly. A scope-bound object refuses a move
-across owners or purposes, but within its own directory it decrypts the same way.
-
-The manifest checksum is what distinguishes them, so it is compared before anything acts on the
-bytes, not after:
-
-| Path                       | Checked before                                                |
-| -------------------------- | ------------------------------------------------------------- |
-| Outlook message restore    | `POST /messages`, for both MIME and legacy JSON entries       |
-| Outlook attachment restore | the attachment upload, per attachment                         |
-| Drive file restore         | the upload, buffered and streamed alike                       |
-| Snapshot manifests         | the manifest is used, by rebuilding its key from its own body |
-
-An entry that records no checksum is refused rather than restored unverified: an unverifiable
-restore is exactly what the substitution is trying to produce.
-
-A manifest is checked differently because it has no checksum of its own. Its identity is in its
-body, so Atlas rebuilds the storage key from the decrypted `owner_id`/`site_id` and `snapshot_id`
-and compares it to the key it read. A manifest planted under another snapshot's key is reported as
-corrupt rather than skipped, because quietly omitting it reads as "this snapshot was never taken",
-which is the outcome the substitution wants.
-
-Two limits are worth stating plainly. Neither check prevents **replay of an older ciphertext for
-the same object**: an earlier version of that exact object still matches its own checksum, so
-rolling an object back to a previous state is defeated by S3 Object Lock and versioning rather than
-by encryption. And a checksum recorded wrong at backup time is not detected by comparing against
-it, which is the same limit that applies to verification above.
-
-### A failed authentication is a failure everywhere
-
-A GCM failure used to be reported as several different kinds of nothing: an attachment that could
-not be decrypted left a restored message with zero attachments and no errors, an export skipped the
-file and finished a valid archive, and a manifest that would not decrypt came back as `undefined`,
-which is the same answer as a snapshot that was never taken. Each of those makes a damaged backup
-look intact from the outside.
-
-| Object                  | Reported as                                                                  |
-| ----------------------- | ---------------------------------------------------------------------------- |
-| Outlook attachment      | an error on the restore result, counted in `attachment_error_count`          |
-| Drive file in an export | an error and an integrity failure, distinct from a file with nothing to save |
-| Snapshot manifest       | a raised `StorageError`; only a genuinely absent object reads as absent      |
-
-The distinction between absence and damage is the point. A read that returns "no such key" is a
-normal outcome and stays one. Anything else, a decrypt that failed, a body that would not parse, a
-manifest whose identity is not the one its key names, is a damaged object and is raised.
-
-Verification counts an entry the moment it claims a stored blob, rather than requiring a checksum
-before it will look. An entry that names a blob but records no checksum is unverifiable, and used
-to be excluded from `total_checked` altogether, so a snapshot full of them verified clean without a
-single byte being read. It is now a verification failure. Tombstones still count for nothing,
-because a deleted file has no blob to check.
-
-An export applies the same rule. A file whose entry records no checksum is an integrity failure
-rather than a file written into the archive unchecked, which is what the streaming export path
-already did and the buffered one did not. `--skip-integrity-check` still opts out of the comparison
-entirely, for the case where recovering something beats proving it is the right something.
-
-None of this changes the exit-code contract in [the CLI reference](/reference/cli#exit-codes). A
-run that now reports per-item errors or integrity failures exits `2`, which is what a partial run
-has always meant; a manifest that cannot be read is a `StorageError` and exits `1`. What changed is
-that these runs no longer exit `0`.
-
-### Nothing is released before it authenticates
-
-Restoring a large file streams the plaintext into a Graph upload session as it is decrypted, which
-means bytes leave Atlas before AES-256-GCM has authenticated the object and before the SHA-256 can
-be compared to the manifest. Neither check can happen earlier: the tag covers the whole object and
-arrives last, and a digest is only a digest once the final byte is in it.
-
-What makes that safe is where the release actually happens. An upload session accumulates chunks
-the caller cannot read, and the item only exists once the session is committed by the chunk
-carrying the last byte. Atlas holds that chunk back until the decrypt stream has ended without
-error, so a failed tag or a checksum that does not match abandons the session with `DELETE` and no
-file is created. What Graph already accepted stays inside a session nobody can read and expires
-with it.
-
-Holding a chunk back is necessary but not sufficient, because a session commits as soon as the
-ranges it has received cover the total it was opened for, and that total is the size the manifest
-recorded rather than anything measured during the restore. An object longer than its recorded size
-would fill the declared range mid-stream and commit there. Atlas therefore refuses any chunk that
-would reach the declared end while the source is still producing: the file fails, the session is
-released, and the recorded size and the stored object are reported as disagreeing.
-
-The property to keep when this code is touched: an unverified byte may travel, but nothing may
-make it visible. A destination that publishes as it receives, a filesystem path or a stream handed
-to a caller, needs the buffered path and its up-front verification instead.
-
-### Content-MD5 on Uploads
-
-Every object uploaded to S3 includes a `Content-MD5` header computed from the **ciphertext** (not the plaintext). This is a transport integrity check -- if a network error corrupts the data in flight, S3 will reject the upload with a checksum mismatch. This is separate from the application-layer SHA-256, which validates the original plaintext content.
-
-## Erasure
-
-Deletion is a security control, not a housekeeping convenience: an erasure request answered incorrectly is a compliance failure that looks like a success.
-
-### Versions are the data
-
-Every Atlas delete removes the object **and each of its noncurrent versions**, addressing them by version id. On a bucket with versioning enabled -- mandatory for Object Lock, so present in every immutability deployment -- a `DeleteObject` call that omits the version id writes a delete marker instead of erasing anything. The object vanishes from listings, the reported count goes up, and the plaintext is still one `GetObject?versionId=` away. Delete markers themselves are swept too, but never counted as erased data, because removing one uncovers versions rather than destroying them.
-
-### A tenant purge sweeps the bucket
-
-`purge_tenant` enumerates the whole bucket rather than a list of known prefixes. Prefix lists go stale as workloads are added -- the tenant tree now holds Outlook, OneDrive, SharePoint, and the identity registry -- and a stale list erases less than the operator was told.
-
-The encrypted DEK is deleted last, and only when the sweep reports nothing left. Removing the key first would produce the worst available outcome: ciphertext that can no longer be restored and cannot be reported as erased either.
-
-### Retained versus failed
-
-A refused delete is classified as **retained** only when the backend names Object Lock as the reason -- AWS answers `AccessDenied: Access Denied because object protected by object lock`, MinIO answers `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when their retention window expires, so the operator can wait.
-
-Everything else is a **failure**: a missing `s3:DeleteObjectVersion` permission, an unreachable endpoint, a bucket policy. None of those resolve on their own. Reporting an IAM gap as "retained" would tell an operator that an erasure is on track when nothing is scheduled to happen, so the classifier errs toward failure -- a false alarm costs an investigation, a false all-clear costs the erasure.
-
-## Replication Security
-
-### Shared Encryption Model
-
-Atlas replication uses a shared encryption model: all storage targets (primary and secondary) share the same master passphrase and the same per-tenant DEK. Ciphertext is copied byte-for-byte during replication -- no decryption or re-encryption occurs.
-
-This means:
-
-- **One passphrase protects all copies.** Compromising the passphrase compromises data on every target.
-- **One DEK per tenant across all targets.** The wrapped DEK (`_meta/dek.enc`) is copied to each target on first replication.
-
-### Key material lifetime
-
-Opening a storage target derives an envelope key service from the passphrase and unwraps the tenant DEK, so every target a replication run touches holds key material in memory for as long as its context is open. Atlas closes each context as soon as the copy it was opened for finishes, on the failure path as well as the success path, which zeroes the passphrase buffer instead of leaving it for garbage collection.
-
-This bounds exposure to the duration of one snapshot copy rather than the whole run. It is defence in depth rather than a boundary: a process that can read Atlas's heap while a copy is in flight can read the key anyway, and Node offers no guarantee that a buffer is not copied elsewhere before it is zeroed. What it does remove is key material sitting in a long-lived process after the work that needed it is over.
-
-### Access Isolation
-
-While encryption keys are shared, **S3 access credentials should be separate per target**. Use independent IAM principals for each storage endpoint:
-
-- Primary MinIO: `atlas-primary` user with full read/write
-- Offsite MinIO: `atlas-offsite` user with full read/write
-- Cloud S3: dedicated IAM role with scoped permissions
-
-If an attacker compromises one target's S3 credentials, they can read that target's data (which is encrypted) but cannot reach other targets. Combined with a strong passphrase, this provides defense in depth.
-
-### DEK Mismatch Protection
-
-Atlas validates encryption key consistency before every replication and rehydration. If the primary tenant was purged and re-initialized (generating a new DEK), replication to a target with the old DEK is refused with an explicit error. This prevents a scenario where objects encrypted with different keys coexist on the same target, making older objects permanently undecryptable.
-
-The check runs once per target per run, before the first snapshot is copied, rather than once per snapshot. Whether two buckets share a DEK is a property of the pair, and each check unwraps both wrapped DEKs, which is two scrypt derivations at N=65536. A target that fails the check is refused before anything is written to it.
-
-### Replica Marker
-
-Atlas writes a marker file (`_meta/replica.marker`) on each target during first replication. If a user accidentally runs `atlas outlook backup` against a replica target, Atlas detects the marker and logs a warning. This guards against accidental violation of the primary-is-truth principle, which could lead to data inconsistency.
-
-### Replication Status Encryption
-
-Replication status sidecar files stored under `_meta/replication/` in the primary bucket are encrypted with the tenant DEK. Target endpoints, checksums, and error messages are not exposed at rest in S3.
-
-## Storage Request Events
-
-An SDK host can pass `onStorageRequest` to receive one event per S3 request (see [Storage Request Events](/reference/storage-request-events)). Hosts export these to metrics systems that are usually less protected than the backup bucket, so the event is restricted to values that identify nothing:
-
-| Contained                                                                           | Never contained                                    |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------- |
-| S3 command name, SDK method name                                                    | Object keys, listing prefixes, upload IDs          |
-| `workload` and `keyClass`, from an allowlist over the first key segments            | Bucket names, which contain the tenant ID          |
-| `target`: `primary` or the host-chosen replication `targetId`                       | Endpoint hostnames, URLs, credentials, signatures  |
-| Timings, attempt count, retry delay, payload byte count, HTTP status, S3 error code | Tenant, mailbox, owner or site IDs, content hashes |
-
-Keys are never classified by pattern matching on their contents. The allowlist maps a known leading segment (`data`, `manifests`, `onedrive/staging`, ...) to a class, and anything else becomes `other`, so an unexpected key layout cannot leak an identifier into a label.
-
-The observer is host code running inside the Atlas process, on the storage path. Atlas catches a throw and a rejected promise so a faulty observer cannot fail a backup, but it cannot defend against an observer that blocks the event loop or retains the event objects. Byte counts are ciphertext sizes. Across many requests they reveal the size distribution of a tenant's stored objects, which the backend operator already sees; treat exported metrics accordingly.
-
-Socket timing uses the process-wide `http.client.request.created` diagnostics channel. Atlas ignores every request it did not issue itself, so the host's other HTTP traffic is neither observed nor reported.
-
-## Transport to Storage
+## Transport to storage
 
 ```bash
-ATLAS_S3_ENDPOINT="https://s3.example.com"   # any endpoint that is not on this machine
+ATLAS_S3_ENDPOINT="https://s3.example.com"   # any endpoint not on this machine
 ATLAS_S3_ENDPOINT="http://localhost:9000"    # local MinIO only
 ```
 
-Atlas accepts a plain `http://` S3 endpoint because local MinIO needs it. Over plain HTTP the content stays protected: every object is AES-256-GCM ciphertext bound to its key, and SigV4 signs requests without ever sending the secret key. The traffic around the content is exposed to anyone on the network path:
+Atlas accepts plain `http://` endpoints because local MinIO needs them. Content stays protected over HTTP, since every object is AES-256-GCM ciphertext and SigV4 signs requests without sending the secret key. Traffic around the content is visible to anyone on the network path:
 
-| Exposed over plain HTTP   | Why it matters                                                                                                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every object key          | Outlook and OneDrive keys carry Entra object IDs ([User identity in storage paths](#user-identity-in-storage-paths)), and content-addressed keys carry content hashes |
-| The access key id         | Identifies the account; the secret key is not sent                                                                                                                    |
-| The request pattern       | Which owners are backed up, when, and how much data                                                                                                                   |
-| Unauthenticated responses | A forged `200` to a `PutObject` makes the backup report success for an object that was never stored. Only the next `verify` finds it                                  |
+| Exposed over plain HTTP   | Why it matters                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| Object keys               | Keys carry Entra object IDs and content hashes                                             |
+| Access key ID             | Identifies the account. The secret key is not sent                                         |
+| Request pattern           | Which owners are backed up, when, and how much data                                        |
+| Unauthenticated responses | A forged `200` to `PutObject` makes a backup report success for an object never stored. Only a later `verify` finds it |
 
-Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`), for the primary endpoint and for replication targets alike. It does not refuse such an endpoint, because a self-hosted setup can terminate TLS elsewhere on a trusted network. Use `https://` for any endpoint that is not on the same machine.
+Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`). This covers the primary and replication targets. It does not refuse the endpoint, because a self-hosted setup may terminate TLS on a trusted network. Use `https://` for any endpoint on another machine.
 
-The Graph side is stricter. Atlas refuses to call Microsoft Graph at all when `NODE_TLS_REJECT_UNAUTHORIZED=0` disables certificate validation. There is no equivalent check on the storage side.
+Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_REJECT_UNAUTHORIZED=0` disables certificate validation. Storage has no equivalent check.
 
-## S3 Permissions by Command Class
+## S3 permissions by command class
 
-Atlas splits its storage access in two, so a browsing operator never needs write credentials:
+Atlas separates read and write storage access, so an operator who only browses never needs write credentials:
 
-| Command class                                                                                                                            | S3 actions required                                                                                                         | Provisioning |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                             | None         |
-| Storage usage: `stats storage`                                                                                                           | the read-only row plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`              | None         |
-| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                                   | the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, lifecycle/lock configuration | Yes          |
+| Command class                                                                                                                | Required S3 actions                                                                                                       | Provisioning |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                         | None         |
+| Storage usage: `stats storage`                                                                                               | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`           | None         |
+| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                       | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
 
-Read-only commands load the tenant context without provisioning: the bucket is never created and a missing `_meta/dek.enc` is never generated. Browsing a tenant that has never been backed up — a mistyped `-t`, or a tenant id from another environment — fails with `No backups found for tenant <id>` instead of leaving behind a lifecycle-configured bucket containing nothing but key material. That matters for two reasons: a wrapped DEK written on a read path is an audit-log surprise in a compliance-facing product, and buckets born from typos are indistinguishable from real tenants when reviewing storage.
+Read-only commands never create the bucket or write `_meta/dek.enc`, so a mistyped tenant ID fails with `No backups found for tenant <id>` instead of leaving behind a new bucket.
 
-Grant a monitoring or audit principal the read-only row only. If it holds `s3:CreateBucket`, that is a leftover from Atlas versions before 2.1.0-beta and can be revoked.
+Give monitoring and audit principals the read-only row only. If a principal holds `s3:CreateBucket`, that permission dates from Atlas versions before 2.1.0-beta and can be revoked.
 
-## Configuration File Security
+## Configuration file security
 
-### Filesystem Permission Check
-
-`atlas.config.json` may contain `encryption_passphrase` and `client_secret` in plaintext. On Unix systems, Atlas checks the file's permissions at load time and logs a warning if the file is group- or world-readable (i.e., any bits in `0o077` are set):
+`atlas.config.json` can contain `encryption_passphrase` and `client_secret` in plaintext. On Unix, Atlas checks the file mode at load time and logs a warning when any group or world bits (`0o077`) are set:
 
 ```
 WARN Config file /home/user/atlas.config.json has overly permissive permissions (mode 0644). Recommended: chmod 600 /home/user/atlas.config.json
 ```
 
-This check is skipped on Windows where Unix permission bits do not apply. The check is advisory (warning, not error) to avoid breaking existing deployments, but operators are strongly encouraged to restrict config files to owner-only access (`chmod 600`).
+The check is advisory so existing deployments do not break. It is skipped on Windows.
 
-Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file but remain readable from the process environment and from plaintext dotfiles — the exact locations credential-stealing malware sweeps first.
+::: danger Restrict the config file to its owner
+Run `chmod 600` on any config file that contains a passphrase or client secret. Anyone who can read the file can read the passphrase, and with it the DEK in the bucket.
+:::
 
-### Encrypted Secure Store
+Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file, but they are still readable from the process environment and from plaintext dotfiles, which malware checks first.
 
-`atlas config` stores configuration in `~/.atlas/config.enc`, encrypted with AES-256-GCM (12-byte IV, 16-byte auth tag, layout `[iv][tag][ciphertext]`). The 256-bit store key is held in the OS keyring — macOS Keychain (`security`) or libsecret (`secret-tool`) on Linux — so a disk or dotfile sweep yields only ciphertext, and tampering with the store file fails authentication at load time rather than silently feeding Atlas modified settings.
+## Encrypted secure store
 
-Threat model: the store defends against offline file exfiltration and environment-variable grabbing by unprivileged malware. It does **not** defend against malware running interactively as the logged-in user (which can invoke the keyring the same way Atlas does), nor against an attacker with root. On systems without a keyring the store key falls back to `~/.atlas/config.key` (mode `0600`, with a warning) — equivalent to file-permission security, still one step above plaintext env files because the config values themselves are never on disk in the clear.
+`atlas config` stores its settings in `~/.atlas/config.enc`, encrypted with AES-256-GCM in the layout `[iv][tag][ciphertext]`. The store is created with directory mode `0700` and file mode `0600`. Its 256-bit key is random and kept in the OS keyring under service `atlas-cli`, account `config-key`:
+
+- **macOS:** Keychain, through the `security` CLI.
+- **Linux:** libsecret, through `secret-tool`, when the binary is installed.
+- **Other systems, or no keyring:** `~/.atlas/config.key`, with mode `0600`, and a warning.
+
+A disk sweep finds only ciphertext. A modified store file fails authentication at load time and is not used.
+
+Threat model: the store defends against offline exfiltration of the file and against unprivileged malware that reads environment variables. It does not defend against malware running as the logged-in user, which can call the keyring the same way Atlas does, or against an attacker with root. On systems without a keyring, the fallback key file is protected only by file permissions. Config values are still never stored in plaintext.
+
+See also: [Configuration](/configuration), [Migrating to v6](/migration/v6), [CLI reference](/reference/cli).

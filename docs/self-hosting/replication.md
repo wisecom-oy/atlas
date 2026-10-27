@@ -1,21 +1,37 @@
-# Replication Setup
+# Replication setup
 
-Atlas replicates completed snapshots to one or more secondary S3-compatible storage targets, so backup data can exist on multiple storage systems in multiple locations (a 3-2-1 strategy).
+Atlas can copy completed snapshots to one or more secondary S3-compatible stores. Keeping a second copy in another location gives you a 3-2-1 layout: three copies, on two kinds of media, with one copy off site.
 
-Replication covers all workloads. Outlook mailboxes, OneDrive owners, and SharePoint sites share the same encrypted object store and the same replication engine.
+This page covers deployment patterns and scheduling. For safety rules, status tracking, and disaster recovery, see [Replication](/operations/replication).
 
-## Deployment Patterns
+## Target configuration
+
+A replication target is a JSON file. The three S3 fields are required. `target_id` and `s3_region` are optional:
+
+```json
+{
+  "target_id": "offsite-minio",
+  "s3_endpoint": "https://offsite.example.com:9000",
+  "s3_access_key": "<access-key>",
+  "s3_secret_key": "<secret-key>",
+  "s3_region": "us-east-1"
+}
+```
+
+Store the file with `chmod 600`, since it holds the secret key. Replication uses the encryption passphrase from your Atlas configuration, so the target stores ciphertext that only your passphrase can open. The target must use the same passphrase as the primary. Use `https://` for any endpoint that is not on loopback.
+
+## Deployment patterns
 
 ### Local MinIO primary, offsite MinIO replica
 
-Run a primary MinIO instance on your local backup server and a second MinIO instance at a remote site (colocation, another office, or a VPS). After each backup, replicate to the offsite target:
+Run MinIO on your backup server and a second MinIO at another site, such as a colocation facility, another office, or a VPS. After each backup, replicate to the offsite target:
 
 ```bash
 atlas outlook backup -m user@company.com
 atlas replicate -m user@company.com --target-config ./offsite.json
 
 atlas onedrive backup -o user@company.com
-# OneDrive snapshots replicate with the same tenant bucket and DEK
+atlas replicate -o user@company.com --target-config ./offsite.json
 
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target-config ./offsite.json
@@ -23,36 +39,40 @@ atlas replicate --site https://contoso.sharepoint.com/sites/Engineering --target
 
 ### Local MinIO primary, cloud S3 replica
 
-Run MinIO locally for fast backups, then replicate to AWS S3, Backblaze B2, Wasabi, or any S3-compatible cloud storage for geographic redundancy:
+Keep fast local backups on MinIO, then replicate to AWS S3, Backblaze B2, Wasabi, or another S3-compatible cloud store for geographic separation. Only the endpoint, keys, and region in the target file change.
 
 ```json
 {
   "target_id": "aws-us-east",
   "s3_endpoint": "https://s3.us-east-1.amazonaws.com",
-  "s3_access_key": "AKIA...",
-  "s3_secret_key": "...",
+  "s3_access_key": "<access-key>",
+  "s3_secret_key": "<secret-key>",
   "s3_region": "us-east-1"
 }
 ```
 
-## Scheduling Replication
+## Schedule replication
 
-Pair replication with backup scheduling by adding a second cron entry that runs after the backup completes:
+Schedule replication after the backup it copies. This crontab backs up at 2 AM and replicates at 4 AM:
 
 ```cron
-# Nightly Outlook backup at 2 AM, replicate at 4 AM
+# Nightly Outlook backup at 2 AM
 0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-outlook-backup.log 2>&1
+
+# Replicate the same mailbox at 4 AM
 0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> /var/log/atlas-replicate.log 2>&1
 ```
 
-The two-hour gap gives a large backup time to finish before replication starts. Adjust it to your observed backup durations.
+Leave a gap longer than your longest backup. Two hours is a reasonable start. Adjust it to the durations you observe in the logs.
 
-## Bandwidth Considerations
+## Bandwidth
 
-Replication transfers encrypted objects over the network. The first replication of a mailbox, OneDrive owner, or SharePoint site transfers all historical data, similar in volume to the initial backup. Subsequent replications only transfer new snapshots, because the same content-addressed deduplication that saves space on primary also means unchanged objects are never re-copied.
+Replication sends encrypted objects over the network. The first replication of a mailbox, OneDrive owner, or SharePoint site copies all of its history, which is about the same volume as the first backup. Later replications send only new snapshots, because unchanged content is never copied twice.
 
-Plan bandwidth and scheduling accordingly: replicating 50 GB of backup data to a remote site over a 10 Mbps upload link takes approximately 11 hours.
+Estimate the first transfer from your upload speed. For example, 50 GB over a 10 Mbps upload link takes about 11 hours.
 
-## Full Operational Detail
+## See also
 
-This page covers the self-hosting setup perspective. For the complete reference, including the shared encryption model, DEK mismatch protection, replica markers, the `atlas rehydrate` disaster recovery procedure, and replication status tracking, see [Replication](/operations/replication).
+- [Replication](/operations/replication): ordering, safety rules, replica status, and rehydration
+- [Storage setup](/self-hosting/storage)
+- [Scheduling and bandwidth](/self-hosting/scheduling)

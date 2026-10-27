@@ -1,94 +1,91 @@
 # Concepts
 
-A mental model for how Atlas works, before the CLI flags and configuration options. These terms show up in error messages, CLI output, and the rest of the documentation.
+This page explains the terms you will see in CLI output, error messages, and the rest of the documentation: packages, workloads, snapshots, encryption, and delta sync.
 
-## Packages: CLI vs SDK
+## Packages: CLI and SDK
 
-Two npm packages share the same engine and target different integration styles:
+Atlas ships as two npm packages built on the same engine:
 
 |               | `@wisecom/atlas-cli`                          | `@wisecom/atlas-sdk`                                      |
 | ------------- | --------------------------------------------- | --------------------------------------------------------- |
 | **Install**   | `npm install -g @wisecom/atlas-cli`           | `npm add @wisecom/atlas-sdk`                              |
-| **Interface** | Shell commands (`atlas outlook backup`, etc.) | Typed TypeScript methods (`atlas.outlook.backup()`, etc.) |
-| **Config**    | `.env` file and environment variables         | Explicit object passed to `createAtlasInstance()`         |
-| **Best for**  | Cron jobs, systemd timers, operator workflows | Custom apps, multi-tenant SaaS, portals, automation       |
+| **Interface** | Shell commands such as `atlas outlook backup` | Typed methods such as `atlas.outlook.backup()`            |
+| **Config**    | `.env` file, environment variables, or `atlas config` | Object passed to `createAtlasInstance()`          |
+| **Best for**  | Cron jobs, systemd timers, operator workflows | Custom applications, multi-tenant services, portals       |
 
-Both cover all three workloads. The CLI is optimized for simple deployment, the SDK for building on top of Atlas programmatically.
+Both cover all three workloads. The CLI suits simple deployments. The SDK suits applications that call Atlas programmatically.
 
 ## Workloads
 
-Each workload has its own CLI namespace and storage prefix inside the tenant bucket:
+Atlas backs up three Microsoft 365 workloads. Each has its own CLI namespace and storage prefix in the tenant's bucket:
 
-| Workload       | CLI namespace      | Target                              | Storage prefix |
-| -------------- | ------------------ | ----------------------------------- | -------------- |
-| **Outlook**    | `atlas outlook`    | Mailbox (email or Entra object ID)  | `outlook/`     |
-| **OneDrive**   | `atlas onedrive`   | User (email/UPN or Entra object ID) | `onedrive/`    |
-| **SharePoint** | `atlas sharepoint` | Site (URL or Graph site ID)         | `sharepoint/`  |
+| Workload       | CLI namespace      | Target                                       | Storage prefix |
+| -------------- | ------------------ | -------------------------------------------- | -------------- |
+| **Outlook**    | `atlas outlook`    | Mailbox (email address or Entra object ID)   | `outlook/`     |
+| **OneDrive**   | `atlas onedrive`   | User (email or UPN, or Entra object ID)      | `onedrive/`    |
+| **SharePoint** | `atlas sharepoint` | Site (URL or Graph site ID)                  | `sharepoint/`  |
 
-All workloads share the same per-tenant encryption key (DEK) and S3 bucket. Cross-cutting commands such as `atlas replicate`, `atlas rehydrate`, and `atlas stats` operate across workloads within a tenant.
+All workloads in a tenant share one data encryption key and one S3 bucket. Commands that operate across workloads, such as `atlas replicate`, `atlas rehydrate`, and `atlas stats`, act on the whole tenant.
 
-## Snapshots and Manifests
+## Snapshots and manifests
 
-A **snapshot** is a point-in-time record of a backed-up state. It is not a full copy of the data. It is a **manifest file** listing every backed-up item at that moment along with its metadata: IDs, paths or folder names, SHA-256 checksums, and references to the data objects in S3.
+A **snapshot** is a point-in-time record of what Atlas backed up. It is not a full copy of the data. Each snapshot is backed by a **manifest**, a JSON file in S3 that lists every item in that snapshot along with its metadata: IDs, paths or folder names, SHA-256 checksums, and the keys of the encrypted objects that hold the content.
 
-The content itself (ciphertext blobs) lives separately in S3, organized by content address. Several snapshots can reference the same data objects, so a message backed up last week and still present today is pointed to by both snapshots while the object is stored once.
+Content objects are stored separately and shared between snapshots. A message that is still present in next week's backup points to the same object as today's backup, so the content is stored once.
 
-A snapshot is **immutable once written**. Atlas never modifies a snapshot after creation, and with Object Lock enabled on the bucket, the manifest file is locked against deletion for the retention period.
+Snapshots are written once and never modified. With Object Lock enabled on the bucket, retention locks manifests against deletion for the configured period. See [Storage layout](./operations/storage-layout.md) for the key structure.
 
-A run that captured nothing writes no snapshot. All three workloads behave this way: a mailbox
-or drive with no changes since the last backup adds no manifest object, and the previous
-snapshot stays the latest one. Where a run stopped reading each folder or drive is recorded in a
-separate cursor object the run overwrites, which is why an unchanged mailbox does not accumulate
-one manifest per run just to remember its position.
+A run that finds no changes writes no new snapshot, so the latest snapshot stays current.
 
-Snapshot IDs differ by workload:
+Snapshot IDs depend on the workload:
 
-- **Outlook**: short hash IDs (e.g. `snap-a3b2c1`)
-- **OneDrive**: `od-snap-<milliseconds>-<6-hex>` (e.g. `od-snap-1735689600000-a1b2c3`)
-- **SharePoint**: `sp-snap-<milliseconds>-<6-hex>` (e.g. `sp-snap-1735689600000-a1b2c3`)
+- **Outlook**: `snap-` followed by a short hash, for example `snap-a3b2c1`
+- **OneDrive**: `od-snap-<milliseconds>-<6-hex>`, for example `od-snap-1735689600000-a1b2c3`
+- **SharePoint**: `sp-snap-<milliseconds>-<6-hex>`, for example `sp-snap-1735689600000-a1b2c3`
 
-`atlas outlook list -s <snapshot-id>` reads the manifest. `atlas outlook restore -s <snapshot-id>` reads the manifest to find which objects to download, decrypts them, and pushes them back to Microsoft Graph. OneDrive and SharePoint follow the same pattern through their `list-snapshots`, `restore`, and `verify` commands.
+Commands that read a snapshot, such as `atlas outlook list -s <snapshot-id>`, `atlas outlook restore -s <snapshot-id>`, and the `list-snapshots`, `restore`, and `verify` commands for OneDrive and SharePoint, use the manifest to find and decrypt the objects they need.
 
-## Content Addressing and Deduplication
+## Content addressing and deduplication
 
-Before writing a message, attachment, or file to S3, Atlas computes the SHA-256 hash of the plaintext content and uses that hash as the storage key. If an object with that key already exists in the bucket, the write is skipped and the existing object is shared.
+Before writing a message, attachment, or file, Atlas computes the SHA-256 hash of its plaintext content and uses that hash as the object's storage key. If an object with that key already exists, Atlas skips the write and points the new manifest entry at the existing object.
 
-- **Same message in multiple mailboxes**: a forwarded email or shared attachment is stored once, no matter how many mailboxes received it.
-- **Same message in multiple snapshots**: an unchanged message appears in both manifests but occupies storage space once.
-- **Same file across OneDrive versions**: re-uploading a file with identical content writes no new blob.
-- **Scope is per-tenant**: objects are deduplicated within a single tenant's bucket. Separate tenants have their own buckets and keys and share nothing.
+- **Same message in several mailboxes**: a forwarded email or shared attachment is stored once.
+- **Same message in several snapshots**: an unchanged item adds a manifest entry, not a second copy of the data.
+- **Same file across OneDrive versions**: re-uploading identical content writes no new object.
 
-This is also why deleting a snapshot removes only its manifest: other snapshots may still reference the same objects. Mailbox-wide or owner-wide delete does remove the data objects, because at that point no other snapshot can reference them.
+Deduplication is scoped to one tenant. Tenants do not share objects.
 
-## Encryption Envelope
+Deleting a snapshot removes only its manifest, because other snapshots may still reference the same objects. Deleting a whole mailbox or owner removes its data objects as well, because no remaining snapshot can reference them. See [Troubleshooting](./troubleshooting.md) for the delete commands.
 
-Atlas encrypts with two keys, one wrapping the other. [Security](/security) covers the full model.
+## Encryption envelope
 
-- **DEK** (Data Encryption Key): a 256-bit symmetric key generated once per tenant and stored as a versioned, self-describing blob at `_meta/dek.enc`. The blob header records the KDF parameters, and the DEK itself is AES-256-GCM encrypted with a KEK. All message, attachment, and file ciphertext in the bucket is encrypted with the DEK.
-- **KEK** (Key Encryption Key): derived from the master passphrase using scrypt (N=65536, r=8, p=1) with a per-wrap random salt and tenant-domain separation. The KEK wraps the DEK and is never stored anywhere, only recomputed on demand from the passphrase and blob metadata.
+Atlas uses two keys, where one wraps the other. [Security](./security.md) describes the full model.
 
-Because the KEK exists only in memory, an attacker holding the bucket holds ciphertext and KDF parameters, not keys.
+- **DEK (data encryption key)**: a 256-bit AES key generated once per tenant. It is stored as a self-describing blob at `_meta/dek.enc`, with the KDF parameters in its header. The DEK is wrapped with the KEK using AES-256-GCM. All content in the bucket is encrypted with the DEK.
+- **KEK (key encryption key)**: derived from your master passphrase with scrypt (N=65536, r=8, p=1), a per-wrap random salt, and the tenant ID as a domain separator. The KEK is never stored. Atlas recomputes it from the passphrase whenever it needs it.
 
-## Delta Sync
+Because the KEK exists only in memory, a copy of the bucket contains ciphertext and KDF parameters but no usable keys. The passphrase is the only way back in, so losing it means losing access to the backups.
 
-A **delta link** is a Microsoft Graph API cursor marking the point in a mailbox's, drive's, or library's change history where the last backup ended. The next backup uses it to request only changes since that point, which is what makes incremental syncs fast.
+## Delta sync
 
-Delta links are stored in the snapshot manifest, per-folder for Outlook, per-drive for OneDrive, and per-library for SharePoint. See [Delta Sync](/operations/delta-sync) for the full mechanism, including full-scan fallback.
+A **delta link** is a Microsoft Graph cursor that marks where the previous backup ended in a mailbox's, drive's, or library's change history. The next backup asks Graph only for changes after that point, which keeps incremental runs fast.
 
-## Other Terms
+Atlas stores delta state per folder for Outlook, per drive for OneDrive, and per library for SharePoint. See [Delta sync](./operations/delta-sync.md) for how Atlas handles full-scan fallback.
 
-| Term               | Definition                                                                                                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Manifest**       | A JSON file in S3 describing a snapshot: backed-up items, their storage keys, checksums, paths or folder assignments, and delta links. One manifest per snapshot.                                                              |
-| **Snapshot**       | A point-in-time backup record: a manifest file plus the data objects it references.                                                                                                                                            |
-| **Tenant**         | A Microsoft 365 organization, identified by its Azure AD tenant ID (a UUID). Each tenant gets its own S3 bucket prefix, its own DEK, and its own backups across all workloads.                                                 |
-| **Owner**          | The Entra object ID of a OneDrive user. CLI commands accept email/UPN and resolve to the object ID automatically.                                                                                                              |
-| **Site**           | A SharePoint site, identified by URL or Graph site ID. Storage keys use `site-guid,web-guid`, without the hostname, so a SharePoint domain rename keeps one history. A site backup covers all document libraries in that site. |
-| **Replica marker** | A file (`_meta/replica.marker`) written to secondary storage targets on first replication. Atlas checks for it to detect a backup command accidentally pointed at a replica instead of primary storage.                        |
+## Other terms
 
-## See Also
+| Term               | Definition                                                                                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Manifest**       | A JSON file in S3 that describes one snapshot: its items, storage keys, checksums, paths or folder assignments, and delta links.                                                  |
+| **Snapshot**       | A point-in-time backup record: a manifest plus the objects it references.                                                                                                         |
+| **Tenant**         | A Microsoft 365 organization, identified by its Microsoft Entra tenant ID (a GUID). Each tenant has its own DEK and its own backups across all workloads.                         |
+| **Owner**          | The Entra object ID of a OneDrive user. CLI commands accept an email address or UPN and resolve it to the object ID.                                                               |
+| **Site**           | A SharePoint site, identified by URL or Graph site ID. Storage keys use the site and web GUIDs without the hostname, so renaming the SharePoint domain does not start a new history. |
+| **Replica marker** | The file `_meta/replica.marker`, written to secondary storage targets on first replication. Atlas checks for it to detect a backup command accidentally pointed at a replica instead of primary storage. |
 
-- [OneDrive Backup](/onedrive-backup): OneDrive backup, restore, and verification
-- [SharePoint Backup](/sharepoint-backup): SharePoint site backup and document library sync
-- [Storage Layout](/operations/storage-layout): S3 key structure per workload
-- [Delta Sync](/operations/delta-sync): how incremental sync works for Outlook
+## See also
+
+- [OneDrive backup](./onedrive-backup.md): backup, restore, and verification for OneDrive
+- [SharePoint backup](./sharepoint-backup.md): site backup and document library sync
+- [Storage layout](./operations/storage-layout.md): S3 key structure for each workload
+- [Delta sync](./operations/delta-sync.md): how incremental sync works for Outlook
