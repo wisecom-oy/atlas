@@ -331,7 +331,7 @@ The overview's `Objects` column counts the messages in the latest snapshot's cha
 
 ### atlas outlook read
 
-Decrypt and display one backed-up message. Reference it by its `#` index from `atlas outlook list`, or by its full Graph message ID.
+Decrypt and display one backed-up message. Reference it by its `#` index from `atlas outlook list`, or by its full Graph message ID. Like `restore -s`, `read` looks the message up in the snapshot's whole chain: a `#` index counts the snapshot's own messages, and a full message ID also finds a message stored by an older snapshot of the same mailbox. A message the chain records as deleted is not found.
 
 ```bash
 atlas outlook read -s <snapshot-id> --message 34

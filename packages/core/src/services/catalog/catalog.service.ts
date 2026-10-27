@@ -1,10 +1,15 @@
 import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
-import type { TenantContextFactory } from '@wisecom/atlas-types';
+import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { MailboxSummary, ReadMessageResult, CatalogUseCase } from '@wisecom/atlas-types';
-import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  TENANT_CONTEXT_FACTORY_TOKEN,
+  MANIFEST_REPOSITORY_TOKEN,
+  NotFoundError,
+} from '@wisecom/atlas-types';
+import { load_snapshot_chain, resolve_message_ref } from '@/services/shared/manifest-chain';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 
 @injectable()
@@ -52,10 +57,10 @@ export class CatalogService implements CatalogUseCase {
   }
 
   /**
-   * Finds a message entry in the manifest, fetches the encrypted blob
-   * from object storage and decrypts it. MIME entries are returned as raw
-   * bytes; legacy Graph JSON entries are parsed and returned together with
-   * their attachment metadata from the manifest.
+   * Finds a message in the snapshot's chain, the same set `restore -s` reads, fetches the
+   * encrypted blob from object storage and decrypts it. MIME entries are returned as raw bytes;
+   * legacy Graph JSON entries are parsed and returned together with their attachment metadata
+   * from the manifest.
    *
    * @param message_ref - Either a 1-based numeric index (e.g. "34") matching the
    *   `atlas list` output, or a full Graph API message ID string.
@@ -67,10 +72,7 @@ export class CatalogService implements CatalogUseCase {
   ): Promise<ReadMessageResult | undefined> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-      if (!manifest) return undefined;
-
-      const entry = this.resolve_entry(manifest, message_ref);
+      const entry = await this.resolve_entry(ctx, snapshot_id, message_ref);
       if (!entry) return undefined;
 
       const encrypted = await ctx.storage.get(entry.storage_key);
@@ -85,13 +87,20 @@ export class CatalogService implements CatalogUseCase {
     }
   }
 
-  /** Resolves a manifest entry by 1-based index or by object_id. */
-  private resolve_entry(manifest: Manifest, ref: string): Manifest['entries'][number] | undefined {
-    const index = Number(ref);
-    if (Number.isInteger(index) && index >= 1) {
-      return manifest.entries[index - 1];
+  /** Resolves a message in the snapshot's chain; undefined when the snapshot or message is absent. */
+  private async resolve_entry(
+    ctx: TenantContext,
+    snapshot_id: string,
+    ref: string,
+  ): Promise<Manifest['entries'][number] | undefined> {
+    let chain: Manifest[];
+    try {
+      chain = await load_snapshot_chain(this._manifests, ctx, snapshot_id);
+    } catch (error) {
+      if (error instanceof NotFoundError) return undefined;
+      throw error;
     }
-    return manifest.entries.find((e) => e.object_id === ref);
+    return resolve_message_ref(chain[0]!, merge_snapshot_entries(chain), ref);
   }
 }
 
