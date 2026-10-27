@@ -1,6 +1,5 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type {
   MailboxConnector,
   MailboxPurpose,
@@ -10,25 +9,26 @@ import type {
   MessageAttachment,
   DeltaSyncResult,
   DeltaPageCallback,
+  ExtendedProperty,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
 import {
+  GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
+import { fetch_message_reaction_properties } from '@/adapters/graph-message-reaction-fetcher';
 import { fetch_attachment_content } from '@/adapters/graph-attachment-content-fetcher';
-import type {
-  GraphUserRecord,
-  GraphFolderRecord,
-  GraphAttachmentRecord,
-} from '@/adapters/graph-mailbox-response-mappers';
 import {
   extract_user_ids,
   parse_mailbox_settings_purpose,
+  type GraphUserRecord,
+  type GraphFolderRecord,
+  type GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
 import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
@@ -189,6 +189,20 @@ export class GraphMailboxConnector implements MailboxConnector {
     message_id: string,
   ): Promise<Buffer | undefined> {
     return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
+  }
+
+  /** Fetches the message's Outlook reaction properties; empty when it has none (issue #481). */
+  async fetch_reaction_properties(
+    _tenant_id: string,
+    owner_id: string,
+    message_id: string,
+  ): Promise<ExtendedProperty[]> {
+    return fetch_message_reaction_properties(
+      this._client,
+      owner_id,
+      message_id,
+      IMMUTABLE_ID_PREFER,
+    );
   }
 
   /**

@@ -1,13 +1,15 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   capture_mime_payload,
+  capture_reaction_properties,
   store_single_message,
 } from '@/services/backup/message-payload-store';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
-import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
+import {
+  flush_pending_attachments,
+  type PendingAttachment,
+} from '@/services/backup/attachment-storage-sync';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import type {
   BackupProgressReporter,
@@ -55,13 +57,6 @@ export interface FolderSyncParams {
   object_lock_policy?: ObjectLockPolicy;
 }
 
-const DEFAULT_ATTACHMENT_CONCURRENCY = 3;
-
-interface PendingAttachment {
-  entry_index: number;
-  message_id: string;
-}
-
 /**
  * Processes a single message: capture MIME, dedup check, encrypt, store.
  * MIME embeds its attachments, so only a JSON fallback queues a separate
@@ -79,7 +74,15 @@ async function process_message(
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
   const mime = await capture_mime_payload(connector, tenant_id, owner_id, message);
-  const entry = await store_single_message(ctx, message, owner_id, object_lock_policy, mime);
+  const reactions = await capture_reaction_properties(connector, tenant_id, owner_id, message);
+  const entry = await store_single_message(
+    ctx,
+    message,
+    owner_id,
+    object_lock_policy,
+    mime,
+    reactions,
+  );
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
 
@@ -89,69 +92,6 @@ async function process_message(
   if (!mime && message.has_attachments) {
     pending_attachments.push({ entry_index, message_id: message.message_id });
   }
-}
-
-/**
- * Drains all pending attachment fetches in parallel batches of `concurrency`.
- *
- * One failure used to reject the whole `Promise.all`, and the throw travelled out of
- * `sync_single_folder` into a folder-level error that discarded every entry already processed in
- * that folder. A message deleted between the delta page and the attachment fetch is enough to
- * trigger it, and Graph answers `ErrorItemNotFound` for that (issue #366).
- *
- * A permission or licensing failure still propagates: those are the operator's to fix, and
- * degrading the whole run quietly is the failure #372 describes.
- *
- * Returns false when an interrupt left attachments unfetched. Those messages are already in
- * `entries` without attachments, so the folder must not count as complete or its delta link
- * would skip them for good (issue #434).
- */
-async function flush_pending_attachments(
-  ctx: TenantContext,
-  connector: MailboxConnector,
-  tenant_id: string,
-  owner_id: string,
-  entries: ManifestEntry[],
-  stats: { stored: number; deduplicated: number; att_stored: number },
-  pending: PendingAttachment[],
-  attachment_errors: string[],
-  is_interrupted: () => boolean,
-  object_lock_policy?: ObjectLockPolicy,
-  concurrency = DEFAULT_ATTACHMENT_CONCURRENCY,
-): Promise<boolean> {
-  while (pending.length > 0) {
-    // An interrupted run stops scheduling; what is already in flight finishes.
-    if (is_interrupted()) {
-      pending.length = 0;
-      return false;
-    }
-    const batch = pending.splice(0, concurrency);
-    const tasks = batch.map(async (p) => {
-      try {
-        const att = await fetch_and_store_attachments(
-          ctx,
-          connector,
-          tenant_id,
-          owner_id,
-          p.message_id,
-          undefined,
-          object_lock_policy,
-        );
-        if (att && att.length > 0) {
-          stats.att_stored += att.length;
-          entries[p.entry_index] = { ...entries[p.entry_index]!, attachments: att };
-        }
-      } catch (err) {
-        if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
-        const reason = err instanceof Error ? err.message : String(err);
-        logger.warn(`Attachments for message ${p.message_id} could not be fetched: ${reason}`);
-        attachment_errors.push(`message ${p.message_id}: attachments not backed up (${reason})`);
-      }
-    });
-
-    await Promise.all(tasks);
-  }
-  return true;
 }
 
 /** Runs a delta sync for one folder, processing messages inline as pages arrive. */

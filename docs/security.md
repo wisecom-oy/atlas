@@ -262,11 +262,14 @@ Atlas does not import archived MIME back into Exchange. Graph's MIME import alwa
 | Importance                                         | `Importance`, or `X-Priority` (1 and 2 high, 3 normal, 4 and 5 low)            |
 | Categories                                         | `Keywords`, where Exchange wrote them                                          |
 | Threading                                          | `In-Reply-To`, `References`, `Thread-Index`, set as MAPI properties            |
+| Reactions                                          | Not in the MIME. Captured separately at backup and written back as the same MAPI properties |
 | Attachments, inline or regular                     | The body parts. Inline means `Content-Disposition: inline`, or no disposition with a matching `Content-ID` |
 
 Graph's create call accepts only `x-` headers, so threading uses MAPI properties. The follow-up flag is not restored. Read state is set to read, so a restore does not leave thousands of unread items.
 
-Legacy JSON entries restore the fields Graph returned at backup time. They have no threading, because those requests never asked for `internetMessageHeaders` or `conversationIndex`, so Outlook groups them by subject.
+Legacy JSON entries restore the fields Graph returned at backup time. They have no threading, because those requests never asked for `internetMessageHeaders` or `conversationIndex`, so Outlook groups them by subject. Reactions are restored for JSON entries too.
+
+Snapshots taken before reaction capture restore without reactions. Exchange keeps client-written reaction properties byte for byte. The reaction summary names the reacting users and their addresses as they were at backup time, and it is stored in the encrypted manifest alongside the subject and sender.
 
 When you need the original bytes for a legal hold, forensic review, or DKIM check, use `atlas outlook save`. It never touches the live mailbox.
 

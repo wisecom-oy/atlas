@@ -19,7 +19,7 @@ import type {
   DeltaPageCallback,
   MessageAttachment,
 } from '@wisecom/atlas-types/ports/mail/connector.port';
-import type { MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
+import type { ExtendedProperty, MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
 import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,
@@ -164,6 +164,21 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
       run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_mime' }, () =>
         this._inner.fetch_mime!(tenant_id, owner_id, message_id),
+      ),
+    );
+  }
+
+  /** Forwards the reaction-property read (issue #481): one message GET against the outlook pool. */
+  async fetch_reaction_properties(
+    tenant_id: string,
+    owner_id: string,
+    message_id: string,
+  ): Promise<ExtendedProperty[]> {
+    const inner = this._inner;
+    if (!inner.fetch_reaction_properties) return [];
+    return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_reaction_properties' }, () =>
+        inner.fetch_reaction_properties!(tenant_id, owner_id, message_id),
       ),
     );
   }

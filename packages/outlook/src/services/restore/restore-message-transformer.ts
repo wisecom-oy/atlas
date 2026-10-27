@@ -1,5 +1,5 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { ExtendedProperty, ManifestEntry } from '@wisecom/atlas-types';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 import { parse_mime_message } from '@/services/shared/mime-message-parser';
 import type {
@@ -104,10 +104,12 @@ const MSGFLAG_READ = 0x01;
 /**
  * Strips read-only and OData metadata fields from a stored Graph message,
  * keeping only writable properties. Uses MAPI extended properties to
- * override Graph's default draft behavior and preserve original timestamps.
+ * override Graph's default draft behavior and preserve original timestamps,
+ * and appends the reaction properties captured at backup (issue #481).
  */
 export function sanitize_message_for_restore(
   message_json: Record<string, unknown>,
+  reaction_properties: readonly ExtendedProperty[] = [],
 ): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
 
@@ -119,11 +121,14 @@ export function sanitize_message_for_restore(
   }
 
   sanitized['isDraft'] = false;
-  sanitized['singleValueExtendedProperties'] = build_mapi_overrides({
-    is_read: Boolean(message_json['isRead']),
-    received_at: as_iso_string(message_json['receivedDateTime']),
-    sent_at: as_iso_string(message_json['sentDateTime']),
-  });
+  sanitized['singleValueExtendedProperties'] = [
+    ...build_mapi_overrides({
+      is_read: Boolean(message_json['isRead']),
+      received_at: as_iso_string(message_json['receivedDateTime']),
+      sent_at: as_iso_string(message_json['sentDateTime']),
+    }),
+    ...reaction_properties,
+  ];
 
   return sanitized;
 }
@@ -170,6 +175,7 @@ export function extract_folder_id_from_json(message_json: Record<string, unknown
  */
 export function build_restore_payload_from_mime(
   parsed: ParsedMimeMessage,
+  reaction_properties: readonly ExtendedProperty[] = [],
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     subject: parsed.subject,
@@ -184,6 +190,7 @@ export function build_restore_payload_from_mime(
     singleValueExtendedProperties: [
       ...build_mapi_overrides({ is_read: true, received_at: parsed.date, sent_at: parsed.date }),
       ...build_threading_properties(parsed.headers),
+      ...reaction_properties,
     ],
   };
 

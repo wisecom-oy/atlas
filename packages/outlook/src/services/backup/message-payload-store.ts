@@ -1,5 +1,6 @@
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import type {
+  ExtendedProperty,
   MailAddress,
   MailboxConnector,
   MailMessage,
@@ -55,6 +56,27 @@ export async function capture_mime_payload(
 }
 
 /**
+ * Captures the message's Outlook reaction properties (issue #481). Access and licensing failures
+ * propagate as for MIME; any other failure loses only the reactions, never the message.
+ */
+export async function capture_reaction_properties(
+  connector: MailboxConnector,
+  tenant_id: string,
+  owner_id: string,
+  message: MailMessage,
+): Promise<ExtendedProperty[]> {
+  if (!connector.fetch_reaction_properties) return [];
+  try {
+    return await connector.fetch_reaction_properties(tenant_id, owner_id, message.message_id);
+  } catch (err) {
+    if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.warn(`Reaction capture failed for message ${message.message_id}: ${reason}`);
+    return [];
+  }
+}
+
+/**
  * Content-addressed storage with keyed-hash dedup (issue #446): name -> check exists -> encrypt
  * -> upload. Stores `mime` when Graph produced it, otherwise the JSON payload
  * from the delta page; the manifest entry records which (issue #50).
@@ -65,6 +87,7 @@ export async function store_single_message(
   owner_id: string,
   object_lock_policy?: ObjectLockPolicy,
   mime?: Buffer,
+  reaction_properties: readonly ExtendedProperty[] = [],
 ): Promise<StoredMessage> {
   const payload = mime ?? message.raw_body;
   const { checksum, content_name } = compute_content_digests(ctx, payload);
@@ -94,6 +117,7 @@ export async function store_single_message(
     ...(metadata.from ? { from: metadata.from } : {}),
     ...(mime ? { payload_format: 'mime' as const } : {}),
     ...(mime && metadata.received_at ? { received_at: metadata.received_at.toISOString() } : {}),
+    ...(reaction_properties.length > 0 ? { reaction_properties } : {}),
   };
 
   return { manifest_entry, was_new: !already_stored };

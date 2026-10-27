@@ -136,6 +136,18 @@ MIME is the only format for new snapshots. There is no `--fidelity` option.
 
 If Graph cannot produce MIME for one item, Atlas stores that item in the legacy JSON form and records the format in its manifest entry. Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy Graph JSON. Snapshots can mix both formats. `save`, `read`, `restore`, and `verify` handle both.
 
+### Reactions
+
+Outlook reactions (like, heart, celebrate and so on) live in MAPI named properties, not in the MIME and not in the delta payload. Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them with one more request per new or changed message:
+
+```
+GET /users/{id}/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=...)
+```
+
+The response is a few hundred bytes and took about 80 ms per message against a live tenant. It counts against the same per-mailbox throttling budget as `/$value`, so a first backup costs two requests per message instead of one. Adding a reaction updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
+
+Only messages with reactions store anything: their manifest entry gains `reaction_properties`. If the read fails for one message, Atlas logs a warning and backs the message up without its reactions. A permission or licensing failure stops the mailbox, as it does for MIME.
+
 ## Retry and error handling
 
 Atlas retries transient Graph errors with exponential backoff:
