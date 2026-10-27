@@ -17,7 +17,8 @@ import type {
 import type { GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers';
 import {
   map_users_to_tenant_mailboxes,
-  parse_mailbox_purpose,
+  parse_mailbox_settings_purpose,
+  parse_user_page,
 } from '@/adapters/graph-mailbox-response-mappers';
 import { rethrow_if_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -25,11 +26,6 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 const USERS_SELECT = 'id,mail,displayName,createdDateTime,assignedPlans';
 const USERS_URL = `/users?$select=${USERS_SELECT}&$top=999`;
 const USAGE_REPORT_URL = "/reports/getMailboxUsageDetail(period='D7')";
-
-interface GraphPageResponse {
-  value?: GraphUserRecord[];
-  '@odata.nextLink'?: string;
-}
 
 interface MailboxUsageRow {
   upn: string;
@@ -101,8 +97,10 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
 
     while (url) {
       const current_url = url;
-      const page: GraphPageResponse = await with_graph_retry(() =>
-        this._client.api(current_url).header('Prefer', 'odata.maxpagesize=999').get(),
+      const page = parse_user_page(
+        await with_graph_retry(() =>
+          this._client.api(current_url).header('Prefer', 'odata.maxpagesize=999').get(),
+        ),
       );
 
       if (page.value) {
@@ -129,11 +127,10 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
       while (queue.length > 0) {
         const user_id = queue.shift()!;
         try {
-          const res = await with_graph_retry(() =>
-            this._client.api(`/users/${user_id}/mailboxSettings?$select=userPurpose`).get(),
-          );
-          const purpose = parse_mailbox_purpose(
-            (res as { userPurpose?: unknown } | undefined)?.userPurpose,
+          const purpose = parse_mailbox_settings_purpose(
+            await with_graph_retry(() =>
+              this._client.api(`/users/${user_id}/mailboxSettings?$select=userPurpose`).get(),
+            ),
           );
           if (purpose) purposes.set(user_id, purpose);
         } catch (err) {
@@ -153,7 +150,8 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
   /** Fetches the mailbox usage report CSV. Returns empty map if Reports.Read.All is missing. */
   private async fetchMailboxUsage(): Promise<Map<string, MailboxUsageRow>> {
     try {
-      const csv: string = await this._client.api(USAGE_REPORT_URL).get();
+      const csv: unknown = await this._client.api(USAGE_REPORT_URL).get();
+      if (typeof csv !== 'string') throw new Error('Usage report did not return CSV text');
       return parse_usage_csv(csv);
     } catch {
       logger.debug('Mailbox usage report unavailable (Reports.Read.All may not be granted)');

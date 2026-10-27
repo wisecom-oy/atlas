@@ -13,7 +13,7 @@ const LARGE_DOWNLOAD_TIMEOUT_MS = 1_800_000;
  * The widened timeout follows corso's large-file calibration: attachments
  * run up to 150 MB and the default 60s window kills them on slow links.
  */
-export async function download_attachment_content(
+export async function fetch_attachment_content(
   client: Client,
   owner_id: string,
   message_id: string,

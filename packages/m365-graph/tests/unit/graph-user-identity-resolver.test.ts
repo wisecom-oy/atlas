@@ -52,6 +52,18 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     ).resolves.toBeUndefined();
   });
 
+  // The id names the storage prefix, so a response without one must not become an identity.
+  it.each([{}, { id: '' }, { id: 42 }, null])(
+    'rejects a user payload without a usable id: %j',
+    async (payload) => {
+      const client = make_client(() => Promise.resolve(payload));
+
+      await expect(
+        new GraphUserIdentityResolver(client).resolve_by_object_id('t', OBJECT_ID),
+      ).rejects.toThrow('Graph user response has no id');
+    },
+  );
+
   it.each([500, 502, 503, 504, 429])('rethrows a transient %i', async (status) => {
     const client = make_client(() => Promise.reject(graph_error(status)));
 
@@ -141,6 +153,17 @@ describe('GraphUserIdentityResolver.resolve_user', () => {
     await expect(
       new GraphUserIdentityResolver(client).resolve_user('t', 'nobody@example.com'),
     ).rejects.toBe(not_found);
+  });
+
+  it('rejects a malformed mail filter page instead of reading it as no match', async () => {
+    const { client } = client_with(
+      () => Promise.reject(graph_error(404, 'Request_ResourceNotFound')),
+      () => Promise.resolve({ value: USER }),
+    );
+
+    await expect(
+      new GraphUserIdentityResolver(client).resolve_user('t', 'john.doe@example.com'),
+    ).rejects.toThrow('Graph /users response has a non-array value');
   });
 
   it('does not mask a 403 behind the mail fallback', async () => {

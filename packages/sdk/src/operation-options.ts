@@ -26,7 +26,7 @@ export function adapt_operation_options<T extends SdkOperationOptions>(
     ...snakeize(rest),
     ...(on_progress ? { on_progress: isolate_progress_callback(on_progress) } : {}),
     ...(signal ? { should_interrupt: () => signal.aborted, abort_signal: signal } : {}),
-  } as AdaptedOperationOptions<T>;
+  };
 }
 
 /** Options whose port contract requires a snapshot to act on. */

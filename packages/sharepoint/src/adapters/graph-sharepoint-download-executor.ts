@@ -231,10 +231,10 @@ function with_timeout<T>(promise: Promise<T>, timeout_ms: number, message: strin
 
 function stream_to_buffer(stream: NodeJS.ReadableStream, timeout_ms: number): Promise<Buffer> {
   const readable = stream as import('node:stream').Readable;
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array[] = [];
   const read_stream = async (): Promise<void> => {
-    for await (const chunk of readable) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    for await (const chunk of readable as AsyncIterable<Uint8Array | string>) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     }
   };
   let timer: NodeJS.Timeout | undefined;
