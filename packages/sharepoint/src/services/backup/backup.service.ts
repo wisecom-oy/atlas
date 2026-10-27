@@ -79,15 +79,15 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true);
     }
     const ctx = await this._tenant_factory.create(tenant_id);
-    if (options.object_lock_request?.retention_days) {
-      // Bucket default retention: every new object version (files, versions,
-      // manifests, cursors) inherits the lock - no write path can forget it.
-      await ctx.storage.apply_default_retention(
-        options.object_lock_request.mode ?? 'GOVERNANCE',
-        options.object_lock_request.retention_days,
-      );
-    }
     try {
+      if (options.object_lock_request?.retention_days) {
+        // Bucket default retention: every new object version (files, versions,
+        // manifests, cursors) inherits the lock - no write path can forget it.
+        await ctx.storage.apply_default_retention(
+          options.object_lock_request.mode ?? 'GOVERNANCE',
+          options.object_lock_request.retention_days,
+        );
+      }
       const stored_cursor = await this._cursors.load(ctx, site_id);
       const previous_cursor = options.force_full === true ? undefined : stored_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
