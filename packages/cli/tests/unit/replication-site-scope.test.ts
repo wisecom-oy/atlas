@@ -19,8 +19,7 @@ import type { ReplicationResult } from '@wisecom/atlas-types';
 
 const SITE_URL = 'https://contoso.sharepoint.com/sites/finance';
 const SITE_HOST_PATH = 'contoso.sharepoint.com:/sites/finance';
-const SITE_ID =
-  'contoso.sharepoint.com,11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222';
+const SITE_ID = '11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222';
 
 const RESULT: ReplicationResult = {
   snapshot_id: 'sp-snap-1',
@@ -99,7 +98,7 @@ describe('replicate/rehydrate --site SharePoint scope', () => {
     register_rehydrate_command(program, () => container);
   });
 
-  it('replicates a site URL under the resolved composite id', async () => {
+  it('replicates a site URL under the resolved site id', async () => {
     await program.parseAsync(['replicate', '--site', SITE_URL, ...TARGET_ARGS], { from: 'user' });
 
     expect(resolve_site).toHaveBeenCalledWith('test-tenant', SITE_URL);
@@ -123,8 +122,9 @@ describe('replicate/rehydrate --site SharePoint scope', () => {
     );
   });
 
-  it('passes a composite site id through without contacting Graph', async () => {
-    await program.parseAsync(['replicate', '--site', SITE_ID, ...TARGET_ARGS], { from: 'user' });
+  it('drops the hostname from a composite site id without contacting Graph', async () => {
+    const composite = `contoso.sharepoint.com,${SITE_ID}`;
+    await program.parseAsync(['replicate', '--site', composite, ...TARGET_ARGS], { from: 'user' });
 
     expect(resolve_site).not.toHaveBeenCalled();
     expect(sharepoint.replicate_all_site_snapshots).toHaveBeenCalledWith(
@@ -134,7 +134,7 @@ describe('replicate/rehydrate --site SharePoint scope', () => {
     );
   });
 
-  it('rehydrates a site URL under the resolved composite id', async () => {
+  it('rehydrates a site URL under the resolved site id', async () => {
     await program.parseAsync(['rehydrate', '--site', SITE_URL, ...SOURCE_ARGS], { from: 'user' });
 
     expect(sharepoint.rehydrate_site).toHaveBeenCalledWith(

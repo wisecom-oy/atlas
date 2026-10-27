@@ -26,7 +26,7 @@ const TENANT_ID = 'test-tenant';
 const OWNER_EMAIL = 'user@example.com';
 const OWNER_OBJECT_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const SITE_URL = 'https://contoso.sharepoint.com/sites/Example';
-const SITE_ID = `contoso.sharepoint.com,${OWNER_OBJECT_ID},11111111-1111-1111-1111-111111111111`;
+const SITE_ID = '00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 
 const RESULT: DeletionResult = {
   deleted_objects: 3,

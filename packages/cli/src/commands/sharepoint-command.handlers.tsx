@@ -27,6 +27,7 @@ import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -68,25 +69,6 @@ export interface SharePointSaveCommandOptions extends SharePointTenantOptions {
 export function resolve_tenant_id(container: Container, options: SharePointTenantOptions): string {
   if (options.tenant) return options.tenant;
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
-}
-
-/**
- * Resolves a `--site` input to the composite site id used in storage keys.
- * A composite id (`hostname,siteGuid,webGuid`) is already what storage wants
- * and is returned untouched, so disaster recovery keeps working when Graph is
- * unreachable. Anything else -- a browser URL or `hostname:/sites/<name>` --
- * goes through Graph like every other SharePoint command (issue #90).
- */
-export async function resolve_site_id(
-  container: Container,
-  tenant_id: string,
-  site_input: string,
-): Promise<string> {
-  if (site_input.includes(',')) return site_input;
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, site_input);
-  logger.info(`Resolved site: ${site.display_name} (${site.site_id})`);
-  return site.site_id;
 }
 
 interface SiteRow {

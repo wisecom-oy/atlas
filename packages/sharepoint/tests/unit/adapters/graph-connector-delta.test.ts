@@ -129,7 +129,7 @@ describe('GraphSharePointConnector.resolve_site', () => {
       '/sites/contoso.sharepoint.com:/sites/Example?$select=id,webUrl,displayName',
     );
     expect(site).toEqual({
-      site_id: SITE,
+      site_id: 'site-guid,web-guid',
       site_url: 'https://contoso.sharepoint.com/sites/Example',
       display_name: 'Example',
     });

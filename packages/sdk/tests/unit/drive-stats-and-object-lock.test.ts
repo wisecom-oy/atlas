@@ -4,8 +4,7 @@ import type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 import { createAtlasInstance } from '@/atlas-instance.adapter';
 
 const TENANT_ID = 'test-tenant-id';
-const SITE_ID =
-  'contoso.sharepoint.com,00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
+const SITE_ID = '00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 const VALID_CONFIG: AtlasInstanceConfig = {
   tenantId: TENANT_ID,
   clientId: 'cid',

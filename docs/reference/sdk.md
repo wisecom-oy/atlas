@@ -256,11 +256,11 @@ The field is absent when a snapshot was created, and absent when the run was int
 
 Drive and Outlook methods take the same identifiers the CLI takes, and normalise them the same way.
 
-| Namespace            | Accepted                                                          | Normalisation                                                                     |
-| -------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `atlas.onedrive.*`   | An email or UPN, or an Entra object id                            | An argument containing `@` is resolved through Graph; anything else is used as is |
-| `atlas.outlook.*`    | An email or UPN, or an Entra object id                            | An argument containing `@` is resolved through Graph; anything else is used as is |
-| `atlas.sharepoint.*` | A site URL or hostname, or a composite `host,siteGuid,webGuid` id | An argument without commas is resolved through Graph; anything else is used as is |
+| Namespace            | Accepted                                                                                  | Normalisation                                                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `atlas.onedrive.*`   | An email or UPN, or an Entra object id                                                    | An argument containing `@` is resolved through Graph; anything else is used as is                             |
+| `atlas.outlook.*`    | An email or UPN, or an Entra object id                                                    | An argument containing `@` is resolved through Graph; anything else is used as is                             |
+| `atlas.sharepoint.*` | A site URL or hostname, or a site id (`siteGuid,webGuid`, with or without a leading host) | An argument without commas is resolved through Graph; a site id has its hostname dropped without a Graph call |
 
 Resolution failures throw, so a mistyped address fails the call instead of quietly addressing a scope that does not exist. Resolved identities are cached per instance. `atlas.onedrive.backup` and `atlas.outlook.backup` record the resolved email and display name with the snapshot as display metadata, which is what makes owners readable in later listings. The storage key is always the object ID. `resolveUser` and `resolveSite` remain available when you want the lookup on its own.
 
