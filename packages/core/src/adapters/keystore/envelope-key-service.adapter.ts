@@ -37,7 +37,7 @@ const NAMING_KEY_INFO = 'atlas/object-name/v1';
  * Envelope encryption using AES-256-GCM.
  *
  * - A master passphrase derives a KEK per wrap via a registered KDF strategy
- *   (scrypt v1, OWASP N=65536, per-wrap random salt, tenant-domain separation).
+ *   (scrypt v1, N=65536 r=8 p=1, per-wrap random salt, tenant-domain separation).
  * - A random DEK is generated per tenant and wrapped with the KEK into a
  *   versioned, AAD-authenticated blob (see `dek-blob-codec`).
  * - All tenant data is encrypted with the DEK (buffer or streaming).

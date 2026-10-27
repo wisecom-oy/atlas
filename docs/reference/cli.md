@@ -109,10 +109,12 @@ Outlook mailbox backup, restore, and management commands. Mailbox operations liv
 
 Mailboxes are identified by Entra object ID. `-m` accepts an email address or an object ID. A value containing `@` is resolved through `GET /users/{email}` before any storage key is built. Backups written by v5 were keyed by address; see [Migrating to v6](/migration/v6).
 
-::: warning Scope flags: `-s` beats `-m`
-`restore`, `list`, and `save` select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox). If both are passed, `-s` wins. A snapshot ID names exactly one thing, so it is the narrower request, and Atlas never widens it silently.
+::: warning Scope flags: `-s` and `-m` together
+`restore`, `list`, and `save` select what to act on with `-s, --snapshot` (one snapshot) or `-m, --mailbox` (every snapshot for a mailbox).
 
-`list` and `save` warn that `-m` was ignored and continue. `restore` refuses the pair and exits `1`. Earlier releases used `-m` to mean "restore this snapshot into that mailbox", so guessing would decide which mailbox receives the mail. To choose the destination, use `-T, --target`, which works in both modes:
+`list` and `save` use `-s`, warn that `-m` was ignored, and continue. A snapshot ID names exactly one thing, so it is the narrower request, and Atlas never widens it silently.
+
+`restore` refuses the pair and exits `1`. Earlier releases used `-m` to mean "restore this snapshot into that mailbox", so guessing would decide which mailbox receives the mail. To choose the destination, use `-T, --target`, which works in both modes:
 
 ```bash
 atlas outlook restore -s <snapshot-id> -T other@company.com
