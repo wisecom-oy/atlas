@@ -1,4 +1,9 @@
-import type { Manifest, ManifestRepository, TenantContext } from '@wisecom/atlas-types';
+import type {
+  Manifest,
+  ManifestEntry,
+  ManifestRepository,
+  TenantContext,
+} from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
 
 /**
@@ -21,4 +26,21 @@ export async function load_snapshot_chain(
     .filter((m) => m.snapshot_id !== target.snapshot_id && m.created_at.getTime() <= target_time)
     .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   return [target, ...older];
+}
+
+/**
+ * Finds a message in a snapshot's merged chain. A 1-based index counts the target manifest, the
+ * list `outlook list -s` prints, so an index never means a different message between commands. An
+ * `object_id` matches anywhere in the chain, which is how a message carried over from an earlier
+ * run is addressed. `merged` comes from `merge_snapshot_entries`, so removed messages never match.
+ */
+export function resolve_message_ref(
+  target: Manifest,
+  merged: ManifestEntry[],
+  ref: string,
+): ManifestEntry | undefined {
+  const index = Number(ref);
+  const object_id =
+    Number.isInteger(index) && index >= 1 ? target.entries[index - 1]?.object_id : ref;
+  return merged.find((e) => e.object_id === object_id);
 }

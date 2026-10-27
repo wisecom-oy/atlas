@@ -113,4 +113,48 @@ describe('CatalogService.read_message', () => {
     const result = await service.read_message('t', 'snap-1', 'no-such-msg');
     expect(result).toBeUndefined();
   });
+
+  // Issue #535: `read -s` must see the same chain `restore -s` restores from.
+  describe('across the snapshot chain', () => {
+    const older = make_manifest({
+      snapshot_id: 'snap-1',
+      created_at: new Date('2026-03-01T10:00:00Z'),
+      entries: [
+        { object_id: 'msg-old', storage_key: 'data/u/old', checksum: 'old', size_bytes: 1 },
+        { object_id: 'msg-gone', storage_key: 'data/u/gone', checksum: 'gone', size_bytes: 1 },
+      ],
+    });
+    const target = make_manifest({
+      snapshot_id: 'snap-2',
+      created_at: new Date('2026-03-02T10:00:00Z'),
+      entries: [
+        { object_id: 'msg-new', storage_key: 'data/u/new', checksum: 'new', size_bytes: 1 },
+      ],
+      removed_object_ids: ['msg-gone'],
+    });
+
+    beforeEach(() => {
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(target);
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([older, target]);
+      stub_storage_get(mock_context, Buffer.from('E{}'));
+    });
+
+    it('reads a message carried over from an older snapshot by object id', async () => {
+      const result = await service.read_message('t', 'snap-2', 'msg-old');
+
+      expect(result).toBeDefined();
+      expect(mock_context.storage.get).toHaveBeenCalledWith('data/u/old');
+    });
+
+    it('does not read a message a later snapshot recorded as removed', async () => {
+      expect(await service.read_message('t', 'snap-2', 'msg-gone')).toBeUndefined();
+    });
+
+    it('counts a numeric index against the target manifest only', async () => {
+      await service.read_message('t', 'snap-2', '1');
+      expect(mock_context.storage.get).toHaveBeenCalledWith('data/u/new');
+
+      expect(await service.read_message('t', 'snap-2', '2')).toBeUndefined();
+    });
+  });
 });

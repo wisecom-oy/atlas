@@ -1,12 +1,14 @@
 import type {
   MailboxConnector,
-  Manifest,
   ManifestEntry,
   ManifestRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { merge_snapshot_entries } from '@wisecom/atlas-core';
-import { load_snapshot_chain } from '@wisecom/atlas-core/services/shared/manifest-chain';
+import {
+  load_snapshot_chain,
+  resolve_message_ref,
+} from '@wisecom/atlas-core/services/shared/manifest-chain';
 import {
   build_folder_map,
   filter_entries_by_folder_name,
@@ -59,20 +61,4 @@ export async function resolve_snapshot_entries(
   }
 
   return { owner_id: target.owner_id, entries: allowed };
-}
-
-/**
- * A 1-based index counts the target manifest, the list `outlook list -s` prints, so an index
- * never means a different message between the two commands. An `object_id` matches anywhere in
- * the chain, which is how a message carried over from an earlier run is addressed.
- */
-function resolve_message_ref(
-  target: Manifest,
-  merged: ManifestEntry[],
-  ref: string,
-): ManifestEntry | undefined {
-  const index = Number(ref);
-  const object_id =
-    Number.isInteger(index) && index >= 1 ? target.entries[index - 1]?.object_id : ref;
-  return merged.find((e) => e.object_id === object_id);
 }
