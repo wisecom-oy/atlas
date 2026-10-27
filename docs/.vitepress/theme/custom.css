@@ -723,3 +723,18 @@
     justify-content: flex-start !important;
   }
 }
+
+/* Footer on every page. VitePress hides it next to the sidebar by default; offset it past the sidebar instead. */
+.VPFooter.has-sidebar {
+  display: block !important;
+}
+@media (min-width: 960px) {
+  .VPFooter.has-sidebar {
+    padding-left: calc(var(--vp-sidebar-width) + 32px);
+  }
+}
+@media (min-width: 1440px) {
+  .VPFooter.has-sidebar {
+    padding-left: calc((100vw - var(--vp-layout-max-width)) / 2 + var(--vp-sidebar-width) + 32px);
+  }
+}
