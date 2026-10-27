@@ -29,9 +29,8 @@ function accumulate_entry_stats(entry: ManifestEntry): EntryAccumulator {
 
 /** Formats a Date as a "YYYY-MM" string for monthly grouping. */
 function to_month_key(date: Date): string {
-  const d = new Date(date);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   return `${year}-${month}`;
 }
 

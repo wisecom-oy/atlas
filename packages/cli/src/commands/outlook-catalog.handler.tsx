@@ -183,7 +183,7 @@ async function print_mailbox_snapshots(
     snapshot: s.snapshot_id,
     objects: String(s.total_objects),
     size: format_bytes(s.total_size_bytes),
-    created: new Date(s.created_at).toISOString().slice(0, 19).replace('T', ' '),
+    created: s.created_at.toISOString().slice(0, 19).replace('T', ' '),
   }));
   await render_static_view(<DataTable columns={columns} rows={rows} />);
 }
