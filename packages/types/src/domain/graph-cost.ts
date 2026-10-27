@@ -19,7 +19,7 @@ export type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
 
 /** Cost accumulated against a single service pool during one SDK operation. */
 export interface ServicePoolCost {
-  /** Number of API requests made against this pool. */
+  /** Number of API requests made against this pool; a `$batch` counts each request inside it. */
   readonly requests: number;
   /**
    * Resource units consumed. For the Outlook pool (flat cost model) this equals

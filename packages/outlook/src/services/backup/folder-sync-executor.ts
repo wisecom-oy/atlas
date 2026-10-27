@@ -38,6 +38,8 @@ export interface FolderSyncResult {
   folder_processed: number;
   /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
   warnings: string[];
+  /** Messages stored without their reactions; also summarised in `warnings`. */
+  reactions_not_captured: number;
 }
 
 export interface FolderSyncParams {
@@ -303,5 +305,6 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
             `reactions not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
           ]
         : [],
+    reactions_not_captured: stats.reactions_failed,
   };
 }
