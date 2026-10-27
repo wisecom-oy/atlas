@@ -190,6 +190,7 @@ export class MailboxSyncService implements BackupUseCase {
         removed_object_ids: select_recordable_removals(removed_ids, options.folder_filter, {
           completed: Object.keys(new_delta_links).length,
           selected: folders.length,
+          excluded: excluded_folders,
         }),
       });
 

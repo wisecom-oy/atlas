@@ -80,7 +80,7 @@ Atlas stores delta state per folder for Outlook, per drive for OneDrive, and per
 
 | Term               | Definition                                                                                                                                                                         |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Manifest**       | A JSON file in S3 that describes one snapshot: its items, storage keys, checksums, paths or folder assignments, and delta links. An Outlook manifest also lists the messages its run saw deleted, so a restore from that snapshot does not bring them back. |
+| **Manifest**       | A JSON file in S3 that describes one snapshot: its items, storage keys, checksums, paths or folder assignments, and delta links. An Outlook manifest also lists the messages its run saw deleted, so a restore from that snapshot does not bring them back. A run that skipped a folder mail could have moved into, such as Junk Email with `--exclude-junk`, lists none. |
 | **Snapshot**       | A point-in-time backup record: a manifest plus the objects it references.                                                                                                         |
 | **Tenant**         | A Microsoft 365 organization, identified by its Microsoft Entra tenant ID (a GUID). Each tenant has its own DEK and its own backups across all workloads.                         |
 | **Owner**          | The Entra object ID of a OneDrive user. CLI commands accept an email address or UPN and resolve it to the object ID.                                                               |

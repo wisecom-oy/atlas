@@ -50,13 +50,15 @@ An Outlook manifest holds only the messages its run stored, so `restore -s`, `sa
 
 A run whose only change is a deletion still writes a snapshot, because the removal exists nowhere else once the delta link moves past it.
 
-Atlas uses immutable message IDs, so a moved message keeps its ID. Graph reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, which keeps the message at its new location. This only holds when the run captured both folders, so removals are recorded only when every selected folder finished and no `--folder` filter was given. An interrupted run, a folder error, or a filtered run records none.
+Atlas uses immutable message IDs, so a moved message keeps its ID. Graph reports the move as a removal from the old folder and a new message in the new one. A manifest's own entries win over its own removals, which keeps the message at its new location. This only holds when the run captured both folders, so removals are recorded only when every selected folder finished, no `--folder` filter was given, and no folder that can receive mail was excluded. An interrupted run, a folder error, a filtered run, or a run with `--exclude-junk` records none. A message moved into Junk Email by such a run therefore stays restorable from its last captured copy instead of disappearing from the chain.
+
+Excluded hidden system folders such as `Conversation Action Settings`, and the non-mail Recoverable Items subfolders, do not block removals, because mail cannot be moved into them. An unrecognised Recoverable Items subfolder does block them, since Atlas cannot tell what it holds.
 
 Some deletions are never reported, and those messages still come back from the chain:
 
 | Case                                             | Why                                                                                                                            |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| A run that recorded no removals                  | Interrupted, filtered with `--folder`, or a folder failed. The completed folders' links still advance.                         |
+| A run that recorded no removals                  | Interrupted, filtered with `--folder`, run with `--exclude-junk`, or a folder failed. The completed folders' links still advance. |
 | A full enumeration                               | `--full`, an expired token, or the stale-delta safeguard re-lists the folder. Graph reports what exists, not what was deleted. |
 | Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden.                                                                                     |
 
