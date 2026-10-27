@@ -1,148 +1,130 @@
-# Storage Layout
+---
+description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with Outlook, onedrive/, sharepoint/, and _meta/ prefixes and encrypted objects.'
+---
 
-Each tenant gets its own S3 bucket named `atlas-{tenant_id}`. The bucket holds three workload prefixes (Outlook at the root, OneDrive under `onedrive/`, and SharePoint under `sharepoint/`) plus shared metadata under `_meta/`:
+# Storage layout
+
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
 
 ```
 atlas-{tenant_id}/
 ├── _meta/
-│   ├── dek.enc                              # wrapped DEK (encrypted with KEK)
-│   ├── outlook-manifests/                   # encrypted Outlook lookup pointers
-│   │   ├── owners/{mailbox_id}/latest.json  # latest manifest key for incremental backup
-│   │   └── snapshots/{snapshot_id}.json     # manifest key for direct snapshot lookup
-│   └── replication/                         # replication status sidecars
-│       ├── {mailbox_id}/                    # Outlook replication status
-│       ├── onedrive/{owner_id}/             # OneDrive replication status
-│       └── sharepoint/{site_id}/            # SharePoint replication status
-├── data/
-│   └── {mailbox_id}/
-│       └── {sha256}                         # encrypted message: RFC 5322 MIME (Graph JSON in legacy snapshots)
-├── attachments/
-│   └── {mailbox_id}/
-│       └── {sha256}                         # encrypted attachment (legacy JSON entries only)
-├── manifests/
-│   └── {mailbox_id}/
-│       └── {snapshot_id}.json               # encrypted Outlook manifest
+│   ├── dek.enc                                  # wrapped data encryption key
+│   ├── outlook-manifests/
+│   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
+│   │   └── snapshots/{snapshot_id}.json         # manifest key per snapshot
+│   ├── replication/                             # replication status records
+│   │   ├── {owner_id}/                          # Outlook
+│   │   ├── onedrive/{owner_id}/                 # OneDrive
+│   │   └── sharepoint/{site_id}/                # SharePoint
+│   └── replica.marker                           # present only on replica buckets
+├── data/{owner_id}/{content_name}               # Outlook messages
+├── attachments/{owner_id}/{content_name}        # Outlook attachments (legacy JSON entries)
+├── manifests/{owner_id}/{snapshot_id}.json      # Outlook manifests
 ├── onedrive/
-│   ├── data/{owner_id}/{sha256}             # encrypted file blobs
+│   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
-│   ├── index/{owner_id}/runs/{snapshot_id}.json
-│   ├── index/{owner_id}/files/{file_id}.json # legacy, readable until purged
-│   ├── staging/{owner_id}/{item_id}-{rand}  # temporary multipart staging
-│   └── _meta/{owner_id}/delta.json          # encrypted delta cursors
+│   ├── index/{owner_id}/runs/{snapshot_id}.json # version index per backup run
+│   ├── index/{owner_id}/files/{file_id}.json    # legacy per-file index
+│   ├── staging/{owner_id}/                      # temporary multipart uploads
+│   └── _meta/{owner_id}/delta.json              # delta cursors
 └── sharepoint/
-    ├── data/{site_id}/{sha256}              # encrypted file blobs
+    ├── data/{site_id}/{content_name}
     ├── manifests/{site_id}/{snapshot_id}.json
     ├── index/{site_id}/runs/{snapshot_id}.json
-    ├── index/{site_id}/files/{file_id}.json   # legacy, readable until purged
-    ├── staging/{site_id}/{item_id}-{rand}   # temporary multipart staging
-    └── _meta/{site_id}/delta.json           # encrypted delta cursors
+    ├── index/{site_id}/files/{file_id}.json
+    ├── staging/{site_id}/
+    └── _meta/{site_id}/delta.json
 ```
 
-## Per-tenant bucket isolation
+## Bucket isolation
 
-Every tenant is stored in a completely separate S3 bucket. This is a deliberate security boundary: compromising one bucket's S3 credentials does **not** grant access to any other tenant's data. Each bucket has its own ACLs, its own encryption key (`dek.enc`), and can carry its own Object Lock and lifecycle policies.
+Each tenant has a separate bucket with its own S3 credentials, its own `dek.enc`, and its own Object Lock and lifecycle settings. Credentials for one tenant's bucket do not grant access to another's. Managed service providers can give each customer access to its own bucket only.
 
-For managed service providers backing up multiple tenants, this isolation means you can grant per-tenant access to bucket contents without exposing cross-tenant data.
+## Outlook
 
-## Key paths
+| Prefix                                          | Contents                                                    | Notes                                                       |
+| ----------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| `_meta/dek.enc`                                 | Wrapped data encryption key, one per tenant                 | The most critical object. See [The DEK object](#the-dek-object). |
+| `_meta/outlook-manifests/owners/{owner_id}/`    | Pointer to the latest manifest for a mailbox                | Lets incremental backups read one manifest, not the full history. |
+| `_meta/outlook-manifests/snapshots/{snapshot}`  | Pointer from a snapshot ID to its manifest                  | Direct lookup by snapshot ID.                               |
+| `data/{owner_id}/`                              | Messages as RFC 5322 MIME, named by keyed hash              | Content encrypted; S3 metadata visible.                     |
+| `attachments/{owner_id}/`                       | Attachments from legacy JSON entries, named by keyed hash   | Content encrypted; S3 metadata visible.                     |
+| `manifests/{owner_id}/`                         | Snapshot manifests                                          | Include subjects, senders, folder names, and delta URLs, all encrypted. |
 
-### Outlook
+Pointers hold only an encrypted manifest key. Deleting a mailbox or snapshot removes its pointers.
 
-| Prefix                                         | Contents                                                        | Security notes                                                             |
-| ---------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `_meta/dek.enc`                                | Wrapped data encryption key (one per tenant)                    | **Most critical object.** Losing it means losing access to all tenant data |
-| `_meta/outlook-manifests/owners/{mailbox}/`    | Pointer to the latest Outlook manifest                          | Encrypted; updated after each successful manifest upload                   |
-| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from snapshot ID to its manifest key                    | Encrypted; avoids a tenant-wide manifest listing                           |
-| `data/{mailbox}/`                              | Encrypted email messages as RFC 5322 MIME, addressed by SHA-256 | Content is encrypted; S3 metadata is not                                   |
-| `attachments/{mailbox}/`                       | Encrypted attachments from legacy JSON entries, by SHA-256      | Content is encrypted; S3 metadata is not                                   |
-| `manifests/{mailbox}/`                         | Encrypted snapshot manifests (JSON)                             | Contains subjects, senders, folder names, and delta URLs, all encrypted    |
+### Message formats
 
-The lookup pointers keep incremental backup reads constant as snapshot history grows: Atlas reads the owner's `latest.json` pointer, then that one manifest. Buckets created by older Atlas versions remain compatible. Their first incremental run after upgrade falls back to the existing manifest scan, and saving the new snapshot creates the pointers used by later runs. The pointers contain only an encrypted manifest object key and are removed with their mailbox or snapshot.
+Each manifest entry declares how its message is stored.
 
-#### Message payload formats
+- **MIME (`payload_format: "mime"`).** Snapshots taken by this version store the original MIME from Graph. Attachments travel inside the MIME, so these entries write no `attachments/` objects. Each entry records `received_at` when Graph or the MIME `Date` header provides it. Atlas omits the field rather than writing the backup time.
+- **Legacy JSON.** Snapshots from earlier versions store Graph JSON, with each attachment as a separate object under `attachments/`. Their manifest entries have no `payload_format` field. They stay readable, restorable, verifiable, and exportable. A mailbox with history from before and after the upgrade has both kinds in one chain.
 
-Objects under `data/{mailbox}/` hold one of two formats, and the manifest entry says which.
+If Graph cannot return MIME for one message, Atlas stores that message in the legacy JSON form inside an otherwise MIME snapshot. Check `payload_format` to tell them apart.
 
-Snapshots taken by this version store the message's original RFC 5322 MIME, fetched from `GET /users/{id}/messages/{id}/$value`. Because MIME carries its own attachments, these entries write **no** objects under `attachments/{mailbox}/` and their manifest entries list no attachment records. They do carry `payload_format: "mime"`, and a `received_at` timestamp whenever Graph or the MIME `Date` header supplies one, because there is no JSON payload left to read a receive time from.
+### Shared mailboxes
 
-The `subject`, `from` and `received_at` fields come from the Graph delta item. A delta item for an updated message can arrive without them, so a field the delta item lacks is read from the captured MIME headers instead: `Subject`, `From`, and `Date`. `Date` is the time the sender stamped, which can differ from the mailbox receive time. When neither source has a valid time, the entry omits `received_at` rather than recording the backup time.
+Each Outlook manifest records `mailbox_purpose` (Graph's `mailboxSettings.userPurpose`, such as `user`, `shared`, or `room`) when the backup ran. Shared mailboxes are often unlicensed, so this field is how they show up in the backup catalog. Converting a user mailbox to a shared one keeps its Entra object ID, so its prefix stays the same. Older manifests report `user`, and later ones report `shared`. Manifests from before the field existed omit it.
 
-Legacy snapshots store a Graph JSON payload with each attachment as a separate content-addressed object under `attachments/{mailbox}/{sha256}`. Their manifest entries have no `payload_format` field. Nothing about them changes: they stay readable, restorable, verifiable, and exportable exactly as before, and a mailbox whose history spans the upgrade will contain both kinds in the same snapshot chain.
+## OneDrive and SharePoint
 
-If Graph cannot produce MIME for a single item, that message falls back to the legacy JSON form inside an otherwise MIME snapshot. `payload_format` is how an operator tells the two apart.
+| Prefix                                  | Contents                                          | Notes                                                                 |
+| --------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| `onedrive/data/{owner_id}/`             | File blobs, named by keyed hash                   | Owner is the Entra object ID.                                         |
+| `onedrive/manifests/{owner_id}/`        | Snapshot manifests                                | Include file paths, checksums, and change types.                      |
+| `onedrive/index/{owner_id}/runs/`       | One version index per backup run                  | Maps file IDs to the versions that run captured.                      |
+| `onedrive/index/{owner_id}/files/`      | Legacy per-file version indexes                   | Still readable. Removed only by purging the owner.                    |
+| `onedrive/_meta/{owner_id}/delta.json`  | Delta cursors                                     | Include delta links, file paths and names, ETags, and version watermarks. |
+| `sharepoint/...`                        | The same layout, keyed by Graph site ID           | Site ID replaces owner ID.                                            |
 
-#### Shared mailbox tracking
+### Version indexes
 
-Each Outlook manifest records an optional `mailbox_purpose` field, the Graph `mailboxSettings.userPurpose` value (`user`, `shared`, `room`, ...) at backup time. Shared mailboxes are typically unlicensed and therefore invisible to license-based inventories, so this flag is what identifies them in the backup catalog.
+Each backup run writes one version index object per owner or site, under `runs/`. A run with no new versions writes none. Objects under `files/` came from earlier versions and remain readable. Listing history reads both layouts. History stays listable and verifiable until the bucket is purged.
 
-Converting a user mailbox to a shared mailbox keeps its Entra object ID, so the `manifests/{mailbox}/` prefix stays stable across the conversion. Manifests written before the conversion read `user`, later ones read `shared`, and content blobs under `data/{mailbox}/` (addressed by SHA-256) are shared across both, so message data is stored once. Manifests written before the field existed simply omit it.
+Reading history costs one request per index object, so it grows with the number of runs. Backups do not read indexes. They use a watermark in the delta cursor, described in [Delta sync](/operations/delta-sync#file-version-capture-onedrive-and-sharepoint). Only `atlas onedrive versions`, `atlas sharepoint versions`, and snapshot verification read the indexes.
 
-### OneDrive
+The first backup after an upgrade is the exception. Existing cursors have no watermark, so that backup scans the legacy `files/` objects once to seed it. Each legacy file is one object, so a drive with 20,000 files means 20,000 objects in that scan. Later backups skip the scan.
 
-| Prefix                                 | Contents                                   | Security notes                                                          |
-| -------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `onedrive/data/{owner_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; owner uses opaque Entra object ID                 |
-| `onedrive/manifests/{owner_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types                            |
-| `onedrive/index/{owner_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run                      |
-| `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge                   |
-| `onedrive/_meta/{owner_id}/delta.json` | Encrypted delta cursors                    | Holds delta links, per-file paths, names, etags, and version watermarks |
+### Subsites
 
-### SharePoint
+A subsite has its own Graph `site_id`, so `atlas sharepoint backup --include-subsites` writes a separate snapshot under the subsite's own prefix. Its blobs, indexes, and cursors follow the same split. Backup, restore, and retention for a subsite are independent of its parent.
 
-| Prefix                                  | Contents                                   | Security notes                                                          |
-| --------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `sharepoint/data/{site_id}/`            | Encrypted file blobs, addressed by SHA-256 | Content is encrypted; site uses Graph site ID                           |
-| `sharepoint/manifests/{site_id}/`       | Encrypted snapshot manifests               | Contains file paths, checksums, change types                            |
-| `sharepoint/index/{site_id}/runs/`      | One version index object per backup run    | Maps file IDs to the versions captured by that run                      |
-| `sharepoint/index/{site_id}/files/`     | Legacy per-file version indexes            | Readable alongside run objects; removed only by purge                   |
-| `sharepoint/_meta/{site_id}/delta.json` | Encrypted delta cursors                    | Holds delta links, per-file paths, names, etags, and version watermarks |
+## The DEK object
 
-#### Version index objects
+`_meta/dek.enc` holds the **data encryption key (DEK)**, wrapped with a key encryption key (KEK) derived from your passphrase. Without it, no message can be decrypted, no manifest can be read, and no restore is possible.
 
-Since the per-run index layout, Atlas writes **one** version index object per owner or site per backup run under `runs/`, holding every version row that run captured. A run with no new file versions writes no index object at all. Objects under `files/` were written by older Atlas versions and remain fully readable: reads merge both layouts, so history that predates an upgrade stays listable and verifiable until you purge the bucket.
+If the file is lost or corrupted and you have no separate copy, every object in the bucket becomes permanently unreadable. Protect it:
 
-Reading history means listing the owner or site index prefix and fetching every object under it, eight at a time, so the cost grows with the number of backup runs rather than the number of files. **Backups do not pay this.** Version dedup runs off a watermark carried in the delta cursor, described in [Delta Sync](/operations/delta-sync#file-version-dedup-onedrive-and-sharepoint), so a backup reads no index objects at all. The scan is paid only by the commands that genuinely need version rows: `atlas onedrive versions`, `atlas sharepoint versions`, and snapshot verification.
+- Restrict `DeleteObject` on `_meta/*` in the bucket policy.
+- Enable Object Lock with a long retention on this key.
+- Check periodically that the file exists and can be read.
 
-One exception is a one-time cost. A cursor written before watermarks existed has none, so the first backup after upgrading scans the index once to seed them, then never again for that owner or site. Upgraded buckets pay more during that single scan than new ones will, because the legacy `files/` objects are one object per file: a 20,000-file drive means 20,000 objects in that seeding scan. Those objects are removed only when the owner or site is deleted, and on Object Lock buckets nothing can be removed before its retention expires.
+## Content addressing
 
-Subsites are stored exactly like any other site. A subsite is a Graph site with its own `site_id`, so `atlas sharepoint backup --include-subsites` writes one snapshot per subsite under that subsite's own `sharepoint/manifests/{site_id}/` prefix rather than folding its files into the parent site's manifest. Blobs, indexes, and delta cursors follow the same per-`site_id` split, which keeps a subsite's backup, restore, and retention independent of its parent.
+Messages, attachments, and files are named by an HMAC-SHA256 of their **plaintext**, computed before encryption and keyed with a naming key derived from the tenant data key. Identical content within an owner gets the same name and is stored once, so a message that appears in several snapshots is one object. Each manifest records the object's key and a plain SHA-256 checksum of the plaintext. Integrity checks decrypt the object, hash the result with SHA-256, and compare it with the manifest checksum. A match proves the content is byte-for-byte what was backed up.
 
-## The `_meta/dek.enc` object
+Objects written before keyed naming are named by the plain SHA-256 of their plaintext. They stay readable through their manifest entries. See [What object names reveal](/security#what-object-names-reveal).
 
-This is the single most important object in the bucket. It holds the **Data Encryption Key (DEK)** wrapped (encrypted) with the KEK derived from your passphrase. Without this file:
-
-- No message can be decrypted
-- No manifest can be read
-- No restore is possible
-
-If `_meta/dek.enc` is deleted or corrupted, all data in the bucket becomes permanently inaccessible unless you hold a separate backup of the DEK. Consider extra protection for this prefix:
-
-- S3 bucket policies that restrict delete operations on `_meta/*`
-- Object Lock with extended retention on this specific prefix
-- Regular verification that the file exists and is accessible
-
-## Content-addressed storage
-
-Messages and attachments use their **SHA-256 hash** as the object key (for example `data/{mailbox}/a1b2c3d4...`). The hash is taken over the **plaintext** content, before encryption.
-
-This gives automatic deduplication: if the same email appears in multiple snapshots, which is common with incremental backups, it is stored once. The manifest references the hash, and every snapshot containing that message points to the same S3 object.
-
-Embedding attachments in MIME narrows that property for message objects. Two messages carrying the same slide deck are two distinct MIME blobs with two distinct hashes, so the deck is stored once per message rather than once per mailbox. Base64 encoding inside MIME also costs roughly one third more bytes than the raw attachment, because base64 represents three binary bytes as four text bytes. Both are the deliberate price of byte-exact fidelity, since an attachment that has been extracted and re-encoded is no longer the object the sender signed. Legacy JSON entries keep the old per-attachment deduplication.
-
-Integrity verification follows from the same property. Decrypt the object, hash the result, and compare against the key. A match proves the content is exactly what was backed up.
+MIME changes the deduplication boundary for messages. Two messages with the same attachment are two blobs, so the attachment is stored once per message rather than once per mailbox. MIME also encodes attachments in base64, which adds about one third to their size. Atlas accepts that cost because it keeps messages byte-exact, which matters for signed mail.
 
 ## S3 object metadata
 
-Each uploaded object carries S3 metadata headers:
+Mailbox objects carry these headers:
 
-| Header                          | Value                                   | Encrypted                    |
-| ------------------------------- | --------------------------------------- | ---------------------------- |
-| `x-amz-meta-x-message-id`       | Microsoft Graph message ID              | **No**, visible to S3 access |
-| `x-amz-meta-x-plaintext-sha256` | SHA-256 of original plaintext           | **No**, visible to S3 access |
-| `Content-MD5`                   | MD5 of ciphertext (transport integrity) | N/A, standard S3 header      |
+| Header                          | Value                                    | Encrypted                  |
+| ------------------------------- | ---------------------------------------- | -------------------------- |
+| `x-amz-meta-x-message-id`       | Microsoft Graph message ID               | No, visible to S3 readers  |
+| `Content-MD5`                   | MD5 of the ciphertext (transport check)  | Standard S3 header         |
 
-:::: warning Metadata visibility
-S3 object metadata is **not encrypted**. Anyone with S3 read access (for example `s3:GetObject` or `s3:ListBucket` with metadata) can see Graph message IDs and plaintext hashes. The message **content** stays encrypted, but the metadata reveals that specific messages exist and what their content hashes are. That is the trade-off: metadata enables deduplication checks and integrity verification without decryption, and it leaks existence information.
+Objects written before keyed naming also carry `x-amz-meta-x-plaintext-sha256`, the SHA-256 of the plaintext. Atlas no longer writes or reads it.
 
-Where even metadata exposure is unacceptable, restrict S3 access to the Atlas service account only and use network-level controls (VPC, firewall rules) to limit who can reach the S3 endpoint.
-::::
+::: warning Metadata reveals existence
+Anyone with S3 read access can list Graph message IDs. The content stays encrypted, but the metadata shows which messages exist. If that exposure is not acceptable, limit the bucket to the Atlas service account and restrict the network path to the S3 endpoint.
+:::
+
+## See also
+
+- [Replication](/operations/replication): copies these objects to a target
+- [Immutability](/operations/immutability): Object Lock and lifecycle rules
+- [Storage setup](/self-hosting/storage): creating the bucket

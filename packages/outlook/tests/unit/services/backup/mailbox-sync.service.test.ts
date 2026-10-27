@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -19,6 +20,7 @@ import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { ObjectStorage } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_message(id: string, body: string, has_attachments = false): MailMessage {
@@ -85,6 +87,7 @@ function make_mock_context(storage?: ObjectStorage): TenantContext {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
@@ -113,8 +116,10 @@ describe('MailboxSyncService', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     mock_factory = {
@@ -221,17 +226,18 @@ describe('MailboxSyncService', () => {
     );
   });
 
-  it('uses content-addressed storage keys', async () => {
-    const { createHash: create_hash } = await import('node:crypto');
+  it('uses keyed content names for storage keys', async () => {
     const msg = make_message('msg-1', 'unique content');
-    const expected_hash = create_hash('sha256').update(msg.raw_body).digest('hex');
+    const expected_name = createHmac('sha256', Buffer.alloc(32, 0x5a))
+      .update(msg.raw_body)
+      .digest('hex');
 
     vi.mocked(mock_connector.fetch_delta).mockResolvedValue(make_delta([msg]));
 
     await service.sync_mailbox('t', 'user@test.com');
 
     const [key] = (mock_context.storage.put as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(key).toBe(`data/user@test.com/${expected_hash}`);
+    expect(key).toBe(`data/user@test.com/${expected_name}`);
   });
 
   it('encrypts data before storing', async () => {

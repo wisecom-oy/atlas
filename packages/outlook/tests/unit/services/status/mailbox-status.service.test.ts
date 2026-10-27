@@ -13,6 +13,7 @@ import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_folder(name: string, id?: string, count = 10): MailFolder {
@@ -66,6 +67,7 @@ function make_mock_context(): TenantContext {
     encrypt: vi.fn(),
     decrypt: vi.fn(),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
@@ -96,8 +98,10 @@ describe('MailboxStatusService', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     const mock_factory: TenantContextFactory = {

@@ -14,6 +14,7 @@ import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
 import { print_mime_message } from '@/commands/outlook-mime-message-view';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 export interface OutlookListOptions {
   tenant?: string;
@@ -60,7 +61,8 @@ export async function execute_outlook_list(
       options.subjects,
     );
   } else if (scope.mode === 'mailbox') {
-    await print_mailbox_snapshots(catalog, tenant_id, scope.mailbox);
+    const owner = await resolve_owner(container, tenant_id, scope.mailbox);
+    await print_mailbox_snapshots(catalog, tenant_id, owner.object_id, scope.mailbox);
   } else {
     await print_all_mailboxes(catalog, tenant_id);
   }
@@ -121,6 +123,7 @@ async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): 
 
   interface MailboxRow {
     mailbox: string;
+    object_id: string;
     type: string;
     snapshots: string;
     objects: string;
@@ -129,6 +132,7 @@ async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): 
   }
   const columns: TableColumn<MailboxRow>[] = [
     { key: 'mailbox', header: 'Mailbox' },
+    { key: 'object_id', header: 'Owner ID' },
     { key: 'type', header: 'Type' },
     { key: 'snapshots', header: 'Snapshots' },
     { key: 'objects', header: 'Objects' },
@@ -136,7 +140,8 @@ async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): 
     { key: 'last_backup', header: 'Last backup' },
   ];
   const rows = mailboxes.map((m: MailboxSummary) => ({
-    mailbox: m.owner_id,
+    mailbox: m.owner_email ?? '--',
+    object_id: m.owner_id,
     type: m.mailbox_purpose ?? '--',
     snapshots: String(m.snapshot_count),
     objects: String(m.total_objects),
@@ -151,15 +156,16 @@ async function print_mailbox_snapshots(
   catalog: CatalogUseCase,
   tenant_id: string,
   mailbox_id: string,
+  mailbox_label: string,
 ): Promise<void> {
   const snapshots = await catalog.list_snapshots(tenant_id, mailbox_id);
 
   if (snapshots.length === 0) {
-    logger.warn(`No snapshots found for ${mailbox_id}`);
+    logger.warn(`No snapshots found for ${mailbox_label}`);
     return;
   }
 
-  logger.info(`${snapshots.length} snapshot(s) for ${mailbox_id}\n`);
+  logger.info(`${snapshots.length} snapshot(s) for ${mailbox_label}\n`);
 
   interface SnapshotRow {
     snapshot: string;
@@ -177,7 +183,7 @@ async function print_mailbox_snapshots(
     snapshot: s.snapshot_id,
     objects: String(s.total_objects),
     size: format_bytes(s.total_size_bytes),
-    created: new Date(s.created_at).toISOString().slice(0, 19).replace('T', ' '),
+    created: s.created_at.toISOString().slice(0, 19).replace('T', ' '),
   }));
   await render_static_view(<DataTable columns={columns} rows={rows} />);
 }

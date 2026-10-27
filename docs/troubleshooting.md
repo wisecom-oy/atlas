@@ -1,231 +1,251 @@
+---
+description: Find an Atlas error by stage and apply its fix, with the diagnostics script to run before opening an issue and DEBUG=1 for detailed logs.
+---
+
 # Troubleshooting
 
-Each entry below starts with what you see in the logs, then why it happens and what to do.
+Find the error you see, read why it happens, then apply the fix. Errors are grouped by the stage where they occur.
 
-Opening an issue? Run `./tools/diagnostics.sh` from the repository root and include its output. It reports your OS, Node and Atlas versions, and which configuration sources Atlas can see, without printing any secret values. Replace real mailbox addresses, file names, and site URLs with generic placeholders before posting.
+Before you open an issue, run `./tools/diagnostics.sh` from the repository root and attach its output. Check the output first: the `ATLAS_S3_ENDPOINT` line must be removed if your endpoint is private. Replace mailbox addresses, file names, and site URLs with placeholders such as `user@example.com` and `contoso.sharepoint.com`.
 
-## Authentication Failures
+For more detail on any step, set `DEBUG=1` before the command to enable debug logging.
 
-Authentication errors appear before any backup activity starts. Atlas authenticates with Microsoft Graph using the OAuth2 Client Credentials flow, so failures here are credential or tenant configuration problems, never network or storage issues.
+## Authentication failures
+
+Authentication errors occur before any backup work starts. Atlas signs in to Microsoft Graph with the OAuth 2.0 client credentials flow, so a failure here is a credential or tenant configuration problem, not a network or storage problem.
 
 ### AADSTS error codes
 
-| Error Code      | Meaning                            | Fix                                                                                                                                                                                                                                  |
-| --------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AADSTS50020`   | Wrong tenant ID                    | Verify `ATLAS_TENANT_ID` matches the **Directory (tenant) ID** in Azure Portal → Microsoft Entra ID → Overview.                                                                                                                      |
-| `AADSTS700016`  | Wrong client ID or app not found   | Verify `ATLAS_CLIENT_ID` matches the **Application (client) ID** in App registrations. The app must exist in the tenant specified by `ATLAS_TENANT_ID`.                                                                              |
-| `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date of your secret in **Certificates & secrets**. If expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If not expired, verify you copied the secret **Value** (not the Secret ID). |
-| `AADSTS65001`   | Admin consent not granted          | Go to **API permissions** for the app registration and click **Grant admin consent for [tenant]**.                                                                                                                                   |
+| Error code      | Meaning                            | Fix                                                                                                                                                                                                                                                       |
+| --------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AADSTS50020`   | Wrong tenant ID                    | Set `ATLAS_TENANT_ID` to the **Directory (tenant) ID** shown in **Microsoft Entra ID → Overview**.                                                                                                                                                       |
+| `AADSTS700016`  | Wrong client ID or app not found   | Set `ATLAS_CLIENT_ID` to the **Application (client) ID** from **App registrations**. The app must exist in the tenant named by `ATLAS_TENANT_ID`.                                                                                                       |
+| `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date in **Certificates & secrets**. If the secret has expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If it has not, confirm you copied the secret **Value**, not the **Secret ID**.                   |
+| `AADSTS65001`   | Admin consent not granted          | Open **API permissions** for the app registration and select **Grant admin consent for \<tenant\>**.                                                                                                                                                    |
 
-### Diagnosing authentication errors
+For any other AADSTS code, look it up in Microsoft's AADSTS error reference, then check **Microsoft Entra ID → Sign-in logs → Service principal sign-ins** and filter by the application's client ID.
 
-Atlas logs the full AADSTS error response on authentication failure. Look for a line like:
+## Graph throttling and transient server errors
 
-```
-Error: ClientSecretCredential authentication failed
-  AADSTS7000215: Invalid client secret provided...
-```
+### What Atlas does with 429 and 5xx responses
 
-If the message is ambiguous, cross-check in the Azure Portal under **Microsoft Entra ID → Sign-in logs → Application sign-ins**, filtering by your application's client ID.
+Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 504 under load. Atlas retries these automatically:
 
-## Graph API 429 Throttling and Transient 5xx
+- It honors the `Retry-After` header when Graph sends one. Without it, a 429 applies a 30-second cooldown.
+- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. The full retry budget is about 23 minutes.
+- If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
 
-### Rate limit warnings during a backup
+Occasional 429 and 5xx responses during a large first backup need no action.
 
-```
-[warn] Graph API rate limit hit (attempt 3/12), retrying in 14s (Retry-After header)
-```
+### When to act
 
-HTTP 429 responses from Microsoft Graph are normal during large backups and need no intervention. The same applies to occasional `500 InternalServerError` and `502 Bad Gateway` responses, which Graph raises under load and Atlas retries on the same schedule as a 429 rather than failing the folder or drive batch.
-
-Atlas honors Microsoft's `Retry-After` header and retries up to **12 times** with exponential backoff. If all 12 retries are exhausted, the folder-level operation fails and is recorded in `summary.folder_errors`, and the backup continues with other folders.
-
-### When to worry
-
-| What you see                                     | What it means                                                                           | What to do                                                                                                           |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Occasional 429s during a large initial backup    | Normal. Microsoft throttles per-application and per-mailbox, and Atlas handles it.      | Nothing.                                                                                                             |
-| Persistent 429s causing repeated folder failures | Multiple mailbox backups running at once exceed your tenant's allocated Graph capacity. | Run one mailbox per `atlas outlook backup -m` invocation and stagger the schedules.                                  |
-| 429s on every request from the start             | Another application in your tenant may be consuming heavy Graph API quota.              | Check tenant-wide Graph usage. Contact Microsoft support if the throttle limits seem unusually low.                  |
-| Occasional 500/502 responses                     | Normal under load, retried automatically.                                               | Nothing, if the run completes.                                                                                       |
-| Persistent 500/502 on the same item              | Not throttling. Retries are exhausted against a server-side fault.                      | Re-run the backup later. If it repeats, open a Microsoft support case with the request IDs from `--log-level debug`. |
+| What you see                                       | What it means                                                                    | What to do                                                                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Occasional 429s during a large initial backup      | Normal. Graph throttles per application and per mailbox, and Atlas waits it out. | Nothing.                                                                                                                             |
+| Repeated 429s that cause folder failures           | Several backups run at the same time and exceed the tenant's Graph capacity.     | Run one `atlas outlook backup -m` per mailbox and stagger the schedules.                                                              |
+| 429s on every request from the start               | Another application in the tenant may be using most of the Graph quota.          | Review tenant-wide Graph usage. Contact Microsoft support if the limits look lower than expected.                                    |
+| Occasional 500 or 502 responses                    | Normal under load. Retried automatically.                                        | Nothing, if the run completes.                                                                                                       |
+| Persistent 500 or 502 on the same item             | Retries are exhausted against a server-side fault, not throttling.               | Re-run the backup later. If the failure repeats, open a Microsoft support case with the time of the failure and the affected item. |
 
 ### Throughput ceiling
 
-Graph API throttling caps effective throughput even with unlimited bandwidth. For a first full tenant backup, monitor actual transfer rates and use the baseline to plan your scheduling window. See [Scheduling & Bandwidth](/self-hosting/scheduling) for sizing estimates.
+Graph throttling caps throughput even with unlimited bandwidth. For a first full tenant backup, measure the real transfer rate and use it to plan your schedule. See [Scheduling and bandwidth](/self-hosting/scheduling) for sizing guidance.
 
-## OneDrive & SharePoint Permission Errors
+## OneDrive and SharePoint permission errors
 
-File workload backups require Graph API permissions beyond Outlook mailbox access. See [OneDrive Backup](/onedrive-backup) and [SharePoint Backup](/sharepoint-backup) for the full permission matrix per command.
+File workload backups need Graph application permissions beyond mailbox access. The permissions for each command are listed in [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-backup).
 
-### OneDrive: user not found or no drive
+### OneDrive: owner cannot be resolved
 
-```
-Error: Failed to resolve owner: user not found
-```
+Atlas could not find the owner in the tenant.
 
-Atlas could not resolve the owner to a licensed OneDrive.
+- Confirm the address passed to `-o` exists in the tenant and has a licensed OneDrive.
+- Confirm the application permissions for OneDrive backup are granted with admin consent.
 
-- Verify the email/UPN in `-o` exists in the tenant and has a licensed OneDrive.
-- Confirm `User.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
-
-### OneDrive: no drive is provisioned for the user
+### OneDrive: no drive is provisioned
 
 ```
-No OneDrive is provisioned for john.doe@example.com.
-Microsoft Graph answers 404 for a user who has never opened OneDrive, which is normal for admin
-and service accounts.
+No OneDrive is provisioned for user@example.com.
 ```
 
-The account exists and the grants are fine. A user's OneDrive is created the first time they open
-it, so an account that never has looks the same to Graph as one that does not exist: `GET
-/users/{id}/drives` answers `404 User's mysite not found`.
+The account exists and its permissions are fine. Microsoft Graph returns 404 for a user who has never opened OneDrive. This is normal for admin and service accounts, and Graph gives the same response for an account that does not exist.
 
-Nothing to grant and nothing to retry. Either sign in to OneDrive once as that user to provision
-the drive, or leave the account out of the run. The SDK reports it as `NotFoundError` with code
-`ATLAS_NOT_FOUND`, so a caller iterating a tenant can skip the owner instead of failing the run.
+Either sign in to OneDrive once as that user to provision the drive, or leave the account out of the run. Atlas reports this case with the `ATLAS_NOT_FOUND` code (exit `7`), so a script that iterates over a tenant can skip the owner and continue.
 
-A missing permission is a `403` and still reports as one, naming the grants to add. The two are
-worth keeping apart: before this, a 404 here was reported as missing `Files.Read.All` and
-`Sites.Read.All`, which sent operators to re-check consent they already had.
+A missing permission is a 403 and is reported separately as `ATLAS_AUTH_DENIED` (exit `4`). Do not re-check consent for a 404.
 
-### SharePoint: site not found
+### SharePoint: site cannot be resolved
 
-```
-Error: Failed to resolve site: itemNotFound
-```
+Graph returned `itemNotFound` for the site URL.
 
-Graph could not resolve the site URL.
+- Confirm the URL is correct and the site has not been deleted or renamed.
+- Confirm the application permissions for SharePoint backup are granted with admin consent.
+- Use the full URL including `/sites/<SiteName>`. Root site URLs use a different path format.
 
-- Verify the site URL is correct and the site has not been deleted or renamed.
-- Confirm `Sites.Read.All` and `Files.Read.All` application permissions are granted with admin consent.
-- Some sites require the full URL including `/sites/SiteName`, because root site URLs use a different path format.
+### SharePoint restore: access denied
 
-### SharePoint restore: insufficient write permission
+Graph returned `accessDenied` during a restore. Restore needs write permission on the target site, in addition to the read permissions used for backup. Add the permission listed for restore in [SharePoint backup](/sharepoint-backup), then grant admin consent.
 
-```
-Error: accessDenied
-```
+## S3 connectivity errors
 
-Restore requires `Sites.ReadWrite.All` in addition to the read permissions needed for backup. Add the permission, then grant admin consent.
-
-## S3 Connectivity Errors
-
-S3 errors prevent Atlas from reading or writing backup data. These are configuration problems, not transient failures.
+S3 errors stop Atlas from reading or writing backup data. They are configuration problems, not transient failures.
 
 ### Endpoint not reachable
 
 ```
-Error: connect ECONNREFUSED 127.0.0.1:9000
+connect ECONNREFUSED 127.0.0.1:9000
 ```
 
 Nothing is listening on the configured endpoint.
 
-- Check that MinIO (or your S3-compatible storage) is running: `docker ps` or `systemctl status minio`.
-- Verify `ATLAS_S3_ENDPOINT` points to the correct host and port.
-- If Atlas runs on a different machine than MinIO, confirm the firewall allows TCP on port 9000.
+- Confirm MinIO or your S3-compatible service is running, for example with `docker ps` or `systemctl status minio`.
+- Confirm `ATLAS_S3_ENDPOINT` points to the correct host and port.
+- If Atlas runs on another machine, confirm the firewall allows TCP on the endpoint port (9000 by default for MinIO).
 
-### NoSuchBucket on S3-compatible storage
-
-```
-Error: NoSuchBucket: The specified bucket does not exist
-```
-
-Atlas always sends path-style URLs (`http://hostname:9000/bucket-name`), because MinIO and most S3-compatible services require them. On AWS S3 this error means the bucket name or region in `ATLAS_S3_BUCKET` is wrong, or the credentials belong to a different account. Create the bucket if it is missing; Atlas does not create it for you.
-
-### Wrong credentials
+### Bucket not found
 
 ```
-Error: SignatureDoesNotMatch: The request signature we calculated does not match the signature you provided.
+NoSuchBucket: The specified bucket does not exist
 ```
 
-The signature Atlas computed does not match what the server expected, which points at the keys or at the clock.
+Atlas uses one bucket per tenant and creates it on first use when the credentials allow it. Atlas uses path-style URLs (`http://hostname:9000/bucket-name`), which MinIO and most S3-compatible services require.
 
-- Verify `ATLAS_S3_ACCESS_KEY` and `ATLAS_S3_SECRET_KEY` are correct.
-- Check for trailing whitespace or newline characters in the environment variable values.
-- If using MinIO, confirm the credentials match `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` in your Docker environment.
-- Significant clock skew between the Atlas host and the S3 server causes the same error. AWS S3 rejects requests where the timestamp differs by more than 15 minutes. Ensure both systems use NTP.
+If the error persists on AWS S3, check that the region matches the bucket's region and that the credentials belong to the account that owns the bucket. If your credentials cannot create buckets, create the bucket in advance. See [Storage layout](/operations/storage-layout).
 
-## Decryption Failures
+### Signature mismatch
 
-Decryption errors mean the configured passphrase does not match the one used to encrypt the data, or the key material is corrupt.
+```
+SignatureDoesNotMatch: The request signature we calculated does not match the signature you provided.
+```
+
+The signature Atlas computed differs from the one the server expects. The cause is usually the keys or the clock.
+
+- Confirm `ATLAS_S3_ACCESS_KEY` and `ATLAS_S3_SECRET_KEY` are correct.
+- Remove trailing spaces and newlines from the values in your environment or `.env` file.
+- For MinIO, confirm the keys match the root user and password the server was started with.
+- Check the clock. S3 rejects requests whose timestamp differs from the server time by more than 15 minutes. Run NTP on both the Atlas host and the S3 server.
+
+## Decryption failures
+
+A decryption failure means the passphrase does not match the one that protected the tenant's data, or the stored key or data is damaged. Atlas never regenerates a key over an existing one, so a damaged key cannot be replaced in place.
 
 ### Wrong passphrase
 
 ```
-Error: Unable to unwrap DEK: incorrect passphrase or corrupted key blob
+Could not unwrap the data key: the passphrase does not match the one this backup was written with, or the wrapped key is damaged.
 ```
 
-The passphrase in `ATLAS_ENCRYPTION_PASSPHRASE` does not match the one used when the tenant was first initialized. The wrapped DEK (stored at `_meta/dek.enc` in the bucket) was encrypted with the original passphrase using scrypt key derivation. Changing the passphrase without re-wrapping the DEK makes all data inaccessible: run [`atlas keys rewrap --new-passphrase`](/reference/cli#atlas-keys) with the old passphrase still configured, then change the configured value.
+This error has the code `ATLAS_WRONG_PASSPHRASE`. Check that `ATLAS_ENCRYPTION_PASSPHRASE` matches the passphrase used when the tenant was first initialized.
 
-### Corrupted DEK blob
+Atlas stores the data key wrapped by the passphrase in the bucket at `_meta/dek.enc`. Changing the passphrase without re-wrapping that key makes the data unreadable. To change it safely:
 
-```
-Error: Failed to parse DEK blob: unexpected end of data
-```
+1. Keep the current passphrase configured.
+2. Run [`atlas keys rewrap --new-passphrase`](/reference/cli#atlas-keys).
+3. Set `ATLAS_ENCRYPTION_PASSPHRASE` to the new value.
 
-The `_meta/dek.enc` object in the bucket is corrupted or truncated, usually from an interrupted write during initialization.
+Atlas checks that the new wrapper opens before it replaces the old one, so a failed rewrap changes nothing.
 
-- If you have a replica, recover the DEK from there using `atlas rehydrate`.
-- Otherwise the tenant must be re-initialized, which destroys all existing data.
+### Damaged key
 
-### GCM authentication failure
+If the passphrase is correct and the same error persists, `_meta/dek.enc` is damaged. Recover the key from a replica with `atlas rehydrate`. Without a replica, the data encrypted under that key cannot be read.
 
-```
-Error: GCM authentication failed: data may be corrupted or tampered with
-```
-
-The GCM authentication tag on an encrypted object does not match. One of three things happened:
-
-1. **Corruption in transit or at rest**: the ciphertext was modified after being written. Run `atlas outlook verify -m <mailbox> -s <snapshot-id>`, `atlas onedrive verify -o <owner> -s <snapshot-id>`, or `atlas sharepoint verify --site <url> -s <snapshot-id>` to identify which objects are affected.
-2. **Wrong DEK**: the object was encrypted by a different tenant or after a tenant re-initialization. This happens when objects from two different Atlas instances end up in the same bucket.
-3. **Deliberate tampering**: the object was modified by an attacker or a misconfigured tool.
-
-In all cases the affected items cannot be decrypted. The remaining items in the snapshot are unaffected.
-
-## Object Lock Errors
-
-Object Lock must be enabled at bucket **creation** time. It cannot be added to an existing bucket.
-
-### Bucket not configured for versioning
+### Authentication failure on an object
 
 ```
-Error: InvalidBucketState: Object Lock configuration cannot be enabled on existing buckets.
+AES-GCM authentication failed for <object-key>
 ```
 
-or
+The authentication tag on an encrypted object does not match its contents. There are three possible causes:
+
+1. **Corruption:** the object changed after it was written. Run the matching verify command to find affected items:
+   - `atlas outlook verify -m <mailbox> -s <snapshot-id>`
+   - `atlas onedrive verify -o <owner> -s <snapshot-id>`
+   - `atlas sharepoint verify --site <url> -s <snapshot-id>`
+2. **Wrong key:** the object was written under a different tenant key. This happens when two Atlas instances write to the same bucket.
+3. **Tampering:** the object was modified deliberately.
+
+The affected items cannot be decrypted in any of these cases. The other items in the snapshot are unaffected.
+
+## Object Lock errors
+
+Object Lock must be enabled when a bucket is created. Most backends cannot add it to an existing bucket, so a bucket created without it cannot be used for immutable backups.
+
+### Versioning or Object Lock is missing
 
 ```
-Error: Object Lock requires versioning to be enabled.
+Immutability requested, but bucket versioning is disabled for <bucket>. Enable bucket versioning and Object Lock, or run backup without retention.
 ```
 
-You are applying Object Lock to a bucket that was created without it. Create a new bucket with Object Lock enabled from the start, then update `ATLAS_S3_BUCKET` to point to it. See [Immutability & Object Lock](/operations/immutability) for step-by-step bucket setup.
-
-### Object Lock not enabled at bucket creation
-
 ```
-Error: InvalidRequest: Bucket is missing ObjectLockConfiguration
+Immutability requested, but Object Lock is not supported or not enabled for bucket <bucket>.
 ```
 
-The bucket exists and has versioning, but Object Lock was not enabled at creation. The only fix is to create a new bucket with Object Lock enabled.
+The bucket was created without Object Lock. Create a new bucket with Object Lock enabled and move the tenant to it. See the legacy bucket migration steps in [Storage](/self-hosting/storage).
+
+### Backend rejected the lock mode
+
+```
+Backend rejected Object Lock mode <mode> for bucket <bucket>.
+```
+
+The S3 backend does not support the requested mode. Use `governance` or `compliance` (see [Immutability and Object Lock](/operations/immutability)) and check the storage backend's documentation.
+
+### Lock not applied at creation
+
+```
+Backend rejected Object Lock at creation for bucket "<bucket>" -- created without it.
+```
+
+Atlas logs this warning when the backend refuses Object Lock during bucket creation and Atlas falls back to a plain bucket. Immutability does not work on that bucket. Create a bucket with Object Lock enabled instead.
 
 ::: tip Pre-flight check
-Run `atlas storage-check --lock-mode governance --retention-days 30` before your first immutable backup. It reports versioning and Object Lock status without writing any data, so you catch configuration problems before they affect a backup job.
+Run `atlas storage-check --lock-mode governance --retention-days 30` before your first immutable backup. It reports whether the bucket is reachable and whether versioning and Object Lock are enabled, so you can fix configuration problems before a backup job runs.
 :::
 
-## Restore Content Errors
+## Restore content errors
 
-### Outlook: a message header block over 1 MiB
+### Outlook: message headers exceed 1 MiB
 
 ```
-<message-id>: The message header block exceeds the 1 MiB limit the MIME parser enforces, so
-none of the headers could be read (message size 1600026 bytes).
+<message-id>: The message header block exceeds the 1 MiB limit the MIME parser enforces, so none of the headers could be read.
 ```
 
-The MIME parser stops reading a header block once it passes 1 MiB and then reports no headers at all: no addresses, no subject, no date. Atlas refuses the entry rather than restoring the body on its own, because a message with none of its headers is not the message that was backed up, and restoring it would look like a success.
+The MIME parser reads at most 1 MiB of headers. A larger block yields no headers at all: no addresses, subject, or date. Atlas does not restore such a message as an ordinary entry, because a message without its headers is not the message that was backed up.
 
-A block that large is almost always a distribution list expanded into `To` or `Cc`, or a long `Received` chain on a message that crossed many hops. The backup itself is fine: the raw bytes are stored, encrypted and checksum-verified, and `atlas outlook save` writes them out as a file you can open in a mail client directly.
+A block this large is usually a distribution list expanded into `To` or `Cc`, or a long `Received` chain. The backup itself is intact. The raw message is stored encrypted and checksum-verified, and `atlas outlook save` writes it to a file that a mail client can open directly.
 
-How it is reported depends on what was asked for. A mailbox or snapshot restore fails this entry on its own: every other message restores, this one is listed in the errors, and the run exits `2` for a partial rather than `0`, so the gap is visible instead of silent. A single-message restore (`--message`) has nothing else to report, so the failure is the result: it exits `9`, the category for stored content that cannot be parsed.
+How the failure is reported depends on the command:
 
-In the SDK the failure is an `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`, which is permanent. Retrying re-reads the same bytes and fails the same way.
+- A mailbox or snapshot restore skips this entry, restores the others, and reports the error. The run exits with code `2` (partial), so the gap is visible.
+- A single-message restore (`--message`) fails with exit code `9` (stored content cannot be read).
+
+In the SDK, the error is `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`. It is permanent: retrying reads the same bytes and fails the same way.
+
+## Backup state errors
+
+### Delta cursor or identity registry cannot be read
+
+```
+Could not read the state object at identity-registry.json
+```
+
+```
+The state object at onedrive/_meta/<owner>/delta.json is corrupt or tampered
+```
+
+OneDrive and SharePoint keep a delta cursor per owner or site, and the tenant keeps one identity registry. If one of these exists but cannot be read, the run stops before it writes anything. Treating the object as missing would re-download the whole drive, lose deletion tracking, and overwrite the stored state. For the registry, that would erase the cached identities of departed users.
+
+The two messages mean different things:
+
+- **`Could not read the state object`** is a storage failure (`ATLAS_STORAGE_FAILURE`, exit `1`). Retry once the bucket responds.
+- **`is corrupt or tampered`** means the object failed AES-256-GCM authentication or JSON parsing (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Retrying does not help. Treat it as possible tampering first.
+
+To recover a damaged delta cursor, restore an earlier version from bucket versioning, or delete the cursor to force a full enumeration on the next run. For a damaged `identity-registry.json`, restore an earlier version and do not delete the object. The registry is the only record of departed users that Graph no longer resolves, so deleting it makes their backups impossible to find by address.
+
+## See also
+
+- [Getting started](/getting-started)
+- [Concepts](/concepts)
+- [CLI reference](/reference/cli)
+- [Security](/security)
+- [Microsoft Entra ID setup](/azure-ad-setup)

@@ -2,8 +2,11 @@ import {
   randomBytes,
   createCipheriv,
   createDecipheriv,
+  createHmac,
+  hkdfSync,
   type CipherGCM,
   type DecipherGCM,
+  type Hmac,
 } from 'node:crypto';
 import { ConfigError, WrongPassphraseError } from '@wisecom/atlas-types';
 import {
@@ -27,12 +30,14 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
+/** HKDF info label binding the derived naming key to its single purpose (issue #446). */
+const NAMING_KEY_INFO = 'atlas/object-name/v1';
 
 /**
  * Envelope encryption using AES-256-GCM.
  *
  * - A master passphrase derives a KEK per wrap via a registered KDF strategy
- *   (scrypt v1, OWASP N=65536, per-wrap random salt, tenant-domain separation).
+ *   (scrypt v1, N=65536 r=8 p=1, per-wrap random salt, tenant-domain separation).
  * - A random DEK is generated per tenant and wrapped with the KEK into a
  *   versioned, AAD-authenticated blob (see `dek-blob-codec`).
  * - All tenant data is encrypted with the DEK (buffer or streaming).
@@ -125,6 +130,19 @@ export class EnvelopeKeyService {
   /** Generates a fresh random 256-bit DEK. */
   generate_dek(): Buffer {
     return randomBytes(KEY_LENGTH);
+  }
+
+  /**
+   * Derives the key that names content objects from the DEK. HKDF keeps it separate from the
+   * DEK, so the object names reveal nothing without the tenant key (issue #446).
+   */
+  derive_naming_key(dek: Buffer): Buffer {
+    return Buffer.from(hkdfSync('sha256', dek, Buffer.alloc(0), NAMING_KEY_INFO, KEY_LENGTH));
+  }
+
+  /** Starts an HMAC-SHA256 over plaintext under a naming key from {@link derive_naming_key}. */
+  create_content_hmac(naming_key: Buffer): Hmac {
+    return createHmac('sha256', naming_key);
   }
 
   /**

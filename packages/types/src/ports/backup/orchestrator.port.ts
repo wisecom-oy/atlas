@@ -15,14 +15,18 @@ export interface TenantBackupOptions {
 
 export interface MailboxBackupOutcome {
   readonly owner_id: string;
+  /** Mailbox address for display; `owner_id` is the Entra object ID. */
+  readonly owner_email?: string;
   readonly result?: SyncResult;
   readonly error?: string;
 }
 
 export interface TenantBackupResult {
   readonly outcomes: MailboxBackupOutcome[];
+  /** Every mailbox discovery returned, including excluded ones skipped without history. */
   readonly total_mailboxes: number;
   readonly succeeded: number;
+  /** Mailboxes that failed, plus excluded mailboxes that have existing backups. */
   readonly failed: number;
   readonly interrupted: boolean;
   readonly elapsed_ms: number;

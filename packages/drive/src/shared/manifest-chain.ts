@@ -4,6 +4,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
 import type { DriveChainEntry } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
 import type { TenantContext } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import type { DriveManifestEntry, DriveSnapshotManifest } from '@/drive-ports';
 
 /**
@@ -46,7 +47,7 @@ export async function load_drive_chain_entries<TManifest extends DriveChainManif
 ): Promise<{ manifest: TManifest; entries: DriveChainEntryRow[] }> {
   const target = await manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
   if (!target) {
-    throw new Error(`No ${manifests.workload} manifest found for snapshot ${snapshot_id}`);
+    throw new NotFoundError(`No ${manifests.workload} manifest found for snapshot ${snapshot_id}`);
   }
 
   const all = await manifests.list_snapshots(ctx, owner_id);

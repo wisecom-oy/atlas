@@ -24,10 +24,18 @@ export interface Manifest {
   readonly tenant_id: string;
   /** Entra object ID (UUID) of the mailbox owner; used as the storage partition key. */
   readonly owner_id: string;
+  /** Mailbox address at backup time; display metadata only, never part of a storage key. */
+  readonly owner_email?: string;
+  /** Mailbox display name at backup time; display metadata only. */
+  readonly owner_display_name?: string;
   /** Graph mailboxSettings.userPurpose at backup time; 'shared' = shared mailbox. Absent on pre-feature manifests or when the lookup failed. */
   readonly mailbox_purpose?: MailboxPurpose;
   readonly snapshot_id: string;
   readonly created_at: Date;
+  /**
+   * High-water mark: the largest entry count any run of this mailbox stored. Never decreases, so
+   * the stale-delta safeguard can tell an unchanged mailbox from one never backed up.
+   */
   readonly total_objects: number;
   readonly total_size_bytes: number;
   /** Maps folder_id -> full @odata.deltaLink URL for the next incremental sync. */
@@ -52,6 +60,13 @@ export interface Manifest {
    * manifests written before the field.
    */
   readonly folders?: MailFolder[] | undefined;
+  /**
+   * Message IDs the run's delta reported as deleted or moved out of a folder. In a snapshot chain
+   * they hide the same IDs in older manifests, so a message deleted before this snapshot is not
+   * restored from it (issue #512). Recorded only by a run that finished every folder without a
+   * folder filter; absent otherwise and on older manifests.
+   */
+  readonly removed_object_ids?: string[] | undefined;
   readonly entries: ManifestEntry[];
 }
 
@@ -70,6 +85,12 @@ export interface AttachmentEntry {
   readonly checksum: string;
   readonly is_inline: boolean;
   readonly content_id?: string;
+}
+
+/** A MAPI single-value extended property in Graph's `{ id, value }` shape. */
+export interface ExtendedProperty {
+  readonly id: string;
+  readonly value: string;
 }
 
 export interface ManifestEntry {
@@ -108,6 +129,12 @@ export interface ManifestEntry {
    * writes the item back (issue #141).
    */
   readonly recoverable_items?: boolean | undefined;
+  /**
+   * Outlook reaction properties (`OwnerReactionType`, `ReactionsSummary`, `MapiReactionsBlob`)
+   * as Graph returned them. Neither MIME nor the delta payload carries them, so they are fetched
+   * separately and written back on restore. Absent when the message has no reactions (issue #481).
+   */
+  readonly reaction_properties?: readonly ExtendedProperty[] | undefined;
 }
 
 /**

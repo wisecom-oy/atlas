@@ -217,3 +217,31 @@ describe('GraphMailboxDiscoveryAdapter pagination (issue #33)', () => {
     }
   });
 });
+
+describe('GraphMailboxDiscoveryAdapter userPurpose lookup (issue #480)', () => {
+  it('records a failed lookup instead of reporting the mailbox as plain unlicensed', async () => {
+    const api = vi.fn((url: string) => {
+      const chain = {
+        header: () => chain,
+        get: async () => {
+          if (url.startsWith('/users?')) {
+            return { value: [{ id: 'u1', mail: 'shared@t.com', displayName: 'S' }] };
+          }
+          if (url.includes('mailboxSettings')) {
+            throw Object.assign(new Error('Access is denied'), { statusCode: 403 });
+          }
+          throw new Error('no Reports.Read.All');
+        },
+      };
+      return chain;
+    });
+    const container = new Container();
+    container.bind(GRAPH_CLIENT_TOKEN).toConstantValue({ api });
+    container.bind(GraphMailboxDiscoveryAdapter).toSelf();
+
+    const [mailbox] = await container.get(GraphMailboxDiscoveryAdapter).list_tenant_mailboxes('t1');
+
+    expect(mailbox?.mailbox_purpose).toBeUndefined();
+    expect(mailbox?.purpose_lookup_error).toContain('Access is denied');
+  });
+});

@@ -88,7 +88,7 @@ describe('replicate/rehydrate secret key from stdin (issue #256)', () => {
     };
     const identity = {
       resolve_user: vi.fn().mockResolvedValue({
-        object_id: '75a21b57-4d82-4f42-9ccc-7c231c30f78c',
+        object_id: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
         email: 'user@example.com',
         display_name: 'Example User',
       }),

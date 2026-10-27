@@ -13,6 +13,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { is_within_folder_scope, normalize_folder_scope } from '@/services/backup/folder-scope';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 
@@ -111,6 +112,7 @@ function make_harness(options: {
     },
     encrypt: (buffer: Buffer) => buffer,
     destroy: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 
   const factory: TenantContextFactory = {

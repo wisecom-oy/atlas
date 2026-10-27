@@ -15,6 +15,7 @@ import type {
   SharePointSnapshotManifest,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
 
@@ -76,6 +77,7 @@ function make_ctx(storage: ObjectStorage): TenantContext {
     encrypt: vi.fn((d: Buffer) => d),
     decrypt: vi.fn((d: Buffer) => d),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
@@ -249,7 +251,7 @@ describe('tenant-wide workload rehydration', () => {
   });
 
   it('rehydrate_all_sites recovers every site found on the replica', async () => {
-    vi.mocked(rehydrate_manifests).mockResolvedValue({
+    const per_site = {
       snapshot_id: 'sp',
       target_id: 'replica',
       status: ReplicationStatus.COMPLETED,
@@ -261,7 +263,10 @@ describe('tenant-wide workload rehydration', () => {
       elapsed_ms: 4,
       errors: [],
       verification_status: 'SKIPPED',
-    } as never);
+    } as never;
+    // Once per site: clearAllMocks keeps implementations, so a persistent override would leak
+    // into later tests and break them under a shuffled order (issue #443).
+    vi.mocked(rehydrate_manifests).mockResolvedValueOnce(per_site).mockResolvedValueOnce(per_site);
 
     const manifests: SharePointManifestRepository = {
       save: vi.fn(),

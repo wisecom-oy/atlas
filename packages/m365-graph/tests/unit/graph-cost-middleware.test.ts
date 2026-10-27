@@ -197,4 +197,44 @@ describe('GraphCostMiddleware', () => {
     expect(err).toBeInstanceOf(Error);
     expect(get_graph_cost(err)?.requests_total).toBe(1);
   });
+
+  // Issue #532: the limiter charged 20 for a reaction batch while graphCost recorded 1.
+  it('charges each sub-request of a $batch, as Graph does', async () => {
+    const { middleware } = make_chain();
+    const batch_of = (n: number) =>
+      context_for('https://graph.microsoft.com/v1.0/$batch', {
+        method: 'POST',
+        body: JSON.stringify({
+          requests: Array.from({ length: n }, (_, i) => ({ id: String(i), method: 'GET' })),
+        }),
+      });
+
+    const [, cost] = await run_with_cost_tracking(() =>
+      run_with_graph_operation(
+        { pool: 'outlook', request_type: 'fetch_reaction_properties' },
+        async () => {
+          await middleware.execute(batch_of(20));
+          await middleware.execute(batch_of(20));
+        },
+      ),
+    );
+
+    expect(cost.requests_by_type['fetch_reaction_properties']).toBe(40);
+    expect(cost.by_service.outlook?.requests).toBe(40);
+    expect(cost.by_service.outlook?.resource_units).toBe(40);
+  });
+
+  it('counts a $batch body it cannot read as one request', async () => {
+    const { middleware } = make_chain();
+
+    const [, cost] = await run_with_cost_tracking(() =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'batch' }, () =>
+        middleware.execute(
+          context_for('https://graph.microsoft.com/v1.0/$batch', { method: 'POST', body: '{' }),
+        ),
+      ),
+    );
+
+    expect(cost.requests_total).toBe(1);
+  });
 });

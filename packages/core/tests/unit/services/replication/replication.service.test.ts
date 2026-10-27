@@ -16,6 +16,7 @@ import type {
   SharePointReplicationUseCase,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
 
@@ -44,6 +45,19 @@ function make_storage(): ObjectStorage {
     apply_default_retention: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
+  };
+}
+
+function make_ctx(storage: ObjectStorage): TenantContext {
+  return {
+    tenant_id: 'tenant-1',
+    storage,
+    encrypt: vi.fn((d: Buffer) => d),
+    decrypt: vi.fn((d: Buffer) => d),
+    create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
+    create_decipher: stub_tenant_create_decipher,
+    destroy: vi.fn(),
   };
 }
 
@@ -114,25 +128,8 @@ describe('ReplicationService', () => {
     source_storage = make_storage();
     target_storage = make_storage();
 
-    source_ctx = {
-      tenant_id: 'tenant-1',
-      storage: source_storage,
-      encrypt: vi.fn((d: Buffer) => d),
-      decrypt: vi.fn((d: Buffer) => d),
-      create_cipher: stub_tenant_create_cipher,
-      create_decipher: stub_tenant_create_decipher,
-      destroy: vi.fn(),
-    };
-
-    target_ctx = {
-      tenant_id: 'tenant-1',
-      storage: target_storage,
-      encrypt: vi.fn((d: Buffer) => d),
-      decrypt: vi.fn((d: Buffer) => d),
-      create_cipher: stub_tenant_create_cipher,
-      create_decipher: stub_tenant_create_decipher,
-      destroy: vi.fn(),
-    };
+    source_ctx = make_ctx(source_storage);
+    target_ctx = make_ctx(target_storage);
 
     tenant_factory = {
       create: vi.fn().mockResolvedValue(source_ctx),
@@ -143,8 +140,10 @@ describe('ReplicationService', () => {
     manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     config = {
@@ -218,7 +217,7 @@ describe('ReplicationService', () => {
     const m1 = make_manifest('snap-1', 'mbx-1', [make_entry('a')]);
     const m2 = make_manifest('snap-2', 'mbx-1', [make_entry('b')]);
 
-    vi.mocked(manifests.list_all_manifests).mockResolvedValue([m1, m2]);
+    vi.mocked(manifests.list_by_owner).mockResolvedValue([m1, m2]);
     vi.mocked(target_storage.list).mockResolvedValue(['manifests/mbx-1/snap-1.json']);
     vi.mocked(source_storage.get).mockResolvedValue(Buffer.from('data'));
     vi.mocked(target_storage.get).mockResolvedValue(Buffer.from('data'));

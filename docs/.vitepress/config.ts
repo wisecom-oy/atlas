@@ -1,105 +1,193 @@
 import { defineConfig } from 'vitepress';
 
+const SITE_URL = 'https://docs.atlas.wisecom.fi';
+
 export default defineConfig({
-  title: 'M365 Atlas',
-  description: 'Secure, deduplicated Microsoft 365 mailbox backups to S3-compatible storage.',
+  lang: 'en',
+  title: 'Atlas',
+  titleTemplate: ':title · Atlas by Wisecom',
+  description:
+    'Atlas by Wisecom: open-source, encrypted Microsoft 365 backup to S3-compatible storage. CLI and Node.js SDK.',
 
   base: '/',
   cleanUrls: true,
+  sitemap: { hostname: SITE_URL },
 
   // Internal planning artefacts under docs/superpowers/ are unreferenced by any page
   // and were being published to the public site.
   srcExclude: ['superpowers/**'],
   appearance: 'dark',
+  lastUpdated: true,
 
   head: [
+    ['meta', { property: 'og:site_name', content: 'Atlas by Wisecom' }],
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'theme-color', content: '#0a0a0a' }],
+    [
+      'link',
+      {
+        rel: 'icon',
+        type: 'image/png',
+        href: '/favicon-dark.png',
+        media: '(prefers-color-scheme: light)',
+      },
+    ],
+    [
+      'link',
+      {
+        rel: 'icon',
+        type: 'image/png',
+        href: '/favicon-light.png',
+        media: '(prefers-color-scheme: dark)',
+      },
+    ],
     [
       'meta',
       {
         name: 'keywords',
-        content: 'm365, backup, email, microsoft 365, s3, minio, encryption, outlook',
+        content:
+          'atlas, wisecom, microsoft 365 backup, exchange online, onedrive, sharepoint, s3, object lock, encryption',
       },
     ],
   ],
 
+  // Per-page canonical URL and link-preview tags, built from each page's title and description.
+  transformPageData(page, { siteConfig }) {
+    const path = page.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '');
+    const url = `${SITE_URL}/${path}`;
+    const title =
+      page.frontmatter.layout === 'home'
+        ? 'Atlas · Microsoft 365 backup engine by Wisecom'
+        : `${page.title} · Atlas by Wisecom`;
+    const description = page.frontmatter.description ?? siteConfig.site.description;
+    page.frontmatter.head ??= [];
+    page.frontmatter.head.push(
+      ['link', { rel: 'canonical', href: url }],
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:url', content: url }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+    );
+  },
+
+  markdown: {
+    config(md) {
+      md.renderer.rules.table_open = () => '<div class="wc-table"><table>\n';
+      md.renderer.rules.table_close = () => '</table></div>\n';
+    },
+  },
+
   themeConfig: {
-    siteTitle: 'M365 Atlas',
+    logo: {
+      light: '/wisecom-wordmark-dark.png',
+      dark: '/wisecom-wordmark-light.png',
+      alt: 'Wisecom',
+    },
+    siteTitle: 'Atlas',
 
     nav: [
-      { text: 'Guide', link: '/getting-started' },
-      { text: 'Reference', link: '/reference/cli' },
       {
-        text: 'npm',
+        text: 'Guide',
+        link: '/getting-started',
+        activeMatch:
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|self-hosting|operations)',
+      },
+      { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
+      {
+        text: 'More',
         items: [
-          { text: '@wisecom/atlas-cli', link: 'https://www.npmjs.com/package/@wisecom/atlas-cli' },
-          { text: '@wisecom/atlas-sdk', link: 'https://www.npmjs.com/package/@wisecom/atlas-sdk' },
+          { text: 'Roadmap', link: '/roadmap' },
+          { text: 'Development', link: '/development/releases' },
+          {
+            text: '@wisecom/atlas-cli on npm',
+            link: 'https://www.npmjs.com/package/@wisecom/atlas-cli',
+          },
+          {
+            text: '@wisecom/atlas-sdk on npm',
+            link: 'https://www.npmjs.com/package/@wisecom/atlas-sdk',
+          },
         ],
       },
+      { text: 'Wisecom Continuity', link: 'https://wisecom.fi/en/products/continuity' },
     ],
 
     sidebar: [
       {
-        text: 'Guide',
+        text: 'Get started',
         items: [
-          { text: 'Getting Started', link: '/getting-started' },
+          { text: 'Quickstart', link: '/getting-started' },
           { text: 'Concepts', link: '/concepts' },
+          { text: 'Entra ID app registration', link: '/azure-ad-setup' },
           { text: 'Configuration', link: '/configuration' },
-          { text: 'Azure AD Setup', link: '/azure-ad-setup' },
-          { text: 'Security', link: '/security' },
-          { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
       {
         text: 'Workloads',
         items: [
-          { text: 'OneDrive Backup', link: '/onedrive-backup' },
-          { text: 'SharePoint Backup', link: '/sharepoint-backup' },
+          { text: 'OneDrive', link: '/onedrive-backup' },
+          { text: 'SharePoint', link: '/sharepoint-backup' },
         ],
       },
       {
-        text: 'Self-Hosting',
+        text: 'Security',
+        items: [
+          { text: 'How your data travels', link: '/how-it-works' },
+          { text: 'Security model', link: '/security' },
+          { text: 'Immutability and Object Lock', link: '/operations/immutability' },
+        ],
+      },
+      {
+        text: 'Self-hosting',
         items: [
           { text: 'Overview', link: '/self-hosting/' },
-          { text: 'Storage Setup', link: '/self-hosting/storage' },
-          { text: 'Scheduling & Bandwidth', link: '/self-hosting/scheduling' },
-          { text: 'Replication Setup', link: '/self-hosting/replication' },
+          { text: 'Storage', link: '/self-hosting/storage' },
+          { text: 'Scheduling and bandwidth', link: '/self-hosting/scheduling' },
+          { text: 'Replication setup', link: '/self-hosting/replication' },
         ],
       },
       {
         text: 'Operations',
         items: [
-          { text: 'Immutability & Object Lock', link: '/operations/immutability' },
-          { text: 'Delta Sync', link: '/operations/delta-sync' },
-          { text: 'Storage Layout', link: '/operations/storage-layout' },
-          { text: 'Storage Usage', link: '/operations/storage-usage' },
+          { text: 'Delta sync', link: '/operations/delta-sync' },
+          { text: 'Storage layout', link: '/operations/storage-layout' },
+          { text: 'Storage usage', link: '/operations/storage-usage' },
           { text: 'Replication', link: '/operations/replication' },
-          { text: 'Graph API Rate Limits', link: '/operations/graph-rate-limits' },
+          { text: 'Graph rate limits', link: '/operations/graph-rate-limits' },
+          { text: 'Troubleshooting', link: '/troubleshooting' },
         ],
       },
       {
         text: 'Reference',
         items: [
-          { text: 'CLI Commands', link: '/reference/cli' },
-          { text: 'CLI Recovery & Management', link: '/reference/cli-recovery' },
-          { text: 'Programmatic SDK', link: '/reference/sdk' },
-          { text: 'Storage Request Events', link: '/reference/storage-request-events' },
+          { text: 'AI quickstart', link: '/reference/ai-quickstart' },
+          { text: 'CLI', link: '/reference/cli' },
+          { text: 'CLI recovery and management', link: '/reference/cli-recovery' },
+          { text: 'SDK', link: '/reference/sdk' },
+          { text: 'Storage request events', link: '/reference/storage-request-events' },
           { text: 'Examples', link: '/reference/examples' },
-          { text: 'Migrating to v5', link: '/migration/v5' },
         ],
       },
       {
+        text: 'Migration',
+        items: [{ text: 'Upgrading to v6', link: '/migration/v6' }],
+      },
+      {
         text: 'Development',
+        collapsed: true,
         items: [
-          { text: 'Microsoft Graph API Skill', link: '/development/msgraph-skill' },
-          { text: 'Graph Request Tracing', link: '/development/graph-tap' },
-          { text: 'Performance Profiling', link: '/development/performance-profiling' },
-          { text: 'Test Coverage', link: '/development/test-coverage' },
-          { text: 'Release Process', link: '/development/releases' },
+          { text: 'Release process', link: '/development/releases' },
+          { text: 'Test coverage', link: '/development/test-coverage' },
+          { text: 'Performance profiling', link: '/development/performance-profiling' },
+          { text: 'Graph request tracing', link: '/development/graph-tap' },
+          { text: 'Microsoft Graph skill', link: '/development/msgraph-skill' },
         ],
       },
       {
         text: 'Project',
-        items: [{ text: 'Roadmap', link: '/roadmap' }],
+        items: [
+          { text: 'Roadmap', link: '/roadmap' },
+          { text: 'Wisecom Continuity', link: 'https://wisecom.fi/en/products/continuity' },
+        ],
       },
     ],
 
@@ -111,9 +199,13 @@ export default defineConfig({
     },
 
     footer: {
-      message: 'Released under the Apache-2.0 License.',
-      copyright: 'Copyright 2026 Wisecom Oy',
+      message:
+        '<span class="wc-foot-links"><a href="https://wisecom.fi">Wisecom</a><a href="https://wisecom.fi/en/products/continuity">Wisecom Continuity</a><a href="https://github.com/wisecom-oy/atlas">GitHub</a><a href="mailto:info@wisecom.fi">info@wisecom.fi</a></span>',
+      copyright:
+        '<span class="wc-foot-license">Atlas is open source under the Apache-2.0 License.</span><span class="wc-foot-legal"><span>© 2026 Wisecom Oy</span> · <span>Business ID (Y-tunnus) 3629087-1</span></span>',
     },
+
+    outline: { level: [2, 3] },
 
     search: {
       provider: 'local',

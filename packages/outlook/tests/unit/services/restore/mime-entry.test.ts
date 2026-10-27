@@ -5,10 +5,9 @@ import {
   restore_single_message,
 } from '@/services/restore/restore-execution-orchestrator';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
-import type { ManifestEntry } from '@wisecom/atlas-types';
-import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { ManifestEntry, RestoreConnector, TenantContext } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 const ATTACHMENT_BYTES = Buffer.from('col_a,col_b\n1,2\n', 'utf-8');
@@ -143,6 +142,7 @@ describe('restore of MIME and legacy JSON entries', () => {
       encrypt: vi.fn(),
       decrypt: vi.fn((data: Buffer) => data.subarray(1)),
       create_cipher: stub_tenant_create_cipher,
+      create_content_hmac: stub_tenant_create_content_hmac,
       create_decipher: stub_tenant_create_decipher,
       destroy: vi.fn(),
     };

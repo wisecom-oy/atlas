@@ -1,36 +1,39 @@
-# Self-Hosting
+---
+description: Run Atlas on your own infrastructure, with backups in an S3-compatible bucket you control so Microsoft 365 data never has to leave your network.
+---
 
-Atlas is a self-hosted backup engine. You run it on your own infrastructure and your backup data never leaves your network.
+# Self-hosting
 
-## In This Section
+Atlas runs on your own infrastructure. Backup data is written to an S3-compatible bucket you control, so it never has to leave your network.
 
-| Topic                                              | Description                                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [Storage Setup](/self-hosting/storage)             | Configure MinIO on Docker, bind mounts, RAID, and filesystem recommendations. |
-| [Scheduling & Bandwidth](/self-hosting/scheduling) | Understand bandwidth requirements and automate backups with cron or systemd.  |
-| [Replication Setup](/self-hosting/replication)     | Set up multi-location replication for a 3-2-1 backup strategy.                |
+## In this section
 
-## Platform Recommendation
+| Topic                                                 | What it covers                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------- |
+| [Storage setup](/self-hosting/storage)                | MinIO on Docker, bind mounts, RAID, filesystem choice, and bucket provisioning. |
+| [Scheduling and bandwidth](/self-hosting/scheduling)  | Bandwidth planning and automating backups with cron or systemd timers.          |
+| [Replication setup](/self-hosting/replication)        | Deployment patterns for a second copy of your backups in another location.      |
 
-Atlas is designed and tested primarily for **Linux**. Use Ubuntu Server 22.04+ or Debian 12+ for production deployments.
+## Platform recommendation
 
-Why Linux:
+Atlas is designed and tested primarily on **Linux**. Use Ubuntu Server 22.04 or later, or Debian 12 or later, for production.
 
-- **Docker volume drivers** are most mature and performant on Linux, with no VM translation layer like Docker Desktop on macOS/Windows.
-- **systemd timers and cron** provide native scheduling for automated backups without third-party tools.
-- **Filesystem semantics** (permissions, symlinks, mount points) are consistent and well-understood for server workloads.
-- **Lower overhead**: no desktop environment consuming resources on a dedicated backup server.
+Linux suits a backup host for three reasons:
 
-Atlas runs on macOS and Windows for development and testing, but all production guidance in this documentation targets Linux.
+- Docker volume drivers and bind mounts perform best on Linux. Docker Desktop on macOS and Windows adds a virtual machine layer between the container and the disk.
+- systemd timers and cron schedule backups without extra tooling.
+- File permissions, symlinks, and mount points behave predictably, and a dedicated server carries no desktop overhead.
 
-## System Requirements
+Atlas also runs on macOS and Windows for development and testing. The production guidance in these pages assumes Linux.
 
-| Resource | Minimum                    | Recommended                                                            |
-| -------- | -------------------------- | ---------------------------------------------------------------------- |
-| Node.js  | 20+                        | Latest LTS                                                             |
-| RAM      | 1 GB                       | 2+ GB                                                                  |
-| CPU      | 1 core                     | 2+ cores                                                               |
-| Disk     | Depends on mailbox sizes   | See [Storage Setup](/self-hosting/storage)                             |
-| Network  | Stable internet connection | Dedicated link, see [Scheduling & Bandwidth](/self-hosting/scheduling) |
+## System requirements
 
-Atlas itself is lightweight, but the data it moves is not. A tenant-wide backup of many large mailboxes can transfer tens or hundreds of gigabytes over HTTPS.
+| Resource | Minimum                    | Recommended                                                              |
+| -------- | -------------------------- | ------------------------------------------------------------------------ |
+| Node.js  | 22.12 or later (SDK: 22.8) | Current LTS                                                              |
+| RAM      | 1 GB                       | 2 GB or more                                                             |
+| CPU      | 1 core                     | 2 cores or more                                                          |
+| Disk     | Depends on mailbox sizes   | See [Storage setup](/self-hosting/storage)                               |
+| Network  | Stable internet connection | Dedicated uplink, see [Scheduling and bandwidth](/self-hosting/scheduling) |
+
+Atlas itself is lightweight. The data it moves is not: a tenant-wide backup of many large mailboxes can transfer tens or hundreds of gigabytes over HTTPS.

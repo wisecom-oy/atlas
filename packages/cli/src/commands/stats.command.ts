@@ -3,18 +3,29 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
-import type { StatsUseCase, SharePointSiteConnector } from '@wisecom/atlas-types';
-import { STATS_USE_CASE_TOKEN, SHAREPOINT_CONNECTOR_TOKEN } from '@wisecom/atlas-types';
+import type { StatsUseCase } from '@wisecom/atlas-types';
+import { STATS_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types';
 import { resolve_owner } from '@/commands/onedrive-command.handlers';
 import { print_bucket_stats, print_mailbox_stats } from '@/commands/stats-outlook.view';
 import { print_drive_stats } from '@/commands/stats-drive.view';
 import { reject_retired_short, with_tenant, STATS_SERVICES } from '@/commands/shared-options';
 import { register_stats_storage_command } from '@/commands/stats-storage.command';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
+import { run_with_log_scope } from '@wisecom/atlas-core/utils/log-context';
+import type { LogSink } from '@wisecom/atlas-types';
 
 type ContainerFactory = () => Container;
 type StatsServiceName = 'outlook' | 'onedrive' | 'sharepoint';
 type ServiceStats = BucketStats | MailboxStats | DriveStats;
+
+/** Writes every log line to stderr, keeping stdout for the JSON payload. */
+const STDERR_SINK: LogSink = {
+  debug: () => {},
+  info: (message) => console.error(message),
+  warn: (message) => console.error(message),
+  error: (message) => console.error(message),
+};
 
 interface StatsOptions {
   tenant?: string;
@@ -34,7 +45,7 @@ export function register_stats_command(program: Command, get_container: Containe
   const command = program
     .command('stats')
     .description('Show storage statistics for Outlook, OneDrive, and SharePoint backups')
-    .option('-m, --mailbox <email>', 'Outlook statistics for a specific mailbox')
+    .option('-m, --mailbox <email|id>', 'Outlook statistics for a specific mailbox')
     .option('-o, --owner <email|id>', 'OneDrive statistics for a specific owner')
     .option('--site <url|id>', 'SharePoint statistics for a specific site')
     .addOption(
@@ -55,11 +66,20 @@ async function execute_stats(container: Container, options: StatsOptions): Promi
   const top = parse_top(options.top ?? DEFAULT_TOP);
   const stats = container.get<StatsUseCase>(STATS_USE_CASE_TOKEN);
 
-  const collected: [StatsServiceName, ServiceStats][] = [];
-  for (const service of services) {
-    const result = await collect_service_stats(container, stats, tenant_id, service, options);
-    collected.push([service, result]);
-  }
+  const collect = async (): Promise<[StatsServiceName, ServiceStats][]> => {
+    const collected: [StatsServiceName, ServiceStats][] = [];
+    for (const service of services) {
+      collected.push([
+        service,
+        await collect_service_stats(container, stats, tenant_id, service, options),
+      ]);
+    }
+    return collected;
+  };
+  // Resolving -m/-o logs a line; under --json it must not land in front of the payload.
+  const collected = options.json
+    ? await run_with_log_scope({ sink: STDERR_SINK }, collect)
+    : await collect();
 
   if (options.json) {
     const [first] = collected;
@@ -103,9 +123,9 @@ async function collect_service_stats(
   options: StatsOptions,
 ): Promise<ServiceStats> {
   if (service === 'outlook') {
-    return options.mailbox
-      ? stats.get_mailbox_stats(tenant_id, options.mailbox)
-      : stats.get_bucket_stats(tenant_id);
+    if (!options.mailbox) return stats.get_bucket_stats(tenant_id);
+    const owner = await resolve_owner(container, tenant_id, options.mailbox);
+    return stats.get_mailbox_stats(tenant_id, owner.object_id);
   }
   if (service === 'onedrive') {
     if (!options.owner) return stats.get_onedrive_stats(tenant_id);
@@ -113,9 +133,10 @@ async function collect_service_stats(
     return stats.get_onedrive_stats(tenant_id, owner.object_id);
   }
   if (!options.site) return stats.get_sharepoint_stats(tenant_id);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
-  return stats.get_sharepoint_stats(tenant_id, site.site_id);
+  return stats.get_sharepoint_stats(
+    tenant_id,
+    await resolve_site_id(container, tenant_id, options.site),
+  );
 }
 
 /** Dispatches to the matching view based on the result shape. */

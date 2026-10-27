@@ -1,3 +1,7 @@
+---
+description: Record every HTTP request Atlas sends to Microsoft Graph with graph-tap, then read a one-screen report of throttling, failures, and call cost.
+---
+
 # Graph Request Tracing
 
 `graph-tap` records every HTTP request Atlas sends to Microsoft Graph and collapses
@@ -9,7 +13,7 @@ intent rather than traffic.
 This is a development tool. It is not shipped to end users, is not part of the
 `atlas` CLI, and is excluded from the published package.
 
-## Quick Start
+## Quick start
 
 ```bash
 # 1. Always check prerequisites first. Default capture needs nothing but Node.
@@ -25,7 +29,7 @@ This is a development tool. It is not shipped to end users, is not part of the
 Captures are written as JSON Lines to `.graph-tap/` (gitignored). `run` passes the
 wrapped command's exit code through, so a failing run still leaves a valid capture.
 
-## Platform Support
+## Platform support
 
 | Platform | Supported | Notes                                         |
 | -------- | --------- | --------------------------------------------- |
@@ -46,7 +50,7 @@ $env:GRAPH_TAP_FILE = "capture.jsonl"; node tools\graph-tap\summary.mjs
 
 WSL is the better answer if you want the wrapper.
 
-## How Interception Works
+## How interception works
 
 Atlas reaches Graph through exactly one transport: the global `fetch` function.
 The Graph SDK's `HTTPMessageHandler` calls `fetch(context.request, context.options)`
@@ -71,7 +75,7 @@ tap sits there rather than behind a proxy:
 The undici channels used are `undici:request:create`, `:bodyChunkSent`,
 `:headers`, `:bodyChunkReceived`, `:trailers`, and `:error`.
 
-### Version Requirements
+### Version requirements
 
 | Capability                                   | Requirement                       | If unmet                                    |
 | -------------------------------------------- | --------------------------------- | ------------------------------------------- |
@@ -82,11 +86,11 @@ The undici channels used are `undici:request:create`, `:bodyChunkSent`,
 `graph-tap doctor` reports each of these against your installed runtime, so you
 never have to guess whether a `0` means "no bytes" or "not measurable".
 
-## Output Is Sized For Analysis
+## Output is sized for analysis
 
 The capture is written to be read by a person or an LLM, not to be complete. A
 single-mailbox backup of 4000 messages produces roughly 5.5 MB of raw request and
-response metadata; `graph-tap` records 477 KB of it and summarises to under 1 KB.
+response metadata; `graph-tap` records 477 KB of it and summarizes to under 1 KB.
 
 Three decisions do the work:
 
@@ -109,7 +113,7 @@ non-2xx response and always recorded, because a code such as
 gzips these payloads, so the tap inflates them with `node:zlib` before parsing;
 truncated bodies are decoded with `Z_SYNC_FLUSH` rather than discarded.
 
-### Reading a Summary
+### Reading a summary
 
 ```
 GRAPH TAP SUMMARY  .graph-tap/2026-08-18T07-14-22Z.jsonl
@@ -158,7 +162,7 @@ Environment equivalents, for invoking `tap.mjs` without the wrapper:
 `GRAPH_TAP_OUT`, `GRAPH_TAP_HEADERS`, `GRAPH_TAP_BODIES`, `GRAPH_TAP_BODY_LIMIT`,
 `GRAPH_TAP_ALL`, `GRAPH_TAP_HOSTS`, `GRAPH_TAP_QUIET`, `GRAPH_TAP_DIR`.
 
-## What Captures Contain, And Why
+## What captures contain, and why
 
 A capture is a security artifact: it describes authenticated traffic to a tenant's
 mail and files, and in practice it gets attached to issues and pasted into chat.
@@ -177,7 +181,7 @@ What remains is still sensitive: URLs contain mailbox UPNs, site paths, and driv
 IDs. Treat `.graph-tap/` as a log containing personal data. It is gitignored, and it
 should not be committed or shared outside the tenant's own operators.
 
-## Full TLS Inspection With mitmproxy
+## Full TLS inspection with mitmproxy
 
 The default capture cannot show you raw TLS, let you rewrite a request, or observe
 a process that is not Node. When you need that, `graph-tap proxy` starts
@@ -195,17 +199,13 @@ export NODE_USE_ENV_PROXY=1
 export NODE_EXTRA_CA_CERTS="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
 ```
 
-All three matter. `NODE_USE_ENV_PROXY=1` is mandatory and easy to miss: Node's
-`fetch` is undici, and **undici ignores `HTTPS_PROXY` unless this variable is
-set**. Without it your traffic silently bypasses the proxy and you conclude nothing
-was sent. It was added in Node 24; on Node 22 there is no built-in equivalent, so
-use the default capture instead.
+All three exports matter. The one most often missed is `NODE_USE_ENV_PROXY=1`:
 
-`NODE_EXTRA_CA_CERTS` is what makes Node trust mitmproxy's generated CA.
-mitmproxy writes that certificate on first launch, so the very first run may need
-to be started twice. Do not reach for `NODE_TLS_REJECT_UNAUTHORIZED=0` instead:
-`create_graph_client` refuses to start when certificate validation is disabled, by
-design.
+::: warning
+Node's `fetch` is undici, and undici ignores `HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` is set. Without it, traffic silently bypasses the proxy and the capture stays empty, which is easy to misread as no traffic at all. It was added in Node 24. On Node 22 there is no built-in equivalent, so use the default capture instead.
+:::
+
+`NODE_EXTRA_CA_CERTS` makes Node trust mitmproxy's generated CA. mitmproxy writes that certificate on first launch, so the very first run may need to be started twice. Do not work around certificate errors with `NODE_TLS_REJECT_UNAUTHORIZED=0`. `create_graph_client` refuses to start when certificate validation is disabled, by design.
 
 If mitmproxy is not installed, the command exits with install instructions rather
 than failing obscurely:
@@ -215,10 +215,7 @@ brew install mitmproxy      # macOS
 pipx install mitmproxy      # Linux
 ```
 
-Understand the trade before choosing this path. Proxy mode requires an install, a
-trusted CA certificate, Node >= 24, and it terminates TLS, so you inspect
-mitmproxy's connection rather than Atlas's. The default capture needs none of that
-and observes the real one.
+Choose this path knowingly. Proxy mode needs an install, a trusted CA certificate, and Node >= 24. It also terminates TLS, so you inspect mitmproxy's connection rather than Atlas's direct connection. The default capture needs none of that and observes the real one.
 
 ## Files
 

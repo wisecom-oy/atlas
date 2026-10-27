@@ -6,6 +6,7 @@ import {
   CATALOG_USE_CASE_TOKEN,
   RESTORE_USE_CASE_TOKEN,
   SAVE_USE_CASE_TOKEN,
+  USER_IDENTITY_RESOLVER_TOKEN,
 } from '@wisecom/atlas-types';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 
@@ -15,6 +16,7 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
  */
 const SNAPSHOT = 'snap-example-1';
 const MAILBOX = 'john.doe@example.com';
+const MAILBOX_OBJECT_ID = '9a1f4d2e-6b3c-4a5e-8d7f-2e3a4b5c6d7e';
 const TARGET = 'jane.roe@example.com';
 
 function save_result(): Record<string, unknown> {
@@ -87,6 +89,13 @@ describe('outlook subcommand scope precedence', () => {
       read_message: vi.fn(),
     });
     container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: 'tenant-1' });
+    container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue({
+      resolve_user: vi.fn().mockResolvedValue({
+        object_id: MAILBOX_OBJECT_ID,
+        email: MAILBOX,
+        display_name: 'John Doe',
+      }),
+    });
 
     program = new Command();
     program.exitOverride();
@@ -112,6 +121,7 @@ describe('outlook subcommand scope precedence', () => {
       await run(['save', '-m', MAILBOX]);
 
       expect(save_mailbox).toHaveBeenCalledTimes(1);
+      expect(save_mailbox.mock.calls[0][1]).toBe(MAILBOX_OBJECT_ID);
       expect(save_snapshot).not.toHaveBeenCalled();
     });
   });

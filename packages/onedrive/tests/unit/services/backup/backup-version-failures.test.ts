@@ -5,6 +5,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 // Issue #92: version downloads that fail for an unexpected reason left history
@@ -34,6 +35,7 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
     },
     encrypt: (data: Buffer) => data,
     destroy: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(context),

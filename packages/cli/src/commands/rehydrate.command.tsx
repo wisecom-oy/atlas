@@ -27,7 +27,7 @@ import { render_static_view } from '@/ui/render';
 import { format_bytes } from '@/command-formatters';
 import { logger, GRAPH_IDENTITY_RESOLVER_TOKEN } from '@wisecom/atlas-core';
 import type { UserIdentityResolver } from '@wisecom/atlas-types';
-import { resolve_site_id } from '@/commands/sharepoint-command.handlers';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
 import { resolve_secret_option } from '@/utils/secret-option';
 import { with_snapshot, with_tenant } from '@/commands/shared-options';
 import { banner_title } from '@/ui/banner-title';
@@ -76,7 +76,7 @@ export function register_rehydrate_command(
   const command = program
     .command('rehydrate')
     .description('Recover snapshots from a replica to primary (disaster recovery)')
-    .option('-m, --mailbox <id>', 'recover all snapshots for a mailbox')
+    .option('-m, --mailbox <email|id>', 'recover all snapshots for a mailbox')
     .option('--site <url-or-id>', 'recover all snapshots for a SharePoint site')
     .option('-o, --owner <email-or-id>', 'recover all OneDrive snapshots for an owner')
     .option('--all', 'recover all mailboxes and snapshots (full tenant DR)')
@@ -166,7 +166,8 @@ async function execute_rehydrate(container: Container, options: RehydrateOptions
   } else if (options.snapshot) {
     result = await use_case.rehydrate_snapshot(tenant_id, options.snapshot, source);
   } else if (options.mailbox) {
-    result = await use_case.rehydrate_mailbox(tenant_id, options.mailbox, source);
+    const mailbox_id = await resolve_owner_for_recovery(container, tenant_id, options.mailbox);
+    result = await use_case.rehydrate_mailbox(tenant_id, mailbox_id, source);
   } else if (options.all) {
     await report_tenant_result(await use_case.rehydrate_tenant(tenant_id, source));
     return;

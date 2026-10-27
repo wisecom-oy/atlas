@@ -99,3 +99,11 @@ export function map_users_to_tenant_mailboxes(users: GraphUserRecord[]): TenantM
       };
     });
 }
+
+/** Reads userPurpose from an untyped mailboxSettings response. */
+export function parse_mailbox_settings_purpose(response: unknown): MailboxPurpose | undefined {
+  if (typeof response !== 'object' || response === null || !('userPurpose' in response)) {
+    return undefined;
+  }
+  return parse_mailbox_purpose(response.userPurpose);
+}

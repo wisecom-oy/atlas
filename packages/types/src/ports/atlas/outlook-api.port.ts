@@ -58,6 +58,7 @@ export type OutlookMailboxStatus = Camelize<MailboxStatusResult>;
 export type OutlookTenantMailbox = Camelize<TenantMailbox>;
 export type OutlookMailboxDiscoveryOptions = Camelize<MailboxDiscoveryOptions>;
 
+/** Mailbox arguments take an Entra object ID or a mail address; an address is resolved to its object ID first. */
 export interface OutlookApi {
   backup(mailboxId: string, options?: OutlookBackupOptions): Promise<OutlookBackupResult>;
   verify(

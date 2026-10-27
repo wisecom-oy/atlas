@@ -22,6 +22,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 // Regression tests for issue #23: a soft interrupt must never persist a delta
 // link that was advanced past unprocessed messages.
@@ -134,6 +135,7 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
       encrypt: vi.fn((data: Buffer) => data),
       decrypt: vi.fn((data: Buffer) => data),
       create_cipher: stub_tenant_create_cipher,
+      create_content_hmac: stub_tenant_create_content_hmac,
       create_decipher: vi.fn(),
       destroy: vi.fn(),
     };
@@ -145,8 +147,10 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
     manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn().mockResolvedValue(PREVIOUS_MANIFEST),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
     connector = {
       list_mailboxes: vi.fn().mockResolvedValue([]),

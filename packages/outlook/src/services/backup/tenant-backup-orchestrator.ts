@@ -6,7 +6,12 @@
  */
 
 import { inject, injectable } from 'inversify';
-import type { MailboxDiscoveryService } from '@wisecom/atlas-types';
+import type {
+  MailboxDiscoveryService,
+  ManifestRepository,
+  TenantContextFactory,
+  TenantMailbox,
+} from '@wisecom/atlas-types';
 import type { BackupUseCase } from '@wisecom/atlas-types';
 import type {
   TenantBackupOrchestrator as ITenantBackupOrchestrator,
@@ -14,9 +19,14 @@ import type {
   TenantBackupResult,
   MailboxBackupOutcome,
 } from '@wisecom/atlas-types';
-import { MAILBOX_DISCOVERY_TOKEN } from '@wisecom/atlas-types';
+import {
+  MAILBOX_DISCOVERY_TOKEN,
+  MANIFEST_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { create_mailbox_progress_adapter } from '@/services/backup/tenant-backup-progress-adapter';
 
@@ -28,6 +38,8 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
   constructor(
     @inject(MAILBOX_DISCOVERY_TOKEN) private readonly _discovery: MailboxDiscoveryService,
     @inject(BACKUP_USE_CASE_TOKEN) private readonly _backup: BackupUseCase,
+    @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
+    @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
   ) {}
 
   async backup_tenant(
@@ -41,30 +53,34 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     const progress = options.progress;
 
     const all = await this._discovery.list_tenant_mailboxes(tenant_id);
-    const mailboxes = all.filter((m) => m.has_exchange_license || m.mailbox_purpose === 'shared');
+    const mailboxes = all.filter(is_backed_up_by_tenant_run);
+    const excluded = all.filter((m) => !is_backed_up_by_tenant_run(m));
     const shared_count = mailboxes.filter((m) => m.mailbox_purpose === 'shared').length;
-    const skipped_count = all.length - mailboxes.length;
+    const lookup_failed_count = excluded.filter((m) => m.purpose_lookup_error).length;
 
     logger.info(
-      `Discovered ${mailboxes.length} mailbox(es) for backup (${shared_count} shared, ${skipped_count} unlicensed non-shared skipped)`,
+      `Discovered ${mailboxes.length} mailbox(es) for backup (${shared_count} shared, ` +
+        `${excluded.length - lookup_failed_count} unlicensed non-shared skipped, ` +
+        `${lookup_failed_count} skipped after a failed mailboxSettings lookup)`,
     );
     progress?.set_mailbox_count(mailboxes.length);
 
-    const outcomes: MailboxBackupOutcome[] = [];
-    // TODO: resolve email -> object_id via UserIdentityResolver; pending queue should hold owner IDs for storage.
-    const pending = mailboxes.map((m) => m.mail);
+    const outcomes = await this.report_excluded_with_history(tenant_id, excluded);
+    const pending = [...mailboxes];
     let done_count = 0;
-    let error_count = 0;
+    let error_count = outcomes.length;
     let global_stored = 0;
     let global_deduped = 0;
 
     const run_worker = async (slot: number): Promise<void> => {
       while (pending.length > 0 && !should_interrupt()) {
-        const mailbox_id = pending.shift()!;
-        progress?.mark_mailbox_active(slot, mailbox_id);
+        const mailbox = pending.shift()!;
+        progress?.mark_mailbox_active(slot, mailbox.mail);
 
         try {
-          const result = await this._backup.sync_mailbox(tenant_id, mailbox_id, {
+          const result = await this._backup.sync_mailbox(tenant_id, mailbox.user_id, {
+            owner_email: mailbox.mail,
+            owner_display_name: mailbox.display_name,
             force_full: options.force_full,
             page_size: options.page_size,
             object_lock_request: options.object_lock_request,
@@ -79,17 +95,17 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
           done_count++;
           progress?.mark_mailbox_done(
             slot,
-            mailbox_id,
+            mailbox.mail,
             result.summary.stored,
             result.summary.deduplicated,
           );
-          outcomes.push({ owner_id: mailbox_id, result });
+          outcomes.push({ owner_id: mailbox.user_id, owner_email: mailbox.mail, result });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           error_count++;
-          progress?.mark_mailbox_error(slot, mailbox_id, msg);
-          outcomes.push({ owner_id: mailbox_id, error: msg });
-          logger.error(`Mailbox ${mailbox_id} failed: ${msg}`);
+          progress?.mark_mailbox_error(slot, mailbox.mail, msg);
+          outcomes.push({ owner_id: mailbox.user_id, owner_email: mailbox.mail, error: msg });
+          logger.error(`Mailbox ${mailbox.mail} failed: ${msg}`);
         }
 
         const elapsed = Date.now() - start;
@@ -113,11 +129,50 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
 
     return {
       outcomes,
-      total_mailboxes: mailboxes.length,
+      total_mailboxes: all.length,
       succeeded: done_count,
       failed: error_count,
       interrupted: should_interrupt(),
       elapsed_ms: Date.now() - start,
     };
   }
+
+  /**
+   * Fails every excluded mailbox that already has backups, by object ID and reason. A mailbox that
+   * drops out of selection (shared converted to user before licensing, or a failed userPurpose
+   * lookup) would otherwise stop being backed up while the run reports success (issue #480).
+   * History is either a v6 object-ID prefix or a v5 prefix keyed by the lowercased primary
+   * address (issue #514). Never-backed-up unlicensed users stay a quiet skip.
+   */
+  private async report_excluded_with_history(
+    tenant_id: string,
+    excluded: TenantMailbox[],
+  ): Promise<MailboxBackupOutcome[]> {
+    if (excluded.length === 0) return [];
+    const ctx = await this._tenant_factory.create_storage_only(tenant_id);
+    const with_history = new Set(await this._manifests.list_owner_ids(ctx));
+    return excluded
+      .filter(
+        (m) =>
+          with_history.has(normalize_owner_id(m.user_id)) ||
+          (!!m.mail && with_history.has(normalize_owner_id(m.mail))),
+      )
+      .map((m) => {
+        const error = `excluded from tenant backup but has existing backups: ${exclusion_reason(m)}`;
+        logger.error(`Mailbox ${m.mail} ${error}`);
+        return { owner_id: m.user_id, owner_email: m.mail, error };
+      });
+  }
+}
+
+/** Graph serves mail for licensed users and shared mailboxes; anything else is rejected. */
+function is_backed_up_by_tenant_run(m: TenantMailbox): boolean {
+  return m.has_exchange_license || m.mailbox_purpose === 'shared';
+}
+
+function exclusion_reason(m: TenantMailbox): string {
+  if (m.purpose_lookup_error) {
+    return `mailboxSettings lookup failed (${m.purpose_lookup_error}), so a shared mailbox could not be detected`;
+  }
+  return 'no Exchange Online license and not a shared mailbox';
 }

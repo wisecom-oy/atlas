@@ -52,6 +52,18 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     ).resolves.toBeUndefined();
   });
 
+  // The id names the storage prefix, so a response without one must not become an identity.
+  it.each([{}, { id: '' }, { id: 42 }, null])(
+    'rejects a user payload without a usable id: %j',
+    async (payload) => {
+      const client = make_client(() => Promise.resolve(payload));
+
+      await expect(
+        new GraphUserIdentityResolver(client).resolve_by_object_id('t', OBJECT_ID),
+      ).rejects.toThrow('Graph user response has no id');
+    },
+  );
+
   it.each([500, 502, 503, 504, 429])('rethrows a transient %i', async (status) => {
     const client = make_client(() => Promise.reject(graph_error(status)));
 
@@ -95,5 +107,72 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     expect(lines.join('\n')).toContain(OBJECT_ID);
+  });
+});
+
+/** A primary SMTP address that is not the UPN 404s on `/users/{key}`; it resolves through `mail`. */
+describe('GraphUserIdentityResolver.resolve_user', () => {
+  const USER = { id: OBJECT_ID, displayName: 'John Doe', mail: 'john.doe@example.com' };
+
+  function client_with(
+    by_upn: () => Promise<unknown>,
+    by_mail: () => Promise<unknown>,
+  ): { client: Client; filters: string[] } {
+    const filters: string[] = [];
+    const client = {
+      api: (path: string) =>
+        path === '/users'
+          ? { filter: (f: string) => (filters.push(f), { select: () => ({ get: by_mail }) }) }
+          : { select: () => ({ get: by_upn }) },
+    } as unknown as Client;
+    return { client, filters };
+  }
+
+  it('falls back to a mail filter when the address is not a UPN', async () => {
+    const { client, filters } = client_with(
+      () => Promise.reject(graph_error(404, 'Request_ResourceNotFound')),
+      () => Promise.resolve({ value: [USER] }),
+    );
+
+    const identity = await new GraphUserIdentityResolver(client).resolve_user(
+      't',
+      "John.O'Doe@Example.com",
+    );
+
+    expect(filters).toEqual(["mail eq 'john.o''doe@example.com'"]);
+    expect(identity.object_id).toBe(OBJECT_ID);
+  });
+
+  it('rethrows the original 404 when no user has that mail either', async () => {
+    const not_found = graph_error(404, 'Request_ResourceNotFound');
+    const { client } = client_with(
+      () => Promise.reject(not_found),
+      () => Promise.resolve({ value: [] }),
+    );
+
+    await expect(
+      new GraphUserIdentityResolver(client).resolve_user('t', 'nobody@example.com'),
+    ).rejects.toBe(not_found);
+  });
+
+  it('rejects a malformed mail filter page instead of reading it as no match', async () => {
+    const { client } = client_with(
+      () => Promise.reject(graph_error(404, 'Request_ResourceNotFound')),
+      () => Promise.resolve({ value: USER }),
+    );
+
+    await expect(
+      new GraphUserIdentityResolver(client).resolve_user('t', 'john.doe@example.com'),
+    ).rejects.toThrow('Graph /users response has a non-array value');
+  });
+
+  it('does not mask a 403 behind the mail fallback', async () => {
+    const by_mail = vi.fn();
+    const { client } = client_with(() => Promise.reject(graph_error(403)), by_mail);
+
+    await expect(
+      new GraphUserIdentityResolver(client).resolve_user('t', 'john.doe@example.com'),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(by_mail).not.toHaveBeenCalled();
   });
 });

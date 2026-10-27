@@ -1,5 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type {
+  IdentityRegistry,
   IdentityRegistryEntry,
   IdentityRegistryRepository,
   ResolvedUserIdentity,
@@ -7,6 +8,7 @@ import type {
   UserIdentityResolver,
 } from '@wisecom/atlas-types';
 import {
+  NotFoundError,
   IDENTITY_REGISTRY_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
@@ -48,9 +50,10 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     await this.ensure_loaded(tenant_id);
     const normalized = email.toLowerCase().trim();
 
-    const graph_result = await this.try_graph_resolve(tenant_id, email);
+    const graph = await this.try_graph_resolve(tenant_id, email);
 
-    if (graph_result) {
+    if ('identity' in graph) {
+      const graph_result = graph.identity;
       const active = this._active_by_email.get(normalized);
       if (active && active.object_id !== graph_result.object_id) {
         await this.handle_recycled_email(tenant_id, active, graph_result);
@@ -70,9 +73,13 @@ export class CachingIdentityResolver implements UserIdentityResolver {
       };
     }
 
-    throw new Error(
+    // Only a 404 says the user is absent. A 403, throttling or an outage says Graph could not
+    // answer, and reporting that as not found would send the operator after a typo.
+    if ((graph.error as Record<string, unknown> | null)?.statusCode !== 404) throw graph.error;
+    throw new NotFoundError(
       `Cannot resolve "${email}": user not found in Microsoft Graph and no cached identity exists. ` +
         'The user may have never been backed up.',
+      { cause: graph.error },
     );
   }
 
@@ -100,15 +107,15 @@ export class CachingIdentityResolver implements UserIdentityResolver {
   private async try_graph_resolve(
     tenant_id: string,
     email: string,
-  ): Promise<ResolvedUserIdentity | undefined> {
+  ): Promise<{ identity: ResolvedUserIdentity } | { error: unknown }> {
     try {
-      return await this._graph.resolve_user(tenant_id, email);
+      return { identity: await this._graph.resolve_user(tenant_id, email) };
     } catch (err) {
       logger.debug(
         `Graph could not resolve "${email}", falling back to the cached registry: ` +
           `${err instanceof Error ? err.message : String(err)}`,
       );
-      return undefined;
+      return { error: err };
     }
   }
 
@@ -157,13 +164,25 @@ export class CachingIdentityResolver implements UserIdentityResolver {
 
   private async persist(tenant_id: string): Promise<void> {
     const ctx = await this._ctx_factory.create(tenant_id);
-    await this._registry_repo.save(ctx, { tenant_id, entries: this._all_entries });
+    try {
+      await this._registry_repo.save(ctx, { tenant_id, entries: this._all_entries });
+    } finally {
+      ctx.destroy();
+    }
+  }
+
+  private async load_registry(tenant_id: string): Promise<IdentityRegistry | undefined> {
+    const ctx = await this._ctx_factory.create(tenant_id);
+    try {
+      return await this._registry_repo.load(ctx);
+    } finally {
+      ctx.destroy();
+    }
   }
 
   private async ensure_loaded(tenant_id: string): Promise<void> {
     if (this._loaded && this._tenant_id === tenant_id) return;
-    const ctx = await this._ctx_factory.create(tenant_id);
-    const registry = await this._registry_repo.load(ctx);
+    const registry = await this.load_registry(tenant_id);
     this._active_by_email.clear();
     this._by_object_id.clear();
     this._all_entries = [];

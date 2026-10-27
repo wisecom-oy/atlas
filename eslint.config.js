@@ -14,6 +14,24 @@ const sonarjs_code_smell_rules = {
 };
 
 /**
+ * Type-aware rules. The promise and throw rules are clean today and only guard against regressions.
+ * The no-unsafe-* rules catch values that arrive untyped from JSON.parse and the Microsoft Graph
+ * client. Adapters convert those responses to declared shapes before the values reach services.
+ */
+const type_aware_rules = {
+  '@typescript-eslint/no-floating-promises': 'error',
+  '@typescript-eslint/no-misused-promises': 'error',
+  '@typescript-eslint/only-throw-error': 'error',
+  '@typescript-eslint/prefer-promise-reject-errors': 'error',
+  '@typescript-eslint/no-unsafe-assignment': 'error',
+  '@typescript-eslint/no-unsafe-member-access': 'error',
+  '@typescript-eslint/no-unsafe-call': 'error',
+  '@typescript-eslint/no-unsafe-return': 'error',
+  '@typescript-eslint/no-unsafe-argument': 'error',
+  '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+};
+
+/**
  * Structural conventions from `.claude/CLAUDE.md` that nothing checked before.
  * Folder naming is an error because the tree is already clean. The
  * relative-import and function-length rules are warnings until their existing
@@ -47,7 +65,10 @@ export default tseslint.config(
     files: ['packages/*/src/**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: {
-        project: ['./packages/*/tsconfig.json'],
+        // projectService resolves each file to its nearest tsconfig.json, the same one tsc uses.
+        // The former `project` glob assigned some files to a program where workspace packages
+        // did not resolve, which produced hundreds of "could not be resolved" no-unsafe hits.
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -58,6 +79,7 @@ export default tseslint.config(
     rules: {
       ...sonarjs_code_smell_rules,
       ...structural_convention_rules,
+      ...type_aware_rules,
       'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
       'check-file/filename-naming-convention': [
         'error',

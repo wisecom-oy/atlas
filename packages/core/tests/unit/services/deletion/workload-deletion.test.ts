@@ -7,10 +7,15 @@ import { Container } from 'inversify';
 import 'reflect-metadata';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
-import { TENANT_CONTEXT_FACTORY_TOKEN, type TenantContextFactory } from '@wisecom/atlas-types';
+import {
+  NotFoundError,
+  ObjectLockRetainedError,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+  type TenantContextFactory,
+} from '@wisecom/atlas-types';
 import type { DeletionStorage } from '@/services/deletion/shared/prefix-deleter';
 
-const OWNER = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
+const OWNER = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
 
 type PurgeStorage = DeletionStorage & {
@@ -109,6 +114,26 @@ describe('workload deletion', () => {
       expect(result.deleted_objects).toBe(0);
     });
 
+    // S3 deletes an absent key without complaint, so an erasure request for a mistyped snapshot
+    // used to exit 0 with nothing erased (issue #437).
+    it('raises NotFoundError when the snapshot manifest does not exist', async () => {
+      await expect(onedrive.delete_snapshot('t', OWNER, 'missing')).rejects.toThrow(NotFoundError);
+    });
+
+    it('reports a retained snapshot manifest rather than calling it missing', async () => {
+      vi.mocked(storage.list_versions).mockResolvedValueOnce([
+        { key: `onedrive/manifests/${OWNER}/snap.json`, version_id: 'v1', is_delete_marker: false },
+      ]);
+      vi.mocked(storage.delete_version).mockRejectedValueOnce(
+        new ObjectLockRetainedError(`onedrive/manifests/${OWNER}/snap.json`),
+      );
+
+      const result = await onedrive.delete_snapshot('t', OWNER, 'snap');
+
+      expect(result.retained_manifests).toBe(1);
+      expect(result.deleted_manifests).toBe(0);
+    });
+
     it('erases without the DEK, so a purged tenant can still be cleaned up', async () => {
       await onedrive.delete_owner_data('t', OWNER);
 
@@ -128,6 +153,10 @@ describe('workload deletion', () => {
       expect(storage.delete_version).toHaveBeenCalledWith(`sharepoint/data/${SITE}/blob`, 'v1');
       expect(storage.delete).not.toHaveBeenCalled();
       expect(result.deleted_objects).toBe(1);
+    });
+
+    it('raises NotFoundError when the snapshot manifest does not exist', async () => {
+      await expect(sharepoint.delete_snapshot('t', SITE, 'missing')).rejects.toThrow(NotFoundError);
     });
 
     it('sweeps staging, where an interrupted large-file upload parks content', async () => {

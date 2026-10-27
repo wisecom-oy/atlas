@@ -97,6 +97,11 @@ export interface BackupSyncSummary {
   readonly elapsed_ms: number;
   /** Folders this run did not capture, with why. */
   readonly excluded_folders: ExcludedFolder[];
+  /**
+   * Messages stored without their reactions because Graph could not return them. Those
+   * reactions are read again only when the message changes.
+   */
+  readonly reactions_not_captured: number;
 }
 
 export interface SyncResult {

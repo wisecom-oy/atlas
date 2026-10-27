@@ -1,31 +1,46 @@
-# Getting Started
+---
+description: Install the Atlas CLI or SDK, connect object storage and your Microsoft 365 tenant, and run your first backup on Node.js 22.12 or later.
+---
 
-Install the CLI, point it at storage and a tenant, run a backup. The CLI requires Node.js 22.12 or later, the SDK 22.8 or later.
+# Getting started
 
-## Installation
+Install the CLI, connect it to object storage and your Microsoft 365 tenant, and run your first backup. The CLI requires Node.js 22.12 or later. The SDK requires Node.js 22.8 or later.
 
-Atlas ships as two npm packages that share the same engine:
+<script setup>
+import { GETTING_STARTED } from './.vitepress/theme/terminal-sessions';
+</script>
 
-| Package                  | Command                             | Best for                                                                                 |
+<CliTerminal :sessions="GETTING_STARTED" label="Example run of the commands in this guide, with mock data" />
+
+## Install
+
+Atlas ships as two npm packages built on the same engine:
+
+| Package                  | Install                             | Best for                                                                                 |
 | ------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------- |
-| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Shell operations, cron/systemd jobs, operator workflows. Reads `.env` automatically.     |
-| **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk`        | Node.js apps, custom schedulers, multi-tenant SaaS, portals. Explicit config, typed API. |
+| **`@wisecom/atlas-cli`** | `npm install -g @wisecom/atlas-cli` | Shell operations, cron and systemd jobs, operator workflows. Reads `.env` automatically. |
+| **`@wisecom/atlas-sdk`** | `npm add @wisecom/atlas-sdk`        | Node.js applications, custom schedulers, multi-tenant services. Explicit config, typed API. |
 
-This guide uses the CLI. A local (non-global) install still gets an `atlas` command: a postinstall hook links it onto your PATH, skipping with a warning if the name is already an alias or another command. See the [CLI reference](/reference/cli) for details. If you install with Bun, run `bun pm -g trust @wisecom/atlas-cli` afterwards, since Bun blocks install scripts for untrusted packages.
+This guide uses the CLI. A local install also provides an `atlas` command. A postinstall hook links it onto your `PATH` and prints a warning if the name is already taken by an alias or another command. See the [CLI reference](/reference/cli) for details.
 
-## Start an S3-Compatible Backend
+If you install with Bun, run `bun pm -g trust @wisecom/atlas-cli` afterwards. Bun blocks install scripts for untrusted packages, so the link step does not run otherwise.
 
-Atlas stores backups in any S3-compatible object storage. For local development or testing, start MinIO with the included Docker Compose file:
+## Start an S3-compatible backend
+
+Atlas writes backups to any S3-compatible object store. For local development and testing, start MinIO with the included Docker Compose file:
 
 ```bash
-cd docker && docker compose up -d
+cd docker
+cp .env.example .env && chmod 600 .env
+openssl rand -hex 32    # set the output as MINIO_ROOT_PASSWORD in .env
+docker compose up -d
 ```
 
-MinIO comes up on port **9000** (S3 API) and port **9001** (web console). For production storage, RAID, and security hardening, see the [Self-Hosting Guide](./self-hosting/).
+Compose refuses to start until `MINIO_ROOT_PASSWORD` is set. MinIO then listens on `127.0.0.1` only, port **9000** (S3 API) and port **9001** (web console). Use `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` as the S3 access key and secret key below. For production storage, see the [self-hosting guide](./self-hosting/).
 
-## Configure
+## Configure credentials
 
-Copy the example environment file and fill in your credentials:
+Copy the example environment file and fill in your values:
 
 ```bash
 cp .env.example .env
@@ -35,103 +50,117 @@ Required variables:
 
 | Variable                      | Description                                    |
 | ----------------------------- | ---------------------------------------------- |
-| `ATLAS_TENANT_ID`             | Azure AD tenant ID                             |
+| `ATLAS_TENANT_ID`             | Microsoft Entra tenant ID                      |
 | `ATLAS_CLIENT_ID`             | App registration client ID                     |
 | `ATLAS_CLIENT_SECRET`         | App registration client secret                 |
-| `ATLAS_S3_ENDPOINT`           | S3 endpoint URL (e.g. `http://localhost:9000`) |
+| `ATLAS_S3_ENDPOINT`           | S3 endpoint URL, for example `http://localhost:9000` |
 | `ATLAS_S3_ACCESS_KEY`         | S3 access key                                  |
 | `ATLAS_S3_SECRET_KEY`         | S3 secret key                                  |
 | `ATLAS_ENCRYPTION_PASSPHRASE` | Master passphrase for envelope encryption      |
 
-The first three values come from an Entra app registration, covered in [Azure AD Setup](./azure-ad-setup.md). For every other option and the precedence rules between `.env`, environment variables, and flags, see [Configuration](./configuration.md).
+The first three values come from a Microsoft Entra app registration, described in [Microsoft Entra ID setup](./azure-ad-setup.md). For every other option, and for how `.env`, environment variables, and flags interact, see [Configuration](./configuration.md).
 
-::: danger Protect Your Passphrase
-The encryption passphrase is **irrecoverable**. Lose it and all backup data becomes permanently inaccessible: no reset mechanism, no recovery key, no way to decrypt without it. Store it in a password manager or secrets vault and confirm you can retrieve it before you rely on the backups. [Security](./security.md) covers the full encryption model.
+You can also store values in the CLI's encrypted local store with `atlas config set <key> <value>`, for example `atlas config set tenant.id <tenant-id>`. Run `atlas config list` to see the keys.
+
+::: danger Protect your passphrase
+The encryption passphrase cannot be recovered. Atlas has no reset mechanism and no recovery key. If the passphrase is lost, the backup data stays encrypted and cannot be read. Store it in a password manager or secrets vault, and confirm you can retrieve it before you rely on the backups. See [Security](./security.md) for the full encryption model.
 :::
 
-## First Backup
+## Run your first backup
 
-**Outlook mailboxes:**
+Back up one mailbox, one OneDrive, or one SharePoint site:
 
 ```bash
-# back up a single mailbox
+# Outlook mailbox
 atlas outlook backup --mailbox user@company.com
 
-
-# list mailboxes to loop over in your scheduler
-atlas outlook mailboxes
-
-```
-
-**OneDrive files:**
-
-```bash
+# OneDrive for one user
 atlas onedrive backup -o user@company.com
-```
 
-**SharePoint document libraries:**
-
-```bash
+# SharePoint site
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-The first run is a full synchronization: every message, attachment, or file is downloaded and encrypted. Later runs use [delta sync](./operations/delta-sync.md) to transfer only what changed, which is dramatically faster.
+To find mailboxes to loop over in a scheduler, run `atlas outlook mailboxes`. It reads the list live from Microsoft Graph.
 
-## Explore Your Backups
+The first run is a full synchronization. Atlas downloads and encrypts every message, attachment, or file. Later runs use [delta sync](./operations/delta-sync.md) and transfer only what changed.
+
+## Check and browse backups
 
 ```bash
-# check if a mailbox is up to date
+# Check whether a mailbox backup is up to date (no backup runs)
 atlas outlook status -m user@company.com
 
-# list what was backed up
+# List backed-up mailboxes, then the snapshots for one mailbox
 atlas outlook list
+atlas outlook list -m user@company.com
 
-# restore a folder from backup
-atlas outlook restore -m user@company.com -f Inbox
-
-# save as EML zip archive
-atlas outlook save -m user@company.com --output backup.zip
-
-# list OneDrive snapshots
+# List OneDrive and SharePoint snapshots
 atlas onedrive list-snapshots -o user@company.com
-
-# list SharePoint snapshots
 atlas sharepoint list-snapshots --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-Every command and option is listed in the [CLI Reference](./reference/cli.md). For workload-specific behavior, see the [OneDrive Backup](./onedrive-backup.md) and [SharePoint Backup](./sharepoint-backup.md) guides.
+## Restore
 
-## Use as a Library
+Restore writes data back to Microsoft 365. Test with a non-production target first, and check that the account has the Graph permissions for write access described in [Microsoft Entra ID setup](./azure-ad-setup.md).
 
-To drive Atlas from your own application, such as a backup portal, a multi-tenant scheduler, or a SaaS integration, install the SDK instead of (or alongside) the CLI:
+```bash
+# Restore the Inbox of a mailbox into a test mailbox
+atlas outlook restore -m user@company.com -f Inbox -T test-user@company.com
+
+# Save a mailbox as an EML zip archive instead of restoring it
+atlas outlook save -m user@company.com --output backup.zip
+```
+
+Omit `-T` to restore into the source mailbox. For OneDrive and SharePoint restores, see the [OneDrive backup](./onedrive-backup.md) and [SharePoint backup](./sharepoint-backup.md) guides.
+
+Every command and option is listed in the [CLI reference](./reference/cli.md).
+
+## Use the SDK
+
+To drive Atlas from your own application, such as a backup portal or a multi-tenant scheduler, install the SDK:
 
 ```bash
 npm add @wisecom/atlas-sdk
 ```
 
-The SDK exposes the same workloads as the CLI, organized by namespace. Config is passed explicitly at construction time, since the SDK does not read `.env`:
+The SDK exposes the same workloads as the CLI, grouped by namespace. It does not read `.env`. Pass configuration explicitly when you create the instance:
 
 ```typescript
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
 
 const atlas = createAtlasInstance({
-  tenantId: 'your-azure-tenant-id',
+  tenantId: 'your-tenant-id',
   clientId: 'app-client-id',
   clientSecret: 'app-client-secret',
   s3Endpoint: 'http://localhost:9000',
-  s3AccessKey: 'minioadmin',
-  s3SecretKey: 'minioadmin',
+  s3AccessKey: '<access-key>',
+  s3SecretKey: '<secret-key>',
   encryptionPassphrase: 'my-secret-passphrase',
 });
 
-// Outlook — mirrors `atlas outlook backup`
-const result = await atlas.outlook.backup('user@company.com');
+// Outlook: same as `atlas outlook backup`
+const mailbox = await atlas.outlook.backup('user@company.com');
 
-// OneDrive — mirrors `atlas onedrive backup`
-const odResult = await atlas.onedrive.backup('owner-id');
+// OneDrive: same as `atlas onedrive backup`
+const drive = await atlas.onedrive.backup('owner-id');
 
-// SharePoint — mirrors `atlas sharepoint backup`, one result per backed-up site
-const [spResult] = await atlas.sharepoint.backup('site-id');
+// SharePoint: same as `atlas sharepoint backup`. Returns one result per backed-up site.
+const [site] = await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering');
 ```
 
-See the [SDK Reference](./reference/sdk.md) for all methods and [SDK Examples](./reference/examples.md) for production-ready patterns.
+The SDK validates configuration when you call `createAtlasInstance`. A missing field or a passphrase shorter than the minimum throws a `ConfigError`.
+
+::: tip Next steps
+- [Concepts](./concepts.md): how snapshots, encryption, and storage layout fit together.
+- [Configuration](./configuration.md): every option and environment variable.
+- [SDK reference](./reference/sdk.md) and [SDK examples](./reference/examples.md): full method list and production patterns.
+:::
+
+## See also
+
+- [Concepts](./concepts.md)
+- [Security](./security.md)
+- [Troubleshooting](./troubleshooting.md)
+- [CLI reference](./reference/cli.md)
+- [SDK reference](./reference/sdk.md)

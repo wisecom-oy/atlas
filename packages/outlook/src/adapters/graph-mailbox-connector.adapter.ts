@@ -1,7 +1,5 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { ResponseType } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
 import type {
   MailboxConnector,
   MailboxPurpose,
@@ -11,22 +9,27 @@ import type {
   MessageAttachment,
   DeltaSyncResult,
   DeltaPageCallback,
+  ExtendedProperty,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
 import {
+  GRAPH_CLIENT_TOKEN,
   is_invalid_delta_error,
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
-import type {
-  GraphUserRecord,
-  GraphFolderRecord,
-  GraphAttachmentRecord,
+import { fetch_message_reaction_properties } from '@/adapters/graph-message-reaction-fetcher';
+import { fetch_attachment_content } from '@/adapters/graph-attachment-content-fetcher';
+import {
+  extract_user_ids,
+  parse_mailbox_settings_purpose,
+  type GraphUserRecord,
+  type GraphFolderRecord,
+  type GraphAttachmentRecord,
 } from '@/adapters/graph-mailbox-response-mappers';
-import { extract_user_ids, parse_mailbox_purpose } from '@/adapters/graph-mailbox-response-mappers';
 import { create_folder_reader, list_mail_folder_tree } from '@/adapters/graph-mail-folder-listing';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
 import {
@@ -34,10 +37,6 @@ import {
   extract_page_messages,
   graph_message_to_mail_message,
 } from '@/adapters/graph-delta-message-mapper';
-
-// 30 min per attempt for attachment $value transfers (up to ~150 MB); the
-// default 60s per-request window kills large bodies on slow links (issue #33).
-const LARGE_DOWNLOAD_TIMEOUT_MS = 1_800_000;
 
 // Graph's default message/folder IDs change on every folder move; immutable
 // IDs do not. Must be sent on EVERY request that produces or consumes an ID —
@@ -81,10 +80,11 @@ export class GraphMailboxConnector implements MailboxConnector {
     owner_id: string,
   ): Promise<MailboxPurpose | undefined> {
     try {
-      const res = await with_graph_retry(() =>
-        this._client.api(`/users/${owner_id}/mailboxSettings?$select=userPurpose`).get(),
+      return parse_mailbox_settings_purpose(
+        await with_graph_retry(() =>
+          this._client.api(`/users/${owner_id}/mailboxSettings?$select=userPurpose`).get(),
+        ),
       );
-      return parse_mailbox_purpose((res as { userPurpose?: unknown } | undefined)?.userPurpose);
     } catch (err) {
       // ponytail: swallow-all — 403/404 on some shared/resource mailboxes is a known Graph quirk
       logger.debug(`mailboxSettings lookup failed for ${owner_id}: ${(err as Error).message}`);
@@ -191,6 +191,20 @@ export class GraphMailboxConnector implements MailboxConnector {
     return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 
+  /** Reads reaction properties for a page of messages, 20 per `$batch` (issues #481, #513). */
+  async fetch_reaction_properties(
+    _tenant_id: string,
+    owner_id: string,
+    message_ids: readonly string[],
+  ): Promise<Map<string, ExtendedProperty[]>> {
+    return fetch_message_reaction_properties(
+      this._client,
+      owner_id,
+      message_ids,
+      IMMUTABLE_ID_PREFER,
+    );
+  }
+
   /**
    * Fetches a message's attachments, on the JSON fallback path only: a message
    * stored as MIME already carries its attachments inside the message bytes.
@@ -214,10 +228,12 @@ export class GraphMailboxConnector implements MailboxConnector {
       for (let i = 0; i < attachments.length; i++) {
         const att = attachments[i]!;
         if (att.content.length > 0 || att.size_bytes === 0 || !att.attachment_id) continue;
-        const content = await this.download_attachment_content(
+        const content = await fetch_attachment_content(
+          this._client,
           owner_id,
           message_id,
           att.attachment_id,
+          IMMUTABLE_ID_PREFER,
         );
         attachments[i] = resolve_downloaded_attachment(att, content);
       }
@@ -227,31 +243,6 @@ export class GraphMailboxConnector implements MailboxConnector {
       rethrow_if_access_denied(err);
       throw err;
     }
-  }
-
-  /**
-   * Downloads raw attachment bytes via /attachments/{id}/$value. Raw transfer
-   * avoids the +33% base64 overhead of contentBytes. Each attachment gets its
-   * own retry window so a large binary cannot starve the page-listing budget.
-   * The widened timeout follows corso's large-file calibration: attachments
-   * run up to 150 MB and the default 60s window kills them on slow links.
-   */
-  private async download_attachment_content(
-    owner_id: string,
-    message_id: string,
-    attachment_id: string,
-  ): Promise<Buffer> {
-    const url = `/users/${owner_id}/messages/${message_id}/attachments/${attachment_id}/$value`;
-    const data = await with_graph_retry(
-      () =>
-        this._client
-          .api(url)
-          .header('Prefer', IMMUTABLE_ID_PREFER)
-          .responseType(ResponseType.ARRAYBUFFER)
-          .get() as Promise<ArrayBuffer>,
-      { timeout_ms: LARGE_DOWNLOAD_TIMEOUT_MS },
-    );
-    return Buffer.from(data);
   }
 
   // ---------------------------------------------------------------------------

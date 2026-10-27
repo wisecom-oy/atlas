@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { ByteQueue } from '@/services/shared/byte-queue';
 import { stream_encrypt_to_multipart } from '@/services/shared/stream-encrypt-upload';
 
@@ -31,6 +32,7 @@ function make_ctx(): { ctx: TenantContext; parts: Map<number, Buffer> } {
       abort_incomplete_uploads: vi.fn(async () => 0),
     },
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
   return { ctx, parts };
 }

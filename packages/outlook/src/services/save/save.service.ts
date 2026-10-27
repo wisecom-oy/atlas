@@ -1,3 +1,4 @@
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -17,6 +18,7 @@ import {
 } from '@/services/restore/folder-restore-planner';
 import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
 import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
+import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -58,10 +60,14 @@ export class SaveService implements SaveUseCase {
       }
       const ctx = await this._tenant_factory.create(tenant_id);
       try {
-        const manifest = await this.load_manifest(ctx, snapshot_id);
-        const owner_id = manifest.owner_id;
-
-        const entries = await this.resolve_entries(ctx, manifest, owner_id, tenant_id, options);
+        const { owner_id, entries } = await resolve_snapshot_entries(
+          ctx,
+          this._manifests,
+          this._connector,
+          tenant_id,
+          snapshot_id,
+          options,
+        );
         if (entries.length === 0) {
           logger.warn('No entries to save');
           return await this.finish_empty_result(snapshot_id, options, target);
@@ -91,6 +97,7 @@ export class SaveService implements SaveUseCase {
     owner_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    owner_id = normalize_owner_id(owner_id);
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
       if (begin_operation_progress(options, 'save', 'outlook')) {
@@ -140,54 +147,15 @@ export class SaveService implements SaveUseCase {
     }
   }
 
-  private async load_manifest(ctx: TenantContext, snapshot_id: string): Promise<Manifest> {
-    const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
-    if (!manifest) throw new Error(`No manifest found for snapshot ${snapshot_id}`);
-    return manifest;
-  }
-
   private async load_mailbox_manifests(
     ctx: TenantContext,
     owner_id: string,
     options: SaveOptions,
   ): Promise<Manifest[]> {
-    const all = await this._manifests.list_all_manifests(ctx);
-    const for_mailbox = all
-      .filter((m) => m.owner_id === owner_id)
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
-  }
-
-  private async resolve_entries(
-    ctx: TenantContext,
-    manifest: Manifest,
-    owner_id: string,
-    tenant_id: string,
-    options: SaveOptions,
-  ): Promise<ManifestEntry[]> {
-    const allowed = apply_recoverable_items_policy(
-      manifest.entries,
-      options.include_recoverable_items,
+    const for_mailbox = (await this._manifests.list_by_owner(ctx, owner_id)).sort(
+      (a, b) => b.created_at.getTime() - a.created_at.getTime(),
     );
-
-    if (options.message_ref) {
-      const entry = this.resolve_single_entry(manifest, options.message_ref);
-      return entry && allowed.includes(entry) ? [entry] : [];
-    }
-
-    if (options.folder_name) {
-      await backfill_missing_folder_ids(ctx, allowed);
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
-    }
-
-    return allowed;
-  }
-
-  private resolve_single_entry(manifest: Manifest, ref: string): ManifestEntry | undefined {
-    const index = Number(ref);
-    if (Number.isInteger(index) && index >= 1) return manifest.entries[index - 1];
-    return manifest.entries.find((e) => e.object_id === ref);
+    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
   }
 
   private async apply_entry_filters(

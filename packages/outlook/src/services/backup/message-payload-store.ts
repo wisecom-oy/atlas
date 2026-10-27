@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto';
+import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import type {
+  ExtendedProperty,
   MailAddress,
   MailboxConnector,
   MailMessage,
@@ -54,8 +55,43 @@ export async function capture_mime_payload(
   }
 }
 
+export interface PageReactions {
+  /** Reaction properties per message id; an absent id has none recorded. */
+  readonly by_message: ReadonlyMap<string, ExtendedProperty[]>;
+  /** Messages on the page whose reactions could not be read. */
+  readonly failed: number;
+}
+
+const NO_REACTIONS: PageReactions = { by_message: new Map(), failed: 0 };
+
 /**
- * Content-addressed storage with SHA-256 dedup: hash -> check exists -> encrypt
+ * Captures the Outlook reaction properties of a page of messages in one batched read (issues
+ * #481, #513). Access and licensing failures propagate as for MIME. Any other failure loses only
+ * the reactions, never a message, and is counted so the run summary can report it: the delta link
+ * moves past the page, so the reactions are read again only when the message changes.
+ */
+export async function capture_page_reactions(
+  connector: MailboxConnector,
+  tenant_id: string,
+  owner_id: string,
+  messages: readonly MailMessage[],
+): Promise<PageReactions> {
+  if (!connector.fetch_reaction_properties || messages.length === 0) return NO_REACTIONS;
+  const ids = messages.map((m) => m.message_id);
+  try {
+    const by_message = await connector.fetch_reaction_properties(tenant_id, owner_id, ids);
+    if (!by_message) return NO_REACTIONS;
+    return { by_message, failed: ids.filter((id) => !by_message.has(id)).length };
+  } catch (err) {
+    if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
+    const reason = err instanceof Error ? err.message : String(err);
+    logger.warn(`Reaction capture failed for ${ids.length} messages: ${reason}`);
+    return { by_message: new Map(), failed: ids.length };
+  }
+}
+
+/**
+ * Content-addressed storage with keyed-hash dedup (issue #446): name -> check exists -> encrypt
  * -> upload. Stores `mime` when Graph produced it, otherwise the JSON payload
  * from the delta page; the manifest entry records which (issue #50).
  */
@@ -65,10 +101,11 @@ export async function store_single_message(
   owner_id: string,
   object_lock_policy?: ObjectLockPolicy,
   mime?: Buffer,
+  reaction_properties: readonly ExtendedProperty[] = [],
 ): Promise<StoredMessage> {
   const payload = mime ?? message.raw_body;
-  const checksum = createHash('sha256').update(payload).digest('hex');
-  const storage_key = `data/${owner_id}/${checksum}`;
+  const { checksum, content_name } = compute_content_digests(ctx, payload);
+  const storage_key = `data/${owner_id}/${content_name}`;
 
   const already_stored = await ctx.storage.exists(storage_key);
   if (!already_stored) {
@@ -78,7 +115,6 @@ export async function store_single_message(
       ciphertext,
       {
         'x-message-id': message.message_id,
-        'x-plaintext-sha256': checksum,
       },
       object_lock_policy,
     );
@@ -95,6 +131,7 @@ export async function store_single_message(
     ...(metadata.from ? { from: metadata.from } : {}),
     ...(mime ? { payload_format: 'mime' as const } : {}),
     ...(mime && metadata.received_at ? { received_at: metadata.received_at.toISOString() } : {}),
+    ...(reaction_properties.length > 0 ? { reaction_properties } : {}),
   };
 
   return { manifest_entry, was_new: !already_stored };

@@ -3,7 +3,7 @@ import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
-import type { ManifestEntry, ManifestObjectLockPolicy } from '@wisecom/atlas-types';
+import type { ManifestEntry } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { assert_mailbox_exists } from '@wisecom/atlas-core/services/shared/mailbox-assertions';
 import {
@@ -11,17 +11,20 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { sync_single_folder } from '@/services/backup/folder-sync-executor';
+import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
 import { resolve_progress_reporter } from '@/services/shared/backup-progress-resolver';
 import {
   build_manifest,
+  build_manifest_object_lock_policy,
   create_pending_snapshot,
   mark_snapshot_completed,
   resolve_saved_delta_links,
   resolve_sync_mode,
+  select_recordable_removals,
+  withhold_links_of_unrecorded_removals,
 } from '@/services/backup/snapshot-manifest-builder';
 import {
   build_interrupted_result,
@@ -104,10 +107,13 @@ export class MailboxSyncService implements BackupUseCase {
 
       const all_entries: ManifestEntry[] = [];
       const new_delta_links: Record<string, string> = {};
+      const removed_ids: string[] = [];
+      const removal_counts: Record<string, number> = {};
       let global_processed = 0;
       let stored = 0;
       let deduplicated = 0;
       let attachments_stored = 0;
+      let reactions_not_captured = 0;
       const folder_errors: string[] = [];
 
       for (let i = 0; i < folders.length; i++) {
@@ -143,8 +149,11 @@ export class MailboxSyncService implements BackupUseCase {
         folder_errors.push(
           ...outcome.attachment_errors.map((line) => `${folder.folder_path}: ${line}`),
         );
+        warnings.push(...outcome.warnings.map((line) => `${folder.folder_path}: ${line}`));
 
         all_entries.push(...outcome.entries);
+        removed_ids.push(...outcome.removed_ids);
+        removal_counts[folder.folder_id] = outcome.removed_ids.length;
         // Persist a folder's delta link only when every page was fully processed;
         // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
         if (outcome.delta_link && outcome.complete) {
@@ -153,6 +162,7 @@ export class MailboxSyncService implements BackupUseCase {
         stored += outcome.stored;
         deduplicated += outcome.deduplicated;
         attachments_stored += outcome.attachments_stored;
+        reactions_not_captured += outcome.reactions_not_captured;
         global_processed += outcome.folder_processed;
 
         if (should_interrupt()) break;
@@ -173,13 +183,23 @@ export class MailboxSyncService implements BackupUseCase {
         total: global_total,
       });
 
-      const merged_links = { ...saved_links, ...new_delta_links };
+      const merged_links = {
+        ...saved_links,
+        ...withhold_links_of_unrecorded_removals(new_delta_links, removal_counts, folders.length),
+      };
       const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
         previous_total_objects: previous_entry_count,
-        object_lock: this.build_manifest_object_lock_policy(options),
+        object_lock: build_manifest_object_lock_policy(options),
         mailbox_purpose,
         excluded_folders,
         folders,
+        owner_email: options.owner_email,
+        owner_display_name: options.owner_display_name,
+        removed_object_ids: select_recordable_removals(removed_ids, options.folder_filter, {
+          completed: Object.keys(new_delta_links).length,
+          selected: folders.length,
+          excluded: excluded_folders,
+        }),
       });
 
       const persisted = await persist_mailbox_run(
@@ -218,6 +238,7 @@ export class MailboxSyncService implements BackupUseCase {
           total_folder_count: folders.length,
           elapsed_ms: Date.now() - sync_start,
           excluded_folders,
+          reactions_not_captured,
         },
       };
     } finally {
@@ -241,17 +262,7 @@ export class MailboxSyncService implements BackupUseCase {
     options: SyncOptions,
     should_interrupt: () => boolean,
     should_force_stop: () => boolean,
-  ): Promise<{
-    entries: ManifestEntry[];
-    delta_link?: string;
-    complete: boolean;
-    stored: number;
-    deduplicated: number;
-    attachments_stored: number;
-    attachment_errors: string[];
-    folder_processed: number;
-    error?: string;
-  }> {
+  ): Promise<FolderSyncResult & { error?: string }> {
     try {
       const prev_link = saved_links[folder.folder_id];
       const result = await sync_single_folder({
@@ -277,48 +288,30 @@ export class MailboxSyncService implements BackupUseCase {
           : {}),
       });
       return {
+        ...result,
         // Marked here rather than inside the executor: the folder knows where
         // it came from, the message pipeline has no reason to.
         entries:
           folder.is_recoverable_items === true
             ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
             : result.entries,
-        ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
-        complete: result.complete,
-        stored: result.stored,
-        deduplicated: result.deduplicated,
-        attachments_stored: result.attachments_stored,
-        attachment_errors: result.attachment_errors,
-        folder_processed: result.folder_processed,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return {
         entries: [],
+        removed_ids: [],
+        delta_link: '',
         complete: false,
         stored: 0,
         deduplicated: 0,
         attachments_stored: 0,
         attachment_errors: [],
         folder_processed: 0,
+        warnings: [],
+        reactions_not_captured: 0,
         error: msg,
       };
     }
-  }
-
-  private build_manifest_object_lock_policy(
-    options: SyncOptions,
-  ): ManifestObjectLockPolicy | undefined {
-    if (!options.object_lock_policy) return undefined;
-    return {
-      requested: {
-        mode: options.object_lock_request?.mode,
-        retention_days: options.object_lock_request?.retention_days,
-      },
-      effective: {
-        mode: options.object_lock_policy.mode,
-        retain_until: options.object_lock_policy.retain_until,
-      },
-    };
   }
 }

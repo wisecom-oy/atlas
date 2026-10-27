@@ -1,56 +1,55 @@
-# Scheduling & Bandwidth
+---
+description: Schedule Atlas backups with cron and plan bandwidth against how much data each Microsoft 365 run pulls, so continuous protection fits your network.
+---
 
-Atlas is a CLI tool: it runs, performs the backup, and exits. Continuous protection means scheduling it to run automatically. How often you can run it is bounded by how much data each run pulls from Microsoft 365, so plan the schedule and the bandwidth together.
+# Scheduling and bandwidth
 
-## Automated Backup Scheduling
+Atlas is a CLI that runs one backup and exits. Continuous protection comes from scheduling those runs. How often you can run depends on how much data each run pulls from Microsoft 365, so plan the schedule and the bandwidth together.
 
-### Using cron
+## Schedule with cron
 
-```bash
-# Edit crontab
-crontab -e
-```
-
-Example schedules:
+Edit the crontab for the account that runs Atlas with `crontab -e`:
 
 ```cron
 # Nightly Outlook incremental backup at 2 AM
-0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-outlook-backup.log 2>&1
+0 2 * * * flock -n $HOME/atlas-logs/outlook.lock /usr/bin/atlas outlook backup -m user@company.com >> $HOME/atlas-logs/outlook-backup.log 2>&1
 
-# Weekly Outlook full backup (ignore delta state) every Sunday at 3 AM
-0 3 * * 0 /usr/bin/atlas outlook backup --full >> /var/log/atlas-outlook-backup-full.log 2>&1
+# Weekly Outlook full backup, ignoring delta state, every Sunday at 3 AM
+0 3 * * 0 flock -n $HOME/atlas-logs/outlook.lock /usr/bin/atlas outlook backup -m user@company.com --full >> $HOME/atlas-logs/outlook-backup-full.log 2>&1
 
-# Nightly OneDrive backup at 1 AM (stagger from Outlook)
-0 1 * * * /usr/bin/atlas onedrive backup -o user@company.com >> /var/log/atlas-onedrive-backup.log 2>&1
+# Nightly OneDrive backup at 1 AM
+0 1 * * * /usr/bin/atlas onedrive backup -o user@company.com >> $HOME/atlas-logs/onedrive-backup.log 2>&1
 
 # Nightly SharePoint backup at 4 AM
-0 4 * * * /usr/bin/atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering >> /var/log/atlas-sharepoint-backup.log 2>&1
+0 4 * * * /usr/bin/atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering >> $HOME/atlas-logs/sharepoint-backup.log 2>&1
 ```
 
-Stagger workload schedules so concurrent Graph API traffic does not compound throttling.
+Stagger the workloads. Overlapping runs send more Graph API requests at once, which brings throttling sooner.
 
-### Using systemd Timers
+Create the log directory once as the service account: `mkdir -p ~/atlas-logs`. Cron runs as that account and cannot write to `/var/log`.
 
-For more robust scheduling with logging and failure tracking:
+Atlas has no built-in run lock. The two Outlook lines share `outlook.lock` through `flock -n`, so a Sunday full run that starts while the nightly run is still going exits without running and writes nothing to its log. Check for a missed week.
+
+## Schedule with systemd timers
+
+systemd timers give you logging through the journal and a clear view of failed runs. This service and timer back up one mailbox nightly:
 
 ```ini
 # /etc/systemd/system/atlas-outlook-backup.service
 [Unit]
-Description=Atlas M365 Outlook Backup
+Description=Atlas Outlook backup
 After=network-online.target docker.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/atlas outlook backup -m user@company.com
-Environment=ATLAS_TENANT_ID=your-tenant-id
-Environment=ATLAS_CLIENT_ID=your-client-id
 EnvironmentFile=/etc/atlas/atlas.env
 ```
 
 ```ini
 # /etc/systemd/system/atlas-outlook-backup.timer
 [Unit]
-Description=Run Atlas Outlook backup nightly
+Description=Run the Atlas Outlook backup nightly
 
 [Timer]
 OnCalendar=*-*-* 02:00:00
@@ -60,49 +59,68 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-Enable with:
+Put the configuration in `/etc/atlas/atlas.env`. Atlas reads these variables from the environment:
+
+| Variable                         | Purpose                                      |
+| -------------------------------- | -------------------------------------------- |
+| `ATLAS_TENANT_ID`                | Microsoft 365 tenant ID                      |
+| `ATLAS_CLIENT_ID`                | Application (client) ID                      |
+| `ATLAS_CLIENT_SECRET`            | Client secret for the application            |
+| `ATLAS_S3_ENDPOINT`              | S3 endpoint, such as `https://minio.example.com:9000` |
+| `ATLAS_S3_ACCESS_KEY`            | S3 access key                                |
+| `ATLAS_S3_SECRET_KEY`            | S3 secret key                                |
+| `ATLAS_S3_REGION`                | S3 region, if your backend needs one         |
+| `ATLAS_ENCRYPTION_PASSPHRASE`    | Passphrase that protects the tenant data key |
+
+The file holds credentials. Restrict it to the service account with `chmod 600 /etc/atlas/atlas.env`. Atlas also reads these values from `atlas config`, from `atlas.config.json`, and from a `.env` file. Real environment variables take precedence over all of them.
+
+Enable the timer:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now atlas-outlook-backup.timer
 ```
 
-:::: tip Off-Hours Scheduling
-A nightly 2 AM run avoids competing with daytime internet usage and with Microsoft Graph API traffic from other applications in your tenant.
-::::
+::: tip Run at night
+A 2 AM run avoids daytime internet traffic and Graph API traffic from other applications in your tenant.
+:::
 
-## Network and Bandwidth
+## Plan bandwidth
 
-### Why Bandwidth Matters
+### What a run transfers
 
-Atlas pulls **full message bodies and all attachments** from Microsoft 365 via the Graph API over HTTPS. For a mailbox with 10 GB of email and attachments, a full initial backup transfers approximately 10 GB over the internet. Delta (incremental) syncs after the first run only transfer new and changed messages, which is dramatically less, but that first run is a significant transfer.
+Atlas downloads **full message bodies and all attachments** from Microsoft 365 over HTTPS through the Graph API. The first run for a mailbox transfers its whole contents. Later delta runs transfer only new and changed messages, which is much less, but the first run is a significant transfer.
 
-OneDrive and SharePoint follow the same pattern: the first backup of a large drive or document library transfers the full file content. Large files (64 MiB and above) stream through Atlas without buffering the entire file in memory, but network throughput still limits how quickly they complete.
+OneDrive and SharePoint follow the same pattern. The first backup of a large drive or document library transfers all file content. Network throughput sets how long that takes.
 
-Tenant-wide Outlook backups multiply the requirement by the worker count (`-C 4` is the default). Four workers backing up four large mailboxes simultaneously can saturate a typical office internet connection.
+A tenant-wide Outlook backup runs four mailboxes in parallel by default. Four large mailboxes at once can saturate a typical office connection. No command-line flag changes this count.
 
-### Sizing Estimates
+### Estimated transfer
 
-| Scenario                 | Data Transfer (Full Backup) | Delta Sync                     |
-| ------------------------ | --------------------------- | ------------------------------ |
-| Single 5 GB mailbox      | ~5 GB                       | Only changes (typically KB-MB) |
-| 10 users, avg 10 GB each | ~100 GB                     | Only changes per user          |
-| 100 users, avg 5 GB each | ~500 GB                     | Only changes per user          |
-| OneDrive user, 50 GB     | ~50 GB                      | Only changed files             |
-| SharePoint site, 200 GB  | ~200 GB                     | Only changed files per library |
+| Scenario                 | Full backup transfer | Delta sync                     |
+| ------------------------ | -------------------- | ------------------------------ |
+| Single 5 GB mailbox      | About 5 GB           | Only changes (typically KB to MB) |
+| 10 users, average 10 GB  | About 100 GB         | Only changes per user          |
+| 100 users, average 5 GB  | About 500 GB         | Only changes per user          |
+| OneDrive user, 50 GB     | About 50 GB          | Only changed files             |
+| SharePoint site, 200 GB  | About 200 GB         | Only changed files per library |
 
-These are approximate. Actual sizes depend on attachment volume, HTML email sizes, and how much data is in each mailbox, drive, or site.
+These figures are approximate. Actual sizes depend on attachment volume, HTML message size, and how much data each mailbox, drive, or site holds. Measure your first full tenant backup and plan from that result.
 
-### Microsoft Graph API Throttling
+### Microsoft Graph throttling
 
-Even with unlimited bandwidth on your side, Microsoft imposes its own limits. The Graph API returns **HTTP 429 (Too Many Requests)** when you exceed rate limits. Atlas handles this automatically with exponential backoff (up to 12 retries, honoring the `Retry-After` header), so effective throughput has a ceiling set by Microsoft rather than by your network.
+Microsoft limits request rates regardless of your bandwidth. When you exceed a limit, the Graph API returns **HTTP 429 (Too Many Requests)**. Atlas retries with exponential backoff, up to 12 retries, and honours the `Retry-After` header. Throughput then depends on Microsoft's limits as much as on your network. See [Graph rate limits](/operations/graph-rate-limits) for the per-service pools.
 
-Monitor your first full tenant backup to establish a real throughput baseline, then plan scheduling and capacity from it.
+## Keep the backup host off the business network
 
-### Professional Deployment Guidance
+::: danger Schedule outside business hours
+On a shared connection, a backup during the workday slows video calls, file transfers, and cloud applications for everyone. Schedule runs for nights or weekends.
+:::
 
-:::: danger Business Network Impact
-In professional environments, **always schedule backups during off-hours** (nights, weekends). Running Atlas during business hours on a shared internet connection degrades network performance for everyone: video calls drop, file downloads slow, and cloud applications become unresponsive.
-::::
+If off-hours runs are not enough, put the backup server on a **separate ISP connection or VLAN** that does not carry employee traffic. Graph API transfers then never compete with business applications.
 
-Where off-hours scheduling is not enough, run the backup server on a **separate ISP connection or VLAN** that does not share bandwidth with employee traffic, so Graph API transfers never compete with business-critical network usage.
+## See also
+
+- [Storage setup](/self-hosting/storage)
+- [Replication setup](/self-hosting/replication)
+- [Graph rate limits](/operations/graph-rate-limits)

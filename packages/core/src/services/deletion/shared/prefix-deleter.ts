@@ -8,7 +8,7 @@
  * back to plain keys only for backends that do not enumerate versions.
  */
 
-import { ObjectLockRetainedError } from '@wisecom/atlas-types';
+import { NotFoundError, ObjectLockRetainedError } from '@wisecom/atlas-types';
 import type { DeletionResult, StorageObjectVersion } from '@wisecom/atlas-types';
 
 /** The slice of ObjectStorage that erasure needs. */
@@ -90,9 +90,23 @@ export function has_survivors(result: DeletionResult): boolean {
   );
 }
 
-/** An all-zero summary, for callers that find nothing to delete. */
-export function empty_deletion_result(): DeletionResult {
-  return empty_summary();
+/**
+ * Deletes one snapshot manifest by its exact key.
+ *
+ * Deleting an absent key succeeds on S3, so a sweep that found nothing is the only sign the
+ * snapshot never existed. Raised as not found: an erasure script must not read it as done.
+ */
+export async function delete_snapshot_manifest(
+  storage: DeletionStorage,
+  manifest_key: string,
+  workload: string,
+  snapshot_id: string,
+): Promise<DeletionResult> {
+  const result = await delete_scopes(storage, [manifest_key]);
+  if (result.deleted_manifests === 0 && !has_survivors(result)) {
+    throw new NotFoundError(`No ${workload} manifest found for snapshot ${snapshot_id}`);
+  }
+  return result;
 }
 
 function is_skipped(key: string, skip_prefixes: readonly string[]): boolean {

@@ -10,6 +10,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { SharePointBackupService } from '@/services/backup/backup.service';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 export function make_file_item(
   id: string,
@@ -48,6 +49,7 @@ export function make_ctx(): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
     destroy: vi.fn(),
   } as unknown as TenantContext;
 }

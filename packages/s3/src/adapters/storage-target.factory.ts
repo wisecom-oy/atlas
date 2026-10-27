@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, type Hmac } from 'node:crypto';
 import { S3Client } from '@aws-sdk/client-s3';
 import {
   ConfigError,
@@ -13,6 +13,8 @@ import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { S3StorageInventory } from '@/adapters/s3-storage-inventory';
 import { observe_storage_requests } from '@/adapters/s3-request-observer';
+import { warn_if_plaintext_endpoint } from '@/adapters/plaintext-endpoint-warning';
+import { build_context } from '@/adapters/tenant-context.factory';
 import { EnvelopeKeyService } from '@wisecom/atlas-core';
 
 const DEK_META_KEY = '_meta/dek.enc';
@@ -55,6 +57,7 @@ export class DefaultStorageTarget implements StorageTarget {
     this._passphrase = config.encryptionPassphrase;
     this._region = config.s3Region ?? 'us-east-1';
 
+    warn_if_plaintext_endpoint(config.s3Endpoint);
     this._client = new S3Client({
       endpoint: config.s3Endpoint,
       region: this._region,
@@ -93,18 +96,7 @@ export class DefaultStorageTarget implements StorageTarget {
     if (has_dek) {
       const key_service = new EnvelopeKeyService(this._passphrase);
       const dek = await key_service.unwrap_dek(await storage.get(DEK_META_KEY), tenant_id);
-      return {
-        tenant_id,
-        storage,
-        encrypt: (data: Buffer, storage_key: string): Buffer =>
-          key_service.encrypt(data, dek, storage_key),
-        decrypt: (data: Buffer, storage_key: string): Buffer =>
-          key_service.decrypt(data, dek, storage_key),
-        create_cipher: (scope_key: string) => key_service.create_encrypt_cipher(dek, scope_key),
-        create_decipher: (iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer) =>
-          key_service.create_decrypt_decipher(dek, iv, auth_tag, scope_key, header),
-        destroy: (): void => key_service.destroy(),
-      };
+      return build_context(tenant_id, storage, key_service, dek);
     }
 
     const no_dek_msg = 'no DEK on target. Copy _meta/dek.enc first.';
@@ -122,6 +114,9 @@ export class DefaultStorageTarget implements StorageTarget {
       },
       create_decipher: (): ReturnType<EnvelopeKeyService['create_decrypt_decipher']> => {
         throw new Error(`Cannot create_decipher: ${no_dek_msg}`);
+      },
+      create_content_hmac: (): Hmac => {
+        throw new Error(`Cannot create_content_hmac: ${no_dek_msg}`);
       },
       destroy: (): void => {},
     };

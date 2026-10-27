@@ -1,4 +1,4 @@
-import type { CipherGCM, DecipherGCM } from 'node:crypto';
+import type { CipherGCM, DecipherGCM, Hmac } from 'node:crypto';
 
 import type { ObjectStorage } from '@/ports/storage/object-storage.port';
 
@@ -38,6 +38,16 @@ export interface TenantCryptoContext {
    * binding existed.
    */
   create_decipher(iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer): DecipherGCM;
+
+  /**
+   * Starts the keyed hash that names a plaintext object in storage: HMAC-SHA256 under a key
+   * derived from the tenant's data key (issue #446). A bucket reader without the key cannot test
+   * a guessed plaintext against a stored name.
+   *
+   * Feed the plaintext through `update()` and read `digest('hex')`. Every call returns a fresh
+   * hash over the same key, so the same plaintext always yields the same name.
+   */
+  create_content_hmac(): Hmac;
 }
 
 /** Bundles tenant-scoped storage and encryption for a single tenant. */

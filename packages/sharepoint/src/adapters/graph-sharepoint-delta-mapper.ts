@@ -102,5 +102,5 @@ export function extract_parent_path(raw_path: string | undefined): string {
 
 /** Includes a key only when its value exists, for `exactOptionalPropertyTypes`. */
 function spread_optional<K extends string, V>(key: K, value: V | undefined): Record<K, V> | object {
-  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+  return value === undefined ? {} : { [key]: value };
 }

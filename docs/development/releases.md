@@ -1,9 +1,11 @@
+---
+description: 'How Atlas releases are cut: which branch a pull request targets, who decides when and how big a release is, and what the automation does after that.'
+---
+
 # Release Process
 
-Atlas releases when there is enough change to justify one -- not on a schedule.
-There is no weekly train and no automatic version bump from commit messages. A
-human decides _when_ and _what size_; everything after that decision is
-automated.
+Atlas releases when there is enough change to justify one, not on a schedule.
+There is no weekly train and no automatic version bump from commit messages. A human decides _when_ and _what size_. Everything after that decision is automated.
 
 ## Where to target your pull request
 
@@ -15,10 +17,11 @@ This is the only rule most contributors need:
 | Cutting a release                 | `dev`       | `main` (opened for you) |
 | An urgent production fix          | `main`      | `main` (opened for you) |
 
-`dev` is the integration branch and accumulates work between releases. `main`
-always reflects the newest published version. **Never open a feature PR against
-`main`** -- it bypasses the accumulation model and, if it happens to carry a
-version bump, publishes to npm immediately.
+`dev` is the integration branch and accumulates work between releases. `main` always reflects the newest published version.
+
+::: warning
+Never open a feature PR against `main`. It bypasses the accumulation model and, if it carries a version bump, publishes to npm immediately.
+:::
 
 ## What triggers a release
 
@@ -38,7 +41,7 @@ commit that contained no bump at all. Keying the tag on the version rather than
 on the branch name makes non-release merges free and lets a hotfix use the same
 path as a release without a second workflow.
 
-The consequence to internalise: **bumping the version is the act of releasing.**
+The consequence to internalize: **bumping the version is the act of releasing.**
 Do not bump the version in an ordinary PR.
 
 ## What counts as breaking
@@ -49,7 +52,7 @@ exists for.
 
 **Widening a union type is a minor.** Adding a member to `AtlasErrorCode`, or to any other
 string union on the public surface, only breaks a consumer with an exhaustive `switch` over it
-and no `default`, and only at compile time: nothing that already runs changes behaviour. New
+and no `default`, and only at compile time: nothing that already runs changes behavior. New
 failure conditions get their own code in an ordinary release, because the alternative is filing a
 permanent failure under a code that reads as transient and telling a caller to retry it. Atlas
 would otherwise ship a major for every new diagnosis, which is a worse trade for everyone
@@ -75,11 +78,10 @@ The workflow then:
 1. Branches `release/v<version>` from `dev` (or `hotfix/v<version>` from `main`).
 2. Runs `pnpm run release:version <version>`, bumping all ten workspace
    packages in lockstep. Internal dependencies are `workspace:*`, so pnpm
-   rewrites them to the exact version at publish time -- there is nothing else to
-   edit.
+   rewrites them to the exact version at publish time, so there is nothing else to edit.
 3. Commits `chore(release): <version>` on that branch. The commit is created
    through GitHub's `createCommitOnBranch` GraphQL mutation rather than
-   `git commit`, so GitHub signs it -- an unsigned runner commit could not be
+   `git commit`, so GitHub signs it. An unsigned runner commit could not be
    merged into a `main` that requires signed commits.
 4. Fails early if `v<version>` is already tagged.
 5. Prints a compare link with the PR title and body prefilled, in the run summary.
@@ -93,12 +95,10 @@ Merging is the release.
 | ---- | ---------- | -------------------------------------------------------------------------------------------- |
 | 1    | `plan`     | Creates and pushes the annotated tag `v<version>`                                            |
 | 2    | `publish`  | Re-runs build, lint, and tests, then publishes `@wisecom/atlas-sdk` and `@wisecom/atlas-cli` |
-| 3    | `publish`  | Creates the GitHub Release with generated, categorised notes                                 |
+| 3    | `publish`  | Creates the GitHub Release with generated, categorized notes                                 |
 | 4    | `sync-dev` | Fast-forwards `dev` onto `main` if `main` is ahead                                           |
 
-All four jobs live in `publish.yml`, and that is not incidental. npm authentication
-is OIDC trusted publishing -- there is no `NPM_TOKEN` secret -- and npm validates the
-**entry-point** workflow, not the workflow that runs `npm publish`. An earlier design
+All four jobs live in `publish.yml`, and that is not incidental. npm authentication uses OIDC trusted publishing, so there is no `NPM_TOKEN` secret. npm validates the **entry-point** workflow, not the workflow that runs `npm publish`. An earlier design
 split tagging into `tag.yml` and called `publish.yml` via `workflow_call`; that made
 `tag.yml` the entry point, npm stopped matching the trusted publisher, and the
 publish failed with `ENEEDAUTH` _after_ the tag had already been pushed. Keep tagging
@@ -116,8 +116,8 @@ become the default install:
 | Version      | npm dist-tag | `npm install @wisecom/atlas-cli` gets it? |
 | ------------ | ------------ | ----------------------------------------- |
 | `2.2.0`      | `latest`     | Yes                                       |
-| `2.1.0-beta` | `beta`       | No -- requires `@beta`                    |
-| `2.2.0-rc.1` | `rc`         | No -- requires `@rc`                      |
+| `2.1.0-beta` | `beta`       | No, requires `@beta`                      |
+| `2.2.0-rc.1` | `rc`         | No, requires `@rc`                        |
 
 GitHub Releases for prereleases are marked as prereleases automatically, on the
 same rule (any `-` in the version).
@@ -135,12 +135,11 @@ the next release branch would silently revert it. The `sync-dev` job in
 `main` is ahead.
 
 That push is a fast-forward, which is the normal case: a release or hotfix merge
-leaves `dev` strictly behind `main`. If `dev` has diverged -- someone landed work
-on `dev` between the hotfix merge and the sync -- the push is refused and the job
+leaves `dev` strictly behind `main`. If `dev` has diverged, because someone landed work on `dev` between the hotfix merge and the sync, the push is refused and the job
 **fails loudly** with a compare link. Merge `main` into `dev` by hand at that
 point; a job that skipped quietly would let the next release revert a shipped fix.
 
-The organisation forbids GitHub Actions from creating pull requests
+The organization forbids GitHub Actions from creating pull requests
 (`can_approve_pull_request_reviews` is disabled org-wide and a repository cannot
 override it), which is why this is a direct push rather than a back-merge PR, and
 why **Start release** hands back a prefilled compare link instead of opening the
@@ -148,9 +147,7 @@ release PR itself.
 
 ## Release notes
 
-Notes are generated by GitHub from the PRs merged since the previous tag, and
-categorised by `.github/release.yml`. GitHub matches on **labels only** -- it
-cannot read conventional-commit prefixes -- so an unlabelled PR lands under
+Notes are generated by GitHub from the PRs merged since the previous tag and categorized by `.github/release.yml`. GitHub matches on **labels only**: it cannot read conventional-commit prefixes, so an unlabeled PR lands under
 "Other changes":
 
 | Label           | Section       |
@@ -169,8 +166,8 @@ CI runs an extra `release-guard` job on PRs from `release/**` and `hotfix/**`
 branches. It fails the PR when:
 
 - the version in the branch name disagrees with
-  `packages/sdk/package.json` -- the tag would not match the branch; or
-- `v<version>` is already tagged -- merging would publish nothing at all, which
+  `packages/sdk/package.json`, so the tag would not match the branch; or
+- `v<version>` is already tagged, so merging would publish nothing at all, which
   is how a release can appear to succeed while npm never changes.
 
 Both failures print the exact `pnpm run release:version` command to fix them.
@@ -185,11 +182,10 @@ is deliberately narrow:
 | `ci.yml`            | Pull requests into `main`, `dev`, `release/**`     | Superseded runs on the same branch are cancelled     |
 | `publish.yml`       | Push to `main`, a pushed `v*` tag, manual dispatch | Only actually publishes when the version is untagged |
 | `e2e.yml`           | Nightly cron at 03:00 UTC, manual dispatch         | Never per push or per PR                             |
-| `release-start.yml` | Manual dispatch only                               | —                                                    |
-| `docs.yml`          | Push to `main` touching `docs/**`                  | —                                                    |
+| `release-start.yml` | Manual dispatch only                               | n/a                                                  |
+| `docs.yml`          | Push to `main` touching `docs/**`                  | n/a                                                  |
 
-`ci.yml` has no `push` trigger. Both `main` and `dev` require a pull request, so a
-push trigger only re-ran the identical commit a second time -- PR #126 produced two
+`ci.yml` has no `push` trigger. Both `main` and `dev` require a pull request, so a push trigger only re-ran the identical commit a second time. PR #126 produced two
 `Build, Lint & Test` rows for one change. The merged result is still covered,
 because `publish.yml` re-runs build, lint, and tests before anything reaches npm.
 
@@ -201,7 +197,7 @@ gates every pull request while the suite itself stays nightly.
 
 `e2e.yml` no longer runs per push. It takes tens of minutes against a live tenant
 and gates nothing, so a nightly run is enough. Dispatch it explicitly when a change
-touches backup, restore, or storage behaviour and you want an answer sooner:
+touches backup, restore, or storage behavior and you want an answer sooner:
 
 ```bash
 gh workflow run e2e.yml                          # everything
@@ -238,13 +234,15 @@ obvious:
 | Require signed commits                  | On    | Enforced by classic branch protection, not by the ruleset, so it does not appear in `/rulesets`. This is why `release-start.yml` creates the bump through the GraphQL commit API: a runner-side `git commit` is unsigned and lands an unmergeable release PR                                                                                             |
 | Extra approval for unattributed changes | On    | The one rule that does bite. The release commit is created through the GraphQL commit API so it is signed, which also means it is attributed to the workflow rather than to a person, so this rule demands an approving review that the PR author cannot give. Every release PR needs either a second person's approval or `gh pr merge --merge --admin` |
 
-Tag rulesets are deliberately **not** configured: a `v*` rule can block
-`github-actions[bot]` from pushing the release tag, which stops every publish
-silently.
+::: warning
+Do not add a ruleset for `v*` tags. It can block `github-actions[bot]` from pushing the release tag, which stops every publish silently.
+:::
 
-Note that `gh pr merge` may refuse a release PR with a stale `BLOCKED` merge
-state while GitHub finishes recomputing rule evaluation. The REST endpoint is
-authoritative: `gh api -X PUT repos/:owner/:repo/pulls/:n/merge -f merge_method=merge`.
+`gh pr merge` can refuse a release PR with a stale `BLOCKED` merge state while GitHub finishes recomputing rule evaluation. When that happens, use the REST endpoint, which is authoritative:
+
+```bash
+gh api -X PUT repos/:owner/:repo/pulls/:n/merge -f merge_method=merge
+```
 
 ## Bumping versions by hand
 
@@ -253,9 +251,7 @@ pnpm run release:version 2.2.0   # explicit version
 pnpm run release:version patch   # 2.2.0 -> 2.2.1
 ```
 
-This edits all ten `packages/*/package.json` files and nothing else -- no git
-tag, no commit. Prefer the **Start release** workflow; use this only when working
-offline or repairing a botched bump.
+This edits all ten `packages/*/package.json` files and nothing else. It creates no git tag and no commit. Prefer the **Start release** workflow; use this only when working offline or repairing a botched bump.
 
 ## If a publish fails
 
@@ -307,11 +303,9 @@ gh run watch
 
 The dispatch creates the tag when it is missing, provided the dispatched ref's
 packages already say that version. If they disagree it stops and says so, rather
-than tagging a commit the version guard would reject. There is no need to push a
-tag by hand for this case any more.
+than tagging a commit the version guard would reject. Pushing a tag by hand is no longer needed for this case.
 
-Confirm all four artefacts afterwards, since a dispatch that tags and publishes
-still leaves `sync-dev` to run:
+Confirm all four artifacts afterwards, since a dispatch that tags and publishes still leaves `sync-dev` to run:
 
 ```bash
 git ls-remote --tags origin | grep "v<version>"

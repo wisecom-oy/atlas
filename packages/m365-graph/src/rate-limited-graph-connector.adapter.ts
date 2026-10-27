@@ -13,12 +13,13 @@
 import type {
   MailboxConnector,
   MailFolder,
+  MailFolderListOptions,
   MailMessage,
   DeltaSyncResult,
   DeltaPageCallback,
   MessageAttachment,
 } from '@wisecom/atlas-types/ports/mail/connector.port';
-import type { MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
+import type { ExtendedProperty, MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
 import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,
@@ -40,6 +41,7 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   private readonly _factory: MailboxRateLimiterFactory;
   private readonly _fence: ThrottleFence;
   private readonly _limiters = new Map<string, MailboxRateLimiter>();
+  private _reactions_unsupported_logged = false;
 
   constructor(inner: MailboxConnector, factory: MailboxRateLimiterFactory, fence: ThrottleFence) {
     this._inner = inner;
@@ -91,10 +93,14 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     );
   }
 
-  async list_mail_folders(tenant_id: string, owner_id: string): Promise<MailFolder[]> {
+  async list_mail_folders(
+    tenant_id: string,
+    owner_id: string,
+    options?: MailFolderListOptions,
+  ): Promise<MailFolder[]> {
     return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
       run_with_graph_operation({ pool: 'outlook', request_type: 'list_folders' }, () =>
-        this._inner.list_mail_folders(tenant_id, owner_id),
+        this._inner.list_mail_folders(tenant_id, owner_id, options),
       ),
     );
   }
@@ -159,6 +165,30 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     return this.rateLimited(owner_id, DEFAULT_REQUEST_COST, () =>
       run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_mime' }, () =>
         this._inner.fetch_mime!(tenant_id, owner_id, message_id),
+      ),
+    );
+  }
+
+  /**
+   * Forwards the batched reaction read (issues #481, #513). Charged one unit per message: Graph
+   * counts every request inside a `$batch` against the mailbox's limits, not the round trip.
+   */
+  async fetch_reaction_properties(
+    tenant_id: string,
+    owner_id: string,
+    message_ids: readonly string[],
+  ): Promise<Map<string, ExtendedProperty[]> | undefined> {
+    const inner = this._inner;
+    if (!inner.fetch_reaction_properties) {
+      if (!this._reactions_unsupported_logged) {
+        this._reactions_unsupported_logged = true;
+        logger.warn('The mailbox connector cannot read reactions; they are not captured');
+      }
+      return undefined;
+    }
+    return this.rateLimited(owner_id, message_ids.length, () =>
+      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_reaction_properties' }, () =>
+        inner.fetch_reaction_properties!(tenant_id, owner_id, message_ids),
       ),
     );
   }

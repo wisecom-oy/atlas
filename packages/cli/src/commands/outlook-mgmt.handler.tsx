@@ -3,6 +3,7 @@ import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type {
+  CatalogUseCase,
   VerificationUseCase,
   VerificationResult,
   StatusUseCase,
@@ -12,10 +13,13 @@ import type {
   TenantMailbox,
 } from '@wisecom/atlas-types';
 import {
+  CATALOG_USE_CASE_TOKEN,
   VERIFICATION_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
   MAILBOX_DISCOVERY_TOKEN,
+  NotFoundError,
 } from '@wisecom/atlas-types';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { banner_title } from '@/ui/banner-title';
@@ -23,6 +27,7 @@ import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 /** Archive-enabled mailboxes named individually before the warning summarises. */
 const ARCHIVE_WARNING_LIMIT = 10;
@@ -44,7 +49,7 @@ export interface OutlookMailboxesOptions {
   licensedOnly?: boolean;
 }
 
-/** Runs integrity verification and logs the outcome. */
+/** Verifies a snapshot after confirming it belongs to the `-m` mailbox, then logs the outcome. */
 export async function execute_outlook_verify(
   container: Container,
   options: OutlookVerifyOptions,
@@ -56,6 +61,7 @@ export async function execute_outlook_verify(
       <KeyValueList items={[{ label: 'Mailbox', value: options.mailbox }]} />
     </Box>,
   );
+  await assert_snapshot_owned_by_mailbox(container, tenant_id, options);
   logger.info(`Verifying snapshot ${options.snapshot}...`);
 
   const verification_use_case = container.get<VerificationUseCase>(VERIFICATION_USE_CASE_TOKEN);
@@ -67,6 +73,31 @@ export async function execute_outlook_verify(
     },
   );
   report_verification_result(result);
+}
+
+/**
+ * Throws `NotFoundError` unless the snapshot's manifest is stored under the `-m` mailbox (issue
+ * #516). An object ID, or a v5 manifest keyed by the lowercased address, matches the input as
+ * typed with no Graph call, so a v5 snapshot of a since-deleted user still verifies. Otherwise an
+ * address is resolved to the object ID a v6 manifest is keyed by.
+ */
+async function assert_snapshot_owned_by_mailbox(
+  container: Container,
+  tenant_id: string,
+  options: OutlookVerifyOptions,
+): Promise<void> {
+  const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
+  const manifest = await catalog.get_snapshot_detail(tenant_id, options.snapshot);
+  if (!manifest) throw new NotFoundError(`No manifest found for snapshot ${options.snapshot}`);
+
+  const snapshot_owner = normalize_owner_id(manifest.owner_id);
+  if (normalize_owner_id(options.mailbox) === snapshot_owner) return;
+  const owner = await resolve_owner(container, tenant_id, options.mailbox);
+  if (normalize_owner_id(owner.object_id) === snapshot_owner) return;
+  throw new NotFoundError(
+    `Snapshot ${options.snapshot} does not belong to mailbox ${options.mailbox} ` +
+      `(it belongs to ${manifest.owner_email ?? manifest.owner_id})`,
+  );
 }
 
 /** Runs the status check and prints the result. */
@@ -89,7 +120,8 @@ export async function execute_outlook_status(
     </Box>,
   );
 
-  const result = await status_use_case.check_mailbox_status(tenant_id, options.mailbox);
+  const owner = await resolve_owner(container, tenant_id, options.mailbox);
+  const result = await status_use_case.check_mailbox_status(tenant_id, owner.object_id);
   await print_status_result(result);
 }
 

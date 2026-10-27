@@ -18,6 +18,7 @@ import {
   type Manifest,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
@@ -72,6 +73,7 @@ function make_mock_context(): TenantContext {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: stub_tenant_create_decipher,
     destroy: vi.fn(),
   };
@@ -89,8 +91,10 @@ describe('StatsService', () => {
     mock_manifests = {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     mock_od_manifests = {
@@ -163,9 +167,7 @@ describe('StatsService', () => {
 
   describe('get_mailbox_stats', () => {
     it('returns zeroed stats when mailbox has no manifests', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({ owner_id: 'other@test.com' }),
-      ]);
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([]);
 
       const result = await service.get_mailbox_stats('t', 'missing@test.com');
 
@@ -175,8 +177,8 @@ describe('StatsService', () => {
       expect(result.aggregation_us).toBeGreaterThanOrEqual(0);
     });
 
-    it('filters manifests to the requested mailbox', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+    it('aggregates every manifest of the requested mailbox', async () => {
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
         make_manifest({
           owner_id: 'alice@test.com',
           entries: [
@@ -188,10 +190,6 @@ describe('StatsService', () => {
               folder_id: 'inbox',
             },
           ],
-        }),
-        make_manifest({
-          owner_id: 'bob@test.com',
-          entries: [{ object_id: 'o2', storage_key: 'k2', checksum: 'c2', size_bytes: 300 }],
         }),
         make_manifest({
           owner_id: 'alice@test.com',
@@ -216,8 +214,8 @@ describe('StatsService', () => {
       expect(result.folders).toHaveLength(2);
     });
 
-    it('normalizes owner_id to lowercase', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
+    it('reads the manifests under the lowercased owner prefix', async () => {
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
         make_manifest({
           owner_id: 'alice@test.com',
           entries: [{ object_id: 'o1', storage_key: 'k1', checksum: 'c1', size_bytes: 100 }],
@@ -226,6 +224,10 @@ describe('StatsService', () => {
 
       const result = await service.get_mailbox_stats('t', 'Alice@Test.com');
 
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(
+        expect.anything(),
+        'alice@test.com',
+      );
       expect(result.owner_id).toBe('alice@test.com');
       expect(result.snapshot_count).toBe(1);
       expect(result.total_messages).toBe(1);

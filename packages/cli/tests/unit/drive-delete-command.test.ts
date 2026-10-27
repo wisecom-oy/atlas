@@ -24,9 +24,9 @@ vi.mock('@/ui/components/confirm-prompt', () => ({
 
 const TENANT_ID = 'test-tenant';
 const OWNER_EMAIL = 'user@example.com';
-const OWNER_OBJECT_ID = '75a21b57-4d82-4f42-9ccc-7c231c30f78c';
+const OWNER_OBJECT_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const SITE_URL = 'https://contoso.sharepoint.com/sites/Example';
-const SITE_ID = `contoso.sharepoint.com,${OWNER_OBJECT_ID},11111111-1111-1111-1111-111111111111`;
+const SITE_ID = '00000000-0000-0000-0000-000000000000,11111111-1111-1111-1111-111111111111';
 
 const RESULT: DeletionResult = {
   deleted_objects: 3,
@@ -197,7 +197,7 @@ describe('tenant-wide purge moved out of the outlook group (issue #163)', () => 
   it('still deletes a single mailbox through outlook delete', async () => {
     await h.program.parseAsync(['outlook', 'delete', '-m', OWNER_EMAIL, '-y'], { from: 'user' });
 
-    expect(h.outlook.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OWNER_EMAIL);
+    expect(h.outlook.delete_mailbox_data).toHaveBeenCalledWith(TENANT_ID, OWNER_OBJECT_ID);
   });
 
   it('purges only when the tenant ID is typed back exactly', async () => {

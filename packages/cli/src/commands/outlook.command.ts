@@ -64,7 +64,7 @@ function register_outlook_backup(group: Command, get_container: ContainerFactory
   const command = group
     .command('backup')
     .description('Back up one mailbox from M365 tenant to object storage')
-    .requiredOption('-m, --mailbox <id>', 'mailbox to back up')
+    .requiredOption('-m, --mailbox <email|id>', 'mailbox to back up')
     .option('--full', 'force a full backup, ignoring saved delta state from prior runs')
     .option('--exclude-junk', 'skip the Junk Email folder (captured by default)')
     .option(
@@ -86,7 +86,7 @@ function register_outlook_verify(group: Command, get_container: ContainerFactory
   const command = group
     .command('verify')
     .description('Verify integrity of a backup snapshot')
-    .requiredOption('-m, --mailbox <email>', 'mailbox that owns the snapshot')
+    .requiredOption('-m, --mailbox <email|id>', 'mailbox that owns the snapshot')
     .option(
       '--fast',
       'existence-only checks (no download/decrypt); catches missing objects cheaply',
@@ -101,7 +101,7 @@ function register_outlook_restore(group: Command, get_container: ContainerFactor
   const command = group
     .command('restore')
     .description('Restore emails from a backup snapshot or full mailbox backup')
-    .option('-m, --mailbox <email>', 'restore from all snapshots for this mailbox')
+    .option('-m, --mailbox <email|id>', 'restore from all snapshots for this mailbox')
     .option('-T, --target <email>', 'target mailbox (defaults to source mailbox)')
     .option('--message <ref>', 'restore a single message by # from atlas list, or full ID')
     .option('--start-date <YYYY-MM-DD>', 'include snapshots created on or after this date')
@@ -121,7 +121,7 @@ function register_outlook_list(group: Command, get_container: ContainerFactory):
   const command = group
     .command('list')
     .description('Browse backed-up data (mailboxes, snapshots, messages)')
-    .option('-m, --mailbox <email>', 'list snapshots for a specific mailbox')
+    .option('-m, --mailbox <email|id>', 'list snapshots for a specific mailbox')
     .option('--all', 'show all messages (default caps at 50)')
     .option('-S, --subjects', 'reveal email subjects (hidden by default for data protection)');
   with_snapshot(command, 'list messages inside a specific snapshot');
@@ -146,7 +146,7 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
   const command = group
     .command('save')
     .description('Save backed-up emails as EML files in a compressed zip archive')
-    .option('-m, --mailbox <email>', 'save from all snapshots for this mailbox')
+    .option('-m, --mailbox <email|id>', 'save from all snapshots for this mailbox')
     .option('--message <ref>', 'save a single message by # from atlas list, or full ID')
     .option('--start-date <YYYY-MM-DD>', 'include snapshots created on or after this date')
     .option('--end-date <YYYY-MM-DD>', 'include snapshots created on or before this date')
@@ -169,7 +169,7 @@ function register_outlook_delete(group: Command, get_container: ContainerFactory
   const command = group
     .command('delete')
     .description('Delete backed-up mail data (one mailbox or one snapshot)')
-    .option('-m, --mailbox <email>', 'delete all data and manifests for a mailbox');
+    .option('-m, --mailbox <email|id>', 'delete all data and manifests for a mailbox');
   with_snapshot(command, 'delete a single snapshot manifest');
   with_yes(command);
   with_tenant(command).action((options: OutlookDeleteOptions) =>
@@ -181,7 +181,7 @@ function register_outlook_status(group: Command, get_container: ContainerFactory
   const command = group
     .command('status')
     .description('Check if a mailbox backup is up to date (delta peek, no backup runs)')
-    .requiredOption('-m, --mailbox <email>', 'mailbox to check');
+    .requiredOption('-m, --mailbox <email|id>', 'mailbox to check');
   with_tenant(command).action((options: OutlookStatusOptions) =>
     execute_outlook_status(get_container(), options),
   );

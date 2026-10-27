@@ -3,16 +3,14 @@ import type { Command } from 'commander';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
-import type { SharePointCatalogUseCase, SharePointSiteConnector } from '@wisecom/atlas-types';
-import {
-  SHAREPOINT_CATALOG_USE_CASE_TOKEN,
-  SHAREPOINT_CONNECTOR_TOKEN,
-} from '@wisecom/atlas-types';
+import type { SharePointCatalogUseCase } from '@wisecom/atlas-types';
+import { SHAREPOINT_CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_tenant } from '@/commands/shared-options';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
 
 type ContainerFactory = () => Container;
 
@@ -102,10 +100,9 @@ async function execute_sharepoint_list_snapshots(
   options: SharePointListSnapshotsOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
+  const site_id = await resolve_site_id(container, tenant_id, options.site);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
-  const snapshots = await catalog.list_sharepoint_snapshots(tenant_id, site.site_id);
+  const snapshots = await catalog.list_sharepoint_snapshots(tenant_id, site_id);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Snapshots')} />);
   if (snapshots.length === 0) {
@@ -125,14 +122,9 @@ async function execute_sharepoint_list_versions(
   options: SharePointListVersionsOptions,
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
-  const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
-  const site = await connector.resolve_site(tenant_id, options.site);
+  const site_id = await resolve_site_id(container, tenant_id, options.site);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
-  const versions = await catalog.list_sharepoint_file_versions(
-    tenant_id,
-    site.site_id,
-    options.file,
-  );
+  const versions = await catalog.list_sharepoint_file_versions(tenant_id, site_id, options.file);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'File Versions')} />);
   if (versions.length === 0) {

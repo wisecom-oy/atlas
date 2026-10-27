@@ -48,7 +48,7 @@ function make_service(entries: ManifestEntry[], storage: Partial<ObjectStorage>)
   };
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_all_manifests: vi.fn().mockResolvedValue([]),
+    list_by_owner: vi.fn().mockResolvedValue([]),
   } as unknown as ManifestRepository;
   const factory = {
     create_readonly: vi.fn().mockResolvedValue(ctx),

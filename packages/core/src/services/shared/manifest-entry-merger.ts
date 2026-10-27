@@ -10,7 +10,7 @@ export function filter_manifests_by_date(
   end_date?: Date,
 ): Manifest[] {
   return manifests.filter((m) => {
-    const ts = new Date(m.created_at).getTime();
+    const ts = m.created_at.getTime();
     if (start_date && ts < start_date.getTime()) return false;
     if (end_date && ts > end_date.getTime() + 86_400_000 - 1) return false;
     return true;
@@ -21,6 +21,11 @@ export function filter_manifests_by_date(
  * Merges entries from multiple manifests, deduplicating by object_id.
  * Manifests must be sorted newest-first; the first occurrence of each
  * object_id wins (newest snapshot version takes precedence).
+ *
+ * A manifest's `removed_object_ids` hide those messages in every older manifest, so a message
+ * deleted before the newest snapshot is not brought back (issue #512). The manifest's own entries
+ * still win over its removals: a message moved between folders in one run is removed from the old
+ * folder and recorded in the new one, and must survive.
  *
  * Returns a flat deduplicated array preserving insertion order.
  */
@@ -34,6 +39,7 @@ export function merge_snapshot_entries(manifests: Manifest[]): ManifestEntry[] {
       seen.add(entry.object_id);
       merged.push(entry);
     }
+    for (const removed_id of manifest.removed_object_ids ?? []) seen.add(removed_id);
   }
 
   return merged;

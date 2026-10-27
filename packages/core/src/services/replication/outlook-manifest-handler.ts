@@ -1,4 +1,5 @@
 import type { Manifest, ManifestRepository, TenantContext } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
 import type { RehydrationPlan } from '@/services/replication/rehydration-manifests-runner';
 
@@ -22,7 +23,7 @@ export async function require_outlook_manifest(
   const manifest = await repo.find_by_snapshot(ctx, snapshot_id);
   if (!manifest) {
     const where = location === 'source' ? ' on source' : '';
-    throw new Error(`No manifest found for snapshot ${snapshot_id}${where}`);
+    throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}${where}`);
   }
   return manifest;
 }
@@ -33,10 +34,8 @@ export async function list_mailbox_manifests(
   ctx: TenantContext,
   owner_id: string,
 ): Promise<Manifest[]> {
-  const all = await repo.list_all_manifests(ctx);
-  return all
-    .filter((m) => m.owner_id === owner_id)
-    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const manifests = await repo.list_by_owner(ctx, owner_id);
+  return manifests.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
 }
 
 /** Finds manifests present on the source but missing from the target. */

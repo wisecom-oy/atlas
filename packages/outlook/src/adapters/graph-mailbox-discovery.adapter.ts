@@ -17,19 +17,18 @@ import type {
 import type { GraphUserRecord } from '@/adapters/graph-mailbox-response-mappers';
 import {
   map_users_to_tenant_mailboxes,
-  parse_mailbox_purpose,
+  parse_mailbox_settings_purpose,
 } from '@/adapters/graph-mailbox-response-mappers';
-import { rethrow_if_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import {
+  parse_user_page,
+  rethrow_if_access_denied,
+  with_graph_retry,
+} from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const USERS_SELECT = 'id,mail,displayName,createdDateTime,assignedPlans';
 const USERS_URL = `/users?$select=${USERS_SELECT}&$top=999`;
 const USAGE_REPORT_URL = "/reports/getMailboxUsageDetail(period='D7')";
-
-interface GraphPageResponse {
-  value?: GraphUserRecord[];
-  '@odata.nextLink'?: string;
-}
 
 interface MailboxUsageRow {
   upn: string;
@@ -61,7 +60,10 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
       if (purposes.size > 0) {
         mailboxes = mailboxes.map((m) => {
           const p = purposes.get(m.user_id);
-          return p ? { ...m, mailbox_purpose: p } : m;
+          if (p === undefined) return m;
+          return typeof p === 'string'
+            ? { ...m, mailbox_purpose: p }
+            : { ...m, purpose_lookup_error: p.error };
         });
       }
 
@@ -98,43 +100,46 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
 
     while (url) {
       const current_url = url;
-      const page: GraphPageResponse = await with_graph_retry(() =>
-        this._client.api(current_url).header('Prefer', 'odata.maxpagesize=999').get(),
+      const page = parse_user_page(
+        await with_graph_retry(() =>
+          this._client.api(current_url).header('Prefer', 'odata.maxpagesize=999').get(),
+        ),
       );
 
-      if (page.value) {
-        all.push(...page.value);
-      }
-      url = page['@odata.nextLink'];
+      // ponytail: records are cast, not narrowed; the mappers already skip a user without id or mail
+      all.push(...(page.users as GraphUserRecord[]));
+      url = page.next_link;
     }
 
     return all;
   }
 
-  /** Resolves mailboxSettings.userPurpose per user at bounded concurrency; failed lookups are logged and skipped. */
-  private async fetchPurposes(user_ids: string[]): Promise<Map<string, MailboxPurpose>> {
+  /**
+   * Resolves mailboxSettings.userPurpose per user at bounded concurrency. A failed lookup is kept
+   * as `{ error }` so tenant backup can tell it apart from an unlicensed user (issue #480).
+   */
+  private async fetchPurposes(
+    user_ids: string[],
+  ): Promise<Map<string, MailboxPurpose | { error: string }>> {
     const CONCURRENCY = 5;
-    const purposes = new Map<string, MailboxPurpose>();
+    const purposes = new Map<string, MailboxPurpose | { error: string }>();
     const queue = [...user_ids];
 
     const worker = async (): Promise<void> => {
       while (queue.length > 0) {
         const user_id = queue.shift()!;
         try {
-          const res = await with_graph_retry(() =>
-            this._client.api(`/users/${user_id}/mailboxSettings?$select=userPurpose`).get(),
-          );
-          const purpose = parse_mailbox_purpose(
-            (res as { userPurpose?: unknown } | undefined)?.userPurpose,
+          const purpose = parse_mailbox_settings_purpose(
+            await with_graph_retry(() =>
+              this._client.api(`/users/${user_id}/mailboxSettings?$select=userPurpose`).get(),
+            ),
           );
           if (purpose) purposes.set(user_id, purpose);
         } catch (err) {
-          // Purpose is optional metadata; a 403/404 here must never fail discovery.
-          // But an undetected shared mailbox is silently excluded from tenant backup, so make it visible.
-          logger.warn(
-            `Could not resolve mailbox purpose for ${user_id}; ` +
-              `if this is a shared mailbox it will be skipped by tenant backup (${(err as Error).message})`,
-          );
+          // A 403/404 here must never fail discovery; tenant backup decides what the gap means.
+          const error = err instanceof Error ? err.message : String(err);
+          logger.warn(`Could not resolve mailbox purpose for ${user_id} (${error})`);
+          purposes.set(user_id, { error });
         }
       }
     };
@@ -147,7 +152,8 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
   /** Fetches the mailbox usage report CSV. Returns empty map if Reports.Read.All is missing. */
   private async fetchMailboxUsage(): Promise<Map<string, MailboxUsageRow>> {
     try {
-      const csv: string = await this._client.api(USAGE_REPORT_URL).get();
+      const csv: unknown = await this._client.api(USAGE_REPORT_URL).get();
+      if (typeof csv !== 'string') throw new Error('Usage report did not return CSV text');
       return parse_usage_csv(csv);
     } catch {
       logger.debug('Mailbox usage report unavailable (Reports.Read.All may not be granted)');

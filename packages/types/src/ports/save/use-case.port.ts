@@ -1,4 +1,5 @@
 import type { Writable } from 'node:stream';
+import type { OperationCost } from '@/domain/graph-cost';
 import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 
@@ -40,6 +41,8 @@ export interface SaveResult {
   readonly total_bytes: number;
   readonly interrupted: boolean;
   readonly integrity_failures: string[];
+  /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
+  readonly graph_cost?: OperationCost;
 }
 
 export interface SaveUseCase {

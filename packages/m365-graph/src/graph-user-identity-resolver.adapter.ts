@@ -4,26 +4,84 @@ import type { UserIdentityResolver, ResolvedUserIdentity } from '@wisecom/atlas-
 import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { describe_graph_error, is_retryable_error } from '@/graph-request-error-handler';
+import { parse_user_page } from '@/graph-user-page';
+
+const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
+
+interface GraphUserRecord {
+  id: string;
+  displayName?: string | undefined;
+  mail?: string | undefined;
+  userPrincipalName?: string | undefined;
+}
+
+/** Reads a string field from an untyped Graph payload; undefined when absent or not a string. */
+function optional_string(raw: object, key: string): string | undefined {
+  const value: unknown = Reflect.get(raw, key);
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Narrows an untyped Graph user payload. A payload without a string id is a contract break. */
+function parse_user_record(raw: unknown): GraphUserRecord {
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('id' in raw) ||
+    typeof raw.id !== 'string' ||
+    raw.id === ''
+  ) {
+    throw new Error('Graph user response has no id');
+  }
+  return {
+    id: raw.id,
+    displayName: optional_string(raw, 'displayName'),
+    mail: optional_string(raw, 'mail'),
+    userPrincipalName: optional_string(raw, 'userPrincipalName'),
+  };
+}
 
 /** Resolves Azure AD / Entra user identities via Microsoft Graph. */
 @injectable()
 export class GraphUserIdentityResolver implements UserIdentityResolver {
   constructor(@inject(GRAPH_CLIENT_TOKEN) private readonly _client: Client) {}
 
-  /** Resolves a single email/UPN to the Entra ID object by querying Graph /users/{email}. */
+  /**
+   * Resolves an email to the Entra ID object. `/users/{key}` accepts a UPN, and a mailbox's
+   * primary SMTP address can differ from it, so a 404 there retries as a `mail` filter before
+   * reporting the user missing.
+   */
   async resolve_user(tenant_id: string, email: string): Promise<ResolvedUserIdentity> {
     void tenant_id;
     const normalized_email = email.toLowerCase().trim();
-    const response = await this._client
-      .api(`/users/${encodeURIComponent(normalized_email)}`)
-      .select('id,displayName,mail,userPrincipalName')
-      .get();
+    const response = await this.get_user_by_upn(normalized_email).catch(async (err: unknown) => {
+      if ((err as Record<string, unknown>).statusCode !== 404) throw err;
+      const by_mail = await this.find_user_by_mail(normalized_email);
+      if (!by_mail) throw err;
+      return by_mail;
+    });
 
     return {
       object_id: response.id,
       display_name: response.displayName ?? normalized_email,
       email: response.mail ?? response.userPrincipalName ?? normalized_email,
     };
+  }
+
+  private async get_user_by_upn(upn: string): Promise<GraphUserRecord> {
+    const raw: unknown = await this._client
+      .api(`/users/${encodeURIComponent(upn)}`)
+      .select(USER_FIELDS)
+      .get();
+    return parse_user_record(raw);
+  }
+
+  private async find_user_by_mail(mail: string): Promise<GraphUserRecord | undefined> {
+    const raw: unknown = await this._client
+      .api('/users')
+      .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
+      .select(USER_FIELDS)
+      .get();
+    return parse_user_page(raw).users.map(parse_user_record)[0];
   }
 
   /**
@@ -40,10 +98,11 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
     object_id: string,
   ): Promise<ResolvedUserIdentity | undefined> {
     try {
-      const response = await this._client
+      const raw: unknown = await this._client
         .api(`/users/${encodeURIComponent(object_id)}`)
         .select('id,displayName,mail,userPrincipalName')
         .get();
+      const response = parse_user_record(raw);
       return {
         object_id: response.id,
         display_name: response.displayName ?? object_id,

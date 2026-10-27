@@ -13,6 +13,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 const OWNER_ID = 'owner-1';
@@ -117,6 +118,7 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     },
     encrypt: (buffer: Buffer) => buffer,
     destroy: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
   const factory = { create: async () => ctx } as unknown as TenantContextFactory;
   const list_snapshots_by_owner = vi.fn(async () => [PREVIOUS]);

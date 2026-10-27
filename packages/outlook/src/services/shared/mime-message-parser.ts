@@ -25,6 +25,8 @@ export interface ParsedMimeMessage {
   readonly from?: MimeAddress;
   readonly to: MimeAddress[];
   readonly cc: MimeAddress[];
+  readonly bcc: MimeAddress[];
+  readonly reply_to: MimeAddress[];
   readonly date?: string;
   readonly message_id?: string;
   readonly text?: string;
@@ -35,22 +37,38 @@ export interface ParsedMimeMessage {
 
 /** Parses RFC 5322 MIME bytes into the fields Atlas needs for restore and display. */
 export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessage> {
-  const parsed: ParsedMail = await simpleParser(mime);
+  // cid: links are kept so the attachments the body references can be identified, then inlined
+  // as data: URIs below exactly as simpleParser does by default (issue #474).
+  const parsed: ParsedMail = await simpleParser(mime, { keepCidLinks: true });
   assert_header_block_parsed(parsed, mime);
   const from = flatten_addresses(parsed.from)[0];
+  const html = typeof parsed.html === 'string' ? parsed.html : undefined;
+  const referenced_cids = new Set([...(html ?? '').matchAll(CID_LINK)].map((m) => m[1]!));
 
   return {
     subject: parsed.subject ?? '',
     ...(from ? { from } : {}),
     to: flatten_addresses(parsed.to),
     cc: flatten_addresses(parsed.cc),
+    bcc: flatten_addresses(parsed.bcc),
+    reply_to: flatten_addresses(parsed.replyTo),
     ...(parsed.date ? { date: parsed.date.toISOString() } : {}),
     ...(parsed.messageId ? { message_id: parsed.messageId } : {}),
     ...(parsed.text ? { text: parsed.text } : {}),
-    ...(parsed.html ? { html: parsed.html } : {}),
+    ...(html ? { html: inline_cid_images(html, parsed.attachments) } : {}),
     headers: flatten_header_lines(parsed),
-    attachments: parsed.attachments.map(normalize_attachment),
+    attachments: parsed.attachments.map((a) => normalize_attachment(a, referenced_cids)),
   };
+}
+
+const CID_LINK = /\bcid:([^'"\s]{1,256})/g;
+
+/** Replaces `cid:` links to image attachments with data: URIs, as simpleParser does by default. */
+function inline_cid_images(html: string, attachments: Attachment[]): string {
+  return html.replace(CID_LINK, (link, cid: string) => {
+    const image = attachments.find((a) => a.cid === cid && /^image\/\w+$/i.test(a.contentType));
+    return image ? `data:${image.contentType};base64,${image.content.toString('base64')}` : link;
+  });
 }
 
 export interface MimeEnvelope {
@@ -159,14 +177,27 @@ function unfold_header_value(value: string): string {
     .join(' ');
 }
 
-/** Normalizes a mailparser attachment to the shape Graph's upload port expects. */
-function normalize_attachment(attachment: Attachment): MimeAttachment {
+/**
+ * Normalizes a mailparser attachment to the shape Graph's upload port expects.
+ *
+ * Exchange puts a Content-ID on ordinary `Content-Disposition: attachment` parts, so a Content-ID
+ * alone does not make a part inline: uploaded as inline, Outlook hides it because the body never
+ * shows it. Inline means the part says so, or it has no disposition and the body references its
+ * Content-ID (issue #474).
+ */
+function normalize_attachment(
+  attachment: Attachment,
+  referenced_cids: Set<string>,
+): MimeAttachment {
   const content_id = strip_angle_brackets(attachment.cid);
+  const disposition = attachment.contentDisposition;
   return {
     name: attachment.filename ?? content_id ?? 'attachment',
     content_type: attachment.contentType,
     content: attachment.content,
-    is_inline: attachment.contentDisposition === 'inline' || content_id !== undefined,
+    is_inline:
+      disposition === 'inline' ||
+      (disposition !== 'attachment' && content_id !== undefined && referenced_cids.has(content_id)),
     ...(content_id ? { content_id } : {}),
   };
 }

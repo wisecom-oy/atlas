@@ -1,13 +1,15 @@
-import type { TenantContext } from '@wisecom/atlas-types';
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
+import type { ExtendedProperty, TenantContext } from '@wisecom/atlas-types';
 import {
   capture_mime_payload,
+  capture_page_reactions,
   store_single_message,
 } from '@/services/backup/message-payload-store';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
-import { fetch_and_store_attachments } from '@/services/backup/attachment-storage-sync';
+import {
+  flush_pending_attachments,
+  type PendingAttachment,
+} from '@/services/backup/attachment-storage-sync';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import type {
   BackupProgressReporter,
@@ -19,6 +21,8 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 export interface FolderSyncResult {
   entries: ManifestEntry[];
   delta_link: string;
+  /** Message IDs the delta reported as deleted or moved out of this folder. */
+  removed_ids: string[];
   /** True only when every page of the folder was fully processed; the delta link MUST NOT be persisted otherwise. */
   complete: boolean;
   stored: number;
@@ -32,6 +36,10 @@ export interface FolderSyncResult {
    */
   attachment_errors: string[];
   folder_processed: number;
+  /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
+  warnings: string[];
+  /** Messages stored without their reactions; also summarised in `warnings`. */
+  reactions_not_captured: number;
 }
 
 export interface FolderSyncParams {
@@ -55,17 +63,10 @@ export interface FolderSyncParams {
   object_lock_policy?: ObjectLockPolicy;
 }
 
-const DEFAULT_ATTACHMENT_CONCURRENCY = 3;
-
-interface PendingAttachment {
-  entry_index: number;
-  message_id: string;
-}
-
 /**
  * Processes a single message: capture MIME, dedup check, encrypt, store.
  * MIME embeds its attachments, so only a JSON fallback queues a separate
- * attachment fetch.
+ * attachment fetch. Reactions were read for the whole page beforehand (issue #513).
  */
 async function process_message(
   ctx: TenantContext,
@@ -73,13 +74,21 @@ async function process_message(
   tenant_id: string,
   owner_id: string,
   message: MailMessage,
+  reactions: ExtendedProperty[],
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending_attachments: PendingAttachment[],
   object_lock_policy?: ObjectLockPolicy,
 ): Promise<void> {
   const mime = await capture_mime_payload(connector, tenant_id, owner_id, message);
-  const entry = await store_single_message(ctx, message, owner_id, object_lock_policy, mime);
+  const entry = await store_single_message(
+    ctx,
+    message,
+    owner_id,
+    object_lock_policy,
+    mime,
+    reactions,
+  );
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
 
@@ -88,64 +97,6 @@ async function process_message(
 
   if (!mime && message.has_attachments) {
     pending_attachments.push({ entry_index, message_id: message.message_id });
-  }
-}
-
-/**
- * Drains all pending attachment fetches in parallel batches of `concurrency`.
- *
- * One failure used to reject the whole `Promise.all`, and the throw travelled out of
- * `sync_single_folder` into a folder-level error that discarded every entry already processed in
- * that folder. A message deleted between the delta page and the attachment fetch is enough to
- * trigger it, and Graph answers `ErrorItemNotFound` for that (issue #366).
- *
- * A permission or licensing failure still propagates: those are the operator's to fix, and
- * degrading the whole run quietly is the failure #372 describes.
- */
-async function flush_pending_attachments(
-  ctx: TenantContext,
-  connector: MailboxConnector,
-  tenant_id: string,
-  owner_id: string,
-  entries: ManifestEntry[],
-  stats: { stored: number; deduplicated: number; att_stored: number },
-  pending: PendingAttachment[],
-  attachment_errors: string[],
-  is_interrupted: () => boolean,
-  object_lock_policy?: ObjectLockPolicy,
-  concurrency = DEFAULT_ATTACHMENT_CONCURRENCY,
-): Promise<void> {
-  while (pending.length > 0) {
-    // An interrupted run stops scheduling; what is already in flight finishes.
-    if (is_interrupted()) {
-      pending.length = 0;
-      return;
-    }
-    const batch = pending.splice(0, concurrency);
-    const tasks = batch.map(async (p) => {
-      try {
-        const att = await fetch_and_store_attachments(
-          ctx,
-          connector,
-          tenant_id,
-          owner_id,
-          p.message_id,
-          undefined,
-          object_lock_policy,
-        );
-        if (att && att.length > 0) {
-          stats.att_stored += att.length;
-          entries[p.entry_index] = { ...entries[p.entry_index]!, attachments: att };
-        }
-      } catch (err) {
-        if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
-        const reason = err instanceof Error ? err.message : String(err);
-        logger.warn(`Attachments for message ${p.message_id} could not be fetched: ${reason}`);
-        attachment_errors.push(`message ${p.message_id}: attachments not backed up (${reason})`);
-      }
-    });
-
-    await Promise.all(tasks);
   }
 }
 
@@ -173,7 +124,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   const previous_manifest_entries = params.previous_manifest_entries ?? 0;
 
   const entries: ManifestEntry[] = [];
-  const stats = { stored: 0, deduplicated: 0, att_stored: 0 };
+  const stats = { stored: 0, deduplicated: 0, att_stored: 0, reactions_failed: 0 };
   const pending_attachments: PendingAttachment[] = [];
   const attachment_errors: string[] = [];
   let folder_processed = 0;
@@ -205,6 +156,10 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       return false;
     }
 
+    // Read for the page, not per message: reactions belong to the manifest entry, so a message
+    // whose content dedups still needs them, and the batch costs one round trip per 20.
+    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, page_messages);
+    stats.reactions_failed += reactions.failed;
     for (const message of page_messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -216,6 +171,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
+        reactions.by_message.get(message.message_id) ?? [],
         entries,
         stats,
         pending_attachments,
@@ -238,7 +194,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       });
     }
 
-    await flush_pending_attachments(
+    const drained = await flush_pending_attachments(
       ctx,
       connector,
       tenant_id,
@@ -250,6 +206,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       is_interrupted,
       object_lock_policy,
     );
+    if (!drained) aborted = true;
 
     return !aborted;
   };
@@ -281,6 +238,8 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   }
 
   if (!streamed) {
+    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, delta.messages);
+    stats.reactions_failed += reactions.failed;
     for (const message of delta.messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -292,6 +251,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
+        reactions.by_message.get(message.message_id) ?? [],
         entries,
         stats,
         pending_attachments,
@@ -314,7 +274,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       });
     }
 
-    await flush_pending_attachments(
+    const drained = await flush_pending_attachments(
       ctx,
       connector,
       tenant_id,
@@ -326,16 +286,25 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       is_interrupted,
       object_lock_policy,
     );
+    if (!drained) aborted = true;
   }
 
   return {
     entries,
     delta_link: delta.delta_link,
+    removed_ids: delta.removed_ids,
     complete: !aborted,
     stored: stats.stored,
     deduplicated: stats.deduplicated,
     attachments_stored: stats.att_stored,
     attachment_errors,
     folder_processed,
+    warnings:
+      stats.reactions_failed > 0
+        ? [
+            `reactions not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
+          ]
+        : [],
+    reactions_not_captured: stats.reactions_failed,
   };
 }

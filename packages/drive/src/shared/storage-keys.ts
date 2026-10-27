@@ -22,8 +22,8 @@ export interface DriveStorageKeys {
   readonly meta_prefix: string;
   /** Ensures a single path segment is safe for S3-style keys (no traversal or extra slashes). */
   validate_key_segment(value: string): void;
-  /** Builds the content-addressed key for a stored file blob. */
-  data_key(owner_id: string, checksum: string): string;
+  /** Builds the storage key for a stored file blob from its keyed content name (issue #446). */
+  data_key(owner_id: string, content_name: string): string;
   /** The directory every blob of one owning segment lives in, which its ciphertext is bound to. */
   data_prefix_for(owner_id: string): string;
   /** Builds the key for a snapshot manifest. */
@@ -96,10 +96,10 @@ export function build_drive_storage_keys(
     index_prefix,
     meta_prefix,
     validate_key_segment,
-    data_key(owner_id, checksum) {
+    data_key(owner_id, content_name) {
       const owner = owning_segment(owner_id);
-      validate_key_segment(checksum);
-      return `${data_prefix}/${owner}/${checksum}`;
+      validate_key_segment(content_name);
+      return `${data_prefix}/${owner}/${content_name}`;
     },
     data_prefix_for(owner_id) {
       return `${data_prefix}/${owning_segment(owner_id)}/`;

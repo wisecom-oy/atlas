@@ -1,61 +1,66 @@
-# Azure AD Setup
+---
+description: Register an Entra ID (Azure AD) app for Atlas with Microsoft Graph Application permissions and a client secret for unattended Microsoft 365 backups.
+---
 
-Atlas authenticates with Microsoft Graph using the **OAuth2 Client Credentials flow** via `@azure/identity` `ClientSecretCredential`. This authenticates the application itself, not a user, which has security implications covered below.
+# Entra ID app registration
 
-## Register an Application
+Atlas authenticates to Microsoft Graph with the OAuth2 client credentials flow, using `@azure/identity` `ClientSecretCredential`. The application signs in as itself, with no user involved, so the app registration's permissions and secret define what Atlas can reach.
 
-In the Azure Portal, register an application with the following **Application** permissions (not Delegated):
+## Register the application
 
-| Permission             | Why                                                                                  | Required For                          |
-| ---------------------- | ------------------------------------------------------------------------------------ | ------------------------------------- |
-| `Mail.Read`            | Read mailbox contents via Graph API                                                  | Backup, list, read, save, verify      |
-| `Mail.ReadWrite`       | Restore messages and create folders in target mailboxes                              | Restore only                          |
-| `User.Read.All`        | Enumerate users and resolve mailbox IDs                                              | User discovery                        |
-| `MailboxSettings.Read` | Read mailbox metadata and folder structure; shared-mailbox detection (`userPurpose`) | Folder enumeration, mailbox discovery |
+In the Microsoft Entra admin center, register an application, then add these **Application** permissions under **API permissions**. Do not use Delegated permissions.
 
-::: tip Start with Read-Only
-If you only need backups (no restore), grant `Mail.Read` instead of `Mail.ReadWrite`. This limits the application's ability to modify mailbox contents, reducing the blast radius if the client secret is compromised. Add `Mail.ReadWrite` later, only when restore functionality is needed.
+| Permission             | Used for                                                                 | Needed by                             |
+| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------- |
+| `Mail.Read`            | Reading mailbox contents                                                 | Backup, list, read, save, verify      |
+| `Mail.ReadWrite`       | Delta sync and full message fetch; creating messages and folders on restore | Backup and restore                 |
+| `User.Read.All`        | Enumerating users and resolving addresses to object IDs                  | User discovery                        |
+| `MailboxSettings.Read` | Reading mailbox metadata and folders, and detecting shared mailboxes     | Folder enumeration, mailbox discovery |
+
+::: warning Mail.ReadWrite is required for backup
+Backups need `Mail.ReadWrite` as well as `Mail.Read`, because delta sync and full message fetch use it. Anyone holding the client secret can therefore modify mailboxes. Store the secret as carefully as the encryption passphrase and rotate it on a schedule (see [Client secret rotation](#client-secret-rotation)).
 :::
 
-## Grant Admin Consent
+Then click **Grant admin consent for [your tenant]**. The permissions do not take effect until an administrator grants consent.
 
-After adding permissions, click **Grant admin consent for [your tenant]** in the API Permissions blade.
+### Optional: mailbox size reporting
 
-## Optional: Mailbox Size Reporting
+`atlas outlook mailboxes` shows mailbox sizes when `Reports.Read.All` is granted. Without it, the Size column is omitted. The permission reads every usage report in the tenant, not only mailbox sizes, so grant it only for capacity planning.
 
-`atlas outlook mailboxes` can show mailbox sizes if `Reports.Read.All` is granted. Without it, the Size column is omitted without error.
+## OneDrive and SharePoint permissions
 
-| Permission         | Why                                        |
-| ------------------ | ------------------------------------------ |
-| `Reports.Read.All` | Access mailbox usage reports for size data |
+OneDrive and SharePoint backups use their own permission sets, granted on the same app registration:
 
-This permission grants read access to all usage reports in the tenant, not just mailbox sizes. Grant it only if you need the sizing information for capacity planning.
+| Workload                 | Permissions                                                       | Notes                                              |
+| ------------------------ | ----------------------------------------------------------------- | -------------------------------------------------- |
+| OneDrive                 | `Files.Read.All`, `User.Read.All`                                 | `Files.ReadWrite.All` is needed for restore only   |
+| SharePoint               | `Sites.Read.All`, `Files.Read.All`                                | `Sites.ReadWrite.All` is needed for restore only   |
 
-## Security Implications of Client Credentials
+See [OneDrive backup](./onedrive-backup.md) and [SharePoint backup](./sharepoint-backup.md) for the commands that use them.
 
-The Client Credentials flow means Atlas authenticates **as the application itself**, not on behalf of any specific user:
+## Security implications
 
-- **Tenant-wide access**: the application can read (and potentially write) **every mailbox** in the tenant. There is no per-user consent or per-mailbox scoping at the API level.
-- **No user interaction**: authentication is fully automated using a client ID and secret. No MFA, no user prompt, no interactive login.
-- **The secret is the only barrier**: anyone who obtains the client secret can access all mailboxes in the tenant with whatever permissions are granted.
+The client credentials flow has no user in the loop, so the secret carries the full risk:
 
-That makes the client secret one of the most sensitive credentials in your Atlas deployment. Protect it accordingly:
+- **Tenant-wide access.** The application can read every mailbox and drive in the tenant. The API does not scope access per user or per mailbox.
+- **No interactive checks.** Sign-in uses only the client ID and secret. No user signs in, so no MFA prompt applies to the request.
+- **The secret is the only barrier.** Anyone holding it has the same access as Atlas, within the granted permissions.
 
-- Store it in a secrets manager (Azure Key Vault, HashiCorp Vault, etc.), not in plaintext files on shared drives.
-- Monitor Azure AD sign-in logs for unexpected application authentications.
-- Rotate it regularly.
+Protect the secret accordingly. Keep it in a secrets manager such as Azure Key Vault or HashiCorp Vault, or in the encrypted store with `atlas config`, rather than in plaintext files. Review Microsoft Entra sign-in logs for unexpected application sign-ins, and rotate the secret regularly.
 
-## Client Secret Rotation
+## Client secret rotation
 
-Rotate the client secret every 90 days at minimum for production environments.
+Rotate the client secret at least every 90 days in production.
 
-1. In **Certificates & secrets** on the app registration, add a new client secret.
-2. Copy the secret **Value** immediately. The portal shows it only once, and the Secret ID is not the secret.
-3. Update Atlas with the new value, either `ATLAS_CLIENT_SECRET` or by piping it to `atlas config set client.secret -`, which reads the value from stdin so it never reaches shell history (see [Configuration](/configuration)).
-4. Confirm authentication works, then delete the old secret in **Certificates & secrets**.
+1. In **Certificates & secrets**, add a new client secret.
+2. Copy the secret **Value** immediately. The portal shows it once. The **Secret ID** is not the secret.
+3. Update Atlas: set `ATLAS_CLIENT_SECRET`, or pipe the value to `atlas config set client.secret -`, which reads from stdin and keeps it out of shell history. See [Configuration](/configuration).
+4. Run `atlas config validate` to confirm authentication works, then delete the old secret in **Certificates & secrets**.
 
-An expired or mistyped secret surfaces as `AADSTS7000215`. See [Troubleshooting](/troubleshooting#aadsts-error-codes).
+An expired or mistyped secret fails with `AADSTS7000215`. See [troubleshooting](/troubleshooting#aadsts-error-codes).
 
-## Certificate-Based Authentication
+## Certificates
 
-Azure AD supports **certificate-based authentication** as an alternative to client secrets. Certificates are harder to exfiltrate than string secrets and can be stored in hardware security modules (HSMs). Atlas currently uses client secrets. Azure AD allows both methods on the same application registration, so you can create a certificate credential alongside or instead of a secret.
+Microsoft Entra ID also supports certificate credentials, which are harder to exfiltrate than a string secret and can live in an HSM. Atlas uses client secrets only, so a certificate on the app registration does not replace the secret in Atlas configuration.
+
+See also: [Configuration](/configuration), [Security model](/security).

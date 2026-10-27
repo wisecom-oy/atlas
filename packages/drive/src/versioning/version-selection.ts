@@ -1,4 +1,5 @@
 import type { DriveVersionRestoreOptions } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { trim_trailing_slashes } from '@wisecom/atlas-core/services/shared/trim-slashes';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { resolve_file_id, version_logical_path } from '@/versioning/version-reference';
@@ -62,7 +63,7 @@ function select_for_one_file(
   const file_ref = options.file_ref!;
   const file_id = resolve_file_id(indexes, file_ref);
   if (!file_id) {
-    throw new Error(`No stored versions found for '${file_ref}'`);
+    throw new NotFoundError(`No stored versions found for '${file_ref}'`);
   }
   const versions = indexes.find((idx) => idx.file_id === file_id)?.versions ?? [];
 
@@ -72,7 +73,7 @@ function select_for_one_file(
       const known = versions
         .map((v) => v.version_id)
         .filter((id): id is string => id !== undefined);
-      throw new Error(
+      throw new NotFoundError(
         known.length > 0
           ? `Version '${options.version_id}' not stored for '${file_ref}'. Stored: ${known.join(', ')}`
           : `No identified versions stored for '${file_ref}'; only current-state rows`,

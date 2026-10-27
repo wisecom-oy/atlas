@@ -3,13 +3,14 @@ import type { Snapshot } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 import type {
   ExcludedFolder,
+  FolderExclusionReason,
   MailFolder,
   MailboxPurpose,
   Manifest,
   ManifestEntry,
   ManifestObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import type { BackupSyncMode } from '@wisecom/atlas-types';
+import type { BackupSyncMode, SyncOptions } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 export interface OwnerIdentityHint {
@@ -48,7 +49,7 @@ export function mark_snapshot_completed(snapshot: Snapshot, object_count: number
 }
 
 /** Optional manifest facts that not every run has. */
-export interface ManifestBuildExtras {
+export interface ManifestBuildExtras extends OwnerIdentityHint {
   readonly previous_total_objects?: number | undefined;
   readonly object_lock?: ManifestObjectLockPolicy | undefined;
   readonly mailbox_purpose?: MailboxPurpose | undefined;
@@ -56,6 +57,8 @@ export interface ManifestBuildExtras {
   readonly excluded_folders?: ExcludedFolder[] | undefined;
   /** Folders this run selected for capture. */
   readonly folders?: MailFolder[] | undefined;
+  /** Message IDs this run's delta removed; recorded only when non-empty. */
+  readonly removed_object_ids?: string[] | undefined;
 }
 
 /**
@@ -87,12 +90,69 @@ export function build_manifest(
     id_format: 'immutable',
     ...(extras.object_lock ? { object_lock: extras.object_lock } : {}),
     ...(extras.mailbox_purpose ? { mailbox_purpose: extras.mailbox_purpose } : {}),
+    ...(extras.owner_email !== undefined && { owner_email: extras.owner_email }),
+    ...(extras.owner_display_name !== undefined && {
+      owner_display_name: extras.owner_display_name,
+    }),
     ...(extras.excluded_folders && extras.excluded_folders.length > 0
       ? { excluded_folders: extras.excluded_folders }
       : {}),
     ...(extras.folders && extras.folders.length > 0 ? { folders: extras.folders } : {}),
+    ...(extras.removed_object_ids && extras.removed_object_ids.length > 0
+      ? { removed_object_ids: extras.removed_object_ids }
+      : {}),
     entries,
   };
+}
+
+/**
+ * Whether a user can move mail into a folder pruned for this reason. Junk Email takes moved mail;
+ * an unrecognised Recoverable Items subfolder might. Client-state and non-mail folders cannot.
+ */
+const EXCLUSION_CAN_RECEIVE_MAIL: Record<FolderExclusionReason, boolean> = {
+  'junk-excluded': true,
+  'recoverable-items-unrecognised': true,
+  'hidden-system-folder': false,
+  'recoverable-items-not-mail': false,
+};
+
+/**
+ * Returns the run's removals when it captured every folder mail could have moved to, otherwise
+ * `undefined`. A move shows up as a removal from one folder and an entry in another, so a run that
+ * filtered, excluded, or failed to finish such a folder could record the removal without the new
+ * location and hide a live message (issues #512, #534).
+ */
+export function select_recordable_removals(
+  removed_ids: string[],
+  folder_filter: readonly string[] | undefined,
+  folders: {
+    readonly completed: number;
+    readonly selected: number;
+    readonly excluded: readonly ExcludedFolder[];
+  },
+): string[] | undefined {
+  const captured_every_folder =
+    !folder_filter?.length &&
+    folders.completed === folders.selected &&
+    !folders.excluded.some((folder) => EXCLUSION_CAN_RECEIVE_MAIL[folder.reason]);
+  return captured_every_folder ? removed_ids : undefined;
+}
+
+/**
+ * Drops the new delta link of every folder that reported removals when a folder failed or was
+ * interrupted, so the folder keeps its previous link and the next run receives those removals
+ * again (issue #531). A filtered or excluded run keeps its links: it can never record removals,
+ * and holding the links back would stop those folders' cursors for good.
+ */
+export function withhold_links_of_unrecorded_removals(
+  new_links: Record<string, string>,
+  removal_counts: Readonly<Record<string, number>>,
+  selected_folder_count: number,
+): Record<string, string> {
+  if (Object.keys(new_links).length === selected_folder_count) return new_links;
+  return Object.fromEntries(
+    Object.entries(new_links).filter(([folder_id]) => !removal_counts[folder_id]),
+  );
 }
 
 /** Resolves whether a mailbox run is full, incremental, or its initial backup. */
@@ -119,4 +179,21 @@ export function resolve_saved_delta_links(previous: Manifest | undefined): Recor
     return {};
   }
   return previous.delta_links;
+}
+
+/** Records the Object Lock retention the run asked for next to the one it applied. */
+export function build_manifest_object_lock_policy(
+  options: SyncOptions,
+): ManifestObjectLockPolicy | undefined {
+  if (!options.object_lock_policy) return undefined;
+  return {
+    requested: {
+      mode: options.object_lock_request?.mode,
+      retention_days: options.object_lock_request?.retention_days,
+    },
+    effective: {
+      mode: options.object_lock_policy.mode,
+      retain_until: options.object_lock_policy.retain_until,
+    },
+  };
 }

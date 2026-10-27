@@ -1,10 +1,11 @@
 import { injectable } from 'inversify';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { TenantContext, TenantStorageContext } from '@wisecom/atlas-types';
 import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
 import { StorageError } from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
+import { InvalidManifestDateError, MismatchedManifestError } from '@/adapters/manifest.errors';
 
 const MANIFEST_PREFIX = 'manifests';
 const MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
@@ -13,6 +14,9 @@ const MANIFEST_READ_CONCURRENCY = 8;
 interface ManifestPointer {
   readonly manifest_key: string;
 }
+
+/** A manifest as JSON stores it, before `created_at` is revived as a Date. */
+type StoredManifest = Omit<Manifest, 'created_at'> & { readonly created_at: string };
 
 /** Constructs the S3 key for a manifest. */
 function manifest_key(owner_id: string, snapshot_id: string): string {
@@ -25,20 +29,6 @@ function latest_pointer_key(owner_id: string): string {
 
 function snapshot_pointer_key(snapshot_id: string): string {
   return `${MANIFEST_POINTER_PREFIX}/snapshots/${snapshot_id}.json`;
-}
-
-class MismatchedManifestError extends Error {
-  constructor(
-    readonly storage_key: string,
-    owner_id: string,
-    snapshot_id: string,
-  ) {
-    super(
-      `Outlook manifest at ${storage_key} decrypts to ${owner_id}/${snapshot_id}; ` +
-        `refusing to use a manifest that is not the one the key names`,
-    );
-    this.name = 'MismatchedManifestError';
-  }
 }
 
 /**
@@ -98,8 +88,7 @@ export class S3ManifestRepository implements ManifestRepository {
     const manifests = await this.download_manifests(ctx, keys);
     let latest: Manifest | undefined;
     for (const manifest of manifests) {
-      const is_newer =
-        !latest || new Date(manifest.created_at).getTime() > new Date(latest.created_at).getTime();
+      const is_newer = !latest || manifest.created_at.getTime() > latest.created_at.getTime();
       if (is_newer) latest = manifest;
     }
     return latest;
@@ -109,6 +98,18 @@ export class S3ManifestRepository implements ManifestRepository {
   async list_all_manifests(ctx: TenantContext): Promise<Manifest[]> {
     const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
     return this.download_manifests(ctx, keys);
+  }
+
+  /** Downloads one owner's manifests, reading only that owner's key prefix. */
+  async list_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest[]> {
+    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/${owner_id}/`);
+    return this.download_manifests(ctx, keys);
+  }
+
+  /** Lists owners from `manifests/{owner_id}/...` key names; one paginated LIST, nothing decrypted. */
+  async list_owner_ids(ctx: TenantStorageContext): Promise<string[]> {
+    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
+    return [...new Set(keys.map((key) => key.split('/')[1]).filter((id): id is string => !!id))];
   }
 
   private async download_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
@@ -140,7 +141,8 @@ export class S3ManifestRepository implements ManifestRepository {
   }
 
   /**
-   * Downloads an encrypted manifest blob, decrypts it, and rejects a body the key does not name.
+   * Downloads an encrypted manifest blob, decrypts it, revives `created_at` as a Date, and rejects
+   * a body the key does not name.
    *
    * A manifest is encrypted with the tenant key and nothing in the ciphertext says which manifest
    * it is, so any manifest in the tenant authenticates at any other manifest's key. Rebuilding the
@@ -154,17 +156,22 @@ export class S3ManifestRepository implements ManifestRepository {
     try {
       const encrypted = await ctx.storage.get(key);
       const json = ctx.decrypt(encrypted, key);
-      const parsed = JSON.parse(json.toString('utf-8')) as Manifest;
+      const parsed = JSON.parse(json.toString('utf-8')) as StoredManifest;
       if (manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
         throw new MismatchedManifestError(key, parsed.owner_id, parsed.snapshot_id);
       }
-      return parsed;
+      const created_at = new Date(parsed.created_at);
+      if (Number.isNaN(created_at.getTime())) {
+        throw new InvalidManifestDateError(key);
+      }
+      return { ...parsed, created_at };
     } catch (err) {
       // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
       // identify is damaged, and returning `undefined` for it reports a broken backup with the
       // same value as a snapshot that was never taken (issues #340, #341).
       if (is_absent_object_error(err)) return undefined;
       if (err instanceof MismatchedManifestError) throw err;
+      if (err instanceof InvalidManifestDateError) throw err;
       throw new StorageError(`Could not read the manifest at ${key}`, { cause: err });
     }
   }

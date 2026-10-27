@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { graph_message_to_mail_message } from '@/adapters/graph-delta-message-mapper';
 import { store_single_message } from '@/services/backup/message-payload-store';
 
 // An already backed-up message: its content is stored, so the run deduplicates it.
-const ctx = { storage: { exists: async () => true } } as unknown as TenantContext;
+const ctx = {
+  storage: { exists: async () => true },
+  create_content_hmac: stub_tenant_create_content_hmac,
+} as unknown as TenantContext;
 
 function mime_with(date_header: string): Buffer {
   return Buffer.from(

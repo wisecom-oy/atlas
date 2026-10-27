@@ -15,8 +15,8 @@ import {
   resolve_tenant_id,
   type OneDriveTenantOptions,
 } from '@/commands/onedrive-command.handlers';
+import { resolve_site_id } from '@/commands/sharepoint-site-resolution';
 import {
-  resolve_site_id,
   resolve_tenant_id as resolve_sharepoint_tenant_id,
   type SharePointTenantOptions,
 } from '@/commands/sharepoint-command.handlers';

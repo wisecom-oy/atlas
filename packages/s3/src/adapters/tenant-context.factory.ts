@@ -129,12 +129,13 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
 }
 
 /** Binds storage and DEK-backed crypto operations into a tenant context. */
-function build_context(
+export function build_context(
   tenant_id: string,
   storage: S3ObjectStorage,
   key_service: EnvelopeKeyService,
   dek: Buffer,
 ): TenantContext {
+  let naming_key: Buffer | undefined = key_service.derive_naming_key(dek);
   return {
     tenant_id,
     storage,
@@ -145,6 +146,14 @@ function build_context(
     create_cipher: (scope_key: string) => key_service.create_encrypt_cipher(dek, scope_key),
     create_decipher: (iv: Buffer, auth_tag: Buffer, scope_key: string, header?: Buffer) =>
       key_service.create_decrypt_decipher(dek, iv, auth_tag, scope_key, header),
-    destroy: (): void => key_service.destroy(),
+    create_content_hmac: () => {
+      if (!naming_key) throw new Error('Cannot name content: the tenant context was destroyed');
+      return key_service.create_content_hmac(naming_key);
+    },
+    destroy: (): void => {
+      key_service.destroy();
+      naming_key?.fill(0);
+      naming_key = undefined;
+    },
   };
 }

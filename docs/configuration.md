@@ -1,129 +1,150 @@
+---
+description: Set Atlas tenant, storage, and credential options through environment variables, a config file, or the encrypted store managed by atlas config.
+---
+
 # Configuration
 
-The Atlas CLI merges configuration from four sources, in this order. Later sources win.
+The Atlas CLI reads settings from environment variables, a config file, or the encrypted store that `atlas config` manages. Each setting has the same name in all three places, so you can pick whichever fits your deployment.
 
-1. **Config file**: `atlas.config.json` or `.atlas/config.json`, searched in cwd, then `~/.atlas/`
-2. **Encrypted secure store**: `~/.atlas/config.enc`, managed with `atlas config`
-3. **`.env` file**: loaded via dotenv, and does not overwrite existing environment variables
-4. **Environment variables**: always take precedence
-
-This lets you keep defaults in a config file, credentials in the encrypted store on operator workstations, and environment variables for CI/CD or container orchestration where secrets are injected at runtime.
-
-The SDK does not use this discovery chain. Pass credentials and tenant configuration explicitly to `createAtlasInstance`; v5 rejects missing or blank required fields, passphrases shorter than 14 UTF-8 bytes, and malformed HTTP(S) S3 endpoints before creating clients. The optional `atlas.validate()` checks an existing tenant bucket, unwraps its existing tenant key when present, then checks Graph token acquisition, without provisioning storage. See [SDK configuration validation](/reference/sdk#configuration-validation) for endpoint constraints and typed failures.
-
-## Variables
-
-Every setting has three equivalent forms: an environment variable, a config file field, and an `atlas config` key for the encrypted store.
-
-### Microsoft 365 credentials
-
-| Variable              | Config field    | `atlas config` key | Required | Description                    |
-| --------------------- | --------------- | ------------------ | -------- | ------------------------------ |
-| `ATLAS_TENANT_ID`     | `tenant_id`     | `tenant.id`        | yes      | Azure AD tenant ID             |
-| `ATLAS_CLIENT_ID`     | `client_id`     | `client.id`        | yes      | App registration client ID     |
-| `ATLAS_CLIENT_SECRET` | `client_secret` | `client.secret`    | yes      | App registration client secret |
-
-### S3 storage
-
-| Variable              | Config field    | `atlas config` key | Required | Description                                    |
-| --------------------- | --------------- | ------------------ | -------- | ---------------------------------------------- |
-| `ATLAS_S3_ENDPOINT`   | `s3_endpoint`   | `s3.endpoint`      | yes      | S3 endpoint URL (e.g. `http://localhost:9000`) |
-| `ATLAS_S3_ACCESS_KEY` | `s3_access_key` | `s3.access-key`    | yes      | S3 access key                                  |
-| `ATLAS_S3_SECRET_KEY` | `s3_secret_key` | `s3.secret-key`    | yes      | S3 secret key                                  |
-| `ATLAS_S3_REGION`     | `s3_region`     | `s3.region`        | no       | S3 region (default: `us-east-1`)               |
-
-### Encryption
-
-| Variable                      | Config field            | `atlas config` key      | Required | Description                               |
-| ----------------------------- | ----------------------- | ----------------------- | -------- | ----------------------------------------- |
-| `ATLAS_ENCRYPTION_PASSPHRASE` | `encryption_passphrase` | `encryption.passphrase` | yes      | Master passphrase for envelope encryption |
-
-## The Encrypted Secure Store (`atlas config`)
+## Quick start
 
 ```bash
-atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f
-atlas config set client.id 11112222-3333-4444-5555-666677778888
-pbpaste | atlas config set client.secret -   # "-" reads from stdin, keeping secrets out of shell history
-atlas config set s3.endpoint https://s3.example.com
-atlas config list          # every key, secrets masked, source annotated
-atlas config validate      # live-check Graph and S3 connectivity
-atlas config unset client.secret
+export ATLAS_TENANT_ID=<tenant-id>
+export ATLAS_CLIENT_ID=<client-id>
+export ATLAS_CLIENT_SECRET=<client-secret>
+export ATLAS_S3_ENDPOINT=https://s3.example.com
+export ATLAS_S3_ACCESS_KEY=<access-key>
+export ATLAS_S3_SECRET_KEY=<secret-key>
+export ATLAS_ENCRYPTION_PASSPHRASE=<passphrase>
+
+atlas config validate
 ```
 
-Plaintext files and environment variables are readable by any process running as your user. Environment-grabbing malware routinely sweeps `~/.env`, shell profiles, and process environments. `atlas config` instead persists values to `~/.atlas/config.enc`, encrypted with AES-256-GCM.
+The tenant ID, client ID, and client secret come from the [Entra ID app registration](/azure-ad-setup). Keep the passphrase safe: it is the only way to decrypt your backups. See [Security model](/security#kek-derivation-scrypt).
 
-The 256-bit store key never sits next to the ciphertext. It lives in the **macOS Keychain** (via `security`) or **libsecret** on Linux (via `secret-tool`). Only when neither keyring is available does Atlas fall back to a `~/.atlas/config.key` file (mode `0600`), and it warns loudly when it does.
+## Settings
 
-Values are validated on save: format checks per key (GUID, URL, and a passphrase of at least 14 UTF-8 bytes; see [Security](/security#kek-derivation-scrypt) for why and for keys created under shorter ones), plus a live connectivity probe (Graph token request, S3 `ListBuckets`) as soon as a credential group is complete.
+Every setting has three equivalent forms: an environment variable, a config file field, and an `atlas config` key.
 
-Because environment variables still win, `atlas config` warns when a saved value is currently shadowed by an `ATLAS_*` variable.
+| Environment variable          | Config file field       | `atlas config` key      | Required | Default     | Description                                                                 |
+| ----------------------------- | ----------------------- | ----------------------- | -------- | ----------- | --------------------------------------------------------------------------- |
+| `ATLAS_TENANT_ID`             | `tenant_id`             | `tenant.id`             | Yes      |             | Microsoft Entra tenant ID                                                   |
+| `ATLAS_CLIENT_ID`             | `client_id`             | `client.id`             | Yes      |             | Application (client) ID of the app registration                             |
+| `ATLAS_CLIENT_SECRET`         | `client_secret`         | `client.secret`         | Yes      |             | Client secret value                                                         |
+| `ATLAS_S3_ENDPOINT`           | `s3_endpoint`           | `s3.endpoint`           | Yes      |             | S3 endpoint URL, `https://` or `http://` (for example `http://localhost:9000`) |
+| `ATLAS_S3_ACCESS_KEY`         | `s3_access_key`         | `s3.access-key`         | Yes      |             | S3 access key ID                                                            |
+| `ATLAS_S3_SECRET_KEY`         | `s3_secret_key`         | `s3.secret-key`         | Yes      |             | S3 secret access key                                                        |
+| `ATLAS_S3_REGION`             | `s3_region`             | `s3.region`             | No       | `us-east-1` | S3 region. Lowercase letters, digits, and dashes only                       |
+| `ATLAS_ENCRYPTION_PASSPHRASE` | `encryption_passphrase` | `encryption.passphrase` | Yes      |             | Passphrase that wraps the tenant key. At least 14 UTF-8 bytes               |
 
-## Config File Example
+The secrets are `client.secret`, `s3.secret-key`, and `encryption.passphrase`. `atlas config list` and `atlas config get` mask them.
+
+## Sources and precedence
+
+Atlas merges sources in this order. A later source overrides an earlier one:
+
+1. **Config file**: `atlas.config.json` or `.atlas/config.json`.
+2. **Encrypted secure store**: `~/.atlas/config.enc`, managed with `atlas config`.
+3. **`.env` file**: loaded with dotenv. Existing environment variables are not overwritten.
+4. **Environment variables**: always win.
+
+Atlas searches for the config file in the current directory first, then in your home directory. In each location it checks `atlas.config.json` before `.atlas/config.json`, and it uses the first file found.
+
+Use the config file for shared defaults, the secure store for credentials on operator workstations, and environment variables for CI/CD or containers where secrets are injected at runtime.
+
+The SDK does not read these sources. Pass values to `createAtlasInstance` explicitly. See [SDK configuration validation](/reference/sdk#validation).
+
+## Config file
 
 ```json
 {
-  "tenant_id": "your-azure-tenant-id",
+  "tenant_id": "your-tenant-id",
   "client_id": "app-client-id",
   "client_secret": "app-client-secret",
   "s3_endpoint": "http://localhost:9000",
-  "s3_access_key": "minioadmin",
-  "s3_secret_key": "minioadmin",
+  "s3_access_key": "<access-key>",
+  "s3_secret_key": "<secret-key>",
   "encryption_passphrase": "my-secret-passphrase"
 }
 ```
 
-Atlas loads the first config file it finds, searching in this order:
-
-1. `./atlas.config.json`
-2. `./.atlas/config.json`
-3. `~/.atlas/config.json`
-
-Values from the config file can be overridden by `.env` entries and environment variables.
-
-## Invalid Configuration
-
-If a required field is missing or invalid, Atlas exits immediately with an error listing every missing field. It will not start a backup with partial configuration. This fail-fast behavior prevents silent failures where a run appears successful but is missing critical settings like the encryption passphrase.
-
-## S3 Path Style
-
-Atlas uses `forcePathStyle: true` when constructing the S3 client. This is **required** for MinIO and most self-hosted S3-compatible endpoints, which use path-style URLs (`http://host:9000/bucket-name`) rather than virtual-hosted-style (`http://bucket-name.host:9000`). AWS S3 supports both styles, so the setting is compatible there too.
-
-::: danger Secure Your Configuration Files
-The config file and `.env` file contain sensitive credentials: Azure client secrets, S3 access keys, and the encryption passphrase. On Linux, restrict file permissions immediately:
-
-```bash
-chmod 600 .env atlas.config.json
-```
-
-Atlas enforces this at runtime. On Unix systems, if a config file has group- or world-readable bits set (`mode & 0o077 !== 0`), a warning is logged recommending `chmod 600`. It is a warning rather than a hard error to avoid breaking existing deployments, but address it promptly.
-
-Never commit these files to version control. The included `.gitignore` already excludes `.env`, but verify that your config file is also excluded. In multi-user environments, ensure only the service account running Atlas can read these files.
+::: danger Restrict the config file to its owner
+The file holds the client secret, S3 secret key, and encryption passphrase in plaintext. Run `chmod 600` on the config file you use (`atlas.config.json` or `.atlas/config.json`) and on `.env`, and keep the file out of version control. Atlas logs a warning at startup when the file is readable by group or others, but it does not refuse to run. See [Configuration file security](/security#configuration-file-security).
 :::
 
-## Replication Target Config
+## Managing values with `atlas config`
 
-`atlas replicate` accepts `--target-config` and `atlas rehydrate` accepts `--source-config`. Both point to a JSON file holding S3 credentials for a secondary storage target:
+`atlas config` writes to the encrypted store at `~/.atlas/config.enc`. Values are never stored in plaintext.
+
+```bash
+atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f
+atlas config set client.id 11112222-3333-4444-5555-666677778888
+pbpaste | atlas config set client.secret -   # "-" reads the value from stdin, keeping it out of shell history
+atlas config set s3.endpoint https://s3.example.com
+atlas config list                            # all keys, secrets masked, source annotated
+atlas config get client.id
+atlas config unset client.secret
+atlas config validate                        # live check of Graph and S3 access
+```
+
+| Subcommand           | Purpose                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `list`               | Show every key with its value (secrets masked) and the source it came from                    |
+| `get <key>`          | Show one value                                                                                |
+| `set <key> <value>`  | Store a value. Pass `-` as the value to read it from stdin                                    |
+| `unset <key>`        | Remove a stored value                                                                         |
+| `validate`           | Probe Graph token acquisition and S3 `ListBuckets`                                            |
+
+### Validation on save
+
+`set` checks each value against its key before storing it. A live probe runs as soon as a credential group is complete: a Graph token request once tenant, client, and secret are present, and S3 `ListBuckets` once the endpoint and both S3 keys are present. The passphrase has no live probe. `atlas config validate` runs both probes on demand.
+
+Format rules:
+
+| Key                     | Rule                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| `s3.endpoint`           | Must be an `http://` or `https://` URL                                             |
+| `s3.region`             | Lowercase letters, digits, and dashes                                              |
+| `encryption.passphrase` | At least 14 UTF-8 bytes. See [why](/security#kek-derivation-scrypt)                |
+
+Because environment variables take precedence, `set` warns when an `ATLAS_*` variable currently overrides the value you are saving.
+
+## Invalid configuration
+
+If a required value is missing or malformed, Atlas exits with an error that lists every problem, and it exits with code `6` (`ATLAS_CONFIG_INVALID`). A run that starts with partial configuration could report success while skipping data, so Atlas fails fast instead. See [CLI exit codes](/reference/cli#exit-codes).
+
+## S3 path-style addressing
+
+Atlas always addresses buckets in path style (`https://host/bucket-name`) by setting `forcePathStyle: true`. MinIO and most self-hosted S3-compatible services require this form. AWS S3 accepts it as well.
+
+Each tenant's data lives in a bucket named `atlas-<tenant-id>`. Atlas creates it on first backup, and it needs `s3:CreateBucket` for that. See [S3 permissions by command class](/security#s3-permissions-by-command-class).
+
+## Replication target config
+
+`atlas replicate` takes `--target-config`, and `atlas rehydrate` takes `--source-config`. Each points to a JSON file with the credentials for one secondary storage target:
 
 ```json
 {
   "target_id": "offsite-dr",
-  "s3_endpoint": "http://offsite:9000",
+  "s3_endpoint": "https://offsite.example.com",
   "s3_access_key": "offsite-key",
   "s3_secret_key": "offsite-secret",
   "s3_region": "us-east-1"
 }
 ```
 
-| Field           | Required | Description                                        |
-| --------------- | -------- | -------------------------------------------------- |
-| `target_id`     | no       | Stable human-readable ID (auto-derived if omitted) |
-| `s3_endpoint`   | yes      | S3 endpoint URL for the target                     |
-| `s3_access_key` | yes      | S3 access key for the target                       |
-| `s3_secret_key` | yes      | S3 secret key for the target                       |
-| `s3_region`     | no       | S3 region (default: `us-east-1`)                   |
+| Field           | Required | Description                                                       |
+| --------------- | -------- | ----------------------------------------------------------------- |
+| `target_id`     | No       | Stable identifier for the target. Generated if omitted                 |
+| `s3_endpoint`   | Yes      | S3 endpoint URL for the target                                    |
+| `s3_access_key` | Yes      | Access key for the target                                         |
+| `s3_secret_key` | Yes      | Secret key for the target                                         |
+| `s3_region`     | No       | Region for the target. Default `us-east-1`                        |
 
-The encryption passphrase is **not** included in this file. Atlas uses a shared encryption model, so the passphrase from the main configuration applies to all targets.
+The encryption passphrase is not in this file. All targets share the primary's passphrase and tenant key, so a target config holds only storage credentials. Atlas refuses to replicate to a target whose key differs from the primary's. See [Replication security](/security#replication-security).
 
-::: danger Secure Target Config Files
-Target config files contain S3 credentials. Apply the same file permission restrictions as the main config file (`chmod 600`). Never commit them to version control.
+::: danger Restrict target config files too
+Target config files hold S3 credentials. Apply the same `chmod 600` rule as the main config file, and keep them out of version control.
 :::
+
+See also: [Security model](/security), [Entra ID app registration](/azure-ad-setup), [CLI reference](/reference/cli).

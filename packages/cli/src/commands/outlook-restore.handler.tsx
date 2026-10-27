@@ -14,6 +14,7 @@ import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list'
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { create_transfer_progress } from '@/ui/dashboards/transfer-progress-factory';
+import { resolve_owner } from '@/commands/onedrive-command.handlers';
 
 export interface OutlookRestoreOptions {
   snapshot?: string;
@@ -81,7 +82,7 @@ export async function execute_outlook_restore(
   if (scope.mode === 'snapshot') {
     return execute_snapshot_restore(restore_service, tenant_id, options);
   }
-  return execute_mailbox_restore(restore_service, tenant_id, options);
+  return execute_mailbox_restore(container, restore_service, tenant_id, options);
 }
 
 /** Snapshot-mode restore: restore from a single snapshot. */
@@ -112,16 +113,15 @@ async function execute_snapshot_restore(
 
 /** Mailbox-mode restore: aggregate all snapshots for a mailbox. */
 async function execute_mailbox_restore(
+  container: Container,
   service: RestoreUseCase,
   tenant_id: string,
   options: OutlookRestoreOptions,
 ): Promise<void> {
-  const mailbox_id = options.mailbox!.toLowerCase();
-
   const start_date = options.startDate ? parse_date(options.startDate, '--start-date') : undefined;
   const end_date = options.endDate ? parse_date(options.endDate, '--end-date') : undefined;
 
-  const items: KeyValueItem[] = [{ label: 'Mailbox', value: mailbox_id }];
+  const items: KeyValueItem[] = [{ label: 'Mailbox', value: options.mailbox! }];
   if (start_date) items.push({ label: 'Start date', value: options.startDate! });
   if (end_date) items.push({ label: 'End date', value: options.endDate! });
   if (options.folder) items.push({ label: 'Folder filter', value: options.folder });
@@ -137,7 +137,8 @@ async function execute_mailbox_restore(
     create_progress: create_transfer_progress('restored'),
   };
 
-  const result = await service.restore_mailbox(tenant_id, mailbox_id, restore_options);
+  const owner = await resolve_owner(container, tenant_id, options.mailbox!);
+  const result = await service.restore_mailbox(tenant_id, owner.object_id, restore_options);
   await report_restore_result(result);
 }
 
@@ -151,7 +152,9 @@ async function execute_mailbox_restore(
  * (issue #359).
  */
 async function report_restore_result(result: RestoreResult): Promise<void> {
-  if (result.errors.length === 0 && !result.interrupted) {
+  const clean =
+    result.errors.length === 0 && result.verification_warnings.length === 0 && !result.interrupted;
+  if (clean) {
     const entries: SummaryEntry[] = [
       { label: 'messages restored', value: result.restored_count, color: 'green' },
     ];

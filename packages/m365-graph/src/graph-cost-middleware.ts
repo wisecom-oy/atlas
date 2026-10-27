@@ -36,11 +36,14 @@ export class GraphCostMiddleware implements Middleware {
     if (counter) {
       const operation = get_active_operation();
       const url = request_url(context);
+      // Graph charges every request inside a `$batch` against the pool, not the round trip.
+      const requests = batch_sub_request_count(context, url);
       counter.record(
         operation?.pool ?? pool_for_url(url),
         operation?.request_type ?? 'unlabelled',
         {
-          resource_units: operation?.resource_units ?? 1,
+          requests,
+          resource_units: requests * (operation?.resource_units ?? 1),
           upload_bytes: request_body_bytes(context),
         },
       );
@@ -56,7 +59,27 @@ export class GraphCostMiddleware implements Middleware {
 
 /** Reads the target URL from a context whose request may be a string or a Request. */
 function request_url(context: Context): string {
-  return typeof context.request === 'string' ? context.request : context.request.url;
+  const request: unknown = context.request;
+  if (typeof request === 'string') return request;
+  if (typeof request === 'object' && request !== null && 'url' in request) {
+    if (typeof request.url === 'string') return request.url;
+  }
+  throw new Error('Graph request has no URL');
+}
+
+/** Sub-requests in a JSON `$batch` body; 1 for any other request or an unreadable body. */
+function batch_sub_request_count(context: Context, url: string): number {
+  if (!/\/\$batch(\?|$)/.test(url)) return 1;
+  const body: unknown = context.options?.body;
+  if (typeof body !== 'string') return 1;
+  try {
+    const parsed = JSON.parse(body) as { requests?: unknown };
+    return Array.isArray(parsed.requests) && parsed.requests.length > 0
+      ? parsed.requests.length
+      : 1;
+  } catch {
+    return 1;
+  }
 }
 
 /**
