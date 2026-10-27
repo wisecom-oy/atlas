@@ -11,7 +11,7 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { sync_single_folder } from '@/services/backup/folder-sync-executor';
+import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -143,6 +143,7 @@ export class MailboxSyncService implements BackupUseCase {
         folder_errors.push(
           ...outcome.attachment_errors.map((line) => `${folder.folder_path}: ${line}`),
         );
+        warnings.push(...outcome.warnings.map((line) => `${folder.folder_path}: ${line}`));
 
         all_entries.push(...outcome.entries);
         // Persist a folder's delta link only when every page was fully processed;
@@ -243,17 +244,7 @@ export class MailboxSyncService implements BackupUseCase {
     options: SyncOptions,
     should_interrupt: () => boolean,
     should_force_stop: () => boolean,
-  ): Promise<{
-    entries: ManifestEntry[];
-    delta_link?: string;
-    complete: boolean;
-    stored: number;
-    deduplicated: number;
-    attachments_stored: number;
-    attachment_errors: string[];
-    folder_processed: number;
-    error?: string;
-  }> {
+  ): Promise<FolderSyncResult & { error?: string }> {
     try {
       const prev_link = saved_links[folder.folder_id];
       const result = await sync_single_folder({
@@ -285,24 +276,27 @@ export class MailboxSyncService implements BackupUseCase {
           folder.is_recoverable_items === true
             ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
             : result.entries,
-        ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
+        delta_link: result.delta_link,
         complete: result.complete,
         stored: result.stored,
         deduplicated: result.deduplicated,
         attachments_stored: result.attachments_stored,
         attachment_errors: result.attachment_errors,
         folder_processed: result.folder_processed,
+        warnings: result.warnings,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return {
         entries: [],
+        delta_link: '',
         complete: false,
         stored: 0,
         deduplicated: 0,
         attachments_stored: 0,
         attachment_errors: [],
         folder_processed: 0,
+        warnings: [],
         error: msg,
       };
     }

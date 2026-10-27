@@ -138,15 +138,17 @@ If Graph cannot produce MIME for one item, Atlas stores that item in the legacy 
 
 ### Reactions
 
-Outlook reactions (like, heart, celebrate and so on) live in MAPI named properties, not in the MIME and not in the delta payload. Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them with one more request per new or changed message:
+Outlook reactions (like, heart, celebrate and so on) live in MAPI named properties, not in the MIME and not in the delta payload. Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:
 
 ```
 GET /users/{id}/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=...)
 ```
 
-The response is a few hundred bytes and took about 80 ms per message against a live tenant. It counts against the same per-mailbox throttling budget as `/$value`, so a first backup costs two requests per message instead of one. Adding a reaction updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
+The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Graph evaluates each request in a batch on its own. What the batch saves is round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 reaction round trips, where it used to make 2N requests. At `--page-size 100` it is N/20. Messages are read in every batch, including messages without reactions and messages whose content deduplicates, because the reactions belong to the manifest entry rather than to the stored object.
 
-Only messages with reactions store anything: their manifest entry gains `reaction_properties`. If the read fails for one message, Atlas logs a warning and backs the message up without its reactions. A permission or licensing failure stops the mailbox, as it does for MIME.
+Adding a reaction updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
+
+Only messages with reactions store anything: their manifest entry gains `reaction_properties`. A throttled or failed read inside a batch is retried for that message alone. A read that still fails backs the message up without its reactions, and the run summary prints a warning per folder with the count, because the delta link moves on and those reactions are read again only when the message changes. A permission or licensing failure stops the mailbox, as it does for MIME. If the configured mailbox connector cannot read reactions at all, Atlas logs that once and captures none.
 
 ## Retry and error handling
 

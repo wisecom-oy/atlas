@@ -175,15 +175,17 @@ export interface MailboxConnector {
   fetch_mime?(tenant_id: string, owner_id: string, message_id: string): Promise<Buffer | undefined>;
 
   /**
-   * Fetches the message's Outlook reaction properties, which neither MIME nor the delta payload
-   * carries. Resolves empty when the message has none (issue #481).
+   * Fetches the Outlook reaction properties, which neither MIME nor the delta payload carries, for
+   * a page of messages at once (issues #481, #513). The map holds an entry per message that was
+   * read, empty when it has none; a message missing from the map could not be read. Resolves
+   * undefined when the connector cannot read reactions at all.
    */
   // ponytail: optional for the same reason as fetch_mime
   fetch_reaction_properties?(
     tenant_id: string,
     owner_id: string,
-    message_id: string,
-  ): Promise<ExtendedProperty[]>;
+    message_ids: readonly string[],
+  ): Promise<Map<string, ExtendedProperty[]> | undefined>;
 
   /** Fetches file attachments for a message, decoding contentBytes from base64. */
   fetch_attachments(

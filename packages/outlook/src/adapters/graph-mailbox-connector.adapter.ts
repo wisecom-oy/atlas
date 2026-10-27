@@ -191,16 +191,16 @@ export class GraphMailboxConnector implements MailboxConnector {
     return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 
-  /** Fetches the message's Outlook reaction properties; empty when it has none (issue #481). */
+  /** Reads reaction properties for a page of messages, 20 per `$batch` (issues #481, #513). */
   async fetch_reaction_properties(
     _tenant_id: string,
     owner_id: string,
-    message_id: string,
-  ): Promise<ExtendedProperty[]> {
+    message_ids: readonly string[],
+  ): Promise<Map<string, ExtendedProperty[]>> {
     return fetch_message_reaction_properties(
       this._client,
       owner_id,
-      message_id,
+      message_ids,
       IMMUTABLE_ID_PREFER,
     );
   }

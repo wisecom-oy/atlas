@@ -212,6 +212,8 @@ An **integrity failure** also exits `2`. A message whose decrypted bytes do not 
 
 `--page-size` sets the `Prefer: odata.maxpagesize` hint for each delta request. The server can return fewer items when messages are large. Smaller pages make progress save more often during an interrupt. Larger pages use fewer round trips. The default of 10 suits most mailboxes.
 
+Each new or changed message costs one `/$value` request for its MIME. Reactions are read per delta page in one `$batch` round trip per 20 messages, so a backup of N messages adds N/10 round trips at the default page size and N/20 at `--page-size 100`. Each message in the batch still counts once against the mailbox's 10,000-request window. See [Delta sync](/operations/delta-sync#reactions).
+
 Atlas walks the whole folder hierarchy, not only the top-level folders that `GET /users/{id}/mailFolders` returns. Folders are identified by root-relative path, such as `Inbox/Projects/2026`, and `status`, backup progress, and `save` show that path.
 
 A `--folder` value matches either a full path (`Inbox/Projects`) or a folder name at any depth (`Projects`), case-insensitively. A match always includes everything beneath it, so `--folder Inbox` covers `Inbox`, `Inbox/Projects`, and `Inbox/Projects/2026`. Use the full path when one name exists under several parents. Excluded system folders are pruned with their subtrees. Recursion stops at 300 levels, matching Exchange's own limit. Deeper folders are skipped with a warning.
