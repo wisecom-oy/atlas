@@ -71,7 +71,7 @@ Object Lock makes stored objects undeletable until the retention period ends. Us
 | --- | --- | --- |
 | `-o, --owner <id>` | Source user | Required |
 | `-s, --snapshot <id>` | Snapshot to restore | Required |
-| `--target-owner <id>` | Restore into another user's drive | Source user |
+| `--target-owner <id>` | Restore into another user's drive. Refused for snapshots that span several drives; restore those to the original owner, or one drive at a time with `--file-filter` | Source user |
 | `--destination <path>` | Folder to restore under; created when missing | `/Restore-<timestamp>` |
 | `--in-place` | Restore to the original paths | `false` |
 | `--name <filename>` | Rename the restored file; single-file restores only | Original name |

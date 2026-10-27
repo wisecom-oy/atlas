@@ -19,16 +19,16 @@ hero:
 
 features:
   - title: Encrypted per tenant
-    details: Each tenant gets its own AES‑256‑GCM data key, wrapped by a key derived from your passphrase. Storage never sees plaintext.
+    details: Each tenant gets its own AES‑256‑GCM data key, wrapped by a key derived from your passphrase. Storage never sees plaintext content.
     link: /security
   - title: Stored once
     details: Messages, attachments and files are addressed by their SHA‑256 hash, so unchanged data is never written twice.
     link: /concepts
   - title: Immutable by storage
-    details: S3 Object Lock retention is enforced by the bucket itself, not by Atlas metadata an attacker could edit.
+    details: With `--retention-days` on an Object Lock-enabled bucket, the bucket itself enforces retention, not Atlas metadata an attacker could edit.
     link: /operations/immutability
   - title: Incremental by default
-    details: Microsoft Graph delta queries fetch only what changed, and Atlas falls back to a full scan after an interrupted run.
+    details: Microsoft Graph delta queries fetch only what changed. An interrupted run resumes from its saved delta links, and Atlas enumerates a folder in full only in specific cases, such as an invalid delta token.
     link: /operations/delta-sync
   - title: Three workloads
     details: Outlook mail, OneDrive files and SharePoint document libraries under one encryption and storage model.
@@ -59,7 +59,7 @@ features:
         <li><strong>Verified weekly</strong><span>Integrity report, alert on failure.</span></li>
         <li><strong>Immutable storage</strong><span>Written once, EU by default.</span></li>
         <li><strong>Separate control plane</strong><span>Tenant admins cannot delete.</span></li>
-        <li><strong>Audit log to your SIEM</strong><span>Splunk, Sentinel, Elastic, Wazuh.</span></li>
+        <li><strong>Audit log to your SIEM</strong><span>Splunk, Sentinel, Elastic, Wazuh. Cybersecure tier.</span></li>
       </ul>
       <p class="wc-setup">Get all this up and running in less than 10 clicks.</p>
     </div>

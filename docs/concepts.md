@@ -47,13 +47,13 @@ Commands that read a snapshot, such as `atlas outlook list -s <snapshot-id>`, `a
 
 ## Content addressing and deduplication
 
-Before writing a message, attachment, or file, Atlas computes the SHA-256 hash of its plaintext content and uses that hash as the object's storage key. If an object with that key already exists, Atlas skips the write and points the new manifest entry at the existing object.
+Before writing a message, attachment, or file, Atlas computes the SHA-256 hash of its plaintext content and uses it, prefixed by the owner's ID, as the object's storage key: `data/<owner-id>/<sha256>` for messages, `attachments/<owner-id>/<sha256>` for attachments, and the drive prefixes for OneDrive and SharePoint. If an object with that key already exists, Atlas skips the write and points the new manifest entry at the existing object.
 
-- **Same message in several mailboxes**: a forwarded email or shared attachment is stored once.
+- **Same message in several mailboxes**: each mailbox keeps its own copy, because the key includes the owner ID.
 - **Same message in several snapshots**: an unchanged item adds a manifest entry, not a second copy of the data.
 - **Same file across OneDrive versions**: re-uploading identical content writes no new object.
 
-Deduplication is scoped to one tenant. Tenants do not share objects.
+Deduplication is scoped to one owner: a mailbox, OneDrive owner, or SharePoint site. Identical content in two owners is stored twice. Tenants do not share objects.
 
 Deleting a snapshot removes only its manifest, because other snapshots may still reference the same objects. Deleting a whole mailbox or owner removes its data objects as well, because no remaining snapshot can reference them. See [Troubleshooting](./troubleshooting.md) for the delete commands.
 

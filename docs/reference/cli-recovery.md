@@ -24,7 +24,7 @@ Run [`atlas replicate`](/reference/cli#atlas-replicate) on a schedule against a 
 
 [`atlas rehydrate`](/reference/cli#atlas-rehydrate) is the reverse path for disaster recovery, from replica to primary. It is not a bidirectional sync. It copies the snapshots you select, skips anything already on primary, and does not merge or resolve conflicts. Check two things before you run it:
 
-- Rehydration needs the replica's encryption key on primary. Atlas copies the key automatically only into an empty bucket. Otherwise it aborts with `DekOverwriteRefusedError` rather than overwrite a key that protects existing data. If primary's content is disposable, run `atlas delete --purge` first, then rehydrate into the empty bucket.
+- Rehydration needs the replica's encryption key on primary. Atlas copies the key automatically into an empty bucket, or into a freshly initialized bucket whose only object is that key. Otherwise it aborts with `DekOverwriteRefusedError` rather than overwrite a key that protects existing data. If primary's content is disposable, run `atlas delete --purge` first, then rehydrate into the empty bucket.
 - Delta links in recovered manifests can be stale. Atlas falls back to a full sync on the next backup automatically, so that first backup takes longer.
 
 ## See also

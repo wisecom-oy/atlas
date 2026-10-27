@@ -57,13 +57,15 @@ Schedule replication after the backup it copies. This crontab backs up at 2 AM a
 
 ```cron
 # Nightly Outlook backup at 2 AM
-0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-outlook-backup.log 2>&1
+0 2 * * * /usr/bin/atlas outlook backup -m user@company.com >> $HOME/atlas-logs/outlook-backup.log 2>&1
 
 # Replicate the same mailbox at 4 AM
-0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> /var/log/atlas-replicate.log 2>&1
+0 4 * * * /usr/bin/atlas replicate -m user@company.com --target-config /etc/atlas/offsite.json >> $HOME/atlas-logs/replicate.log 2>&1
 ```
 
 Leave a gap longer than your longest backup. Two hours is a reasonable start. Adjust it to the durations you observe in the logs.
+
+Create `~/atlas-logs` for the service account first, as in [Scheduling](/self-hosting/scheduling).
 
 ## Bandwidth
 

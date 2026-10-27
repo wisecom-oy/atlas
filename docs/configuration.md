@@ -65,7 +65,7 @@ The SDK does not read these sources. Pass values to `createAtlasInstance` explic
 ```
 
 ::: danger Restrict the config file to its owner
-The file holds the client secret, S3 secret key, and encryption passphrase in plaintext. Run `chmod 600 atlas.config.json .env` and keep the file out of version control. Atlas logs a warning at startup when the file is readable by group or others, but it does not refuse to run. See [Configuration file security](/security#configuration-file-security).
+The file holds the client secret, S3 secret key, and encryption passphrase in plaintext. Run `chmod 600` on the config file you use (`atlas.config.json` or `.atlas/config.json`) and on `.env`, and keep the file out of version control. Atlas logs a warning at startup when the file is readable by group or others, but it does not refuse to run. See [Configuration file security](/security#configuration-file-security).
 :::
 
 ## Managing values with `atlas config`

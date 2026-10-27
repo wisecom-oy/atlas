@@ -189,7 +189,7 @@ process.exit(results.some((r) => !r.ok) ? 1 : 0);
 
 Backups run one after another to stay within Graph limits. Each replication starts as soon as its snapshot exists, without blocking the next backup. `Promise.allSettled` makes the process wait until every replication has finished before it exits.
 
-If the process crashes partway through, the next run resumes from the last saved sync point, and `replicateSnapshot` skips a snapshot that is already on the target.
+If the process crashes partway through, `replicateSnapshot` does not retry snapshots it was not given. Run `atlas.replicateMailbox(mailbox, [offsite])` for each mailbox on the next run. It copies every snapshot the target lacks.
 
 ### OneDrive and SharePoint status check
 
@@ -411,13 +411,15 @@ app.get('/exports/my-mailbox', require_authenticated_user, async (req, res) => {
       console.warn(`[warn] ${result.integrityFailures.length} integrity failure(s)`);
     }
   } catch (err) {
-    // Atlas destroys the response on failure, including failures before any bytes are written.
+    // Atlas destroys the response once the export starts. Earlier failures, such as resolving the mailbox, leave it open.
     console.error('[export] failed', err);
+    if (res.headersSent) res.destroy();
+    else res.status(500).end();
   }
 });
 ```
 
-With `output` set, `outputPath` is empty in the result because nothing is written to disk. An export with no messages still ends the stream with a valid, empty archive. A failed setup or an interrupted run destroys the stream, so the client can tell it received an incomplete file. The drive workloads accept the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
+With `output` set, `outputPath` is empty in the result because nothing is written to disk. An export with no messages still ends the stream with a valid, empty archive. An interrupted run destroys the stream, so the client can tell it received an incomplete file. A failure before the export starts, such as a failed identity lookup, does not touch the response, so the handler must end it, as the example does. The drive workloads accept the same option: `atlas.onedrive.save(ownerId, { snapshotId, output: res })`.
 
 ## Maintenance and monitoring
 
@@ -498,59 +500,14 @@ async function collect_mailbox_metrics(atlas: AtlasInstance, mailbox: string) {
 
 ### Snapshot pruning
 
-Keep the most recent N snapshots per mailbox and delete the rest. Use this where storage cost matters more than deep history.
+Do not prune snapshots one at a time with `deleteSnapshot`. Outlook and OneDrive manifests record only what changed in their run, and a restore folds in the older manifests of the same owner. Deleting an older manifest silently drops items that newer snapshots still need. Atlas has no chain-aware pruning. To remove an owner's data, use `atlas.outlook.deleteMailboxData` or `atlas.onedrive.deleteOwnerData`.
+
+### OneDrive replication
+
+Copy OneDrive snapshots to an offsite target.
 
 ```typescript
-async function prune_old_snapshots(atlas: AtlasInstance, mailbox: string, keep_count: number) {
-  const snapshots = await atlas.outlook.listSnapshots(mailbox);
-
-  if (snapshots.length <= keep_count) {
-    console.log(`[skip] ${mailbox}: ${snapshots.length} snapshot(s), nothing to prune`);
-    return;
-  }
-
-  const to_delete = snapshots.slice(0, snapshots.length - keep_count);
-
-  for (const snapshot of to_delete) {
-    const result = await atlas.outlook.deleteSnapshot(snapshot.snapshotId);
-    console.log(
-      `[prune] ${mailbox}: deleted snapshot ${snapshot.snapshotId} ` +
-        `(${result.deletedManifests} manifest(s) removed)`,
-    );
-  }
-
-  console.log(`[done] ${mailbox}: pruned ${to_delete.length} snapshot(s), kept ${keep_count}`);
-}
-```
-
-::: tip Snapshot deletion and data deletion
-`atlas.outlook.deleteSnapshot` removes only the snapshot's manifest and its pointer keys. The data objects stay in place, because other snapshots can reference the same content through deduplication. To remove all data for a mailbox, use `atlas.outlook.deleteMailboxData`.
-:::
-
-### OneDrive snapshot pruning and replication
-
-Prune old OneDrive snapshots, keep the recent ones, and replicate them offsite.
-
-```typescript
-async function prune_and_replicate_onedrive(
-  atlas: AtlasInstance,
-  ownerId: string,
-  keep_count: number,
-  offsite: StorageTarget,
-) {
-  const snapshots = await atlas.onedrive.listSnapshots(ownerId);
-
-  if (snapshots.length <= keep_count) {
-    console.log(`[skip] ${ownerId}: ${snapshots.length} snapshot(s), nothing to prune`);
-  } else {
-    const to_delete = snapshots.slice(0, snapshots.length - keep_count);
-    for (const snap of to_delete) {
-      await atlas.onedrive.deleteSnapshot(ownerId, snap.snapshotId);
-      console.log(`[prune] deleted ${snap.snapshotId}`);
-    }
-  }
-
-  // Replicate the remaining snapshots
+async function replicate_onedrive(atlas: AtlasInstance, ownerId: string, offsite: StorageTarget) {
   await atlas.onedrive.replicateAll(ownerId, [offsite]);
   console.log(`[replicated] ${ownerId} snapshots synced to offsite`);
 }

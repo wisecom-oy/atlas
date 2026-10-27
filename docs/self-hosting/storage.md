@@ -98,6 +98,13 @@ echo '/dev/md0 /mnt/atlas-raid xfs defaults 0 0' | sudo tee -a /etc/fstab
 sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
 ```
 
+Create the data directory owned by the MinIO container user (UID 1000) before bind-mounting it:
+
+```bash
+sudo mkdir -p /mnt/atlas-raid/atlas-data
+sudo chown -R 1000:1000 /mnt/atlas-raid/atlas-data
+```
+
 Then bind-mount `/mnt/atlas-raid/atlas-data` into the MinIO container.
 
 ## Credentials and access
@@ -106,11 +113,17 @@ Then bind-mount `/mnt/atlas-raid/atlas-data` into the MinIO container.
 The default MinIO credentials (`minioadmin` / `minioadmin`) are public. Anyone who can reach the MinIO port can read, change, or delete every backup. Replace them before the service is reachable from any network.
 :::
 
-Set strong credentials in `docker/.env`:
+Set strong credentials in `docker/.env`. Generate a unique root password for each deployment:
+
+```bash
+openssl rand -hex 32
+```
+
+Hex output has no characters that need quoting in an env file.
 
 ```env
 MINIO_ROOT_USER=atlas-backup-admin
-MINIO_ROOT_PASSWORD=a-long-random-passphrase-at-least-32-characters
+MINIO_ROOT_PASSWORD=<output of openssl rand -hex 32>
 ```
 
 Use the root account only for administration. Give Atlas a dedicated access key, scoped to the buckets it writes, through `atlas config set s3.access-key` and `atlas config set s3.secret-key`, or through `ATLAS_S3_ACCESS_KEY` and `ATLAS_S3_SECRET_KEY`. Per-command IAM permissions are described in [Security](/security#s3-permissions-by-command-class).
@@ -125,6 +138,8 @@ If MinIO accepts connections from other hosts, enable TLS. Backup content is alw
 
 Atlas logs one warning per run when the endpoint is plain `http://` on any host other than loopback (`localhost`, `127.0.0.0/8`, `::1`). The local Docker setup on loopback does not trigger it.
 
+Port 9000 and 9001 are published on every host interface by `docker/docker-compose.yml`. To keep MinIO reachable from the host only, set `MINIO_API_PORT=127.0.0.1:9000` and `MINIO_CONSOLE_PORT=127.0.0.1:9001` in `docker/.env`. Docker writes its own firewall rules, which bypass `ufw` and `firewalld` INPUT rules, so a host firewall does not restrict published ports on its own.
+
 MinIO supports TLS by placing certificate files in its configuration directory. See the [MinIO network encryption guide](https://min.io/docs/minio/linux/operations/network-encryption.html). Then set the endpoint to `https://`:
 
 ```env
@@ -135,7 +150,7 @@ ATLAS_S3_ENDPOINT="https://minio.example.com:9000"
 
 Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}`. Since v2.1.0 it creates the bucket **lock-capable**: `CreateBucket` sets `ObjectLockEnabledForBucket: true`, which also enables versioning.
 
-This matters because Object Lock can only be enabled when a bucket is created. AWS S3 requires a support request to add it later, and MinIO does not allow it. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
+This matters because Object Lock can only be enabled when a bucket is created on MinIO, and MinIO does not allow it later. AWS S3 also accepts `PutObjectLockConfiguration` on an existing versioned bucket, which is the call `--retention-days` makes, so a legacy AWS bucket can become lock-capable that way. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
 
 New buckets also receive lifecycle rules:
 
@@ -159,15 +174,15 @@ Backends that reject `ObjectLockEnabledForBucket` create a plain bucket and log 
 
 ### Migrating a legacy bucket
 
-Legacy buckets cannot be converted in place. Migrate one tenant at a time:
+Migrate one tenant at a time. Atlas names the bucket `atlas-<tenant_id>` on whichever endpoint it uses, and bucket names are unique per endpoint (across all of AWS S3). The replacement must therefore sit on a different endpoint, and the legacy bucket keeps its name until you retire it. On AWS S3, the in-place option above may avoid a migration.
 
-1. **Create a lock-capable bucket** with your storage tooling: `aws s3api create-bucket --bucket <new-bucket> --object-lock-enabled-for-bucket`, or `mc mb --with-lock` for MinIO.
-2. **Replicate into it.** Run `atlas replicate -m <mailbox> --target-config ./new-bucket.json` for each mailbox, `-o <owner>` for each OneDrive owner, and `--site <site-url>` for each SharePoint site. Each run copies the data key first, then the snapshots, and verifies checksums. See [Replication](/operations/replication) for the ordering and safety rules.
-3. **Point Atlas at the new bucket.** Atlas derives the bucket name from the tenant ID, and S3 buckets cannot be renamed. Confirm how your deployment resolves the tenant's bucket before cutover.
+1. **Create a lock-capable bucket** on the new endpoint with the name `atlas-<tenant_id>`: `aws s3api create-bucket --bucket atlas-<tenant_id> --object-lock-enabled-for-bucket`, or `mc mb --with-lock` for MinIO. `atlas replicate` creates a missing bucket the same way, so pre-creating only sets the region or other options.
+2. **Replicate into it.** Run `atlas replicate -m <mailbox> --target-config ./new-endpoint.json` for each mailbox, `-o <owner>` for each OneDrive owner, and `--site <site-url>` for each SharePoint site. The file holds the new endpoint and its credentials, not a bucket name. Each run copies the data key first, then the snapshots, and verifies checksums. See [Replication](/operations/replication) for the ordering and safety rules.
+3. **Point Atlas at the new endpoint.** Atlas resolves the bucket from the tenant ID alone, so cutover changes the endpoint and keys, not the bucket: `atlas config set s3.endpoint <new-endpoint>`, `s3.access-key`, and `s3.secret-key`. The legacy bucket on the old endpoint is no longer read.
 4. **Verify.** Run `atlas storage-check -t <id>`. It should report `lock-capable`. Then run the verify command for each workload, such as `atlas outlook verify -m <mailbox> -s <snapshot-id>`.
 5. **Retire the old bucket** after one full backup cycle has succeeded against the new one.
 
-Until a tenant is migrated, its legacy bucket keeps working for backups. Only `--retention-days` is unavailable. The backup fails with `ObjectLockUnsupportedError` instead of appearing immutable.
+Until a tenant is migrated, its legacy bucket keeps working for backups. Only `--retention-days` is affected: on a backend that rejects Object Lock on an existing bucket, the backup fails with `ObjectLockUnsupportedError` instead of appearing immutable.
 
 ## Protecting the tenant data key
 
@@ -230,7 +245,7 @@ Large files upload as a multipart stream to a staging key, then move to their co
 | -------------------------- | ------ | ---------------------------------------------------------------------------- |
 | Single `CopyObject` source | 5 GB   | Larger sources are promoted with ranged `UploadPartCopy` requests            |
 | Object size                | 5 TB   | Not enforced by Atlas. Larger files cannot be stored in S3                   |
-| Parts per multipart upload | 10,000 | Copy parts are 1 GiB, enough for a 10 TiB object                             |
+| Parts per multipart upload | 10,000 | 1 GiB copy parts: 10,000 parts cover 9.8 TiB, above the 5 TB limit          |
 
 The copy happens inside the backend. No file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
 

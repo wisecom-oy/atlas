@@ -1,6 +1,6 @@
 # Immutability and Object Lock
 
-Atlas can store backups with S3 Object Lock, so the storage backend refuses to delete or overwrite them until a retention period ends. The protection holds even if an attacker has valid S3 credentials. It works on AWS S3 and MinIO.
+Atlas can store backups with S3 Object Lock, so the storage backend refuses to delete or overwrite them until a retention period ends. In `compliance` mode, the protection holds even if an attacker has valid S3 credentials. In `governance` mode (the default), a principal with `s3:BypassGovernanceRetention` can still remove objects. It works on AWS S3 and MinIO.
 
 ```bash
 # 1. Check that the bucket can enforce the policy
@@ -21,14 +21,14 @@ Atlas rejects `--lock-mode` without `--retention-days`, since a mode alone appli
 
 Credentials alone cannot protect backups from two threats:
 
-- **Ransomware.** Attackers often delete backups before they encrypt production data. Object Lock blocks that deletion, even with valid credentials.
-- **Insiders.** An administrator with full S3 access cannot quietly rewrite history during the retention period.
+- **Ransomware.** Attackers often delete backups before they encrypt production data. Object Lock blocks that deletion, even with valid credentials, unless the principal holds `s3:BypassGovernanceRetention` and the object is in `governance` mode.
+- **Insiders.** In `compliance` mode, an administrator cannot rewrite history during the retention period. In `governance` mode, an administrator with the bypass permission can.
 
-Without Object Lock, backup security depends entirely on S3 credentials. With it, the storage backend enforces retention for everyone.
+Without Object Lock, backup security depends entirely on S3 credentials. With it, the storage backend enforces retention for everyone, except principals with the bypass permission on `governance` objects.
 
 ## How enforcement works
 
-- **The storage backend enforces the lock.** It rejects overwrites and deletes. Atlas cannot bypass the lock, and no S3 client can either.
+- **The storage backend enforces the lock.** It rejects overwrites and deletes. Atlas never requests a governance bypass, and no S3 client can get past a `compliance` lock.
 - **Manifests record the policy.** Each manifest stores `object_lock.requested` (what you asked for) and `object_lock.effective` (what was applied). Use these fields for audit.
 - **Manifest metadata does not protect anything.** The protection comes from the backend.
 

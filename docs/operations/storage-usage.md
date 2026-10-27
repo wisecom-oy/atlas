@@ -66,7 +66,7 @@ atlas stats storage --max-requests 1000 --json > part1.json
 atlas stats storage --max-requests 1000 --continue "$(jq -r .continuation_token part1.json)"
 ```
 
-`--max-requests` counts every request, including the one that sizes an incomplete upload, so a run never exceeds the limit. Resuming continues from the last counted position. Each object is counted once, and the final totals match a single uninterrupted run.
+`--max-requests` counts every request, including the one that sizes an incomplete upload, so a run never exceeds the limit. Resuming continues from the last counted position. Each object is counted once. If the bucket changes between runs, objects written or deleted after the cursor can make the final totals differ from a single uninterrupted run.
 
 If a request fails after the SDK's own retries, such as a `503 SlowDown` or a dropped connection, the run stops and keeps its progress. The CLI prints the continuation token to stderr. In the SDK, `getStorageUsageToken(err)` returns it. Resuming repeats only the failed page.
 

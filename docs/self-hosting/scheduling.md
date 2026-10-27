@@ -8,19 +8,23 @@ Edit the crontab for the account that runs Atlas with `crontab -e`:
 
 ```cron
 # Nightly Outlook incremental backup at 2 AM
-0 2 * * * /usr/bin/atlas outlook backup >> /var/log/atlas-outlook-backup.log 2>&1
+0 2 * * * flock -n $HOME/atlas-logs/outlook.lock /usr/bin/atlas outlook backup -m user@company.com >> $HOME/atlas-logs/outlook-backup.log 2>&1
 
 # Weekly Outlook full backup, ignoring delta state, every Sunday at 3 AM
-0 3 * * 0 /usr/bin/atlas outlook backup --full >> /var/log/atlas-outlook-backup-full.log 2>&1
+0 3 * * 0 flock -n $HOME/atlas-logs/outlook.lock /usr/bin/atlas outlook backup -m user@company.com --full >> $HOME/atlas-logs/outlook-backup-full.log 2>&1
 
 # Nightly OneDrive backup at 1 AM
-0 1 * * * /usr/bin/atlas onedrive backup -o user@company.com >> /var/log/atlas-onedrive-backup.log 2>&1
+0 1 * * * /usr/bin/atlas onedrive backup -o user@company.com >> $HOME/atlas-logs/onedrive-backup.log 2>&1
 
 # Nightly SharePoint backup at 4 AM
-0 4 * * * /usr/bin/atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering >> /var/log/atlas-sharepoint-backup.log 2>&1
+0 4 * * * /usr/bin/atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering >> $HOME/atlas-logs/sharepoint-backup.log 2>&1
 ```
 
 Stagger the workloads. Overlapping runs send more Graph API requests at once, which brings throttling sooner.
+
+Create the log directory once as the service account: `mkdir -p ~/atlas-logs`. Cron runs as that account and cannot write to `/var/log`.
+
+Atlas has no built-in run lock. The two Outlook lines share `outlook.lock` through `flock -n`, so a Sunday full run that starts while the nightly run is still going exits without running and writes nothing to its log. Check for a missed week.
 
 ## Schedule with systemd timers
 
