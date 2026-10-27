@@ -52,6 +52,18 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     ).resolves.toBeUndefined();
   });
 
+  // The id names the storage prefix, so a response without one must not become an identity.
+  it.each([{}, { id: '' }, { id: 42 }, null])(
+    'rejects a user payload without a usable id: %j',
+    async (payload) => {
+      const client = make_client(() => Promise.resolve(payload));
+
+      await expect(
+        new GraphUserIdentityResolver(client).resolve_by_object_id('t', OBJECT_ID),
+      ).rejects.toThrow('Graph user response has no id');
+    },
+  );
+
   it.each([500, 502, 503, 504, 429])('rethrows a transient %i', async (status) => {
     const client = make_client(() => Promise.reject(graph_error(status)));
 

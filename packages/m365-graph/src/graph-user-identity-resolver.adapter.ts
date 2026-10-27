@@ -22,7 +22,13 @@ function optional_string(raw: object, key: string): string | undefined {
 
 /** Narrows an untyped Graph user payload. A payload without a string id is a contract break. */
 function parse_user_record(raw: unknown): GraphUserRecord {
-  if (typeof raw !== 'object' || raw === null || !('id' in raw) || typeof raw.id !== 'string') {
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    !('id' in raw) ||
+    typeof raw.id !== 'string' ||
+    raw.id === ''
+  ) {
     throw new Error('Graph user response has no id');
   }
   return {
