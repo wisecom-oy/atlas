@@ -1,7 +1,7 @@
 import { injectable } from 'inversify';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { TenantContext } from '@wisecom/atlas-types';
+import type { TenantContext, TenantStorageContext } from '@wisecom/atlas-types';
 import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
 import { StorageError } from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
@@ -115,6 +115,12 @@ export class S3ManifestRepository implements ManifestRepository {
   async list_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest[]> {
     const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/${owner_id}/`);
     return this.download_manifests(ctx, keys);
+  }
+
+  /** Lists owners from `manifests/{owner_id}/...` key names; one paginated LIST, nothing decrypted. */
+  async list_owner_ids(ctx: TenantStorageContext): Promise<string[]> {
+    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
+    return [...new Set(keys.map((key) => key.split('/')[1]).filter((id): id is string => !!id))];
   }
 
   private async download_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {

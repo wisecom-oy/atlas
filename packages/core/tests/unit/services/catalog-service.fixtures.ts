@@ -89,6 +89,7 @@ export function build_catalog_harness(): CatalogTestHarness {
     list_by_owner: vi.fn().mockResolvedValue([]),
     find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
     list_all_manifests: vi.fn().mockResolvedValue([]),
+    list_owner_ids: vi.fn().mockResolvedValue([]),
   };
 
   const mock_factory: TenantContextFactory = {

@@ -19,6 +19,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
+  NotFoundError,
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -75,7 +76,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       const drives = await this._connector.list_drives(tenant_id, target_owner);
       const [primary_drive] = drives;
       if (!primary_drive) {
-        throw new Error('No OneDrive drives found for target user');
+        throw new NotFoundError('No OneDrive drives found for target user');
       }
 
       const conflict = options.conflict_behavior ?? 'rename';

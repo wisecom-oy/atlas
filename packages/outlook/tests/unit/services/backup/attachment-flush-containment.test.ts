@@ -52,13 +52,19 @@ function make_progress(): BackupProgressReporter {
 }
 
 /** MIME capture off, so every message with attachments goes through the pending flush. */
-function make_connector(fail_for: (message_id: string) => Error | undefined): MailboxConnector {
+function make_connector(
+  fail_for: (message_id: string) => Error | undefined,
+  on_mime: (message_id: string) => void = () => {},
+): MailboxConnector {
   return {
     fetch_delta: vi.fn().mockResolvedValue({
       messages: [make_message('msg-1'), make_message('msg-2'), make_message('msg-3')],
       delta_link: 'delta-2',
     }),
-    fetch_mime: vi.fn().mockRejectedValue(new Error('not available')),
+    fetch_mime: vi.fn(async (_t: string, _o: string, message_id: string) => {
+      on_mime(message_id);
+      throw new Error('not available');
+    }),
     fetch_attachments: vi.fn(async (_t: string, _o: string, message_id: string) => {
       const failure = fail_for(message_id);
       if (failure) throw failure;
@@ -79,10 +85,11 @@ function make_connector(fail_for: (message_id: string) => Error | undefined): Ma
 async function run(
   fail_for: (message_id: string) => Error | undefined,
   is_interrupted: () => boolean = () => false,
+  on_mime?: (message_id: string) => void,
 ): ReturnType<typeof sync_single_folder> {
   return sync_single_folder({
     ctx: make_ctx(),
-    connector: make_connector(fail_for),
+    connector: make_connector(fail_for, on_mime),
     tenant_id: 'tenant-1',
     owner_id: 'john.doe@example.com',
     folder_id: 'inbox',
@@ -130,5 +137,36 @@ describe('one attachment fetch failing during a folder flush', () => {
     );
 
     expect(result.attachments_stored).toBe(0);
+  });
+
+  it('leaves the folder incomplete when an interrupt drops unfetched attachments', async () => {
+    let interrupted = false;
+    // The interrupt lands after the last message is processed, before the flush starts.
+    const result = await run(
+      () => undefined,
+      () => interrupted,
+      (id) => {
+        if (id === 'msg-3') interrupted = true;
+      },
+    );
+
+    expect(result.entries).toHaveLength(3);
+    expect(result.attachments_stored).toBe(0);
+    // Complete would persist the delta link past messages that lost their attachments (#434).
+    expect(result.complete).toBe(false);
+  });
+
+  it('still completes the folder when the interrupt lands after the flush drained', async () => {
+    let interrupted = false;
+    const result = await run(
+      () => {
+        interrupted = true;
+        return undefined;
+      },
+      () => interrupted,
+    );
+
+    expect(result.attachments_stored).toBe(3);
+    expect(result.complete).toBe(true);
   });
 });

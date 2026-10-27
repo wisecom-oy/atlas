@@ -79,9 +79,8 @@ object write regardless of how large the tenant is.
 What it is worth is bounded by that. **It rotates the wrapper, not the key.** The threat it
 answers is a leaked passphrase: whoever holds the old one can no longer derive a KEK that opens
 the current wrapper. It does nothing about an attacker who already holds the DEK itself or
-plaintext they decrypted with it, because neither needs the passphrase again. For that, the
-answer is replicating to a fresh target under a new passphrase and retiring the old bucket,
-which re-encrypts every object under a new DEK.
+plaintext they decrypted with it, because neither needs the passphrase again. That case needs a
+new DEK, described under [Rotating the data key](#rotating-the-data-key).
 
 :::: warning Revocation is not immediate on a versioned bucket
 Atlas enables bucket versioning and expires noncurrent versions after 30 days. A re-wrap writes
@@ -107,6 +106,31 @@ passphrases until a read succeeds with the new one.
 The same command with no flags re-wraps under the configured passphrase, which is how a tenant
 bootstrapped under weaker scrypt parameters is brought forward to the current ones. Existing
 backups are unaffected either way.
+
+### Rotating the data key
+
+```bash
+# 1. Point Atlas at storage where atlas-<tenant-id> does not exist yet, under a new passphrase
+atlas config set s3.endpoint https://new-s3.example.com
+atlas config set s3.access-key <new-access-key>
+pbpaste | atlas config set s3.secret-key -
+pbpaste | atlas config set encryption.passphrase -
+
+# 2. Back up every mailbox, drive and site again; the first run generates the new DEK
+atlas outlook backup -m user@company.com
+```
+
+A tenant's DEK is replaced by starting a new bucket, not by changing the existing one. Atlas names the bucket `atlas-<tenant-id>` on the configured endpoint, so the new bucket has to live on a different endpoint or S3 account. The first backup against it finds no `_meta/dek.enc`, generates a fresh random 256-bit DEK and wraps it under the new passphrase. That backup has no delta cursors or manifests to start from, so it is a full enumeration over Microsoft Graph, with the time and throttling budget of a first backup.
+
+Snapshots taken before the rotation stay in the old bucket under the old DEK and restore from there: run `restore` or `save` with the old endpoint, credentials and passphrase. Nothing is re-encrypted or migrated, so the new bucket's history starts at the rotation. Once those snapshots are no longer needed, remove them with `atlas delete --purge` against the old storage. Objects under Object Lock retention cannot be deleted before their retain-until date, and the purge reports them as retained rather than failed.
+
+Replication cannot rotate the key. It copies ciphertext byte for byte and refuses a target whose DEK differs from the primary's ([DEK Mismatch Protection](#dek-mismatch-protection)), so a replica always carries the same DEK as its source.
+
+**What rotation achieves.** The threat it answers is a DEK that has left the process: read from memory, a core dump, or a host where Atlas ran. Everything written after the rotation is encrypted under a key that attacker does not hold, and a stolen copy of the new bucket is useless to them.
+
+**What it does not achieve.** Every object in the old bucket is still readable with the old DEK for as long as it exists, including noncurrent versions kept for 30 days and anything under Object Lock. Rotation limits exposure to data written before the rotation; it does not recover that data. Shorten the window by revoking the old storage credentials and, where retention allows, purging the old bucket as soon as its snapshots are no longer needed.
+
+Atlas has no in-place rotation that re-encrypts an existing bucket under a new key. It would mean a full read and write of the bucket, a resumable run that keeps the tenant openable while objects are split between two keys, and versions that Object Lock does not allow to be replaced. The procedure above gives the same protection for new data without that risk, at the cost of a fresh backup history.
 
 ## Encryption Details
 
@@ -598,6 +622,26 @@ Keys are never classified by pattern matching on their contents. The allowlist m
 The observer is host code running inside the Atlas process, on the storage path. Atlas catches a throw and a rejected promise so a faulty observer cannot fail a backup, but it cannot defend against an observer that blocks the event loop or retains the event objects. Byte counts are ciphertext sizes. Across many requests they reveal the size distribution of a tenant's stored objects, which the backend operator already sees; treat exported metrics accordingly.
 
 Socket timing uses the process-wide `http.client.request.created` diagnostics channel. Atlas ignores every request it did not issue itself, so the host's other HTTP traffic is neither observed nor reported.
+
+## Transport to Storage
+
+```bash
+ATLAS_S3_ENDPOINT="https://s3.example.com"   # any endpoint that is not on this machine
+ATLAS_S3_ENDPOINT="http://localhost:9000"    # local MinIO only
+```
+
+Atlas accepts a plain `http://` S3 endpoint because local MinIO needs it. Over plain HTTP the content stays protected: every object is AES-256-GCM ciphertext bound to its key, and SigV4 signs requests without ever sending the secret key. The traffic around the content is exposed to anyone on the network path:
+
+| Exposed over plain HTTP   | Why it matters                                                                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every object key          | Outlook keys carry mailbox addresses ([User identity in storage paths](#user-identity-in-storage-paths)), and content-addressed keys carry content hashes |
+| The access key id         | Identifies the account; the secret key is not sent                                                                                                        |
+| The request pattern       | Which owners are backed up, when, and how much data                                                                                                       |
+| Unauthenticated responses | A forged `200` to a `PutObject` makes the backup report success for an object that was never stored. Only the next `verify` finds it                      |
+
+Atlas warns once per run for each plain `http://` endpoint whose host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`), for the primary endpoint and for replication targets alike. It does not refuse such an endpoint, because a self-hosted setup can terminate TLS elsewhere on a trusted network. Use `https://` for any endpoint that is not on the same machine.
+
+The Graph side is stricter. Atlas refuses to call Microsoft Graph at all when `NODE_TLS_REJECT_UNAUTHORIZED=0` disables certificate validation. There is no equivalent check on the storage side.
 
 ## S3 Permissions by Command Class
 

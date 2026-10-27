@@ -70,7 +70,13 @@ export type {
   VerificationOptions,
 } from './verification/use-case.port';
 
-export type { RestoreUseCase, RestoreResult, RestoreOptions } from './restore/use-case.port';
+export type {
+  RestoreUseCase,
+  RestoreResult,
+  RestoreOptions,
+  RestoredMessageReport,
+  AttachmentKindCounts,
+} from './restore/use-case.port';
 
 export type { CatalogUseCase, MailboxSummary, ReadMessageResult } from './catalog/use-case.port';
 

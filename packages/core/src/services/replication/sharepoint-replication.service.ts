@@ -16,6 +16,7 @@ import type { DekValidationFn } from '@wisecom/atlas-types';
 import type { ReplicationResult } from '@wisecom/atlas-types';
 import type { SharePointReplicationUseCase } from '@wisecom/atlas-types';
 import {
+  NotFoundError,
   TENANT_CONTEXT_FACTORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   DEK_VALIDATION_FN_TOKEN,
@@ -315,7 +316,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     const manifest = await this._sharepoint_manifests.find_by_snapshot(ctx, site_id, snapshot_id);
     if (!manifest) {
       const where = location === 'source' ? ' on source' : '';
-      throw new Error(
+      throw new NotFoundError(
         `No SharePoint manifest found for site ${site_id}, snapshot ${snapshot_id}${where}`,
       );
     }

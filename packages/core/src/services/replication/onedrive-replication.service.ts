@@ -7,6 +7,7 @@ import type { DekValidationFn } from '@wisecom/atlas-types';
 import type { ReplicationResult } from '@wisecom/atlas-types';
 import type { OneDriveReplicationUseCase } from '@wisecom/atlas-types';
 import {
+  NotFoundError,
   TENANT_CONTEXT_FACTORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   DEK_VALIDATION_FN_TOKEN,
@@ -303,7 +304,9 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
   ): Promise<OneDriveSnapshotManifest> {
     const m = await this._onedrive_manifests.find_by_snapshot(ctx, owner_id, snapshot_id);
     if (!m) {
-      throw new Error(`No OneDrive manifest found for owner ${owner_id}, snapshot ${snapshot_id}`);
+      throw new NotFoundError(
+        `No OneDrive manifest found for owner ${owner_id}, snapshot ${snapshot_id}`,
+      );
     }
     return m;
   }

@@ -125,6 +125,24 @@ describe('SaveService', () => {
       expect(result.snapshot_id).toBe('snap-1');
     });
 
+    it('exports messages captured by earlier snapshots in the chain (#432)', async () => {
+      const first = make_manifest([make_entry('msg-1', 'f1'), make_entry('msg-2', 'f1')], {
+        created_at: new Date('2026-01-01'),
+      });
+      const delta = make_manifest([make_entry('msg-3', 'f1')], {
+        snapshot_id: 'snap-2',
+        created_at: new Date('2026-01-02'),
+      });
+      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(delta);
+      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([first, delta]);
+
+      await service.save_snapshot('test-tenant', 'snap-2');
+
+      const groups = vi.mocked(save_entries_to_archive).mock.lastCall?.[4];
+      const saved = [...(groups?.values() ?? [])].flat().map((e) => e.object_id);
+      expect(saved.sort()).toEqual(['msg-1', 'msg-2', 'msg-3']);
+    });
+
     it('returns partial counts when interrupted between entries', async () => {
       const manifest = make_manifest([make_entry('msg-1', 'f1'), make_entry('msg-2', 'f1')]);
       vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(manifest);

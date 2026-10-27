@@ -1,12 +1,14 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { AttachmentEntry } from '@wisecom/atlas-types';
+import type { AttachmentEntry, AttachmentKindCounts } from '@wisecom/atlas-types';
 import type { MimeAttachment } from '@/services/shared/mime-message-parser';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 
 export interface AttachmentRestoreResult {
   readonly restored: number;
+  /** The restored attachments split by kind, as they were posted to Graph. */
+  readonly uploaded: AttachmentKindCounts;
   readonly skipped: number;
   readonly errors: string[];
 }
@@ -25,6 +27,7 @@ export async function restore_entry_attachments(
   attachments: AttachmentEntry[],
 ): Promise<AttachmentRestoreResult> {
   let restored = 0;
+  let inline = 0;
   let skipped = 0;
   const errors: string[] = [];
 
@@ -47,13 +50,14 @@ export async function restore_entry_attachments(
       });
 
       restored++;
+      if (att.is_inline) inline++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${att.name}: ${msg}`);
     }
   }
 
-  return { restored, skipped, errors };
+  return { restored, uploaded: { file: restored - inline, inline }, skipped, errors };
 }
 
 /**
@@ -69,6 +73,7 @@ export async function restore_parsed_attachments(
   attachments: readonly MimeAttachment[],
 ): Promise<AttachmentRestoreResult> {
   let restored = 0;
+  let inline = 0;
   const errors: string[] = [];
 
   for (const att of attachments) {
@@ -81,12 +86,13 @@ export async function restore_parsed_attachments(
         ...(att.content_id ? { content_id: att.content_id } : {}),
       });
       restored++;
+      if (att.is_inline) inline++;
     } catch (err) {
       errors.push(`${att.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  return { restored, skipped: 0, errors };
+  return { restored, uploaded: { file: restored - inline, inline }, skipped: 0, errors };
 }
 
 /**

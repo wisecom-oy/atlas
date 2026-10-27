@@ -8,11 +8,17 @@ import type {
   TenantContextFactory,
   UserIdentityResolver,
 } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { CachingIdentityResolver } from '@/adapters/identity/caching-identity-resolver.adapter';
+
+/** A Graph SDK error carrying an HTTP status, the shape the resolver branches on. */
+function graph_error(status_code: number): Error {
+  return Object.assign(new Error(`Graph ${status_code}`), { statusCode: status_code });
+}
 
 function make_graph_resolver(overrides: Partial<UserIdentityResolver> = {}): UserIdentityResolver {
   return {
-    resolve_user: vi.fn().mockRejectedValue(new Error('Not found')),
+    resolve_user: vi.fn().mockRejectedValue(graph_error(404)),
     resolve_by_object_id: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -85,6 +91,20 @@ describe('CachingIdentityResolver', () => {
       expect(result.email).toBe('alice@company.com');
       expect(registry_repo.save).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('never persists a registry it could not load', async () => {
+    const graph = make_graph_resolver({
+      resolve_user: vi
+        .fn()
+        .mockResolvedValue({ object_id: 'obj-1', display_name: 'A', email: 'a@company.com' }),
+    });
+    const { resolver, registry_repo } = build_resolver({ graph });
+    vi.mocked(registry_repo.load).mockRejectedValue(new Error('unreadable'));
+
+    // Saving the in-memory list here would replace every stored entry (issue #438).
+    await expect(resolver.resolve_user(TENANT, 'a@company.com')).rejects.toThrow('unreadable');
+    expect(registry_repo.save).not.toHaveBeenCalled();
   });
 
   describe('resolve_user - Graph success, known user', () => {
@@ -192,12 +212,22 @@ describe('CachingIdentityResolver', () => {
   });
 
   describe('resolve_user - Graph failure, no cache', () => {
-    it('throws descriptive error when user never backed up', async () => {
+    it('raises NotFoundError when Graph has no such user and it was never backed up', async () => {
       const { resolver } = build_resolver({});
 
-      await expect(resolver.resolve_user(TENANT, 'unknown@company.com')).rejects.toThrow(
-        'Cannot resolve "unknown@company.com"',
-      );
+      const err = await resolver.resolve_user(TENANT, 'unknown@company.com').catch((e) => e);
+
+      expect(err).toBeInstanceOf(NotFoundError);
+      expect(err.message).toContain('Cannot resolve "unknown@company.com"');
+    });
+
+    // A missing `User.Read.All` grant or an outage is not evidence the user is absent (issue #437).
+    it('rethrows a Graph failure other than 404 rather than reporting the user missing', async () => {
+      const denied = graph_error(403);
+      const graph = make_graph_resolver({ resolve_user: vi.fn().mockRejectedValue(denied) });
+      const { resolver } = build_resolver({ graph });
+
+      await expect(resolver.resolve_user(TENANT, 'unknown@company.com')).rejects.toBe(denied);
     });
   });
 

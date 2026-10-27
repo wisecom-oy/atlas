@@ -101,6 +101,10 @@ async function process_message(
  *
  * A permission or licensing failure still propagates: those are the operator's to fix, and
  * degrading the whole run quietly is the failure #372 describes.
+ *
+ * Returns false when an interrupt left attachments unfetched. Those messages are already in
+ * `entries` without attachments, so the folder must not count as complete or its delta link
+ * would skip them for good (issue #434).
  */
 async function flush_pending_attachments(
   ctx: TenantContext,
@@ -114,12 +118,12 @@ async function flush_pending_attachments(
   is_interrupted: () => boolean,
   object_lock_policy?: ObjectLockPolicy,
   concurrency = DEFAULT_ATTACHMENT_CONCURRENCY,
-): Promise<void> {
+): Promise<boolean> {
   while (pending.length > 0) {
     // An interrupted run stops scheduling; what is already in flight finishes.
     if (is_interrupted()) {
       pending.length = 0;
-      return;
+      return false;
     }
     const batch = pending.splice(0, concurrency);
     const tasks = batch.map(async (p) => {
@@ -147,6 +151,7 @@ async function flush_pending_attachments(
 
     await Promise.all(tasks);
   }
+  return true;
 }
 
 /** Runs a delta sync for one folder, processing messages inline as pages arrive. */
@@ -238,7 +243,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       });
     }
 
-    await flush_pending_attachments(
+    const drained = await flush_pending_attachments(
       ctx,
       connector,
       tenant_id,
@@ -250,6 +255,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       is_interrupted,
       object_lock_policy,
     );
+    if (!drained) aborted = true;
 
     return !aborted;
   };
@@ -314,7 +320,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       });
     }
 
-    await flush_pending_attachments(
+    const drained = await flush_pending_attachments(
       ctx,
       connector,
       tenant_id,
@@ -326,6 +332,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       is_interrupted,
       object_lock_policy,
     );
+    if (!drained) aborted = true;
   }
 
   return {

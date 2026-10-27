@@ -8,6 +8,11 @@ export interface TenantMailbox {
   readonly exchange_plan_status?: string;
   /** Graph userPurpose; only resolved for unlicensed mailboxes during discovery. */
   readonly mailbox_purpose?: MailboxPurpose;
+  /**
+   * Why the userPurpose lookup failed, when it did. The mailbox may be shared, so tenant backup
+   * reports it rather than counting it as unlicensed (issue #480).
+   */
+  readonly purpose_lookup_error?: string;
   readonly created_at?: Date;
   readonly mailbox_size_bytes?: number;
   readonly item_count?: number;

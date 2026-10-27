@@ -61,7 +61,10 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
       if (purposes.size > 0) {
         mailboxes = mailboxes.map((m) => {
           const p = purposes.get(m.user_id);
-          return p ? { ...m, mailbox_purpose: p } : m;
+          if (p === undefined) return m;
+          return typeof p === 'string'
+            ? { ...m, mailbox_purpose: p }
+            : { ...m, purpose_lookup_error: p.error };
         });
       }
 
@@ -111,10 +114,15 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
     return all;
   }
 
-  /** Resolves mailboxSettings.userPurpose per user at bounded concurrency; failed lookups are logged and skipped. */
-  private async fetchPurposes(user_ids: string[]): Promise<Map<string, MailboxPurpose>> {
+  /**
+   * Resolves mailboxSettings.userPurpose per user at bounded concurrency. A failed lookup is kept
+   * as `{ error }` so tenant backup can tell it apart from an unlicensed user (issue #480).
+   */
+  private async fetchPurposes(
+    user_ids: string[],
+  ): Promise<Map<string, MailboxPurpose | { error: string }>> {
     const CONCURRENCY = 5;
-    const purposes = new Map<string, MailboxPurpose>();
+    const purposes = new Map<string, MailboxPurpose | { error: string }>();
     const queue = [...user_ids];
 
     const worker = async (): Promise<void> => {
@@ -129,12 +137,10 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
           );
           if (purpose) purposes.set(user_id, purpose);
         } catch (err) {
-          // Purpose is optional metadata; a 403/404 here must never fail discovery.
-          // But an undetected shared mailbox is silently excluded from tenant backup, so make it visible.
-          logger.warn(
-            `Could not resolve mailbox purpose for ${user_id}; ` +
-              `if this is a shared mailbox it will be skipped by tenant backup (${(err as Error).message})`,
-          );
+          // A 403/404 here must never fail discovery; tenant backup decides what the gap means.
+          const error = err instanceof Error ? err.message : String(err);
+          logger.warn(`Could not resolve mailbox purpose for ${user_id} (${error})`);
+          purposes.set(user_id, { error });
         }
       }
     };

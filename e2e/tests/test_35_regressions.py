@@ -52,6 +52,25 @@ def test_01_readonly_commands_provision_nothing(cli: Cli, s3: Any) -> None:
         assert result.code == 7, result.describe()
 
 
+def test_01b_unknown_snapshot_exits_not_found(cli: Cli, settings: Settings) -> None:
+    """A snapshot id that was never written is `ATLAS_NOT_FOUND`, exit 7 (issue #437).
+
+    The manifest lookups raised a plain `Error`, so a mistyped snapshot id exited 1, the category
+    the docs say to assume nothing about. The tenant here is real and backed up: only the snapshot
+    is missing, so this reaches the manifest lookup rather than the unknown-tenant path above.
+    """
+    unknown_snapshot = str(uuid.UUID(int=0))
+    commands: list[tuple[str, ...]] = [("outlook", "restore", "-s", unknown_snapshot)]
+    if settings.onedrive_owner:
+        commands.append(
+            ("onedrive", "verify", "-o", settings.onedrive_owner, "-s", unknown_snapshot)
+        )
+
+    for argv in commands:
+        result = cli.run(*argv)
+        assert result.code == 7, result.describe()
+
+
 def test_02_corrupt_ciphertext_is_reported_as_tampering(
     cli: Cli, settings: Settings, s3: Any, run_marker: str
 ) -> None:

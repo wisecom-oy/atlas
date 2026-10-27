@@ -96,6 +96,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
       list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
 
     const config: AtlasConfig = {

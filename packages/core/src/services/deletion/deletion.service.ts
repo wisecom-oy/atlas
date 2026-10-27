@@ -3,10 +3,13 @@ import { inject, injectable } from 'inversify';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { DeletionResult, DeletionUseCase } from '@wisecom/atlas-types';
-import { TENANT_CONTEXT_FACTORY_TOKEN, MANIFEST_REPOSITORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  MANIFEST_REPOSITORY_TOKEN,
+  NotFoundError,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import {
   delete_scopes,
-  empty_deletion_result,
   has_survivors,
   merge_deletion_results,
 } from '@/services/deletion/shared/prefix-deleter';
@@ -73,7 +76,7 @@ export class DeletionService implements DeletionUseCase {
       const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
 
       if (!manifest) {
-        return empty_deletion_result();
+        throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
       }
 
       const key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;

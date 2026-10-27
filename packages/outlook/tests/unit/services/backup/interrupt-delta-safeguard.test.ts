@@ -148,6 +148,7 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
       list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_by_owner: vi.fn().mockResolvedValue(PREVIOUS_MANIFEST),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_owner_ids: vi.fn().mockResolvedValue([]),
     };
     connector = {
       list_mailboxes: vi.fn().mockResolvedValue([]),

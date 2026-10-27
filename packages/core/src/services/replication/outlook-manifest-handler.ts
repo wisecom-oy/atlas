@@ -1,4 +1,5 @@
 import type { Manifest, ManifestRepository, TenantContext } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { replicate_snapshot_to_target } from '@/services/replication/snapshot-replicator';
 import type { RehydrationPlan } from '@/services/replication/rehydration-manifests-runner';
 
@@ -22,7 +23,7 @@ export async function require_outlook_manifest(
   const manifest = await repo.find_by_snapshot(ctx, snapshot_id);
   if (!manifest) {
     const where = location === 'source' ? ' on source' : '';
-    throw new Error(`No manifest found for snapshot ${snapshot_id}${where}`);
+    throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}${where}`);
   }
   return manifest;
 }
