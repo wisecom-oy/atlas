@@ -138,6 +138,23 @@ export function select_recordable_removals(
   return captured_every_folder ? removed_ids : undefined;
 }
 
+/**
+ * Drops the new delta link of every folder that reported removals when a folder failed or was
+ * interrupted, so the folder keeps its previous link and the next run receives those removals
+ * again (issue #531). A filtered or excluded run keeps its links: it can never record removals,
+ * and holding the links back would stop those folders' cursors for good.
+ */
+export function withhold_links_of_unrecorded_removals(
+  new_links: Record<string, string>,
+  removal_counts: Readonly<Record<string, number>>,
+  selected_folder_count: number,
+): Record<string, string> {
+  if (Object.keys(new_links).length === selected_folder_count) return new_links;
+  return Object.fromEntries(
+    Object.entries(new_links).filter(([folder_id]) => !removal_counts[folder_id]),
+  );
+}
+
 /** Resolves whether a mailbox run is full, incremental, or its initial backup. */
 export function resolve_sync_mode(
   force_full: boolean | undefined,
