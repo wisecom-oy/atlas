@@ -191,7 +191,7 @@ describe('RestoreService', () => {
     });
 
     it('returns empty when no snapshots for mailbox', async () => {
-      (mock_manifests.list_all_manifests as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+      (mock_manifests.list_by_owner as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
       const result = await service.restore_mailbox('test-tenant', 'user@test.com');
       expect(result.restored_count).toBe(0);
@@ -210,9 +210,10 @@ describe('RestoreService', () => {
         created_at: new Date('2026-03-07'),
       };
 
-      (mock_manifests.list_all_manifests as ReturnType<typeof vi.fn>).mockResolvedValue([m1, m2]);
+      (mock_manifests.list_by_owner as ReturnType<typeof vi.fn>).mockResolvedValue([m1, m2]);
 
       const result = await service.restore_mailbox('test-tenant', 'user@test.com');
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(mock_context, 'user@test.com');
       expect(result.restored_count).toBe(3);
       expect(mock_restore.create_message).toHaveBeenCalledTimes(3);
     });
@@ -229,7 +230,7 @@ describe('RestoreService', () => {
         created_at: new Date('2026-03-08'),
       };
 
-      (mock_manifests.list_all_manifests as ReturnType<typeof vi.fn>).mockResolvedValue([
+      (mock_manifests.list_by_owner as ReturnType<typeof vi.fn>).mockResolvedValue([
         old_manifest,
         new_manifest,
       ]);
@@ -248,7 +249,7 @@ describe('RestoreService', () => {
         created_at: new Date('2026-03-08'),
       };
 
-      (mock_manifests.list_all_manifests as ReturnType<typeof vi.fn>).mockResolvedValue([manifest]);
+      (mock_manifests.list_by_owner as ReturnType<typeof vi.fn>).mockResolvedValue([manifest]);
 
       await service.restore_mailbox('test-tenant', 'user@test.com', {
         target_mailbox: 'OTHER@TEST.COM',
