@@ -10,7 +10,7 @@ export function filter_manifests_by_date(
   end_date?: Date,
 ): Manifest[] {
   return manifests.filter((m) => {
-    const ts = new Date(m.created_at).getTime();
+    const ts = m.created_at.getTime();
     if (start_date && ts < start_date.getTime()) return false;
     if (end_date && ts > end_date.getTime() + 86_400_000 - 1) return false;
     return true;

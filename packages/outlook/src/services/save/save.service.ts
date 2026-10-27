@@ -151,7 +151,7 @@ export class SaveService implements SaveUseCase {
     options: SaveOptions,
   ): Promise<Manifest[]> {
     const for_mailbox = (await this._manifests.list_by_owner(ctx, owner_id)).sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      (a, b) => b.created_at.getTime() - a.created_at.getTime(),
     );
     return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
   }

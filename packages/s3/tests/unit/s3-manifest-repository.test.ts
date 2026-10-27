@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
+import { InvalidManifestDateError } from '@/adapters/manifest.errors';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
@@ -288,6 +289,42 @@ describe('S3ManifestRepository', () => {
       expect(ctx.storage.list).toHaveBeenCalledWith('manifests/alice@test.com/');
       const fetched = vi.mocked(ctx.storage.get).mock.calls.map(([key]) => key);
       expect(fetched.every((key) => key.startsWith('manifests/alice@test.com/'))).toBe(true);
+    });
+  });
+
+  describe('created_at', () => {
+    it('returns created_at as a Date after a save round trip', async () => {
+      const manifest = make_manifest();
+      await repo.save(ctx, manifest);
+      const stored = new Map(
+        vi.mocked(ctx.storage.put).mock.calls.map(([key, body]) => [key, body] as const),
+      );
+      vi.mocked(ctx.storage.get).mockImplementation(async (key) => stored.get(key)!);
+
+      const found = await repo.find_by_snapshot(ctx, 'snap-1');
+
+      expect(found?.created_at).toBeInstanceOf(Date);
+      expect(found?.created_at.getTime()).toBe(manifest.created_at.getTime());
+    });
+
+    it('returns Date created_at from list_by_owner', async () => {
+      const stored = new Map([['manifests/user@test.com/snap-1.json', make_manifest()]]);
+      vi.mocked(ctx.storage.list).mockResolvedValue([...stored.keys()]);
+      vi.mocked(ctx.storage.get).mockImplementation(async (key) => encrypted_json(stored.get(key)));
+
+      const [found] = await repo.list_by_owner(ctx, 'user@test.com');
+
+      expect(found?.created_at).toBeInstanceOf(Date);
+    });
+
+    it('rejects a manifest whose created_at is not a parseable date', async () => {
+      const bad = { ...make_manifest(), created_at: 'not-a-date' };
+      vi.mocked(ctx.storage.list).mockResolvedValue(['manifests/user@test.com/snap-1.json']);
+      vi.mocked(ctx.storage.get).mockResolvedValue(encrypted_json(bad));
+
+      await expect(repo.list_by_owner(ctx, 'user@test.com')).rejects.toBeInstanceOf(
+        InvalidManifestDateError,
+      );
     });
   });
 });
