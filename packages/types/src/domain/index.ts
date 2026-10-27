@@ -10,6 +10,7 @@ export type {
   ManifestEntry,
   MailAddress,
   AttachmentEntry,
+  ExtendedProperty,
   ManifestObjectLockMode,
   ManifestObjectLockPolicy,
   ManifestObjectLockRequestedPolicy,

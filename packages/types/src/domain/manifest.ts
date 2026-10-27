@@ -76,6 +76,12 @@ export interface AttachmentEntry {
   readonly content_id?: string;
 }
 
+/** A MAPI single-value extended property in Graph's `{ id, value }` shape. */
+export interface ExtendedProperty {
+  readonly id: string;
+  readonly value: string;
+}
+
 export interface ManifestEntry {
   readonly object_id: string;
   readonly storage_key: string;
@@ -112,6 +118,12 @@ export interface ManifestEntry {
    * writes the item back (issue #141).
    */
   readonly recoverable_items?: boolean | undefined;
+  /**
+   * Outlook reaction properties (`OwnerReactionType`, `ReactionsSummary`, `MapiReactionsBlob`)
+   * as Graph returned them. Neither MIME nor the delta payload carries them, so they are fetched
+   * separately and written back on restore. Absent when the message has no reactions (issue #481).
+   */
+  readonly reaction_properties?: readonly ExtendedProperty[] | undefined;
 }
 
 /**

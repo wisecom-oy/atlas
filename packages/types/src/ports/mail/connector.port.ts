@@ -1,4 +1,4 @@
-import type { MailAddress, MailboxPurpose } from '@/domain/manifest';
+import type { ExtendedProperty, MailAddress, MailboxPurpose } from '@/domain/manifest';
 
 /**
  * Graph well-known mail folder names Atlas records on {@link MailFolder}.
@@ -173,6 +173,17 @@ export interface MailboxConnector {
    */
   // ponytail: optional method — keeps existing MailboxConnector test literals compiling; make it required when a second caller needs it guaranteed
   fetch_mime?(tenant_id: string, owner_id: string, message_id: string): Promise<Buffer | undefined>;
+
+  /**
+   * Fetches the message's Outlook reaction properties, which neither MIME nor the delta payload
+   * carries. Resolves empty when the message has none (issue #481).
+   */
+  // ponytail: optional for the same reason as fetch_mime
+  fetch_reaction_properties?(
+    tenant_id: string,
+    owner_id: string,
+    message_id: string,
+  ): Promise<ExtendedProperty[]>;
 
   /** Fetches file attachments for a message, decoding contentBytes from base64. */
   fetch_attachments(
