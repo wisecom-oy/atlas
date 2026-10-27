@@ -66,7 +66,6 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     progress?.set_mailbox_count(mailboxes.length);
 
     const outcomes = await this.report_excluded_with_history(tenant_id, excluded);
-    const excluded_count = outcomes.length;
     const pending = [...mailboxes];
     let done_count = 0;
     let error_count = outcomes.length;
@@ -130,7 +129,7 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
 
     return {
       outcomes,
-      total_mailboxes: mailboxes.length + excluded_count,
+      total_mailboxes: all.length,
       succeeded: done_count,
       failed: error_count,
       interrupted: should_interrupt(),
@@ -142,7 +141,8 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
    * Fails every excluded mailbox that already has backups, by object ID and reason. A mailbox that
    * drops out of selection (shared converted to user before licensing, or a failed userPurpose
    * lookup) would otherwise stop being backed up while the run reports success (issue #480).
-   * Never-backed-up unlicensed users stay a quiet skip.
+   * History is either a v6 object-ID prefix or a v5 prefix keyed by the lowercased primary
+   * address (issue #514). Never-backed-up unlicensed users stay a quiet skip.
    */
   private async report_excluded_with_history(
     tenant_id: string,
@@ -152,7 +152,11 @@ export class DefaultTenantBackupOrchestrator implements ITenantBackupOrchestrato
     const ctx = await this._tenant_factory.create_storage_only(tenant_id);
     const with_history = new Set(await this._manifests.list_owner_ids(ctx));
     return excluded
-      .filter((m) => with_history.has(normalize_owner_id(m.user_id)))
+      .filter(
+        (m) =>
+          with_history.has(normalize_owner_id(m.user_id)) ||
+          (!!m.mail && with_history.has(normalize_owner_id(m.mail))),
+      )
       .map((m) => {
         const error = `excluded from tenant backup but has existing backups: ${exclusion_reason(m)}`;
         logger.error(`Mailbox ${m.mail} ${error}`);

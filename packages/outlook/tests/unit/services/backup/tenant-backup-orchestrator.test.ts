@@ -127,7 +127,8 @@ describe('DefaultTenantBackupOrchestrator', () => {
     expect(backed_up).toContain('uid-licensed@t.com');
     expect(backed_up).toContain('uid-shared@t.com');
     expect(backed_up).not.toContain('uid-unlicensed@t.com');
-    expect(result.total_mailboxes).toBe(2);
+    // Every discovered mailbox counts, including the quietly skipped one (#514).
+    expect(result.total_mailboxes).toBe(3);
   });
 
   it('fails an excluded mailbox that has existing backups, naming it and the reason (#480)', async () => {
@@ -151,6 +152,25 @@ describe('DefaultTenantBackupOrchestrator', () => {
     );
     // Never backed up and unlicensed: still a quiet skip.
     expect(errors.has('uid-never@t.com')).toBe(false);
+  });
+
+  it('fails an excluded mailbox whose only history is a v5 address prefix (#514)', async () => {
+    vi.mocked(mock_discovery.list_tenant_mailboxes).mockResolvedValue([
+      make_mailbox('licensed@t.com', true),
+      make_mailbox('John.Doe@t.com', false),
+      make_mailbox('never@t.com', false),
+    ]);
+    // v5 keyed Outlook prefixes by the lowercased primary SMTP address.
+    owners_with_history = ['uid-licensed@t.com', 'john.doe@t.com'];
+
+    const orch = container.get(DefaultTenantBackupOrchestrator);
+    const result = await orch.backup_tenant('t1');
+
+    const errors = new Map(result.outcomes.map((o) => [o.owner_id, o.error]));
+    expect(errors.get('uid-John.Doe@t.com')).toContain('no Exchange Online license');
+    expect(errors.has('uid-never@t.com')).toBe(false);
+    expect(result.failed).toBe(1);
+    expect(result.total_mailboxes).toBe(3);
   });
 
   it('captures errors per mailbox without aborting', async () => {

@@ -23,8 +23,10 @@ export interface MailboxBackupOutcome {
 
 export interface TenantBackupResult {
   readonly outcomes: MailboxBackupOutcome[];
+  /** Every mailbox discovery returned, including excluded ones skipped without history. */
   readonly total_mailboxes: number;
   readonly succeeded: number;
+  /** Mailboxes that failed, plus excluded mailboxes that have existing backups. */
   readonly failed: number;
   readonly interrupted: boolean;
   readonly elapsed_ms: number;
