@@ -217,6 +217,7 @@ describe('SaveService', () => {
 
       const result = await service.save_mailbox('test-tenant', 'user@test.com');
 
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(mock_context, 'user@test.com');
       expect(result.saved_count).toBe(2);
     });
 

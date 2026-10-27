@@ -286,6 +286,7 @@ describe('RestoreService', () => {
       (mock_manifests.list_by_owner as ReturnType<typeof vi.fn>).mockResolvedValue([m1, m2]);
 
       const result = await service.restore_mailbox('test-tenant', 'user@test.com');
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(mock_context, 'user@test.com');
       expect(result.restored_count).toBe(3);
       expect(mock_restore.create_message).toHaveBeenCalledTimes(3);
     });
