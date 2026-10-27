@@ -232,10 +232,12 @@ atlas outlook verify -m user@company.com -s <snapshot-id> --fast
 
 | Option                        | Description                                                                                    |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `-m, --mailbox <email-or-id>` | Mailbox that owns the snapshot (required)                                                      |
+| `-m, --mailbox <email-or-id>` | Mailbox that owns the snapshot (required). Verification stops if the snapshot belongs to another mailbox. |
 | `-s, --snapshot <id>`         | Snapshot identifier to verify (required)                                                       |
 | `-t, --tenant <id>`           | Override the tenant ID from config                                                             |
 | `--fast`                      | Existence checks only (a `HeadObject` per referenced key). No download, decryption, or hashing. |
+
+Before any object is read, Atlas checks that the snapshot's manifest belongs to `-m`. An object ID is compared directly. An address is compared as typed, which matches snapshots written by v5 under the address, and is otherwise resolved through Graph to the object ID. A snapshot owned by another mailbox, or a missing snapshot, exits `7` and verifies nothing.
 
 The check covers the target delta manifest and every older manifest for the same mailbox, deduplicated newest first. A corrupt or missing object from an older run fails verification of every later snapshot that still references it.
 
