@@ -1,3 +1,7 @@
+---
+description: Microsoft Graph throttling pools that limit Atlas backups, the values built into GRAPH_SERVICE_LIMITS, and how they cap parallel backup queues.
+---
+
 # Microsoft Graph rate limits
 
 Atlas reads and writes Microsoft 365 only through Microsoft Graph. Graph throttles each app along several independent pools, and the throttling rules decide how far a backup queue can run in parallel. The limits below are the values Atlas builds into `GRAPH_SERVICE_LIMITS`, with the official Microsoft sources linked for each pool.
@@ -8,16 +12,20 @@ import { createAtlasInstance, getGraphCost, GRAPH_SERVICE_LIMITS } from '@wiseco
 const atlas = createAtlasInstance(config); // AtlasInstanceConfig, see the SDK reference
 
 let graphCost;
+let failure: unknown;
 try {
   const result = await atlas.outlook.backup('<mailbox-id>');
   graphCost = result.graphCost;
 } catch (err) {
+  failure = err;
   graphCost = getGraphCost(err); // a failed run still consumed quota
 }
 
-const outlook = GRAPH_SERVICE_LIMITS.outlook;
 const used = graphCost?.byService.outlook?.requests ?? 0;
-const cooldownMs = Math.ceil((used / outlook.requestsPerWindow) * outlook.windowDurationMs);
+// Requests from this run leave the 10-minute sliding window within one window of being sent.
+const cooldownMs = used > 0 ? GRAPH_SERVICE_LIMITS.outlook.windowDurationMs : 0;
+// Store cooldownMs before rethrowing; a failed run must still set the cooldown.
+if (failure !== undefined) throw failure;
 ```
 
 The [SDK reference](/reference/sdk) documents `AtlasInstanceConfig` and the full `OperationCost` type.

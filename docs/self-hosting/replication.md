@@ -1,3 +1,7 @@
+---
+description: Set up Atlas replication to secondary S3-compatible stores, configure targets, and build a 3-2-1 backup layout with one copy kept off site.
+---
+
 # Replication setup
 
 Atlas can copy completed snapshots to one or more secondary S3-compatible stores. Keeping a second copy in another location gives you a 3-2-1 layout: three copies, on two kinds of media, with one copy off site.

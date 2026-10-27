@@ -1,3 +1,7 @@
+---
+description: 'Measure Atlas test coverage across every package in one run with pnpm run test:coverage, and learn how to read the coverage results.'
+---
+
 # Test Coverage
 
 Atlas measures test coverage across every package in one run. This page covers the command and how to read the results.

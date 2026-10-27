@@ -1,3 +1,7 @@
+---
+description: Schedule Atlas backups with cron and plan bandwidth against how much data each Microsoft 365 run pulls, so continuous protection fits your network.
+---
+
 # Scheduling and bandwidth
 
 Atlas is a CLI that runs one backup and exits. Continuous protection comes from scheduling those runs. How often you can run depends on how much data each run pulls from Microsoft 365, so plan the schedule and the bandwidth together.

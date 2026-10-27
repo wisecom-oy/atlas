@@ -1,3 +1,7 @@
+---
+description: Run MinIO in Docker as the S3-compatible bucket for self-hosted Atlas, and plan its redundancy, permissions, and filesystem for a safe archive.
+---
+
 # Storage setup
 
 Atlas writes backups to any S3-compatible object store. For self-hosted deployments, run MinIO in Docker. The bucket is where your backups live, so its redundancy, permissions, and filesystem determine how safe the archive is.

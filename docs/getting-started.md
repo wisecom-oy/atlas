@@ -1,6 +1,16 @@
+---
+description: Install the Atlas CLI or SDK, connect object storage and your Microsoft 365 tenant, and run your first backup on Node.js 22.12 or later.
+---
+
 # Getting started
 
 Install the CLI, connect it to object storage and your Microsoft 365 tenant, and run your first backup. The CLI requires Node.js 22.12 or later. The SDK requires Node.js 22.8 or later.
+
+<script setup>
+import { GETTING_STARTED } from './.vitepress/theme/terminal-sessions';
+</script>
+
+<CliTerminal :sessions="GETTING_STARTED" label="Example run of the commands in this guide, with mock data" />
 
 ## Install
 
@@ -133,7 +143,7 @@ const mailbox = await atlas.outlook.backup('user@company.com');
 const drive = await atlas.onedrive.backup('owner-id');
 
 // SharePoint: same as `atlas sharepoint backup`. Returns one result per backed-up site.
-const [site] = await atlas.sharepoint.backup('site-id');
+const [site] = await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering');
 ```
 
 The SDK validates configuration when you call `createAtlasInstance`. A missing field or a passphrase shorter than the minimum throws a `ConfigError`.

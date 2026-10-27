@@ -38,10 +38,10 @@ const atlas = createAtlasInstance({
 });
 
 // Outlook backup
-await atlas.outlook.backup('user@company.com');
+await atlas.outlook.backup('user@example.com');
 
 // OneDrive backup
-await atlas.onedrive.backup('user@company.com');
+await atlas.onedrive.backup('user@example.com');
 
 // SharePoint backup: pass a site URL or Graph site id, add subsites when needed
 await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering', {

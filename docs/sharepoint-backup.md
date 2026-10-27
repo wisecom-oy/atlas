@@ -1,3 +1,7 @@
+---
+description: Back up SharePoint document libraries incrementally with Microsoft Graph delta queries, encrypting files before storage and recording a snapshot per run.
+---
+
 # SharePoint backup
 
 Atlas backs up the document libraries of a SharePoint site incrementally with Microsoft Graph delta queries. Files are encrypted before storage and stored once per unique content. One run covers every document library in the site, and each run that changes something records a snapshot.

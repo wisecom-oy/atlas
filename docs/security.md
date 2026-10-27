@@ -1,3 +1,7 @@
+---
+description: 'How Atlas protects backups: the passphrase-driven key hierarchy, per-object integrity checks before restore, what is and is not protected, and the limits.'
+---
+
 # Security model
 
 Atlas encrypts each tenant's backup data with a key that only the tenant's passphrase can unlock, and it checks every object's integrity before restoring it. This page explains the design, what is and is not protected, and the limits you need to plan around.

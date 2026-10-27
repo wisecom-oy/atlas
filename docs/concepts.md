@@ -1,3 +1,7 @@
+---
+description: 'Learn the Atlas terms behind CLI output and error messages: packages, workloads, snapshots, encryption keys, and delta sync, explained in plain language.'
+---
+
 # Concepts
 
 This page explains the terms you will see in CLI output, error messages, and the rest of the documentation: packages, workloads, snapshots, encryption, and delta sync.

@@ -1,3 +1,7 @@
+---
+description: 'How Atlas releases are cut: which branch a pull request targets, who decides when and how big a release is, and what the automation does after that.'
+---
+
 # Release Process
 
 Atlas releases when there is enough change to justify one, not on a schedule.

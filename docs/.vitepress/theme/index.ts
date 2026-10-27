@@ -2,6 +2,7 @@ import { h } from 'vue';
 import DefaultTheme from 'vitepress/theme';
 import type { Theme } from 'vitepress';
 import HeroTerminal from './hero-terminal.vue';
+import DataJourney from './data-journey.vue';
 import './custom.css';
 
 // "ATLAS BY WISECOM" in 8-bit ASCII, repeated; the home page section spacer.
@@ -14,6 +15,8 @@ const theme: Theme = {
   extends: DefaultTheme,
   enhanceApp({ app }) {
     app.component('WcBits', WcBits);
+    app.component('DataJourney', DataJourney);
+    app.component('CliTerminal', HeroTerminal);
   },
   Layout: () =>
     h(DefaultTheme.Layout, null, {

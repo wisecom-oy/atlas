@@ -1,3 +1,7 @@
+---
+description: Find an Atlas error by stage and apply its fix, with the diagnostics script to run before opening an issue and DEBUG=1 for detailed logs.
+---
+
 # Troubleshooting
 
 Find the error you see, read why it happens, then apply the fix. Errors are grouped by the stage where they occur.

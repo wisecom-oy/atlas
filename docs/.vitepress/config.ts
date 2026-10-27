@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitepress';
 
+const SITE_URL = 'https://docs.atlas.wisecom.fi';
+
 export default defineConfig({
+  lang: 'en',
   title: 'Atlas',
   titleTemplate: ':title · Atlas by Wisecom',
   description:
@@ -8,6 +11,7 @@ export default defineConfig({
 
   base: '/',
   cleanUrls: true,
+  sitemap: { hostname: SITE_URL },
 
   // Internal planning artefacts under docs/superpowers/ are unreferenced by any page
   // and were being published to the public site.
@@ -16,6 +20,8 @@ export default defineConfig({
   lastUpdated: true,
 
   head: [
+    ['meta', { property: 'og:site_name', content: 'Atlas by Wisecom' }],
+    ['meta', { name: 'twitter:card', content: 'summary' }],
     ['meta', { name: 'theme-color', content: '#0a0a0a' }],
     [
       'link',
@@ -45,6 +51,32 @@ export default defineConfig({
     ],
   ],
 
+  // Per-page canonical URL and link-preview tags, built from each page's title and description.
+  transformPageData(page, { siteConfig }) {
+    const path = page.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '');
+    const url = `${SITE_URL}/${path}`;
+    const title =
+      page.frontmatter.layout === 'home'
+        ? 'Atlas · Microsoft 365 backup engine by Wisecom'
+        : `${page.title} · Atlas by Wisecom`;
+    const description = page.frontmatter.description ?? siteConfig.site.description;
+    page.frontmatter.head ??= [];
+    page.frontmatter.head.push(
+      ['link', { rel: 'canonical', href: url }],
+      ['meta', { property: 'og:type', content: 'website' }],
+      ['meta', { property: 'og:url', content: url }],
+      ['meta', { property: 'og:title', content: title }],
+      ['meta', { property: 'og:description', content: description }],
+    );
+  },
+
+  markdown: {
+    config(md) {
+      md.renderer.rules.table_open = () => '<div class="wc-table"><table>\n';
+      md.renderer.rules.table_close = () => '</table></div>\n';
+    },
+  },
+
   themeConfig: {
     logo: {
       light: '/wisecom-wordmark-dark.png',
@@ -58,7 +90,7 @@ export default defineConfig({
         text: 'Guide',
         link: '/getting-started',
         activeMatch:
-          '^/(getting-started|concepts|configuration|azure-ad-setup|security|troubleshooting|onedrive|sharepoint|self-hosting|operations)',
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|self-hosting|operations)',
       },
       { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
       {
@@ -99,6 +131,7 @@ export default defineConfig({
       {
         text: 'Security',
         items: [
+          { text: 'How your data travels', link: '/how-it-works' },
           { text: 'Security model', link: '/security' },
           { text: 'Immutability and Object Lock', link: '/operations/immutability' },
         ],
@@ -126,6 +159,7 @@ export default defineConfig({
       {
         text: 'Reference',
         items: [
+          { text: 'AI quickstart', link: '/reference/ai-quickstart' },
           { text: 'CLI', link: '/reference/cli' },
           { text: 'CLI recovery and management', link: '/reference/cli-recovery' },
           { text: 'SDK', link: '/reference/sdk' },
@@ -168,7 +202,7 @@ export default defineConfig({
       message:
         '<span class="wc-foot-links"><a href="https://wisecom.fi">Wisecom</a><a href="https://wisecom.fi/en/products/continuity">Wisecom Continuity</a><a href="https://github.com/wisecom-oy/atlas">GitHub</a><a href="mailto:info@wisecom.fi">info@wisecom.fi</a></span>',
       copyright:
-        '<span class="wc-foot-license">Atlas is open source under the Apache-2.0 License.</span><span class="wc-foot-legal">© 2026 Wisecom Oy · Business ID (Y-tunnus) 3629087-1</span>',
+        '<span class="wc-foot-license">Atlas is open source under the Apache-2.0 License.</span><span class="wc-foot-legal"><span>© 2026 Wisecom Oy</span> · <span>Business ID (Y-tunnus) 3629087-1</span></span>',
     },
 
     outline: { level: [2, 3] },

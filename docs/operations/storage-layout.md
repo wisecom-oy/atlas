@@ -1,3 +1,7 @@
+---
+description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with Outlook, onedrive/, sharepoint/, and _meta/ prefixes and encrypted objects.'
+---
+
 # Storage layout
 
 Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.

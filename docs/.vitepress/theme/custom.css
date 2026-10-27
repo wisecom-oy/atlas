@@ -90,14 +90,54 @@
   --vp-button-alt-hover-bg: #161616;
   --vp-button-alt-hover-border: #f5f5f5;
   --vp-button-alt-hover-text: #ffffff;
-
 }
 
-/* Logo: Wisecom wordmark, a hairline, then the product name. Sized to fit the 208px sidebar title column. */
+/* VitePress's reduced-motion rule already forces scroll-behavior back to auto. */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Scrollbars: thin, square, theme-coloured. Standard properties first; Safari only reads the pseudo-elements. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vp-c-border) transparent;
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--vp-c-border);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--vp-c-text-3);
+  }
+}
+
+/* Search: a wider field than the content-sized default. */
+@media (min-width: 960px) {
+  .VPNavBarSearch .DocSearch-Button {
+    min-width: 240px;
+  }
+  .VPNavBarSearch .DocSearch-Button-Keys {
+    margin-left: auto;
+  }
+}
+/* 768 to 959px: the full menu does not fit beside the logo and search. Continuity stays reachable
+   from the footer, the sidebar, and the home page. */
+@media (max-width: 959px) {
+  .VPNavBarMenuLink[href^='https://wisecom.fi'] {
+    display: none;
+  }
+}
+
+/* Logo: Wisecom wordmark, then the product name in the tracked caps of the Continuity lockup, on one line. */
 .VPNavBarTitle .title {
-  gap: 12px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  gap: 14px;
   white-space: nowrap;
 }
 .VPNavBarTitle .logo {
@@ -105,9 +145,14 @@
   width: auto;
 }
 .VPNavBarTitle .title span {
-  padding-left: 12px;
-  border-left: 1px solid var(--vp-c-border);
-  line-height: 18px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-2);
+  /* Sit the caps on the wordmark's optical centre. */
+  padding-top: 1px;
 }
 .vp-doc td code {
   white-space: nowrap;
@@ -157,10 +202,16 @@
   color: var(--vp-c-text-3);
 }
 
-/* Tables. */
-.vp-doc table {
+/* Tables. Each sits in a .wc-table scroller (config.ts markdown hook), so a wide table scrolls
+   on its own instead of widening the page, and a narrow one still spans the column. */
+.vp-doc .wc-table {
+  margin: 20px 0;
+  overflow-x: auto;
+}
+.vp-doc .wc-table table {
   display: table;
   width: 100%;
+  margin: 0;
   border-collapse: collapse;
 }
 .vp-doc tr:nth-child(2n) {
@@ -176,12 +227,6 @@
 .vp-doc th,
 .vp-doc td {
   border: 1px solid var(--vp-c-divider);
-}
-@media (max-width: 768px) {
-  .vp-doc table {
-    display: block;
-    overflow-x: auto;
-  }
 }
 
 /* Callouts: left rule instead of tinted fills. */
@@ -349,7 +394,9 @@
   border-radius: 2px;
   color: #f5f5f5;
   text-decoration: none;
-  transition: background 0.2s, border-color 0.2s;
+  transition:
+    background 0.2s,
+    border-color 0.2s;
 }
 .vp-doc a.wc-btn:hover {
   border-color: #f5f5f5;
@@ -402,11 +449,16 @@
   text-align: center;
 }
 
-/* Wide layout. */
-@media (min-width: 1440px) {
+/* Wide layout: on doc pages the sidebar pins to the left edge and the outline to the right edge,
+   instead of both floating inside a centred 1440px frame. The reading column takes the space between. */
+.Layout:has(.VPContent.has-sidebar) {
+  --vp-layout-max-width: 100vw;
+}
+@media (min-width: 1280px) {
   .VPDoc:not(.has-aside) .container,
   .VPDoc.has-aside .content-container {
-    max-width: 860px;
+    /* VPDoc's scoped rule caps this at 688px and outranks plain selectors. */
+    max-width: 960px !important;
   }
 }
 .vp-doc .wc-card p.wc-setup {
@@ -476,27 +528,68 @@
 .VPHero.has-image .image-bg {
   display: none;
 }
-@media (max-width: 959px) {
+.VPHero .tagline {
+  text-wrap: pretty;
+}
+
+/* Hero layout. VitePress goes two-column at 960px, which squeezes the terminal to ~280px.
+   Below 1200px stack instead: text first, left aligned, then the terminal at full width.
+   VPHero's scoped styles outrank plain selectors, hence !important. */
+@media (max-width: 1199px) {
   .VPHero.has-image .container {
-    text-align: left;
-  }
-  .VPHero.has-image .actions {
-    justify-content: flex-start;
+    flex-direction: column !important;
+    text-align: left !important;
   }
   .VPHero.has-image .main {
-    margin: 0;
+    order: 1 !important;
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+  .VPHero.has-image .name,
+  .VPHero.has-image .text,
+  .VPHero.has-image .tagline {
+    margin: 0 !important;
+  }
+  .VPHero.has-image .tagline {
+    max-width: 640px !important;
+  }
+  .VPHero.has-image .actions {
+    justify-content: flex-start !important;
   }
   .VPHero.has-image .image {
-    margin: 0 0 40px;
+    order: 2 !important;
+    margin: 40px 0 0 !important;
+  }
+  .VPHero.has-image .image-container {
+    justify-content: flex-start !important;
+  }
+  .wc-term {
+    max-width: 720px !important;
+    margin: 0 !important;
   }
 }
-@media (min-width: 960px) {
+@media (min-width: 641px) and (max-width: 1199px) {
+  .wc-term-body {
+    font-size: 12.5px !important;
+  }
+}
+@media (min-width: 1200px) {
+  .VPHero.has-image .container {
+    align-items: center;
+  }
+  .VPHero.has-image .main {
+    max-width: 560px;
+  }
   .VPHero.has-image .image {
-    flex-grow: 1;
+    flex: 1 1 0;
+    min-width: 0;
     order: 2;
     margin: 0;
-    min-height: 0;
     align-self: center;
+  }
+  .wc-term-body {
+    font-size: clamp(10px, 0.88vw, 12.5px);
   }
 }
 .wc-term {
@@ -509,6 +602,15 @@
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
   overflow: hidden;
   text-align: left;
+}
+/* In a doc page the terminal spans the reading column, with a fixed readable size. */
+.vp-doc .wc-term {
+  max-width: none;
+  margin: 24px 0;
+  box-shadow: none;
+}
+.vp-doc .wc-term-body {
+  font-size: 13px;
 }
 .wc-term-bar {
   display: flex;
@@ -611,19 +713,6 @@
   font-weight: 600;
 }
 
-/* Hero: centre both columns; tagline avoids orphans. */
-.VPHero .tagline {
-  text-wrap: pretty;
-}
-@media (min-width: 960px) {
-  .VPHero.has-image .container {
-    align-items: center;
-  }
-  .VPHero.has-image .main {
-    max-width: 560px;
-  }
-}
-
 /* Bit spacer between hero and features (theme/index.ts). Equal 64px above and below. */
 .VPHome .VPHero {
   padding-bottom: 0 !important;
@@ -657,17 +746,6 @@
     padding: 0 72px;
   }
 }
-@media (min-width: 960px) {
-  .VPHero.has-image .image {
-    flex: 1 1 0;
-    min-width: 0;
-  }
-}
-@media (min-width: 641px) {
-  .wc-term-body {
-    font-size: clamp(10px, 0.88vw, 12.5px);
-  }
-}
 
 /* Spacer before the upsell: same 64px rhythm. Inside .vp-doc the content box already has page padding. */
 .VPHome .VPFeatures {
@@ -684,44 +762,11 @@
 
 /* Terminal: wrap long lines instead of clipping them. */
 .wc-term-body {
-  height: auto;
-  min-height: 316px;
+  /* Fixed height like a real terminal: longer output scrolls (hero-terminal.vue follows the tail). */
+  height: 316px;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-
-/* Below 960px VitePress stacks the hero image first and centres the text. Keep text first, left aligned. */
-@media (max-width: 959px) {
-  .VPHero.has-image .image {
-    order: 2;
-    margin: 40px 0 0;
-  }
-  .VPHero.has-image .main,
-  .VPHero.has-image .heading,
-  .VPHero.has-image .tagline {
-    text-align: left;
-    margin-left: 0;
-    margin-right: 0;
-  }
-  .VPHero.has-image .actions {
-    justify-content: flex-start;
-  }
-  .wc-term {
-    margin: 0;
-  }
-}
-@media (max-width: 959px) {
-  /* VPHero's scoped styles outrank plain selectors. */
-  .VPHero.has-image .container {
-    text-align: left !important;
-  }
-  .VPHero.has-image .name,
-  .VPHero.has-image .text {
-    margin: 0 !important;
-  }
-  .VPHero.has-image .actions {
-    justify-content: flex-start !important;
-  }
 }
 
 /* Footer on every page. VitePress hides it next to the sidebar by default; offset it past the sidebar instead. */
@@ -742,6 +787,7 @@
 .VPFooter {
   padding-top: 20px !important;
   padding-bottom: 20px !important;
+  container-type: inline-size;
 }
 .VPFooter .container {
   display: flex;
@@ -787,7 +833,9 @@
   letter-spacing: 0.04em;
   color: var(--vp-c-text-3);
 }
-@media (max-width: 639px) {
+/* Too narrow for links and legal side by side (sidebar pages around 1000 to 1300px wide):
+   stack both left aligned instead of wrapping into a right-aligned block on the left. */
+@container (max-width: 799px) {
   .VPFooter .container {
     flex-direction: column;
     align-items: flex-start;
@@ -795,6 +843,55 @@
   .VPFooter .copyright {
     align-items: flex-start;
     text-align: left;
+  }
+}
+/* Mobile: links in a two-column grid with 44px tap rows, legal lines under a divider. */
+@media (max-width: 639px) {
+  .VPFooter {
+    padding: 32px 24px !important;
+  }
+  .VPFooter .container {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+  }
+  .wc-foot-links {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 16px;
+    font-size: 14px;
+  }
+  .VPFooter .wc-foot-links a {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  .VPFooter .copyright {
+    align-items: flex-start;
+    gap: 6px;
+    padding-top: 20px;
+    border-top: 1px solid var(--vp-c-divider);
+    text-align: left;
+  }
+  .vp-doc .wc-note {
+    margin: 16px 0 0;
+    line-height: 1.6;
+    text-align: left;
+  }
+  /* VitePress leaves 96px under the content (plus 96px margin on home); the footer divider
+     already separates it. */
+  .VPHome,
+  .VPDoc {
+    padding-bottom: 48px !important;
+  }
+  .VPHome {
+    margin-bottom: 0 !important;
+  }
+  .wc-upsell {
+    margin-bottom: 0 !important;
+  }
+  .wc-foot-legal span {
+    white-space: nowrap;
   }
 }
 @media (min-width: 960px) {

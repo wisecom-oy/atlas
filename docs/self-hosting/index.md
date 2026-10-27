@@ -1,3 +1,7 @@
+---
+description: Run Atlas on your own infrastructure, with backups in an S3-compatible bucket you control so Microsoft 365 data never has to leave your network.
+---
+
 # Self-hosting
 
 Atlas runs on your own infrastructure. Backup data is written to an S3-compatible bucket you control, so it never has to leave your network.

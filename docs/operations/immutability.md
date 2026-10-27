@@ -1,3 +1,7 @@
+---
+description: Store Atlas backups with S3 Object Lock in compliance or governance mode, so AWS S3 or MinIO refuses deletes and overwrites until retention ends.
+---
+
 # Immutability and Object Lock
 
 Atlas can store backups with S3 Object Lock, so the storage backend refuses to delete or overwrite them until a retention period ends. In `compliance` mode, the protection holds even if an attacker has valid S3 credentials. In `governance` mode (the default), a principal with `s3:BypassGovernanceRetention` can still remove objects. It works on AWS S3 and MinIO.

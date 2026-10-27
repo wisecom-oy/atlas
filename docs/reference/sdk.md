@@ -1,3 +1,7 @@
+---
+description: 'Typed reference for @wisecom/atlas-sdk: createAtlasInstance, backup, restore, save, and replication methods for multi-tenant services and custom schedulers.'
+---
+
 # SDK reference
 
 `@wisecom/atlas-sdk` embeds Atlas in a Node.js application: multi-tenant services, custom schedulers, portals, and automation that needs typed control over backup, restore, save, and replication. It bundles every internal module, so one install is enough.
@@ -27,7 +31,7 @@ const result = await atlas.outlook.backup('user@example.com');
 console.log(result.snapshot.id, result.summary.stored);
 ```
 
-`await using` requires Node.js 20 or later. Without it, call `atlas.dispose()` in a `finally` block. See [Instance lifecycle](#instance-lifecycle).
+`await using` needs TypeScript 5.2 or later, and the SDK requires Node.js 22.8 or later. Without it, call `atlas.dispose()` in a `finally` block. See [Instance lifecycle](#instance-lifecycle).
 
 The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`), with tenant-wide methods on the root instance such as `replicateSnapshot`, `getBucketStats`, and `getStorageUsage`.
 
@@ -114,10 +118,10 @@ const atlas = createAtlasInstance({
 
 `LogSink` has four methods: `debug`, `info`, `warn`, and `error`. Adapting `pino`, `winston`, an OpenTelemetry exporter, or `console` takes a few lines.
 
-Each line includes `fields` that identify the source:
+Each line includes `fields` that identify the source. Field names are snake_case, matching the log schema rather than the camelCase used elsewhere:
 
 ```json
-{ "tenantId": "00000000-0000-0000-0000-000000000000", "operation": "backup" }
+{ "tenant_id": "00000000-0000-0000-0000-000000000000", "operation": "backup" }
 ```
 
 `operation` names the SDK method that produced the line, so one process serving many tenants can attribute output without matching timestamps. Progress output is not logged. Use [progress events](#progress-and-cancellation) instead.
@@ -130,13 +134,13 @@ Logs are not the record of a run. The typed result carries what happened: `summa
 
 ## Storage request events
 
-`onStorageRequest` receives one `StorageRequestEvent` per S3 request the instance sends. Each event includes the duration, the split between connection-pool queueing (`socketWaitMs`) and backend time (`networkMs`), SDK retries and backoff, payload size, and outcome. Events never carry object keys, bucket names, or endpoint hosts.
+`onStorageRequest` receives one `StorageRequestEvent` per S3 request the instance sends. Each event includes the duration, the split between connection-pool queueing (`socketWaitMs`) and backend time (`networkMs`), SDK retries and backoff, payload size, and outcome. Use `durationMs` for end-to-end latency, since `networkMs` excludes queueing and retry backoff. Events never carry object keys, bucket names, or endpoint hosts.
 
 ```typescript
 const atlas = createAtlasInstance({
   /* ...credentials... */
   onStorageRequest: (event) =>
-    storageLatency.record(event.networkMs ?? event.durationMs, {
+    storageLatency.record(event.durationMs, {
       command: event.command,
       keyClass: event.keyClass,
     }),
@@ -414,8 +418,10 @@ If the signal is already aborted when the call starts, no `discovering` event is
 const graceful = new AbortController();
 const immediate = new AbortController();
 
-process.on('SIGTERM', () => graceful.abort());
-setTimeout(() => immediate.abort(), 30_000); // shutdown deadline
+process.on('SIGTERM', () => {
+  graceful.abort();
+  setTimeout(() => immediate.abort(), 30_000); // shutdown deadline
+});
 
 const result = await atlas.outlook.backup('user@example.com', {
   signal: graceful.signal,
@@ -495,8 +501,7 @@ Outlook manifest entries carry `from`, the sender Outlook displays, including de
 const snapshot = await atlas.outlook.getSnapshotDetail('snapshot-id');
 
 for (const entry of snapshot?.entries ?? []) {
-  entry.from?.address; // 'ada@example.com'
-  entry.from?.name; // 'Ada Example', absent when Graph has no display name
+  console.log(entry.from?.address, entry.from?.name); // 'ada@example.com', 'Ada Example'
 }
 ```
 
@@ -695,7 +700,10 @@ await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 ```typescript
 // One exact version. List versions first to see what exists.
 const versions = await atlas.onedrive.listFileVersions('owner-id', '/Documents/report.docx');
-const previous = versions.at(-2);
+// The SDK does not guarantee an order, so pick the newest stored version explicitly
+const previous = [...versions].sort((a, b) =>
+  (b.lastModifiedAt ?? '').localeCompare(a.lastModifiedAt ?? ''),
+)[0];
 if (!previous) throw new Error('No older version is stored for this file');
 
 const result = await atlas.onedrive.restoreVersion('owner-id', {
@@ -863,7 +871,7 @@ The data key does not change, so nothing in the bucket is re-encrypted and every
 
 Buckets are versioned, and noncurrent versions expire after 30 days. Until they expire, someone with the old passphrase and permission to read object versions can still unwrap the data key from the old wrapper. Treat the rotation as complete only after that version expires, or after the leaked reader's `s3:GetObjectVersion` permission is revoked.
 
-A wrong current passphrase is rejected before anything is written. After the write, the blob is read back and unwrapped before the promise resolves, so a resolved call means the tenant opens with the new passphrase. If that check fails, the previous wrapper is restored and the call rejects.
+A wrong current passphrase is rejected before anything is written. After the write, the blob is read back and unwrapped before the promise resolves, so a resolved call means the tenant opens with the new passphrase. If that check fails, the previous wrapper is restored and the call throws `DekRewrapVerificationError`. If the restore also fails, the call throws `DekRewrapRollbackError` and the stored wrapper is in an unknown state. Neither class is exported. Both extend `StorageError`, so branch on `ATLAS_STORAGE_FAILURE`, and inspect the bucket before retrying.
 
 Update the instance configuration afterwards. Nothing reads the new passphrase until you do, and an instance still built with the old passphrase fails its next operation.
 
@@ -948,7 +956,7 @@ type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
 
 ### GRAPH_SERVICE_LIMITS
 
-The official throttling limits are exported as a frozen constant, so a scheduler can use the same values as Atlas:
+The official throttling limits are exported as a constant, so a scheduler can use the same values as Atlas:
 
 ```typescript
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
@@ -971,7 +979,7 @@ See [Graph API rate limits](/operations/graph-rate-limits) for all pool limits, 
 
 ### Scheduling example
 
-A common pattern is one queued job per mailbox. After each run, use `graphCost` to set a cooldown before the next job starts. This example uses pg-boss:
+A common pattern is one queued job per mailbox. After each successful run, use `graphCost` to set a cooldown before the next job starts. This example uses pg-boss 10 or later, whose `work` handler receives an array of jobs:
 
 ```typescript
 import { createAtlasInstance, getGraphCost, GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-sdk';
@@ -979,48 +987,51 @@ import type { OperationCost } from '@wisecom/atlas-sdk';
 import PgBoss from 'pg-boss';
 
 const boss = new PgBoss(DATABASE_URL);
+await boss.start();
 
-boss.work('backup-mailbox', async (job) => {
-  const { tenantConfig, mailboxId } = job.data;
-  const atlas = createAtlasInstance(tenantConfig);
+await boss.work('backup-mailbox', async ([job]) => {
+  // The job carries IDs only. Load credentials from your secret store at run time.
+  const { tenantId, mailboxId } = job.data;
+  await using atlas = createAtlasInstance(await loadTenantConfig(tenantId));
 
-  let cost: OperationCost | undefined;
+  let result;
   try {
-    const result = await atlas.outlook.backup(mailboxId);
-    cost = result.graphCost;
+    result = await atlas.outlook.backup(mailboxId);
   } catch (err) {
-    // A failed run often uses more quota than a successful one. Record it, then rethrow.
-    cost = getGraphCost(err);
+    // A failed run still used quota. Record it, then let pg-boss apply its retryLimit.
+    await recordCost(mailboxId, getGraphCost(err));
     throw err;
-  } finally {
-    if (cost) {
-      await db.query(
-        `INSERT INTO backup_costs
-           (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
-         VALUES ($1, $2, $3, $4, NOW())`,
-        [
-          mailboxId,
-          cost.byService.outlook?.requests ?? 0,
-          cost.byService.identity?.requests ?? 0,
-          cost.elapsedMs,
-        ],
-      );
-
-      // Cooldown from the Outlook pool limit, the bottleneck for mail backup
-      const outlookLimits = GRAPH_SERVICE_LIMITS.outlook;
-      const outlookUsed = cost.byService.outlook?.requests ?? 0;
-      const usageRatio = outlookUsed / outlookLimits.requestsPerWindow;
-      const cooldownMs = Math.ceil(usageRatio * outlookLimits.windowDurationMs);
-
-      // Re-enqueue after the cooldown. retryLimit: 0 because this job is the retry.
-      // Otherwise pg-boss schedules its own retry, and the tenant is hit twice.
-      await boss.send('backup-mailbox', job.data, {
-        startAfter: new Date(Date.now() + cooldownMs),
-        retryLimit: 0,
-      });
-    }
   }
+
+  await recordCost(mailboxId, result.graphCost);
+
+  // Cooldown from the Outlook pool limit, the bottleneck for mail backup
+  const outlookLimits = GRAPH_SERVICE_LIMITS.outlook;
+  const outlookUsed = result.graphCost?.byService.outlook?.requests ?? 0;
+  const usageRatio = outlookUsed / outlookLimits.requestsPerWindow;
+  const cooldownMs = Math.ceil(usageRatio * outlookLimits.windowDurationMs);
+
+  // Re-enqueue only after success. Failures retry through pg-boss, so a permanent error
+  // such as WrongPassphraseError cannot loop.
+  await boss.send('backup-mailbox', job.data, {
+    startAfter: new Date(Date.now() + cooldownMs),
+  });
 });
+
+async function recordCost(mailboxId: string, cost: OperationCost | undefined): Promise<void> {
+  if (!cost) return;
+  await db.query(
+    `INSERT INTO backup_costs
+       (mailbox_id, outlook_requests, identity_requests, elapsed_ms, completed_at)
+     VALUES ($1, $2, $3, $4, NOW())`,
+    [
+      mailboxId,
+      cost.byService.outlook?.requests ?? 0,
+      cost.byService.identity?.requests ?? 0,
+      cost.elapsedMs,
+    ],
+  );
+}
 ```
 
 The Outlook pool limit applies per mailbox, so each mailbox's cooldown is independent. Workers for different mailboxes do not share Outlook quota.
@@ -1032,36 +1043,38 @@ The `sharepoint_onedrive` pool applies per tenant. For OneDrive jobs, add up `re
 Every deliberate Atlas failure is an `AtlasError` with a stable `code`. Branch on the class or the code. Do not branch on the message, because wording changes between releases.
 
 ```typescript
-import { MailboxNotLicensedError, WrongPassphraseError, AtlasError } from '@wisecom/atlas-sdk';
+import { AtlasError, MailboxNotLicensedError, WrongPassphraseError } from '@wisecom/atlas-sdk';
 
 try {
   await atlas.outlook.backup('user@example.com');
 } catch (err) {
   if (err instanceof MailboxNotLicensedError) {
-    await reassign_license('user@example.com'); // retry after a license is assigned
+    await reassignLicense('user@example.com'); // then schedule a new run
   } else if (err instanceof WrongPassphraseError) {
-    throw err; // Do not retry. The data is intact, but the key is wrong
+    logger.error('Passphrase rejected. Do not retry with the same passphrase', { code: err.code });
   } else if (err instanceof AtlasError) {
-    logger.error({ code: err.code, cause: err.cause }, 'Atlas backup failed');
+    logger.error('Atlas backup failed', { code: err.code });
   }
+  throw err;
 }
 ```
 
-| Class                               | `code`                       | Meaning                                                                    |
-| ----------------------------------- | ---------------------------- | -------------------------------------------------------------------------- |
-| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs              |
-| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent      |
-| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox             |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist                    |
-| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`             |
-| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                                |
-| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set                 |
-| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence    |
-| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, or tenant is missing or unusable         |
-| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested, but bucket versioning is off                        |
-| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                   |
-| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                           |
-| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                  |
+| Class                               | `code`                       | Meaning                                                                  |
+| ----------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs           |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent   |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox          |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist                 |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`          |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                             |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set              |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, or tenant is missing or unusable      |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested, but bucket versioning is off                     |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                        |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                               |
+| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported           |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 

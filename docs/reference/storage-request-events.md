@@ -1,3 +1,7 @@
+---
+description: Subscribe to Atlas S3 request events to record duration, queue wait, backend retries, payload size, and outcome for any S3-compatible backend.
+---
+
 # Storage request events
 
 Atlas can report every S3 request it sends: duration, time spent queued for a connection, backend retries, payload size, and the outcome. The numbers come from the Atlas process, so they work with any S3-compatible backend and do not depend on provider metrics.
@@ -117,10 +121,12 @@ Multipart uploads report one event per `UploadPart`, not one event for the whole
 An instance belongs to one tenant. A host that creates one instance per tenant can attribute events by closing over the tenant:
 
 ```typescript
+const tenant_events: Array<StorageRequestEvent & { tenant: string }> = [];
+
 function create_tenant_instance(tenant: TenantRow): AtlasInstance {
   return createAtlasInstance({
     ...tenant.credentials,
-    onStorageRequest: (event) => record({ ...event, tenant: tenant.id }),
+    onStorageRequest: (event) => tenant_events.push({ ...event, tenant: tenant.id }),
   });
 }
 ```
@@ -148,6 +154,8 @@ Atlas hashes and encrypts on the Node.js main thread, and a host's own work runs
 
 ```typescript
 import { monitorEventLoopDelay } from 'node:perf_hooks';
+
+const loop_lag = meter.createHistogram('atlas.event_loop.delay_p99', { unit: 'ms' });
 
 const loop_delay = monitorEventLoopDelay({ resolution: 20 });
 loop_delay.enable();
