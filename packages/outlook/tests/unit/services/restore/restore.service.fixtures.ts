@@ -116,6 +116,7 @@ export function make_restore_harness(): RestoreHarness {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
     find_latest_by_owner: vi.fn(),
+    list_by_owner: vi.fn().mockResolvedValue([]),
     list_all_manifests: vi.fn().mockResolvedValue([]),
     list_owner_ids: vi.fn().mockResolvedValue([]),
   };

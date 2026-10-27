@@ -111,6 +111,12 @@ export class S3ManifestRepository implements ManifestRepository {
     return this.download_manifests(ctx, keys);
   }
 
+  /** Downloads one owner's manifests, reading only that owner's key prefix. */
+  async list_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest[]> {
+    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/${owner_id}/`);
+    return this.download_manifests(ctx, keys);
+  }
+
   /** Lists owners from `manifests/{owner_id}/...` key names; one paginated LIST, nothing decrypted. */
   async list_owner_ids(ctx: TenantStorageContext): Promise<string[]> {
     const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
