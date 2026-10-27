@@ -1,8 +1,8 @@
 # Performance Profiling
 
-Atlas ships a CPU profiler for the backup and restore pipelines. It produces structured text reports meant for both human review and automated analysis.
+The repository includes a CPU profiler for the backup and restore pipelines (`tools/perf/`). It is not published to npm. It produces structured text reports meant for both human review and automated analysis.
 
-## Quick Start
+## Quick start
 
 ```bash
 # Build the profiler (once, or after changes to tools/perf/)
@@ -18,9 +18,9 @@ pnpm run perf:restore -- -s <snapshot-id> -m target@example.com
 pnpm run perf:analyze -- .perf-output/CPU.20260506.123456.12345.0.001.cpuprofile
 ```
 
-Profiling runs the built CLI, so `pnpm run build` has to have produced `packages/cli/dist/`. The profiler resolves that entry from the CLI package's own `bin` field rather than a hardcoded filename, and stops with a message naming the missing file if the build is absent, instead of profiling a failed module load.
+Profiling runs the built CLI, so run `pnpm run build` first to produce `packages/cli/dist/`. The profiler reads the entry point from the CLI package's `bin` field and stops with a message naming the missing file if the build is absent, rather than profiling a failed module load.
 
-## How It Works
+## How it works
 
 The profiler uses Node.js built-in V8 CPU profiling (`--cpu-prof`) to sample the call stack at 500-microsecond intervals while Atlas runs. After the process exits, the captured `.cpuprofile` is parsed into an aggregated report.
 
@@ -40,9 +40,9 @@ atlas-perf analyze              (parser + formatter)
 Structured text report          (stdout)
 ```
 
-## Report Sections
+## Report sections
 
-### Top Functions by Self-Time
+### Top functions by self-time
 
 The functions where CPU is actually consumed, excluding time spent in their callees. High self-time means the function is doing expensive work directly.
 
@@ -54,7 +54,7 @@ The functions where CPU is actually consumed, excluding time spent in their call
 | Function | Function name                            |
 | Location | File path and line number                |
 
-### Domain Breakdown
+### Domain breakdown
 
 Aggregates all functions by their Atlas package, giving a high-level view of where compute time goes:
 
@@ -71,7 +71,7 @@ Aggregates all functions by their Atlas package, giving a high-level view of whe
 | `aws-sdk`                        | AWS SDK v3 internals                                      |
 | `ms-graph-sdk`                   | Microsoft Graph client library                            |
 
-### Hot Paths
+### Hot paths
 
 The critical call chains from entry to the heaviest leaf. Each path follows the most expensive branch at every call site, revealing the dominant execution flow.
 
@@ -79,9 +79,9 @@ The critical call chains from entry to the heaviest leaf. Each path follows the 
 
 Auto-generated summary noting the proportion of time spent in crypto, S3, Graph, and network subsystems.
 
-## Flamegraph Mode
+## Flamegraph mode
 
-For interactive visual analysis, use the `--flamegraph` flag (requires `0x` installed as a dev dependency):
+For interactive visual analysis, use the `--flamegraph` flag (requires `0x`, which `tools/perf` lists as a dev dependency):
 
 ```bash
 node tools/perf/dist/cli.js profile --flamegraph -- backup -m user@example.com
@@ -95,7 +95,7 @@ This produces the `.cpuprofile` text report and an interactive HTML flamegraph i
 
 ## Limitations
 
-**CPU profiles only capture compute time.** Network I/O (waiting for Graph API responses, waiting for S3 uploads to acknowledge) appears as idle time and is NOT reflected in the profile. The profile answers "what is burning CPU?" not "what is the process waiting on?"
+**CPU profiles only capture compute time.** Network I/O (waiting for Graph API responses, waiting for S3 uploads to acknowledge) appears as idle time and is not reflected in the profile. The profile answers "what is burning CPU?" not "what is the process waiting on?"
 
 For I/O-bound bottleneck analysis:
 
@@ -103,7 +103,9 @@ For I/O-bound bottleneck analysis:
 - Compare total wall-clock time against CPU time. A large gap means I/O dominates
 - Add targeted `performance.now()` spans around suspected network operations
 
-## Profiling Tips
+For request-level visibility into Graph calls, see [graph-tap](/development/graph-tap).
+
+## Profiling tips
 
 - **Profile with realistic data**: A single-message backup won't reveal concurrency bottlenecks. Use a mailbox with 50+ messages and attachments.
 - **Compare before/after**: Always capture a baseline profile before optimizing, then re-profile after to validate the improvement.

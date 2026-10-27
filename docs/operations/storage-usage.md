@@ -1,65 +1,93 @@
-# Storage Usage
+# Storage usage
+
+`atlas stats storage` reports how many bytes the tenant bucket physically holds. That includes every version kept by versioning or Object Lock, delete markers, staging objects, and incomplete multipart uploads. It works on any S3-compatible backend, because it reads the bucket listing rather than provider metrics.
 
 ```bash
-atlas stats storage                         # the tenant bucket, per workload
-atlas stats storage --by owner --top 10     # the ten owners and sites holding the most bytes
-atlas stats storage --target-config replica.json   # the replica's copy of the bucket
+atlas stats storage                                    # totals and per-workload breakdown
+atlas stats storage --by owner --top 10                # the ten owners and sites holding the most bytes
+atlas stats storage --target-config ./replica.json     # the replica bucket
 ```
 
-`atlas stats storage` lists the tenant bucket and reports the bytes it physically holds: every version Object Lock or versioning keeps, delete markers, staging objects, and the parts of multipart uploads that never completed. The SDK exposes the same report as [`getStorageUsage()`](/reference/sdk#storage-usage). It works against any S3-compatible backend, because it reads the bucket listing rather than provider metrics, which many backends (MinIO and most on-premise stores among them) do not offer and none split by workload or owner.
+The SDK returns the same report from [`getStorageUsage()`](/reference/sdk#storage-usage).
+
+| Option                  | Description                                                                 |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `--by <breakdown>`      | `workload` (default) or `owner`.                                            |
+| `--top <n>`             | Rows to show for `--by owner`. Default `20`.                                |
+| `--json`                | Print the report as JSON. Includes `complete`, `continuation_token`, `versions_visible`, and `measured_at`. |
+| `--max-requests <n>`    | Stop after `n` S3 requests and print a continuation token.                  |
+| `--continue <token>`    | Resume a run from its continuation token.                                   |
+| `--target-endpoint <url>`, `--target-access-key <key>`, `--target-secret-key <key>`, `--target-region <region>` | Measure a replica instead of the primary. Use `-` as the secret key to read it from stdin. |
+| `--target-config <path>` | JSON file with the replica's S3 credentials.                              |
 
 ## Logical and physical sizes
 
-Atlas reports two different kinds of size, and they answer different questions.
+Atlas reports two sizes that answer different questions:
 
-| Size     | Where                                                                                       | Measures                                                                                                                     |
-| -------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Logical  | `atlas stats`, `total_size_bytes` on mailbox, drive and site statistics, snapshot summaries | The backed-up items as Microsoft 365 reported them, summed across every snapshot manifest                                    |
-| Physical | `atlas stats storage`, `getStorageUsage()`                                                  | What the bucket holds: encrypted, deduplicated objects, retained versions and incomplete upload parts. What a provider bills |
+| Size     | Where                                                                                              | Measures                                                                                                |
+| -------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Logical  | `atlas stats`, `total_size_bytes` in mailbox, drive, and site statistics, and snapshot summaries | The items as Microsoft 365 reports them, summed across every snapshot.                                  |
+| Physical | `atlas stats storage`, `getStorageUsage()`                                                          | What the bucket holds, including retained versions and incomplete uploads. This is what a provider bills. |
 
-The two differ in both directions. Content-addressed deduplication shrinks the physical size: a message or file stored once is referenced by every snapshot that contains it, and every one of those references counts toward the logical size. Other things grow it: MIME base64 encoding adds about 33% to attachments, each object carries encryption framing, noncurrent versions stay until retention allows their expiry, and legacy per-file index objects and staging leftovers add objects the manifests never mention.
+Deduplication keeps physical size below logical size, because one stored object serves every snapshot that references it. Other factors push physical size up: base64 encoding in MIME adds about 33% to attachments, each object carries encryption overhead, noncurrent versions stay until they expire, and legacy index objects and staging leftovers take up space that the manifests do not reference.
 
-A complete report includes `logical_bytes_referenced`, the logical total `atlas stats` would report, so the ratio of the two is visible in one place. It needs the tenant's data key to read the manifests. A bucket that holds no backups, or a replica without its key, gets a physical report without the logical figure.
+A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. Reading the manifests requires the tenant's data key. A bucket with no backups, or a replica without the key, returns the physical report only.
 
-## What each category counts
+## Categories
 
-| Category             | Counts                                                                                                                                                                                 |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `current`            | The latest version of each live object                                                                                                                                                 |
-| `noncurrent`         | Older versions, kept by versioning or Object Lock. Atlas sets a 30-day noncurrent expiry on the buckets it creates, and retention can hold a version longer                            |
-| `delete_markers`     | Delete markers. They hold no bytes, and Atlas's bucket lifecycle removes markers with nothing left behind them                                                                         |
-| `staging`            | Objects under `onedrive/staging/` and `sharepoint/staging/`. Already included in `current` or `noncurrent`; shown separately because a large figure means abandoned large-file uploads |
-| `incomplete_uploads` | Multipart uploads never completed or aborted, with the bytes their parts hold. Not in `current`, but billed by most providers                                                          |
+| Category             | Counts                                                                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `current`            | The latest version of each live object.                                                                                                  |
+| `noncurrent`         | Older versions kept by versioning or Object Lock. Buckets created by Atlas expire noncurrent versions after 30 days. Retention can keep them longer. |
+| `delete_markers`     | Delete markers. They hold no bytes. Atlas's lifecycle rules remove them once nothing remains behind them.                              |
+| `staging`            | Objects under `onedrive/staging/` and `sharepoint/staging/`. Already included in `current` or `noncurrent`. A large value usually means abandoned large-file uploads. |
+| `incomplete_uploads` | Multipart uploads that were never completed or aborted, and the bytes their parts hold. Not in `current`, but most providers bill for them. |
 
-`stored_bytes` is `current` plus `noncurrent` plus `incomplete_uploads`. The workload breakdown follows the [storage layout](/operations/storage-layout): `outlook` for `data/`, `attachments/` and `manifests/`, `onedrive/` and `sharepoint/` for their prefixes, `meta` for `_meta/`, and `other` for any key outside the layout. Its rows sum to the totals. With `--by owner` each row is one mailbox, OneDrive owner or SharePoint site, identified by the opaque id the key carries.
+`stored_bytes` is `current` + `noncurrent` + `incomplete_uploads`. The workload breakdown follows the [storage layout](/operations/storage-layout): `outlook` (`data/`, `attachments/`, `manifests/`), `onedrive`, `sharepoint`, `meta` (`_meta/`), and `other` (any key outside the layout). The rows add up to the totals. With `--by owner`, each row is one mailbox, OneDrive owner, or SharePoint site, identified by the opaque ID in its key.
 
 ## Request cost
 
-The report is exact because it lists everything, and listing costs requests: one `ListObjectVersions` request per 1,000 versions, one `ListMultipartUploads` request per 100 incomplete uploads, and one or more `ListParts` requests for each of those uploads (one per 1,000 parts). A tenant with two million stored versions costs about 2,000 list requests per run. On providers that bill list requests (AWS charges them at the PUT, COPY, POST, LIST rate), check that figure against how often you schedule the report. `list_requests` in the output is the exact count for the run.
+The report lists every object, so it is exact. Listing costs requests:
 
-Atlas lists up to four top-level prefixes in parallel. Memory stays constant regardless of object count: pages are counted and discarded, never collected. With `--by owner` memory grows with the number of owners and sites, not with objects.
+- One `ListObjectVersions` request per 1,000 versions.
+- One `ListMultipartUploads` request per 100 incomplete uploads.
+- One or more `ListParts` requests per incomplete upload, at 1,000 parts per request.
 
-## Splitting a long run
+A tenant with two million stored versions needs about 2,000 list requests per run. Providers such as AWS bill list requests at the PUT rate, so compare that count with how often you schedule the report. The `list_requests` field in the output gives the exact count for each run.
+
+Memory use stays flat as object count grows. Pages are counted and then discarded. `--by owner` grows with the number of owners and sites, not with the number of objects.
+
+## Split a long run
+
+For large buckets, cap the requests per run and resume:
 
 ```bash
 atlas stats storage --max-requests 1000 --json > part1.json
 atlas stats storage --max-requests 1000 --continue "$(jq -r .continuation_token part1.json)"
 ```
 
-`--max-requests` stops the run once that many requests were made and prints a continuation token. Every step of the run, including sizing an incomplete upload, is one request, so a run never makes more requests than the allowance. Passing the token back resumes where the counts end, so a resumed run never counts an object twice and ends with exactly the totals a single run would report. The SDK accepts `maxListRequests` and an `AbortSignal` for the same purpose.
+`--max-requests` counts every request, including the one that sizes an incomplete upload, so a run never exceeds the limit. Resuming continues from the last counted position. Each object is counted once. If the bucket changes between runs, objects written or deleted after the cursor can make the final totals differ from a single uninterrupted run.
 
-A request that fails part way through, such as a `503 SlowDown` or a connection reset after the SDK's own retries, stops the run without losing it. The other parallel listings stop before their next page, and the error is raised carrying a continuation token for the last page that was counted. The CLI prints that token to stderr before exiting; the SDK exposes it through `getStorageUsageToken(err)`. Resuming from it repeats only the page that failed.
+If a request fails after the SDK's own retries, such as a `503 SlowDown` or a dropped connection, the run stops and keeps its progress. The CLI prints the continuation token to stderr. In the SDK, `getStorageUsageToken(err)` returns it. Resuming repeats only the failed page.
 
-A token is bound to the tenant, the target and the breakdown it was issued for, and is refused anywhere else. It is base64url-encoded JSON, not encrypted: it holds the tenant ID, the counts so far, and the listing position, which is an object key containing a mailbox, owner or site ID. Treat it like the report itself and keep it out of shared logs and tickets.
+::: warning Continuation tokens are sensitive
+A token is valid only for the tenant, target, and breakdown it was issued for. It is base64url-encoded JSON, not encrypted. It contains the tenant ID, the counts so far, and a listing position that embeds a mailbox, owner, or site ID. Treat it like the report itself, and keep it out of shared logs and tickets.
+:::
 
 ## Permissions
 
-| Action                          | Needed for                                                                                                                           |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `s3:ListBucket`                 | Live objects                                                                                                                         |
-| `s3:ListBucketVersions`         | Noncurrent versions and delete markers. Without it, the report counts live objects only and says `versions_visible: false`           |
-| `s3:ListBucketMultipartUploads` | Incomplete uploads. Without it, the report says `incomplete_uploads_visible: false` rather than reporting none                       |
-| `s3:ListMultipartUploadParts`   | Sizing each incomplete upload. Without it, uploads are still counted, their bytes are not, and `incomplete_uploads_visible` is false |
-| `s3:GetObject`                  | `_meta/dek.enc` and the manifests, for the logical figure only                                                                       |
+| S3 action                       | Used for                                                                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `s3:ListBucket`                 | Live objects.                                                                                                                             |
+| `s3:ListBucketVersions`         | Noncurrent versions and delete markers. Without it, the report counts live objects only and sets `versions_visible: false`.              |
+| `s3:ListBucketMultipartUploads` | Incomplete uploads. Without it, the report sets `incomplete_uploads_visible: false` rather than reporting zero.                           |
+| `s3:ListMultipartUploadParts`   | Sizing each incomplete upload. Without it, uploads are counted but their bytes are not, and `incomplete_uploads_visible` is `false`.      |
+| `s3:GetObject`                  | `_meta/dek.enc` and manifests, needed only for `logical_bytes_referenced`.                                                                |
 
-The report never writes, never creates a bucket, and never generates key material, so a monitoring principal with the read-only permissions in [Security](/security#s3-permissions-by-command-class) plus the version and multipart list actions can run it. Measuring a replica whose bucket does not exist fails with `NoSuchBucket` instead of creating it.
+The report never writes objects, creates a bucket, or generates key material. A monitoring principal with the read-only actions in [Security](/security#s3-permissions-by-command-class), plus the version and multipart list actions, can run it. Measuring a replica whose bucket does not exist fails with `NoSuchBucket`. It does not create the bucket.
+
+## See also
+
+- [Storage layout](/operations/storage-layout): which prefixes each workload uses
+- [Immutability](/operations/immutability): retention, which keeps noncurrent versions longer
+- [Replication](/operations/replication): measuring a replica
