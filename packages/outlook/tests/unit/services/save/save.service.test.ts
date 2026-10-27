@@ -87,6 +87,7 @@ describe('SaveService', () => {
     mock_manifests = {
       find_by_snapshot: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
+      list_by_owner: vi.fn().mockResolvedValue([]),
       save: vi.fn(),
       list_snapshots: vi.fn().mockResolvedValue([]),
       delete_snapshot: vi.fn(),
@@ -230,15 +231,16 @@ describe('SaveService', () => {
     it('merges snapshots and saves messages', async () => {
       const entries = [make_entry('msg-1', 'f1')];
       const manifest = make_manifest(entries, { owner_id: 'user@test.com' });
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([manifest]);
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([manifest]);
 
       const result = await service.save_mailbox('test-tenant', 'user@test.com');
 
+      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(mock_context, 'user@test.com');
       expect(result.saved_count).toBe(2);
     });
 
     it('returns empty result when no snapshots', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([]);
+      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([]);
 
       const result = await service.save_mailbox('test-tenant', 'user@test.com');
 

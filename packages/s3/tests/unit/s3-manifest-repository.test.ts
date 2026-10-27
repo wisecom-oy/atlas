@@ -266,4 +266,28 @@ describe('S3ManifestRepository', () => {
       expect(max_in_flight).toBe(8);
     });
   });
+
+  describe('list_by_owner', () => {
+    it("reads only the requested mailbox's manifests, never another mailbox's", async () => {
+      const stored = new Map(
+        [
+          make_manifest({ owner_id: 'alice@test.com', snapshot_id: 'a1' }),
+          make_manifest({ owner_id: 'alice@test.com', snapshot_id: 'a2' }),
+          make_manifest({ owner_id: 'alice@test.com.au', snapshot_id: 'x1' }),
+          make_manifest({ owner_id: 'bob@test.com', snapshot_id: 'b1' }),
+        ].map((m) => [`manifests/${m.owner_id}/${m.snapshot_id}.json`, m]),
+      );
+      vi.mocked(ctx.storage.list).mockImplementation(async (prefix) =>
+        [...stored.keys()].filter((key) => key.startsWith(prefix)),
+      );
+      vi.mocked(ctx.storage.get).mockImplementation(async (key) => encrypted_json(stored.get(key)));
+
+      const manifests = await repo.list_by_owner(ctx, 'alice@test.com');
+
+      expect(manifests.map((m) => m.snapshot_id).sort()).toEqual(['a1', 'a2']);
+      expect(ctx.storage.list).toHaveBeenCalledWith('manifests/alice@test.com/');
+      const fetched = vi.mocked(ctx.storage.get).mock.calls.map(([key]) => key);
+      expect(fetched.every((key) => key.startsWith('manifests/alice@test.com/'))).toBe(true);
+    });
+  });
 });

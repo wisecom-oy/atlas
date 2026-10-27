@@ -33,10 +33,10 @@ export class CatalogService implements CatalogUseCase {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const all = await this._manifests.list_all_manifests(ctx);
-      return all
-        .filter((m) => m.owner_id === owner_id)
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      const manifests = await this._manifests.list_by_owner(ctx, owner_id);
+      return manifests.sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
     } finally {
       ctx.destroy();
     }
