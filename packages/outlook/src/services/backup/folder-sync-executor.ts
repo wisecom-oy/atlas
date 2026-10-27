@@ -21,6 +21,8 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 export interface FolderSyncResult {
   entries: ManifestEntry[];
   delta_link: string;
+  /** Message IDs the delta reported as deleted or moved out of this folder. */
+  removed_ids: string[];
   /** True only when every page of the folder was fully processed; the delta link MUST NOT be persisted otherwise. */
   complete: boolean;
   stored: number;
@@ -278,6 +280,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   return {
     entries,
     delta_link: delta.delta_link,
+    removed_ids: delta.removed_ids,
     complete: !aborted,
     stored: stats.stored,
     deduplicated: stats.deduplicated,

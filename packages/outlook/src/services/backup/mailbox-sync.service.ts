@@ -11,7 +11,7 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { sync_single_folder } from '@/services/backup/folder-sync-executor';
+import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -22,6 +22,7 @@ import {
   mark_snapshot_completed,
   resolve_saved_delta_links,
   resolve_sync_mode,
+  select_recordable_removals,
 } from '@/services/backup/snapshot-manifest-builder';
 import {
   build_interrupted_result,
@@ -104,6 +105,7 @@ export class MailboxSyncService implements BackupUseCase {
 
       const all_entries: ManifestEntry[] = [];
       const new_delta_links: Record<string, string> = {};
+      const removed_ids: string[] = [];
       let global_processed = 0;
       let stored = 0;
       let deduplicated = 0;
@@ -145,6 +147,7 @@ export class MailboxSyncService implements BackupUseCase {
         );
 
         all_entries.push(...outcome.entries);
+        removed_ids.push(...outcome.removed_ids);
         // Persist a folder's delta link only when every page was fully processed;
         // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
         if (outcome.delta_link && outcome.complete) {
@@ -182,6 +185,10 @@ export class MailboxSyncService implements BackupUseCase {
         folders,
         owner_email: options.owner_email,
         owner_display_name: options.owner_display_name,
+        removed_object_ids: select_recordable_removals(removed_ids, options.folder_filter, {
+          completed: Object.keys(new_delta_links).length,
+          selected: folders.length,
+        }),
       });
 
       const persisted = await persist_mailbox_run(
@@ -243,17 +250,7 @@ export class MailboxSyncService implements BackupUseCase {
     options: SyncOptions,
     should_interrupt: () => boolean,
     should_force_stop: () => boolean,
-  ): Promise<{
-    entries: ManifestEntry[];
-    delta_link?: string;
-    complete: boolean;
-    stored: number;
-    deduplicated: number;
-    attachments_stored: number;
-    attachment_errors: string[];
-    folder_processed: number;
-    error?: string;
-  }> {
+  ): Promise<FolderSyncResult & { error?: string }> {
     try {
       const prev_link = saved_links[folder.folder_id];
       const result = await sync_single_folder({
@@ -285,7 +282,8 @@ export class MailboxSyncService implements BackupUseCase {
           folder.is_recoverable_items === true
             ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
             : result.entries,
-        ...(result.delta_link !== undefined ? { delta_link: result.delta_link } : {}),
+        removed_ids: result.removed_ids,
+        delta_link: result.delta_link,
         complete: result.complete,
         stored: result.stored,
         deduplicated: result.deduplicated,
@@ -297,6 +295,8 @@ export class MailboxSyncService implements BackupUseCase {
       const msg = err instanceof Error ? err.message : String(err);
       return {
         entries: [],
+        removed_ids: [],
+        delta_link: '',
         complete: false,
         stored: 0,
         deduplicated: 0,
