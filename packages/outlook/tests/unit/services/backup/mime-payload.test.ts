@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import type {
@@ -8,6 +9,7 @@ import type {
   ObjectStorage,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
 import { store_single_message } from '@/services/backup/message-payload-store';
 
@@ -54,6 +56,7 @@ function make_ctx(already_stored = false): StoreHarness {
     encrypt: vi.fn((data: Buffer) => Buffer.concat([Buffer.from('E'), data])),
     decrypt: vi.fn((data: Buffer) => data.subarray(1)),
     create_cipher: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
     destroy: vi.fn(),
   } as unknown as TenantContext;
 
@@ -92,13 +95,35 @@ describe('store_single_message payload selection', () => {
     expect(manifest_entry.received_at).toBe('2026-03-10T14:30:22.000Z');
   });
 
-  it('addresses MIME entries by the hash of the MIME itself', async () => {
+  it('addresses MIME entries by a keyed hash of the MIME itself', async () => {
     const { ctx } = make_ctx();
     const mime_result = await store_single_message(ctx, make_message(), 'o', undefined, MIME);
     const json_result = await store_single_message(ctx, make_message(), 'o');
+    const expected_name = createHmac('sha256', Buffer.alloc(32, 0x5a)).update(MIME).digest('hex');
 
     expect(mime_result.manifest_entry.checksum).not.toBe(json_result.manifest_entry.checksum);
-    expect(mime_result.manifest_entry.storage_key).toContain(mime_result.manifest_entry.checksum);
+    expect(mime_result.manifest_entry.storage_key).toBe(`data/o/${expected_name}`);
+    expect(mime_result.manifest_entry.storage_key).not.toContain(
+      mime_result.manifest_entry.checksum,
+    );
+  });
+
+  it('sends no plaintext checksum header on upload', async () => {
+    const { ctx, put } = make_ctx();
+
+    await store_single_message(ctx, make_message(), 'o', undefined, MIME);
+
+    const [, , headers] = put.mock.calls[0]!;
+    expect(headers).toEqual({ 'x-message-id': 'msg-1' });
+  });
+
+  it('skips the upload when the keyed name is already stored', async () => {
+    const { ctx, put } = make_ctx(true);
+
+    const { was_new } = await store_single_message(ctx, make_message(), 'o', undefined, MIME);
+
+    expect(was_new).toBe(false);
+    expect(put).not.toHaveBeenCalled();
   });
 
   it('falls back to the JSON payload and marks no format when MIME is absent', async () => {

@@ -138,7 +138,6 @@ Each uploaded object carries S3 metadata headers:
 | Header                          | Value                                   | Encrypted                    |
 | ------------------------------- | --------------------------------------- | ---------------------------- |
 | `x-amz-meta-x-message-id`       | Microsoft Graph message ID              | **No**, visible to S3 access |
-| `x-amz-meta-x-plaintext-sha256` | SHA-256 of original plaintext           | **No**, visible to S3 access |
 | `Content-MD5`                   | MD5 of ciphertext (transport integrity) | N/A, standard S3 header      |
 
 :::: warning Metadata visibility

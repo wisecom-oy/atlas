@@ -9,6 +9,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
 import { OneDriveSaveService } from '@/services/save/save.service';
@@ -52,6 +53,7 @@ function make_context(storage: TenantContext['storage']): TenantContext {
     encrypt: vi.fn((data: Buffer) => data),
     decrypt: vi.fn((data: Buffer) => data),
     create_cipher: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: vi.fn(),
     destroy: vi.fn(),
   } as unknown as TenantContext;

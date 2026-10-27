@@ -6,6 +6,7 @@ import type {
   MailboxConnector,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { sync_single_folder } from '@/services/backup/folder-sync-executor';
 
 /**
@@ -37,6 +38,7 @@ function make_ctx(): TenantContext {
     encrypt: (data: Buffer) => data,
     decrypt: (data: Buffer) => data,
     destroy: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 }
 

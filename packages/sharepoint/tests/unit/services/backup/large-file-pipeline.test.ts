@@ -6,6 +6,7 @@ import type {
   StorageObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 const chunk_mocks = vi.hoisted(() => ({ fetch_file_chunks: vi.fn() }));
 vi.mock('@/services/backup/large-file-chunk-download', () => chunk_mocks);
@@ -66,6 +67,7 @@ function make_ctx(options: { exists?: boolean; list?: string[] } = {}): Recorded
         header: Buffer.alloc(0),
       };
     },
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 
   return { ctx, ops, copy_args };
@@ -140,7 +142,7 @@ describe('process_large_file', () => {
     expect(recorded.ops).toEqual([]);
   });
 
-  it('stores under a content-addressed key derived from the plaintext hash', async () => {
+  it('stores under a keyed content name, not the plaintext hash', async () => {
     const recorded = make_ctx();
 
     const result = await process_large_file(
@@ -152,7 +154,8 @@ describe('process_large_file', () => {
 
     expect(result.stored).toBe(true);
     expect(result.deduplicated).toBe(false);
-    expect(result.storage_key).toContain(result.checksum);
+    expect(result.storage_key).toMatch(/\/[0-9a-f]{64}$/);
+    expect(result.storage_key).not.toContain(result.checksum);
     expect(recorded.copy_args[0]?.to).toBe(result.storage_key);
   });
 

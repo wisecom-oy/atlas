@@ -10,6 +10,7 @@
 
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { OneDriveConnector, OneDriveDeltaItem, TenantContext } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import {
   process_delta_item,
   type DriveTrackingState,
@@ -57,6 +58,7 @@ function make_context(): TenantContext {
       put: vi.fn(async () => undefined),
     },
     encrypt: (buffer: Buffer) => buffer,
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 }
 

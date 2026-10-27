@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import type { TenantContext } from '@wisecom/atlas-types';
+import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { stream_to_content_addressed_storage } from '@wisecom/atlas-core/services/shared/stream-encrypt-upload';
 import { LARGE_FILE_THRESHOLD } from '@/backup/large-file-threshold';
 import type { DriveContentConnector, DriveDeltaItem, DriveFileVersion } from '@/drive-ports';
@@ -66,7 +66,7 @@ async function store_streamed(
     tag_source_errors(chunks, abort_signal),
     {
       staging_key: keys.staging_key(owner_id, item.item_id),
-      build_data_key: (checksum) => keys.data_key(owner_id, checksum),
+      build_data_key: (content_name) => keys.data_key(owner_id, content_name),
       data_scope: keys.data_prefix_for(owner_id),
     },
   );
@@ -97,8 +97,8 @@ async function store_buffered(
     throw new VersionDownloadError(err);
   }
 
-  const checksum = createHash('sha256').update(content).digest('hex');
-  const storage_key = keys.data_key(owner_id, checksum);
+  const { checksum, content_name } = compute_content_digests(ctx, content);
+  const storage_key = keys.data_key(owner_id, content_name);
   const deduplicated = await ctx.storage.exists(storage_key);
   if (!deduplicated) await ctx.storage.put(storage_key, ctx.encrypt(content, storage_key));
 

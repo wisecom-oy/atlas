@@ -5,6 +5,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 
 // Issue #161: version dedup used to preload the whole version index on every
@@ -56,6 +57,7 @@ function make_harness(
     },
     encrypt: (data: Buffer) => data,
     destroy: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
   const factory: TenantContextFactory = {
     create: vi.fn().mockResolvedValue(context),

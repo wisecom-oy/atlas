@@ -7,6 +7,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveCatalogService } from '@/services/catalog/catalog.service';
 
 const TENANT_ID = 'tenant-1';
@@ -17,6 +18,7 @@ const ctx: TenantContext = {
   encrypt: vi.fn(),
   decrypt: vi.fn(),
   create_cipher: vi.fn(),
+  create_content_hmac: stub_tenant_create_content_hmac,
   destroy: vi.fn(),
 } as unknown as TenantContext;
 

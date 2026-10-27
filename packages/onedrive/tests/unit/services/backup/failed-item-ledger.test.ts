@@ -6,6 +6,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
@@ -114,6 +115,7 @@ function make_harness(options: {
     },
     encrypt: (buffer: Buffer) => buffer,
     destroy: vi.fn(),
+    create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
 
   const factory: TenantContextFactory = {

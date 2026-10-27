@@ -9,6 +9,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { LARGE_FILE_THRESHOLD } from '@/services/backup/large-file-pipeline';
 import { sync_file_versions } from '@/services/versioning/version-sync';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 const KEY = randomBytes(32);
 
@@ -59,6 +60,7 @@ function make_ctx(): TenantContext {
         header: Buffer.alloc(0),
       };
     },
+    create_content_hmac: stub_tenant_create_content_hmac,
     destroy: vi.fn(),
   } as unknown as TenantContext;
 }

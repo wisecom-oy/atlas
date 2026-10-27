@@ -14,6 +14,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
+import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import type { AtlasConfig } from '@/utils/config';
 
 vi.mock('@/services/replication/dek-rehydration-validator', () => ({
@@ -46,6 +47,7 @@ function make_context(storage: ObjectStorage): TenantContext {
     encrypt: vi.fn((d: Buffer) => d),
     decrypt: vi.fn((d: Buffer) => d),
     create_cipher: stub_tenant_create_cipher,
+    create_content_hmac: stub_tenant_create_content_hmac,
     create_decipher: vi.fn(),
     destroy: vi.fn(),
   } as unknown as TenantContext;
