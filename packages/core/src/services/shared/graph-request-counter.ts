@@ -21,31 +21,34 @@ export class GraphRequestCounter {
   private readonly _started_at = Date.now();
 
   /**
-   * Records one Graph API request.
+   * Records Graph API requests.
    *
-   * @param pool - The service pool this request is charged against.
+   * @param pool - The service pool the requests are charged against.
    * @param request_type - Stable label identifying the operation (e.g. `delta_sync`).
-   * @param opts.resource_units - RU cost. Defaults to 1 (correct for Outlook flat model).
+   * @param opts.requests - Requests Graph charges. Defaults to 1; a `$batch` charges one per
+   *   sub-request.
+   * @param opts.resource_units - RU cost of all of them. Defaults to `requests`.
    * @param opts.upload_bytes - Bytes sent in the request body.
    */
   record(
     pool: GraphServicePool,
     request_type: string,
-    opts: { resource_units?: number; upload_bytes?: number } = {},
+    opts: { requests?: number; resource_units?: number; upload_bytes?: number } = {},
   ): void {
-    const ru = opts.resource_units ?? 1;
+    const count = opts.requests ?? 1;
+    const ru = opts.resource_units ?? count;
     const bytes = opts.upload_bytes ?? 0;
 
     const acc = this._by_pool.get(pool);
     if (acc) {
-      acc.requests += 1;
+      acc.requests += count;
       acc.resource_units += ru;
       acc.upload_bytes += bytes;
     } else {
-      this._by_pool.set(pool, { requests: 1, resource_units: ru, upload_bytes: bytes });
+      this._by_pool.set(pool, { requests: count, resource_units: ru, upload_bytes: bytes });
     }
 
-    this._by_type[request_type] = (this._by_type[request_type] ?? 0) + 1;
+    this._by_type[request_type] = (this._by_type[request_type] ?? 0) + count;
   }
 
   /** Returns an immutable snapshot of the current counters as an OperationCost. */

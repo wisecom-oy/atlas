@@ -113,6 +113,7 @@ export class MailboxSyncService implements BackupUseCase {
       let stored = 0;
       let deduplicated = 0;
       let attachments_stored = 0;
+      let reactions_not_captured = 0;
       const folder_errors: string[] = [];
 
       for (let i = 0; i < folders.length; i++) {
@@ -161,6 +162,7 @@ export class MailboxSyncService implements BackupUseCase {
         stored += outcome.stored;
         deduplicated += outcome.deduplicated;
         attachments_stored += outcome.attachments_stored;
+        reactions_not_captured += outcome.reactions_not_captured;
         global_processed += outcome.folder_processed;
 
         if (should_interrupt()) break;
@@ -236,6 +238,7 @@ export class MailboxSyncService implements BackupUseCase {
           total_folder_count: folders.length,
           elapsed_ms: Date.now() - sync_start,
           excluded_folders,
+          reactions_not_captured,
         },
       };
     } finally {
@@ -285,21 +288,13 @@ export class MailboxSyncService implements BackupUseCase {
           : {}),
       });
       return {
+        ...result,
         // Marked here rather than inside the executor: the folder knows where
         // it came from, the message pipeline has no reason to.
         entries:
           folder.is_recoverable_items === true
             ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
             : result.entries,
-        removed_ids: result.removed_ids,
-        delta_link: result.delta_link,
-        complete: result.complete,
-        stored: result.stored,
-        deduplicated: result.deduplicated,
-        attachments_stored: result.attachments_stored,
-        attachment_errors: result.attachment_errors,
-        folder_processed: result.folder_processed,
-        warnings: result.warnings,
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -314,6 +309,7 @@ export class MailboxSyncService implements BackupUseCase {
         attachment_errors: [],
         folder_processed: 0,
         warnings: [],
+        reactions_not_captured: 0,
         error: msg,
       };
     }

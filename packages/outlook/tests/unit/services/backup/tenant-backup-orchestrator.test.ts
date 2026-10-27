@@ -40,6 +40,7 @@ function make_sync_result(mailbox_id: string): SyncResult {
     folder_errors: [],
     warnings: [],
     excluded_folders: [],
+    reactions_not_captured: 0,
     interrupted: false,
     completed_folder_count: 2,
     total_folder_count: 2,

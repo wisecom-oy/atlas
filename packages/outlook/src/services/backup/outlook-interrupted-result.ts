@@ -43,6 +43,7 @@ export function build_interrupted_result(
       total_folder_count: 0,
       elapsed_ms: 0,
       excluded_folders: [],
+      reactions_not_captured: 0,
     },
   };
 }
