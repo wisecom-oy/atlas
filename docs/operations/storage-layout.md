@@ -15,22 +15,22 @@ atlas-{tenant_id}/
 │       └── sharepoint/{site_id}/            # SharePoint replication status
 ├── data/
 │   └── {owner_id}/
-│       └── {sha256}                         # encrypted message: RFC 5322 MIME (Graph JSON in legacy snapshots)
+│       └── {content_name}                   # encrypted message: RFC 5322 MIME (Graph JSON in legacy snapshots)
 ├── attachments/
 │   └── {owner_id}/
-│       └── {sha256}                         # encrypted attachment (legacy JSON entries only)
+│       └── {content_name}                   # encrypted attachment (legacy JSON entries only)
 ├── manifests/
 │   └── {owner_id}/
 │       └── {snapshot_id}.json               # encrypted Outlook manifest
 ├── onedrive/
-│   ├── data/{owner_id}/{sha256}             # encrypted file blobs
+│   ├── data/{owner_id}/{content_name}       # encrypted file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
 │   ├── index/{owner_id}/runs/{snapshot_id}.json
 │   ├── index/{owner_id}/files/{file_id}.json # legacy, readable until purged
 │   ├── staging/{owner_id}/{item_id}-{rand}  # temporary multipart staging
 │   └── _meta/{owner_id}/delta.json          # encrypted delta cursors
 └── sharepoint/
-    ├── data/{site_id}/{sha256}              # encrypted file blobs
+    ├── data/{site_id}/{content_name}        # encrypted file blobs
     ├── manifests/{site_id}/{snapshot_id}.json
     ├── index/{site_id}/runs/{snapshot_id}.json
     ├── index/{site_id}/files/{file_id}.json   # legacy, readable until purged

@@ -267,7 +267,7 @@ There is deliberately no `--fidelity` flag. MIME is the only mode for new snapsh
 
 ### Attachments move inside the message object
 
-MIME carries its attachments, so a MIME entry stores no separate objects under `attachments/{owner_id}/{sha256}` and its manifest entry lists no attachment records. Two consequences are worth stating plainly:
+MIME carries its attachments, so a MIME entry stores no separate objects under `attachments/{owner_id}/{content_name}` and its manifest entry lists no attachment records. Two consequences are worth stating plainly:
 
 - **Attachment content is no longer deduplicated across messages within a mailbox.** A slide deck mailed to a distribution list is stored once per message that carries it, not once per distinct payload.
 - **Base64 encoding inside MIME costs roughly one third more bytes** than the raw attachment, because base64 represents three bytes of binary as four bytes of text.

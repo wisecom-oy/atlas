@@ -62,7 +62,7 @@ Paths live in the **same per-tenant bucket** as mailbox backup (see [Storage Lay
 ```
 atlas-{tenant_id}/
   onedrive/
-    data/{owner_id}/{sha256}              # Encrypted file blobs (content-addressed)
+    data/{owner_id}/{content_name}        # Encrypted file blobs (keyed HMAC names)
     manifests/{owner_id}/{snapshot_id}.json
     index/{owner_id}/files/{file_id}.json
     staging/{owner_id}/{item_id}-{rand}   # Temporary multipart / dedup staging

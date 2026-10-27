@@ -69,7 +69,7 @@ Run `atlas storage-check` to validate readiness before your first immutable back
 
 ## Deduplication and retention semantics
 
-Atlas uses content-addressed storage (`data/{owner_id}/{sha256}`). Deduplication behaves identically with or without Object Lock: if the object already exists, Atlas skips the upload. No extra storage cost, no extra S3 versions.
+Atlas names content objects with a keyed HMAC of the plaintext (`data/{owner_id}/{content_name}`). Deduplication behaves identically with or without Object Lock: if the object already exists, Atlas skips the upload. No extra storage cost, no extra S3 versions.
 
 Object Lock **prevents deletion** during the retention window but does **not auto-delete** objects after retention expires. Since Atlas never selectively deletes individual data objects (only bulk via `outlook delete --mailbox`, a workload delete, or `atlas delete --purge`), no manifest can end up referencing a deleted object.
 
