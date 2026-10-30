@@ -25,8 +25,8 @@ export const MAX_SINGLE_COPY_BYTES = 5 * 1024 * 1024 * 1024;
 /**
  * Bytes per `UploadPartCopy` range.
  *
- * 1 GiB against the 10,000 part ceiling reaches 10 TiB, comfortably past S3's 5 TiB per-object
- * limit, so no object the upload path can produce runs out of parts.
+ * 10,000 parts of 1 GiB cover about 9.8 TiB, above S3's 5 TB per-object limit, so no object the
+ * upload path can produce runs out of parts.
  */
 const COPY_PART_BYTES = 1024 * 1024 * 1024;
 

@@ -180,7 +180,7 @@ Immutability requested, but bucket versioning is disabled for <bucket>. Enable b
 Immutability requested, but Object Lock is not supported or not enabled for bucket <bucket>.
 ```
 
-The bucket was created without Object Lock. Create a new bucket with Object Lock enabled and move the tenant to it. See the legacy bucket migration steps in [Storage](/self-hosting/storage).
+The bucket was created without Object Lock, and Atlas never enables it on an existing bucket. On AWS S3, a versioned bucket can be made lock-capable in place with `PutObjectLockConfiguration`, which cannot be undone. On MinIO and other backends that only allow it at creation, create a new bucket with Object Lock enabled and move the tenant to it. See [Bucket provisioning and Object Lock](/self-hosting/storage#bucket-provisioning-and-object-lock) and the legacy bucket migration steps in [Storage](/self-hosting/storage#migrating-a-legacy-bucket).
 
 ### Backend rejected the lock mode
 

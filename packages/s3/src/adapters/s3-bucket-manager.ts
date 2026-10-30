@@ -18,8 +18,9 @@ import type { BucketCache } from '@/adapters/bucket-cache';
 /**
  * Ensures a bucket exists, creating it if necessary.
  * New buckets are created lock-capable (`ObjectLockEnabledForBucket: true`,
- * which implies versioning): on AWS and MinIO this is only possible at
- * creation time, and a lock-capable bucket without a retention config
+ * which implies versioning): MinIO only allows that at creation time, and
+ * AWS only later through a manual PutObjectLockConfiguration that Atlas
+ * never sends. A lock-capable bucket without a retention config
  * behaves exactly like a normal versioned bucket -- it merely keeps the
  * immutability door open (issue #30). Backends that reject the flag get a
  * plain bucket with a loud warning. New buckets also get best-effort
@@ -50,9 +51,11 @@ export async function ensure_bucket_exists(
 /**
  * Creates a bucket with Object Lock enabled, falling back to a plain bucket
  * only when the backend rejects the capability itself. The fallback warning
- * matters: a plain bucket can never gain Object Lock later (AWS requires a
- * support ticket, MinIO refuses outright) -- see the legacy-bucket migration
- * runbook in docs/self-hosting/storage.md.
+ * matters because Atlas never enables Object Lock on an existing bucket, so
+ * `--retention-days` then fails with `ObjectLockUnsupportedError`. MinIO
+ * only enables the lock at creation; AWS accepts PutObjectLockConfiguration
+ * on an existing versioned bucket, as a one-way manual step. See the
+ * legacy-bucket section in docs/self-hosting/storage.md.
  */
 async function create_lock_capable_bucket(client: S3Client, bucket: string): Promise<void> {
   try {
