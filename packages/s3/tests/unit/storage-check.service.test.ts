@@ -28,6 +28,7 @@ describe('StorageCheckService', () => {
     mock_s3.send
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Enabled' } })
       .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Enabled' } });
 
     const result = await service.check_storage('tenant-1', {
@@ -42,5 +43,36 @@ describe('StorageCheckService', () => {
     expect(result.requested_mode).toBe('GOVERNANCE');
     expect(result.requested_retention_days).toBe(30);
     expect(result.resolved_retain_until).toBeDefined();
+    expect(result.default_retention).toBeUndefined();
+  });
+
+  it('reports a bucket default retention on a lock-capable bucket', async () => {
+    const lock_configuration = {
+      ObjectLockConfiguration: {
+        ObjectLockEnabled: 'Enabled',
+        Rule: { DefaultRetention: { Mode: 'GOVERNANCE', Days: 30 } },
+      },
+    };
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockResolvedValueOnce(lock_configuration)
+      .mockResolvedValueOnce(lock_configuration);
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.default_retention).toEqual({ mode: 'GOVERNANCE', days: 30 });
+  });
+
+  it('does not read a default retention when Object Lock is disabled', async () => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockRejectedValueOnce(new Error('ObjectLockConfigurationNotFoundError'));
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.default_retention).toBeUndefined();
+    expect(mock_s3.send).toHaveBeenCalledTimes(3);
   });
 });

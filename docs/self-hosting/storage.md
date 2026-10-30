@@ -210,6 +210,21 @@ Check a bucket's class with `atlas storage-check -t <id>`. It reports one of:
 
 Backends that reject `ObjectLockEnabledForBucket` create a plain bucket and log a warning. Immutability does not work on those backends.
 
+### Removing a bucket default retention
+
+```bash
+# AWS S3: rewrite the configuration without a rule
+aws s3api put-object-lock-configuration --bucket atlas-<tenant_id> \
+  --object-lock-configuration ObjectLockEnabled=Enabled
+
+# MinIO
+mc retention clear --default <alias>/atlas-<tenant_id>
+```
+
+Before 6.1.0, OneDrive and SharePoint backups with `--retention-days` set a default retention on the bucket. Atlas now locks each object it writes instead, so a default is no longer needed, and one left behind locks objects that should not be locked: every write of a run without `--retention-days`, and the staging copy of every large file, which stays as a locked noncurrent version for the full period after Atlas deletes it. `atlas storage-check` reports a default when it finds one.
+
+Removing the default changes no existing object. Objects already written keep the retain-until date they were stamped with, and runs with `--retention-days` keep locking what they write. In `COMPLIANCE` mode, removing the default is allowed even though the locked objects themselves cannot be shortened.
+
 ### Migrating a legacy bucket
 
 Migrate one tenant at a time. Atlas names the bucket `atlas-<tenant_id>` on whichever endpoint it uses, and bucket names are unique per endpoint (across all of AWS S3). The replacement must therefore sit on a different endpoint, and the legacy bucket keeps its name until you retire it. On AWS S3, the in-place option above may avoid a migration.

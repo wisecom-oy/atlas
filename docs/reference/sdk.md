@@ -270,7 +270,7 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | Method                                   | Description                                                                                      |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `validate()`                             | Checks storage, the passphrase, and Graph access. See [Validation](#validation)                  |
-| `checkStorage(request?)`                 | Reports bucket reachability, versioning, Object Lock support, and the resolved retention         |
+| `checkStorage(request?)`                 | Reports bucket reachability, versioning, Object Lock support, default retention, and the resolved retention |
 | `getBucketStats()`                       | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                      |
 | `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                           |
 | `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                          |
