@@ -6,9 +6,17 @@ export function build_s3_copy_source(bucket: string, key: string): string {
   return `${bucket}/${encoded_key}`;
 }
 
+/**
+ * A conditional write whose condition did not hold. Covers the 412 for a stale `If-Match` or an
+ * existing key under `If-None-Match`, and the 409 `ConditionalRequestConflict` S3 answers when two
+ * conditional writes to one key arrive at the same moment. Both mean "re-read and try again".
+ */
 export function is_precondition_failed(err: unknown): boolean {
-  if (err instanceof S3ServiceException) return err.$metadata.httpStatusCode === 412;
-  return (err as { name?: string }).name === 'PreconditionFailed';
+  const name = (err as { name?: string }).name;
+  if (name === 'PreconditionFailed' || name === 'ConditionalRequestConflict') return true;
+  if (!(err instanceof S3ServiceException)) return false;
+  const status = err.$metadata.httpStatusCode;
+  return status === 412 || (status === 409 && err.name === 'ConditionalRequestConflict');
 }
 
 /**

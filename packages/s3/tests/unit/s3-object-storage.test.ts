@@ -1,6 +1,7 @@
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ObjectLockRetainedError } from '@wisecom/atlas-types';
+import { S3ServiceException } from '@aws-sdk/client-s3';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import {
   ObjectLockUnsupportedError,
@@ -60,6 +61,33 @@ describe('S3ObjectStorage', () => {
       const cmd = mock_s3.send.mock.calls[0][0];
       expect(cmd.input.IfNoneMatch).toBe('*');
       expect(cmd.input.IfMatch).toBeUndefined();
+    });
+
+    it('throws PreconditionFailedError on a 409 ConditionalRequestConflict (#551)', async () => {
+      // S3 answers 409 rather than 412 when two conditional writes to one key arrive together.
+      // Both mean the same to a compare-and-swap loop: re-read and try again.
+      mock_s3.send.mockRejectedValueOnce(
+        new S3ServiceException({
+          name: 'ConditionalRequestConflict',
+          $fault: 'client',
+          $metadata: { httpStatusCode: 409 },
+        }),
+      );
+
+      await expect(
+        storage.put('k', Buffer.from('v'), undefined, undefined, '"etag"'),
+      ).rejects.toBeInstanceOf(PreconditionFailedError);
+    });
+
+    it('rethrows an unrelated 409 unchanged', async () => {
+      const err = new S3ServiceException({
+        name: 'OperationAborted',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 409 },
+      });
+      mock_s3.send.mockRejectedValueOnce(err);
+
+      await expect(storage.put('k', Buffer.from('v'))).rejects.toBe(err);
     });
 
     it('throws PreconditionFailedError when a create-only write hits an existing key', async () => {

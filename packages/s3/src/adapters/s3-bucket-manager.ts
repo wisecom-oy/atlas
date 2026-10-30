@@ -37,6 +37,10 @@ export async function ensure_bucket_exists(
   const exists = await bucket_exists(client, bucket);
   if (!exists) {
     await create_lock_capable_bucket(client, bucket);
+    // Applied whether or not this run's CreateBucket won. The put is a full replace and
+    // best-effort, and the other party may not be a concurrent run at all: an SDK retry of a
+    // CreateBucket whose response was lost sees the same BucketAlreadyOwnedByYou, and then nobody
+    // else is going to apply these rules.
     await apply_default_lifecycle(client, bucket);
   }
 
@@ -52,16 +56,41 @@ export async function ensure_bucket_exists(
  */
 async function create_lock_capable_bucket(client: S3Client, bucket: string): Promise<void> {
   try {
-    await client.send(
-      new CreateBucketCommand({ Bucket: bucket, ObjectLockEnabledForBucket: true }),
-    );
+    await create_unless_already_ours(client, bucket, true);
   } catch (err) {
     if (!is_lock_flag_rejection(err)) throw err;
     logger.warn(
       `Backend rejected Object Lock at creation for bucket "${bucket}" -- created without it. ` +
         `Immutability (--retention-days) will not work on this bucket.`,
     );
-    await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    await create_unless_already_ours(client, bucket, false);
+  }
+}
+
+/**
+ * Sends CreateBucket, accepting a bucket that already belongs to these
+ * credentials. Two runs bootstrapping a new tenant at once both see the
+ * bucket missing and both create it; the loser's `BucketAlreadyOwnedByYou`
+ * means the bucket it wanted now exists. `BucketAlreadyExists` still throws:
+ * that bucket belongs to another account, and writing tenant data beside it
+ * must not be attempted. Backends that answer a same-owner re-create with
+ * 200 (AWS us-east-1, Ceph RGW by default) never reach the catch.
+ */
+async function create_unless_already_ours(
+  client: S3Client,
+  bucket: string,
+  object_lock: boolean,
+): Promise<void> {
+  try {
+    await client.send(
+      new CreateBucketCommand({
+        Bucket: bucket,
+        ...(object_lock ? { ObjectLockEnabledForBucket: true } : {}),
+      }),
+    );
+  } catch (err) {
+    if ((err as { name?: string }).name !== 'BucketAlreadyOwnedByYou') throw err;
+    logger.info(`Bucket "${bucket}" already exists under these credentials; using it`);
   }
 }
 

@@ -194,7 +194,10 @@ export type {
   ResolvedUserIdentity,
 } from './identity/user-identity-resolver.port';
 
-export type { IdentityRegistryRepository } from './identity/identity-registry-repository.port';
+export type {
+  IdentityRegistryRepository,
+  IdentityRegistryMutation,
+} from './identity/identity-registry-repository.port';
 
 export type {
   OneDriveConnector,
