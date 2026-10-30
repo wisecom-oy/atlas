@@ -314,11 +314,11 @@ Everything else is a **failure**, including a missing `s3:DeleteObjectVersion` p
 
 ### Retention is stamped per object
 
-Every workload locks only the objects a run with `--retention-days` writes, by sending `ObjectLockMode` and `ObjectLockRetainUntilDate` on each `PutObject`, `CopyObject`, and `CreateMultipartUpload`. Atlas never sets a bucket default retention. A default would lock every write in the bucket, including runs that did not ask for immutability and the staging copy of every large file that a drive backup deletes after assembling it, so the erasure exposure would exceed what any operator requested.
+Every workload locks only the objects a run with `--retention-days` writes, by sending `ObjectLockMode` and `ObjectLockRetainUntilDate` on each `PutObject`, `CopyObject`, and `CreateMultipartUpload`. The one upload written without a lock is the staging multipart upload for a large file: its bytes are copied to the content-addressed key, which is locked, and the staging key is then deleted, so the locked copy is the one that counts. Atlas never sets a bucket default retention. A default would lock every write in the bucket, including runs that did not ask for immutability and that staging copy, so the erasure exposure would exceed what any operator requested.
 
 Before 6.1.0, OneDrive and SharePoint backups with `--retention-days` set that bucket default. A bucket that was backed up by those versions may still carry one, and it keeps locking objects that should not be locked. `atlas storage-check` reports a default when it finds one. Remove it as described in [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention); objects already stamped keep their retain-until date either way.
 
-Per-object stamping also bounds what a compromised S3 credential can do. A credential with write access can add new locked objects, which costs storage until they expire, but it cannot shorten the lock on anything already written unless it also holds `s3:BypassGovernanceRetention` against a `GOVERNANCE` lock. A `COMPLIANCE` lock cannot be shortened by any principal, including the account owner.
+Per-object stamping also bounds what a compromised S3 credential can do. A credential with write access can add new locked objects, which costs storage until they expire, but it cannot shorten a lock already written. A `GOVERNANCE` lock can be shortened only by a principal that holds both `s3:PutObjectRetention` and `s3:BypassGovernanceRetention` and that sends the request with the bypass header set, so an audit of the bypass permission alone is incomplete. A `COMPLIANCE` lock cannot be shortened by any principal, including the account owner.
 
 ## Recoverable Items and legal hold
 
