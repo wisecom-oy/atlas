@@ -782,7 +782,7 @@ await atlas.onedrive.backup('owner-id', {
 | `mode`          | `GOVERNANCE` (privileged users can shorten retention) or `COMPLIANCE` (nobody can, including root). Default `GOVERNANCE`        |
 | `retentionDays` | Converted to an absolute `retainUntil` timestamp in UTC when the run starts                                                     |
 
-Outlook applies the policy to each stored object. OneDrive and SharePoint set the bucket's default retention, so every new object version inherits it. Writes fail closed: if a lock policy is requested and the bucket has versioning or Object Lock disabled, or does not support the mode, the write throws instead of storing unprotected data.
+Every workload applies the policy to each object the call writes, and never changes the bucket's own Object Lock configuration. Concurrent calls on one tenant with different policies therefore each lock exactly what they wrote. Writes fail closed: if a lock policy is requested and the bucket has versioning or Object Lock disabled, or does not support the mode, the write throws instead of storing unprotected data.
 
 ## Batch processing
 

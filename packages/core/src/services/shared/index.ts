@@ -41,3 +41,4 @@ export {
   parse_object_lock_mode,
 } from '@/services/shared/object-lock-policy';
 export type { ObjectLockSettings } from '@/services/shared/object-lock-policy';
+export { lock_run_writes, ObjectLockingStorage } from '@/services/shared/run-object-lock';

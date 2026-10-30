@@ -5,17 +5,14 @@ import {
   GetObjectLockConfigurationCommand,
   HeadBucketCommand,
   PutBucketLifecycleConfigurationCommand,
-  PutObjectLockConfigurationCommand,
   type ObjectLockEnabled,
   type S3Client,
 } from '@aws-sdk/client-s3';
 import type {
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
-  StorageObjectLockMode,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
-import { ObjectLockUnsupportedError } from '@/adapters/object-lock.errors';
 import type { BucketCache } from '@/adapters/bucket-cache';
 
 /**
@@ -230,36 +227,4 @@ function is_bucket_missing_error(err: unknown): boolean {
     message.includes('bucket does not exist') ||
     status_code === 404
   );
-}
-
-/**
- * Sets the bucket's Object Lock default retention so every new object version
- * inherits the lock - immutability as a bucket property that no write path
- * can forget. Requires a lock-capable bucket; throws
- * ObjectLockUnsupportedError when the bucket was created without Object Lock
- * (see the migration runbook in docs/self-hosting/storage.md).
- */
-export async function apply_bucket_default_retention(
-  client: S3Client,
-  bucket: string,
-  mode: StorageObjectLockMode,
-  retention_days: number,
-): Promise<void> {
-  try {
-    await client.send(
-      new PutObjectLockConfigurationCommand({
-        Bucket: bucket,
-        ObjectLockConfiguration: {
-          ObjectLockEnabled: 'Enabled',
-          Rule: { DefaultRetention: { Mode: mode, Days: retention_days } },
-        },
-      }),
-    );
-  } catch (err) {
-    const name = err instanceof Error ? err.name : '';
-    if (name === 'InvalidBucketState' || name === 'ObjectLockConfigurationNotFoundError') {
-      throw new ObjectLockUnsupportedError(bucket);
-    }
-    throw err;
-  }
 }

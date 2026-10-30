@@ -580,14 +580,14 @@ atlas onedrive delete -o user@company.com -y
 | `-o, --owner <id>`     | User email or Entra object ID (required)                                                                     |
 | `--full`               | Force a full crawl, ignoring saved delta links                                                               |
 | `--folder <path>`      | Back up only this folder and its subfolders (see below)                                                      |
-| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (see below)                                             |
+| `--retention-days <n>` | Lock every object this run writes for `n` days (see below)                                                   |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`.          |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                           |
 
 A live dashboard shows one row per drive. Each row goes from fetching changes, to per-item progress with rate and ETA, to `[ok]` with stored, deduplicated, and version counts. An incremental run with no changes shows `[==] up to date`. Non-interactive runs (cron and CI) print one plain log line per finished drive.
 
 ::: details Object Lock for OneDrive and SharePoint
-Outlook stamps retention on each object write. OneDrive and SharePoint instead apply immutability as **bucket default retention** (`PutObjectLockConfiguration`). Every new object version inherits the lock, including files, file versions, manifests, and delta cursors, so no write path can skip it. The setting persists on the bucket and covers later writes from any command. The bucket must be lock-capable, created with Object Lock (see `atlas storage-check`). Otherwise the backup fails with `ObjectLockUnsupportedError`. Small objects that are overwritten often, such as cursors and indexes, accumulate locked noncurrent versions until retention expires. The bucket housekeeping lifecycle rules remove them afterwards.
+Every workload stamps retention on each object it writes, using `PutObject`, `CopyObject`, or `CreateMultipartUpload` with `ObjectLockMode` and `ObjectLockRetainUntilDate`. The retain-until date is computed once, when the run starts. For OneDrive and SharePoint this covers files, file versions, manifests, version indexes, and delta cursors, because the lock is applied by the run's storage context rather than at each call site. The bucket's own Object Lock configuration is never changed, so two runs on the same tenant with different `--retention-days` each lock exactly what they wrote. Versions before 6.1.0 set bucket default retention instead. A default left on a bucket by those versions stays in force until you remove it, and an explicit per-object date always takes precedence over it. The bucket must be lock-capable, created with Object Lock (see `atlas storage-check`). Otherwise the backup fails with `ObjectLockUnsupportedError` before it contacts Microsoft Graph. Small objects that are overwritten often, such as cursors and indexes, accumulate locked noncurrent versions until retention expires. The bucket housekeeping lifecycle rules remove them afterwards.
 :::
 
 `--folder` filters the result of a drive-wide delta, rather than the query. The run still enumerates the whole drive, but it downloads, hashes, and writes only items inside the folder. A saved delta link records how far the **drive** was consumed. Resuming one under a different scope would skip changes the earlier run filtered out. Changing `--folder` between runs, or switching between scoped and unscoped backups, therefore forces a full re-crawl. Repeated runs with the same value stay incremental. A scoped snapshot contains only that folder, so it is not a substitute for a whole-drive backup unless the scope covers everything you need.
@@ -761,7 +761,7 @@ atlas sharepoint delete --site https://contoso.sharepoint.com/sites/Engineering 
 | `--site <url-or-id>`   | SharePoint site URL or Graph site ID (required)                                             |
 | `--full`               | Force a full crawl, ignoring saved delta links                                              |
 | `--include-subsites`   | Also back up every subsite beneath the site, one snapshot per subsite                       |
-| `--retention-days <n>` | Apply Object Lock **default retention** for `n` days (same semantics as OneDrive)           |
+| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                 |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`. |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                          |
 

@@ -3,6 +3,7 @@
 // SharePoint walks a site tree, then libraries within it, and has no folder scope. Unifying
 // them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
@@ -74,17 +75,12 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       finish_operation_progress(options, 'backup', 'onedrive', 0, 0);
       return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const tenant_ctx = await this._tenant_factory.create(tenant_id);
     let progress: BackupProgressReporter | undefined;
     try {
-      if (options.object_lock_request?.retention_days) {
-        // Bucket default retention: every new object version (files, versions,
-        // manifests, cursors) inherits the lock - no write path can forget it.
-        await ctx.storage.apply_default_retention(
-          options.object_lock_request.mode ?? 'GOVERNANCE',
-          options.object_lock_request.retention_days,
-        );
-      }
+      // Per-object retention carried by this run's context, not the bucket default: concurrent
+      // runs on one tenant would overwrite each other's bucket setting (#551).
+      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
       // A delta link records how far the drive was consumed, not how far the scope was, so
@@ -301,7 +297,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       return result;
     } finally {
       progress?.finish();
-      ctx.destroy();
+      tenant_ctx.destroy();
     }
   }
 

@@ -32,7 +32,7 @@ function make_storage(): ObjectStorage {
     copy: vi.fn(),
     get_with_etag: vi.fn(),
     get_stream: vi.fn(),
-    apply_default_retention: vi.fn(),
+    validate_object_lock_policy: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
