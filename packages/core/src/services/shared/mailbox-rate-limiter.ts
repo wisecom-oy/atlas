@@ -1,13 +1,14 @@
 /**
- * Composes SlidingWindowLimiter + ConcurrencySemaphore + ThrottleFence into
- * a single per-mailbox rate limiter. Each mailbox gets its own sliding window
- * and semaphore, but they all share the same global throttle fence.
+ * Composes SlidingWindowLimiter + ConcurrencySemaphore + the Outlook pool's
+ * throttle cooldown into a single per-mailbox rate limiter. Each mailbox gets
+ * its own sliding window and semaphore, but they all wait on the same
+ * ThrottleCoordinator, so a 429 on one mailbox pauses the others.
  */
 
 import { SlidingWindowLimiter } from './sliding-window-limiter';
 import { ConcurrencySemaphore } from './concurrency-semaphore';
-import type { ThrottleFence } from './throttle-fence';
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 
 const EXCHANGE_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const EXCHANGE_SLIDE_MS = 1_000;
@@ -23,21 +24,21 @@ export interface MailboxRateLimiter {
 export class DefaultMailboxRateLimiter implements MailboxRateLimiter {
   private readonly _window: SlidingWindowLimiter;
   private readonly _semaphore: ConcurrencySemaphore;
-  private readonly _fence: ThrottleFence;
+  private readonly _throttle: ThrottleCoordinator;
 
-  constructor(fence: ThrottleFence, window_capacity?: number, concurrency?: number) {
+  constructor(throttle: ThrottleCoordinator, window_capacity?: number, concurrency?: number) {
     this._window = new SlidingWindowLimiter(
       EXCHANGE_WINDOW_MS,
       EXCHANGE_SLIDE_MS,
       window_capacity ?? EXCHANGE_CAPACITY,
     );
     this._semaphore = new ConcurrencySemaphore(concurrency ?? EXCHANGE_CONCURRENCY);
-    this._fence = fence;
+    this._throttle = throttle;
   }
 
-  /** Waits for the global fence, acquires rate window tokens, then a concurrency slot. */
+  /** Waits out any Outlook cooldown, acquires rate window tokens, then a concurrency slot. */
   async acquire(cost = 1): Promise<void> {
-    await this._fence.wait();
+    await this._throttle.wait('outlook');
     await this._window.acquire(cost);
     await this._semaphore.acquire();
   }
@@ -59,21 +60,21 @@ export interface MailboxRateLimiterFactory {
 }
 
 export class DefaultMailboxRateLimiterFactory implements MailboxRateLimiterFactory {
-  private readonly _fence: ThrottleFence;
+  private readonly _throttle: ThrottleCoordinator;
   private readonly _window_capacity: number;
   private readonly _concurrency: number;
   private readonly _created: MailboxRateLimiter[] = [];
 
-  constructor(fence: ThrottleFence, window_capacity?: number, concurrency?: number) {
-    this._fence = fence;
+  constructor(throttle: ThrottleCoordinator, window_capacity?: number, concurrency?: number) {
+    this._throttle = throttle;
     this._window_capacity = window_capacity ?? EXCHANGE_CAPACITY;
     this._concurrency = concurrency ?? EXCHANGE_CONCURRENCY;
   }
 
-  /** Creates a new per-mailbox rate limiter sharing the global fence. */
+  /** Creates a new per-mailbox rate limiter sharing the coordinator. */
   create(): MailboxRateLimiter {
     const limiter = new DefaultMailboxRateLimiter(
-      this._fence,
+      this._throttle,
       this._window_capacity,
       this._concurrency,
     );

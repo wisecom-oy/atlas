@@ -120,6 +120,7 @@ export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { StorageDisposer } from './storage/storage-disposer.port';
 export type * from './storage/storage-request-observer.port';
+export type * from './shared/throttle-coordinator.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
 export type { LogSink, LogFields } from './atlas/log-sink.port';

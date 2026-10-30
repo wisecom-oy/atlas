@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
-import { MAILBOX_CONNECTOR_TOKEN } from '@wisecom/atlas-types';
+import { MAILBOX_CONNECTOR_TOKEN, THROTTLE_COORDINATOR_TOKEN } from '@wisecom/atlas-types';
+import { InProcessThrottleCoordinator } from '@wisecom/atlas-core/services/shared/in-process-throttle-coordinator';
 import type { MailboxConnector } from '@wisecom/atlas-types';
 import { bind_outlook } from '@/container';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -63,6 +64,8 @@ function make_graph_client() {
 function resolve_bound_connector(): MailboxConnector {
   const container = new Container();
   container.bind(GRAPH_CLIENT_TOKEN).toConstantValue(make_graph_client());
+  // bind_graph_client binds this in the CLI and SDK containers.
+  container.bind(THROTTLE_COORDINATOR_TOKEN).toConstantValue(new InProcessThrottleCoordinator());
   bind_outlook(container);
   return container.get<MailboxConnector>(MAILBOX_CONNECTOR_TOKEN);
 }

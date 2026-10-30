@@ -12,12 +12,22 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { GraphRequestCounter } from './graph-request-counter';
-import type { ThrottleFence } from './throttle-fence';
-import type { GraphOperation, OperationCost } from '@wisecom/atlas-types';
+import type {
+  GraphOperation,
+  GraphServicePool,
+  OperationCost,
+  ThrottleCoordinator,
+} from '@wisecom/atlas-types';
 
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
 const _operation = new AsyncLocalStorage<GraphOperation>();
-const _fence = new AsyncLocalStorage<ThrottleFence>();
+const _throttle = new AsyncLocalStorage<ActiveThrottle>();
+
+/** The coordinator guarding a call, and the pool its requests are charged to by default. */
+export interface ActiveThrottle {
+  readonly coordinator: ThrottleCoordinator;
+  readonly pool: GraphServicePool;
+}
 
 /**
  * Runs `fn` inside a fresh cost-tracking context and returns both the result
@@ -109,24 +119,33 @@ export function get_active_operation(): GraphOperation | undefined {
 }
 
 /**
- * Publishes the throttle fence guarding `fn` so the retry loop deep inside it
- * can reach the fence without every connector signature carrying it.
+ * Publishes the throttle coordinator guarding `fn` so the retry loop deep inside it can reach it
+ * without every connector signature carrying it.
  *
- * The fence has to be consulted per HTTP attempt, not per logical call. A retry
- * loop is the only layer that sees each attempt, and it sits several adapters
- * below the wrapper that owns the fence, so the fence travels as ambient
- * context for the same reason the request counter does.
+ * The coordinator has to be consulted per HTTP attempt, not per logical call. A retry loop is the
+ * only layer that sees each attempt, and it sits several adapters below the wrapper that owns the
+ * coordinator, so it travels as ambient context for the same reason the request counter does.
+ * `pool` is the default for requests that declare no operation of their own.
  */
-export function run_with_throttle_fence<T>(fence: ThrottleFence, fn: () => Promise<T>): Promise<T> {
-  return _fence.run(fence, fn);
+export function run_with_throttle_coordinator<T>(
+  coordinator: ThrottleCoordinator,
+  pool: GraphServicePool,
+  fn: () => T,
+): T {
+  return _throttle.run({ coordinator, pool }, fn);
 }
 
 /**
- * The throttle fence guarding the current async context, if any.
+ * The throttle coordinator guarding the current async context, if any.
  *
- * Absent for workloads that wire no fence, and for direct CLI calls. Callers
- * treat undefined as "no global throttling in force" and proceed unchanged.
+ * Absent for calls made outside a coordinated connector. Callers treat undefined as "no
+ * throttling coordination in force" and proceed unchanged.
  */
-export function get_active_fence(): ThrottleFence | undefined {
-  return _fence.getStore();
+export function get_active_throttle(): ActiveThrottle | undefined {
+  return _throttle.getStore();
+}
+
+/** The pool a request in this context is charged to: its declared operation's, else the default. */
+export function get_active_throttle_pool(): GraphServicePool | undefined {
+  return get_active_operation()?.pool ?? _throttle.getStore()?.pool;
 }

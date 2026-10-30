@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ConfigError } from '@wisecom/atlas-types';
 import { MIN_PASSPHRASE_BYTES } from '@wisecom/atlas-core/adapters/keystore/kdf-strategy';
-import type { AtlasInstanceConfig } from '@wisecom/atlas-types';
+import type { AtlasInstanceConfig, ThrottleCoordinator } from '@wisecom/atlas-types';
 
 /** Validates explicit instance configuration without I/O and maps it to the internal config. */
 export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
@@ -25,6 +25,7 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
   if (config.onStorageRequest !== undefined && typeof config.onStorageRequest !== 'function') {
     throw new ConfigError('onStorageRequest must be a function.');
   }
+  assert_throttle_coordinator(config.throttleCoordinator);
 
   return {
     tenant_id: config.tenantId,
@@ -36,6 +37,18 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     s3_region: config.s3Region || 'us-east-1',
     encryption_passphrase: config.encryptionPassphrase,
   };
+}
+
+/** Rejects a throttle coordinator that does not provide both `wait` and `raise`. */
+function assert_throttle_coordinator(
+  coordinator: Partial<ThrottleCoordinator> | null | undefined,
+): void {
+  if (coordinator === undefined) return;
+  if (typeof coordinator?.wait !== 'function' || typeof coordinator.raise !== 'function') {
+    throw new ConfigError(
+      'throttleCoordinator must provide wait(pool) and raise(pool, retry_after_ms) functions.',
+    );
+  }
 }
 
 function assert_required_field(value: unknown, field_name: keyof AtlasInstanceConfig): void {

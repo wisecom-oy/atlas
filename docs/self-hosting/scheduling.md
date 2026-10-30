@@ -61,16 +61,16 @@ WantedBy=timers.target
 
 Put the configuration in `/etc/atlas/atlas.env`. Atlas reads these variables from the environment:
 
-| Variable                         | Purpose                                      |
-| -------------------------------- | -------------------------------------------- |
-| `ATLAS_TENANT_ID`                | Microsoft 365 tenant ID                      |
-| `ATLAS_CLIENT_ID`                | Application (client) ID                      |
-| `ATLAS_CLIENT_SECRET`            | Client secret for the application            |
-| `ATLAS_S3_ENDPOINT`              | S3 endpoint, such as `https://minio.example.com:9000` |
-| `ATLAS_S3_ACCESS_KEY`            | S3 access key                                |
-| `ATLAS_S3_SECRET_KEY`            | S3 secret key                                |
-| `ATLAS_S3_REGION`                | S3 region, if your backend needs one         |
-| `ATLAS_ENCRYPTION_PASSPHRASE`    | Passphrase that protects the tenant data key |
+| Variable                      | Purpose                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| `ATLAS_TENANT_ID`             | Microsoft 365 tenant ID                               |
+| `ATLAS_CLIENT_ID`             | Application (client) ID                               |
+| `ATLAS_CLIENT_SECRET`         | Client secret for the application                     |
+| `ATLAS_S3_ENDPOINT`           | S3 endpoint, such as `https://minio.example.com:9000` |
+| `ATLAS_S3_ACCESS_KEY`         | S3 access key                                         |
+| `ATLAS_S3_SECRET_KEY`         | S3 secret key                                         |
+| `ATLAS_S3_REGION`             | S3 region, if your backend needs one                  |
+| `ATLAS_ENCRYPTION_PASSPHRASE` | Passphrase that protects the tenant data key          |
 
 The file holds credentials. Restrict it to the service account with `chmod 600 /etc/atlas/atlas.env`. Atlas also reads these values from `atlas config`, from `atlas.config.json`, and from a `.env` file. Real environment variables take precedence over all of them.
 
@@ -93,17 +93,17 @@ Atlas downloads **full message bodies and all attachments** from Microsoft 365 o
 
 OneDrive and SharePoint follow the same pattern. The first backup of a large drive or document library transfers all file content. Network throughput sets how long that takes.
 
-A tenant-wide Outlook backup runs four mailboxes in parallel by default. Four large mailboxes at once can saturate a typical office connection. No command-line flag changes this count.
+Each `atlas outlook backup` invocation backs up one mailbox, so parallelism is whatever your scheduler starts at once. Four large mailboxes at once can saturate a typical office connection.
 
 ### Estimated transfer
 
-| Scenario                 | Full backup transfer | Delta sync                     |
-| ------------------------ | -------------------- | ------------------------------ |
-| Single 5 GB mailbox      | About 5 GB           | Only changes (typically KB to MB) |
-| 10 users, average 10 GB  | About 100 GB         | Only changes per user          |
-| 100 users, average 5 GB  | About 500 GB         | Only changes per user          |
-| OneDrive user, 50 GB     | About 50 GB          | Only changed files             |
-| SharePoint site, 200 GB  | About 200 GB         | Only changed files per library |
+| Scenario                | Full backup transfer | Delta sync                        |
+| ----------------------- | -------------------- | --------------------------------- |
+| Single 5 GB mailbox     | About 5 GB           | Only changes (typically KB to MB) |
+| 10 users, average 10 GB | About 100 GB         | Only changes per user             |
+| 100 users, average 5 GB | About 500 GB         | Only changes per user             |
+| OneDrive user, 50 GB    | About 50 GB          | Only changed files                |
+| SharePoint site, 200 GB | About 200 GB         | Only changed files per library    |
 
 These figures are approximate. Actual sizes depend on attachment volume, HTML message size, and how much data each mailbox, drive, or site holds. Measure your first full tenant backup and plan from that result.
 

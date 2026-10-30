@@ -1,6 +1,6 @@
 /**
  * Decorator around MailboxConnector that enforces per-mailbox rate limiting,
- * raises a global throttle fence on 429 responses, and records every Graph
+ * reports 429 responses to the instance's ThrottleCoordinator, and records every Graph
  * request to the active GraphRequestCounter (if any).
  *
  * Pool attribution:
@@ -24,12 +24,12 @@ import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,
 } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
-import type { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
 import {
   run_with_graph_operation,
-  run_with_throttle_fence,
+  run_with_throttle_coordinator,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { GRAPH_SERVICE_LIMITS, ThrottledError } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 const DELTA_WITH_TOKEN_COST = 1;
@@ -39,25 +39,32 @@ const DEFAULT_REQUEST_COST = 1;
 export class RateLimitedGraphConnector implements MailboxConnector {
   private readonly _inner: MailboxConnector;
   private readonly _factory: MailboxRateLimiterFactory;
-  private readonly _fence: ThrottleFence;
+  private readonly _throttle: ThrottleCoordinator;
   private readonly _limiters = new Map<string, MailboxRateLimiter>();
   private _reactions_unsupported_logged = false;
 
-  constructor(inner: MailboxConnector, factory: MailboxRateLimiterFactory, fence: ThrottleFence) {
+  constructor(
+    inner: MailboxConnector,
+    factory: MailboxRateLimiterFactory,
+    throttle: ThrottleCoordinator,
+  ) {
     this._inner = inner;
     this._factory = factory;
-    this._fence = fence;
+    this._throttle = throttle;
   }
 
   async list_mailboxes(tenant_id: string): Promise<string[]> {
-    // GET /users -- Identity pool, not gated by per-mailbox semaphore
-    return run_with_graph_operation(
-      {
-        pool: 'identity',
-        request_type: 'list_users',
-        resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
-      },
-      () => this._inner.list_mailboxes(tenant_id),
+    // GET /users -- Identity pool, not gated by per-mailbox semaphore, but still coordinated so
+    // an identity 429 pauses the other identity requests of this instance.
+    return run_with_throttle_coordinator(this._throttle, 'identity', () =>
+      run_with_graph_operation(
+        {
+          pool: 'identity',
+          request_type: 'list_users',
+          resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
+        },
+        () => this._inner.list_mailboxes(tenant_id),
+      ),
     );
   }
 
@@ -212,29 +219,19 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     const limiter = this.getLimiter(owner_id);
     await limiter.acquire(cost);
     try {
-      // Published so the retry loop inside `fn` parks on the fence between its
-      // own attempts. acquire() above only covers the first one.
-      return await run_with_throttle_fence(this._fence, fn);
+      // Published so the retry loop inside `fn` parks on the cooldown between
+      // its own attempts, and reports each 429 against the pool the request
+      // declared. acquire() above only covers the first attempt. Nothing is
+      // raised here: the retry loop already did, on the response that
+      // carried the 429, and it knows the pool while this frame does not.
+      return await run_with_throttle_coordinator(this._throttle, 'outlook', fn);
     } catch (err) {
-      this.handleThrottle(err);
+      if (err instanceof ThrottledError) {
+        logger.warn(`Graph kept throttling mailbox ${owner_id} through the retry budget`);
+      }
       throw err;
     } finally {
       limiter.release();
     }
-  }
-
-  private handleThrottle(err: unknown): void {
-    // An exhausted 429 arrives as ThrottledError; the Graph response with its headers is the cause.
-    const graph_err = (err instanceof ThrottledError ? err.cause : err) as
-      Record<string, unknown> | undefined;
-    if (graph_err?.statusCode !== 429) return;
-
-    const headers = graph_err.headers as Record<string, string> | undefined;
-    const raw = headers?.['retry-after'] ?? headers?.['Retry-After'];
-    const seconds = raw ? parseInt(raw, 10) : 30;
-    const duration = isNaN(seconds) || seconds <= 0 ? 30 : seconds;
-
-    logger.warn(`Graph 429 received -- raising throttle fence for ${duration}s`);
-    this._fence.raise(duration);
   }
 }
