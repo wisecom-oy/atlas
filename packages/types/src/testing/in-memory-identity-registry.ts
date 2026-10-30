@@ -1,8 +1,8 @@
-import type { IdentityRegistry } from '../domain/identity-registry';
 import type {
+  IdentityRegistry,
   IdentityRegistryMutation,
   IdentityRegistryRepository,
-} from '../ports/identity/identity-registry-repository.port';
+} from '@/index';
 
 /**
  * An identity registry repository holding one registry in memory with compare-and-swap semantics.

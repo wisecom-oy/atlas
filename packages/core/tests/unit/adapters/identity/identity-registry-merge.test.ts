@@ -62,6 +62,18 @@ describe('merge_active_identity', () => {
     expect(result.registry.entries).toHaveLength(3);
   });
 
+  it('matches a stored entry whose address was never normalised', () => {
+    // A registry restored by hand or written by another tool may hold a padded, mixed-case address.
+    const stored = registry(entry(' John.Doe@Example.COM', 'oid-prev'));
+
+    const same = merge_active_identity(stored, TENANT, { ...JOHN, object_id: 'oid-prev' }, NOW);
+    const changed = merge_active_identity(stored, TENANT, JOHN, NOW);
+
+    expect(same.outcome).toEqual({ kind: 'unchanged' });
+    expect(changed.outcome).toEqual({ kind: 'recycled', previous_object_id: 'oid-prev' });
+    expect(changed.registry.entries.filter((e) => e.status === 'active')).toHaveLength(1);
+  });
+
   it('does not mutate the stored registry', () => {
     const stored = registry(entry('john.doe@example.com', 'oid-prev'));
 

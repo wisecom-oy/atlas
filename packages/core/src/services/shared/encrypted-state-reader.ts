@@ -19,7 +19,7 @@ export async function load_encrypted_json<T>(
   ctx: TenantContext,
   key: string,
 ): Promise<T | undefined> {
-  const payload = await fetch_state(key, async () => ctx.storage.get(key), ctx);
+  const payload = await fetch_state(ctx, key, async () => ctx.storage.get(key));
   return payload === undefined ? undefined : decrypt_state<T>(ctx, key, payload);
 }
 
@@ -28,7 +28,7 @@ export async function load_encrypted_json_with_etag<T>(
   ctx: TenantContext,
   key: string,
 ): Promise<EncryptedStateSnapshot<T> | undefined> {
-  const read = await fetch_state(key, async () => ctx.storage.get_with_etag(key), ctx);
+  const read = await fetch_state(ctx, key, async () => ctx.storage.get_with_etag(key));
   return read === undefined
     ? undefined
     : { value: decrypt_state<T>(ctx, key, read.data), etag: read.etag };
@@ -36,9 +36,9 @@ export async function load_encrypted_json_with_etag<T>(
 
 /** Runs `read` when the key exists, mapping absence to `undefined` and any other failure to `StorageError`. */
 async function fetch_state<R>(
+  ctx: TenantContext,
   key: string,
   read: () => Promise<R>,
-  ctx: TenantContext,
 ): Promise<R | undefined> {
   try {
     if (!(await ctx.storage.exists(key))) return undefined;

@@ -147,6 +147,18 @@ describe('S3IdentityRegistryRepository.update', () => {
     expect(harness.stored()?.entries.map((e) => e.object_id)).toEqual(['other', 'mine']);
   });
 
+  it('retries a transient conflict reported by the storage adapter', async () => {
+    const { ctx, put, stored } = make_cas_ctx({ tenant_id: 'tenant-1', entries: [] });
+    put.mockRejectedValueOnce(new PreconditionFailedError('registry'));
+
+    const pending = repo.update(ctx, append('a'));
+    await vi.runAllTimersAsync();
+    await pending;
+
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(stored()?.entries.map((e) => e.object_id)).toEqual(['a']);
+  });
+
   it('writes nothing when the mutation reports no change', async () => {
     const initial = { tenant_id: 'tenant-1', entries: [entry('a')] };
     const { ctx, put } = make_cas_ctx(initial);
@@ -160,9 +172,11 @@ describe('S3IdentityRegistryRepository.update', () => {
     put.mockRejectedValue(new PreconditionFailedError('registry'));
 
     const pending = repo.update(ctx, append('a'));
-    const assertion = expect(pending).rejects.toBeInstanceOf(StorageError);
+    const failure = pending.catch((e: unknown) => e);
     await vi.runAllTimersAsync();
-    await assertion;
+    const err = (await failure) as StorageError;
+    expect(err).toBeInstanceOf(StorageError);
+    expect(err.cause).toBeInstanceOf(PreconditionFailedError);
     expect(put).toHaveBeenCalledTimes(REGISTRY_UPDATE_ATTEMPTS);
   });
 

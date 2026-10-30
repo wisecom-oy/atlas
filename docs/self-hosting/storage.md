@@ -256,7 +256,7 @@ Backups record every user they resolve by email in one tenant-wide object, `iden
 
 - The first registry is written create-only (`If-None-Match: *`).
 - Every later write carries the ETag the registry was read at (`If-Match`).
-- On `412 Precondition Failed`, Atlas re-reads the registry, re-applies its own change on top of the other writer's, and tries again. It makes 8 attempts with a short jittered pause before failing the run with `ATLAS_STORAGE_FAILURE`.
+- On `412 Precondition Failed`, or the `409 ConditionalRequestConflict` S3 returns when two conditional writes arrive together, Atlas re-reads the registry, re-applies its own change on top of the other writer's, and tries again. It makes 8 attempts with a short jittered pause before failing the run with `ATLAS_STORAGE_FAILURE`.
 
 A backend that ignores `If-Match` degrades this to last writer wins, and concurrent runs can then drop each other's new entries. Test it the same way as above: overwrite an object with `If-Match` set to a stale ETag. The write must fail with 412. If it does not, run one backup per tenant at a time.
 

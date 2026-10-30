@@ -60,6 +60,25 @@ describe('CachingIdentityResolver under concurrent registration (issue #551)', (
     expect(stored_ids(repo)).toEqual(['oid-jane', 'oid-john']);
   });
 
+  it('fails every concurrent first caller when the load fails, then retries on the next call', async () => {
+    const repo = new InMemoryIdentityRegistryRepository();
+    const load = vi
+      .spyOn(repo, 'load')
+      .mockRejectedValueOnce(new Error('503 Slow Down'))
+      .mockResolvedValueOnce(undefined);
+    const resolver = resolver_on(repo);
+
+    const first_round = await Promise.allSettled([
+      resolver.resolve_user(TENANT, JOHN.email),
+      resolver.resolve_user(TENANT, JANE.email),
+    ]);
+
+    expect(first_round.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    expect(repo.writes).toBe(0);
+    await expect(resolver.resolve_user(TENANT, JOHN.email)).resolves.toEqual(JOHN);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps both registrations when two instances register different users at once', async () => {
     const repo = new InMemoryIdentityRegistryRepository();
     const first = resolver_on(repo);
@@ -70,6 +89,8 @@ describe('CachingIdentityResolver under concurrent registration (issue #551)', (
       second.resolve_user(TENANT, JANE.email),
     ]);
 
+    // Both read an empty registry, so one of them had to re-apply on top of the other's write.
+    expect(repo.conflicts).toBe(1);
     expect(stored_ids(repo)).toEqual(['oid-jane', 'oid-john']);
   });
 

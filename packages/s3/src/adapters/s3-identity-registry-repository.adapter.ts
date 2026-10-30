@@ -39,6 +39,7 @@ export class S3IdentityRegistryRepository implements IdentityRegistryRepository 
     ctx: TenantContext,
     mutate: IdentityRegistryMutation,
   ): Promise<IdentityRegistry | undefined> {
+    let last_conflict: unknown;
     for (let attempt = 1; attempt <= REGISTRY_UPDATE_ATTEMPTS; attempt++) {
       const stored = await load_encrypted_json_with_etag<IdentityRegistry>(ctx, REGISTRY_KEY);
       const next = mutate(stored?.value);
@@ -49,12 +50,14 @@ export class S3IdentityRegistryRepository implements IdentityRegistryRepository 
         return next;
       } catch (err) {
         if (!(err instanceof PreconditionFailedError)) throw err;
+        last_conflict = err;
         if (attempt < REGISTRY_UPDATE_ATTEMPTS) await pause_before_retry(attempt);
       }
     }
     throw new StorageError(
       `The identity registry at ${REGISTRY_KEY} changed on every one of ` +
         `${REGISTRY_UPDATE_ATTEMPTS} write attempts; too many writers are registering at once`,
+      { cause: last_conflict },
     );
   }
 

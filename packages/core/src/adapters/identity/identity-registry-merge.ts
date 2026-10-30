@@ -35,7 +35,11 @@ export function merge_active_identity(
 ): IdentityMergeResult {
   const entries = current?.entries ?? [];
   const email = normalize_registry_email(identity.email);
-  const active = entries.find((e) => e.status === 'active' && e.email === email);
+  // Normalised on both sides: a registry restored by hand or written by another tool may hold a
+  // padded or mixed-case address, and the index compares normalised addresses too.
+  const active = entries.find(
+    (e) => e.status === 'active' && normalize_registry_email(e.email) === email,
+  );
 
   if (active?.object_id === identity.object_id) {
     return { registry: current ?? { tenant_id, entries }, outcome: { kind: 'unchanged' } };
