@@ -88,6 +88,7 @@ export type {
   StorageCheckUseCase,
   StorageCheckRequest,
   StorageCheckResult,
+  StorageDefaultRetention,
 } from './storage-check/use-case.port';
 
 export type { StatsUseCase } from './stats/use-case.port';

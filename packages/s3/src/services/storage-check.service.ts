@@ -2,6 +2,7 @@ import { inject, injectable } from 'inversify';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
+import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import type {
@@ -30,6 +31,9 @@ export class StorageCheckService implements StorageCheckUseCase {
       mode: request.mode,
       retain_until: resolved_retain_until,
     });
+    const default_retention = probe.object_lock_enabled
+      ? await read_bucket_default_retention(this._s3, bucket)
+      : undefined;
 
     return {
       bucket: probe.bucket,
@@ -37,6 +41,7 @@ export class StorageCheckService implements StorageCheckUseCase {
       versioning_enabled: probe.versioning_enabled,
       object_lock_enabled: probe.object_lock_enabled,
       mode_supported: probe.mode_supported,
+      default_retention,
       requested_mode: request.mode,
       requested_retention_days: request.retention_days,
       resolved_retain_until,

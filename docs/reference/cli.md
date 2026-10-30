@@ -894,6 +894,8 @@ atlas storage-check --lock-mode compliance --retention-days 365
 | `--retention-days <n>` | Planned retention period in days                        |
 | `-t, --tenant <id>`    | Override the tenant ID from config                      |
 
+On a lock-capable bucket the command also reports the bucket's default retention. Atlas has not set one since 6.1.0, because it locks every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by an older version or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
+
 ## atlas stats
 
 Storage statistics across the backed-up services. By default the command covers Outlook, OneDrive, and SharePoint in one pass. For each service it reports snapshot counts, item counts (messages or files), encrypted storage size, and a monthly breakdown.
