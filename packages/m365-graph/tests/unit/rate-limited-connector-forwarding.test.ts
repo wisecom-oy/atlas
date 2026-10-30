@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { MailboxConnector } from '@wisecom/atlas-types/ports/mail/connector.port';
 import { RateLimitedGraphConnector } from '@/rate-limited-graph-connector.adapter';
-import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
+import { InProcessThrottleCoordinator } from '@wisecom/atlas-core/services/shared/in-process-throttle-coordinator';
 import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 function wrap(inner: MailboxConnector): RateLimitedGraphConnector {
-  const fence = new ThrottleFence();
-  return new RateLimitedGraphConnector(inner, new DefaultMailboxRateLimiterFactory(fence), fence);
+  const throttle = new InProcessThrottleCoordinator();
+  return new RateLimitedGraphConnector(
+    inner,
+    new DefaultMailboxRateLimiterFactory(throttle),
+    throttle,
+  );
 }
 
 /**

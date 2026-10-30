@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { MailboxConnector } from '@wisecom/atlas-types/ports/mail/connector.port';
 import type { GraphOperation } from '@wisecom/atlas-types';
 import { RateLimitedGraphConnector } from '@/rate-limited-graph-connector.adapter';
-import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
+import { InProcessThrottleCoordinator } from '@wisecom/atlas-core/services/shared/in-process-throttle-coordinator';
 import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import { get_active_operation } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
@@ -40,9 +40,9 @@ function make_capturing_stub(seen: GraphOperation[]): MailboxConnector {
 }
 
 function make_rate_limited(inner: MailboxConnector): RateLimitedGraphConnector {
-  const fence = new ThrottleFence();
-  const factory = new DefaultMailboxRateLimiterFactory(fence);
-  return new RateLimitedGraphConnector(inner, factory, fence);
+  const throttle = new InProcessThrottleCoordinator();
+  const factory = new DefaultMailboxRateLimiterFactory(throttle);
+  return new RateLimitedGraphConnector(inner, factory, throttle);
 }
 
 describe('RateLimitedGraphConnector — operation labelling', () => {

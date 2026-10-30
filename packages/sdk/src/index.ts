@@ -89,7 +89,7 @@ export type {
 } from '@wisecom/atlas-types';
 
 export type { ObjectLockMode, BackupSyncMode, RehydrationWorkload } from '@wisecom/atlas-types';
-export type { GraphServicePool } from '@wisecom/atlas-types';
+export type { GraphServicePool, ThrottleCoordinator } from '@wisecom/atlas-types';
 
 /**
  * These carry converted fields, so the public name resolves to the converted type. Exporting the

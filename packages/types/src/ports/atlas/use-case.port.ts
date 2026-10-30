@@ -1,5 +1,6 @@
 import type { LogSink } from '@/ports/atlas/log-sink.port';
 import type { StorageRequestObserver } from '@/ports/storage/storage-request-observer.port';
+import type { ThrottleCoordinator } from '@/ports/shared/throttle-coordinator.port';
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
 import type { BucketStats } from '@/domain/stats';
 import type { StorageUsage } from '@/domain/storage-usage';
@@ -37,6 +38,12 @@ export interface AtlasInstanceConfig {
    * Omitted means nothing is measured and the storage path is unchanged.
    */
   readonly onStorageRequest?: StorageRequestObserver;
+  /**
+   * Coordinates Graph 429 cooldowns. Omitted means one in-memory cooldown per throttling pool,
+   * shared by this instance's operations. Supply one backed by shared state when several
+   * processes run operations for the same tenant.
+   */
+  readonly throttleCoordinator?: ThrottleCoordinator;
 }
 
 export interface AtlasInstance extends AsyncDisposable {

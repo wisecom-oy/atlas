@@ -8,13 +8,14 @@ import {
   SAVE_USE_CASE_TOKEN,
   STATUS_USE_CASE_TOKEN,
   TENANT_ORCHESTRATOR_TOKEN,
+  THROTTLE_COORDINATOR_TOKEN,
 } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 import { GraphMailboxConnector } from '@/adapters/graph-mailbox-connector.adapter';
 import { GraphRestoreConnector } from '@/adapters/graph-restore-connector.adapter';
 import { GraphMailboxDiscoveryAdapter } from '@/adapters/graph-mailbox-discovery.adapter';
 import { CostTrackingRestoreConnector } from '@/adapters/cost-tracking-restore-connector.adapter';
-import { RateLimitedGraphConnector } from '@wisecom/atlas-m365-graph';
-import { ThrottleFence } from '@wisecom/atlas-core/services/shared/throttle-fence';
+import { RateLimitedGraphConnector, scope_connector_throttling } from '@wisecom/atlas-m365-graph';
 import { DefaultMailboxRateLimiterFactory } from '@wisecom/atlas-core/services/shared/mailbox-rate-limiter';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import { RestoreService } from '@/services/restore/restore.service';
@@ -24,15 +25,17 @@ import { DefaultTenantBackupOrchestrator } from '@/services/backup/tenant-backup
 
 /** Registers Outlook Graph adapters and backup/restore/save/status use cases on the container. */
 export function bind_outlook(container: Container): void {
-  const fence = new ThrottleFence();
-  const limiter_factory = new DefaultMailboxRateLimiterFactory(fence);
-
   container.bind(GraphMailboxConnector).toSelf().inSingletonScope();
   container
     .bind(MAILBOX_CONNECTOR_TOKEN)
     .toDynamicValue((ctx) => {
       const inner = ctx.get(GraphMailboxConnector);
-      return new RateLimitedGraphConnector(inner, limiter_factory, fence);
+      const throttle = ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN);
+      return new RateLimitedGraphConnector(
+        inner,
+        new DefaultMailboxRateLimiterFactory(throttle),
+        throttle,
+      );
     })
     .inSingletonScope();
 
@@ -41,7 +44,12 @@ export function bind_outlook(container: Container): void {
     .bind(RESTORE_CONNECTOR_TOKEN)
     .toDynamicValue((ctx) => {
       const inner = ctx.get(GraphRestoreConnector);
-      return new CostTrackingRestoreConnector(inner);
+      const throttle = ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN);
+      return scope_connector_throttling(
+        new CostTrackingRestoreConnector(inner),
+        throttle,
+        'outlook',
+      );
     })
     .inSingletonScope();
   container.bind(MAILBOX_DISCOVERY_TOKEN).to(GraphMailboxDiscoveryAdapter).inSingletonScope();

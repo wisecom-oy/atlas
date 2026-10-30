@@ -26,3 +26,4 @@ export const SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for(
   'SharePointDeltaCursorRepository',
 );
 export const STORAGE_DISPOSER_TOKEN = Symbol.for('StorageDisposer');
+export const THROTTLE_COORDINATOR_TOKEN = Symbol.for('ThrottleCoordinator');

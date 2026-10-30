@@ -12,7 +12,10 @@ import {
   ONEDRIVE_SAVE_USE_CASE_TOKEN,
   ONEDRIVE_STATUS_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  THROTTLE_COORDINATOR_TOKEN,
 } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator } from '@wisecom/atlas-types';
+import { scope_connector_throttling } from '@wisecom/atlas-m365-graph';
 import { GraphOneDriveConnector } from '@/adapters/graph-onedrive-connector.adapter';
 import { S3OneDriveManifestRepository } from '@/adapters/s3-onedrive-manifest-repository.adapter';
 import { S3OneDriveDeltaCursorRepository } from '@/adapters/s3-onedrive-delta-cursor-repository.adapter';
@@ -33,7 +36,17 @@ export function bind_onedrive(container: Container): void {
         'Call bind_s3_storage() first.',
     );
   }
-  container.bind(ONEDRIVE_CONNECTOR_TOKEN).to(GraphOneDriveConnector).inSingletonScope();
+  container.bind(GraphOneDriveConnector).toSelf().inSingletonScope();
+  container
+    .bind(ONEDRIVE_CONNECTOR_TOKEN)
+    .toDynamicValue((ctx) =>
+      scope_connector_throttling(
+        ctx.get(GraphOneDriveConnector),
+        ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN),
+        'sharepoint_onedrive',
+      ),
+    )
+    .inSingletonScope();
   container
     .bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
     .to(S3OneDriveManifestRepository)

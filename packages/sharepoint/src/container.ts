@@ -13,7 +13,10 @@ import {
   SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   SHAREPOINT_STATUS_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  THROTTLE_COORDINATOR_TOKEN,
 } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator } from '@wisecom/atlas-types';
+import { scope_connector_throttling } from '@wisecom/atlas-m365-graph';
 import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.adapter';
 import { S3SharePointManifestRepository } from '@/adapters/s3-sharepoint-manifest-repository.adapter';
 import { S3SharePointDeltaCursorRepository } from '@/adapters/s3-sharepoint-delta-cursor-repository.adapter';
@@ -35,7 +38,17 @@ export function bind_sharepoint(container: Container): void {
         'Call bind_s3_storage() first.',
     );
   }
-  container.bind(SHAREPOINT_CONNECTOR_TOKEN).to(GraphSharePointConnector).inSingletonScope();
+  container.bind(GraphSharePointConnector).toSelf().inSingletonScope();
+  container
+    .bind(SHAREPOINT_CONNECTOR_TOKEN)
+    .toDynamicValue((ctx) =>
+      scope_connector_throttling(
+        ctx.get(GraphSharePointConnector),
+        ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN),
+        'sharepoint_onedrive',
+      ),
+    )
+    .inSingletonScope();
   container
     .bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
     .to(S3SharePointManifestRepository)

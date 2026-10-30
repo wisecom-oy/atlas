@@ -57,19 +57,21 @@ Exports can stream instead of writing a file: `atlas.outlook.save(snapshotId, { 
 
 Pass `onStorageRequest` to receive one event per S3 request with its latency, connection-pool queueing, retries, payload size and outcome, for example to feed OpenTelemetry histograms. It works against any S3-compatible backend and never carries object keys, bucket names or hostnames. See [storage request events](https://wisecom-oy.github.io/atlas/reference/storage-request-events).
 
+Run one operation at a time per tenant unless your scheduler guarantees that no two operations touch the same mailbox, drive owner or site. When several processes work on one tenant, pass a `throttleCoordinator` so a Graph 429 seen by one process pauses the others. See [concurrent operations](https://wisecom-oy.github.io/atlas/reference/sdk#concurrent-operations).
+
 ## API overview
 
-| Namespace / method          | Purpose                                  |
-| --------------------------- | ---------------------------------------- |
-| `atlas.outlook`             | Mailbox backup, restore, verify, catalog |
-| `atlas.onedrive`            | OneDrive backup and verification         |
-| `atlas.sharepoint`          | SharePoint site backup and restore       |
-| `atlas.getBucketStats()`    | Storage statistics                       |
+| Namespace / method          | Purpose                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `atlas.outlook`             | Mailbox backup, restore, verify, catalog                                         |
+| `atlas.onedrive`            | OneDrive backup and verification                                                 |
+| `atlas.sharepoint`          | SharePoint site backup and restore                                               |
+| `atlas.getBucketStats()`    | Storage statistics                                                               |
 | `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
-| `atlas.checkStorage()`      | S3 Object Lock readiness                 |
-| `atlas.validate()`          | S3 access, existing key and Graph token validation |
-| `atlas.replicateSnapshot()` | Cross-region replication                 |
-| `createStorageTarget()`     | Configure secondary S3 targets           |
+| `atlas.checkStorage()`      | S3 Object Lock readiness                                                         |
+| `atlas.validate()`          | S3 access, existing key and Graph token validation                               |
+| `atlas.replicateSnapshot()` | Cross-region replication                                                         |
+| `createStorageTarget()`     | Configure secondary S3 targets                                                   |
 
 The SDK exports named public option/result types, error classes and `GRAPH_SERVICE_LIMITS`. Internal ports, DI tokens and container factories are not public API.
 

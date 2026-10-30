@@ -47,7 +47,7 @@ export function create_graph_client(auth_provider: TokenCredentialAuthentication
  *
  * `with_graph_retry` wraps every Graph call this client serves and is strictly
  * more capable: it honours Retry-After, adds jitter, retries network faults the
- * SDK handler ignores, and raises the global throttle fence. Leaving the SDK
+ * SDK handler ignores, and reports 429s to the throttle coordinator. Leaving the SDK
  * handler retrying as well multiplied the two budgets, so one logical call could
  * reach ~52 HTTP attempts, every one of them counted against the throttling
  * limits the backoff exists to respect. Retry lives in exactly one layer now,
