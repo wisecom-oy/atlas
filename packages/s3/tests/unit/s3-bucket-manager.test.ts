@@ -63,6 +63,42 @@ describe('s3-bucket-manager', () => {
     expect(mock_s3.send).toHaveBeenCalledTimes(2);
   });
 
+  it('uses a bucket a concurrent run created between the probe and the create (#551)', async () => {
+    mock_s3.send
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'BucketAlreadyOwnedByYou' }))
+      .mockResolvedValueOnce({});
+
+    await expect(ensure_bucket_exists(mock_s3 as never, 'raced', buckets)).resolves.toBeUndefined();
+
+    // Lifecycle rules are still applied: the 409 may be an SDK retry of this run's own create,
+    // in which case nobody else will. The put is idempotent and best-effort.
+    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    expect(mock_s3.send.mock.calls[2][0].input.LifecycleConfiguration).toBeDefined();
+    expect(buckets.is_bucket_checked('raced')).toBe(true);
+  });
+
+  it('uses a raced bucket on the plain-bucket fallback path too', async () => {
+    mock_s3.send
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotImplemented' }))
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'BucketAlreadyOwnedByYou' }))
+      .mockResolvedValueOnce({});
+
+    await expect(ensure_bucket_exists(mock_s3 as never, 'raced', buckets)).resolves.toBeUndefined();
+    expect(mock_s3.send).toHaveBeenCalledTimes(4);
+    expect(buckets.is_bucket_checked('raced')).toBe(true);
+  });
+
+  it('refuses a bucket name another account already owns', async () => {
+    mock_s3.send
+      .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))
+      .mockRejectedValueOnce(Object.assign(new Error('taken'), { name: 'BucketAlreadyExists' }));
+
+    await expect(ensure_bucket_exists(mock_s3 as never, 'taken', buckets)).rejects.toThrow('taken');
+    expect(buckets.is_bucket_checked('taken')).toBe(false);
+  });
+
   it('swallows lifecycle errors on unsupported backends', async () => {
     mock_s3.send
       .mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }))

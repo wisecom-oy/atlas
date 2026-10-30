@@ -180,7 +180,7 @@ Immutability requested, but bucket versioning is disabled for <bucket>. Enable b
 Immutability requested, but Object Lock is not supported or not enabled for bucket <bucket>.
 ```
 
-The bucket was created without Object Lock. Create a new bucket with Object Lock enabled and move the tenant to it. See the legacy bucket migration steps in [Storage](/self-hosting/storage).
+The bucket was created without Object Lock, and Atlas never enables it on an existing bucket. On AWS S3, a versioned bucket can be made lock-capable in place with `PutObjectLockConfiguration`, which cannot be undone. On MinIO and other backends that only allow it at creation, create a new bucket with Object Lock enabled and move the tenant to it. See [Bucket provisioning and Object Lock](/self-hosting/storage#bucket-provisioning-and-object-lock) and the legacy bucket migration steps in [Storage](/self-hosting/storage#migrating-a-legacy-bucket).
 
 ### Backend rejected the lock mode
 
@@ -241,6 +241,14 @@ The two messages mean different things:
 - **`is corrupt or tampered`** means the object failed AES-256-GCM authentication or JSON parsing (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Retrying does not help. Treat it as possible tampering first.
 
 To recover a damaged delta cursor, restore an earlier version from bucket versioning, or delete the cursor to force a full enumeration on the next run. For a damaged `identity-registry.json`, restore an earlier version and do not delete the object. The registry is the only record of departed users that Graph no longer resolves, so deleting it makes their backups impossible to find by address.
+
+### Identity registry kept changing
+
+```
+The identity registry at identity-registry.json changed on every one of 8 write attempts; too many writers are registering at once
+```
+
+Several runs for the same tenant were registering users at the same moment, and this run lost the compare-and-swap race on every attempt. Nothing was overwritten: each lost attempt re-reads the registry before trying again. The error is `StorageError` (`ATLAS_STORAGE_FAILURE`, exit `1`) and is safe to retry. If it recurs, start fewer runs at once for that tenant. See [Storage](/self-hosting/storage#the-identity-registry-under-concurrent-runs).
 
 ## See also
 

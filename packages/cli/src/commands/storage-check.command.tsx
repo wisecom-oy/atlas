@@ -3,7 +3,11 @@ import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { ObjectLockMode } from '@wisecom/atlas-types/ports/backup/use-case.port';
-import type { StorageCheckResult, StorageCheckUseCase } from '@wisecom/atlas-types';
+import type {
+  StorageCheckResult,
+  StorageCheckUseCase,
+  StorageDefaultRetention,
+} from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { with_object_lock, with_tenant } from '@/commands/shared-options';
 import { banner_title } from '@/ui/banner-title';
@@ -73,6 +77,9 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
     { label: 'Governance mode', value: result.mode_supported ? 'supported' : 'unsupported' },
     { label: 'Compliance mode', value: result.mode_supported ? 'supported' : 'unsupported' },
   ];
+  if (result.object_lock_enabled) {
+    items.push(describe_default_retention(result.default_retention));
+  }
   if (result.requested_mode) {
     items.push({ label: 'Requested mode', value: result.requested_mode });
   }
@@ -99,6 +106,21 @@ function classify_bucket(result: StorageCheckResult): { label: string; color: st
   if (result.object_lock_enabled) return { label: 'lock-capable', color: 'green' };
   if (result.versioning_enabled) return { label: 'versioned-only (legacy)', color: 'yellow' };
   return { label: 'unversioned (legacy)', color: 'red' };
+}
+
+/**
+ * Flags a bucket default retention. Atlas has not set one since 6.1.0, and a leftover default
+ * locks every write without its own retention, including the staging uploads Atlas deletes.
+ */
+function describe_default_retention(retention?: StorageDefaultRetention): KeyValueItem {
+  if (!retention) return { label: 'Default retention', value: 'none', color: 'green' };
+  const period =
+    retention.years !== undefined ? `${retention.years} years` : `${retention.days} days`;
+  return {
+    label: 'Default retention',
+    value: `${retention.mode} ${period} (not set by Atlas since 6.1.0; remove it)`,
+    color: 'yellow',
+  };
 }
 
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {

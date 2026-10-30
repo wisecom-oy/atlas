@@ -1,6 +1,7 @@
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ObjectLockRetainedError } from '@wisecom/atlas-types';
+import { S3ServiceException } from '@aws-sdk/client-s3';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import {
   ObjectLockUnsupportedError,
@@ -60,6 +61,33 @@ describe('S3ObjectStorage', () => {
       const cmd = mock_s3.send.mock.calls[0][0];
       expect(cmd.input.IfNoneMatch).toBe('*');
       expect(cmd.input.IfMatch).toBeUndefined();
+    });
+
+    it('throws PreconditionFailedError on a 409 ConditionalRequestConflict (#551)', async () => {
+      // S3 answers 409 rather than 412 when two conditional writes to one key arrive together.
+      // Both mean the same to a compare-and-swap loop: re-read and try again.
+      mock_s3.send.mockRejectedValueOnce(
+        new S3ServiceException({
+          name: 'ConditionalRequestConflict',
+          $fault: 'client',
+          $metadata: { httpStatusCode: 409 },
+        }),
+      );
+
+      await expect(
+        storage.put('k', Buffer.from('v'), undefined, undefined, '"etag"'),
+      ).rejects.toBeInstanceOf(PreconditionFailedError);
+    });
+
+    it('rethrows an unrelated 409 unchanged', async () => {
+      const err = new S3ServiceException({
+        name: 'OperationAborted',
+        $fault: 'client',
+        $metadata: { httpStatusCode: 409 },
+      });
+      mock_s3.send.mockRejectedValueOnce(err);
+
+      await expect(storage.put('k', Buffer.from('v'))).rejects.toBe(err);
     });
 
     it('throws PreconditionFailedError when a create-only write hits an existing key', async () => {
@@ -257,27 +285,37 @@ describe('S3ObjectStorage', () => {
     });
   });
 
-  describe('apply_default_retention', () => {
-    it('sets bucket default retention with mode and days', async () => {
-      mock_s3.send.mockResolvedValueOnce({});
+  describe('validate_object_lock_policy', () => {
+    const policy = { mode: 'COMPLIANCE' as const, retain_until: '2026-04-08T12:00:00.000Z' };
 
-      await storage.apply_default_retention('COMPLIANCE', 30);
+    it('passes on a lock-capable bucket without writing anything', async () => {
+      mock_s3.send
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ Status: 'Enabled' })
+        .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Enabled' } });
 
-      const cmd = mock_s3.send.mock.calls[0][0];
-      expect(cmd.constructor.name).toBe('PutObjectLockConfigurationCommand');
-      expect(cmd.input.ObjectLockConfiguration.Rule.DefaultRetention).toEqual({
-        Mode: 'COMPLIANCE',
-        Days: 30,
-      });
+      await expect(storage.validate_object_lock_policy(policy)).resolves.toBeUndefined();
+      const sent = mock_s3.send.mock.calls.map((c) => c[0].constructor.name);
+      expect(sent).not.toContain('PutObjectCommand');
+      expect(sent).not.toContain('PutObjectLockConfigurationCommand');
     });
 
-    it('maps InvalidBucketState to ObjectLockUnsupportedError', async () => {
-      const err = Object.assign(new Error('no lock'), { name: 'InvalidBucketState' });
-      mock_s3.send.mockRejectedValueOnce(err);
+    it('rejects a bucket without Object Lock', async () => {
+      mock_s3.send
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ Status: 'Enabled' })
+        .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Disabled' } });
 
-      await expect(storage.apply_default_retention('GOVERNANCE', 7)).rejects.toBeInstanceOf(
+      await expect(storage.validate_object_lock_policy(policy)).rejects.toBeInstanceOf(
         ObjectLockUnsupportedError,
       );
+    });
+
+    it('accepts a policy with no retain-until without probing', async () => {
+      await expect(
+        storage.validate_object_lock_policy({ mode: 'GOVERNANCE' }),
+      ).resolves.toBeUndefined();
+      expect(mock_s3.send).not.toHaveBeenCalled();
     });
   });
 });

@@ -5,24 +5,22 @@ import {
   GetObjectLockConfigurationCommand,
   HeadBucketCommand,
   PutBucketLifecycleConfigurationCommand,
-  PutObjectLockConfigurationCommand,
   type ObjectLockEnabled,
   type S3Client,
 } from '@aws-sdk/client-s3';
 import type {
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
-  StorageObjectLockMode,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
-import { ObjectLockUnsupportedError } from '@/adapters/object-lock.errors';
 import type { BucketCache } from '@/adapters/bucket-cache';
 
 /**
  * Ensures a bucket exists, creating it if necessary.
  * New buckets are created lock-capable (`ObjectLockEnabledForBucket: true`,
- * which implies versioning): on AWS and MinIO this is only possible at
- * creation time, and a lock-capable bucket without a retention config
+ * which implies versioning): MinIO only allows that at creation time, and
+ * AWS only later through a manual PutObjectLockConfiguration that Atlas
+ * never sends. A lock-capable bucket without a retention config
  * behaves exactly like a normal versioned bucket -- it merely keeps the
  * immutability door open (issue #30). Backends that reject the flag get a
  * plain bucket with a loud warning. New buckets also get best-effort
@@ -40,6 +38,10 @@ export async function ensure_bucket_exists(
   const exists = await bucket_exists(client, bucket);
   if (!exists) {
     await create_lock_capable_bucket(client, bucket);
+    // Applied whether or not this run's CreateBucket won. The put is a full replace and
+    // best-effort, and the other party may not be a concurrent run at all: an SDK retry of a
+    // CreateBucket whose response was lost sees the same BucketAlreadyOwnedByYou, and then nobody
+    // else is going to apply these rules.
     await apply_default_lifecycle(client, bucket);
   }
 
@@ -49,22 +51,49 @@ export async function ensure_bucket_exists(
 /**
  * Creates a bucket with Object Lock enabled, falling back to a plain bucket
  * only when the backend rejects the capability itself. The fallback warning
- * matters: a plain bucket can never gain Object Lock later (AWS requires a
- * support ticket, MinIO refuses outright) -- see the legacy-bucket migration
- * runbook in docs/self-hosting/storage.md.
+ * matters because Atlas never enables Object Lock on an existing bucket, so
+ * `--retention-days` then fails with `ObjectLockUnsupportedError`. MinIO
+ * only enables the lock at creation; AWS accepts PutObjectLockConfiguration
+ * on an existing versioned bucket, as a one-way manual step. See the
+ * legacy-bucket section in docs/self-hosting/storage.md.
  */
 async function create_lock_capable_bucket(client: S3Client, bucket: string): Promise<void> {
   try {
-    await client.send(
-      new CreateBucketCommand({ Bucket: bucket, ObjectLockEnabledForBucket: true }),
-    );
+    await create_unless_already_ours(client, bucket, true);
   } catch (err) {
     if (!is_lock_flag_rejection(err)) throw err;
     logger.warn(
       `Backend rejected Object Lock at creation for bucket "${bucket}" -- created without it. ` +
         `Immutability (--retention-days) will not work on this bucket.`,
     );
-    await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    await create_unless_already_ours(client, bucket, false);
+  }
+}
+
+/**
+ * Sends CreateBucket, accepting a bucket that already belongs to these
+ * credentials. Two runs bootstrapping a new tenant at once both see the
+ * bucket missing and both create it; the loser's `BucketAlreadyOwnedByYou`
+ * means the bucket it wanted now exists. `BucketAlreadyExists` still throws:
+ * that bucket belongs to another account, and writing tenant data beside it
+ * must not be attempted. Backends that answer a same-owner re-create with
+ * 200 (AWS us-east-1, Ceph RGW by default) never reach the catch.
+ */
+async function create_unless_already_ours(
+  client: S3Client,
+  bucket: string,
+  object_lock: boolean,
+): Promise<void> {
+  try {
+    await client.send(
+      new CreateBucketCommand({
+        Bucket: bucket,
+        ...(object_lock ? { ObjectLockEnabledForBucket: true } : {}),
+      }),
+    );
+  } catch (err) {
+    if ((err as { name?: string }).name !== 'BucketAlreadyOwnedByYou') throw err;
+    logger.info(`Bucket "${bucket}" already exists under these credentials; using it`);
   }
 }
 
@@ -230,36 +259,4 @@ function is_bucket_missing_error(err: unknown): boolean {
     message.includes('bucket does not exist') ||
     status_code === 404
   );
-}
-
-/**
- * Sets the bucket's Object Lock default retention so every new object version
- * inherits the lock - immutability as a bucket property that no write path
- * can forget. Requires a lock-capable bucket; throws
- * ObjectLockUnsupportedError when the bucket was created without Object Lock
- * (see the migration runbook in docs/self-hosting/storage.md).
- */
-export async function apply_bucket_default_retention(
-  client: S3Client,
-  bucket: string,
-  mode: StorageObjectLockMode,
-  retention_days: number,
-): Promise<void> {
-  try {
-    await client.send(
-      new PutObjectLockConfigurationCommand({
-        Bucket: bucket,
-        ObjectLockConfiguration: {
-          ObjectLockEnabled: 'Enabled',
-          Rule: { DefaultRetention: { Mode: mode, Days: retention_days } },
-        },
-      }),
-    );
-  } catch (err) {
-    const name = err instanceof Error ? err.name : '';
-    if (name === 'InvalidBucketState' || name === 'ObjectLockConfigurationNotFoundError') {
-      throw new ObjectLockUnsupportedError(bucket);
-    }
-    throw err;
-  }
 }

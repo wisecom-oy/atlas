@@ -107,7 +107,7 @@ Atlas applies these rules on a best-effort basis. If the backend does not suppor
 ## Operational notes
 
 - `--lock-mode compliance` is stronger, but it is hard to reverse. Start with `governance`.
-- On OneDrive and SharePoint backups, `--retention-days` is described as a default that "persists on the bucket". Treat it as a bucket-level setting, not a per-run one.
+- `--retention-days` applies to the objects one run writes. Atlas never changes the bucket's default retention. If `atlas storage-check` reports one, it was left by a version before 6.1.0 or set by hand; see [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
 - Check retained object counts after each delete attempt to understand your retention exposure.
 - Run `atlas storage-check` before each immutable backup campaign.
 

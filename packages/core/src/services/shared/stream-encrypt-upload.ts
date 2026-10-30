@@ -5,6 +5,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { ByteQueue } from '@/services/shared/byte-queue';
+import { UNLOCKED_STAGING_UPLOAD } from '@/services/shared/run-object-lock';
 import { logger } from '@/utils/logger';
 
 /**
@@ -125,6 +126,9 @@ interface PendingPartState {
  * intermediate part is exactly `PART_SIZE`, satisfying S3's 5 MB minimum for
  * non-final parts; only the highest-numbered part may be smaller.
  *
+ * The staging upload is never locked, even on a run that locks its writes: it is copied to its
+ * canonical key, which carries the lock, and then deleted (#556).
+ *
  * The caller owns the returned handle: nothing is completed or aborted here on
  * the success path, because the checksum is only known now and the caller may
  * still choose to abort as a deduplication hit.
@@ -141,7 +145,11 @@ export async function stream_encrypt_to_multipart(
   const { cipher, iv, header } = ctx.create_cipher(scope_key);
   const hash = createHash('sha256');
   const content_name = ctx.create_content_hmac();
-  const handle = await ctx.storage.begin_multipart_upload(staging_key);
+  const handle = await ctx.storage.begin_multipart_upload(
+    staging_key,
+    undefined,
+    UNLOCKED_STAGING_UPLOAD,
+  );
 
   try {
     const state: PendingPartState = {

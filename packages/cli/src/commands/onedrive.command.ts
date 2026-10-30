@@ -68,10 +68,7 @@ function register_onedrive_backup(group: Command, get_container: ContainerFactor
       '--folder <path>',
       'only back up this folder and its subfolders (e.g. /Projects); changing it forces a full crawl',
     );
-  with_object_lock(
-    command,
-    'apply Object Lock default retention for N days (persists on the bucket)',
-  );
+  with_object_lock(command, 'lock every object this run writes for N days');
   with_tenant(command).action((options: OneDriveBackupOptions) =>
     execute_onedrive_backup(get_container(), options),
   );

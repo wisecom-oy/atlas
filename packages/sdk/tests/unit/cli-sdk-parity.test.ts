@@ -27,7 +27,11 @@ const APP_PORT_EXTRAS: Record<string, true> = {
 };
 
 /** CLI-reachable capabilities the SDK cannot reach yet, each with its tracking issue. */
-const KNOWN_METHOD_GAPS: Record<string, string> = {};
+const KNOWN_METHOD_GAPS: Record<string, string> = {
+  // Name collision, not a gap: the CLI's `.update(` matches are its dashboard stores. Neither the
+  // CLI nor the SDK writes the registry directly; CachingIdentityResolver does, in both (#551).
+  'IdentityRegistryRepository.update': 'intentional',
+};
 
 /** DI tokens the CLI resolves and the SDK does not. */
 const KNOWN_TOKEN_GAPS: Record<string, string> = {

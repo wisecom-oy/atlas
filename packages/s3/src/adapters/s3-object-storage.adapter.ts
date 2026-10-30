@@ -18,13 +18,9 @@ import type {
   MultipartUploadHandle,
   StorageImmutabilityProbeRequest,
   StorageImmutabilityProbeResult,
-  StorageObjectLockMode,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import {
-  apply_bucket_default_retention,
-  probe_bucket_immutability,
-} from '@/adapters/s3-bucket-manager';
+import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import type { BucketCache } from '@/adapters/bucket-cache';
 import { abort_incomplete_multipart_uploads } from '@/adapters/s3-multipart-cleanup';
 import { S3MultipartUploadHandle } from '@/adapters/s3-multipart-upload-handle';
@@ -58,7 +54,7 @@ export class S3ObjectStorage implements ObjectStorage {
     if_match?: string,
     if_none_match?: boolean,
   ): Promise<void> {
-    await this.validate_immutability_policy(object_lock_policy);
+    await this.validate_object_lock_policy(object_lock_policy);
     const content_md5 = createHash('md5').update(data).digest('base64');
 
     try {
@@ -261,21 +257,13 @@ export class S3ObjectStorage implements ObjectStorage {
     return versions;
   }
 
-  /** Sets the bucket's Object Lock default retention (see s3-bucket-manager). */
-  async apply_default_retention(
-    mode: StorageObjectLockMode,
-    retention_days: number,
-  ): Promise<void> {
-    await apply_bucket_default_retention(this._client, this._bucket, mode, retention_days);
-  }
-
   /** Starts a multipart upload with optional metadata and object lock. */
   async begin_multipart_upload(
     key: string,
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<MultipartUploadHandle> {
-    await this.validate_immutability_policy(object_lock_policy);
+    await this.validate_object_lock_policy(object_lock_policy);
     try {
       const response = await this._client.send(
         new CreateMultipartUploadCommand({
@@ -316,7 +304,7 @@ export class S3ObjectStorage implements ObjectStorage {
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<void> {
-    await this.validate_immutability_policy(object_lock_policy);
+    await this.validate_object_lock_policy(object_lock_policy);
     try {
       await copy_object_server_side(this._client, {
         bucket: this._bucket,
@@ -348,7 +336,8 @@ export class S3ObjectStorage implements ObjectStorage {
     return swept.aborted;
   }
 
-  private async validate_immutability_policy(policy?: StorageObjectLockPolicy): Promise<void> {
+  /** Rejects unless the bucket can honour the policy; a policy without `retain_until` passes. */
+  async validate_object_lock_policy(policy?: StorageObjectLockPolicy): Promise<void> {
     if (!policy || !policy.retain_until) return;
     const probe = await this.probe_immutability({ mode: policy.mode });
     if (!probe.versioning_enabled) throw new ObjectLockVersioningDisabledError(this._bucket);

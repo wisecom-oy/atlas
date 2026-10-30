@@ -2,13 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import type {
   IdentityRegistry,
   IdentityRegistryEntry,
-  IdentityRegistryRepository,
   ResolvedUserIdentity,
   TenantContext,
   TenantContextFactory,
   UserIdentityResolver,
 } from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
+import { InMemoryIdentityRegistryRepository } from '@wisecom/atlas-types/testing/in-memory-identity-registry';
 import { CachingIdentityResolver } from '@/adapters/identity/caching-identity-resolver.adapter';
 
 /** A Graph SDK error carrying an HTTP status, the shape the resolver branches on. */
@@ -24,11 +24,12 @@ function make_graph_resolver(overrides: Partial<UserIdentityResolver> = {}): Use
   };
 }
 
-function make_registry_repo(initial_registry?: IdentityRegistry): IdentityRegistryRepository {
-  return {
-    load: vi.fn().mockResolvedValue(initial_registry ?? undefined),
-    save: vi.fn().mockResolvedValue(undefined),
-  };
+function make_registry_repo(
+  initial_registry?: IdentityRegistry,
+): InMemoryIdentityRegistryRepository {
+  const repo = new InMemoryIdentityRegistryRepository(initial_registry);
+  vi.spyOn(repo, 'load');
+  return repo;
 }
 
 function make_ctx_factory(): TenantContextFactory {
@@ -57,7 +58,7 @@ function make_entry(
 
 function build_resolver(params: { graph?: UserIdentityResolver; registry?: IdentityRegistry }): {
   resolver: CachingIdentityResolver;
-  registry_repo: IdentityRegistryRepository;
+  registry_repo: InMemoryIdentityRegistryRepository;
   graph: UserIdentityResolver;
 } {
   const graph = params.graph ?? make_graph_resolver();
@@ -89,7 +90,7 @@ describe('CachingIdentityResolver', () => {
       expect(result.object_id).toBe('obj-111');
       expect(result.display_name).toBe('Alice');
       expect(result.email).toBe('alice@company.com');
-      expect(registry_repo.save).toHaveBeenCalledTimes(1);
+      expect(registry_repo.writes).toBe(1);
     });
   });
 
@@ -104,7 +105,7 @@ describe('CachingIdentityResolver', () => {
 
     // Saving the in-memory list here would replace every stored entry (issue #438).
     await expect(resolver.resolve_user(TENANT, 'a@company.com')).rejects.toThrow('unreadable');
-    expect(registry_repo.save).not.toHaveBeenCalled();
+    expect(registry_repo.writes).toBe(0);
   });
 
   describe('resolve_user - Graph success, known user', () => {
@@ -125,7 +126,7 @@ describe('CachingIdentityResolver', () => {
       const result = await resolver.resolve_user(TENANT, 'alice@company.com');
 
       expect(result.object_id).toBe('obj-111');
-      expect(registry_repo.save).not.toHaveBeenCalled();
+      expect(registry_repo.writes).toBe(0);
     });
   });
 
@@ -147,10 +148,9 @@ describe('CachingIdentityResolver', () => {
       const result = await resolver.resolve_user(TENANT, 'john@company.com');
 
       expect(result.object_id).toBe('obj-new-john');
-      expect(registry_repo.save).toHaveBeenCalled();
+      expect(registry_repo.writes).toBe(1);
 
-      const saved_registry = (registry_repo.save as ReturnType<typeof vi.fn>).mock.calls;
-      const last_save = saved_registry[saved_registry.length - 1][1] as IdentityRegistry;
+      const last_save = registry_repo.stored as IdentityRegistry;
       const old_entry = last_save.entries.find((e) => e.object_id === 'obj-old-john');
       const new_entry = last_save.entries.find((e) => e.object_id === 'obj-new-john');
 
@@ -176,8 +176,7 @@ describe('CachingIdentityResolver', () => {
       const result = await resolver.resolve_user(TENANT, 'shared@company.com');
 
       expect(result.object_id).toBe('obj-3');
-      const saved_registry = (registry_repo.save as ReturnType<typeof vi.fn>).mock.calls;
-      const last_save = saved_registry[saved_registry.length - 1][1] as IdentityRegistry;
+      const last_save = registry_repo.stored as IdentityRegistry;
       const active_entries = last_save.entries.filter(
         (e) => e.email === 'shared@company.com' && e.status === 'active',
       );

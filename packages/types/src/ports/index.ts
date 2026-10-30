@@ -88,6 +88,7 @@ export type {
   StorageCheckUseCase,
   StorageCheckRequest,
   StorageCheckResult,
+  StorageDefaultRetention,
 } from './storage-check/use-case.port';
 
 export type { StatsUseCase } from './stats/use-case.port';
@@ -120,6 +121,7 @@ export type { DekValidationFn } from './replication/dek-validation.port';
 
 export type { StorageDisposer } from './storage/storage-disposer.port';
 export type * from './storage/storage-request-observer.port';
+export type * from './shared/throttle-coordinator.port';
 
 export type { AtlasInstanceConfig, AtlasInstance } from './atlas/use-case.port';
 export type { LogSink, LogFields } from './atlas/log-sink.port';
@@ -194,7 +196,10 @@ export type {
   ResolvedUserIdentity,
 } from './identity/user-identity-resolver.port';
 
-export type { IdentityRegistryRepository } from './identity/identity-registry-repository.port';
+export type {
+  IdentityRegistryRepository,
+  IdentityRegistryMutation,
+} from './identity/identity-registry-repository.port';
 
 export type {
   OneDriveConnector,
