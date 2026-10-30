@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ThrottledError } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { GraphUserIdentityResolver } from '@/graph-user-identity-resolver.adapter';
 
@@ -64,21 +65,60 @@ describe('GraphUserIdentityResolver.resolve_by_object_id', () => {
     },
   );
 
-  it.each([500, 502, 503, 504, 429])('rethrows a transient %i', async (status) => {
-    const client = make_client(() => Promise.reject(graph_error(status)));
-
-    await expect(
-      new GraphUserIdentityResolver(client).resolve_by_object_id('t', OBJECT_ID),
-    ).rejects.toMatchObject({ statusCode: status });
+  // Transient failures go through with_graph_retry (#551): retried with backoff, then rethrown when
+  // the budget runs out. Never read as "no such user".
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it('rethrows a network failure', async () => {
-    const err = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
-    const client = make_client(() => Promise.reject(err));
+  /** Runs a lookup to completion under fake timers and returns what it rejected with. */
+  async function exhausted(client: Client): Promise<unknown> {
+    vi.useFakeTimers();
+    const failure = new GraphUserIdentityResolver(client).resolve_by_object_id('t', OBJECT_ID).then(
+      () => 'resolved',
+      (e: unknown) => e,
+    );
+    await vi.runAllTimersAsync();
+    return failure;
+  }
 
-    await expect(
-      new GraphUserIdentityResolver(client).resolve_by_object_id('t', OBJECT_ID),
-    ).rejects.toThrow('socket hang up');
+  it.each([500, 502, 503, 504])('retries a transient %i, then rethrows it', async (status) => {
+    const get = vi.fn(() => Promise.reject(graph_error(status)));
+
+    expect(await exhausted(make_client(get))).toMatchObject({ statusCode: status });
+    expect(get).toHaveBeenCalledTimes(13);
+  });
+
+  it('retries a 429, then rethrows it as ThrottledError', async () => {
+    const get = vi.fn(() => Promise.reject(graph_error(429)));
+
+    const err = await exhausted(make_client(get));
+
+    expect(err).toBeInstanceOf(ThrottledError);
+    expect((err as ThrottledError).cause).toMatchObject({ statusCode: 429 });
+  });
+
+  it('retries a network failure, then rethrows it', async () => {
+    const err = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+
+    expect(await exhausted(make_client(() => Promise.reject(err)))).toBe(err);
+  });
+
+  it('recovers when a transient failure clears on retry', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn().mockRejectedValueOnce(graph_error(503)).mockResolvedValueOnce({
+      id: OBJECT_ID,
+      displayName: 'John Doe',
+      mail: 'john.doe@example.com',
+    });
+    const pending = new GraphUserIdentityResolver(make_client(get)).resolve_by_object_id(
+      't',
+      OBJECT_ID,
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toMatchObject({ object_id: OBJECT_ID });
+    expect(get).toHaveBeenCalledTimes(2);
   });
 
   it('rethrows a 403, since a missing grant is not a missing user', async () => {

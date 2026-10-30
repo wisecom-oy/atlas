@@ -3,7 +3,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import type { UserIdentityResolver, ResolvedUserIdentity } from '@wisecom/atlas-types';
 import { GRAPH_CLIENT_TOKEN } from '@/graph-client.factory';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import { describe_graph_error, is_retryable_error } from '@/graph-request-error-handler';
+import { describe_graph_error, with_graph_retry } from '@/graph-request-error-handler';
 import { parse_user_page } from '@/graph-user-page';
 
 const USER_FIELDS = 'id,displayName,mail,userPrincipalName';
@@ -67,20 +67,29 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
     };
   }
 
+  // Every lookup goes through with_graph_retry: it is the one layer that retries a 429 or 5xx and
+  // reports each 429 to the ambient throttle coordinator. These calls used to bypass it, so a
+  // throttled lookup failed the whole operation and no other request ever heard about it (#551).
+  // A 404 or 403 is not retryable and comes back unchanged, so the callers' branching still holds.
+
   private async get_user_by_upn(upn: string): Promise<GraphUserRecord> {
-    const raw: unknown = await this._client
-      .api(`/users/${encodeURIComponent(upn)}`)
-      .select(USER_FIELDS)
-      .get();
+    const raw: unknown = await with_graph_retry(() =>
+      this._client
+        .api(`/users/${encodeURIComponent(upn)}`)
+        .select(USER_FIELDS)
+        .get(),
+    );
     return parse_user_record(raw);
   }
 
   private async find_user_by_mail(mail: string): Promise<GraphUserRecord | undefined> {
-    const raw: unknown = await this._client
-      .api('/users')
-      .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
-      .select(USER_FIELDS)
-      .get();
+    const raw: unknown = await with_graph_retry(() =>
+      this._client
+        .api('/users')
+        .filter(`mail eq '${mail.replaceAll("'", "''")}'`)
+        .select(USER_FIELDS)
+        .get(),
+    );
     return parse_user_page(raw).users.map(parse_user_record)[0];
   }
 
@@ -89,19 +98,21 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
    *
    * Only a 404 means "no such object". A 5xx or a dropped socket means Graph could not answer, and
    * collapsing that into the same undefined told callers a user does not exist because the service
-   * was briefly unavailable (issue #202). Those rethrow so the caller can retry or report. Anything
-   * else rethrows too: a 403 is a missing `User.Read.All` grant, which would otherwise degrade
-   * every identity lookup in the tenant to a silent nothing that looks exactly like a typo.
+   * was briefly unavailable (issue #202). Those are retried, then rethrown if the budget runs out.
+   * Anything else rethrows too: a 403 is a missing `User.Read.All` grant, which would otherwise
+   * degrade every identity lookup in the tenant to a silent nothing that looks exactly like a typo.
    */
   async resolve_by_object_id(
     _tenant_id: string,
     object_id: string,
   ): Promise<ResolvedUserIdentity | undefined> {
     try {
-      const raw: unknown = await this._client
-        .api(`/users/${encodeURIComponent(object_id)}`)
-        .select('id,displayName,mail,userPrincipalName')
-        .get();
+      const raw: unknown = await with_graph_retry(() =>
+        this._client
+          .api(`/users/${encodeURIComponent(object_id)}`)
+          .select('id,displayName,mail,userPrincipalName')
+          .get(),
+      );
       const response = parse_user_record(raw);
       return {
         object_id: response.id,
@@ -109,7 +120,8 @@ export class GraphUserIdentityResolver implements UserIdentityResolver {
         email: response.mail ?? response.userPrincipalName ?? '',
       };
     } catch (err) {
-      if (is_retryable_error(err)) throw err;
+      // An exhausted 429 arrives as ThrottledError, and other exhausted failures keep their status,
+      // so only a genuine 404 reaches the undefined below.
       if ((err as Record<string, unknown>).statusCode !== 404) throw err;
 
       logger.debug(`Graph has no user for object ID ${object_id}: ${describe_graph_error(err)}`);
