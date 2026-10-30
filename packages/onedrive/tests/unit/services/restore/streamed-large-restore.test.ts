@@ -142,7 +142,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('streamed large restore (issue #343)', () => {
+// Each case generates, encrypts and streams 48 MiB, which takes well past vitest's 5 s default
+// while the rest of the workspace is testing in parallel.
+const LARGE_OBJECT_TIMEOUT_MS = 60_000;
+
+describe('streamed large restore (issue #343)', { timeout: LARGE_OBJECT_TIMEOUT_MS }, () => {
   it('uploads the object without ever holding it whole', async () => {
     const harness = stored_object();
     const session = stub_session(harness);

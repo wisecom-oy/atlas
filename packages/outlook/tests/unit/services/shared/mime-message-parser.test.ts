@@ -235,9 +235,10 @@ describe('parse_mime_message', () => {
   // in a mailbox was minutes of pegged CPU.
   //
   // Scaling, not a wall-clock budget: an absolute bound fails when the whole workspace runs
-  // vitest in parallel. Quadruple the input and quadratic work grows about 16x while linear
-  // work grows about 2x once fixed overhead is counted, and both samples run under the same
-  // machine load, so the ratio survives a contended runner.
+  // vitest in parallel. Quadrupling the input costs about 4x on the linear parser and about 30x
+  // on nodemailer 9.0.6, so the bound of 12 sits near the geometric middle. Each size keeps the
+  // fastest of three interleaved runs after a warmup, because a single sample of the 12.5k
+  // header is a few tens of milliseconds and one preemption doubles it.
   //
   // 50k, not more: mailsplit abandons a header block past its 1 MiB MAX_HEAD_SIZE, and
   // 'a@corp.example.com,' * 50000 is 928 KB, the largest round number that still parses.
@@ -253,10 +254,15 @@ describe('parse_mime_message', () => {
       return performance.now() - started;
     };
 
-    const small_ms = await parse_duration_ms(12_500);
-    const large_ms = await parse_duration_ms(50_000);
+    await parse_duration_ms(12_500);
+    let small_ms = Number.POSITIVE_INFINITY;
+    let large_ms = Number.POSITIVE_INFINITY;
+    for (let run = 0; run < 3; run++) {
+      small_ms = Math.min(small_ms, await parse_duration_ms(12_500));
+      large_ms = Math.min(large_ms, await parse_duration_ms(50_000));
+    }
 
-    expect(large_ms / small_ms).toBeLessThan(8);
+    expect(large_ms / small_ms).toBeLessThan(12);
   }, 30_000);
 
   // Past mailsplit's 1 MiB MAX_HEAD_SIZE the header block is abandoned: no headerLines, no
