@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ObjectStorage, TenantContext } from '@wisecom/atlas-types';
-import { lock_run_writes, ObjectLockingStorage } from '@/services/shared/run-object-lock';
+import {
+  lock_run_writes,
+  ObjectLockingStorage,
+  UNLOCKED_STAGING_UPLOAD,
+} from '@/services/shared/run-object-lock';
 
 function make_storage(): ObjectStorage {
   return {
@@ -47,6 +51,29 @@ describe('ObjectLockingStorage', () => {
     await new ObjectLockingStorage(inner, POLICY).put('a', Buffer.from('x'), undefined, own);
 
     expect(vi.mocked(inner.put).mock.calls[0]?.[3]).toBe(own);
+  });
+
+  it('starts a multipart upload without a lock when the staging opt-out is passed', async () => {
+    const inner = make_storage();
+
+    await new ObjectLockingStorage(inner, POLICY).begin_multipart_upload(
+      'staging',
+      undefined,
+      UNLOCKED_STAGING_UPLOAD,
+    );
+
+    expect(inner.begin_multipart_upload).toHaveBeenCalledWith('staging', undefined);
+  });
+
+  it('locks a put or copy that passes the staging opt-out', async () => {
+    const inner = make_storage();
+    const locked = new ObjectLockingStorage(inner, POLICY);
+
+    await locked.put('a', Buffer.from('x'), undefined, UNLOCKED_STAGING_UPLOAD);
+    await locked.copy('src', 'dst', undefined, UNLOCKED_STAGING_UPLOAD);
+
+    expect(vi.mocked(inner.put).mock.calls[0]?.[3]).toBe(POLICY);
+    expect(vi.mocked(inner.copy).mock.calls[0]?.[3]).toBe(POLICY);
   });
 
   it('passes reads and deletes through unchanged', async () => {
