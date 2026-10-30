@@ -12,6 +12,17 @@ import type {
 import { compute_retain_until_utc } from '@/services/shared/object-lock-policy';
 
 /**
+ * Policy the staging multipart upload passes to opt out of the run's lock, compared by identity.
+ *
+ * A staging object is copied to its content-addressed key and deleted, so a lock on it only keeps a
+ * second locked copy of every large file for the whole retention period (#556). The canonical copy
+ * carries the lock. {@link ObjectLockingStorage} honours this value on `begin_multipart_upload`
+ * only; a put or copy that passes it still gets the run's policy. An undecorated storage reads it
+ * as a policy without `retain_until`, which writes no lock.
+ */
+export const UNLOCKED_STAGING_UPLOAD: StorageObjectLockPolicy = Object.freeze({});
+
+/**
  * Returns a context whose writes all carry the run's Object Lock policy, or `ctx` unchanged when no
  * retention was requested. Rejects before anything is written when the bucket cannot lock.
  *
@@ -35,8 +46,9 @@ export async function lock_run_writes(
 
 /**
  * Storage decorator that applies one Object Lock policy to every object it creates: puts, copies
- * and multipart uploads. A caller that passes its own policy keeps it. Reads and deletes pass
- * through unchanged.
+ * and multipart uploads. A caller that passes its own policy keeps it, except that
+ * {@link UNLOCKED_STAGING_UPLOAD} only unlocks a multipart upload. Reads and deletes pass through
+ * unchanged.
  */
 export class ObjectLockingStorage implements ObjectStorage {
   constructor(
@@ -53,17 +65,27 @@ export class ObjectLockingStorage implements ObjectStorage {
     if_match?: string,
     if_none_match?: boolean,
   ): Promise<void> {
-    const policy = object_lock_policy ?? this._policy;
+    const policy = this.resolvePolicy(object_lock_policy);
     return this._inner.put(key, data, metadata, policy, if_match, if_none_match);
   }
 
-  /** Starts a multipart upload with the run's policy unless the caller supplied one. */
+  /**
+   * Starts a multipart upload with the run's policy unless the caller supplied one. The staging
+   * opt-out starts it without a lock.
+   */
   begin_multipart_upload(
     key: string,
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<MultipartUploadHandle> {
-    return this._inner.begin_multipart_upload(key, metadata, object_lock_policy ?? this._policy);
+    if (object_lock_policy === UNLOCKED_STAGING_UPLOAD) {
+      return this._inner.begin_multipart_upload(key, metadata);
+    }
+    return this._inner.begin_multipart_upload(
+      key,
+      metadata,
+      this.resolvePolicy(object_lock_policy),
+    );
   }
 
   /** Copies with the run's policy unless the caller supplied one. */
@@ -73,7 +95,8 @@ export class ObjectLockingStorage implements ObjectStorage {
     metadata?: Record<string, string>,
     object_lock_policy?: StorageObjectLockPolicy,
   ): Promise<void> {
-    return this._inner.copy(source_key, dest_key, metadata, object_lock_policy ?? this._policy);
+    const policy = this.resolvePolicy(object_lock_policy);
+    return this._inner.copy(source_key, dest_key, metadata, policy);
   }
 
   /** Reads an object. */
@@ -126,6 +149,12 @@ export class ObjectLockingStorage implements ObjectStorage {
   /** Rejects unless the bucket can honour `policy`. */
   validate_object_lock_policy(policy: StorageObjectLockPolicy): Promise<void> {
     return this._inner.validate_object_lock_policy(policy);
+  }
+
+  /** Picks the caller's policy, or the run's when none was given or the staging opt-out was. */
+  private resolvePolicy(object_lock_policy?: StorageObjectLockPolicy): StorageObjectLockPolicy {
+    if (!object_lock_policy || object_lock_policy === UNLOCKED_STAGING_UPLOAD) return this._policy;
+    return object_lock_policy;
   }
 
   /** Lists keys under a prefix last modified before `older_than`. */
