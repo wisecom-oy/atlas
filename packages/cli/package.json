@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-cli",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "CLI for Atlas: secure Microsoft 365 backup and restore to S3-compatible storage.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
@@ -46,7 +46,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
-    "@azure/identity": "^4.13.2",
+    "@azure/identity": "^4.14.1",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "commander": "^15.0.0",
     "archiver": "^8.0.0",

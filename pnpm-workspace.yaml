@@ -4,21 +4,29 @@ packages:
 
 minimumReleaseAge: 1440
 
+# @azure/identity 4.14.1 is the first release on @azure/msal-node ^7.1.0, which
+# fixes GHSA-xcx6-jx8p-x3h5 (#566). Pinned to the exact version so the gate
+# still applies to every other identity release.
+minimumReleaseAgeExclude:
+  - '@azure/identity@4.14.1'
+
 overrides:
   flatted: 3.4.2
   fast-xml-parser: 5.7.2
-  vite: ^6.4.3
+  vite: ^6.4.5
   'esbuild@<0.25.0': ^0.25.0
   'esbuild@>=0.27.3 <0.28.1': ^0.28.1
-  'shell-quote@<1.8.4': ^1.8.4
-  'qs@<6.15.2': ^6.15.2
+  'shell-quote@<1.11.0': ^1.11.0
+  'qs@<6.16.1': ^6.16.1
   'postcss@<8.5.10': ^8.5.10
   'postcss@<=8.5.22': ^8.5.23
   'brace-expansion@<1.1.21': ^1.1.21
   'brace-expansion@>=2.0.0 <2.1.4': ^2.1.4
   'brace-expansion@>=5.0.0 <5.0.12': ^5.0.12
-  'fast-uri@>=3.0.0 <3.1.8': ^3.1.8
+  'fast-uri@>=3.0.0 <3.1.9': ^3.1.9
   'd3-color@>=1.0.2 <3.1.0': ^3.1.0
   'picomatch@<2.3.2': ^2.3.2
   'picomatch@>=4.0.0 <4.0.4': ^4.0.4
   'defu@<6.1.5': ^6.1.5
+  'source-map-js@<1.2.2': ^1.2.2
+  'pbkdf2@<3.1.7': ^3.1.7

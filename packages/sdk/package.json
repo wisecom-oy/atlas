@@ -1,6 +1,6 @@
 {
   "name": "@wisecom/atlas-sdk",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "Programmatic API for embedding Atlas M365 backup and restore in Node.js applications.",
   "license": "Apache-2.0",
   "author": "Wisecom Oy <https://wisecom.fi>",
@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
-    "@azure/identity": "^4.13.2",
+    "@azure/identity": "^4.14.1",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "archiver": "^8.0.0",
     "dotenv": "^17.4.2",
