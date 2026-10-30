@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
-    "@azure/identity": "^4.13.2",
+    "@azure/identity": "^4.14.1",
     "@microsoft/microsoft-graph-client": "^3.0.7",
     "archiver": "^8.0.0",
     "dotenv": "^17.4.2",

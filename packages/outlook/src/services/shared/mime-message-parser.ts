@@ -39,8 +39,7 @@ export interface ParsedMimeMessage {
 export async function parse_mime_message(mime: Buffer): Promise<ParsedMimeMessage> {
   // cid: links are kept so the attachments the body references can be identified, then inlined
   // as data: URIs below exactly as simpleParser does by default (issue #474).
-  const parsed: ParsedMail = await simpleParser(mime, { keepCidLinks: true });
-  assert_header_block_parsed(parsed, mime);
+  const parsed = await parse_with_readable_header_block(mime);
   const from = flatten_addresses(parsed.from)[0];
   const html = typeof parsed.html === 'string' ? parsed.html : undefined;
   const referenced_cids = new Set([...(html ?? '').matchAll(CID_LINK)].map((m) => m[1]!));
@@ -107,26 +106,45 @@ function read_date_header(parsed: ParsedMail): Date | undefined {
 }
 
 /**
- * Rejects a message whose header block mailsplit refused to parse.
+ * Runs `simpleParser` and rejects a message whose header block mailsplit refused to parse.
  *
  * Past its 1 MiB `MAX_HEAD_SIZE` (`@zone-eu/mailsplit/lib/message-splitter.js`), mailsplit
- * abandons the block and `simpleParser` returns no `headerLines`, no `headers`, no addresses and
- * no subject. `flatten_header_lines` then read `.map` off `undefined` and the restore reported
- * `TypeError: Cannot read properties of undefined (reading 'map')` next to a message id, which
- * told an operator nothing about the cause (issue #411).
+ * abandons the block. Up to mailsplit 5.4.17 `simpleParser` then resolved with no `headerLines`,
+ * no addresses and no subject, and `flatten_header_lines` reported `TypeError: Cannot read
+ * properties of undefined (reading 'map')`, which told an operator nothing (issue #411). From
+ * 5.4.29 it rejects with an `EMAXLEN` error instead (issue #566). Both shapes become the same
+ * classifiable error.
  *
  * Failing is the deliberate answer rather than restoring what did parse. Every address, the
  * subject, the date and every header line are gone, so a body-only restore would put a message
  * in the mailbox that is not the one that was backed up, and it would look like a success. The
  * restore already isolates a failed entry and carries on with the rest, so the cost of failing
  * is one reported message rather than the run.
- *
- * Only the size cap produces this: an empty buffer, a garbage buffer and a body-only message all
- * still parse to one header line.
  */
-function assert_header_block_parsed(parsed: ParsedMail, mime: Buffer): void {
-  if (parsed.headerLines !== undefined) return;
-  throw new UnreadableContentError(
+async function parse_with_readable_header_block(mime: Buffer): Promise<ParsedMail> {
+  let parsed: ParsedMail;
+  try {
+    parsed = await simpleParser(mime, { keepCidLinks: true });
+  } catch (err) {
+    if (is_header_size_rejection(err)) throw build_header_block_error(mime);
+    throw err;
+  }
+  if (parsed.headerLines === undefined) throw build_header_block_error(mime);
+  return parsed;
+}
+
+/** Whether mailsplit rejected the message because a header block exceeded its size limit. */
+function is_header_size_rejection(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err as Error & { code?: unknown }).code === 'EMAXLEN' &&
+    /header size/i.test(err.message)
+  );
+}
+
+/** Builds the error reported for a message whose header block is over the parser's limit. */
+function build_header_block_error(mime: Buffer): UnreadableContentError {
+  return new UnreadableContentError(
     `The message header block exceeds the 1 MiB limit the MIME parser enforces, so none of the ` +
       `headers could be read (message size ${mime.length} bytes). The message is stored and ` +
       `intact; it cannot be restored, because its addresses, subject and headers are ` +
