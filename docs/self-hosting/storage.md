@@ -246,6 +246,20 @@ Add a bucket policy that blocks overwrites of the key object, so a buggy or outd
 Older MinIO releases, some Ceph RGW versions, and various emulators silently ignore unknown conditional headers. On those backends the create-only guarantee does not hold. Test it by writing the same key twice with `If-None-Match: *`. The second write must fail with 412. After bootstrap, Atlas also reads back the stored key and uses it, so concurrent bootstraps still converge when the header is ignored.
 :::
 
+## The identity registry under concurrent runs
+
+```
+identity-registry.json  # one per tenant bucket, encrypted
+```
+
+Backups record every user they resolve by email in one tenant-wide object, `identity-registry.json`. It is the only record of departed users that Graph no longer resolves. Several backups of the same tenant can run at once, and each may register users, so every write is a compare-and-swap:
+
+- The first registry is written create-only (`If-None-Match: *`).
+- Every later write carries the ETag the registry was read at (`If-Match`).
+- On `412 Precondition Failed`, Atlas re-reads the registry, re-applies its own change on top of the other writer's, and tries again. It makes 8 attempts with a short jittered pause before failing the run with `ATLAS_STORAGE_FAILURE`.
+
+A backend that ignores `If-Match` degrades this to last writer wins, and concurrent runs can then drop each other's new entries. Test it the same way as above: overwrite an object with `If-Match` set to a stale ETag. The write must fail with 412. If it does not, run one backup per tenant at a time.
+
 ## Object layout and billable sizes
 
 Some providers bill each object at a minimum size, even when it is smaller. A drive with 20,000 files carries roughly 8 MB of version index data. Stored as one object per file, which older Atlas versions did, a 64 KB minimum bills those 8 MB as about 1.28 GB per month. Stored as one object per backup run, the minimum applies once.

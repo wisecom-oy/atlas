@@ -37,7 +37,7 @@ function build_resolver(overrides: { registry_repo?: Partial<IdentityRegistryRep
   };
   const registry_repo: IdentityRegistryRepository = {
     load: vi.fn().mockResolvedValue(undefined),
-    save: vi.fn().mockResolvedValue(undefined),
+    update: vi.fn(async (_ctx, mutate) => mutate(undefined)),
     ...overrides.registry_repo,
   };
   const { factory, destroys } = make_counting_ctx_factory();
@@ -45,22 +45,22 @@ function build_resolver(overrides: { registry_repo?: Partial<IdentityRegistryRep
 }
 
 describe('CachingIdentityResolver context lifecycle (issue #436)', () => {
-  it('destroys the load and save contexts when resolve_user registers a new identity', async () => {
+  it('destroys the load and update contexts when resolve_user registers a new identity', async () => {
     const { resolver, destroys } = build_resolver({});
 
     await expect(resolver.resolve_user(TENANT, IDENTITY.email)).resolves.toEqual(IDENTITY);
 
-    // One context for ensure_loaded, one for persist.
+    // One context for ensure_loaded, one for the registry update.
     expect(destroys).toHaveLength(2);
     for (const destroy of destroys) expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  it('destroys the save context when persisting the registry fails', async () => {
+  it('destroys the update context when updating the registry fails', async () => {
     const { resolver, destroys } = build_resolver({
-      registry_repo: { save: vi.fn().mockRejectedValue(new Error('save failed')) },
+      registry_repo: { update: vi.fn().mockRejectedValue(new Error('update failed')) },
     });
 
-    await expect(resolver.resolve_user(TENANT, IDENTITY.email)).rejects.toThrow('save failed');
+    await expect(resolver.resolve_user(TENANT, IDENTITY.email)).rejects.toThrow('update failed');
 
     expect(destroys).toHaveLength(2);
     for (const destroy of destroys) expect(destroy).toHaveBeenCalledTimes(1);
