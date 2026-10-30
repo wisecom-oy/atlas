@@ -13,6 +13,11 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import {
+  merge_active_identity,
+  normalize_registry_email,
+  type IdentityMergeOutcome,
+} from '@/adapters/identity/identity-registry-merge';
 
 export const GRAPH_IDENTITY_RESOLVER_TOKEN = Symbol.for('GraphIdentityResolver');
 
@@ -33,9 +38,9 @@ export const GRAPH_IDENTITY_RESOLVER_TOKEN = Symbol.for('GraphIdentityResolver')
 export class CachingIdentityResolver implements UserIdentityResolver {
   private _active_by_email = new Map<string, IdentityRegistryEntry>();
   private _by_object_id = new Map<string, IdentityRegistryEntry>();
-  private _all_entries: IdentityRegistryEntry[] = [];
   private _tenant_id: string | undefined;
   private _loaded = false;
+  private _loading: { tenant_id: string; promise: Promise<void> } | undefined;
 
   constructor(
     @inject(GRAPH_IDENTITY_RESOLVER_TOKEN)
@@ -48,17 +53,15 @@ export class CachingIdentityResolver implements UserIdentityResolver {
 
   async resolve_user(tenant_id: string, email: string): Promise<ResolvedUserIdentity> {
     await this.ensure_loaded(tenant_id);
-    const normalized = email.toLowerCase().trim();
+    const normalized = normalize_registry_email(email);
 
     const graph = await this.try_graph_resolve(tenant_id, email);
 
     if ('identity' in graph) {
       const graph_result = graph.identity;
       const active = this._active_by_email.get(normalized);
-      if (active && active.object_id !== graph_result.object_id) {
-        await this.handle_recycled_email(tenant_id, active, graph_result);
-      } else if (!active) {
-        await this.register_new_entry(tenant_id, graph_result);
+      if (active?.object_id !== graph_result.object_id) {
+        await this.register_identity(tenant_id, graph_result);
       }
       return graph_result;
     }
@@ -119,56 +122,34 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     }
   }
 
-  private async handle_recycled_email(
-    tenant_id: string,
-    old_entry: IdentityRegistryEntry,
-    new_identity: ResolvedUserIdentity,
-  ): Promise<void> {
-    logger.warn(
-      `Email recycling detected: "${old_entry.email}" now belongs to ` +
-        `${new_identity.object_id} (was ${old_entry.object_id}). ` +
-        `Old entry marked as recycled.`,
-    );
-
-    const recycled: IdentityRegistryEntry = { ...old_entry, status: 'recycled' };
-    this.replace_entry(old_entry.object_id, recycled);
-    this._active_by_email.delete(old_entry.email.toLowerCase().trim());
-
-    await this.register_new_entry(tenant_id, new_identity);
-  }
-
-  private async register_new_entry(
+  /**
+   * Makes `identity` the active entry for its email in the stored registry, then reindexes from
+   * what is stored. Merged against storage rather than this instance's copy, so a registration
+   * another process made since this one loaded is kept rather than overwritten.
+   */
+  private async register_identity(
     tenant_id: string,
     identity: ResolvedUserIdentity,
   ): Promise<void> {
-    const entry: IdentityRegistryEntry = {
-      object_id: identity.object_id,
-      email: identity.email.toLowerCase().trim(),
-      display_name: identity.display_name,
-      registered_at: new Date().toISOString(),
-      status: 'active',
-    };
-    this._all_entries.push(entry);
-    this._active_by_email.set(entry.email, entry);
-    this._by_object_id.set(entry.object_id, entry);
-
-    await this.persist(tenant_id);
-    logger.info(`Identity registered: ${entry.email} -> ${entry.object_id}`);
-  }
-
-  private replace_entry(object_id: string, updated: IdentityRegistryEntry): void {
-    const idx = this._all_entries.findIndex((e) => e.object_id === object_id);
-    if (idx >= 0) this._all_entries[idx] = updated;
-    this._by_object_id.set(object_id, updated);
-  }
-
-  private async persist(tenant_id: string): Promise<void> {
+    let outcome: IdentityMergeOutcome = { kind: 'unchanged' };
     const ctx = await this._ctx_factory.create(tenant_id);
+    let stored: IdentityRegistry | undefined;
     try {
-      await this._registry_repo.save(ctx, { tenant_id, entries: this._all_entries });
+      stored = await this._registry_repo.update(ctx, (current) => {
+        const merged = merge_active_identity(
+          current,
+          tenant_id,
+          identity,
+          new Date().toISOString(),
+        );
+        outcome = merged.outcome;
+        return merged.outcome.kind === 'unchanged' ? undefined : merged.registry;
+      });
     } finally {
       ctx.destroy();
     }
+    this.index_registry(stored);
+    log_registration(identity, outcome);
   }
 
   private async load_registry(tenant_id: string): Promise<IdentityRegistry | undefined> {
@@ -180,24 +161,52 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     }
   }
 
+  /**
+   * Loads the registry once per tenant. Concurrent first callers share one in-flight load: two
+   * separate loads would each reset the index, and the second could drop an entry the first
+   * caller had just registered.
+   */
   private async ensure_loaded(tenant_id: string): Promise<void> {
     if (this._loaded && this._tenant_id === tenant_id) return;
-    const registry = await this.load_registry(tenant_id);
-    this._active_by_email.clear();
-    this._by_object_id.clear();
-    this._all_entries = [];
-
-    if (registry) {
-      this._all_entries = [...registry.entries];
-      for (const entry of registry.entries) {
-        this._by_object_id.set(entry.object_id, entry);
-        if (entry.status === 'active') {
-          this._active_by_email.set(entry.email.toLowerCase().trim(), entry);
-        }
-      }
+    if (this._loading?.tenant_id !== tenant_id) {
+      const promise = this.load_and_index(tenant_id).finally(() => {
+        if (this._loading?.promise === promise) this._loading = undefined;
+      });
+      this._loading = { tenant_id, promise };
     }
+    await this._loading.promise;
+  }
 
+  private async load_and_index(tenant_id: string): Promise<void> {
+    const registry = await this.load_registry(tenant_id);
+    this.index_registry(registry);
     this._tenant_id = tenant_id;
     this._loaded = true;
+  }
+
+  /** Rebuilds the lookup maps from a registry as stored. */
+  private index_registry(registry: IdentityRegistry | undefined): void {
+    this._active_by_email.clear();
+    this._by_object_id.clear();
+    for (const entry of registry?.entries ?? []) {
+      this._by_object_id.set(entry.object_id, entry);
+      if (entry.status === 'active') {
+        this._active_by_email.set(normalize_registry_email(entry.email), entry);
+      }
+    }
+  }
+}
+
+/** Reports what a registration changed; nothing when another writer had already made it. */
+function log_registration(identity: ResolvedUserIdentity, outcome: IdentityMergeOutcome): void {
+  const email = normalize_registry_email(identity.email);
+  if (outcome.kind === 'recycled') {
+    logger.warn(
+      `Email recycling detected: "${email}" now belongs to ${identity.object_id} ` +
+        `(was ${outcome.previous_object_id}). Old entry marked as recycled.`,
+    );
+  }
+  if (outcome.kind !== 'unchanged') {
+    logger.info(`Identity registered: ${email} -> ${identity.object_id}`);
   }
 }
