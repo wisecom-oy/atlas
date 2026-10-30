@@ -3,6 +3,7 @@
 // carries a folder scope and a per-drive delta cursor. Unifying them means a parameter per
 // branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
@@ -78,16 +79,11 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       finish_operation_progress(options, 'backup', 'sharepoint', 0, 0);
       return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      if (options.object_lock_request?.retention_days) {
-        // Bucket default retention: every new object version (files, versions,
-        // manifests, cursors) inherits the lock - no write path can forget it.
-        await ctx.storage.apply_default_retention(
-          options.object_lock_request.mode ?? 'GOVERNANCE',
-          options.object_lock_request.retention_days,
-        );
-      }
+      // Per-object retention carried by this run's context, not the bucket default: concurrent
+      // runs on one tenant would overwrite each other's bucket setting (#551).
+      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, site_id);
       const previous_cursor = options.force_full === true ? undefined : stored_cursor;
       const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
@@ -221,7 +217,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       });
       return result;
     } finally {
-      ctx.destroy();
+      tenant_ctx.destroy();
     }
   }
 

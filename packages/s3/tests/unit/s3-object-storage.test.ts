@@ -285,27 +285,37 @@ describe('S3ObjectStorage', () => {
     });
   });
 
-  describe('apply_default_retention', () => {
-    it('sets bucket default retention with mode and days', async () => {
-      mock_s3.send.mockResolvedValueOnce({});
+  describe('validate_object_lock_policy', () => {
+    const policy = { mode: 'COMPLIANCE' as const, retain_until: '2026-04-08T12:00:00.000Z' };
 
-      await storage.apply_default_retention('COMPLIANCE', 30);
+    it('passes on a lock-capable bucket without writing anything', async () => {
+      mock_s3.send
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ Status: 'Enabled' })
+        .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Enabled' } });
 
-      const cmd = mock_s3.send.mock.calls[0][0];
-      expect(cmd.constructor.name).toBe('PutObjectLockConfigurationCommand');
-      expect(cmd.input.ObjectLockConfiguration.Rule.DefaultRetention).toEqual({
-        Mode: 'COMPLIANCE',
-        Days: 30,
-      });
+      await expect(storage.validate_object_lock_policy(policy)).resolves.toBeUndefined();
+      const sent = mock_s3.send.mock.calls.map((c) => c[0].constructor.name);
+      expect(sent).not.toContain('PutObjectCommand');
+      expect(sent).not.toContain('PutObjectLockConfigurationCommand');
     });
 
-    it('maps InvalidBucketState to ObjectLockUnsupportedError', async () => {
-      const err = Object.assign(new Error('no lock'), { name: 'InvalidBucketState' });
-      mock_s3.send.mockRejectedValueOnce(err);
+    it('rejects a bucket without Object Lock', async () => {
+      mock_s3.send
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({ Status: 'Enabled' })
+        .mockResolvedValueOnce({ ObjectLockConfiguration: { ObjectLockEnabled: 'Disabled' } });
 
-      await expect(storage.apply_default_retention('GOVERNANCE', 7)).rejects.toBeInstanceOf(
+      await expect(storage.validate_object_lock_policy(policy)).rejects.toBeInstanceOf(
         ObjectLockUnsupportedError,
       );
+    });
+
+    it('accepts a policy with no retain-until without probing', async () => {
+      await expect(
+        storage.validate_object_lock_policy({ mode: 'GOVERNANCE' }),
+      ).resolves.toBeUndefined();
+      expect(mock_s3.send).not.toHaveBeenCalled();
     });
   });
 });
