@@ -86,7 +86,7 @@ The default coordinator lives in memory and covers one Atlas instance. A host th
 
 Retries happen in one layer only. The Graph SDK's own retry handler is disabled, so one logical call makes at most 13 HTTP attempts. Running both layers would multiply the retries.
 
-Chunked downloads of large SharePoint and OneDrive files fetch pre-authenticated URLs directly and do not consult the coordinator.
+Two paths do not consult the coordinator: chunked and whole-file downloads of large SharePoint and OneDrive content, and the resumable upload sessions a drive restore uses. Both fetch pre-authenticated URLs directly and retry on their own. Every request made through a Graph connector, including mailbox discovery and user resolution on the identity pool and Outlook restore, is coordinated.
 
 ### Endpoints in the Outlook pool
 

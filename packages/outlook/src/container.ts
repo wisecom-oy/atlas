@@ -52,7 +52,17 @@ export function bind_outlook(container: Container): void {
       );
     })
     .inSingletonScope();
-  container.bind(MAILBOX_DISCOVERY_TOKEN).to(GraphMailboxDiscoveryAdapter).inSingletonScope();
+  container.bind(GraphMailboxDiscoveryAdapter).toSelf().inSingletonScope();
+  container
+    .bind(MAILBOX_DISCOVERY_TOKEN)
+    .toDynamicValue((ctx) =>
+      scope_connector_throttling(
+        ctx.get(GraphMailboxDiscoveryAdapter),
+        ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN),
+        'identity',
+      ),
+    )
+    .inSingletonScope();
 
   container.bind(MailboxSyncService).toSelf();
   container.bind(BACKUP_USE_CASE_TOKEN).toService(MailboxSyncService);

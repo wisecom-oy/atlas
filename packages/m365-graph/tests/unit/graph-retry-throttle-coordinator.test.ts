@@ -1,7 +1,7 @@
 /**
- * Issue #196: the throttle fence has to engage on the response that carried the
- * 429 and has to gate every subsequent HTTP attempt, including attempts made by
- * retry loops that were already running when the fence went up.
+ * Issue #196: the throttle cooldown has to engage on the response that carried
+ * the 429 and has to gate every subsequent HTTP attempt, including attempts made
+ * by retry loops that were already running when the cooldown began.
  *
  * The regression these guard against is invisible from the outside: a call still
  * fails with 429 either way, it just spends the whole cooldown hammering Graph
@@ -62,7 +62,7 @@ describe('with_graph_retry and the throttle coordinator', () => {
   });
 
   it('parks a retry loop that started before the cooldown began', async () => {
-    // The fence is raised by a third party mid-loop, so this asserts the per
+    // The cooldown is raised by a third party mid-loop, so this asserts the per
     // attempt wait() on its own rather than the raise path. A loop failing on
     // 500s backs off ~1-2s, so without that wait its next attempt lands well
     // inside the cooldown.

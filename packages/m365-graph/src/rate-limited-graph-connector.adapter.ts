@@ -54,14 +54,17 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   }
 
   async list_mailboxes(tenant_id: string): Promise<string[]> {
-    // GET /users -- Identity pool, not gated by per-mailbox semaphore
-    return run_with_graph_operation(
-      {
-        pool: 'identity',
-        request_type: 'list_users',
-        resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
-      },
-      () => this._inner.list_mailboxes(tenant_id),
+    // GET /users -- Identity pool, not gated by per-mailbox semaphore, but still coordinated so
+    // an identity 429 pauses the other identity requests of this instance.
+    return run_with_throttle_coordinator(this._throttle, 'identity', () =>
+      run_with_graph_operation(
+        {
+          pool: 'identity',
+          request_type: 'list_users',
+          resource_units: GRAPH_SERVICE_LIMITS.identity.users_list_cost,
+        },
+        () => this._inner.list_mailboxes(tenant_id),
+      ),
     );
   }
 
@@ -217,28 +220,18 @@ export class RateLimitedGraphConnector implements MailboxConnector {
     await limiter.acquire(cost);
     try {
       // Published so the retry loop inside `fn` parks on the cooldown between
-      // its own attempts. acquire() above only covers the first one.
+      // its own attempts, and reports each 429 against the pool the request
+      // declared. acquire() above only covers the first attempt. Nothing is
+      // raised here: the retry loop already did, on the response that
+      // carried the 429, and it knows the pool while this frame does not.
       return await run_with_throttle_coordinator(this._throttle, 'outlook', fn);
     } catch (err) {
-      this.handleThrottle(err);
+      if (err instanceof ThrottledError) {
+        logger.warn(`Graph kept throttling mailbox ${owner_id} through the retry budget`);
+      }
       throw err;
     } finally {
       limiter.release();
     }
-  }
-
-  private handleThrottle(err: unknown): void {
-    // An exhausted 429 arrives as ThrottledError; the Graph response with its headers is the cause.
-    const graph_err = (err instanceof ThrottledError ? err.cause : err) as
-      Record<string, unknown> | undefined;
-    if (graph_err?.statusCode !== 429) return;
-
-    const headers = graph_err.headers as Record<string, string> | undefined;
-    const raw = headers?.['retry-after'] ?? headers?.['Retry-After'];
-    const seconds = raw ? parseInt(raw, 10) : 30;
-    const duration = isNaN(seconds) || seconds <= 0 ? 30 : seconds;
-
-    logger.warn(`Graph 429 received -- pausing Outlook requests for ${duration}s`);
-    this._throttle.raise('outlook', duration * 1000);
   }
 }
