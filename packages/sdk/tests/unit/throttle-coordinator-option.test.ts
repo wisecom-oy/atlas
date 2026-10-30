@@ -38,6 +38,7 @@ afterEach(() => {
  */
 async function throttle_seen_by(token: symbol, method: string, coordinator?: ThrottleCoordinator) {
   const container = create_container_from_config(normalize_config(config), coordinator);
+  const bound = container.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN);
   const connector = container.get<Record<string, (...args: unknown[]) => Promise<unknown>>>(token);
   let seen: ReturnType<typeof get_active_throttle>;
   vi.spyOn(Object.getPrototypeOf(connector), method).mockImplementation(async () => {
@@ -45,14 +46,18 @@ async function throttle_seen_by(token: symbol, method: string, coordinator?: Thr
     return [];
   });
   await connector[method]!('tenant');
-  return seen;
+  return { uses_bound_coordinator: seen?.coordinator === bound, pool: seen?.pool };
 }
 
 describe('throttleCoordinator instance option (#551)', () => {
-  it('binds the host coordinator in place of the default', () => {
-    const container = create_container_from_config(normalize_config(config), host);
+  it('binds the host coordinator, wrapped to fail open, in place of the default', async () => {
+    const wait = vi.fn(async () => undefined);
+    const container = create_container_from_config(normalize_config(config), { ...host, wait });
+    const bound = container.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN);
 
-    expect(container.get(THROTTLE_COORDINATOR_TOKEN)).toBe(host);
+    expect(bound).not.toBeInstanceOf(InProcessThrottleCoordinator);
+    await bound.wait('outlook');
+    expect(wait).toHaveBeenCalledWith('outlook');
   });
 
   it('defaults to an in-process coordinator', () => {
@@ -63,30 +68,27 @@ describe('throttleCoordinator instance option (#551)', () => {
 
   it('runs OneDrive and SharePoint connector calls under it, on the drive pool', async () => {
     await expect(throttle_seen_by(ONEDRIVE_CONNECTOR_TOKEN, 'list_drives', host)).resolves.toEqual({
-      coordinator: host,
+      uses_bound_coordinator: true,
       pool: 'sharepoint_onedrive',
     });
     await expect(throttle_seen_by(SHAREPOINT_CONNECTOR_TOKEN, 'list_sites', host)).resolves.toEqual(
-      {
-        coordinator: host,
-        pool: 'sharepoint_onedrive',
-      },
+      { uses_bound_coordinator: true, pool: 'sharepoint_onedrive' },
     );
   });
 
   it('runs Outlook restore connector calls under it, on the Outlook pool', async () => {
     await expect(
       throttle_seen_by(RESTORE_CONNECTOR_TOKEN, 'create_mail_folder', host),
-    ).resolves.toEqual({ coordinator: host, pool: 'outlook' });
+    ).resolves.toEqual({ uses_bound_coordinator: true, pool: 'outlook' });
   });
 
   it('runs mailbox discovery and uncached identity resolution under it, on the identity pool', async () => {
     await expect(
       throttle_seen_by(MAILBOX_DISCOVERY_TOKEN, 'list_tenant_mailboxes', host),
-    ).resolves.toEqual({ coordinator: host, pool: 'identity' });
+    ).resolves.toEqual({ uses_bound_coordinator: true, pool: 'identity' });
     await expect(
       throttle_seen_by(GRAPH_IDENTITY_RESOLVER_TOKEN, 'resolve_by_object_id', host),
-    ).resolves.toEqual({ coordinator: host, pool: 'identity' });
+    ).resolves.toEqual({ uses_bound_coordinator: true, pool: 'identity' });
   });
 
   it('clears a default coordinator when the container is torn down, but not a host one', async () => {

@@ -8,6 +8,11 @@ import type { GraphServicePool } from '@/domain/graph-cost';
  * in memory, so a 429 on one operation pauses the instance's other operations on the same pool.
  * A host running several operations for one tenant across processes can supply its own
  * implementation backed by shared state, so a 429 seen by one process pauses the others too.
+ *
+ * A host-supplied coordinator fails open. If `wait` rejects, the request is sent anyway, and if
+ * `raise` throws or returns a rejected promise, the failure is logged and the retry loop keeps its
+ * own Retry-After backoff. An outage in the shared state therefore costs coordination, never the
+ * operation.
  */
 export interface ThrottleCoordinator {
   /**

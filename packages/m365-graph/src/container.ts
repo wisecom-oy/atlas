@@ -12,6 +12,7 @@ import {
 } from '@/graph-client.factory';
 import { GraphUserIdentityResolver } from '@/graph-user-identity-resolver.adapter';
 import { scope_connector_throttling } from '@/throttle-scoped-connector';
+import { FailOpenThrottleCoordinator } from '@/fail-open-throttle-coordinator';
 
 /**
  * Binds a Graph client, its shared authentication provider, and the throttle coordinator every
@@ -22,7 +23,9 @@ export function bind_graph_client(
   config: GraphConfig,
   host_throttle?: ThrottleCoordinator,
 ): void {
-  const throttle = host_throttle ?? new InProcessThrottleCoordinator();
+  const throttle = host_throttle
+    ? new FailOpenThrottleCoordinator(host_throttle)
+    : new InProcessThrottleCoordinator();
   const auth_provider = create_graph_auth_provider(config);
   const graph_client = create_graph_client(auth_provider);
   container.bind(GRAPH_AUTH_PROVIDER_TOKEN).toConstantValue(auth_provider);
