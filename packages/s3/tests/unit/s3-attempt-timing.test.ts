@@ -5,7 +5,12 @@ import { observe_storage_requests } from '@/adapters/s3-request-observer';
 import { supports_attempt_timing } from '@/adapters/s3-attempt-timing';
 import { start_fake_s3, type FakeS3 } from './fake-s3-server';
 
-const BACKEND_MS = 150;
+/**
+ * Long enough that event-loop lag from a contended parallel test run stays small next to it: the
+ * client and the fake backend share one process, so every scheduling delay lands in a timing.
+ * Queueing that leaked into networkMs would still add at least one whole backend time.
+ */
+const BACKEND_MS = 400;
 
 let fake: FakeS3 | undefined;
 afterEach(async () => {

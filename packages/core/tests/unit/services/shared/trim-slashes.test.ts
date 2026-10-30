@@ -26,29 +26,33 @@ describe('trim_trailing_slashes', () => {
 });
 
 /**
- * Quadratic scanning on a 10x larger input costs about 100x, linear about 10x. Inputs are large
- * enough that timings land in the millisecond range, each side is measured three times after a
- * warmup run with the minimum kept, and the 40x bound leaves room for scheduler noise while
- * still failing on the polynomial-redos shape that made the regex versions quadratic.
+ * The regexes these helpers replaced retried the match from every start position, so a 50,000
+ * slash run that does not end the string cost about 3.5 s; the scans cost well under a
+ * millisecond. A 500 ms budget sits roughly 7x below the quadratic cost and thousands of times
+ * above the linear one, so CPU contention from a parallel workspace run cannot close either gap.
+ * An earlier version compared timings of two linear inputs, and that ratio was noise-dominated.
  */
-function elapsed_ms(path: string): number {
-  const start = performance.now();
-  trim_slashes(path);
-  trim_trailing_slashes(path);
-  return performance.now() - start;
+const SLASH_RUN = 50_000;
+const BUDGET_MS = 500;
+
+/** Fastest of three runs of both helpers, so one preempted run does not decide the result. */
+function fastest_elapsed_ms(path: string): number {
+  let fastest = Number.POSITIVE_INFINITY;
+  for (let run = 0; run < 3; run++) {
+    const start = performance.now();
+    trim_slashes(path);
+    trim_trailing_slashes(path);
+    fastest = Math.min(fastest, performance.now() - start);
+  }
+  return fastest;
 }
 
 describe('slash trimming scaling', () => {
   it('does not go quadratic on a slash run that does not end the string', () => {
-    const small = '/'.repeat(500_000) + 'x';
-    const large = '/'.repeat(5_000_000) + 'x';
+    const path = '/'.repeat(SLASH_RUN) + 'x';
 
-    expect(trim_slashes(small)).toBe('x');
-    expect(trim_trailing_slashes(small + '/')).toBe(small);
-
-    elapsed_ms(small); // warmup, so JIT compilation does not inflate the small side
-    const small_ms = Math.min(elapsed_ms(small), elapsed_ms(small), elapsed_ms(small));
-    const large_ms = Math.min(elapsed_ms(large), elapsed_ms(large), elapsed_ms(large));
-    expect(large_ms / small_ms).toBeLessThan(40);
+    expect(trim_slashes(path)).toBe('x');
+    expect(trim_trailing_slashes(path + '/')).toBe(path);
+    expect(fastest_elapsed_ms(path)).toBeLessThan(BUDGET_MS);
   }, 30_000);
 });
