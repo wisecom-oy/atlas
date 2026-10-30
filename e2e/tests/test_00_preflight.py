@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -39,7 +40,7 @@ def test_storage_check_reports_lock_capable(cli: Cli, settings: Settings, s3: An
 
     result = cli.ok("storage-check")
     assert "lock-capable" in result.out, result.describe()
-    assert "Status:          ready" in result.out, result.describe()
+    assert re.search(r"Status:\s+ready", result.out), result.describe()
 
 
 def test_storage_helpers_read_snapshot_ids(settings: Settings, s3: Any, run_marker: str) -> None:
