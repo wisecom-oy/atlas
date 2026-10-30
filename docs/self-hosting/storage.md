@@ -188,7 +188,7 @@ Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}
 
 When two runs bootstrap a new tenant at once, both see the bucket missing and both send `CreateBucket`. On backends that report it, such as AWS outside us-east-1 and MinIO, the one that loses receives `BucketAlreadyOwnedByYou` and uses the bucket the other created. AWS us-east-1 and Ceph RGW answer a same-owner re-create with success, so both runs simply proceed. `BucketAlreadyExists` means another account owns that name, and the run fails rather than write tenant data next to it. Ceph RGW with `rgw_bucket_eexist_override` enabled returns that code for your own bucket too, and the run fails there as well.
 
-This matters because Object Lock can only be enabled when a bucket is created on MinIO, and MinIO does not allow it later. AWS S3 also accepts `PutObjectLockConfiguration` on an existing versioned bucket, so a legacy AWS bucket can be made lock-capable once by hand: `aws s3api put-object-lock-configuration --bucket atlas-<tenant_id> --object-lock-configuration ObjectLockEnabled=Enabled`. Atlas does not make that call itself. Before 6.1.0, OneDrive and SharePoint backups with `--retention-days` did so as a side effect of setting bucket default retention. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
+This matters because Object Lock can only be enabled when a bucket is created on MinIO, and MinIO does not allow it later. AWS S3 also accepts `PutObjectLockConfiguration` on an existing versioned bucket, so a legacy AWS bucket can be made lock-capable once by hand: `aws s3api put-object-lock-configuration --bucket atlas-<tenant_id> --object-lock-configuration ObjectLockEnabled=Enabled`. AWS cannot disable Object Lock again once it is on, so this is a permanent change to the bucket. Atlas does not make that call itself. Before 6.1.0, OneDrive and SharePoint backups with `--retention-days` did so as a side effect of setting bucket default retention. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
 
 New buckets also receive lifecycle rules:
 
@@ -235,7 +235,7 @@ Migrate one tenant at a time. Atlas names the bucket `atlas-<tenant_id>` on whic
 4. **Verify.** Run `atlas storage-check -t <id>`. It should report `lock-capable`. Then run the verify command for each workload, such as `atlas outlook verify -m <mailbox> -s <snapshot-id>`.
 5. **Retire the old bucket** after one full backup cycle has succeeded against the new one.
 
-Until a tenant is migrated, its legacy bucket keeps working for backups. Only `--retention-days` is affected: on a backend that rejects Object Lock on an existing bucket, the backup fails with `ObjectLockUnsupportedError` instead of appearing immutable.
+Until a tenant is migrated, its legacy bucket keeps working for backups. Only `--retention-days` is affected: Atlas never enables Object Lock on an existing bucket, so on any bucket without it the backup fails with `ObjectLockUnsupportedError` instead of appearing immutable.
 
 ## Protecting the tenant data key
 
