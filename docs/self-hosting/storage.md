@@ -36,13 +36,13 @@ volumes:
   minio_data:
 ```
 
-| Variable              | Default     | Notes                                                                                |
-| --------------------- | ----------- | ------------------------------------------------------------------------------------ |
-| `MINIO_ROOT_USER`     | none        | Required. Compose refuses to start without it                                        |
-| `MINIO_ROOT_PASSWORD` | none        | Required. Compose refuses to start while it is empty, which it is in `.env.example`  |
-| `MINIO_BIND_ADDRESS`  | `127.0.0.1` | Host address both ports are published on. See [Network exposure](#network-exposure)  |
-| `MINIO_API_PORT`      | `9000`      | Host port for the S3 API                                                             |
-| `MINIO_CONSOLE_PORT`  | `9001`      | Host port for the web console                                                        |
+| Variable              | Default     | Notes                                                                               |
+| --------------------- | ----------- | ----------------------------------------------------------------------------------- |
+| `MINIO_ROOT_USER`     | none        | Required. Compose refuses to start without it                                       |
+| `MINIO_ROOT_PASSWORD` | none        | Required. Compose refuses to start while it is empty, which it is in `.env.example` |
+| `MINIO_BIND_ADDRESS`  | `127.0.0.1` | Host address both ports are published on. See [Network exposure](#network-exposure) |
+| `MINIO_API_PORT`      | `9000`      | Host port for the S3 API                                                            |
+| `MINIO_CONSOLE_PORT`  | `9001`      | Host port for the web console                                                       |
 
 Without a password, `docker compose up` stops before creating anything:
 
@@ -99,11 +99,11 @@ A single drive is acceptable only for a home lab or personal testing. A single d
 
 Redundant storage protects against hardware failure. It does not protect against deletion, ransomware, or corruption that reaches every mirror, so pair it with a second copy in another location (see [Replication setup](/self-hosting/replication)).
 
-| RAID level                      | Minimum drives | Behaviour                                                              | Usable capacity  | Suited to                                 |
-| ------------------------------- | -------------- | ---------------------------------------------------------------------- | ---------------- | ----------------------------------------- |
-| **RAID 1** (mirror)             | 2              | Every write goes to both drives. Either drive can fail.                | 50% of total     | Small deployments (up to about 10 mailboxes) |
-| **RAID 5** (distributed parity) | 3              | Data and one parity block per stripe. One drive can fail.              | (N-1)/N of total | Medium deployments                        |
-| **RAID 6** (double parity)      | 4              | Two parity blocks per stripe. Any two drives can fail.                 | (N-2)/N of total | Large deployments with low downtime tolerance |
+| RAID level                      | Minimum drives | Behaviour                                                 | Usable capacity  | Suited to                                     |
+| ------------------------------- | -------------- | --------------------------------------------------------- | ---------------- | --------------------------------------------- |
+| **RAID 1** (mirror)             | 2              | Every write goes to both drives. Either drive can fail.   | 50% of total     | Small deployments (up to about 10 mailboxes)  |
+| **RAID 5** (distributed parity) | 3              | Data and one parity block per stripe. One drive can fail. | (N-1)/N of total | Medium deployments                            |
+| **RAID 6** (double parity)      | 4              | Two parity blocks per stripe. Any two drives can fail.    | (N-2)/N of total | Large deployments with low downtime tolerance |
 
 For most Atlas deployments, RAID 1 is the practical minimum. Linux `mdadm` or a hardware controller can build it, and it survives a single drive failure.
 
@@ -186,15 +186,17 @@ ATLAS_S3_ENDPOINT="https://minio.example.com:9000"
 
 Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}`. Since v2.1.0 it creates the bucket **lock-capable**: `CreateBucket` sets `ObjectLockEnabledForBucket: true`, which also enables versioning.
 
+When two runs bootstrap a new tenant at once, both see the bucket missing and both send `CreateBucket`. On backends that report it, such as AWS outside us-east-1 and MinIO, the one that loses receives `BucketAlreadyOwnedByYou` and uses the bucket the other created. AWS us-east-1 and Ceph RGW answer a same-owner re-create with success, so both runs simply proceed. `BucketAlreadyExists` means another account owns that name, and the run fails rather than write tenant data next to it. Ceph RGW with `rgw_bucket_eexist_override` enabled returns that code for your own bucket too, and the run fails there as well.
+
 This matters because Object Lock can only be enabled when a bucket is created on MinIO, and MinIO does not allow it later. AWS S3 also accepts `PutObjectLockConfiguration` on an existing versioned bucket, which is the call `--retention-days` makes, so a legacy AWS bucket can become lock-capable that way. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
 
 New buckets also receive lifecycle rules:
 
-| Rule                                 | Effect                                                                                    |
-| ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Abort incomplete multipart uploads   | Aborted after 7 days                                                                      |
-| Expire delete markers                | Orphaned delete markers are removed                                                       |
-| `atlas-expire-noncurrent-versions`   | Noncurrent object versions expire after 30 days                                           |
+| Rule                               | Effect                                          |
+| ---------------------------------- | ----------------------------------------------- |
+| Abort incomplete multipart uploads | Aborted after 7 days                            |
+| Expire delete markers              | Orphaned delete markers are removed             |
+| `atlas-expire-noncurrent-versions` | Noncurrent object versions expire after 30 days |
 
 Atlas does not read noncurrent versions. Its version history is stored as separate objects, so the expiry only removes superseded delta cursors and indexes.
 
@@ -277,25 +279,25 @@ Minimum billable sizes by provider:
 
 | Provider                                                     | Minimum billable object size              | Note                                                                                                                                     |
 | ------------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Hetzner Object Storage                                       | 64 KB                                     | API calls are free, so fewer larger objects cost nothing ([pricing](https://www.hetzner.com/storage/object-storage/))                   |
-| Wasabi                                                       | 4 KB                                      | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq))                                                  |
+| Hetzner Object Storage                                       | 64 KB                                     | API calls are free, so fewer larger objects cost nothing ([pricing](https://www.hetzner.com/storage/object-storage/))                    |
+| Wasabi                                                       | 4 KB                                      | Plus a 90-day minimum storage duration ([pricing FAQ](https://wasabi.com/pricing/faq))                                                   |
 | AWS S3 Standard                                              | None                                      |                                                                                                                                          |
 | AWS S3 Standard-IA / One Zone-IA / Glacier Instant Retrieval | 128 KB                                    | Plus a 30 or 90-day minimum duration ([storage classes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html)) |
-| AWS S3 Glacier Flexible Retrieval / Deep Archive             | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/))                                                   |
+| AWS S3 Glacier Flexible Retrieval / Deep Archive             | No floor, about 40 KB metadata per object | Billed partly at the Standard rate ([S3 pricing](https://aws.amazon.com/s3/pricing/))                                                    |
 | Cloudflare R2                                                | None documented                           | Billed per GB-month; Infrequent Access has a 30-day minimum ([pricing](https://developers.cloudflare.com/r2/pricing/))                   |
-| Scaleway                                                     | None documented                           | Recommends objects above 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/))                           |
-| Backblaze B2                                                 | None documented                           | Some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing))                                   |
+| Scaleway                                                     | None documented                           | Recommends objects above 1 MB for Glacier tiers ([FAQ](https://www.scaleway.com/en/docs/object-storage/faq/))                            |
+| Backblaze B2                                                 | None documented                           | Some services round up to 128 KB ([cost comparison](https://www.backblaze.com/cloud-storage/pricing))                                    |
 | MinIO self-hosted                                            | None                                      | The filesystem block size still applies                                                                                                  |
 
 ## Object size limits
 
 Large files upload as a multipart stream to a staging key, then move to their content-addressed key with a server-side copy. S3 limits bound this:
 
-| Limit                      | Value  | How Atlas stays within it                                                    |
-| -------------------------- | ------ | ---------------------------------------------------------------------------- |
-| Single `CopyObject` source | 5 GB   | Larger sources are promoted with ranged `UploadPartCopy` requests            |
-| Object size                | 5 TB   | Not enforced by Atlas. Larger files cannot be stored in S3                   |
-| Parts per multipart upload | 10,000 | 1 GiB copy parts: 10,000 parts cover 9.8 TiB, above the 5 TB limit          |
+| Limit                      | Value  | How Atlas stays within it                                          |
+| -------------------------- | ------ | ------------------------------------------------------------------ |
+| Single `CopyObject` source | 5 GB   | Larger sources are promoted with ranged `UploadPartCopy` requests  |
+| Object size                | 5 TB   | Not enforced by Atlas. Larger files cannot be stored in S3         |
+| Parts per multipart upload | 10,000 | 1 GiB copy parts: 10,000 parts cover 9.8 TiB, above the 5 TB limit |
 
 The copy happens inside the backend. No file data returns through Atlas. Ciphertext, checksum, metadata, and Object Lock retention are the same whichever request is used. Retention on a ranged copy is set when the multipart upload starts.
 
