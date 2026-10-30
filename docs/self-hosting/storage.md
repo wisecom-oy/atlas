@@ -186,6 +186,8 @@ ATLAS_S3_ENDPOINT="https://minio.example.com:9000"
 
 Atlas creates each tenant's bucket on the first backup, named `atlas-{tenant_id}`. Since v2.1.0 it creates the bucket **lock-capable**: `CreateBucket` sets `ObjectLockEnabledForBucket: true`, which also enables versioning.
 
+When two runs bootstrap a new tenant at once, both see the bucket missing and both send `CreateBucket`. The one that loses receives `BucketAlreadyOwnedByYou` and uses the bucket the other created. `BucketAlreadyExists` means another account owns that name, and the run fails rather than write tenant data next to it.
+
 This matters because Object Lock can only be enabled when a bucket is created on MinIO, and MinIO does not allow it later. AWS S3 also accepts `PutObjectLockConfiguration` on an existing versioned bucket, which is the call `--retention-days` makes, so a legacy AWS bucket can become lock-capable that way. A lock-capable bucket with no retention policy behaves like a normal versioned bucket. Immutability starts only when a backup command receives `--retention-days`.
 
 New buckets also receive lifecycle rules:

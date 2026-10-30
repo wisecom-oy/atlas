@@ -38,8 +38,7 @@ export async function ensure_bucket_exists(
   if (!skip_cache && cache.is_bucket_checked(bucket)) return;
 
   const exists = await bucket_exists(client, bucket);
-  if (!exists) {
-    await create_lock_capable_bucket(client, bucket);
+  if (!exists && (await create_lock_capable_bucket(client, bucket))) {
     await apply_default_lifecycle(client, bucket);
   }
 
@@ -52,19 +51,48 @@ export async function ensure_bucket_exists(
  * matters: a plain bucket can never gain Object Lock later (AWS requires a
  * support ticket, MinIO refuses outright) -- see the legacy-bucket migration
  * runbook in docs/self-hosting/storage.md.
+ *
+ * Returns false when another run created the bucket between the existence
+ * probe and this call, so only the creator applies the lifecycle rules.
  */
-async function create_lock_capable_bucket(client: S3Client, bucket: string): Promise<void> {
+async function create_lock_capable_bucket(client: S3Client, bucket: string): Promise<boolean> {
   try {
-    await client.send(
-      new CreateBucketCommand({ Bucket: bucket, ObjectLockEnabledForBucket: true }),
-    );
+    return await create_unless_already_ours(client, bucket, true);
   } catch (err) {
     if (!is_lock_flag_rejection(err)) throw err;
     logger.warn(
       `Backend rejected Object Lock at creation for bucket "${bucket}" -- created without it. ` +
         `Immutability (--retention-days) will not work on this bucket.`,
     );
-    await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    return create_unless_already_ours(client, bucket, false);
+  }
+}
+
+/**
+ * Sends CreateBucket, returning false when the bucket already belongs to
+ * these credentials. Two runs bootstrapping a new tenant at once both see
+ * the bucket missing and both create it; the loser's
+ * `BucketAlreadyOwnedByYou` means the bucket it wanted now exists.
+ * `BucketAlreadyExists` still throws: that bucket belongs to another
+ * account, and writing tenant data beside it must not be attempted.
+ */
+async function create_unless_already_ours(
+  client: S3Client,
+  bucket: string,
+  object_lock: boolean,
+): Promise<boolean> {
+  try {
+    await client.send(
+      new CreateBucketCommand({
+        Bucket: bucket,
+        ...(object_lock ? { ObjectLockEnabledForBucket: true } : {}),
+      }),
+    );
+    return true;
+  } catch (err) {
+    if ((err as { name?: string }).name !== 'BucketAlreadyOwnedByYou') throw err;
+    logger.info(`Bucket "${bucket}" was created by a concurrent run; using it`);
+    return false;
   }
 }
 
