@@ -32,7 +32,7 @@ export interface SharePointLibraryScanResult {
   package_reports: PackageReport[];
   libraries_scanned: number;
   items_processed: number;
-  /** Files walked this run, stored or failed; folders and the library root are excluded. */
+  /** Files walked this run, stored or failed; folders, the library root, and deletions are excluded. */
   files_processed: number;
   interrupted: boolean;
   /** Libraries whose full enumeration finished this run, for the re-crawl tombstones. */
@@ -115,7 +115,7 @@ export async function scan_all_libraries({
         result.failed_items,
         (item) => {
           result.items_processed++;
-          if (item.kind === 'file') result.files_processed++;
+          if (item.kind === 'file' && !item.deleted) result.files_processed++;
           emit_operation_progress(options, {
             operation: 'backup',
             workload: 'sharepoint',

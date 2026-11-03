@@ -145,6 +145,34 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
     expect(result.summary.no_snapshot_reason).toBe('no_content');
   });
 
+  it('reports no_content when the only change deletes a folder Graph sent without a facet', async () => {
+    // A deletion carries no folder facet, so the mapper calls it a file. It is still not content.
+    const cursor: SharePointDeltaCursor = {
+      site_id: 'site-1',
+      delta_link_by_drive: { 'drive-1': 'https://delta-link' },
+      previous_path_by_file_id: { sub: '/Documents' },
+      previous_name_by_file_id: { sub: 'Sub' },
+      previous_etag_by_file_id: { sub: 'etag-sub' },
+      previous_kind_by_file_id: { sub: 'folder' },
+      updated_at: new Date().toISOString(),
+    };
+    const connector = make_connector({
+      fetch_delta: vi.fn().mockResolvedValue({
+        drive_id: 'drive-1',
+        delta_link: 'https://delta-link',
+        items: [make_file_item('sub', { deleted: true })],
+        reset_detected: false,
+      }),
+    });
+
+    const result = await make_service({ connector, cursors: make_cursors(cursor) }).backup_site(
+      'tenant-1',
+      'site-1',
+    );
+
+    expect(result.summary.no_snapshot_reason).toBe('no_content');
+  });
+
   it('reports no_changes when the run walked a file it left unchanged', async () => {
     // The cursor remembers the file's path, name and ETag but not its kind, so the file is walked,
     // skipped as unchanged, and proves content without a manifest lookup (issue #572).

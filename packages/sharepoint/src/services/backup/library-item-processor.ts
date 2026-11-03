@@ -55,8 +55,9 @@ export interface VersionStatsState {
   total_versions_failed: number;
 }
 
-/** What the run reports per processed item: its name, and whether it is a file or a folder. */
-export type ProcessedItemRef = Pick<SharePointDeltaItem, 'file_name' | 'kind'>;
+/** What the run reports per processed item: its name, whether it is a file or a folder, and whether it was deleted. */
+export type ProcessedItemRef = Pick<SharePointDeltaItem, 'file_name' | 'kind'> &
+  Partial<Pick<SharePointDeltaItem, 'deleted'>>;
 
 /** Processes a single delta item and updates library and tracking state. */
 export async function process_delta_item(
