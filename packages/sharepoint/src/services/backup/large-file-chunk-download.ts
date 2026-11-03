@@ -156,6 +156,8 @@ async function download_single_chunk(
 ): Promise<Buffer> {
   // Before the per-chunk timer is armed, so a cooldown is not counted against the chunk budget.
   await wait_for_transfer_slot();
+  // A cancel during the cooldown already fired, so the listener below would never see it.
+  abort_signal?.throwIfAborted();
   const timeout_ms = Math.max(30_000, Math.ceil(expected_length / MIN_THROUGHPUT_BYTES_PER_MS));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout_ms);

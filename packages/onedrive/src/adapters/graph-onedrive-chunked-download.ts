@@ -199,6 +199,8 @@ async function download_single_chunk(
 ): Promise<Buffer> {
   // Before the per-chunk timer is armed, so a cooldown is not counted against the chunk budget.
   await wait_for_transfer_slot();
+  // A cancel during the cooldown already fired, so the listener below would never see it.
+  abort_signal?.throwIfAborted();
   // Scaled to this chunk, not to the file. Passing total_bytes here gave every
   // non-final chunk a ceil(total_bytes / 256) ms budget, so one stalled CDN
   // connection held a 1 GB backup for ~68 minutes before aborting (issue #198).
