@@ -571,7 +571,9 @@ interface RestoreResult {
 }
 
 interface RestoredMessageReport {
-  objectId: string;
+  objectId: string; // source message id from the snapshot
+  targetMessageId: string; // Graph id of the message created in the target mailbox
+  targetFolderId: string; // Graph id of the folder it was created in
   attachmentsExpected: { file: number; inline: number };
   attachmentsUploaded: { file: number; inline: number };
   attachmentsFailed: number;
@@ -584,11 +586,19 @@ interface RestoredMessageReport {
 | `attachmentErrorCount` | Attachment-level failures, as a count. Details are logged during restore                                                                                             |
 | `errors`               | Detail for each message-level failure                                                                                                                                |
 | `verificationWarnings` | Per-folder warnings, including API failures that prevented count confirmation, and one line for each message that received fewer attachments than its snapshot holds |
-| `messages`             | One report per message created in the target mailbox, with attachment counts only. No names or content                                                               |
+| `messages`             | One report per message created in the target mailbox, with ids and attachment counts only. No names or content                                                       |
 
 A message's expected attachments come from its snapshot: the manifest's attachment list for a Graph JSON entry, or the parts parsed from stored MIME for a MIME entry. `inline` counts parts embedded in the body (`isInline: true`). `file` counts attachments Outlook lists. Compare `attachmentsUploaded` with `attachmentsExpected` to find a message that lost attachments. `attachmentsFailed` counts upload errors, which also appear in `errors`. A legacy attachment whose content was never stored is skipped without an error and appears only as a gap between the two counts.
 
 The split comes from the same MIME parse that drives the upload. It shows what Atlas restored, not whether the parse classified every part correctly.
+
+`attachmentsUploaded` counts what Atlas sent, not what Graph stored. To check what actually landed, read the created message back from the target mailbox and compare its attachments with `attachmentsExpected`:
+
+```http
+GET /users/{targetMailbox}/messages/{targetMessageId}/attachments?$select=isInline
+```
+
+A message whose creation failed has no report. Its failure is in `errors`.
 
 ### Save options
 

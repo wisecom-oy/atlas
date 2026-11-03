@@ -9,7 +9,12 @@ export interface AttachmentKindCounts {
 }
 
 /**
- * Attachment accounting for one restored message: counts and kinds only, never names or content.
+ * One message created in the target mailbox: attachment accounting and the Graph ids of the new
+ * message and its folder. Counts and ids only, never names or content.
+ *
+ * `object_id` is the source message in the snapshot. `target_message_id` and `target_folder_id`
+ * let a host read the created message back from the target mailbox and compare what Graph stored
+ * with the counts above (issue #569).
  *
  * `expected` is what the snapshot holds for the entry (the manifest's attachment list for a JSON
  * entry, the parsed MIME parts for a MIME entry), so a restore that drops or misfiles attachments
@@ -17,6 +22,8 @@ export interface AttachmentKindCounts {
  */
 export interface RestoredMessageReport {
   readonly object_id: string;
+  readonly target_message_id: string;
+  readonly target_folder_id: string;
   readonly attachments_expected: AttachmentKindCounts;
   readonly attachments_uploaded: AttachmentKindCounts;
   readonly attachments_failed: number;
