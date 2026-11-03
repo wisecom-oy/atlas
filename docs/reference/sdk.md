@@ -267,23 +267,23 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 
 ### Tenant-wide methods
 
-| Method                                   | Description                                                                                      |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `validate()`                             | Checks storage, the passphrase, and Graph access. See [Validation](#validation)                  |
+| Method                                   | Description                                                                                                 |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `validate()`                             | Checks storage, the passphrase, and Graph access. See [Validation](#validation)                             |
 | `checkStorage(request?)`                 | Reports bucket reachability, versioning, Object Lock support, default retention, and the resolved retention |
-| `getBucketStats()`                       | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                      |
-| `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                           |
-| `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                          |
-| `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet               |
-| `replicateSnapshot(snapshotId, targets)` | Copies one snapshot to each target. Returns an array of results. See [Replication](#replication) |
-| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                 |
-| `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                             |
-| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                    |
-| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                    |
-| `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                             |
-| `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                               |
-| `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                    |
-| `dispose()`                              | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                             |
+| `getBucketStats()`                       | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                                 |
+| `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                      |
+| `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                                     |
+| `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet                          |
+| `replicateSnapshot(snapshotId, targets)` | Copies one snapshot to each target. Returns an array of results. See [Replication](#replication)            |
+| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                            |
+| `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                                        |
+| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                               |
+| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                               |
+| `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                                        |
+| `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                                          |
+| `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                               |
+| `dispose()`                              | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                                        |
 
 When a drive or site backup creates no snapshot, `summary.noSnapshotReason` explains why. Its value is `'no_changes'` when content exists and nothing changed, or `'no_content'` when the drive or site holds nothing to protect. The field is set only when a completed run creates no snapshot. Branch on the reason:
 

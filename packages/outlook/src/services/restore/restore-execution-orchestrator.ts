@@ -60,6 +60,8 @@ export interface EntryRestoreOutcome {
 /** Builds the outcome of one created message from what it should hold and what was uploaded. */
 function entry_outcome(
   object_id: string,
+  target_message_id: string,
+  target_folder_id: string,
   expected: readonly { readonly is_inline: boolean }[],
   result?: AttachmentRestoreResult,
 ): EntryRestoreOutcome {
@@ -70,6 +72,8 @@ function entry_outcome(
     attachment_errors,
     report: {
       object_id,
+      target_message_id,
+      target_folder_id,
       attachments_expected: count_attachment_kinds(expected),
       attachments_uploaded: uploaded,
       attachments_failed: attachment_errors.length,
@@ -96,7 +100,8 @@ async function restore_json_entry(
   );
 
   const expected = entry.attachments ?? [];
-  if (expected.length === 0) return entry_outcome(entry.object_id, expected);
+  if (expected.length === 0)
+    return entry_outcome(entry.object_id, new_msg_id, target_folder_id, expected);
   const result = await restore_entry_attachments(
     ctx,
     restore_connector,
@@ -105,7 +110,7 @@ async function restore_json_entry(
     new_msg_id,
     expected,
   );
-  return entry_outcome(entry.object_id, expected, result);
+  return entry_outcome(entry.object_id, new_msg_id, target_folder_id, expected, result);
 }
 
 /**
@@ -130,7 +135,8 @@ async function restore_mime_entry(
     build_restore_payload_from_mime(parsed, entry.reaction_properties),
   );
 
-  if (parsed.attachments.length === 0) return entry_outcome(entry.object_id, []);
+  if (parsed.attachments.length === 0)
+    return entry_outcome(entry.object_id, new_msg_id, target_folder_id, []);
 
   const result = await restore_parsed_attachments(
     restore_connector,
@@ -139,7 +145,7 @@ async function restore_mime_entry(
     new_msg_id,
     parsed.attachments,
   );
-  return entry_outcome(entry.object_id, parsed.attachments, result);
+  return entry_outcome(entry.object_id, new_msg_id, target_folder_id, parsed.attachments, result);
 }
 
 /** Restores all entries for a single folder, updating dashboard per-message. */
