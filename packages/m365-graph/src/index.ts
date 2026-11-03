@@ -31,6 +31,7 @@ export {
 export type { DownloadFailureKind } from './graph-download-classification';
 export { RateLimitedGraphConnector } from './rate-limited-graph-connector.adapter';
 export { scope_connector_throttling } from './throttle-scoped-connector';
+export { report_transfer_throttle, wait_for_transfer_slot } from './graph-transfer-throttle';
 export { bind_graph_client } from './container';
 export { GraphUserIdentityResolver } from './graph-user-identity-resolver.adapter';
 export { parse_user_page } from './graph-user-page';
