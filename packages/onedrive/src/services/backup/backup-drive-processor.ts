@@ -72,6 +72,8 @@ export interface DriveScanAccumulators {
   errors: string[];
   drives_scanned: number;
   items_processed: number;
+  /** Files walked this run, stored or failed; folders and the library root are excluded. */
+  files_processed: number;
   interrupted: boolean;
   package_report: PackageReportTotals;
   /** Version rows captured during this run, per file id; written as one index object at finalize time. */
@@ -118,6 +120,7 @@ export async function scan_all_drives(
     errors: [],
     drives_scanned: 0,
     items_processed: 0,
+    files_processed: 0,
     interrupted: false,
     package_report: { notebooks_detected: 0, section_files_backed_up: 0, warnings: [] },
     version_rows: versions.rows,
@@ -158,6 +161,7 @@ export async function scan_all_drives(
       const on_item_processed = (item: OneDriveDeltaItem): void => {
         update_item_progress();
         accumulators.items_processed = totals.processed;
+        if (item.kind === 'file') accumulators.files_processed++;
         emit_operation_progress(control, {
           operation: 'backup',
           workload: 'onedrive',

@@ -55,6 +55,9 @@ export interface VersionStatsState {
   total_versions_failed: number;
 }
 
+/** What the run reports per processed item: its name, and whether it is a file or a folder. */
+export type ProcessedItemRef = Pick<SharePointDeltaItem, 'file_name' | 'kind'>;
+
 /** Processes a single delta item and updates library and tracking state. */
 export async function process_delta_item(
   connector: SharePointSiteConnector,
@@ -218,7 +221,7 @@ export async function retry_failed_items(
   versions: RunVersionCollector,
   version_stats: VersionStatsState,
   should_interrupt?: () => boolean,
-  on_item_processed?: (file_name: string) => void,
+  on_item_processed?: (item: ProcessedItemRef) => void,
   abort_signal?: AbortSignal,
 ): Promise<boolean> {
   for (const record of retryable_items(library_state.failed_items, drive_id)) {
@@ -233,7 +236,7 @@ export async function retry_failed_items(
     );
 
     if (!item) {
-      on_item_processed?.(record.name);
+      on_item_processed?.({ file_name: record.name, kind: 'file' });
       continue;
     }
 
@@ -260,7 +263,7 @@ export async function retry_failed_items(
       if (abort_signal?.aborted !== true) throw err;
       return true;
     }
-    on_item_processed?.(item.file_name);
+    on_item_processed?.(item);
   }
   return false;
 }

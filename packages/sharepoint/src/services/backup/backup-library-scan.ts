@@ -32,6 +32,8 @@ export interface SharePointLibraryScanResult {
   package_reports: PackageReport[];
   libraries_scanned: number;
   items_processed: number;
+  /** Files walked this run, stored or failed; folders and the library root are excluded. */
+  files_processed: number;
   interrupted: boolean;
   /** Libraries whose full enumeration finished this run, for the re-crawl tombstones. */
   recrawls: DriveRecrawl[];
@@ -84,6 +86,7 @@ export async function scan_all_libraries({
     package_reports: [],
     libraries_scanned: 0,
     items_processed: 0,
+    files_processed: 0,
     interrupted: false,
     version_rows: versions.rows,
     recrawls: [],
@@ -110,14 +113,15 @@ export async function scan_all_libraries({
         ctx,
         result.version_stats,
         result.failed_items,
-        (file_name) => {
+        (item) => {
           result.items_processed++;
+          if (item.kind === 'file') result.files_processed++;
           emit_operation_progress(options, {
             operation: 'backup',
             workload: 'sharepoint',
             phase: 'processing',
             processed: result.items_processed,
-            current: file_name,
+            current: item.file_name,
           });
         },
       );
