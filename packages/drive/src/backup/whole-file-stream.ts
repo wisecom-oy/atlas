@@ -1,3 +1,5 @@
+import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
+
 /** Options for {@link stream_whole_file_in_chunks}. */
 export interface WholeFileStreamOptions {
   /** Size of each yielded buffer; must be a positive integer. */
@@ -37,7 +39,8 @@ export async function* stream_whole_file_in_chunks(
   if (!Number.isSafeInteger(chunk_size_bytes) || chunk_size_bytes <= 0) {
     throw new Error(`Invalid chunk size for the streamed download of ${item_id}`);
   }
-  abort_signal?.throwIfAborted();
+  // Before the stall timer is armed, so a cooldown is not read as the server stalling.
+  await wait_for_transfer_slot(abort_signal);
 
   const controller = new AbortController();
   let timer = arm_stall_timer(controller, stall_timeout_ms, item_id);
@@ -48,6 +51,7 @@ export async function* stream_whole_file_in_chunks(
         ? controller.signal
         : AbortSignal.any([controller.signal, abort_signal]);
     const response = await fetch(url, { signal });
+    report_transfer_throttle(response);
     if (!response.ok || !response.body) {
       throw new Error(`HTTP ${response.status} for the streamed download of ${item_id}`);
     }

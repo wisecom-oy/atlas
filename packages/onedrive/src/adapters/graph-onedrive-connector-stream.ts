@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 
 import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
 import { assert_transferred_size } from '@wisecom/atlas-drive/backup/download-integrity';
+import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
 
 /**
  * Drains a readable stream into a buffer with a wall-clock timeout.
@@ -69,11 +70,13 @@ export async function download_from_url(
   size_bytes: number,
   item_id: string,
 ): Promise<Buffer> {
+  await wait_for_transfer_slot();
   const timeout_ms = compute_chunk_timeout_ms(size_bytes);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeout_ms);
   try {
     const response = await fetch(download_url, { signal: controller.signal });
+    report_transfer_throttle(response);
     if (!response.ok) {
       throw new Error(`Failed to download OneDrive file ${item_id}: HTTP ${response.status}`);
     }

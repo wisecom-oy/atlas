@@ -3,6 +3,8 @@ import {
   is_retryable_error,
   is_transient_error,
   parse_retry_after_ms,
+  report_transfer_throttle,
+  wait_for_transfer_slot,
 } from '@wisecom/atlas-m365-graph';
 import { assert_range_chunk } from '@wisecom/atlas-drive/backup/download-integrity';
 
@@ -120,6 +122,8 @@ async function download_single_chunk(
   item_id: string,
   total_bytes: number,
 ): Promise<Buffer> {
+  // Before the per-chunk timer is armed, so a cooldown is not counted against the chunk budget.
+  await wait_for_transfer_slot();
   // Scaled to this chunk, not to the file. Passing total_bytes here gave every
   // non-final chunk a ceil(total_bytes / 256) ms budget, so one stalled CDN
   // connection held a 1 GB backup for ~68 minutes before aborting (issue #198).
@@ -131,6 +135,7 @@ async function download_single_chunk(
       headers: { Range: `bytes=${range_start}-${range_end}` },
       signal: controller.signal,
     });
+    report_transfer_throttle(response);
 
     if (response.status === 429) {
       const retry_after_ms = parse_retry_after_ms(response.headers.get('Retry-After'));

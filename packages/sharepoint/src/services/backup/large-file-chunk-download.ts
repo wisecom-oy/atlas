@@ -1,6 +1,7 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { stream_whole_file_in_chunks } from '@wisecom/atlas-drive/backup/whole-file-stream';
 import { assert_range_chunk } from '@wisecom/atlas-drive/backup/download-integrity';
+import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
@@ -153,6 +154,8 @@ async function download_single_chunk(
   report_ignored_range: boolean,
   abort_signal?: AbortSignal,
 ): Promise<Buffer> {
+  // Before the per-chunk timer is armed, so a cooldown is not counted against the chunk budget.
+  await wait_for_transfer_slot(abort_signal);
   const timeout_ms = Math.max(30_000, Math.ceil(expected_length / MIN_THROUGHPUT_BYTES_PER_MS));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout_ms);
@@ -167,6 +170,7 @@ async function download_single_chunk(
       headers: { Range: `bytes=${range_start}-${range_end}` },
       signal: controller.signal,
     });
+    report_transfer_throttle(response);
 
     if (response.status === 429 || response.status === 503 || response.status === 504) {
       throw new Error(

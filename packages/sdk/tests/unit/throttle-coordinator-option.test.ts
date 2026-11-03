@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ConfigError,
   MAILBOX_DISCOVERY_TOKEN,
+  ONEDRIVE_BACKUP_USE_CASE_TOKEN,
   ONEDRIVE_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
+  SHAREPOINT_BACKUP_USE_CASE_TOKEN,
   SHAREPOINT_CONNECTOR_TOKEN,
   THROTTLE_COORDINATOR_TOKEN,
 } from '@wisecom/atlas-types';
@@ -74,6 +76,16 @@ describe('throttleCoordinator instance option (#551)', () => {
     await expect(throttle_seen_by(SHAREPOINT_CONNECTOR_TOKEN, 'list_sites', host)).resolves.toEqual(
       { uses_bound_coordinator: true, pool: 'sharepoint_onedrive' },
     );
+  });
+
+  it('runs OneDrive and SharePoint backups under it, so their large-file transfers see it', async () => {
+    // Large-file downloads run inside the backup service, outside any connector call (#571).
+    await expect(
+      throttle_seen_by(ONEDRIVE_BACKUP_USE_CASE_TOKEN, 'backup_onedrive', host),
+    ).resolves.toEqual({ uses_bound_coordinator: true, pool: 'sharepoint_onedrive' });
+    await expect(
+      throttle_seen_by(SHAREPOINT_BACKUP_USE_CASE_TOKEN, 'backup_site', host),
+    ).resolves.toEqual({ uses_bound_coordinator: true, pool: 'sharepoint_onedrive' });
   });
 
   it('runs Outlook restore connector calls under it, on the Outlook pool', async () => {
