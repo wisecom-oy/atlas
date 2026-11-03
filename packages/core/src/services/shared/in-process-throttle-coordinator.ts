@@ -18,9 +18,12 @@ export class InProcessThrottleCoordinator implements ThrottleCoordinator {
 
   /** Resolves once no cooldown is active for `pool`, or for `scope` within it. */
   async wait(pool: GraphServicePool, scope?: ThrottleScope): Promise<void> {
-    await this._fences.get(pool)?.wait();
     const owner_key = this.owner_key(pool, scope);
-    if (owner_key !== undefined) await this._fences.get(owner_key)?.wait();
+    // Loops because either fence can rise again while this waits on the other one.
+    while (this.is_cooling(pool, scope)) {
+      await this._fences.get(pool)?.wait();
+      if (owner_key !== undefined) await this._fences.get(owner_key)?.wait();
+    }
   }
 
   /** Starts or extends the cooldown for `pool`, or for `scope` within it. */

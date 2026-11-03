@@ -84,6 +84,19 @@ describe('InProcessThrottleCoordinator', () => {
     expect(coordinator.is_cooling('outlook', { ownerId: 'mailbox-b' })).toBe(true);
   });
 
+  it('keeps an owner waiting when a pool-wide cooldown rises while it waits out its own', async () => {
+    coordinator.raise('outlook', 10_000, { ownerId: 'mailbox-a' });
+    let released = false;
+    void coordinator.wait('outlook', { ownerId: 'mailbox-a' }).then(() => (released = true));
+    await vi.advanceTimersByTimeAsync(5_000);
+    coordinator.raise('outlook', 60_000);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(released).toBe(false);
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(released).toBe(true);
+  });
+
   it('ignores the owner for pools other than outlook', () => {
     coordinator.raise('identity', 60_000, { ownerId: 'mailbox-a' });
 
