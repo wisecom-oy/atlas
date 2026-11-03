@@ -61,4 +61,35 @@ describe('RateLimitedGraphConnector per-mailbox throttle scope', () => {
     expect(a_done).toBe(true);
     connector.shutdown();
   });
+
+  it('keeps identity requests on the tenant-wide cooldown, even when made for one mailbox', async () => {
+    // Graph meters the identity pool per tenant, so a mailbox scope there would split its budget.
+    let throttled_once = false;
+    const inner = {
+      mailbox_exists: async () =>
+        with_graph_retry(async () => {
+          if (!throttled_once) {
+            throttled_once = true;
+            throw throttled();
+          }
+          return true;
+        }),
+    } as unknown as MailboxConnector;
+    const throttle = new InProcessThrottleCoordinator();
+    const wait = vi.spyOn(throttle, 'wait');
+    const raise = vi.spyOn(throttle, 'raise');
+    const connector = new RateLimitedGraphConnector(
+      inner,
+      new DefaultMailboxRateLimiterFactory(throttle),
+      throttle,
+    );
+
+    const exists = connector.mailbox_exists('t', 'Mailbox-A');
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await expect(exists).resolves.toBe(true);
+    expect(raise).toHaveBeenCalledWith('identity', expect.any(Number), undefined);
+    expect(wait).toHaveBeenCalledWith('identity', undefined);
+    connector.shutdown();
+  });
 });
