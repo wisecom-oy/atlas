@@ -30,7 +30,10 @@ import { adapt_operation_options } from '@/operation-options';
 import { resolve_owner_identity, resolve_owner_object_id } from '@/owner-resolution';
 import { camelize, snakeize } from '@wisecom/atlas-types/public/case-convert';
 import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/object-lock-policy';
-import type { OutlookBackupOptions } from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
+import type {
+  OutlookBackupOptions,
+  OutlookRestoreOptions,
+} from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
 import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
@@ -47,6 +50,13 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
   const resolve_object_id = (mailbox: string) =>
     resolve_owner_object_id(identity, tenant_id, mailbox);
+  // An email target is resolved like the source mailbox, so the restore is throttled under the
+  // same owner id as that mailbox's backups and a shared coordinator keys both alike.
+  const adapt_restore_options = async (options: OutlookRestoreOptions | undefined) => {
+    const adapted = adapt_operation_options(options);
+    if (adapted?.target_mailbox === undefined) return adapted;
+    return { ...adapted, target_mailbox: await resolve_object_id(adapted.target_mailbox) };
+  };
 
   return {
     async backup(mailbox, options) {
@@ -68,8 +78,8 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       );
     },
     async restore(snapshot_id, options) {
-      const [result, cost_result] = await run_with_cost_tracking(() =>
-        restore.restore_snapshot(tenant_id, snapshot_id, adapt_operation_options(options)),
+      const [result, cost_result] = await run_with_cost_tracking(async () =>
+        restore.restore_snapshot(tenant_id, snapshot_id, await adapt_restore_options(options)),
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
@@ -78,7 +88,7 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
         restore.restore_mailbox(
           tenant_id,
           await resolve_object_id(mailbox),
-          adapt_operation_options(options),
+          await adapt_restore_options(options),
         ),
       );
       return camelize({ ...result, graph_cost: cost_result });
