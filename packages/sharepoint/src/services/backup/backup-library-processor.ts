@@ -13,6 +13,7 @@ import {
   retry_failed_items,
   type FileTrackingState,
   type LibraryProcessingState,
+  type ProcessedItemRef,
   type VersionStatsState,
 } from '@/services/backup/library-item-processor';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
@@ -91,7 +92,7 @@ export async function process_single_library(
   ctx: TenantContext,
   version_stats: VersionStatsState,
   failed_items: FailedItemLedger,
-  on_item_processed?: (file_name: string) => void,
+  on_item_processed?: (item: ProcessedItemRef) => void,
 ): Promise<LibraryProcessingResult> {
   const prev_delta =
     options.force_full === true
@@ -164,7 +165,7 @@ export async function process_single_library(
       break;
     }
     processed_delta_items++;
-    on_item_processed?.(item.file_name);
+    on_item_processed?.(item);
   }
   interrupted ||= options.should_interrupt?.() === true;
 

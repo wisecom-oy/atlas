@@ -4,8 +4,8 @@ import type { NoSnapshotReason } from '@wisecom/atlas-types';
 export interface EmptyRunEvidence {
   /** Kinds the delta cursor records per file id, carried from earlier runs and this one. */
   readonly previous_kind_by_file_id: Record<string, 'file' | 'folder'>;
-  /** Items this run walked, which is above zero whenever a crawl saw anything at all. */
-  readonly items_processed: number;
+  /** Files this run walked, stored or failed. Folders and the library root are not content, so they never count. */
+  readonly files_processed: number;
   /** Reads the newest snapshot for the resource. Called only when nothing else proves content. */
   readonly find_latest_snapshot: () => Promise<unknown | undefined>;
 }
@@ -25,7 +25,7 @@ export interface EmptyRunEvidence {
  */
 export async function classify_empty_run(evidence: EmptyRunEvidence): Promise<NoSnapshotReason> {
   const knows_a_file = Object.values(evidence.previous_kind_by_file_id).includes('file');
-  if (evidence.items_processed > 0 || knows_a_file) return 'no_changes';
+  if (evidence.files_processed > 0 || knows_a_file) return 'no_changes';
   const existing = await evidence.find_latest_snapshot();
   return existing === undefined ? 'no_content' : 'no_changes';
 }

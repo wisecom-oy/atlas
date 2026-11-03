@@ -246,7 +246,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           healthy
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking_state.previous_kind_by_file_id,
-                items_processed: scan_result.items_processed,
+                files_processed: scan_result.files_processed,
                 find_latest_snapshot: () => this._manifests.find_latest_by_owner(ctx, owner_id),
               })
             : undefined,
