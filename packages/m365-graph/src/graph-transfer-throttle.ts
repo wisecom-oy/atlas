@@ -10,12 +10,24 @@ const TRANSFER_POOL: GraphServicePool = 'sharepoint_onedrive';
  * Waits out any cooldown on the transfer pool before a content or upload request is sent.
  *
  * Call it before arming a per-attempt timeout, so time spent in a cooldown is not counted as a stalled transfer.
- * Fails open: a coordinator whose `wait` rejects lets the request through.
+ * Fails open: a coordinator whose `wait` rejects lets the request through. Rejects with the abort reason as soon as
+ * `abort_signal` fires, so a cancelled run does not sit out a cooldown of up to an hour.
  */
-export async function wait_for_transfer_slot(): Promise<void> {
+export async function wait_for_transfer_slot(abort_signal?: AbortSignal): Promise<void> {
+  abort_signal?.throwIfAborted();
   const active = get_active_throttle();
   if (!active) return;
-  await new FailOpenThrottleCoordinator(active.coordinator).wait(TRANSFER_POOL);
+  const waiting = new FailOpenThrottleCoordinator(active.coordinator).wait(TRANSFER_POOL);
+  if (!abort_signal) return waiting;
+
+  const { promise: aborted, reject } = Promise.withResolvers<never>();
+  const on_abort = (): void => reject(abort_signal.reason);
+  abort_signal.addEventListener('abort', on_abort, { once: true });
+  try {
+    await Promise.race([waiting, aborted]);
+  } finally {
+    abort_signal.removeEventListener('abort', on_abort);
+  }
 }
 
 /**

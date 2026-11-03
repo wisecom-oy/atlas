@@ -39,9 +39,8 @@ export async function* stream_whole_file_in_chunks(
   if (!Number.isSafeInteger(chunk_size_bytes) || chunk_size_bytes <= 0) {
     throw new Error(`Invalid chunk size for the streamed download of ${item_id}`);
   }
-  abort_signal?.throwIfAborted();
   // Before the stall timer is armed, so a cooldown is not read as the server stalling.
-  await wait_for_transfer_slot();
+  await wait_for_transfer_slot(abort_signal);
 
   const controller = new AbortController();
   let timer = arm_stall_timer(controller, stall_timeout_ms, item_id);

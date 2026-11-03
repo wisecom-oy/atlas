@@ -31,6 +31,19 @@ describe('wait_for_transfer_slot', () => {
       run_with_throttle_coordinator(coordinator, 'outlook', () => wait_for_transfer_slot()),
     ).resolves.toBeUndefined();
   });
+
+  it('stops waiting out a cooldown as soon as the run is cancelled', async () => {
+    const coordinator = recording_throttle_coordinator();
+    coordinator.wait = () => new Promise<void>(() => undefined);
+    const controller = new AbortController();
+
+    const waiting = run_with_throttle_coordinator(coordinator, 'outlook', () =>
+      wait_for_transfer_slot(controller.signal),
+    );
+    controller.abort(new Error('cancelled'));
+
+    await expect(waiting).rejects.toThrow('cancelled');
+  });
 });
 
 describe('report_transfer_throttle', () => {
