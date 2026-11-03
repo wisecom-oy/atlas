@@ -54,7 +54,10 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   // same owner id as that mailbox's backups and a shared coordinator keys both alike.
   const adapt_restore_options = async (options: OutlookRestoreOptions | undefined) => {
     const adapted = adapt_operation_options(options);
-    if (adapted?.target_mailbox === undefined) return adapted;
+    // Already cancelled: the service returns its interrupted result without touching Graph.
+    if (adapted?.target_mailbox === undefined || adapted.should_interrupt?.() === true) {
+      return adapted;
+    }
     return { ...adapted, target_mailbox: await resolve_object_id(adapted.target_mailbox) };
   };
 

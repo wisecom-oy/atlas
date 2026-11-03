@@ -61,4 +61,17 @@ describe('outlook restore targetMailbox', () => {
     expect(restore.restore_snapshot.mock.calls[1]![2]).toBeUndefined();
     expect(resolve_user).not.toHaveBeenCalled();
   });
+
+  it('makes no lookup for a restore that is already cancelled', async () => {
+    const { api, resolve_user } = make_api();
+    const controller = new AbortController();
+    controller.abort();
+
+    await api.restore('snap-1', {
+      targetMailbox: 'jane.doe@example.com',
+      signal: controller.signal,
+    });
+
+    expect(resolve_user).not.toHaveBeenCalled();
+  });
 });
