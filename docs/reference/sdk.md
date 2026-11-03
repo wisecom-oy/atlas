@@ -545,13 +545,13 @@ const unknown = mailboxes.filter((mb) => mb.hasInPlaceArchive === undefined);
 
 `atlas.outlook.restore` and `atlas.outlook.restoreMailbox` accept:
 
-| Option          | Type     | Description                                                |
-| --------------- | -------- | ---------------------------------------------------------- |
-| `folderName`    | `string` | Restore only this folder and its subfolders (name or path) |
-| `messageRef`    | `string` | Restore one message by index or ID                         |
-| `targetMailbox` | `string` | Target mailbox for a cross-mailbox restore                 |
-| `startDate`     | `Date`   | Include snapshots on or after this date                    |
-| `endDate`       | `Date`   | Include snapshots on or before this date                   |
+| Option          | Type     | Description                                                                                            |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------ |
+| `folderName`    | `string` | Restore only this folder and its subfolders (name or path)                                             |
+| `messageRef`    | `string` | Restore one message by index or ID                                                                     |
+| `targetMailbox` | `string` | Target mailbox for a cross-mailbox restore. An email address is resolved to its Entra object ID first |
+| `startDate`     | `Date`   | Include snapshots on or after this date                                                                |
+| `endDate`       | `Date`   | Include snapshots on or before this date                                                               |
 
 Both return a `RestoreResult`:
 
