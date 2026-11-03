@@ -147,4 +147,27 @@ describe('scope_connector_throttling', () => {
     expect(drive_done).toBe(true);
     coordinator.clear();
   });
+
+  it('passes the mailbox named by owner_argument to the coordinator as the throttle scope', async () => {
+    const scopes: unknown[] = [];
+    const coordinator: ThrottleCoordinator = {
+      wait: async (_pool, scope) => {
+        scopes.push(scope);
+      },
+      raise: (_pool, _ms, scope) => {
+        scopes.push(scope);
+      },
+    };
+    const connector = scope_connector_throttling(
+      {
+        list_folders: async (_tenant: string, owner: string) => with_graph_retry(async () => owner),
+      },
+      coordinator,
+      'outlook',
+      { owner_argument: 1 },
+    );
+
+    await expect(connector.list_folders('tenant', 'Mailbox-A')).resolves.toBe('Mailbox-A');
+    expect(scopes).toEqual([{ ownerId: 'mailbox-a' }]);
+  });
 });

@@ -1,13 +1,27 @@
 import type { GraphServicePool } from '@/domain/graph-cost';
 
 /**
+ * Narrows a throttle cooldown below its pool. Graph meters Outlook per mailbox per application, so
+ * a 429 on one mailbox says nothing about another; the other pools are metered per tenant and carry
+ * no scope.
+ */
+export interface ThrottleScope {
+  /** Normalized owner id (mailbox object id or address, lowercased) for the `outlook` pool. */
+  readonly ownerId?: string;
+}
+
+/**
  * Coordinates Microsoft Graph throttling across every operation that shares it.
  *
  * Atlas calls `wait` before each HTTP attempt to Graph and `raise` whenever Graph answers 429, both
- * keyed by the throttling pool the request is charged to. The default keeps one cooldown per pool
- * in memory, so a 429 on one operation pauses the instance's other operations on the same pool.
- * A host running several operations for one tenant across processes can supply its own
- * implementation backed by shared state, so a 429 seen by one process pauses the others too.
+ * keyed by the throttling pool the request is charged to and, for Outlook requests, the mailbox it
+ * targets. The default keeps one cooldown per pool in memory, and one per mailbox for `outlook`, so
+ * a 429 on one mailbox pauses only that mailbox. A host running several operations for one tenant
+ * across processes can supply its own implementation backed by shared state, so a 429 seen by one
+ * process pauses the others too.
+ *
+ * A coordinator written against the 6.1 two-argument signature keeps working: the scope is an
+ * extra argument it may ignore, which pauses every mailbox on the pool instead of one.
  *
  * A host-supplied coordinator fails open. If `wait` rejects, the request is sent anyway, and if
  * `raise` throws or returns a rejected promise, the failure is logged and the retry loop keeps its
@@ -16,14 +30,16 @@ import type { GraphServicePool } from '@/domain/graph-cost';
  */
 export interface ThrottleCoordinator {
   /**
-   * Resolves once requests to `pool` may be sent. Called before every attempt, including retries,
-   * so it should answer from local state and stay cheap when no cooldown is active.
+   * Resolves once requests to `pool` (and `scope`, when given) may be sent. Called before every
+   * attempt, including retries, so it should answer from local state and stay cheap when no
+   * cooldown is active.
    */
-  wait(pool: GraphServicePool): Promise<void>;
+  wait(pool: GraphServicePool, scope?: ThrottleScope): Promise<void>;
 
   /**
-   * Reports that Graph throttled a request to `pool` and asked for `retry_after_ms` before the next.
-   * Cooldowns are not additive: a shorter report never shortens a longer one already in force.
+   * Reports that Graph throttled a request to `pool` (and `scope`, when given) and asked for
+   * `retry_after_ms` before the next. Cooldowns are not additive: a shorter report never shortens a
+   * longer one already in force.
    */
-  raise(pool: GraphServicePool, retry_after_ms: number): void;
+  raise(pool: GraphServicePool, retry_after_ms: number, scope?: ThrottleScope): void;
 }

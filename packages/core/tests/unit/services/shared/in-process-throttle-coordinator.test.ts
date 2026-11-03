@@ -59,4 +59,47 @@ describe('InProcessThrottleCoordinator', () => {
 
     await expect(waiting).resolves.toBeUndefined();
   });
+
+  it('pauses only the mailbox that was throttled, so a 429 on A does not delay B', async () => {
+    coordinator.raise('outlook', 60_000, { ownerId: 'mailbox-a' });
+
+    await expect(coordinator.wait('outlook', { ownerId: 'mailbox-b' })).resolves.toBeUndefined();
+    expect(coordinator.is_cooling('outlook', { ownerId: 'mailbox-b' })).toBe(false);
+
+    let released = false;
+    void coordinator.wait('outlook', { ownerId: 'mailbox-a' }).then(() => (released = true));
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(released).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(released).toBe(true);
+  });
+
+  it('pauses every mailbox when a 429 arrives without an owner', async () => {
+    coordinator.raise('outlook', 60_000);
+
+    let released = false;
+    void coordinator.wait('outlook', { ownerId: 'mailbox-b' }).then(() => (released = true));
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(released).toBe(false);
+    expect(coordinator.is_cooling('outlook', { ownerId: 'mailbox-b' })).toBe(true);
+  });
+
+  it('keeps an owner waiting when a pool-wide cooldown rises while it waits out its own', async () => {
+    coordinator.raise('outlook', 10_000, { ownerId: 'mailbox-a' });
+    let released = false;
+    void coordinator.wait('outlook', { ownerId: 'mailbox-a' }).then(() => (released = true));
+    await vi.advanceTimersByTimeAsync(5_000);
+    coordinator.raise('outlook', 60_000);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(released).toBe(false);
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(released).toBe(true);
+  });
+
+  it('ignores the owner for pools other than outlook', () => {
+    coordinator.raise('identity', 60_000, { ownerId: 'mailbox-a' });
+
+    expect(coordinator.is_cooling('identity')).toBe(true);
+  });
 });

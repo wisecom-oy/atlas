@@ -51,7 +51,7 @@ The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.shar
 | `encryptionPassphrase` | `string`                               | Yes      | Protects the tenant's data key. At least 14 UTF-8 bytes. Must match the passphrase used for existing backups                |
 | `logger`               | `LogSink`                              | No       | Receives SDK log lines. The SDK is silent without it. See [Logging](#logging)                                               |
 | `onStorageRequest`     | `(event: StorageRequestEvent) => void` | No       | Receives one event per S3 request. See [Storage request events](#storage-request-events)                                    |
-| `throttleCoordinator`  | `ThrottleCoordinator`                  | No       | Shares Graph 429 cooldowns. Default is one in-memory cooldown per pool. See [Concurrent operations](#concurrent-operations) |
+| `throttleCoordinator`  | `ThrottleCoordinator`                  | No       | Shares Graph 429 cooldowns. Default is one in-memory cooldown per pool, and one per mailbox for Outlook. See [Concurrent operations](#concurrent-operations) |
 
 Construction is synchronous and makes no network requests. A missing or blank required field, a passphrase shorter than 14 bytes, an invalid `s3Endpoint`, or a `throttleCoordinator` without `wait` and `raise` functions throws `ConfigError` (`ATLAS_CONFIG_INVALID`).
 
@@ -571,7 +571,9 @@ interface RestoreResult {
 }
 
 interface RestoredMessageReport {
-  objectId: string;
+  objectId: string; // source message id from the snapshot
+  targetMessageId: string; // Graph id of the message created in the target mailbox
+  targetFolderId: string; // Graph id of the folder it was created in
   attachmentsExpected: { file: number; inline: number };
   attachmentsUploaded: { file: number; inline: number };
   attachmentsFailed: number;
@@ -584,11 +586,19 @@ interface RestoredMessageReport {
 | `attachmentErrorCount` | Attachment-level failures, as a count. Details are logged during restore                                                                                             |
 | `errors`               | Detail for each message-level failure                                                                                                                                |
 | `verificationWarnings` | Per-folder warnings, including API failures that prevented count confirmation, and one line for each message that received fewer attachments than its snapshot holds |
-| `messages`             | One report per message created in the target mailbox, with attachment counts only. No names or content                                                               |
+| `messages`             | One report per message created in the target mailbox, with ids and attachment counts only. No names or content                                                       |
 
 A message's expected attachments come from its snapshot: the manifest's attachment list for a Graph JSON entry, or the parts parsed from stored MIME for a MIME entry. `inline` counts parts embedded in the body (`isInline: true`). `file` counts attachments Outlook lists. Compare `attachmentsUploaded` with `attachmentsExpected` to find a message that lost attachments. `attachmentsFailed` counts upload errors, which also appear in `errors`. A legacy attachment whose content was never stored is skipped without an error and appears only as a gap between the two counts.
 
 The split comes from the same MIME parse that drives the upload. It shows what Atlas restored, not whether the parse classified every part correctly.
+
+`attachmentsUploaded` counts what Atlas sent, not what Graph stored. To check what actually landed, read the created message back from the target mailbox and compare its attachments with `attachmentsExpected`:
+
+```http
+GET /users/{targetMailbox}/messages/{targetMessageId}/attachments?$select=isInline
+```
+
+A message whose creation failed has no report. Its failure is in `errors`.
 
 ### Save options
 
@@ -836,7 +846,7 @@ The compare-and-swap writes need a backend that honours `If-Match` and `If-None-
 - Restore, deletion, purge and key re-wrap assume nothing else is writing to the tenant. Run them alone.
 - Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them.
 
-**Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive` or `identity`. Mailbox backup and restore, mailbox discovery, user lookups, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool. A 429 on one mailbox therefore pauses the instance's other mailbox requests, and a 429 on a drive pauses its other drive and site requests, while the other pools keep running.
+**Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive` or `identity`. The optional `scope` is a `ThrottleScope`, `{ ownerId }`, set only for Outlook requests and carrying the normalized mailbox owner id. Drive, site, and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool. A 429 on one mailbox pauses only that mailbox's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook 429 as pool-wide.
 
 Supply a `throttleCoordinator` when several processes back up the same tenant. Without it, each process only learns about the 429s it receives itself. `wait` runs before every attempt, so answer it from local state, for example a cached cooldown deadline, rather than a network round trip. Cooldowns must not be additive: a shorter `raise` never shortens a longer one already in force. A supplied coordinator fails open. If `wait` rejects, Atlas sends the request anyway, and if `raise` throws or returns a rejected promise, Atlas logs a warning and keeps backing off on Graph's own `Retry-After`. An outage in your shared state costs coordination, not the operation. Per-mailbox request windows and in-flight limits stay inside each instance whichever coordinator is used.
 
