@@ -267,23 +267,23 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 
 ### Tenant-wide methods
 
-| Method                                   | Description                                                                                                 |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `validate()`                             | Checks storage, the passphrase, and Graph access. See [Validation](#validation)                             |
+| Method                                   | Description                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `validate()`                             | Checks storage, the passphrase, and Graph access. See [Validation](#validation)                  |
 | `checkStorage(request?)`                 | Reports bucket reachability, versioning, Object Lock support, default retention, and the resolved retention |
-| `getBucketStats()`                       | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                                 |
-| `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                                      |
-| `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                                     |
-| `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet                          |
-| `replicateSnapshot(snapshotId, targets)` | Copies one snapshot to each target. Returns an array of results. See [Replication](#replication)            |
-| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                            |
-| `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                                        |
-| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                               |
-| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                               |
-| `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                                        |
-| `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                                          |
-| `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                               |
-| `dispose()`                              | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                                        |
+| `getBucketStats()`                       | Logical totals across the tenant: mailboxes, snapshots, messages, and sizes                      |
+| `getStorageUsage(options?)`              | Bytes the bucket physically holds. See [Storage usage](#storage-usage)                           |
+| `resolveUser(email)`                     | Resolves an address to an Entra object ID through Graph                                          |
+| `listUsers()`                            | Returns the identity registry for this tenant, or `undefined` when none exists yet               |
+| `replicateSnapshot(snapshotId, targets)` | Copies one snapshot to each target. Returns an array of results. See [Replication](#replication) |
+| `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                 |
+| `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                             |
+| `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                    |
+| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                    |
+| `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                             |
+| `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                               |
+| `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                    |
+| `dispose()`                              | Releases the instance. See [Instance lifecycle](#instance-lifecycle)                             |
 
 When a drive or site backup creates no snapshot, `summary.noSnapshotReason` explains why. Its value is `'no_changes'` when content exists and nothing changed, or `'no_content'` when the drive or site holds nothing to protect. The field is set only when a completed run creates no snapshot. Branch on the reason:
 
@@ -571,7 +571,9 @@ interface RestoreResult {
 }
 
 interface RestoredMessageReport {
-  objectId: string;
+  objectId: string; // source message id from the snapshot
+  targetMessageId: string; // Graph id of the message created in the target mailbox
+  targetFolderId: string; // Graph id of the folder it was created in
   attachmentsExpected: { file: number; inline: number };
   attachmentsUploaded: { file: number; inline: number };
   attachmentsFailed: number;
@@ -584,11 +586,19 @@ interface RestoredMessageReport {
 | `attachmentErrorCount` | Attachment-level failures, as a count. Details are logged during restore                                                                                             |
 | `errors`               | Detail for each message-level failure                                                                                                                                |
 | `verificationWarnings` | Per-folder warnings, including API failures that prevented count confirmation, and one line for each message that received fewer attachments than its snapshot holds |
-| `messages`             | One report per message created in the target mailbox, with attachment counts only. No names or content                                                               |
+| `messages`             | One report per message created in the target mailbox, with ids and attachment counts only. No names or content                                                       |
 
 A message's expected attachments come from its snapshot: the manifest's attachment list for a Graph JSON entry, or the parts parsed from stored MIME for a MIME entry. `inline` counts parts embedded in the body (`isInline: true`). `file` counts attachments Outlook lists. Compare `attachmentsUploaded` with `attachmentsExpected` to find a message that lost attachments. `attachmentsFailed` counts upload errors, which also appear in `errors`. A legacy attachment whose content was never stored is skipped without an error and appears only as a gap between the two counts.
 
 The split comes from the same MIME parse that drives the upload. It shows what Atlas restored, not whether the parse classified every part correctly.
+
+`attachmentsUploaded` counts what Atlas sent, not what Graph stored. To check what actually landed, read the created message back from the target mailbox and compare its attachments with `attachmentsExpected`:
+
+```http
+GET /users/{targetMailbox}/messages/{targetMessageId}/attachments?$select=isInline
+```
+
+A message whose creation failed has no report. Its failure is in `errors`.
 
 ### Save options
 
