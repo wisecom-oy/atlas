@@ -160,8 +160,7 @@ describe('scope_connector_throttling', () => {
     };
     const connector = scope_connector_throttling(
       {
-        list_folders: async (_tenant: string, owner: string) =>
-          with_graph_retry(async () => owner),
+        list_folders: async (_tenant: string, owner: string) => with_graph_retry(async () => owner),
       },
       coordinator,
       'outlook',
