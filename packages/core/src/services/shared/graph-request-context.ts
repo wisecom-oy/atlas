@@ -17,16 +17,18 @@ import type {
   GraphServicePool,
   OperationCost,
   ThrottleCoordinator,
+  ThrottleScope,
 } from '@wisecom/atlas-types';
 
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
 const _operation = new AsyncLocalStorage<GraphOperation>();
 const _throttle = new AsyncLocalStorage<ActiveThrottle>();
 
-/** The coordinator guarding a call, and the pool its requests are charged to by default. */
+/** The coordinator guarding a call, the pool its requests are charged to by default, and the mailbox they target. */
 export interface ActiveThrottle {
   readonly coordinator: ThrottleCoordinator;
   readonly pool: GraphServicePool;
+  readonly scope?: ThrottleScope | undefined;
 }
 
 /**
@@ -125,14 +127,16 @@ export function get_active_operation(): GraphOperation | undefined {
  * The coordinator has to be consulted per HTTP attempt, not per logical call. A retry loop is the
  * only layer that sees each attempt, and it sits several adapters below the wrapper that owns the
  * coordinator, so it travels as ambient context for the same reason the request counter does.
- * `pool` is the default for requests that declare no operation of their own.
+ * `pool` is the default for requests that declare no operation of their own. `scope` narrows the
+ * cooldown to one mailbox; it applies only to requests that end up on the `outlook` pool.
  */
 export function run_with_throttle_coordinator<T>(
   coordinator: ThrottleCoordinator,
   pool: GraphServicePool,
   fn: () => T,
+  scope?: ThrottleScope,
 ): T {
-  return _throttle.run({ coordinator, pool }, fn);
+  return _throttle.run({ coordinator, pool, scope }, fn);
 }
 
 /**
@@ -148,4 +152,12 @@ export function get_active_throttle(): ActiveThrottle | undefined {
 /** The pool a request in this context is charged to: its declared operation's, else the default. */
 export function get_active_throttle_pool(): GraphServicePool | undefined {
   return get_active_operation()?.pool ?? _throttle.getStore()?.pool;
+}
+
+/**
+ * The scope a request in this context is throttled under. Only `outlook` requests carry one: Graph
+ * meters the other pools per tenant, so a mailbox scope on them would split a shared budget.
+ */
+export function get_active_throttle_scope(): ThrottleScope | undefined {
+  return get_active_throttle_pool() === 'outlook' ? _throttle.getStore()?.scope : undefined;
 }
