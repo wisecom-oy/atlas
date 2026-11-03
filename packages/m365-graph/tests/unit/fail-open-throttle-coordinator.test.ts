@@ -80,4 +80,16 @@ describe('FailOpenThrottleCoordinator', () => {
     expect(host.wait).toHaveBeenCalledWith('identity');
     expect(host.raise).toHaveBeenCalledWith('identity', 5_000);
   });
+
+  it('forwards the mailbox scope to the host wait and raise', async () => {
+    const host = { wait: vi.fn(async () => undefined), raise: vi.fn() };
+    const coordinator = new FailOpenThrottleCoordinator(host);
+    const scope = { ownerId: 'mailbox-a' };
+
+    await coordinator.wait('outlook', scope);
+    coordinator.raise('outlook', 5_000, scope);
+
+    expect(host.wait).toHaveBeenCalledWith('outlook', scope);
+    expect(host.raise).toHaveBeenCalledWith('outlook', 5_000, scope);
+  });
 });

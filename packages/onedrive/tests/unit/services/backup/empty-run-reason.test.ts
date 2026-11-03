@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
   OneDriveDeltaCursor,
+  OneDriveDeltaItem,
   OneDriveManifestRepository,
   OneDriveSnapshotManifest,
   TenantContext,
@@ -36,13 +37,14 @@ function make_service(options: {
   drives?: { drive_id: string; drive_name: string }[];
   previous_cursor?: OneDriveDeltaCursor;
   manifests?: OneDriveManifestRepository;
+  delta_items?: OneDriveDeltaItem[];
 }): { service: OneDriveBackupService; manifests: OneDriveManifestRepository } {
   const connector = {
     list_drives: vi.fn().mockResolvedValue(options.drives ?? []),
     fetch_delta: vi.fn().mockResolvedValue({
       drive_id: 'drive-1',
       delta_link: 'delta-drive-1',
-      items: [],
+      items: options.delta_items ?? [],
       reset_detected: false,
     }),
     fetch_item_by_id: vi.fn(),
@@ -75,6 +77,7 @@ function make_service(options: {
     ({
       save: vi.fn().mockResolvedValue(undefined),
       find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
     } as unknown as OneDriveManifestRepository);
 
   const service = new OneDriveBackupService(
@@ -131,5 +134,66 @@ describe('OneDrive backup with no snapshot to create (issue #405)', () => {
     const result = await service.backup_onedrive('tenant-1', OWNER_ID, {});
 
     expect(result.summary.no_snapshot_reason).toBe('no_changes');
+  });
+
+  it('reports no_content when a full crawl of the drive walks only folders', async () => {
+    // The drive root and its folders are delta items but not content (issue #572).
+    const root: OneDriveDeltaItem = {
+      item_id: 'root',
+      drive_id: 'drive-1',
+      kind: 'folder',
+      file_name: 'Documents',
+      parent_path: '/',
+      size_bytes: 0,
+      deleted: false,
+    };
+    const { service } = make_service({
+      drives: [{ drive_id: 'drive-1', drive_name: 'OneDrive' }],
+      delta_items: [root],
+    });
+
+    const result = await service.backup_onedrive('tenant-1', OWNER_ID, { force_full: true });
+
+    expect(result.snapshot).toBeUndefined();
+    expect(result.summary.no_snapshot_reason).toBe('no_content');
+  });
+
+  it('reports no_changes when the run walked a file it left unchanged', async () => {
+    // The cursor knows the file's path, name and ETag but not its kind, so the file is walked,
+    // skipped as unchanged, and proves content without a manifest lookup (issue #572).
+    const previous_cursor = {
+      owner_id: OWNER_ID,
+      delta_link_by_drive: { 'drive-1': 'delta-drive-1' },
+      previous_path_by_file_id: { f1: '/' },
+      previous_name_by_file_id: { f1: 'Report.docx' },
+      previous_etag_by_file_id: { f1: 'etag-1' },
+      previous_kind_by_file_id: {},
+      updated_at: new Date().toISOString(),
+    } as OneDriveDeltaCursor;
+    const file: OneDriveDeltaItem = {
+      item_id: 'f1',
+      drive_id: 'drive-1',
+      kind: 'file',
+      file_name: 'Report.docx',
+      parent_path: '/',
+      size_bytes: 1,
+      deleted: false,
+      etag: 'etag-1',
+    };
+    const manifests = {
+      save: vi.fn().mockResolvedValue(undefined),
+      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+    } as unknown as OneDriveManifestRepository;
+    const { service } = make_service({
+      drives: [{ drive_id: 'drive-1', drive_name: 'OneDrive' }],
+      previous_cursor,
+      manifests,
+      delta_items: [file],
+    });
+
+    const result = await service.backup_onedrive('tenant-1', OWNER_ID, {});
+
+    expect(result.summary.no_snapshot_reason).toBe('no_changes');
+    expect(manifests.find_latest_by_owner).not.toHaveBeenCalled();
   });
 });

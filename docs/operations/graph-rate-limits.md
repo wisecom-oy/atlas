@@ -80,13 +80,13 @@ Atlas handles a throttled response in two steps:
 1. The call that was throttled retries with exponential backoff, honouring `Retry-After`, for up to 12 retries.
 2. The instance's throttle coordinator starts a cooldown for the pool the request was charged to, for the `Retry-After` window, or 30 seconds when Graph sends none. Every request to that pool waits for the cooldown before it sends, including each retry attempt.
 
-The coordinator keeps one cooldown per pool: `outlook`, `sharepoint_onedrive` and `identity`. A 429 on one mailbox pauses the instance's other mailboxes, because they would keep sending requests that count against the same limit and fail. A 429 on a drive or site pauses the instance's other drive and site requests, which share one per-tenant budget. Neither pauses the other pool. The cooldown starts on the first throttled response, so calls already in a retry loop see it between attempts.
+The coordinator keeps one cooldown per Outlook mailbox, and one per pool for `sharepoint_onedrive` and `identity`. A 429 on one mailbox pauses only that mailbox's requests, because Outlook limits are counted per mailbox. Other mailboxes keep sending. A 429 on a drive or site pauses the instance's other drive and site requests, which share one per-tenant budget. The cooldown does not cross pools. The cooldown starts on the first throttled response, so calls already in a retry loop see it between attempts.
 
 The default coordinator lives in memory and covers one Atlas instance. A host that runs several processes for the same tenant can pass its own `throttleCoordinator` so a 429 in one process pauses the others. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 Retries happen in one layer only. The Graph SDK's own retry handler is disabled, so one logical call makes at most 13 HTTP attempts. Running both layers would multiply the retries.
 
-Two paths do not consult the coordinator: chunked and whole-file downloads of large SharePoint and OneDrive content, and the resumable upload sessions a drive restore uses. Both fetch pre-authenticated URLs directly and retry on their own. Every request made through a Graph connector, including mailbox discovery and user resolution on the identity pool and Outlook restore, is coordinated.
+Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks also consult the coordinator, on the `sharepoint_onedrive` pool. They fetch pre-authenticated URLs directly, so Atlas wraps each attempt: it waits before the request and raises the cooldown on a 429 or 503 with `Retry-After`. Their own retry backoff still applies. Every request made through a Graph connector, including mailbox discovery and user resolution on the identity pool and Outlook restore, is coordinated.
 
 ### Endpoints in the Outlook pool
 

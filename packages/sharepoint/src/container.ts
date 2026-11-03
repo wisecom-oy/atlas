@@ -61,7 +61,17 @@ export function bind_sharepoint(container: Container): void {
     .bind(SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     .to(S3SharePointFileVersionIndexRepository)
     .inSingletonScope();
-  container.bind(SHAREPOINT_BACKUP_USE_CASE_TOKEN).to(SharePointBackupService).inSingletonScope();
+  container.bind(SharePointBackupService).toSelf().inSingletonScope();
+  container
+    .bind(SHAREPOINT_BACKUP_USE_CASE_TOKEN)
+    .toDynamicValue((ctx) =>
+      scope_connector_throttling(
+        ctx.get(SharePointBackupService),
+        ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN),
+        'sharepoint_onedrive',
+      ),
+    )
+    .inSingletonScope();
   container
     .bind(SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN)
     .to(SharePointSiteTreeBackupService)

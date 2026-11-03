@@ -49,6 +49,7 @@ export function bind_outlook(container: Container): void {
         new CostTrackingRestoreConnector(inner),
         throttle,
         'outlook',
+        { owner_argument: 1 },
       );
     })
     .inSingletonScope();

@@ -1,4 +1,8 @@
-import { is_transient_error } from '@wisecom/atlas-m365-graph';
+import {
+  is_transient_error,
+  report_transfer_throttle,
+  wait_for_transfer_slot,
+} from '@wisecom/atlas-m365-graph';
 import { ByteQueue } from '@wisecom/atlas-core/services/shared/byte-queue';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { LargeFileContent, StreamedFileContent } from '@wisecom/atlas-types';
@@ -187,11 +191,13 @@ async function put_chunk_with_retry(
   chunk: Buffer,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < CHUNK_PUT_ATTEMPTS; attempt++) {
+    await wait_for_transfer_slot();
     const response = await fetch(upload_url, {
       method: 'PUT',
       headers: { 'Content-Range': range, 'Content-Length': String(chunk.length) },
       body: chunk,
     });
+    report_transfer_throttle(response);
     // 200 and 201 carry the finished driveItem; 202 means the session wants more bytes.
     if (response.status === 200 || response.status === 201) return true;
     if (response.status === 202) return false;

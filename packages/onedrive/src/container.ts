@@ -59,7 +59,17 @@ export function bind_onedrive(container: Container): void {
     .bind(ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     .to(S3OneDriveFileVersionIndexRepository)
     .inSingletonScope();
-  container.bind(ONEDRIVE_BACKUP_USE_CASE_TOKEN).to(OneDriveBackupService).inSingletonScope();
+  container.bind(OneDriveBackupService).toSelf().inSingletonScope();
+  container
+    .bind(ONEDRIVE_BACKUP_USE_CASE_TOKEN)
+    .toDynamicValue((ctx) =>
+      scope_connector_throttling(
+        ctx.get(OneDriveBackupService),
+        ctx.get<ThrottleCoordinator>(THROTTLE_COORDINATOR_TOKEN),
+        'sharepoint_onedrive',
+      ),
+    )
+    .inSingletonScope();
   container.bind(ONEDRIVE_CATALOG_USE_CASE_TOKEN).to(OneDriveCatalogService).inSingletonScope();
   container
     .bind(ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN)

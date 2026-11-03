@@ -5,8 +5,12 @@ import type {
   ManifestEntry,
   RestoreConnector,
   TenantContext,
+  TransferProgressReporter,
 } from '@wisecom/atlas-types';
-import { restore_single_message } from '@/services/restore/restore-execution-orchestrator';
+import {
+  restore_folder_entries,
+  restore_single_message,
+} from '@/services/restore/restore-execution-orchestrator';
 
 /**
  * Issue #475. A restore reported only run-wide attachment totals, so a message that landed with
@@ -98,11 +102,14 @@ const MIME_ENTRY: ManifestEntry = {
 
 describe('per-message attachment report', () => {
   it('reports expected and uploaded counts by kind for a healthy MIME restore', async () => {
-    const result = await restore(make_ctx(MIME), MIME_ENTRY, make_restore());
+    const rc = make_restore();
+    const result = await restore(make_ctx(MIME), MIME_ENTRY, rc);
 
     expect(result.messages).toEqual([
       {
         object_id: 'msg-mime',
+        target_message_id: 'new-msg',
+        target_folder_id: vi.mocked(rc.create_message).mock.calls[0]![2],
         attachments_expected: { file: 1, inline: 1 },
         attachments_uploaded: { file: 1, inline: 1 },
         attachments_failed: 0,
@@ -153,3 +160,94 @@ describe('per-message attachment report', () => {
     expect(result.verification_warnings).toEqual(['msg-json: 0 of 1 attachments restored']);
   });
 });
+
+describe('target message and folder ids (issue #569)', () => {
+  it('reports the created message and its folder for a MIME entry', async () => {
+    const rc = make_distinct_restore();
+    const result = await restore(make_ctx(MIME), MIME_ENTRY, rc);
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      object_id: 'msg-mime',
+      target_message_id: 'new-msg',
+      target_folder_id: 'id-Inbox',
+    });
+  });
+
+  it('reports the created message and its folder for a JSON entry', async () => {
+    const rc = make_distinct_restore();
+    const result = await restore(make_ctx(JSON_BODY), json_entry('msg-json'), rc);
+
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      object_id: 'msg-json',
+      target_message_id: 'new-msg',
+      target_folder_id: 'id-Inbox',
+    });
+  });
+
+  it('leaves a message whose creation failed out of the report and keeps its error', async () => {
+    const rc = make_distinct_restore();
+    vi.mocked(rc.create_message).mockRejectedValueOnce(new Error('Graph 400'));
+
+    const result = await restore_folder_entries(
+      make_ctx(JSON_BODY),
+      rc,
+      'tenant-1',
+      'dst@example.com',
+      'id-Inbox',
+      [json_entry('msg-fail'), json_entry('msg-ok')],
+      0,
+      0,
+      2,
+      Date.now(),
+      make_dashboard(),
+      () => false,
+      {},
+    );
+
+    expect(result.errors).toEqual(['msg-fail: Graph 400']);
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]).toMatchObject({
+      object_id: 'msg-ok',
+      target_message_id: 'new-msg',
+      target_folder_id: 'id-Inbox',
+    });
+  });
+});
+
+/** A JSON entry whose stored payload is JSON_BODY, so it restores without attachments. */
+function json_entry(object_id: string): ManifestEntry {
+  return {
+    object_id,
+    storage_key: `data/x/${object_id}`,
+    checksum: sha(JSON_BODY),
+    size_bytes: JSON_BODY.length,
+    folder_id: 'f1',
+  };
+}
+
+/** Each created folder gets an id derived from its name, so a wrong folder id is visible. */
+function make_distinct_restore(): RestoreConnector {
+  return {
+    create_mail_folder: vi.fn(async (_t: string, _o: string, name: string) => ({
+      folder_id: `id-${name}`,
+      display_name: name,
+      folder_path: name,
+      total_item_count: 0,
+    })),
+    create_message: vi.fn(async () => 'new-msg'),
+    add_attachment: vi.fn(),
+  } as unknown as RestoreConnector;
+}
+
+function make_dashboard(): TransferProgressReporter {
+  return {
+    mark_active: vi.fn(),
+    update_active: vi.fn(),
+    update_total: vi.fn(),
+    mark_done: vi.fn(),
+    mark_all_pending_interrupted: vi.fn(),
+    finish: vi.fn(),
+  } as unknown as TransferProgressReporter;
+}

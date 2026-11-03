@@ -2,6 +2,7 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   get_active_throttle,
   get_active_throttle_pool,
+  get_active_throttle_scope,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { parse_retry_after_ms } from '@/graph-retry-after';
 import { ThrottledError } from '@wisecom/atlas-types';
@@ -171,7 +172,7 @@ function as_exhausted_failure(err: unknown): unknown {
 async function wait_out_throttle(): Promise<void> {
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
-  if (throttle && pool) await throttle.coordinator.wait(pool);
+  if (throttle && pool) await throttle.coordinator.wait(pool, get_active_throttle_scope());
 }
 
 /**
@@ -190,7 +191,11 @@ function raise_throttle_on_429(err: unknown, retry_after_ms: number | undefined)
   const pool = get_active_throttle_pool();
   if (!throttle || !pool) return;
 
-  throttle.coordinator.raise(pool, retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000);
+  throttle.coordinator.raise(
+    pool,
+    retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000,
+    get_active_throttle_scope(),
+  );
 }
 
 /** Extracts the Retry-After header value (in ms) from a Graph error, if present. */

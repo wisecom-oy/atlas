@@ -188,7 +188,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           healthy
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking.previous_kind_by_file_id,
-                items_processed: scan.items_processed,
+                files_processed: scan.files_processed,
                 find_latest_snapshot: () => this._manifests.find_latest_by_site(ctx, site_id),
               })
             : undefined,

@@ -1,4 +1,4 @@
-import type { GraphServicePool, ThrottleCoordinator } from '@wisecom/atlas-types';
+import type { GraphServicePool, ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /**
@@ -14,10 +14,10 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 export class FailOpenThrottleCoordinator implements ThrottleCoordinator {
   constructor(private readonly _inner: ThrottleCoordinator) {}
 
-  /** Waits on the host coordinator, proceeding without it if it fails. */
-  async wait(pool: GraphServicePool): Promise<void> {
+  /** Waits on the host coordinator for `pool` and `scope`, proceeding without it if it fails. */
+  async wait(pool: GraphServicePool, ...scope: [ThrottleScope?]): Promise<void> {
     try {
-      await this._inner.wait(pool);
+      await this._inner.wait(pool, ...scope);
     } catch (err) {
       logger.warn(
         `Throttle coordinator wait failed for ${pool}; sending without it: ${describe(err)}`,
@@ -26,9 +26,9 @@ export class FailOpenThrottleCoordinator implements ThrottleCoordinator {
   }
 
   /** Reports a 429 to the host coordinator, logging rather than throwing if it fails. */
-  raise(pool: GraphServicePool, retry_after_ms: number): void {
+  raise(pool: GraphServicePool, retry_after_ms: number, ...scope: [ThrottleScope?]): void {
     try {
-      const result: unknown = this._inner.raise(pool, retry_after_ms);
+      const result: unknown = this._inner.raise(pool, retry_after_ms, ...scope);
       // `raise` is typed void, but a host backed by a network store may still return a promise.
       if (is_thenable(result)) {
         result.then(undefined, (err: unknown) => log_raise_failure(pool, err));

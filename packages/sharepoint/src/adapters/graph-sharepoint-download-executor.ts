@@ -7,6 +7,8 @@ import {
   read_graph_error_code,
   DownloadRefusedError,
   MissingGraphPermissionsError,
+  report_transfer_throttle,
+  wait_for_transfer_slot,
 } from '@wisecom/atlas-m365-graph';
 import {
   CdnHttpError,
@@ -181,10 +183,12 @@ async function download_from_url(
   const timeout_ms = compute_chunk_timeout_ms(size_bytes);
 
   for (let attempt = 0; attempt <= MAX_URL_RETRIES; attempt++) {
+    await wait_for_transfer_slot();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout_ms);
     try {
       const response = await fetch(download_url, { signal: controller.signal });
+      report_transfer_throttle(response);
 
       if (response.status === 429) {
         const retry_after = parse_retry_after(response.headers.get('Retry-After'));

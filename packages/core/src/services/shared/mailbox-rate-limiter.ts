@@ -1,14 +1,14 @@
 /**
  * Composes SlidingWindowLimiter + ConcurrencySemaphore + the Outlook pool's
  * throttle cooldown into a single per-mailbox rate limiter. Each mailbox gets
- * its own sliding window and semaphore, but they all wait on the same
- * ThrottleCoordinator, so a 429 on one mailbox pauses the others.
+ * its own sliding window and semaphore, and waits on the coordinator under its
+ * own owner scope, so a 429 on one mailbox pauses only that mailbox.
  */
 
 import { SlidingWindowLimiter } from './sliding-window-limiter';
 import { ConcurrencySemaphore } from './concurrency-semaphore';
 import { GRAPH_SERVICE_LIMITS } from '@wisecom/atlas-types';
-import type { ThrottleCoordinator } from '@wisecom/atlas-types';
+import type { ThrottleCoordinator, ThrottleScope } from '@wisecom/atlas-types';
 
 const EXCHANGE_WINDOW_MS = GRAPH_SERVICE_LIMITS.outlook.window_duration_ms;
 const EXCHANGE_SLIDE_MS = 1_000;
@@ -16,7 +16,7 @@ const EXCHANGE_CAPACITY = Math.floor(GRAPH_SERVICE_LIMITS.outlook.requests_per_w
 const EXCHANGE_CONCURRENCY = GRAPH_SERVICE_LIMITS.outlook.max_concurrent_requests;
 
 export interface MailboxRateLimiter {
-  acquire(cost?: number): Promise<void>;
+  acquire(cost?: number, scope?: ThrottleScope): Promise<void>;
   release(): void;
   shutdown(): void;
 }
@@ -36,9 +36,9 @@ export class DefaultMailboxRateLimiter implements MailboxRateLimiter {
     this._throttle = throttle;
   }
 
-  /** Waits out any Outlook cooldown, acquires rate window tokens, then a concurrency slot. */
-  async acquire(cost = 1): Promise<void> {
-    await this._throttle.wait('outlook');
+  /** Waits out the scoped Outlook cooldown, acquires window tokens, then a concurrency slot. */
+  async acquire(cost = 1, scope?: ThrottleScope): Promise<void> {
+    await this._throttle.wait('outlook', scope);
     await this._window.acquire(cost);
     await this._semaphore.acquire();
   }
