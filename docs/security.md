@@ -1,8 +1,4 @@
 ---
-### Per-user erasure is not available for Teams
-
-Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob. Every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
-
 description: 'How Atlas protects backups: the passphrase-driven key hierarchy, per-object integrity checks before restore, what is and is not protected, and the limits.'
 ---
 
@@ -319,6 +315,10 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 ### A tenant purge sweeps the bucket
 
 `purge_tenant` enumerates the whole bucket instead of a fixed list of prefixes. A prefix list falls behind when a workload is added, and it then erases less than reported. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that can neither be restored nor reported as erased.
+
+### Per-user erasure is not available for Teams
+
+Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob. Every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
 
 ### Retained or failed
 
