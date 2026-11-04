@@ -177,9 +177,11 @@ If a channel cannot be read, the run records the error and continues with the ne
 
 A thread root that fails is recorded in its channel's cursor, as a ledger entry keyed by root ID. Each run re-fetches ledger roots that the delta read did not return, until the root has failed five times. The report shows `will retry (attempt N of 5)`. After the fifth failure it shows `PERMANENTLY SKIPPED after 5 attempts`, and Atlas stops re-fetching that root, so the channel's delta link can advance. The entry stays in the ledger until a read processes the root cleanly.
 
+A `400` from Graph on a root's replies or re-read is permanent. The root is reported as `PERMANENTLY SKIPPED by service policy, not retried` on the first failure and is not re-fetched.
+
 A root that fails is reported as a channel error. A root that Graph returns `404` for on re-read is kept as previously stored, reported as a warning, and still counts as an attempt. While any ledger entry remains, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run raised no channel error.
 
-A thread whose inline image Graph did not return is re-checked on later runs. Each run warns `hosted content still missing (attempt N of 5); re-checking next run`. The fifth attempt warns that Atlas gave up re-checking. These are warnings only, so they do not make the run unhealthy.
+A thread whose inline image Graph did not return is re-checked on later runs. Each run warns `hosted content still missing (attempt N of 5); re-checking next run`. The fifth attempt warns once that Atlas gave up re-checking. The count then stays at 5, so delta runs stop re-checking that root. A full read still lists it and re-applies it. A `404` on a re-check counts as an attempt. These are warnings only, so they do not make the run unhealthy.
 
 ```bash
 status=0
