@@ -9,6 +9,7 @@ import type {
   VerificationResult,
   StorageCheckResult,
   StorageTarget,
+  TeamsBackupResult,
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
@@ -263,6 +264,21 @@ describe('createAtlasInstance', () => {
         SITE_ID,
         'sp-snap-1',
       );
+    });
+  });
+
+  describe('teams', () => {
+    it('backup returns graphCost alongside the team result', async () => {
+      vi.mocked(mock_teams_backup.backup_team).mockResolvedValue({
+        team_id: 'team-1',
+        interrupted: false,
+        summary: { healthy: true },
+      } as unknown as TeamsBackupResult);
+
+      const result = await atlas.teams.backup('team-1');
+
+      expect(result).toHaveProperty('graphCost');
+      expect(result).toMatchObject({ teamId: 'team-1', interrupted: false });
     });
   });
 

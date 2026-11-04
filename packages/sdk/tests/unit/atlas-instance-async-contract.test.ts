@@ -84,7 +84,10 @@ const mocks: Record<string, Record<string, ReturnType<typeof vi.fn>>> = {
   SharePointStatusUseCase: { check_sharepoint_status: resolved({}) },
   TeamsBackupUseCase: { backup_team: resolved({}) },
   TeamsVerificationUseCase: { verify_teams_snapshot: resolved({}) },
-  TeamsCatalogUseCase: { list_teams: resolved([]), list_teams_snapshots: resolved([]) },
+  TeamsCatalogUseCase: {
+    list_teams: resolved([]),
+    list_teams_snapshots: resolved({ manifests: [], unreadable_keys: [] }),
+  },
   TeamsStatusUseCase: { check_teams_status: resolved([]) },
   TeamsDeletionUseCase: { delete_team_data: resolved({}), delete_snapshot: resolved({}) },
   SharePointSiteConnector: { list_sites: resolved([]), resolve_site: resolved({}) },

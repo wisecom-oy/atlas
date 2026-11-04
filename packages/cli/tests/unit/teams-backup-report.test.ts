@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
 import { execute_teams_backup } from '@/commands/teams-command.handlers';
+import { EXIT_PARTIAL } from '@/command-run-outcome';
+import { render_static_view } from '@/ui/render';
 import {
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
@@ -78,5 +80,46 @@ describe('teams backup no-snapshot report', () => {
 
     expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining(NO_CONTENT));
     expect(logger.info).not.toHaveBeenCalledWith(expect.stringContaining(NO_CHANGES));
+  });
+
+  it('exits partial when the run is unhealthy with no error entries', async () => {
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const result = no_snapshot_result(false);
+    backup_team.mockResolvedValueOnce({ ...result, summary: { ...result.summary, errors: [] } });
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a'] });
+
+    expect(logger.error).toHaveBeenCalledWith('Status: UNHEALTHY');
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
+  });
+
+  it('reports each team as soon as it finishes, before the next team starts', async () => {
+    vi.mocked(render_static_view).mockClear();
+    let rendered_before_second = 0;
+    backup_team.mockResolvedValueOnce(no_snapshot_result(true)).mockImplementationOnce(async () => {
+      rendered_before_second = vi.mocked(render_static_view).mock.calls.length;
+      return no_snapshot_result(true);
+    });
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a', 'team-b'] });
+
+    expect(rendered_before_second).toBeGreaterThan(0);
+  });
+
+  it('stops on Ctrl+C without reporting the cancelled team as failed', async () => {
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    backup_team.mockImplementationOnce(async (_tenant: string, _team: string, options) => {
+      process.emit('SIGINT');
+      throw (options.abort_signal as AbortSignal).reason;
+    });
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a', 'team-b'] });
+
+    expect(backup_team).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Run incomplete: 0 team error(s) (interrupted) -- exit 2',
+    );
+    expect(logger.error).toHaveBeenCalledWith('Status: UNHEALTHY');
+    expect(process.exitCode).toBe(EXIT_PARTIAL);
   });
 });

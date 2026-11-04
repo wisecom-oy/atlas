@@ -13,7 +13,7 @@ import {
   TEAMS_CATALOG_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { build_object_lock_request } from '@/command-object-lock';
-import { report_run_outcome } from '@/command-run-outcome';
+import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import { resolve_tenant_id } from '@/commands/sharepoint-command.handlers';
 import { banner_title } from '@/ui/banner-title';
@@ -96,9 +96,15 @@ export async function execute_teams_list_snapshots(
 ): Promise<void> {
   const tenant_id = resolve_tenant_id(container, options);
   const catalog = container.get<TeamsCatalogUseCase>(TEAMS_CATALOG_USE_CASE_TOKEN);
-  const snapshots = await catalog.list_teams_snapshots(tenant_id, options.team);
+  const listing = await catalog.list_teams_snapshots(tenant_id, options.team);
+  const snapshots = listing.manifests;
 
   await render_static_view(<Banner title={banner_title('teams', 'Snapshots')} />);
+  if (listing.unreadable_keys.length > 0) {
+    logger.warn(
+      `${listing.unreadable_keys.length} snapshot manifest(s) could not be read and are not listed: ${listing.unreadable_keys.join(', ')}`,
+    );
+  }
   if (snapshots.length === 0) {
     logger.info('No snapshots found.');
     return;
@@ -127,64 +133,83 @@ export async function execute_teams_backup(
 
   const backup = container.get<TeamsBackupUseCase>(TEAMS_BACKUP_USE_CASE_TOKEN);
   const gate = install_interrupt_gate(
-    "[!] Stopping after the current thread; threads already stored are kept and the interrupted channel's delta link is not advanced",
+    "Stopping after the current thread; threads already stored are kept and the interrupted channel's delta link is not advanced",
   );
+  await render_static_view(<Banner title={banner_title('teams', 'Backup')} />);
+  if (team_ids.length > 1) {
+    logger.info(`Backing up ${team_ids.length} team(s)`);
+  }
+
   let run: TeamsBackupRun;
   try {
-    run = await run_team_backups(backup, tenant_id, team_ids, {
-      force_full: options.full ?? false,
-      channel_id: options.channel,
-      object_lock_request,
-      should_interrupt: gate.should_interrupt,
-    });
+    run = await run_team_backups(
+      backup,
+      tenant_id,
+      team_ids,
+      {
+        force_full: options.full ?? false,
+        channel_id: options.channel,
+        object_lock_request,
+        should_interrupt: gate.should_interrupt,
+        abort_signal: gate.abort_signal,
+      },
+      report_team_backup,
+    );
   } finally {
     gate.dispose();
   }
 
-  await render_static_view(<Banner title={banner_title('teams', 'Backup')} />);
-  if (run.results.length > 1) {
-    logger.info(`Backed up ${run.results.length} team(s)`);
-  }
-
-  for (const result of run.results) {
-    await report_team_backup(result);
-  }
-  report_run_outcome({ errors: run.failed_teams, warnings: [] }, 'team');
+  report_run_outcome(
+    { errors: run.failed_teams, warnings: [], interrupted: run.interrupted },
+    'team',
+  );
   if (run.fatal) throw run.fatal;
 
   // Per-channel reporting already listed the errors and set the partial-run exit code.
-  if (run.failed_teams.length === 0 && run.results.every((r) => r.summary.healthy)) {
+  if (run.failed_teams.length === 0 && run.all_healthy) {
     logger.success('Status: HEALTHY');
     return;
   }
 
   logger.error('Status: UNHEALTHY');
+  // A ledger-only run has no error entry, so the verdict sets the exit code itself.
+  process.exitCode = EXIT_PARTIAL;
 }
 
-/** Outcome of backing up a list of teams in turn. */
+/** Outcome of backing up a list of teams in turn. Each team's full result is reported, not kept. */
 interface TeamsBackupRun {
-  results: TeamsBackupResult[];
+  all_healthy: boolean;
+  interrupted: boolean;
   failed_teams: string[];
   fatal?: Error;
 }
 
 /**
- * Backs up each team in turn. A failing team is recorded and the rest still run.
- * A single-team run or an auth failure stops the run and is rethrown after reporting.
+ * Backs up each team in turn and hands each result to `report` as it finishes. A failing team is
+ * recorded and the rest still run. A single-team run or an auth failure stops the run and is
+ * rethrown after reporting. Ctrl+C aborting the team in flight stops the run without recording
+ * the cancelled team as failed.
  */
 async function run_team_backups(
   backup: TeamsBackupUseCase,
   tenant_id: string,
   team_ids: string[],
   base_options: TeamsBackupOptions,
+  report: (result: TeamsBackupResult) => Promise<void>,
 ): Promise<TeamsBackupRun> {
-  const run: TeamsBackupRun = { results: [], failed_teams: [] };
+  const run: TeamsBackupRun = { all_healthy: true, interrupted: false, failed_teams: [] };
   for (const team_id of team_ids) {
     try {
       const result = await backup.backup_team(tenant_id, team_id, base_options);
-      run.results.push(result);
+      await report(result);
+      run.all_healthy = run.all_healthy && result.summary.healthy;
       if (result.interrupted || base_options.should_interrupt?.()) break;
     } catch (thrown) {
+      if (base_options.abort_signal?.aborted) {
+        run.all_healthy = false;
+        run.interrupted = true;
+        break;
+      }
       const error = thrown instanceof Error ? thrown : new Error(String(thrown));
       if (team_ids.length === 1 || error instanceof AuthError) {
         run.fatal = error;
