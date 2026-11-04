@@ -1,5 +1,6 @@
 export { register_outlook_command } from './outlook.command';
 export { register_onedrive_command } from './onedrive.command';
+export { register_contacts_command } from './contacts.command';
 export { register_sharepoint_command } from './sharepoint.command';
 export { register_teams_command } from '@/commands/teams.command';
 export { register_stats_command } from './stats.command';

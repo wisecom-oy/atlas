@@ -46,6 +46,12 @@ export type {
   OneDriveVersionWatermark,
 } from './onedrive-manifest';
 export type {
+  ContactFolderRecord,
+  ContactManifestEntry,
+  ContactsSnapshotManifest,
+  ContactsDeltaCursor,
+} from './contacts-manifest';
+export type {
   IdentityRegistry,
   IdentityRegistryEntry,
   IdentityEntryStatus,

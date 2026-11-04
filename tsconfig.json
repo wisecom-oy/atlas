@@ -6,6 +6,7 @@
     { "path": "packages/s3" },
     { "path": "packages/outlook" },
     { "path": "packages/onedrive" },
+    { "path": "packages/contacts" },
     { "path": "packages/sharepoint" },
     { "path": "packages/teams" },
     { "path": "packages/cli" },

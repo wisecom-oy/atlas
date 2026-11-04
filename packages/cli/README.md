@@ -2,7 +2,7 @@
 
 Command-line tool for [Atlas](https://github.com/wisecom-oy/atlas). Secure Microsoft 365 backup and restore to S3-compatible object storage.
 
-Protects Outlook mailboxes, OneDrive files, SharePoint document libraries, and Teams channel messages with per-tenant envelope encryption (AES-256-GCM), content-addressed deduplication, and incremental delta sync via Microsoft Graph.
+Protects Outlook mailboxes, personal Outlook contacts, OneDrive files, SharePoint document libraries, and Teams channel messages with per-tenant envelope encryption (AES-256-GCM), content-addressed deduplication, and incremental delta sync via Microsoft Graph.
 
 ## Requirements
 
@@ -39,6 +39,9 @@ atlas outlook backup --mailbox user@company.com
 # OneDrive
 atlas onedrive backup -o user@company.com
 
+# Contacts
+atlas contacts backup -m user@company.com
+
 # SharePoint
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 
@@ -54,6 +57,7 @@ atlas teams backup --team <team-id>
 | `atlas outlook restore` | Restore from a snapshot |
 | `atlas outlook verify` | Verify snapshot integrity |
 | `atlas onedrive backup` | Back up a user's OneDrive |
+| `atlas contacts backup` | Back up a mailbox's personal contacts |
 | `atlas sharepoint backup` | Back up a SharePoint site |
 | `atlas teams backup`      | Back up Teams channel messages to object storage                                 |
 | `atlas stats` | Storage statistics |

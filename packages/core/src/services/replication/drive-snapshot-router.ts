@@ -5,6 +5,7 @@ import type {
   StorageTarget,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { ConfigError } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_REPLICATION,
   SHAREPOINT_REPLICATION,
@@ -17,6 +18,7 @@ import {
  */
 const ONEDRIVE_SNAPSHOT_ID_PREFIX = 'od-snap-';
 const SHAREPOINT_SNAPSHOT_ID_PREFIX = 'sp-snap-';
+const CONTACTS_SNAPSHOT_ID_PREFIX = 'ct-snap-';
 
 interface DriveSnapshotLocation {
   readonly workload: 'onedrive' | 'sharepoint';
@@ -29,6 +31,14 @@ export function is_drive_snapshot_id(snapshot_id: string): boolean {
   return (
     snapshot_id.startsWith(ONEDRIVE_SNAPSHOT_ID_PREFIX) ||
     snapshot_id.startsWith(SHAREPOINT_SNAPSHOT_ID_PREFIX)
+  );
+}
+
+/** Refuses contacts snapshots; they have no replication path. */
+export function refuse_contacts_snapshot(snapshot_id: string): void {
+  if (!snapshot_id.startsWith(CONTACTS_SNAPSHOT_ID_PREFIX)) return;
+  throw new ConfigError(
+    `Snapshot ${snapshot_id} is a contacts snapshot; contacts cannot be replicated or rehydrated yet.`,
   );
 }
 
@@ -79,6 +89,7 @@ export async function replicate_drive_snapshot(
   targets: StorageTarget[],
   deps: DriveReplicationDeps,
 ): Promise<ReplicationResult[] | undefined> {
+  refuse_contacts_snapshot(snapshot_id);
   const location = await locate_drive_snapshot(ctx, snapshot_id);
   if (location === undefined) return undefined;
 
@@ -109,6 +120,7 @@ export async function rehydrate_drive_snapshot(
   source: StorageTarget,
   deps: DriveReplicationDeps,
 ): Promise<ReplicationResult | undefined> {
+  refuse_contacts_snapshot(snapshot_id);
   const location = await locate_drive_snapshot(source_ctx, snapshot_id);
   if (location === undefined) return undefined;
 

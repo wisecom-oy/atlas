@@ -42,6 +42,7 @@ const WORKLOAD_ORDER: readonly StorageUsageWorkload[] = [
   'onedrive',
   'sharepoint',
   'teams',
+  'contacts',
   'meta',
   'other',
 ];

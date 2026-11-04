@@ -27,16 +27,17 @@ Then click **Grant admin consent for [your tenant]**. The permissions do not tak
 
 `atlas outlook mailboxes` shows mailbox sizes when `Reports.Read.All` is granted. Without it, the Size column is omitted. The permission reads every usage report in the tenant, not only mailbox sizes, so grant it only for capacity planning.
 
-## OneDrive and SharePoint permissions
+## OneDrive, SharePoint, and Contacts permissions
 
-OneDrive and SharePoint backups use their own permission sets, granted on the same app registration:
+OneDrive, SharePoint, and Contacts backups use their own permission sets, granted on the same app registration:
 
 | Workload                 | Permissions                                                       | Notes                                              |
 | ------------------------ | ----------------------------------------------------------------- | -------------------------------------------------- |
 | OneDrive                 | `Files.Read.All`, `User.Read.All`                                 | `Files.ReadWrite.All` is needed for restore only   |
+| Contacts                 | `Contacts.Read`                                                   | `Contacts.ReadWrite` is needed for restore only    |
 | SharePoint               | `Sites.Read.All`, `Files.Read.All`                                | `Sites.ReadWrite.All` is needed for restore only   |
 
-See [OneDrive backup](./onedrive-backup.md) and [SharePoint backup](./sharepoint-backup.md) for the commands that use them.
+See [OneDrive backup](./onedrive-backup.md), [SharePoint backup](./sharepoint-backup.md), and [Contacts backup](./contacts-backup.md) for the commands that use them.
 
 ## Teams application permissions
 

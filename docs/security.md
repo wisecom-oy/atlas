@@ -1,4 +1,8 @@
 ---
+### Per-user erasure is not available for Teams
+
+Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob. Every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
+
 description: 'How Atlas protects backups: the passphrase-driven key hierarchy, per-object integrity checks before restore, what is and is not protected, and the limits.'
 ---
 
@@ -100,7 +104,7 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 ### What a ciphertext is bound to
 
-Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
+Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
 | Attack                                                        | Result                                                       |
 | ------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -109,19 +113,20 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
 | Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
-Objects written before the header existed have no magic bytes and decrypt without associated data. Existing backups stay readable with no migration step. Those objects have no scope to check, so they can be moved and still decrypt. An object gains the binding when its plaintext changes or when it is deleted and stored again. Restore still checks the manifest checksum before writing anything.
-
-## What is encrypted at rest
-
-| Data                                       | Encrypted | Notes                                                                                 |
-| ------------------------------------------ | --------- | ------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`           |
-| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
-| Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
-| OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{content_name}`                                             |
+| Data                                           | Encrypted | Notes                                                                                     |
+| ---------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`               |
+| Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
+| Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                    |
+| OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                 |
+| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                  |
+| Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
+| Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
+| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                |
+| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                   |
+| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
-| Teams message blobs and inline images        | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
-| Teams indexes, channel shards, and delta state | Yes     | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
+| Contacts data, photos, and manifests       | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                            |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
@@ -135,10 +140,6 @@ Objects written before keyed naming are named by the plain SHA-256 of their plai
 
 ## User identity in storage paths
 
-Storage prefixes use the Entra object ID, not the SMTP address. For OneDrive, `atlas onedrive` resolves a user principal name or email passed to `--owner` to an object ID before computing the prefix. Passing a UUID skips resolution and must match the user's directory object ID. Mailbox backups namespace `data/`, `attachments/`, and `manifests/` by the owner's object ID too. The SMTP address is recorded only as display metadata on snapshots.
-
-Bucket listings therefore do not reveal which email account owns a subtree unless someone can correlate Graph IDs. Address-keyed objects written by v5 are not renamed or aliased. They stay under their old prefixes until something deletes them, and Object Lock expiry only makes them deletable. See [Migrating to v6](/migration/v6).
-
 ## Teams channel messages are personal data
 
 Channel messages hold personal data: what people wrote, who they addressed, and the files and images they shared. Atlas stores each message version as the Graph object it returned, with its reply list and `@odata` annotations removed, so the backup holds the same content a channel member can read.
@@ -149,6 +150,10 @@ Channel messages hold personal data: what people wrote, who they addressed, and 
 - **A compromised client secret.** The passphrase protects stored backups only. Anyone holding the client secret can call Graph as the app and read live channel messages, replies, and member lists across the tenant. Rotate the secret on a schedule and limit who holds it.
 - **Deleted messages stay in older snapshots.** Atlas does not remove a message from snapshots taken before it was deleted in Teams, and later snapshots carry the deleted message forward. Its blobs stay until `atlas teams delete --team` removes the team's data, or `atlas delete --purge` removes the tenant's. Deleting one snapshot removes only its manifest.
 - **Reused blobs keep their first retention.** An unchanged thread or file is not uploaded again, so it keeps the Object Lock retention set when it was first written. A later run does not extend that retention.
+
+Storage prefixes use the Entra object ID, not the SMTP address. For OneDrive, `atlas onedrive` resolves a user principal name or email passed to `--owner` to an object ID before computing the prefix. Passing a UUID skips resolution and must match the user's directory object ID. Mailbox backups namespace `data/`, `attachments/`, and `manifests/` by the owner's object ID too. The SMTP address is recorded only as display metadata on snapshots.
+
+Bucket listings therefore do not reveal which email account owns a subtree unless someone can correlate Graph IDs. Address-keyed objects written by v5 are not renamed or aliased. They stay under their old prefixes until something deletes them, and Object Lock expiry only makes them deletable. See [Migrating to v6](/migration/v6).
 
 ## Replication security
 
@@ -315,10 +320,6 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 
 `purge_tenant` enumerates the whole bucket instead of a fixed list of prefixes. A prefix list falls behind when a workload is added, and it then erases less than reported. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that can neither be restored nor reported as erased.
 
-### Per-user erasure is not available for Teams
-
-Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob. Every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
-
 ### Retained or failed
 
 A refused delete counts as **retained** only when the backend names Object Lock as the reason. AWS returns `AccessDenied: Access Denied because object protected by object lock`, and MinIO returns `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when retention expires.
@@ -445,11 +446,11 @@ Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_R
 
 Atlas separates read and write storage access, so an operator who only browses never needs write credentials:
 
-| Command class                                                                                                                                                                                    | Required S3 actions                                                                                                                       | Provisioning |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
-| Storage usage: `stats storage`                                                                                                                                                                   | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                            | None         |
-| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`, `teams backup`                                                                                                           | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
+| Command class                                                                                                                                                                                                     | Required S3 actions                                                                                                                       | Provisioning |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
+| Storage usage: `stats storage`                                                                                                                                                                                    | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                            | None         |
+| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`, `teams backup`                                                                                                                            | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
 
 Read-only commands never create the bucket or write `_meta/dek.enc`, so a mistyped tenant ID fails with `No backups found for tenant <id>` instead of leaving behind a new bucket.
 

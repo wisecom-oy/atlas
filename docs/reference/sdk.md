@@ -272,14 +272,14 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 
 `atlas.teams` backs up channel messages one team per call. Each call returns one result for that team, with `graphCost` counted in the `teams` pool. Restore and save are not available yet.
 
-| Method                                 | CLI equivalent                                 | Description                                                                    |
-| -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                          |
-| `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel |
-| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team, as `{ manifests, unreadableKeys }`            |
+| Method                                 | CLI equivalent                                 | Description                                                                                                                           |
+| -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                                                                                 |
+| `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel                                                        |
+| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team, as `{ manifests, unreadableKeys }`                                                                   |
 | `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check each channel shard and every blob it references: decrypt, then compare the blob's SHA-256. `options.fast` checks existence only |
-| `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID              |
-| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's index                                           |
+| `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID                                                                     |
+| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's index                                                                    |
 
 ```typescript
 const run = await atlas.teams.backup(teamId);
@@ -292,6 +292,23 @@ if (run.snapshot) {
 ```
 
 `run.summary` reports the run's counters, camelCased: `threadsChanged`, `messagesStored`, `messagesDeduplicated`, `hostedContentStored`, and `threadsDeleted`. `status()` returns `failedRootCount` and `pendingRecheckCount` for each team, the values behind the `Failed roots` and `Pending rechecks` columns of `atlas teams status`. See [Teams backup](../teams-backup.md#backup) for what each counter means.
+
+### Contacts
+
+`atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Owner arguments accept an email or Entra object ID.
+
+Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a contacts snapshot ID, and the mailbox and tenant rehydrate methods skip contacts.
+
+| Method                                | CLI equivalent              | Description                                                                 |
+| ------------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `backup(mailbox, options?)`           | `atlas contacts backup -m`  | Back up changed contacts                                                    |
+| `restore(mailbox, options)`           | `atlas contacts restore -m` | Restore a snapshot without overwriting; `targetMailboxId` sets the target   |
+| `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m` | Verify a snapshot                                                           |
+| `listSnapshots(mailbox)`              | `atlas contacts list -m`    | List snapshots for a mailbox                                                |
+| `deleteMailboxData(mailbox)`          | `atlas contacts delete -m`  | Delete all contacts data for a mailbox                                      |
+| `deleteSnapshot(mailbox, snapshotId)` | `atlas contacts delete -m -s` | Delete one snapshot manifest                                              |
+
+See [Contacts backup](/contacts-backup) for the storage layout and restore behaviour.
 
 ### Tenant-wide methods
 
@@ -307,7 +324,7 @@ if (run.snapshot) {
 | `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                 |
 | `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                             |
 | `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                    |
-| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                    |
+| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts are not covered |
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                             |
 | `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                               |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                    |
@@ -333,7 +350,7 @@ Methods accept the same identifiers as the CLI and normalize them the same way.
 | `atlas.onedrive.*`   | Email or UPN, or Entra object ID                                                      | An argument containing `@` resolves through Graph. Anything else is used as given                    |
 | `atlas.outlook.*`    | Email or UPN, or Entra object ID                                                      | An argument containing `@` resolves through Graph. Anything else is used as given                    |
 | `atlas.sharepoint.*` | Site URL or hostname, or site ID (`siteGuid,webGuid`, with or without a leading host) | An argument without commas resolves through Graph. A site ID drops its hostname without a Graph call |
-| `atlas.teams.*`      | Graph team ID (GUID)                                                                  | Trimmed and lowercased, then checked as a GUID. No Graph call is made to resolve it                 |
+| `atlas.teams.*`      | Graph team ID (GUID)                                                                  | Trimmed and lowercased, then checked as a GUID. No Graph call is made to resolve it                  |
 
 A failed resolution throws, so a mistyped address fails instead of addressing an empty scope. Resolved identities are cached per instance. Backups record the resolved email and display name as snapshot metadata, which makes owners readable in later listings. Storage keys always use the object ID. `resolveUser` and `resolveSite` are available on their own.
 
@@ -1149,22 +1166,22 @@ try {
 }
 ```
 
-| Class                               | `code`                       | Meaning                                                                  |
-| ----------------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
-| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs           |
-| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent   |
-| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox          |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist                 |
-| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`          |
-| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                             |
-| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set              |
-| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence |
-| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, or tenant is missing or unusable      |
-| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested, but bucket versioning is off                     |
-| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                |
-| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                        |
-| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                               |
-| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported           |
+| Class                               | `code`                       | Meaning                                                                               |
+| ----------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------- |
+| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs                        |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent                |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                       |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist                              |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`                       |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key                                          |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set                           |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence              |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, or tenant is missing or unusable                   |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested, but bucket versioning is off                                  |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                             |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                     |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                            |
+| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                        |
 | `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.

@@ -144,6 +144,7 @@ describe('GraphCostMiddleware', () => {
     ['https://graph.microsoft.com/v1.0/users/u/mailFolders', 'outlook'],
     ['https://graph.microsoft.com/v1.0/users/u/messages/1/attachments', 'outlook'],
     ['https://graph.microsoft.com/v1.0/users/u/mailboxSettings', 'outlook'],
+    ['https://graph.microsoft.com/v1.0/users/u/contactFolders/f/contacts', 'outlook'],
     ['https://graph.microsoft.com/v1.0/sites/s/drives', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/drives/d/root/delta', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/users/u/drive/root/delta', 'sharepoint_onedrive'],

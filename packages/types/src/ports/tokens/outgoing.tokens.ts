@@ -17,6 +17,9 @@ export const ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(
   'OneDriveFileVersionIndexRepository',
 );
 export const ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('OneDriveDeltaCursorRepository');
+export const CONTACTS_CONNECTOR_TOKEN = Symbol.for('ContactsConnector');
+export const CONTACTS_MANIFEST_REPOSITORY_TOKEN = Symbol.for('ContactsManifestRepository');
+export const CONTACTS_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('ContactsDeltaCursorRepository');
 export const SHAREPOINT_CONNECTOR_TOKEN = Symbol.for('SharePointSiteConnector');
 export const SHAREPOINT_MANIFEST_REPOSITORY_TOKEN = Symbol.for('SharePointManifestRepository');
 export const SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(

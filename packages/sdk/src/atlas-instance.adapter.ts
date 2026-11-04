@@ -26,6 +26,7 @@ import {
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
+import { create_contacts_api } from '@/contacts-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
 import { create_teams_api } from '@/teams-api.factory';
 import { create_disposer } from '@/instance-disposal';
@@ -65,6 +66,7 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     onedrive: scoped(create_onedrive_api(tenant_id, container)),
     sharepoint: scoped(create_sharepoint_api(tenant_id, container)),
     teams: scoped(create_teams_api(tenant_id, container)),
+    contacts: scoped(create_contacts_api(tenant_id, container)),
 
     async validate() {
       await validate_instance(container, tenant_id);
