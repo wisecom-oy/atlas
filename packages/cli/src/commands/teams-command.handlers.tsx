@@ -246,9 +246,10 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
       counters.push({ label: 'deleted', value: result.summary.threads_deleted, color: 'red' });
     }
     await render_static_view(<ResultSummary entries={counters} />);
-  } else if (result.summary.no_snapshot_reason === 'no_content') {
+  } else if (result.summary.healthy && result.summary.no_snapshot_reason === 'no_content') {
     logger.warn('No Teams messages found. Nothing was backed up and no snapshot exists.');
-  } else {
+  } else if (result.summary.healthy) {
+    // Unhealthy runs report their failure through the run outcome, not as "no changes".
     logger.info('No Teams changes detected. Snapshot skipped.');
   }
 

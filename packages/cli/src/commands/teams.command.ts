@@ -92,7 +92,7 @@ function register_teams_verify(group: Command, get_container: ContainerFactory):
 function register_teams_status(group: Command, get_container: ContainerFactory): void {
   const command = group
     .command('status')
-    .description('Show the last Teams backup run recorded for each team');
+    .description('Show the last Teams snapshot recorded for each team');
   with_tenant(command).action((options: TeamsTenantOptions) =>
     execute_teams_status(get_container(), options),
   );

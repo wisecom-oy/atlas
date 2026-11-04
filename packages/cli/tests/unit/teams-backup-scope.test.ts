@@ -6,6 +6,7 @@ import {
   TEAMS_BACKUP_USE_CASE_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
   type TeamsBackupUseCase,
+  type TeamsBackupResult,
   type TeamsCatalogUseCase,
 } from '@wisecom/atlas-types';
 
@@ -13,7 +14,7 @@ vi.mock('@/ui/render', () => ({ render_static_view: vi.fn(async () => {}) }));
 
 const TENANT = 'tenant-example';
 
-function healthy_result(team_id: string): Record<string, unknown> {
+function healthy_result(team_id: string): TeamsBackupResult {
   return {
     team_id,
     snapshot: undefined,
@@ -21,13 +22,17 @@ function healthy_result(team_id: string): Record<string, unknown> {
     summary: {
       healthy: true,
       channels_scanned: 0,
+      channels_full_read: 0,
       threads_changed: 0,
       threads_stored: 0,
       threads_deduplicated: 0,
       threads_deleted: 0,
+      hosted_content_stored: 0,
+      cursor_updated: false,
+      snapshot_created: false,
       errors: [],
       warnings: [],
-      no_snapshot_reason: 'unchanged',
+      no_snapshot_reason: 'no_changes',
     },
   };
 }

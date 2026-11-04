@@ -45,7 +45,7 @@ interface StatusRow {
 
 const status_columns: TableColumn<StatusRow>[] = [
   { key: 'team', header: 'Team' },
-  { key: 'last_backup', header: 'Last backup' },
+  { key: 'last_backup', header: 'Last snapshot' },
   { key: 'last_snapshot', header: 'Snapshot' },
   { key: 'channels', header: 'Channels', align: 'right' },
 ];
@@ -76,7 +76,7 @@ export async function execute_teams_verify(
   process.exitCode = 1;
 }
 
-/** Reports the last backup run recorded for each team in the tenant. */
+/** Reports the last snapshot recorded for each team in the tenant. */
 export async function execute_teams_status(
   container: Container,
   options: TeamsTenantOptions,
@@ -115,8 +115,9 @@ export async function execute_teams_delete(
   await render_delete_banner();
 
   const description = options.snapshot
-    ? `This will delete Teams snapshot ${options.snapshot} for ${options.team} ` +
-      `(data objects are retained for other snapshots)`
+    ? `This will delete Teams snapshot ${options.snapshot} for ${options.team}. ` +
+      'Only its manifest is removed. Stored message data is kept until a team data ' +
+      'delete removes it, even when no other snapshot references it.'
     : `This will delete all Teams data and manifests for ${options.team}`;
 
   if (!(await confirm_deletion(description, options.yes))) return;
