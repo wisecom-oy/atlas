@@ -65,4 +65,31 @@ describe('teams backup Ctrl+C with a Retry-After cooldown in force', () => {
     expect(render_static_view).toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('releases the cooldown when the interrupted team resolves instead of throwing (S2)', async () => {
+    container.rebind(TEAMS_BACKUP_USE_CASE_TOKEN).toConstantValue({
+      backup_team: (_tenant: string, team: string, options: { abort_signal?: AbortSignal }) => {
+        coordinator.raise('teams', 120_000);
+        const { promise, resolve } = Promise.withResolvers<unknown>();
+        options.abort_signal?.addEventListener('abort', () =>
+          resolve({
+            team_id: team,
+            snapshot: undefined,
+            interrupted: true,
+            summary: { channels_scanned: 0, healthy: false, errors: [], warnings: [] },
+          }),
+        );
+        return promise;
+      },
+    } as unknown as TeamsBackupUseCase);
+
+    const run = execute_teams_backup(container, { tenant: 'tenant-example', team: ['team-a'] });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(vi.getTimerCount()).toBe(1);
+
+    process.emit('SIGINT');
+    await run;
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

@@ -73,6 +73,25 @@ describe('teams backup no-snapshot report', () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(NO_CONTENT));
   });
 
+  it('shows hosted content stored in the summary of a created snapshot (S5)', async () => {
+    const result = no_snapshot_result(true);
+    backup_team.mockResolvedValueOnce({
+      ...result,
+      snapshot: { snapshot_id: 'snap-1' } as unknown as TeamsBackupResult['snapshot'],
+      summary: { ...result.summary, hosted_content_stored: 3 },
+    });
+
+    await execute_teams_backup(container, { tenant: TENANT, team: ['team-a'] });
+
+    expect(vi.mocked(render_static_view).mock.calls.map((call) => call[0])).toContainEqual(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          entries: expect.arrayContaining([expect.objectContaining({ label: 'hosted', value: 3 })]),
+        }),
+      }),
+    );
+  });
+
   it('does not claim no messages exist when the run was unhealthy', async () => {
     backup_team.mockResolvedValueOnce(no_snapshot_result(false));
 

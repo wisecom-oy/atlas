@@ -168,7 +168,7 @@ export async function execute_teams_backup(
   // Ctrl+C aborts the request but not the cooldown the run raised. That timer is not unref'd, so
   // it would keep the process alive until the Retry-After expires. Unbinding the coordinator runs
   // its deactivation hook, which clears the fence timers.
-  if (run.interrupted && container.isBound(THROTTLE_COORDINATOR_TOKEN)) {
+  if (gate.abort_signal.aborted && container.isBound(THROTTLE_COORDINATOR_TOKEN)) {
     await container.unbindAsync(THROTTLE_COORDINATOR_TOKEN);
   }
 
@@ -279,6 +279,7 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
       { label: 'changed', value: result.summary.threads_changed, color: 'cyan' },
       { label: 'stored', value: result.summary.messages_stored, color: 'green' },
       { label: 'dedup', value: result.summary.messages_deduplicated, color: 'yellow' },
+      { label: 'hosted', value: result.summary.hosted_content_stored, color: 'green' },
     ];
     if (result.summary.threads_deleted > 0) {
       counters.push({ label: 'deleted', value: result.summary.threads_deleted, color: 'red' });
