@@ -146,7 +146,7 @@ export async function with_graph_retry<T>(
     // began would otherwise keep firing into Graph for the whole of it.
     waited_ms += await wait_out_throttle(RETRY_BUDGET_MS - waited_ms, abort_signal);
     try {
-      return await race_abort(race_timeout(fn(), timeout_ms), abort_signal);
+      return await race_timeout(race_abort(fn(), abort_signal), timeout_ms);
     } catch (err) {
       throw_if_cancelled(abort_signal);
       if (!is_retryable_error(err)) throw err;
@@ -207,9 +207,9 @@ async function wait_out_throttle(
   const pool = get_active_throttle_pool();
   if (!throttle || !pool) return 0;
   const started = Date.now();
-  await race_abort(
-    race_budget(throttle.coordinator.wait(pool, get_active_throttle_scope()), budget_ms),
-    abort_signal,
+  await race_budget(
+    race_abort(throttle.coordinator.wait(pool, get_active_throttle_scope()), abort_signal),
+    budget_ms,
   );
   return Date.now() - started;
 }

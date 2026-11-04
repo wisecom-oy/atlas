@@ -231,4 +231,48 @@ describe('with_graph_retry stops when the run is cancelled', () => {
     ).rejects.toThrow('run cancelled');
     expect(fn).not.toHaveBeenCalled();
   });
+
+  it('clears the request timeout timer when the run is cancelled mid-attempt', async () => {
+    const controller = new AbortController();
+    const fn = vi.fn<() => Promise<string>>(() => new Promise<string>(() => undefined));
+
+    const promise = run_with_abort_signal(controller.signal, () => with_graph_retry(fn));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(vi.getTimerCount()).toBe(1);
+    controller.abort(new Error('run cancelled'));
+
+    await expect(promise).rejects.toThrow('run cancelled');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('clears the cooldown budget timer when the run is cancelled during a cooldown', async () => {
+    const coordinator = new InProcessThrottleCoordinator();
+    coordinator.raise(POOL, 60 * MINUTE_MS);
+    // The fence owns its cooldown timer; only the timers the retry adds must be gone after abort.
+    const fence_timers = vi.getTimerCount();
+    const fn = vi.fn<() => Promise<string>>().mockResolvedValue('ok');
+    const controller = new AbortController();
+
+    const promise = run_with_abort_signal(controller.signal, () =>
+      run_with_throttle_coordinator(coordinator, POOL, () => with_graph_retry(fn)),
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    controller.abort(new Error('run cancelled'));
+
+    await expect(promise).rejects.toThrow('run cancelled');
+    expect(vi.getTimerCount()).toBe(fence_timers);
+    coordinator.clear();
+  });
+
+  it('clears the abort context for a nested run without a signal', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('outer run cancelled'));
+    const fn = vi.fn<() => Promise<string>>().mockResolvedValue('ok');
+
+    const result = await run_with_abort_signal(controller.signal, () =>
+      run_with_abort_signal(undefined, () => with_graph_retry(fn)),
+    );
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
 });
