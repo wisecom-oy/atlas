@@ -14,27 +14,27 @@ const OLD_SNAPSHOT = 'teams-snap-1000-aaaaaa';
 const NEW_SNAPSHOT = 'teams-snap-2000-bbbbbb';
 
 /** Encrypts a manifest body the way the adapter stores it, under `store`'s key. */
-function sealed(store: StubEncryptedObjectStore, team_id: string, snapshot_id: string): Buffer {
+function sealed(
+  store: StubEncryptedObjectStore,
+  team_id: string,
+  snapshot_id: string,
+  extra: Record<string, unknown> = {},
+): Buffer {
   const body = {
     team_id,
     snapshot_id,
     team_display_name: 'Team',
     created_at: '2025-01-01T00:00:00.000Z',
     channels: [],
+    ...extra,
   };
   return store.encrypt(Buffer.from(JSON.stringify(body), 'utf-8'));
-}
-
-/** Decrypts a sealed payload with `store`'s key. GCM authentication fails under any other key. */
-function open_with(store: StubEncryptedObjectStore, payload: Buffer): Buffer {
-  const decipher = store.create_decipher(payload.subarray(0, 12), payload.subarray(12, 28));
-  return Buffer.concat([decipher.update(payload.subarray(28)), decipher.final()]);
 }
 
 /** A context over an in-memory bucket of sealed manifests keyed by storage key. */
 function make_ctx(store: StubEncryptedObjectStore, bodies: Record<string, Buffer>) {
   const get = vi.fn(async (key: string) => bodies[key]);
-  const decrypt = vi.fn((payload: Buffer) => open_with(store, payload));
+  const decrypt = vi.fn((payload: Buffer) => store.decrypt(payload));
   const ctx = {
     storage: {
       exists: vi.fn(async (key: string) => key in bodies),
@@ -170,8 +170,8 @@ describe('S3TeamsManifestRepository.list_latest_per_team', () => {
   });
 });
 
-describe('S3TeamsManifestRepository full listings', () => {
-  it('throws UnreadableContentError naming the key when any manifest of the team is corrupt', async () => {
+describe('S3TeamsManifestRepository.list_snapshots_by_team', () => {
+  it('returns the readable manifests and reports the corrupt key instead of failing the team', async () => {
     const store = stub_encrypted_object_store();
     const other_store = stub_encrypted_object_store();
     const bad_key = TEAMS_KEYS.manifest_key(TEAM, NEW_SNAPSHOT);
@@ -180,9 +180,38 @@ describe('S3TeamsManifestRepository full listings', () => {
       [bad_key]: sealed(other_store, TEAM, NEW_SNAPSHOT),
     });
 
-    const listing = new S3TeamsManifestRepository().list_snapshots_by_team(ctx, TEAM);
+    const listing = await new S3TeamsManifestRepository().list_snapshots_by_team(ctx, TEAM);
 
-    await expect(listing).rejects.toBeInstanceOf(UnreadableContentError);
-    await expect(listing).rejects.toThrow(bad_key);
+    expect(listing.manifests.map((manifest) => manifest.snapshot_id)).toEqual([OLD_SNAPSHOT]);
+    expect(listing.unreadable_keys).toEqual([bad_key]);
+  });
+});
+
+describe('S3TeamsManifestRepository format_version', () => {
+  it('reads a manifest that predates format_version as legacy', async () => {
+    const store = stub_encrypted_object_store();
+    const key = TEAMS_KEYS.manifest_key(TEAM, NEW_SNAPSHOT);
+    const { ctx } = make_ctx(store, { [key]: sealed(store, TEAM, NEW_SNAPSHOT) });
+
+    const manifest = await new S3TeamsManifestRepository().find_by_snapshot(
+      ctx,
+      TEAM,
+      NEW_SNAPSHOT,
+    );
+
+    expect(manifest?.snapshot_id).toBe(NEW_SNAPSHOT);
+  });
+
+  it('rejects a manifest written with a newer format_version, naming the version', async () => {
+    const store = stub_encrypted_object_store();
+    const key = TEAMS_KEYS.manifest_key(TEAM, NEW_SNAPSHOT);
+    const { ctx } = make_ctx(store, {
+      [key]: sealed(store, TEAM, NEW_SNAPSHOT, { format_version: 2 }),
+    });
+
+    const lookup = new S3TeamsManifestRepository().find_by_snapshot(ctx, TEAM, NEW_SNAPSHOT);
+
+    await expect(lookup).rejects.toBeInstanceOf(UnreadableContentError);
+    await expect(lookup).rejects.toThrow(/format_version 2/);
   });
 });

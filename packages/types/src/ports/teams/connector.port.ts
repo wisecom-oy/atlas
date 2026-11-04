@@ -98,6 +98,17 @@ export interface TeamsConnector {
   ): Promise<TeamsRootChange[]>;
 
   /**
+   * Reads one root message with its replies inlined. Resolves undefined when Graph no longer has
+   * it (404), so the caller can treat the root as removed.
+   */
+  get_channel_message(
+    tenant_id: string,
+    team_id: string,
+    channel_id: string,
+    root_id: string,
+  ): Promise<TeamsRootChange | undefined>;
+
+  /**
    * Lists every reply of a root message, paged, including deleted replies. Graph has no delta
    * for replies, so callers refetch the full list for each changed root.
    */

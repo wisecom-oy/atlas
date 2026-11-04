@@ -20,16 +20,16 @@ export function digest_thread_blob(scope: BackupRunScope, blob: TeamsThreadBlob)
 }
 
 /**
- * Writes a blob under its content-addressed key. An existing blob is kept unless `rewrite` is set,
- * which `--full` uses to rewrite every thread blob it reads.
+ * Writes a blob under its content-addressed key. An existing blob is kept as is, even under
+ * `--full`: the key is a keyed digest of the content, so a stored blob already holds these bytes,
+ * and rewriting it would create a new version under Object Lock.
  */
 export async function write_blob(
   scope: BackupRunScope,
   storage_key: string,
   plaintext: Buffer,
-  rewrite: boolean,
 ): Promise<void> {
-  if (!rewrite && (await scope.ctx.storage.exists(storage_key))) {
+  if (await scope.ctx.storage.exists(storage_key)) {
     return;
   }
   await scope.ctx.storage.put(storage_key, scope.ctx.encrypt(plaintext, storage_key));

@@ -6,6 +6,7 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 
 export const BACKUP_AT = '2025-01-01T00:00:00.000Z';
@@ -26,7 +27,8 @@ export interface ThreadHarness {
 export function make_harness(exists_result = false): ThreadHarness {
   const put = vi.fn(async () => undefined);
   const exists = vi.fn(async () => exists_result);
-  const encrypt = vi.fn((plaintext: Buffer) => plaintext);
+  const store = stub_encrypted_object_store();
+  const encrypt = vi.fn((plaintext: Buffer) => store.encrypt(plaintext));
   const list_replies = vi.fn(async () => [] as TeamsGraphResource[]);
   const list_hosted_contents = vi.fn(async () => [] as TeamsGraphResource[]);
   const download_hosted_content = vi.fn(async () => Buffer.from('image-bytes'));

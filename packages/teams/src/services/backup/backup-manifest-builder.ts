@@ -29,6 +29,7 @@ export function build_teams_manifest(input: ManifestInput): TeamsSnapshotManifes
   );
   return {
     id: `${input.team_id}-${input.snapshot_id}`,
+    format_version: 1,
     tenant_id: input.tenant_id,
     team_id: input.team_id,
     team_display_name: input.team_display_name,
@@ -69,6 +70,7 @@ export function build_teams_cursor(
   const kept = Object.entries(links).filter(([channel_id]) => channel_ids.has(channel_id));
   return {
     team_id,
+    format_version: 1,
     delta_link_by_channel: Object.fromEntries(kept),
     failed_roots: keep_ledger_for_channels(failed_roots, channel_ids),
     updated_at,

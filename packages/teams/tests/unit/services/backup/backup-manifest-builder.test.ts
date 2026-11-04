@@ -77,6 +77,7 @@ describe('build_teams_manifest', () => {
     // live root 10, its hosted blob 20, tombstone 1, last_live 50
     expect(manifest.total_size_bytes).toBe(10 + 20 + 1 + 50);
     expect(manifest.id).toBe(`${TEAM}-snap-1`);
+    expect(manifest.format_version).toBe(1);
   });
 });
 
@@ -109,5 +110,6 @@ describe('build_teams_cursor', () => {
     expect(cursor.delta_link_by_channel).toEqual({ 'channel-1': 'link-1' });
     expect(Object.keys(cursor.failed_roots ?? {})).toEqual(['channel-1/root-1']);
     expect(cursor.team_id).toBe(TEAM);
+    expect(cursor.format_version).toBe(1);
   });
 });

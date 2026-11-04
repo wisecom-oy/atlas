@@ -48,6 +48,50 @@ describe('store_thread', () => {
     });
   });
 
+  it('keeps the previous live blob and hosted images when a live root loses a reply', async () => {
+    const previous: TeamsThreadEntry = {
+      storage_key: 'live-key',
+      checksum: 'live-checksum',
+      size_bytes: 42,
+      last_modified_at: '',
+      reply_count: 1,
+      hosted: { h1: { storage_key: 'hosted-key', checksum: 'hosted-checksum', size_bytes: 3 } },
+      backup_at: BACKUP_AT,
+    };
+    const change = live([{ id: 'reply-1', deletedDateTime: 'x' }]);
+
+    const entry = await store_thread(harness.scope, 'channel-1', change, previous);
+
+    expect(entry.last_live).toEqual({
+      storage_key: 'live-key',
+      checksum: 'live-checksum',
+      size_bytes: 42,
+    });
+    expect(entry.hosted.h1).toEqual(previous.hosted.h1);
+  });
+
+  it('keeps the pinned last live blob when the same content is seen again', async () => {
+    harness = make_harness(true);
+    const pinned = { storage_key: 'pinned-key', checksum: 'pinned-checksum', size_bytes: 7 };
+    const previous: TeamsThreadEntry = {
+      storage_key: 'live-key',
+      checksum: 'live-checksum',
+      size_bytes: 42,
+      last_modified_at: '',
+      reply_count: 1,
+      hosted: {},
+      backup_at: BACKUP_AT,
+      last_live: pinned,
+    };
+    const change = live([{ id: 'reply-1', deletedDateTime: 'x' }]);
+
+    const first = await store_thread(harness.scope, 'channel-1', change, previous);
+    const second = await store_thread(harness.scope, 'channel-1', change, first);
+
+    expect(first.last_live).toEqual(pinned);
+    expect(second.last_live).toEqual(pinned);
+  });
+
   it('does not upload a live thread whose content matches the previous entry', async () => {
     harness = make_harness(true);
     const first = await store_thread(harness.scope, 'channel-1', live(), undefined);

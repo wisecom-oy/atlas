@@ -4,32 +4,47 @@ import { store_thread } from '@/services/backup/thread-store';
 import { BACKUP_AT, HOSTED_BODY, live, make_harness, root } from './thread-store-harness';
 
 describe('store_thread hosted contents', () => {
-  it('fails the root when a referenced hosted id is not listed by Graph', async () => {
+  it('stores the thread and records a referenced hosted id Graph does not list', async () => {
     const harness = make_harness(false);
 
-    await expect(
-      store_thread(
-        harness.scope,
-        'channel-1',
-        live([], root({ body: { content: HOSTED_BODY } })),
-        undefined,
-      ),
-    ).rejects.toThrow(/references hosted content not listed by Graph: h1/);
+    const entry = await store_thread(
+      harness.scope,
+      'channel-1',
+      live([], root({ body: { content: HOSTED_BODY } })),
+      undefined,
+    );
+
+    expect(entry.hosted_missing).toEqual(['h1']);
     expect(harness.download_hosted_content).not.toHaveBeenCalled();
   });
 
-  it('fails the root when an unlisted id is referenced through an HTML entity', async () => {
+  it('records an unlisted id referenced through an HTML entity', async () => {
     const harness = make_harness(false);
     const body = '<img src="https://g/hostedContents&#47;h9&#47;$value">';
 
-    await expect(
-      store_thread(
-        harness.scope,
-        'channel-1',
-        live([], root({ body: { content: body } })),
-        undefined,
-      ),
-    ).rejects.toThrow(/hosted content not listed by Graph: h9/);
+    const entry = await store_thread(
+      harness.scope,
+      'channel-1',
+      live([], root({ body: { content: body } })),
+      undefined,
+    );
+
+    expect(entry.hosted_missing).toEqual(['h9']);
+  });
+
+  it('does not treat plain text mentioning a hosted path as a reference', async () => {
+    const harness = make_harness(false);
+    const body = 'see hostedContents/h1/$value';
+
+    const entry = await store_thread(
+      harness.scope,
+      'channel-1',
+      live([], root({ body: { content: body } })),
+      undefined,
+    );
+
+    expect(entry.hosted_missing).toBeUndefined();
+    expect(harness.list_hosted_contents).not.toHaveBeenCalled();
   });
 
   it('reuses a hosted content from the previous entry while its blob exists', async () => {

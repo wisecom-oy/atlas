@@ -37,7 +37,11 @@ export async function backup_channel(
 ): Promise<ChannelBackupOutput> {
   const { tenant_id, team_id } = scope;
   const warnings: string[] = [];
-  const members = await scope.connector.list_channel_members(tenant_id, team_id, channel.id);
+  // A standard channel's members are the team's members; listing them again repeats the team list.
+  const standard = channel.membershipType === 'standard';
+  const members = standard
+    ? []
+    : await scope.connector.list_channel_members(tenant_id, team_id, channel.id);
   const tabs = await scope.connector.list_channel_tabs(tenant_id, team_id, channel.id);
   const folder = await resolve_files_folder(scope, channel.id, previous, warnings);
   const shared_with_teams = await resolve_shared_teams(scope, channel, previous, warnings);
@@ -56,6 +60,7 @@ export async function backup_channel(
     id: channel.id,
     channel,
     members,
+    members_from_team: standard || undefined,
     tabs,
     files_folder: folder.files_folder,
     files_folder_unavailable: folder.files_folder_unavailable,

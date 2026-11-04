@@ -5,6 +5,7 @@ import type {
   TeamsThreadListing,
 } from '@/domain/teams-manifest';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
+import type { TeamsSnapshotListing } from '@/ports/teams/manifest-repository.port';
 import type { NoSnapshotReason, ObjectLockRequest } from '@/ports/backup/use-case.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 
@@ -81,7 +82,7 @@ export interface TeamsCatalogUseCase {
   list_teams(tenant_id: string): Promise<TeamsGraphResource[]>;
 
   /** Lists all backed-up snapshots for a team. */
-  list_teams_snapshots(tenant_id: string, team_id: string): Promise<TeamsSnapshotManifest[]>;
+  list_teams_snapshots(tenant_id: string, team_id: string): Promise<TeamsSnapshotListing>;
 
   /** Lists every thread recorded in one snapshot, across channels. */
   list_snapshot_threads(

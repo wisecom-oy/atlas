@@ -8,6 +8,13 @@ export interface TeamsLatestManifest {
   readonly unreadable_keys: string[];
 }
 
+/** Every readable manifest of a team, plus the keys of manifests that could not be read. */
+export interface TeamsSnapshotListing {
+  readonly manifests: TeamsSnapshotManifest[];
+  /** Manifest keys that could not be decrypted or failed the key-identity check. */
+  readonly unreadable_keys: string[];
+}
+
 export interface TeamsManifestRepository {
   /** Persists a snapshot manifest. */
   save(ctx: TenantContext, manifest: TeamsSnapshotManifest): Promise<void>;
@@ -23,7 +30,7 @@ export interface TeamsManifestRepository {
   find_latest_by_team(ctx: TenantContext, team_id: string): Promise<TeamsLatestManifest>;
 
   /** Lists all snapshot manifests for a team. */
-  list_snapshots_by_team(ctx: TenantContext, team_id: string): Promise<TeamsSnapshotManifest[]>;
+  list_snapshots_by_team(ctx: TenantContext, team_id: string): Promise<TeamsSnapshotListing>;
 
   /** Lists snapshot manifests for every team in the tenant. */
   list_all_manifests(ctx: TenantContext): Promise<TeamsSnapshotManifest[]>;

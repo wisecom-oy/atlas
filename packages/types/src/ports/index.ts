@@ -190,6 +190,7 @@ export type {
   TeamsSdkVerificationOptions,
   TeamsSdkVerificationResult,
   TeamsSdkSnapshotManifest,
+  TeamsSdkSnapshotListing,
   TeamsSdkTeamStatus,
   TeamsSdkTeam,
   TeamsSdkDeletionResult,
@@ -311,6 +312,7 @@ export type {
 } from './teams/connector.port';
 export type {
   TeamsLatestManifest,
+  TeamsSnapshotListing,
   TeamsManifestRepository,
 } from './teams/manifest-repository.port';
 export type { TeamsDeltaCursorRepository } from './teams/delta-cursor-repository.port';

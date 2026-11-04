@@ -5,7 +5,7 @@ import type {
   TeamsConnector,
   TeamsGraphResource,
   TeamsManifestRepository,
-  TeamsSnapshotManifest,
+  TeamsSnapshotListing,
   TeamsThreadListing,
   TenantContext,
   TenantContextFactory,
@@ -31,8 +31,8 @@ export class TeamsCatalogService implements TeamsCatalogUseCase {
     return this._connector.list_teams(tenant_id);
   }
 
-  /** Lists the snapshot manifests recorded for a team, newest first. */
-  async list_teams_snapshots(tenant_id: string, team_id: string): Promise<TeamsSnapshotManifest[]> {
+  /** Lists the snapshot manifests recorded for a team, newest first, and any that could not be read. */
+  async list_teams_snapshots(tenant_id: string, team_id: string): Promise<TeamsSnapshotListing> {
     return this.with_readonly_ctx(tenant_id, (ctx) =>
       this._manifests.list_snapshots_by_team(ctx, normalize_team_id(team_id)),
     );

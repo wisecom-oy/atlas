@@ -2,12 +2,14 @@ import { injectable } from 'inversify';
 import type {
   TeamsLatestManifest,
   TeamsManifestRepository,
+  TeamsSnapshotListing,
   TeamsSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { UnreadableContentError } from '@wisecom/atlas-types';
 import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { TEAMS_KEYS } from '@/services/shared/storage-keys';
+import { assert_readable_format_version } from '@/services/shared/format-version';
 
 /** Epoch from a manifest key's `teams-snap-{epoch}-` snapshot id; -1 when the key has none. */
 function snapshot_epoch(key: string): number {
@@ -67,12 +69,24 @@ export class S3TeamsManifestRepository implements TeamsManifestRepository {
     return latest;
   }
 
-  /** Lists every manifest of a team, sorted newest first. */
-  async list_snapshots_by_team(
-    ctx: TenantContext,
-    team_id: string,
-  ): Promise<TeamsSnapshotManifest[]> {
-    return this.download_under(ctx, TEAMS_KEYS.manifest_prefix_for(team_id));
+  /**
+   * Lists every manifest of a team, newest first. A manifest that cannot be read is listed in
+   * `unreadable_keys` rather than failing the listing, so one damaged snapshot does not hide the rest.
+   */
+  async list_snapshots_by_team(ctx: TenantContext, team_id: string): Promise<TeamsSnapshotListing> {
+    const manifests: TeamsSnapshotManifest[] = [];
+    const unreadable_keys: string[] = [];
+    for (const key of await ctx.storage.list(TEAMS_KEYS.manifest_prefix_for(team_id))) {
+      try {
+        const manifest = await this.download_manifest(ctx, key);
+        if (manifest) manifests.push(manifest);
+      } catch (err) {
+        if (!(err instanceof UnreadableContentError)) throw err;
+        unreadable_keys.push(key);
+      }
+    }
+    manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    return { manifests, unreadable_keys };
   }
 
   /** Lists every manifest in the tenant, sorted newest first. */
@@ -124,6 +138,7 @@ export class S3TeamsManifestRepository implements TeamsManifestRepository {
   ): Promise<TeamsSnapshotManifest | undefined> {
     const parsed = await load_encrypted_json<TeamsSnapshotManifest>(ctx, key);
     if (parsed === undefined) return undefined;
+    assert_readable_format_version(key, parsed.format_version);
     if (TEAMS_KEYS.manifest_key(parsed.team_id, parsed.snapshot_id) !== key) {
       throw new UnreadableContentError(
         `The Teams manifest at ${key} names a different team or snapshot than its key`,

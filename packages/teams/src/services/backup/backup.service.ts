@@ -1,5 +1,6 @@
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
   begin_operation_progress,
   emit_operation_progress,
@@ -97,19 +98,23 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       team_id,
       backup_at: backup_at.toISOString(),
       counters: create_backup_counters(),
-      should_interrupt: () => options.should_interrupt?.() === true,
+      should_interrupt: () =>
+        options.should_interrupt?.() === true || options.abort_signal?.aborted === true,
       force_full: options.force_full === true,
     };
-    const state = await process_channels(
-      scope,
-      owned,
-      {
-        previous_channels: baseline.previous?.channels,
-        stored_links: baseline.cursor?.delta_link_by_channel ?? {},
-        options,
-      },
-      baseline.failed_roots,
+    const state = await run_with_abort_signal(options.abort_signal, () =>
+      process_channels(
+        scope,
+        owned,
+        {
+          previous_channels: baseline.previous?.channels,
+          stored_links: baseline.cursor?.delta_link_by_channel ?? {},
+          options,
+        },
+        baseline.failed_roots,
+      ),
     );
+    state.interrupted = state.interrupted || scope.should_interrupt();
     const channel_ids = new Set(all_channels.map((c) => c.id));
     apply_baseline_findings(state, baseline);
     state.errors.push(...missing_channel_errors(options.channel_id, all_channels, team_id));

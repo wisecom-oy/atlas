@@ -12,6 +12,8 @@ import { Readable } from 'node:stream';
 export interface StubEncryptedObjectStore {
   /** Encrypts as Atlas stores it: 12-byte IV, 16-byte auth tag, then ciphertext. */
   encrypt(plaintext: Buffer): Buffer;
+  /** Decrypts a payload from {@link encrypt} with the same key; throws when authentication fails. */
+  decrypt(payload: Buffer): Buffer;
   /** A `TenantContext.create_decipher` bound to the same key. */
   create_decipher(iv: Buffer, auth_tag: Buffer): DecipherGCM;
   /** An `ObjectStorage.get_stream` serving `stored` in fixed-size chunks. */
@@ -28,6 +30,14 @@ export function stub_encrypted_object_store(): StubEncryptedObjectStore {
       const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
       const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
       return Buffer.concat([iv, cipher.getAuthTag(), body]);
+    },
+
+    decrypt(payload: Buffer): Buffer {
+      const decipher = createDecipheriv('aes-256-gcm', key, payload.subarray(0, 12), {
+        authTagLength: 16,
+      });
+      decipher.setAuthTag(payload.subarray(12, 28));
+      return Buffer.concat([decipher.update(payload.subarray(28)), decipher.final()]);
     },
 
     create_decipher(iv: Buffer, auth_tag: Buffer): DecipherGCM {

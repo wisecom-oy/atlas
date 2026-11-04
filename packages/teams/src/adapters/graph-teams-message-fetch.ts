@@ -4,7 +4,8 @@ import type {
   TeamsMessageDeltaResult,
   TeamsRootChange,
 } from '@wisecom/atlas-types';
-import { read_all_pages } from '@/adapters/graph-teams-request';
+import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
+import { graph_status_of } from '@/services/shared/graph-error-status';
 
 /** A channel message as Graph returns it from `/messages` or `/messages/delta`. */
 type GraphChannelMessage = TeamsGraphResource & {
@@ -69,4 +70,26 @@ export async function list_channel_messages(
     `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages?${ROOT_QUERY}`,
   );
   return items.map(to_root_change);
+}
+
+/**
+ * Reads one root message with its replies inlined. Resolves undefined when Graph no longer has
+ * it (404), so the caller can treat the root as removed.
+ */
+export async function get_channel_message(
+  client: Client,
+  team_id: string,
+  channel_id: string,
+  root_id: string,
+): Promise<TeamsRootChange | undefined> {
+  const url = `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}?$expand=replies`;
+  try {
+    const message = await graph_teams_call(
+      () => client.api(url).get() as Promise<GraphChannelMessage>,
+    );
+    return to_root_change(message);
+  } catch (err) {
+    if (graph_status_of(err) === 404) return undefined;
+    throw err;
+  }
 }

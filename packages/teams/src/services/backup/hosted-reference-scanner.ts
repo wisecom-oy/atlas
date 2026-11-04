@@ -1,7 +1,11 @@
 import type { TeamsGraphResource } from '@wisecom/atlas-types';
 
-/** A hosted-content id is the path segment after `hostedContents/`. */
-const HOSTED_REFERENCE_RE = /hostedContents\/([^/"'\s<>?#&\\]+)/g;
+/**
+ * A hosted-content path counts only inside an `src` or `url` attribute value (HTML or card JSON),
+ * so plain text that mentions the path does not reference an image.
+ */
+const HOSTED_REFERENCE_RE =
+  /(?:src|url)\\?"?\s*[=:]\s*\\?["'][^"'\\<>\s]*?hostedContents\/([^/"'\s<>?#&\\]+)/g;
 
 /**
  * Returns the hosted-content ids a message's body and attachments reference. Graph escapes these
@@ -22,8 +26,7 @@ function unescape_reference_text(text: string): string {
   return text
     .replace(/\\+\//g, '/')
     .replace(/&(?:sol|#47|#x2f);/gi, '/')
-    .replace(/&amp;/gi, '&')
-    .replace(/%2F/gi, '/');
+    .replace(/&amp;/gi, '&');
 }
 
 function decode_segment(segment: string): string {

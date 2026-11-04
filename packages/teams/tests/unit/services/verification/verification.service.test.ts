@@ -21,12 +21,6 @@ const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const SNAPSHOT = 'teams-snap-2000-bbbbbb';
 const TIMESTAMP = '2025-01-01T00:00:00.000Z';
 
-/** Decrypts a sealed payload with `store`'s key. GCM authentication fails under any other key. */
-function open_with(store: StubEncryptedObjectStore, payload: Buffer): Buffer {
-  const decipher = store.create_decipher(payload.subarray(0, 12), payload.subarray(12, 28));
-  return Buffer.concat([decipher.update(payload.subarray(28)), decipher.final()]);
-}
-
 /** Stores one sealed blob in `bucket` and returns the reference a manifest would record for it. */
 function put_blob(
   bucket: Map<string, Buffer>,
@@ -71,7 +65,7 @@ function setup(store: StubEncryptedObjectStore, bucket: Map<string, Buffer>) {
   });
   const ctx = {
     storage: { exists: vi.fn(async (key: string) => bucket.has(key)), get },
-    decrypt: (payload: Buffer) => open_with(store, payload),
+    decrypt: (payload: Buffer) => store.decrypt(payload),
     create_content_hmac: () => stub_tenant_create_content_hmac(),
     destroy: vi.fn(),
   } as unknown as TenantContext;
@@ -127,6 +121,25 @@ describe('TeamsVerificationService.verify_teams_snapshot', () => {
     const { service, find_by_snapshot } = setup(store, bucket);
     find_by_snapshot.mockResolvedValue(
       manifest_with([thread(tombstone, { deleted_at: TIMESTAMP, last_live: { ...last_live } })]),
+    );
+
+    const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
+
+    expect(result).toMatchObject({
+      total_checked: 2,
+      failed_storage_keys: [last_live.storage_key],
+    });
+  });
+
+  it('verifies last_live on a live thread whose replies were since deleted (M9)', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const live = put_blob(bucket, store, 'teams/data/t/live', 'current replies');
+    const last_live = put_blob(bucket, store, 'teams/data/t/last-live', 'replies before delete');
+    bucket.set(last_live.storage_key, store.encrypt(Buffer.from('corrupted')));
+    const { service, find_by_snapshot } = setup(store, bucket);
+    find_by_snapshot.mockResolvedValue(
+      manifest_with([thread(live, { last_live: { ...last_live } })]),
     );
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);

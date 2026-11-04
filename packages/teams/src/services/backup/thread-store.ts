@@ -16,7 +16,7 @@ import {
  * Stores one changed root and returns its entry. A root Graph reports with `deletedDateTime`
  * gets a tombstone blob and no hosted-content calls. A live root whose digest matches the previous
  * entry keeps that entry while its blobs are still in storage, so unchanged threads are not
- * uploaded again. `--full` rewrites every blob it reads.
+ * uploaded again. `--full` re-reads every thread from Graph but never rewrites a stored blob.
  */
 export async function store_thread(
   scope: BackupRunScope,
@@ -74,7 +74,7 @@ async function store_tombstone(
     scope.counters.threads_deduplicated++;
     return previous;
   }
-  await write_blob(scope, digest.storage_key, digest.plaintext, scope.force_full);
+  await write_blob(scope, digest.storage_key, digest.plaintext);
   scope.counters.threads_stored++;
   if (previous?.deleted_at === undefined) {
     scope.counters.threads_deleted++;
@@ -105,6 +105,7 @@ async function store_live_thread(
 ): Promise<TeamsThreadEntry> {
   const digest = digest_thread_blob(scope, { root, replies });
   const same_content = previous !== undefined && previous.checksum === digest.checksum;
+  const last_live = live_last_live(previous, replies);
   if (
     previous !== undefined &&
     same_content &&
@@ -112,13 +113,16 @@ async function store_live_thread(
     (await thread_blobs_present(scope, previous))
   ) {
     scope.counters.threads_deduplicated++;
-    return { ...previous, deleted_at: undefined, last_live: undefined };
+    return { ...previous, deleted_at: undefined, last_live };
   }
-  const hosted = await store_hosted_contents(scope, channel_id, root, replies, previous);
-  await write_blob(scope, digest.storage_key, digest.plaintext, scope.force_full);
+  const fetched = await store_hosted_contents(scope, channel_id, root, replies, previous);
+  // Hosted refs of a deleted reply stay with the kept blob, so their images stay restorable.
+  const hosted = { ...(last_live === undefined ? undefined : previous?.hosted), ...fetched.hosted };
+  const hosted_missing = fetched.missing.length > 0 ? fetched.missing : undefined;
+  await write_blob(scope, digest.storage_key, digest.plaintext);
   scope.counters.threads_stored++;
   if (previous !== undefined && same_content && same_hosted_refs(previous.hosted, hosted)) {
-    return { ...previous, deleted_at: undefined, last_live: undefined };
+    return { ...previous, deleted_at: undefined, last_live, hosted_missing };
   }
   return {
     storage_key: digest.storage_key,
@@ -129,6 +133,8 @@ async function store_live_thread(
     reply_count: replies.length,
     hosted,
     backup_at: scope.backup_at,
+    last_live,
+    hosted_missing,
   };
 }
 
@@ -145,4 +151,21 @@ function last_live_for(previous: TeamsThreadEntry | undefined): TeamsStoredBlobR
     checksum: previous.checksum,
     size_bytes: previous.size_bytes,
   };
+}
+
+/**
+ * The last live blob a live root keeps. It keeps one once a reply is deleted, pinned to the blob
+ * from before the first deletion, so the deleted reply's content stays restorable.
+ */
+function live_last_live(
+  previous: TeamsThreadEntry | undefined,
+  replies: TeamsGraphResource[],
+): TeamsStoredBlobRef | undefined {
+  if (previous === undefined || previous.deleted_at !== undefined) {
+    return undefined;
+  }
+  if (previous.last_live !== undefined) {
+    return previous.last_live;
+  }
+  return replies.some((reply) => reply.deletedDateTime) ? last_live_for(previous) : undefined;
 }

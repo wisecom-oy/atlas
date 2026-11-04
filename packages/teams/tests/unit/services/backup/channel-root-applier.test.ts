@@ -5,6 +5,7 @@ import type {
   TeamsThreadEntry,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
 import { apply_root_changes } from '@/services/backup/channel-root-applier';
@@ -136,6 +137,108 @@ describe('apply_root_changes', () => {
     );
 
     expect(out.failed_roots).toEqual({});
+  });
+
+  describe('ledger roots the delta read did not return', () => {
+    const TEAM_ID = '00000000-0000-0000-0000-000000000001';
+
+    function ledger_with(attempts: number): FailedItemLedger {
+      return {
+        'channel-1/root-1': {
+          item_id: 'channel-1/root-1',
+          drive_id: 'channel-1',
+          name: 'root-1',
+          reason: 'old failure',
+          attempts,
+          first_failed_at: BACKUP_AT,
+          last_failed_at: BACKUP_AT,
+        },
+      };
+    }
+
+    function scope_fetching(get_channel_message: unknown): BackupRunScope {
+      return {
+        ...scope_with(),
+        connector: { get_channel_message } as unknown as BackupRunScope['connector'],
+      };
+    }
+
+    it('re-fetches a ledger root the delta read did not return and stores it', async () => {
+      const get = vi.fn(async () => live('root-1'));
+
+      const out = await apply_root_changes(
+        scope_fetching(get),
+        'channel-1',
+        delta_read([]),
+        {},
+        ledger_with(1),
+      );
+
+      expect(get).toHaveBeenCalledWith('tenant-1', TEAM_ID, 'channel-1', 'root-1');
+      expect(out.threads['root-1']).toEqual(thread('root-1'));
+      expect(out.failed_roots).toEqual({});
+    });
+
+    it('marks a ledger root Graph no longer has as removed', async () => {
+      const get = vi.fn(async () => undefined);
+
+      const out = await apply_root_changes(
+        scope_fetching(get),
+        'channel-1',
+        delta_read([]),
+        { 'root-1': thread('old') },
+        ledger_with(1),
+      );
+
+      expect(out.threads['root-1']).toMatchObject({ deleted_at: BACKUP_AT });
+      expect(out.failed_roots).toEqual({});
+    });
+
+    it('counts another attempt when re-fetching a ledger root fails', async () => {
+      const get = vi.fn(async () => {
+        throw new Error('graph 500');
+      });
+
+      const out = await apply_root_changes(
+        scope_fetching(get),
+        'channel-1',
+        delta_read([]),
+        {},
+        ledger_with(1),
+      );
+
+      expect(out.failed_roots['channel-1/root-1']).toMatchObject({ attempts: 2 });
+      expect(out.errors).toEqual(['Channel channel-1 root root-1: graph 500']);
+    });
+
+    it('does not re-fetch a ledger root past the retry budget', async () => {
+      const get = vi.fn(async () => live('root-1'));
+
+      const out = await apply_root_changes(
+        scope_fetching(get),
+        'channel-1',
+        delta_read([]),
+        {},
+        ledger_with(MAX_FAILED_ITEM_ATTEMPTS),
+      );
+
+      expect(get).not.toHaveBeenCalled();
+      expect(out.failed_roots['channel-1/root-1']).toBeDefined();
+    });
+
+    it('does not re-fetch a ledger root the delta read already returned', async () => {
+      const get = vi.fn(async () => live('root-1'));
+
+      await apply_root_changes(
+        scope_fetching(get),
+        'channel-1',
+        delta_read([live('root-1')]),
+        {},
+        ledger_with(1),
+      );
+
+      expect(get).not.toHaveBeenCalled();
+    });
   });
 
   it('marks a previous root removed when a full read no longer lists it', async () => {

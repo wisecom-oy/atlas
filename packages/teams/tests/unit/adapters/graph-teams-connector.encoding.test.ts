@@ -25,7 +25,7 @@ const CASES: readonly EncodingCase[] = [
   {
     name: 'list_team_members',
     call: (c) => c.list_team_members(TENANT, TEAM),
-    path: `/teams/${ENC_TEAM}/members`,
+    path: `/teams/${ENC_TEAM}/members?$top=999`,
   },
   {
     name: 'list_channels',
@@ -35,7 +35,7 @@ const CASES: readonly EncodingCase[] = [
   {
     name: 'list_channel_members',
     call: (c) => c.list_channel_members(TENANT, TEAM, CHANNEL),
-    path: `${CHANNEL_PATH}/members`,
+    path: `${CHANNEL_PATH}/members?$top=999`,
   },
   {
     name: 'list_channel_tabs',

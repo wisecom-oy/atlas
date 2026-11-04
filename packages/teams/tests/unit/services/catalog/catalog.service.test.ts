@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   TeamsConnector,
   TeamsManifestRepository,
+  TeamsSnapshotListing,
   TeamsSnapshotManifest,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -32,7 +33,10 @@ function manifest_with_threads(): TeamsSnapshotManifest {
 function setup(find_result: TeamsSnapshotManifest | undefined = manifest_with_threads()) {
   const ctx = { destroy: vi.fn() };
   const create_readonly = vi.fn(async () => ctx);
-  const list_snapshots_by_team = vi.fn(async () => []);
+  const list_snapshots_by_team = vi.fn(async (): Promise<TeamsSnapshotListing> => ({
+    manifests: [],
+    unreadable_keys: [],
+  }));
   const find_by_snapshot = vi.fn(
     async (): Promise<TeamsSnapshotManifest | undefined> => find_result,
   );
@@ -51,6 +55,18 @@ describe('TeamsCatalogService', () => {
     await service.list_teams_snapshots(TENANT, TEAM.toUpperCase());
 
     expect(list_snapshots_by_team).toHaveBeenCalledWith(expect.anything(), TEAM);
+  });
+
+  it('returns the unreadable manifest keys beside the readable snapshots (M8)', async () => {
+    const { service, list_snapshots_by_team } = setup();
+    list_snapshots_by_team.mockResolvedValueOnce({
+      manifests: [],
+      unreadable_keys: ['teams/manifests/team/teams-snap-1000-aaaaaa.json'],
+    });
+
+    const listing = await service.list_teams_snapshots(TENANT, TEAM);
+
+    expect(listing.unreadable_keys).toEqual(['teams/manifests/team/teams-snap-1000-aaaaaa.json']);
   });
 
   it('looks up a snapshot under the lowercased team id and flattens its threads (A9)', async () => {

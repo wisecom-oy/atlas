@@ -11,7 +11,11 @@ import type {
 } from '@wisecom/atlas-types';
 import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
 import { graph_status_of } from '@/services/shared/graph-error-status';
-import { fetch_message_delta, list_channel_messages } from '@/adapters/graph-teams-message-fetch';
+import {
+  fetch_message_delta,
+  get_channel_message,
+  list_channel_messages,
+} from '@/adapters/graph-teams-message-fetch';
 import {
   download_hosted_content,
   list_hosted_contents,
@@ -54,7 +58,7 @@ export class GraphTeamsConnector implements TeamsConnector {
   async list_team_members(_tenant_id: string, team_id: string): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${encodeURIComponent(team_id)}/members`,
+      `/teams/${encodeURIComponent(team_id)}/members?$top=999`,
     );
     return items;
   }
@@ -76,7 +80,7 @@ export class GraphTeamsConnector implements TeamsConnector {
   ): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/members`,
+      `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/members?$top=999`,
     );
     return items;
   }
@@ -158,6 +162,19 @@ export class GraphTeamsConnector implements TeamsConnector {
     channel_id: string,
   ): Promise<TeamsRootChange[]> {
     return list_channel_messages(this._client, team_id, channel_id);
+  }
+
+  /**
+   * Reads one root message with its replies inlined. Resolves undefined when Graph has no root
+   * (404).
+   */
+  async get_channel_message(
+    _tenant_id: string,
+    team_id: string,
+    channel_id: string,
+    root_id: string,
+  ): Promise<TeamsRootChange | undefined> {
+    return get_channel_message(this._client, team_id, channel_id, root_id);
   }
 
   /** Lists every reply of a root message, including deleted replies. */

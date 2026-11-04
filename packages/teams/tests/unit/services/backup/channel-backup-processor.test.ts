@@ -185,4 +185,15 @@ describe('backup_channel', () => {
     ]);
     expect(plain.entry.shared_with_teams).toBeUndefined();
   });
+
+  it('does not list members of a standard channel and marks them as the team members', async () => {
+    const connector = make_connector();
+    const standard = { ...CHANNEL, membershipType: 'standard' } as typeof CHANNEL;
+
+    const out = await backup_channel(make_scope(connector), standard, undefined, undefined, {});
+
+    expect(connector.list_channel_members).not.toHaveBeenCalled();
+    expect(out.entry.members).toEqual([]);
+    expect(out.entry.members_from_team).toBe(true);
+  });
 });

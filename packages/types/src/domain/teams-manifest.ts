@@ -50,8 +50,13 @@ export interface TeamsThreadEntry extends TeamsStoredBlobRef {
    * when Graph returned one, otherwise the last live blob. See `last_live`.
    */
   readonly deleted_at?: string | undefined;
-  /** The last live thread blob, kept once the root is deleted so its replies stay restorable. */
+  /**
+   * The last live thread blob. Kept when the root is deleted, so its replies stay restorable, and
+   * when a live root loses a reply, so the deleted reply's content stays restorable.
+   */
   readonly last_live?: TeamsStoredBlobRef | undefined;
+  /** Referenced hosted-content IDs Graph did not list. The thread is still stored without them. */
+  readonly hosted_missing?: string[] | undefined;
   readonly backup_at: string;
 }
 
@@ -80,6 +85,8 @@ export interface TeamsChannelEntry {
   /** Raw Graph channel object, including `membershipType` and `email`. */
   readonly channel: TeamsGraphResource;
   readonly members: TeamsGraphResource[];
+  /** Set on a standard channel, whose members are the team's members. `members` is then empty. */
+  readonly members_from_team?: true | undefined;
   /** Raw Graph `teamsTab` objects, with `teamsApp` expanded. */
   readonly tabs: TeamsGraphResource[];
   readonly files_folder?: TeamsFilesFolderRef | undefined;
@@ -97,6 +104,8 @@ export interface TeamsChannelEntry {
 export interface TeamsSnapshotManifest {
   /** `${team_id}-${snapshot_id}`, matching the SharePoint manifest id convention. */
   readonly id: string;
+  /** Layout version. Absent on manifests written before versioning, which readers treat as 1. */
+  readonly format_version?: 1 | undefined;
   readonly tenant_id: string;
   readonly team_id: string;
   readonly team_display_name?: string | undefined;
@@ -113,6 +122,8 @@ export interface TeamsSnapshotManifest {
 /** Per-team delta state. Saved only after the manifest that the links were read against. */
 export interface TeamsDeltaCursor {
   readonly team_id: string;
+  /** Layout version. Absent on cursors written before versioning, which readers treat as 1. */
+  readonly format_version?: 1 | undefined;
   /** `snapshot_id` of the manifest the links were read against. A mismatch forces a full read. */
   readonly snapshot_id?: string | undefined;
   /** Message delta link per channel ID. Absent for a channel that must be read in full. */

@@ -5,6 +5,7 @@ import type {
 } from '@/ports/teams/use-case.port';
 import type { TeamsTeamStatus } from '@/ports/teams/status.port';
 import type { TeamsGraphResource, TeamsSnapshotManifest } from '@/domain/teams-manifest';
+import type { TeamsSnapshotListing } from '@/ports/teams/manifest-repository.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
@@ -21,6 +22,7 @@ export type TeamsSdkVerificationOptions = Camelize<
 export type TeamsSdkBackupResult = Camelize<TeamsBackupResult>;
 export type TeamsSdkVerificationResult = Camelize<TeamsVerificationResult>;
 export type TeamsSdkSnapshotManifest = Camelize<TeamsSnapshotManifest>;
+export type TeamsSdkSnapshotListing = Camelize<TeamsSnapshotListing>;
 export type TeamsSdkTeamStatus = Camelize<TeamsTeamStatus>;
 export type TeamsSdkDeletionResult = Camelize<DeletionResult>;
 
@@ -38,7 +40,8 @@ export interface TeamsApi {
   ): Promise<TeamsSdkVerificationResult>;
   /** Lists the teams in the tenant as Graph reports them. */
   listTeams(): Promise<TeamsSdkTeam[]>;
-  listSnapshots(teamId: string): Promise<TeamsSdkSnapshotManifest[]>;
+  /** Lists a team's snapshots; `unreadableKeys` names manifests that could not be read. */
+  listSnapshots(teamId: string): Promise<TeamsSdkSnapshotListing>;
   /** Reports the last backup run recorded for each team in the tenant. */
   status(): Promise<TeamsSdkTeamStatus[]>;
   /** Deletes all backed-up data for a team, or only `snapshotId` when it is given. */

@@ -12,9 +12,9 @@ import { teams_hosted_content_key } from '@/services/shared/storage-keys';
 
 /**
  * Stores hosted contents referenced by the root or a live reply. A message whose body and
- * attachments reference none is not listed. A referenced id Graph does not list fails the root,
- * because storing the thread without its image would hide the loss. A previously stored item
- * is reused while its blob exists.
+ * attachments reference none is not listed. A referenced id Graph does not list is returned in
+ * `missing` rather than failing the root, so the thread is still backed up and the entry records
+ * the gap. A previously stored item is reused while its blob exists.
  */
 export async function store_hosted_contents(
   scope: BackupRunScope,
@@ -22,7 +22,7 @@ export async function store_hosted_contents(
   root: TeamsGraphResource,
   replies: TeamsGraphResource[],
   previous: TeamsThreadEntry | undefined,
-): Promise<Record<string, TeamsHostedContentRef>> {
+): Promise<{ hosted: Record<string, TeamsHostedContentRef>; missing: string[] }> {
   const targets: Array<{ message: TeamsGraphResource; locator: TeamsMessageLocator }> = [
     { message: root, locator: { team_id: scope.team_id, channel_id, root_id: root.id } },
     ...replies
@@ -33,20 +33,21 @@ export async function store_hosted_contents(
       })),
   ];
   const hosted: Record<string, TeamsHostedContentRef> = {};
+  const missing: string[] = [];
   for (const { message, locator } of targets) {
     const referenced = referenced_hosted_ids(message);
     if (referenced.length === 0) {
       continue;
     }
     const items = await scope.connector.list_hosted_contents(scope.tenant_id, locator);
-    assert_references_listed(message.id, referenced, items);
+    missing.push(...unlisted_references(referenced, items));
     for (const item of items) {
       hosted[item.id] =
         (await reusable_hosted_ref(scope, previous?.hosted[item.id])) ??
         (await store_hosted_content(scope, locator, item));
     }
   }
-  return hosted;
+  return { hosted, missing };
 }
 
 /** True when two hosted maps reference the same blobs with the same checksums. */
@@ -66,18 +67,9 @@ export function same_hosted_refs(
   );
 }
 
-function assert_references_listed(
-  message_id: string,
-  referenced: string[],
-  items: TeamsGraphResource[],
-): void {
+function unlisted_references(referenced: string[], items: TeamsGraphResource[]): string[] {
   const listed = new Set(items.map((item) => item.id));
-  const missing = referenced.filter((id) => !listed.has(id));
-  if (missing.length > 0) {
-    throw new Error(
-      `Message ${message_id} references hosted content not listed by Graph: ${missing.join(', ')}`,
-    );
-  }
+  return referenced.filter((id) => !listed.has(id));
 }
 
 async function reusable_hosted_ref(
@@ -98,7 +90,7 @@ async function store_hosted_content(
   const bytes = await scope.connector.download_hosted_content(scope.tenant_id, locator, item.id);
   const { checksum, content_name } = compute_content_digests(scope.ctx, bytes);
   const storage_key = teams_hosted_content_key(scope.team_id, content_name);
-  await write_blob(scope, storage_key, bytes, false);
+  await write_blob(scope, storage_key, bytes);
   scope.counters.hosted_content_stored++;
   const content_type = typeof item.contentType === 'string' ? item.contentType : undefined;
   return { storage_key, checksum, size_bytes: bytes.length, content_type };

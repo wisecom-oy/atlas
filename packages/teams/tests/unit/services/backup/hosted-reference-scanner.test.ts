@@ -24,7 +24,7 @@ describe('referenced_hosted_ids', () => {
     const ids = referenced_hosted_ids({
       id: 'm1',
       body: { content: '' },
-      attachments: [{ content: 'https://g/hostedContents\\/h3\\/$value' }],
+      attachments: [{ content: '{"url":"https://g/hostedContents\\/h3\\/$value"}' }],
     });
 
     expect(ids).toEqual(['h3']);
@@ -41,5 +41,23 @@ describe('referenced_hosted_ids', () => {
 
   it('returns nothing when the message references no hosted content', () => {
     expect(referenced_hosted_ids({ id: 'm1', body: { content: 'plain text' } })).toEqual([]);
+  });
+
+  it('ignores a hosted-content path written as plain text', () => {
+    const ids = referenced_hosted_ids({
+      id: 'm1',
+      body: { content: 'see hostedContents/abc/$value' },
+    });
+
+    expect(ids).toEqual([]);
+  });
+
+  it('keeps an encoded slash inside the id', () => {
+    const ids = referenced_hosted_ids({
+      id: 'm1',
+      body: { content: '<img src="https://g/hostedContents/a%2Fb/$value">' },
+    });
+
+    expect(ids).toEqual(['a/b']);
   });
 });

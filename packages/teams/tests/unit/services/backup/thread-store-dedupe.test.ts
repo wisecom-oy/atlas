@@ -17,7 +17,7 @@ describe('store_thread dedupe', () => {
     expect(harness.scope.counters.threads_deduplicated).toBe(0);
   });
 
-  it('re-uploads an unchanged live thread under --full even when its blob exists', async () => {
+  it('does not rewrite an unchanged live thread blob under --full', async () => {
     const harness = make_harness(true);
     const first = await store_thread(harness.scope, 'channel-1', live(), undefined);
     harness.put.mockClear();
@@ -25,7 +25,7 @@ describe('store_thread dedupe', () => {
 
     await store_thread(full, 'channel-1', live(), first);
 
-    expect(harness.put).toHaveBeenCalledTimes(1);
+    expect(harness.put).not.toHaveBeenCalled();
   });
 
   it('re-uploads a repeated tombstone whose blob is missing', async () => {
