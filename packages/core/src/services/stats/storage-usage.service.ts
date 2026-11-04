@@ -4,6 +4,7 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
   STORAGE_INVENTORY_FACTORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
@@ -12,6 +13,7 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
+  TeamsIndexRepository,
   StorageInventoryFactory,
   StorageTarget,
   StorageUsage,
@@ -39,6 +41,7 @@ const WORKLOAD_ORDER: readonly StorageUsageWorkload[] = [
   'outlook',
   'onedrive',
   'sharepoint',
+  'teams',
   'contacts',
   'meta',
   'other',
@@ -55,6 +58,8 @@ export class StorageUsageService implements StorageUsageUseCase {
     private readonly _od_manifests: OneDriveManifestRepository,
     @inject(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
     private readonly _sp_manifests: SharePointManifestRepository,
+    @inject(TEAMS_INDEX_REPOSITORY_TOKEN)
+    private readonly _teams_indexes: TeamsIndexRepository,
   ) {}
 
   /**
@@ -114,10 +119,12 @@ export class StorageUsageService implements StorageUsageUseCase {
       const outlook = await this._manifests.list_all_manifests(ctx);
       const onedrive = await this._od_manifests.list_all_manifests(ctx);
       const sharepoint = await this._sp_manifests.list_all_manifests(ctx);
+      const teams = await this._teams_indexes.list_all(ctx);
       return {
         outlook: aggregate_bucket_stats(tenant_id, outlook).total_size_bytes,
         onedrive: onedrive.reduce((sum, manifest) => sum + manifest.total_size_bytes, 0),
         sharepoint: sharepoint.reduce((sum, manifest) => sum + manifest.total_size_bytes, 0),
+        teams: teams.reduce((sum, index) => sum + index.totals.size_bytes, 0),
       };
     } catch (err) {
       logger.warn(`Logical size not reported: manifests could not be read (${String(err)})`);
@@ -192,7 +199,7 @@ function build_report(
     ...(state.by_owner ? { by_owner: owner_rows(state.by_owner) } : {}),
     ...(logical
       ? {
-          logical_bytes_referenced: logical.outlook + logical.onedrive + logical.sharepoint,
+          logical_bytes_referenced: Object.values(logical).reduce((sum, bytes) => sum + bytes, 0),
           logical_bytes_by_workload: logical,
         }
       : {}),

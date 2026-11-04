@@ -36,6 +36,9 @@ export interface ReplicationResult {
 /** Workloads covered by full tenant recovery. */
 export type RehydrationWorkload = 'outlook' | 'onedrive' | 'sharepoint';
 
+/** Workloads a tenant recovery cannot cover yet. */
+export type UnsupportedWorkload = 'teams';
+
 export interface WorkloadRehydrationResult {
   readonly workload: RehydrationWorkload;
   readonly result: ReplicationResult;
@@ -50,6 +53,8 @@ export interface WorkloadRehydrationResult {
 export interface TenantRehydrationResult {
   readonly total: ReplicationResult;
   readonly workloads: readonly WorkloadRehydrationResult[];
+  /** Workloads a tenant recovery cannot cover yet, reported here instead of dropped silently. */
+  readonly unsupported_workloads: readonly UnsupportedWorkload[];
 }
 
 /** Durable sidecar record persisted at `_meta/replication/{owner_id}/{snapshot}/{target}.json`. */

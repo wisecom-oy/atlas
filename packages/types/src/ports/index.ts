@@ -174,28 +174,7 @@ export type {
   ContactsSdkSnapshotManifest,
   ContactsSdkDeletionResult,
 } from './atlas/contacts-api.port';
-export type {
-  ContactsConnector,
-  ContactFolderDelta,
-  GraphContactFolder,
-  GraphContactPayload,
-} from './contacts/connector.port';
-export type {
-  ContactsManifestRepository,
-  ContactsDeltaCursorRepository,
-} from './contacts/repository.port';
-export type {
-  ContactsBackupOptions,
-  ContactsBackupSummary,
-  ContactsBackupResult,
-  ContactsRestoreOptions,
-  ContactsRestoreResult,
-  ContactsBackupUseCase,
-  ContactsRestoreUseCase,
-  ContactsCatalogUseCase,
-  ContactsVerificationUseCase,
-  ContactsDeletionUseCase,
-} from './contacts/use-case.port';
+export type * from '@/ports/contacts';
 export type {
   SharePointApi,
   SharePointSdkBackupOptions,
@@ -216,6 +195,18 @@ export type {
   SharePointSdkSite,
   SharePointSdkStats,
 } from './atlas/sharepoint-api.port';
+export type {
+  TeamsApi,
+  TeamsSdkBackupOptions,
+  TeamsSdkBackupResult,
+  TeamsSdkVerificationOptions,
+  TeamsSdkVerificationResult,
+  TeamsSdkSnapshotIndex,
+  TeamsSdkSnapshotListing,
+  TeamsSdkTeamStatus,
+  TeamsSdkTeam,
+  TeamsSdkDeletionResult,
+} from './atlas/teams-api.port';
 export type {
   OperationProgressEvent,
   OperationProgressPhase,
@@ -324,6 +315,8 @@ export type {
   SharePointStatusResult,
   SharePointLibraryStatus,
 } from './sharepoint/status.port';
+
+export type * from '@/ports/teams';
 
 export type * from './storage/storage-inventory.port';
 export type * from './storage-usage/use-case.port';

@@ -23,6 +23,7 @@ import type {
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
 const _operation = new AsyncLocalStorage<GraphOperation>();
 const _throttle = new AsyncLocalStorage<ActiveThrottle>();
+const _abort = new AsyncLocalStorage<AbortSignal | undefined>();
 
 /** The coordinator guarding a call, the pool its requests are charged to by default, and the mailbox they target. */
 export interface ActiveThrottle {
@@ -160,4 +161,20 @@ export function get_active_throttle_pool(): GraphServicePool | undefined {
  */
 export function get_active_throttle_scope(): ThrottleScope | undefined {
   return get_active_throttle_pool() === 'outlook' ? _throttle.getStore()?.scope : undefined;
+}
+
+/**
+ * Publishes the abort signal of the run that issues the Graph calls inside `fn`, so a retry wait or
+ * an in-flight request deep inside it can stop as soon as the run is cancelled.
+ *
+ * Undefined clears the signal for `fn`, so a nested run without one never inherits its caller's
+ * signal. Callers without a signal need no branch.
+ */
+export function run_with_abort_signal<T>(signal: AbortSignal | undefined, fn: () => T): T {
+  return _abort.run(signal, fn);
+}
+
+/** The abort signal of the run the current async context belongs to, if any. */
+export function get_active_abort_signal(): AbortSignal | undefined {
+  return _abort.getStore();
 }

@@ -98,7 +98,11 @@ describe('replicate/rehydrate secret key from stdin (issue #256)', () => {
       replicate_snapshot: vi.fn().mockResolvedValue([RESULT]),
       get_replication_status: vi.fn().mockResolvedValue([]),
       get_replication_status_by_owner: vi.fn().mockResolvedValue([]),
-      rehydrate_tenant: vi.fn().mockResolvedValue({ total: RESULT, workloads: [] }),
+      rehydrate_tenant: vi.fn().mockResolvedValue({
+        total: RESULT,
+        workloads: [],
+        unsupported_workloads: [],
+      }),
     });
     container.bind(SHAREPOINT_REPLICATION_USE_CASE_TOKEN).toConstantValue({});
     container.bind(USER_IDENTITY_RESOLVER_TOKEN).toConstantValue(identity);

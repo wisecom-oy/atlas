@@ -94,6 +94,19 @@ export type {
 } from '@wisecom/atlas-types';
 
 export type {
+  TeamsApi,
+  TeamsSdkBackupOptions,
+  TeamsSdkBackupResult,
+  TeamsSdkVerificationOptions,
+  TeamsSdkVerificationResult,
+  TeamsSdkSnapshotIndex,
+  TeamsSdkSnapshotListing,
+  TeamsSdkTeamStatus,
+  TeamsSdkTeam,
+  TeamsSdkDeletionResult,
+} from '@wisecom/atlas-types';
+
+export type {
   SdkOperationOptions,
   OperationProgressEvent,
   OperationProgressPhase,

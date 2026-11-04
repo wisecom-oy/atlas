@@ -207,6 +207,8 @@ atlas rehydrate --all --source-config ./offsite.json
 
 `--all` reads the three manifest roots: `manifests/` (Outlook), `onedrive/manifests/`, and `sharepoint/manifests/`. It reports copied, skipped, and failed counts for each workload. If a workload yields no objects, Atlas names it in a warning, so an incomplete recovery drill cannot pass unnoticed.
 
+Teams is not replicated yet. Passing a `teams-snap-*` ID to replication or rehydration fails with `Teams snapshots are not replicated yet`, and tenant recovery names Teams as not covered.
+
 ### SDK rehydration
 
 ```typescript

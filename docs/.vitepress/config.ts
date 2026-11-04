@@ -46,7 +46,7 @@ export default defineConfig({
       {
         name: 'keywords',
         content:
-          'atlas, wisecom, microsoft 365 backup, exchange online, onedrive, sharepoint, s3, object lock, encryption',
+          'atlas, wisecom, microsoft 365 backup, exchange online, onedrive, sharepoint, microsoft teams, s3, object lock, encryption',
       },
     ],
   ],
@@ -90,7 +90,7 @@ export default defineConfig({
         text: 'Guide',
         link: '/getting-started',
         activeMatch:
-          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|contacts-backup|self-hosting|operations)',
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|teams|contacts-backup|self-hosting|operations)',
       },
       { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
       {
@@ -126,6 +126,7 @@ export default defineConfig({
         items: [
           { text: 'OneDrive', link: '/onedrive-backup' },
           { text: 'SharePoint', link: '/sharepoint-backup' },
+          { text: 'Microsoft Teams', link: '/teams-backup' },
           { text: 'Contacts', link: '/contacts-backup' },
         ],
       },

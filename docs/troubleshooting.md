@@ -31,8 +31,8 @@ For any other AADSTS code, look it up in Microsoft's AADSTS error reference, the
 
 Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 504 under load. Atlas retries these automatically:
 
-- It honors the `Retry-After` header when Graph sends one. Without it, a 429 applies a 30-second cooldown.
-- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. The full retry budget is about 23 minutes.
+- It honors the `Retry-After` header when Graph sends one. A value under one second is raised to 1 to 2 seconds. Without the header, a 429 applies a 30-second cooldown.
+- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Backoff waits, `Retry-After` waits, and cooldowns share one 24-minute budget of waiting. Time spent inside each request does not count. A `Retry-After` longer than 5 minutes fails the call at once.
 - If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
 
 Occasional 429 and 5xx responses during a large first backup need no action.
@@ -220,6 +220,15 @@ How the failure is reported depends on the command:
 - A single-message restore (`--message`) fails with exit code `9` (stored content cannot be read).
 
 In the SDK, the error is `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`. It is permanent: retrying reads the same bytes and fails the same way.
+
+### Teams: a snapshot index cannot be read
+
+`atlas teams list-snapshots` names every index it cannot read. Two causes:
+
+- **Newer format** (`ATLAS_FORMAT_UNSUPPORTED`, exit `9`): another Atlas version wrote the index. Upgrade Atlas. The team's backup stops before it writes anything.
+- **Damaged or unparseable**: the run exits `2` when the index is newer than the latest readable one. It names the key (`Snapshot <key> could not be read; its channels were not compared`) and warns that the baseline is an older snapshot.
+
+When no readable index exists at all, for example after a bucket wipe with Object Lock-retained legacy manifests, the backup warns `No readable snapshot exists; every channel is read in full`. Once a run writes a readable index, later runs stop at it and do not read the older keys, so they are healthy again. `atlas teams status` and `list-snapshots` still list the unreadable keys. See [Unreadable snapshots](/teams-backup#unreadable-snapshots).
 
 ## Backup state errors
 

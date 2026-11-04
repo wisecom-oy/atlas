@@ -20,6 +20,7 @@
     { "path": "../outlook" },
     { "path": "../onedrive" },
     { "path": "../contacts" },
-    { "path": "../sharepoint" }
+    { "path": "../sharepoint" },
+    { "path": "../teams" }
   ]
 }

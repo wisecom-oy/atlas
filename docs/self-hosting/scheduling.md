@@ -22,6 +22,9 @@ Edit the crontab for the account that runs Atlas with `crontab -e`:
 
 # Nightly SharePoint backup at 4 AM
 0 4 * * * /usr/bin/atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering >> $HOME/atlas-logs/sharepoint-backup.log 2>&1
+
+# Daily Teams backup at 5 AM, one run per day
+0 5 * * * flock -n $HOME/atlas-logs/teams.lock /usr/bin/atlas teams backup --all >> $HOME/atlas-logs/teams-backup.log 2>&1
 ```
 
 Stagger the workloads. Overlapping runs send more Graph API requests at once, which brings throttling sooner.
@@ -29,6 +32,8 @@ Stagger the workloads. Overlapping runs send more Graph API requests at once, wh
 Create the log directory once as the service account: `mkdir -p ~/atlas-logs`. Cron runs as that account and cannot write to `/var/log`.
 
 Atlas has no built-in run lock. The two Outlook lines share `outlook.lock` through `flock -n`, so a Sunday full run that starts while the nightly run is still going exits without running and writes nothing to its log. Check for a missed week.
+
+Microsoft's [Teams API overview](https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0) says an app that polls a resource may do so only once a day, and that more frequent updates need change notifications. [INFERENCE] Atlas's Teams delta reads count as polling under that rule, so run Teams backup once a day. The page does not mention delta queries.
 
 ## Schedule with systemd timers
 

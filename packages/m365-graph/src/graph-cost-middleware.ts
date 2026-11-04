@@ -96,6 +96,7 @@ const OUTLOOK_PATH =
  */
 function pool_for_url(url: string): GraphServicePool {
   const path = url.replace(/^https?:\/\/[^/]+/, '').toLowerCase();
+  if (/^(?:\/(?:v1\.0|beta))?\/(teams|channels)\b/.test(path)) return 'teams';
   if (/\/(drives?|sites|shares)\b/.test(path)) return 'sharepoint_onedrive';
   if (OUTLOOK_PATH.test(path)) return 'outlook';
   return 'identity';

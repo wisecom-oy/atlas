@@ -8,6 +8,7 @@
     { "path": "packages/onedrive" },
     { "path": "packages/contacts" },
     { "path": "packages/sharepoint" },
+    { "path": "packages/teams" },
     { "path": "packages/cli" },
     { "path": "packages/sdk" }
   ],

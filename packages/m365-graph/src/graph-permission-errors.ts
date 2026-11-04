@@ -1,27 +1,45 @@
 import { AuthError, MailboxNotLicensedError, NotFoundError } from '@wisecom/atlas-types';
 
 /**
+ * Detects 403 ErrorAccessDenied from Graph and rethrows with
+ * actionable guidance about which API permissions to grant.
+ *
  * Graph failures that an operator has to act on rather than retry: a missing application
  * permission and an unlicensed mailbox. Both carry the remediation steps in the message and a
  * stable class and code for callers (issue #40).
- */
-/**
- * Detects 403 ErrorAccessDenied from Graph and rethrows with
- * actionable guidance about which API permissions to grant.
  */
 export function rethrow_if_access_denied(
   err: unknown,
   required_permissions?: readonly string[],
 ): void {
+  rethrow_if_forbidden(
+    err,
+    required_permissions ?? [
+      'Mail.Read              -- read mailbox messages',
+      'Mail.ReadWrite         -- delta sync and full message fetch',
+      'User.Read.All          -- list tenant users / mailboxes',
+      'MailboxSettings.Read   -- enumerate mail folders',
+    ],
+  );
+}
+
+/** Detects 403 from Graph on a Teams call and rethrows naming the Teams permissions to grant. */
+export function rethrow_if_teams_access_denied(err: unknown): void {
+  rethrow_if_forbidden(err, [
+    'Team.ReadBasic.All       -- list teams and read team settings',
+    'TeamSettings.Read.All    -- read team settings',
+    'TeamMember.Read.All      -- list team members',
+    'Channel.ReadBasic.All    -- list channels and tabs',
+    'ChannelMember.Read.All   -- list channel members',
+    'ChannelMessage.Read.All  -- read channel messages and replies',
+    'TeamsTab.Read.All        -- read channel tabs',
+  ]);
+}
+
+/** Throws an AuthError listing the required Application permissions when Graph returns 403. */
+function rethrow_if_forbidden(err: unknown, required: readonly string[]): void {
   const graph_err = as_error_fields(err);
   if (graph_err.statusCode !== 403) return;
-
-  const required = required_permissions ?? [
-    'Mail.Read              -- read mailbox messages',
-    'Mail.ReadWrite         -- delta sync and full message fetch',
-    'User.Read.All          -- list tenant users / mailboxes',
-    'MailboxSettings.Read   -- enumerate mail folders',
-  ];
 
   const hint =
     `Microsoft Graph returned 403 Forbidden (ErrorAccessDenied).\n` +

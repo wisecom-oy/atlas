@@ -4,7 +4,7 @@ description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with
 
 # Storage layout
 
-Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
 
 ```
 atlas-{tenant_id}/
@@ -33,13 +33,19 @@ atlas-{tenant_id}/
 │   ├── index/{owner_id}/files/{file_id}.json    # legacy per-file index
 │   ├── staging/{owner_id}/                      # temporary multipart uploads
 │   └── _meta/{owner_id}/delta.json              # delta cursors
-└── sharepoint/
-    ├── data/{site_id}/{content_name}
-    ├── manifests/{site_id}/{snapshot_id}.json
-    ├── index/{site_id}/runs/{snapshot_id}.json
-    ├── index/{site_id}/files/{file_id}.json
-    ├── staging/{site_id}/
-    └── _meta/{site_id}/delta.json
+├── sharepoint/
+│   ├── data/{site_id}/{content_name}
+│   ├── manifests/{site_id}/{snapshot_id}.json
+│   ├── index/{site_id}/runs/{snapshot_id}.json
+│   ├── index/{site_id}/files/{file_id}.json
+│   ├── staging/{site_id}/
+│   └── _meta/{site_id}/delta.json
+└── teams/
+    ├── data/{team_id}/{content_name}
+    ├── data/{team_id}/hosted/{content_name}
+    ├── manifests/{team_id}/{snapshot_id}.json
+    ├── shards/{team_id}/{channel_id}/{content_name}.json
+    └── _meta/{team_id}/channels/{channel_id}.json
 ```
 
 ## Bucket isolation
@@ -94,6 +100,10 @@ The first backup after an upgrade is the exception. Existing cursors have no wat
 ### Subsites
 
 A subsite has its own Graph `site_id`, so `atlas sharepoint backup --include-subsites` writes a separate snapshot under the subsite's own prefix. Its blobs, indexes, and cursors follow the same split. Backup, restore, and retention for a subsite are independent of its parent.
+
+## Teams
+
+Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs live under `teams/data/{team_id}/`, inline images under `teams/data/{team_id}/hosted/`, and snapshot indexes under `teams/manifests/{team_id}/`. Channel shards sit under `teams/shards/{team_id}/{channel_id}/`, and per-channel delta cursors under `teams/_meta/{team_id}/channels/`. Teams writes no version index or staging objects.
 
 ## Contacts
 

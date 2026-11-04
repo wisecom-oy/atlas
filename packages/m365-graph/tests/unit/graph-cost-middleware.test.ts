@@ -149,6 +149,8 @@ describe('GraphCostMiddleware', () => {
     ['https://graph.microsoft.com/v1.0/drives/d/root/delta', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/users/u/drive/root/delta', 'sharepoint_onedrive'],
     ['https://graph.microsoft.com/v1.0/users', 'identity'],
+    ['https://graph.microsoft.com/v1.0/teams/t/channels/c/messages/delta', 'teams'],
+    ['https://graph.microsoft.com/beta/teams/t/channels/c/messages', 'teams'],
   ])('attributes an unlabelled %s to the %s pool', async (url, pool) => {
     const { middleware } = make_chain();
 

@@ -16,6 +16,7 @@ import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
 import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
 import type { ContactsApi } from '@/ports/atlas/contacts-api.port';
 import type { SharePointApi } from '@/ports/atlas/sharepoint-api.port';
+import type { TeamsApi } from '@/ports/atlas/teams-api.port';
 import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
 import type { IdentityRegistry } from '@/domain/identity-registry';
 import type { Camelize } from '@/public/case-convert';
@@ -51,6 +52,7 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly outlook: OutlookApi;
   readonly onedrive: OneDriveApi;
   readonly sharepoint: SharePointApi;
+  readonly teams: TeamsApi;
   readonly contacts: ContactsApi;
 
   /**

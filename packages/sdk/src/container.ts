@@ -10,6 +10,7 @@ import { bind_outlook } from '@wisecom/atlas-outlook';
 import { bind_onedrive } from '@wisecom/atlas-onedrive';
 import { bind_contacts } from '@wisecom/atlas-contacts';
 import { bind_sharepoint } from '@wisecom/atlas-sharepoint';
+import { bind_teams } from '@wisecom/atlas-teams';
 
 /**
  * Builds the SDK container exclusively from explicit configuration. `throttle` replaces the
@@ -29,5 +30,6 @@ export function create_container_from_config(
   bind_onedrive(container);
   bind_contacts(container);
   bind_sharepoint(container);
+  bind_teams(container);
   return container;
 }

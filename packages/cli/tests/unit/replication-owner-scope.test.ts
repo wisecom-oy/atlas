@@ -93,6 +93,7 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
           { workload: 'onedrive', result: RESULT },
           { workload: 'sharepoint', result: RESULT },
         ],
+        unsupported_workloads: [],
       }),
     };
 
@@ -208,6 +209,7 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
         { workload: 'onedrive', result: empty },
         { workload: 'sharepoint', result: empty },
       ],
+      unsupported_workloads: ['teams'],
     });
 
     await program.parseAsync(['rehydrate', '--all', ...SOURCE_ARGS], { from: 'user' });
@@ -215,6 +217,7 @@ describe('replicate/rehydrate --owner OneDrive scope', () => {
     const warned = warn_spy.mock.calls.map((c) => c.join(' ')).join('\n');
     expect(warned).toContain('onedrive, sharepoint');
     expect(warned).not.toContain('outlook,');
+    expect(warned).toContain('does not cover teams yet');
     warn_spy.mockRestore();
   });
 });

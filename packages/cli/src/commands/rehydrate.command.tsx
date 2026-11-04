@@ -301,4 +301,10 @@ async function report_tenant_result(result: TenantRehydrationResult): Promise<vo
         'Confirm this matches the source before treating the recovery as complete.',
     );
   }
+  if (result.unsupported_workloads.length > 0) {
+    logger.warn(
+      `Tenant recovery does not cover ${result.unsupported_workloads.join(', ')} yet. ` +
+        'That data is not restored by this run.',
+    );
+  }
 }

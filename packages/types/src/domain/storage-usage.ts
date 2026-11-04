@@ -11,10 +11,10 @@
  * key outside the documented layout.
  */
 export type StorageUsageWorkload =
-  'outlook' | 'onedrive' | 'sharepoint' | 'contacts' | 'meta' | 'other';
+  'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'meta' | 'other';
 
 /** Workloads whose manifests reference logical bytes. */
-export type LogicalWorkload = 'outlook' | 'onedrive' | 'sharepoint';
+export type LogicalWorkload = 'outlook' | 'onedrive' | 'sharepoint' | 'teams';
 
 export type StorageUsageBreakdown = 'workload' | 'owner';
 

@@ -47,6 +47,7 @@ import {
   OUTLOOK_REHYDRATION,
 } from '@/services/replication/outlook-manifest-handler';
 import { ensure_source_dek_on_primary } from '@/services/replication/dek-rehydration-validator';
+import { reject_teams_snapshot } from '@/services/replication/teams-snapshot-guard';
 import {
   build_skip_result,
   to_status_record,
@@ -75,6 +76,7 @@ export class ReplicationService implements ReplicationUseCase {
     snapshot_id: string,
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
+    reject_teams_snapshot(snapshot_id);
     const source_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const drive = await replicate_drive_snapshot(source_ctx, tenant_id, snapshot_id, targets, {
@@ -135,6 +137,7 @@ export class ReplicationService implements ReplicationUseCase {
     snapshot_id: string,
     source: StorageTarget,
   ): Promise<ReplicationResult> {
+    reject_teams_snapshot(snapshot_id);
     await ensure_source_dek_on_primary(this.primary_target(), source, tenant_id);
     const primary_ctx = await this._tenant_factory.create(tenant_id);
     const source_ctx = await source.create_context(tenant_id);
@@ -226,6 +229,7 @@ export class ReplicationService implements ReplicationUseCase {
         source.target_id,
       ),
       workloads,
+      unsupported_workloads: ['teams'],
     };
   }
 

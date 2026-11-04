@@ -14,6 +14,7 @@ const DOMAIN_RULES: Array<{ pattern: RegExp; domain: string }> = [
   { pattern: /packages\/outlook\//, domain: '@wisecom/atlas-outlook' },
   { pattern: /packages\/onedrive\//, domain: '@wisecom/atlas-onedrive' },
   { pattern: /packages\/contacts\//, domain: '@wisecom/atlas-contacts' },
+  { pattern: /packages\/teams\//, domain: '@wisecom/atlas-teams' },
   { pattern: /packages\/sharepoint\//, domain: '@wisecom/atlas-sharepoint' },
   { pattern: /packages\/drive\//, domain: '@wisecom/atlas-drive' },
   { pattern: /packages\/cli\//, domain: '@wisecom/atlas-cli' },

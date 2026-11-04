@@ -12,6 +12,7 @@ const outlook_src = resolve(root_dir, '../outlook/src');
 const onedrive_src = resolve(root_dir, '../onedrive/src');
 const contacts_src = resolve(root_dir, '../contacts/src');
 const sharepoint_src = resolve(root_dir, '../sharepoint/src');
+const teams_src = resolve(root_dir, '../teams/src');
 
 export default defineConfig({
   // Match the CLI's importer-scoped resolver: each workspace package owns its `@/`.
@@ -47,6 +48,8 @@ export default defineConfig({
       { find: '@wisecom/atlas-contacts', replacement: resolve(contacts_src, 'index.ts') },
       { find: /^@wisecom\/atlas-sharepoint\/(.+)$/, replacement: `${sharepoint_src}/$1` },
       { find: '@wisecom/atlas-sharepoint', replacement: resolve(sharepoint_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-teams\/(.+)$/, replacement: `${teams_src}/$1` },
+      { find: '@wisecom/atlas-teams', replacement: resolve(teams_src, 'index.ts') },
     ],
   },
   test: {

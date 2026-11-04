@@ -14,8 +14,9 @@
  * - `outlook` -- Exchange Online mail, calendar, contacts. Scope: per app per mailbox.
  * - `sharepoint_onedrive` -- SharePoint and OneDrive files/lists. Scope: per app per tenant.
  * - `identity` -- Microsoft Entra ID users, groups, directory. Scope: per app per tenant.
+ * - `teams` -- Microsoft Teams teams, channels, and channel messages. Scope: per app per tenant.
  */
-export type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
+export type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity' | 'teams';
 
 /** Cost accumulated against a single service pool during one SDK operation. */
 export interface ServicePoolCost {

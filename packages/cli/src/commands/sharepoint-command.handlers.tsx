@@ -121,7 +121,7 @@ export async function execute_sharepoint_backup(
     SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   );
   const gate = install_interrupt_gate(
-    '[!] Stopping after the current file; the delta cursor is not advanced for an interrupted run',
+    'Stopping after the current file; the delta cursor is not advanced for an interrupted run',
   );
   let results;
   try {

@@ -77,20 +77,22 @@ Run `atlas storage-check` before your first immutable backup. It reports the buc
 
 ## Retention and deduplication
 
-Objects are stored under their content hash. If an object already exists, Atlas skips the upload, with or without Object Lock. Only new content costs storage.
+Objects are stored under their content hash. If an object already exists, Atlas skips the upload, with or without Object Lock. Only new content costs storage. A reused object keeps the retention it received on its first write, so a later run does not extend it.
 
-Object Lock stops deletion during the retention window. It does not delete anything afterwards. Atlas deletes data only in bulk, through `atlas outlook delete`, the OneDrive and SharePoint delete commands, or `atlas delete --purge`. It never removes a single data object that a manifest still references.
+Object Lock stops deletion during the retention window. It does not delete anything afterwards. Atlas deletes data only in bulk, through `atlas outlook delete`, `atlas teams delete`, the OneDrive and SharePoint delete commands, or `atlas delete --purge`. It never removes a single data object that a manifest still references.
 
 ## Deletion under Object Lock
 
-`atlas outlook delete`, the OneDrive and SharePoint delete commands, and `atlas delete --purge` remove objects in a fixed order:
+`atlas outlook delete`, `atlas teams delete`, the OneDrive and SharePoint delete commands, and `atlas delete --purge` remove objects in a fixed order:
 
 1. **Manifests first.** This removes the index that points to data.
 2. **Data objects second.** These are the encrypted messages and files.
 
 If deletion stops between the two steps, you are left with orphan data objects. They are harmless and can be removed later. The reverse order would leave manifests pointing at missing data, which is far worse.
 
-While retention is active, a delete removes what it can and reports what it kept. The command exits with code `8` (`ATLAS_OBJECT_LOCK_RETAINED`) to signal that deletion is incomplete. Treat a purge in an immutable bucket as "delete everything possible and list the leftovers", not as immediate destruction.
+`atlas teams delete` removes the channel cursors first, then the snapshot indexes, then the channel shards, then the message and image blobs.
+
+While retention is active, a delete removes what it can and reports what it kept. The command exits with code `1` to signal that deletion is incomplete. Treat a purge in an immutable bucket as "delete everything possible and list the leftovers", not as immediate destruction.
 
 ## Lifecycle rules
 

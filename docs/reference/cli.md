@@ -56,7 +56,7 @@ exit "$status"
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                            | Correct the configuration or its storage access.                                                                                    |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                       | Check the selected resource and identifiers.                                                                                        |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                       | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                      |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                         | The stored bytes are intact but cannot be parsed back. Repeating the command will not help. Extract the raw content with `save`.    |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED` | The stored bytes are intact but cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. Otherwise extract the raw content with `save`. |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -902,6 +902,90 @@ Deletes the site's SharePoint backups behind a confirmation prompt. Without `-s`
 Backup and verification need the application permissions `Sites.Read.All` and `Files.Read.All`. Restore also needs `Sites.ReadWrite.All`.
 :::
 
+## atlas teams
+
+Back up Microsoft Teams channel messages, replies, membership, and tabs per team, using a Graph delta cursor for each channel. Blobs and manifests live under the `teams/` prefix of the tenant bucket. Teams backup targets a team by its Graph team ID. Restore and save are not yet available. See [Teams backup](../teams-backup.md).
+
+```bash
+atlas teams list-teams
+atlas teams backup --team <team-id>
+atlas teams backup --team <team-id> --team <other-team-id>
+atlas teams backup --all
+atlas teams backup --team <team-id> --channel <channel-id>
+atlas teams list-snapshots --team <team-id>
+atlas teams verify --team <team-id> -s <snapshot-id>
+atlas teams status
+atlas teams delete --team <team-id> -s <snapshot-id>
+atlas teams delete --team <team-id> -y
+```
+
+| Subcommand       | Description                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| `list-teams`     | List the teams the application can read                                                  |
+| `backup`         | Incremental backup of one, several, or all teams. Exits `2` when any team is unhealthy   |
+| `list-snapshots` | List Teams snapshots for one team                                                        |
+| `verify`         | Check the snapshot's index, channel shards, and every blob it references                 |
+| `status`         | Show the newest snapshot for each team: creation time and ID                             |
+| `delete`         | Delete one team's Teams backups, or one snapshot                                         |
+
+**`atlas teams backup`**
+
+| Option                 | Description                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `--team <id>`          | Team to back up. Repeat for several teams                                                                |
+| `--all`                | Back up every team the application can read                                                              |
+| `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward |
+| `--full`               | Force a full read: ignores saved delta links and cached files folders                                    |
+| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                              |
+| `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
+| `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
+
+Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a failed attempt, and messages already stored are kept. The interrupted channel keeps its previous delta link. A second Ctrl+C exits at once with status `130`, before the run writes its index.
+
+**`atlas teams list-snapshots`**
+
+Snapshot indexes Atlas cannot read are skipped and named in a warning with their storage keys. Indexes written by a newer Atlas format are named the same way. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
+
+| Option              | Description                        |
+| ------------------- | ---------------------------------- |
+| `--team <id>`       | Team ID (required)                 |
+| `-t, --tenant <id>` | Override the tenant ID from config |
+
+**`atlas teams verify`**
+
+Checks the snapshot's index, channel shards, and every blob it references. Exits `1` when any object is missing, fails its check, or is a shard written by a newer format.
+
+| Option                | Description                        |
+| --------------------- | ---------------------------------- |
+| `--team <id>`         | Team ID (required)                 |
+| `-s, --snapshot <id>` | Snapshot to verify (required)      |
+| `-t, --tenant <id>`   | Override the tenant ID from config |
+
+**`atlas teams status`**
+
+Prints one row per team, with the newest snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean.
+
+| Option              | Description                        |
+| ------------------- | ---------------------------------- |
+| `-t, --tenant <id>` | Override the tenant ID from config |
+
+**`atlas teams delete`**
+
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, indexes, channel shards, then blobs. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
+
+| Option                | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                |
+| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
+| `-y, --yes`           | Skip the confirmation prompt                      |
+| `-t, --tenant <id>`   | Override the tenant ID from config                |
+
+::: tip Permissions
+Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
+
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, an interrupted run, or an unreadable index newer than the latest readable one. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. See [Failed channels](../teams-backup.md#failed-channels).
+:::
+
 ## atlas storage-check
 
 Check whether the bucket can hold immutable backups, without running a backup. The command reports versioning, Object Lock status, and the bucket class:
@@ -1176,7 +1260,7 @@ atlas rehydrate --all \
   --source-secret-key - < source-secret.txt
 ```
 
-`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. The summary breaks the run down by workload, so a partial recovery is visible:
+`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. Teams is not part of tenant recovery yet, so `--all` always prints `Tenant recovery does not cover teams yet. That data is not restored by this run.` The summary breaks the run down by workload, so a partial recovery is visible:
 
 ```
 Workload    Scope        Copied  Skipped  Failed  Size

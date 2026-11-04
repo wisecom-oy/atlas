@@ -49,8 +49,8 @@ export async function execute_tenant_delete(
   await render_delete_banner();
 
   logger.warn(
-    `This will delete ALL data for tenant ${tenant_id} across Outlook, Contacts, OneDrive and ` +
-      `SharePoint (data, manifests, encryption keys)`,
+    `This will delete ALL data for tenant ${tenant_id} across Outlook, Contacts, OneDrive, ` +
+      `SharePoint and Teams (data, manifests, encryption keys)`,
   );
   if (!(await confirm_purge_target(tenant_id, options.yes))) {
     logger.info('Aborted');

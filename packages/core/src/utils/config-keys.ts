@@ -1,7 +1,7 @@
 import type { AtlasConfig } from '@/utils/config';
 import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
 
-const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DOMAIN_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
 
 export interface ConfigKeySpec {
