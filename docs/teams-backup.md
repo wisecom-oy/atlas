@@ -36,7 +36,7 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 | Item                                   | Coverage                                                                                                                  |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Channel messages                       | Every root message in each channel the team hosts, including private channels                                             |
-| Replies                                | Stored with their root in one thread blob. A deleted reply is marked `deletedDateTime`; `last_live` keeps its last text   |
+| Replies                                | Each reply is its own blob, linked from its thread. A deleted reply keeps its last live version in `kept`                 |
 | Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit                           |
 | Inline images                          | Stored as encrypted bytes. The image URLs in each message are kept                                                        |
 | System messages                        | Stored with their thread, as Graph returns them                                                                           |
@@ -45,7 +45,7 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 
 Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`.
 
-Earlier versions of an edited or deleted message survive in the thread blobs of the snapshots that recorded them.
+Each edit writes a new blob, and earlier versions stay in storage for every snapshot that references them. A deleted message keeps its last live version in its `kept` entry.
 
 ## Team files
 
@@ -84,7 +84,7 @@ atlas teams list-teams
 
 ### backup
 
-Backs up one or more teams. Pass `--team` once per team, or `--all` for every team in the tenant. `--channel <id>` backs up only that channel, needs exactly one `--team`, and cannot be combined with `--all`. Other channels carry forward from the previous manifest.
+Backs up one or more teams. Pass `--team` once per team, or `--all` for every team in the tenant. `--channel <id>` backs up only that channel, needs exactly one `--team`, and cannot be combined with `--all`. Other channels carry forward from the previous snapshot.
 
 ```bash
 atlas teams backup --team <team-id>
@@ -97,7 +97,7 @@ Each team runs independently and is reported when it finishes. A channel error i
 
 ### list-snapshots
 
-Lists the snapshots stored for one team, newest first. A manifest Atlas cannot read is named in a warning with its storage key, and the rest of the list still prints. See [Unreadable snapshots](#unreadable-snapshots).
+Lists the snapshots stored for one team, newest first. An index Atlas cannot read, or one written by a newer Atlas format, is named in a warning with its storage key, and the rest of the list still prints. See [Unreadable snapshots](#unreadable-snapshots).
 
 ```bash
 atlas teams list-snapshots --team <team-id>
@@ -105,7 +105,7 @@ atlas teams list-snapshots --team <team-id>
 
 ### verify
 
-Checks that every blob a snapshot references is present and matches its SHA-256 digest.
+Checks the snapshot index, its channel shards, and every message, reply, image, and kept blob the index references. A missing object is reported as missing. An object that cannot be decrypted or parsed, or a blob whose content does not match its SHA-256 checksum, is reported as failed. Any failure makes the command exit `1`.
 
 ```bash
 atlas teams verify --team <team-id> -s <snapshot-id>
@@ -113,7 +113,7 @@ atlas teams verify --team <team-id> -s <snapshot-id>
 
 ### status
 
-Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no manifest does not change it.
+Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it.
 
 ```bash
 atlas teams status
@@ -121,7 +121,7 @@ atlas teams status
 
 ### delete
 
-Deletes every Teams backup for one team: its manifests, thread and image blobs, and delta cursors. With `-s`, it deletes only that snapshot's manifest. Its blobs stay, because later snapshots can reference them. `-s` removes the manifest by key without reading it, so it also removes a snapshot that `list-snapshots` cannot read. Atlas asks for confirmation unless you pass `-y`.
+Deletes every Teams backup for one team, in this order: channel cursors, then snapshot indexes and channel shards, then message and image blobs. With `-s`, it deletes only that snapshot's index. Its shards and blobs stay, because later snapshots can reference them. `-s` removes the index by key without reading it, so it also removes a snapshot that `list-snapshots` cannot read. Atlas asks for confirmation unless you pass `-y`.
 
 ```bash
 atlas teams delete --team <team-id>
@@ -137,17 +137,17 @@ Deletion cannot be undone. Objects under Object Lock retention stay until the re
 Each channel is read with its own message delta link.
 
 1. **Delta.** Atlas asks Graph for the messages that changed since the last run. Delta returns only messages from the last eight months. A first run or a forced full read reads older messages too. A new reply, reaction, edit, or deletion returns the root message of its thread. The root's `lastModifiedDateTime` and `etag` do not change for reply activity, so Atlas cannot use them to detect changes.
-2. **Thread refetch.** For each returned root, Atlas reads the full reply list and rebuilds the thread blob. Replies arrive inline through `$expand=replies`. When Graph truncates that list, Atlas pages the replies through `/replies`.
-3. **Deduplication.** Atlas hashes the thread blob. An unchanged thread is not uploaded again. A forced full read (`--full`) fetches every thread again but never rewrites a blob that already exists, because each blob's name is derived from its content.
-4. **Cursor commit.** Atlas saves the new delta link once the manifest for the run is written. A channel that fails keeps its previous link, so its changes are read again next run.
+2. **Root and replies.** For each returned root, Atlas reads the root and its replies. The channel listing asks for 50 roots per page with replies expanded inline. When Graph returns an incomplete reply list, Atlas pages the rest through `/replies`. A root re-fetched from the ledger is read alone, and its replies come from `/replies`.
+3. **Per-message blobs and shards.** Each root and reply version is stored as its own blob, holding the Graph object as returned. An unchanged message reuses its blob. A channel's threads are stored as one shard, named by the keyed hash of its contents, so an unchanged channel reuses its shard. A forced full read (`--full`) fetches every root again but never rewrites a blob that already exists, because each blob's name is derived from its content.
+4. **Cursor commit.** Atlas writes the snapshot index first, then saves each channel's new delta link. A channel that fails keeps its previous link, so its changes are read again next run.
 
-When nothing changed, Atlas writes no manifest. A healthy run prints `No Teams changes detected. Snapshot skipped.` The delta cursor is still saved.
+When nothing changed, Atlas writes no index. A healthy run prints `No Teams changes detected. Snapshot skipped.` The delta cursor is still saved.
 
-A channel is read in full, with no delta link, when it has no channel email address, when no link is stored (a first run, or `--full`), or when Graph rejects the saved link with `400`. A `400` logs a warning and falls back to a full read. The channel is recorded with `read_mode: full` in the manifest. A saved cursor is used only when its `snapshot_id` matches the latest readable manifest. A mismatch, a cursor from an older release without `snapshot_id`, or an unreadable cursor means every channel is read in full, with a warning.
+A channel is read in full, with no delta link, when it has no channel email address, when no link is stored (a first run, or `--full`), or when Graph rejects the saved link with `400`. A `400` logs a warning and falls back to a full read. The channel is recorded with `read_mode: full` in the manifest. A saved link is used only when its cursor's `baseline_shard_key` equals the shard the latest readable index lists for that channel. Otherwise only that channel is read in full, with a warning. An unreadable cursor is read in full with a warning too.
 
-Deleted messages and channels are carried forward, not dropped. A root that Graph reports as deleted, or that a full read no longer returns, is recorded with `deleted_at` set. Later snapshots keep it, and its blobs stay in place. A channel the team no longer lists keeps `deleted_at` in later manifests.
+Deleted messages and channels are carried forward, not dropped. A root or reply that Graph reports as deleted, or a root that a full read no longer returns, is recorded with `deleted_at` set, and its last live version is kept in `kept`. No blob is removed. A channel the team no longer lists keeps `deleted_at` in later indexes.
 
-Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is recorded as a failed attempt. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups is honored when the channel loop starts. The run then prints `Status: UNHEALTHY` and exits `2`.
+Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is recorded as a failed attempt. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
 
 ## Storage layout
 
@@ -155,21 +155,27 @@ Teams objects live under the `teams/` prefix of the tenant bucket.
 
 ```
 teams/
-  data/{team_id}/{content_name}            encrypted thread blobs
-  data/{team_id}/hosted/{content_name}     encrypted inline images
-  manifests/{team_id}/{snapshot_id}.json   encrypted snapshot manifests
-  _meta/{team_id}/delta.json               encrypted delta links per channel
+  data/{team_id}/{content_name}                                   encrypted message and reply blobs
+  data/{team_id}/hosted/{content_name}                            encrypted inline images
+  manifests/{team_id}/{snapshot_id}.json                          encrypted snapshot indexes
+  manifests/{team_id}/channels/{channel_id}/{content_name}.json   encrypted channel shards
+  _meta/{team_id}/channels/{channel_id}.json                      encrypted channel cursors
 ```
 
 `content_name` is the keyed name Atlas uses for every content object. It is an HMAC, so it does not match a plain SHA-256 of the content. See [What object names reveal](/security#what-object-names-reveal).
 
-Manifests and delta cursors carry `format_version: 1`. An object without the field is read as the original layout. An object with a higher version is refused with an error that names its key and says to upgrade Atlas.
+Snapshot indexes, channel shards, and channel cursors carry `format_version: 1`. Blobs do not. An object whose `format_version` is missing or not `1` is unreadable. An object with a higher version is refused with an error that names its key and says to upgrade Atlas.
+
+Known limits of Format 1:
+- A reply that Graph stops listing without a deletion notice is carried over as live.
+- A reply that Graph deletes before Atlas has listed it is not stored.
+- `verify` checks a channel shard by decrypting it, not against its checksum in the index.
 
 ## Failed channels
 
 If a channel cannot be read, the run records the error and continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way.
 
-A thread root that fails is kept in a ledger keyed by channel and root (`channel_id/root_id`), stored with the delta cursor. Each run re-fetches ledger roots that the delta read did not return, until the root has failed five times. The report shows `will retry (attempt N of 5)`. After the fifth failure it shows `PERMANENTLY SKIPPED after 5 attempts`, and Atlas stops re-fetching that root, so the channel's delta link can advance. The entry stays in the ledger until a read processes the root cleanly.
+A thread root that fails is recorded in its channel's cursor, as a ledger entry keyed by root ID. Each run re-fetches ledger roots that the delta read did not return, until the root has failed five times. The report shows `will retry (attempt N of 5)`. After the fifth failure it shows `PERMANENTLY SKIPPED after 5 attempts`, and Atlas stops re-fetching that root, so the channel's delta link can advance. The entry stays in the ledger until a read processes the root cleanly.
 
 Each failed attempt is reported as a channel error. While any ledger entry remains, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run raised no channel error.
 
@@ -198,16 +204,16 @@ A full read processes every root Graph returns for the channel, so a root that n
 
 ### Unreadable snapshots
 
-`list-snapshots` skips a manifest it cannot read and names its storage key in a warning. A manifest is unreadable when its `format_version` is higher than this Atlas reads, or when its team, snapshot, or `created_at` does not match its key.
+`list-snapshots` skips an index it cannot read and names its storage key in a warning. An index is unreadable when it cannot be decrypted or parsed, or when its team, snapshot, or `created_at` does not match its key. An index with a higher `format_version` is reported as newer-format instead. If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded. An unreadable index newer than the latest readable one makes the backup exit `2` until a later backup writes a readable index.
 
-- If the warning names a newer `format_version`, upgrade Atlas.
-- Otherwise the manifest is damaged. Delete it by snapshot ID. The snapshot ID is the last segment of the key, without `.json`.
+- If the warning says a newer format, upgrade Atlas.
+- Otherwise the index is damaged. Delete it by snapshot ID. The snapshot ID is the last segment of the key, without `.json`.
 
 ```bash
 atlas teams delete --team <team-id> -s <snapshot-id>
 ```
 
-`-s` removes the manifest by key without reading it. The snapshot's blobs stay in storage. The saved delta cursors then point at a snapshot that is no longer the latest readable one, so the next run reads every channel in full, as described in [How a run finds changes](#how-a-run-finds-changes).
+`-s` removes the index by key without reading it. The snapshot's shards and blobs stay in storage. The saved delta cursors then point at a snapshot that is no longer the latest readable one. Each channel whose cursor no longer matches the latest index is read in full on the next run, as described in [How a run finds changes](#how-a-run-finds-changes).
 
 ### Files folder
 

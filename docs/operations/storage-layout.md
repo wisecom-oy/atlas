@@ -39,7 +39,8 @@ atlas-{tenant_id}/
     ├── data/{team_id}/{content_name}
     ├── data/{team_id}/hosted/{content_name}
     ├── manifests/{team_id}/{snapshot_id}.json
-    └── _meta/{team_id}/delta.json
+    ├── manifests/{team_id}/channels/{channel_id}/{content_name}.json
+    └── _meta/{team_id}/channels/{channel_id}.json
 ```
 
 ## Bucket isolation
@@ -97,7 +98,7 @@ A subsite has its own Graph `site_id`, so `atlas sharepoint backup --include-sub
 
 ## Teams
 
-Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs live under `teams/data/{team_id}/`, inline images under `teams/data/{team_id}/hosted/`, and snapshot manifests under `teams/manifests/{team_id}/`. Delta cursors live under `teams/_meta/{team_id}/`. Teams writes no version index or staging objects.
+Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs live under `teams/data/{team_id}/`, inline images under `teams/data/{team_id}/hosted/`, and snapshot indexes under `teams/manifests/{team_id}/`. Channel shards sit under `teams/manifests/{team_id}/channels/{channel_id}/`, and per-channel delta cursors under `teams/_meta/{team_id}/channels/`. Teams writes no version index or staging objects.
 
 ## The DEK object
 

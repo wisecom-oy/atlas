@@ -56,7 +56,7 @@ exit "$status"
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                            | Correct the configuration or its storage access.                                                                                    |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                       | Check the selected resource and identifiers.                                                                                        |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                       | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                      |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                         | The stored bytes are intact but cannot be parsed back. Repeating the command will not help. Extract the raw content with `save`.    |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED` | The stored bytes are intact but cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. Otherwise extract the raw content with `save`. |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -910,11 +910,11 @@ atlas teams delete --team <team-id> -y
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
 
-Ctrl+C stops the run and exits `2`. Threads already stored are kept, and the interrupted channel keeps its previous delta link.
+Ctrl+C stops the run and exits `2`. Messages already stored are kept, and the interrupted channel keeps its previous delta link. A second Ctrl+C exits at once with status `130`, before the run writes its index.
 
 **`atlas teams list-snapshots`**
 
-Manifests Atlas cannot read are skipped and named in a warning with their storage keys. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
+Snapshot indexes Atlas cannot read are skipped and named in a warning with their storage keys. Indexes written by a newer Atlas format are named the same way. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
 
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |
@@ -922,6 +922,8 @@ Manifests Atlas cannot read are skipped and named in a warning with their storag
 | `-t, --tenant <id>` | Override the tenant ID from config |
 
 **`atlas teams verify`**
+
+Checks the snapshot's index, channel shards, and every blob it references. Exits `1` when any object is missing or fails its check.
 
 | Option                | Description                        |
 | --------------------- | ---------------------------------- |
@@ -937,7 +939,7 @@ Manifests Atlas cannot read are skipped and named in a warning with their storag
 
 **`atlas teams delete`**
 
-Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team. With `-s`, only that snapshot's manifest is deleted, and its blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, then indexes and channel shards, then blobs. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
 
 | Option                | Description                                       |
 | --------------------- | ------------------------------------------------- |
@@ -949,7 +951,7 @@ Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it 
 ::: tip Permissions
 Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
 
-A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. See [Failed channels](../teams-backup.md#failed-channels).
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, an interrupted run, or an unreadable index newer than the latest readable one. See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check

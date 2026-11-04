@@ -277,9 +277,9 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                          |
 | `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel |
 | `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team, as `{ manifests, unreadableKeys }`            |
-| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check every blob's size and SHA-256. `options.fast` checks existence only      |
+| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check every channel shard and blob: decrypt, then compare its checksum. `options.fast` checks existence only |
 | `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID              |
-| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's manifest          |
+| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's index                                           |
 
 ```typescript
 const run = await atlas.teams.backup(teamId);
@@ -1163,6 +1163,7 @@ try {
 | `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                        |
 | `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                               |
 | `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported           |
+| `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
