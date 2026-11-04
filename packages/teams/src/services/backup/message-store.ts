@@ -91,7 +91,7 @@ async function store_tombstone(
     kept: kept_for_deleted(previous),
     hosted: {},
   };
-  return { ref, warnings: [], written, deduped: reusable };
+  return { ref, warnings: [], written, deduped: !written };
 }
 
 /**
@@ -164,5 +164,5 @@ async function store_live_version(
     hosted,
     hosted_missing: missing.length === 0 ? undefined : missing,
   };
-  return { ref, warnings, written, deduped: false };
+  return { ref, warnings, written, deduped: !written && missing.length === 0 };
 }

@@ -1,3 +1,4 @@
+import { describe_graph_error } from '@wisecom/atlas-m365-graph';
 import { graph_status_of } from '@/services/shared/graph-error-status';
 
 /** Graph refused to return a root or its replies with a status the backup acts on. */
@@ -6,7 +7,7 @@ export class RootRefusal extends Error {
     readonly status: number,
     cause: unknown,
   ) {
-    super(`Graph ${status}`, { cause });
+    super(`Graph ${status}: ${describe_graph_error(cause)}`, { cause });
     this.name = 'RootRefusal';
   }
 }

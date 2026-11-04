@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TeamsThread } from '@wisecom/atlas-types';
 import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
 import { apply_root_changes } from '@/services/backup/channel-root-applier';
+import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { MAX_HOSTED_RECHECK_ATTEMPTS } from '@/services/backup/hosted-recheck';
 import { store_thread } from '@/services/backup/thread-store';
 import {
@@ -69,6 +70,32 @@ describe('recheck root that Graph no longer returns (Q1)', () => {
 
     expect(GONE).not.toHaveBeenCalled();
     expect(out.hosted_recheck).toEqual({ m1: MAX_HOSTED_RECHECK_ATTEMPTS });
+  });
+
+  it('does not re-fetch a recheck root that has an exhausted failure record (S1)', async () => {
+    const connector = make_connector({ get_channel_message: GONE });
+    const exhausted = {
+      m1: {
+        item_id: 'm1',
+        drive_id: 'channel-1',
+        name: 'm1',
+        reason: 'boom',
+        attempts: MAX_FAILED_ITEM_ATTEMPTS,
+        first_failed_at: '2024-01-01T00:00:00.000Z',
+        last_failed_at: '2024-01-01T00:00:00.000Z',
+      },
+    };
+
+    await apply_root_changes(
+      make_scope(connector),
+      'channel-1',
+      DELTA,
+      { m1: thread_missing_hosted('m1') },
+      exhausted,
+      { m1: 1 },
+    );
+
+    expect(GONE).not.toHaveBeenCalled();
   });
 });
 

@@ -22,6 +22,7 @@ import {
 } from '@/services/backup/root-apply-outcome';
 import { as_root_refusal, RootRefusal } from '@/services/backup/root-refusal';
 import { mark_root_removed, store_thread } from '@/services/backup/thread-store';
+import { canonical_json } from '@/services/shared/canonical-json';
 import { error_message } from '@/services/shared/error-message';
 
 /** What applying one channel's root changes produced. */
@@ -136,8 +137,8 @@ function clear_unseen_failures(
 
 /**
  * The roots to apply: every root the read returned, then, on a delta read, each retryable ledger
- * root and each recheck root that the read did not return and has not reached the limit. A full
- * read already covers every root.
+ * root and each recheck root that the read did not return, has not reached the limit, and has no
+ * failure record. A full read already covers every root.
  */
 function root_tasks(
   scope: BackupRunScope,
@@ -152,7 +153,6 @@ function root_tasks(
     : retryable_items(ledger, channel_id)
         .map((record) => record.item_id)
         .filter((root_id) => !returned.has(root_id));
-  const retry_set = new Set(retry_roots);
   const recheck_roots = read.is_full
     ? []
     : Object.entries(recheck)
@@ -160,7 +160,7 @@ function root_tasks(
           ([root_id, attempts]) =>
             attempts < MAX_HOSTED_RECHECK_ATTEMPTS &&
             !returned.has(root_id) &&
-            !retry_set.has(root_id),
+            !(root_id in ledger),
         )
         .map(([root_id]) => root_id);
   return [
@@ -217,7 +217,9 @@ async function apply_one_root(
           scope.connector.list_replies(scope.tenant_id, scope.team_id, channel_id, change.root.id),
         ));
   const stored = await store_thread(scope, channel_id, previous, change.root, replies);
-  if (stored.stored > 0) scope.counters.threads_changed++;
+  const changed =
+    previous === undefined || canonical_json(previous) !== canonical_json(stored.thread);
+  if (changed) scope.counters.threads_changed++;
   scope.counters.messages_stored += stored.stored;
   scope.counters.messages_deduplicated += stored.deduped;
   warnings.push(...stored.warnings);

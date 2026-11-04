@@ -49,7 +49,7 @@ describe('store_thread dedupe', () => {
 
     expect(harness.put).not.toHaveBeenCalled();
     expect(second.stored).toBe(0);
-    expect(second.deduped).toBe(0);
+    expect(second.deduped).toBe(1);
   });
 
   it('stores a changed root under a new key and does not dedupe it', async () => {
@@ -118,6 +118,6 @@ describe('store_thread dedupe', () => {
 
     expect(reverted.thread.root.storage_key).toBe(original.thread.root.storage_key);
     expect(reverted.stored).toBe(0);
-    expect(reverted.deduped).toBe(0);
+    expect(reverted.deduped).toBe(1);
   });
 });

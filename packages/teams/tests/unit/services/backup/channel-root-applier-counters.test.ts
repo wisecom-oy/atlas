@@ -51,4 +51,20 @@ describe('thread counters (Q4)', () => {
     expect(scope.counters.threads_changed).toBe(1);
     expect(scope.counters.messages_stored).toBe(2);
   });
+
+  it('counts a thread whose refs changed as changed even when nothing was written (S5)', async () => {
+    const base = thread_entry('m1');
+    vi.mocked(store_thread).mockResolvedValue({
+      thread: { ...base, root: { ...base.root, last_modified_at: 'edited-later' } },
+      warnings: [],
+      stored: 0,
+      deduped: 1,
+    });
+    const scope = make_scope(make_connector());
+
+    await apply_root_changes(scope, 'channel-1', FULL, { m1: base }, {}, {});
+
+    expect(scope.counters.threads_changed).toBe(1);
+    expect(scope.counters.messages_stored).toBe(0);
+  });
 });

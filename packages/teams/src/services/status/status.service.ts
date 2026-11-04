@@ -13,6 +13,7 @@ import {
   TEAMS_INDEX_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
+import { MAX_HOSTED_RECHECK_ATTEMPTS } from '@/services/backup/hosted-recheck';
 
 /**
  * Maps a team's newest readable index and its cursor scan to its status row. A team with no
@@ -37,7 +38,11 @@ function team_status(
       0,
     ),
     pending_recheck_count: cursors.cursors.reduce(
-      (sum, cursor) => sum + Object.keys(cursor.hosted_recheck ?? {}).length,
+      (sum, cursor) =>
+        sum +
+        Object.values(cursor.hosted_recheck ?? {}).filter(
+          (attempts) => attempts < MAX_HOSTED_RECHECK_ATTEMPTS,
+        ).length,
       0,
     ),
   };

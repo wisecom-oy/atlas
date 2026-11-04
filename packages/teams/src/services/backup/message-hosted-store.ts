@@ -80,7 +80,10 @@ async function reusable_hosted_ref(
   return (await scope.ctx.storage.exists(previous.storage_key)) ? previous : undefined;
 }
 
-/** Downloads and stores one hosted item. Returns undefined when Graph has no such item. */
+/**
+ * Downloads and stores one hosted item. Returns undefined when Graph has no such item, or answers
+ * 403 for it: either way the item is marked missing and re-checked, and the run goes on.
+ */
 async function store_hosted_content(
   scope: BackupRunScope,
   locator: TeamsMessageLocator,
@@ -91,7 +94,8 @@ async function store_hosted_content(
   try {
     downloaded = await scope.connector.download_hosted_content(scope.tenant_id, locator, id);
   } catch (err) {
-    if (graph_status_of(err) === 404) {
+    const status = graph_status_of(err);
+    if (status === 404 || status === 403) {
       return undefined;
     }
     throw err;

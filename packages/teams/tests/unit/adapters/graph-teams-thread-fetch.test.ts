@@ -134,4 +134,13 @@ describe('download_hosted_content', () => {
       statusCode: 404,
     });
   });
+
+  it('does not route a 403 through the Teams AuthError mapping (S6)', async () => {
+    const { client } = client_answering([], { 'content-type': 'application/json' }, 403);
+
+    await expect(download_hosted_content(client, locator, 'hosted-1')).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(guarded).not.toHaveBeenCalled();
+  });
 });

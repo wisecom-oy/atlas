@@ -5,11 +5,8 @@ import type {
   TeamsHostedContent,
   TeamsMessageLocator,
 } from '@wisecom/atlas-types';
-import {
-  graph_teams_call,
-  INCLUDE_UNKNOWN_ENUM_HEADERS,
-  read_all_pages,
-} from '@/adapters/graph-teams-request';
+import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { INCLUDE_UNKNOWN_ENUM_HEADERS, read_all_pages } from '@/adapters/graph-teams-request';
 
 function message_path(team_id: string, channel_id: string, root_id: string): string {
   return `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}`;
@@ -58,7 +55,8 @@ interface RawHostedResponse {
 /**
  * Downloads one hosted content item's raw bytes and its Content-Type header. A raw response is
  * not checked by the Graph client, so a non-2xx is turned into a GraphError here, inside the
- * retried call: otherwise a 404 or 429 error body would be stored as the image.
+ * retried call: otherwise a 404 or 429 error body would be stored as the image. The call is not
+ * wrapped in `graph_teams_call`, so a 403 stays a GraphError for the caller to treat as missing.
  */
 export async function download_hosted_content(
   client: Client,
@@ -66,7 +64,7 @@ export async function download_hosted_content(
   hosted_id: string,
 ): Promise<TeamsHostedContent> {
   const url = `${hosted_contents_path(locator)}/${encodeURIComponent(hosted_id)}/$value`;
-  const response = await graph_teams_call(async () => {
+  const response = await with_graph_retry(async () => {
     const raw = (await client.api(url).responseType(ResponseType.RAW).get()) as RawHostedResponse;
     if (!raw.ok) throw await graph_error_from(raw);
     return raw;

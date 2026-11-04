@@ -193,4 +193,28 @@ describe('TeamsStatusService.check_teams_status', () => {
     expect(row?.pending_recheck_count).toBe(2);
     expect(row?.failed_root_count).toBe(0);
   });
+
+  it('does not count a hosted recheck that reached the attempt cap as pending (S3)', async () => {
+    const cursor = {
+      ...cursor_with_failed_roots('channel-1', []),
+      hosted_recheck: { 'root-1': 1, 'root-2': 5 },
+    } as TeamsChannelCursor;
+    const { service } = setup(
+      [
+        {
+          team_id: TEAM_A,
+          listing: {
+            indexes: [index('teams-snap-2000-bbbbbb', 1)],
+            unreadable_keys: [],
+            unsupported_keys: [],
+          },
+        },
+      ],
+      { [TEAM_A]: { cursors: [cursor], unreadable_keys: [], unsupported_keys: [] } },
+    );
+
+    const [row] = await service.check_teams_status('tenant');
+
+    expect(row?.pending_recheck_count).toBe(1);
+  });
 });

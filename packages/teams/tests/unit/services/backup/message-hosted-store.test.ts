@@ -98,6 +98,18 @@ describe('store_thread hosted contents', () => {
     expect(result.warnings).toEqual(['hosted content missing on message root-1: 1 item(s)']);
   });
 
+  it('marks an item missing on a 403 as it does on a 404, so the run continues (S6)', async () => {
+    const harness = make_harness();
+    harness.download_hosted_content.mockRejectedValue(
+      graph_error(403, 'ErrorAccessDenied', 'denied'),
+    );
+
+    const result = await store_root(harness, undefined, root_with_image());
+
+    expect(result.thread.root.hosted_missing).toEqual(['h1']);
+    expect(result.warnings).toEqual(['hosted content missing on message root-1: 1 item(s)']);
+  });
+
   it('propagates a non-404 download failure', async () => {
     const harness = make_harness();
     harness.download_hosted_content.mockRejectedValue(
