@@ -181,6 +181,7 @@ export default defineConfig({
           { text: 'Test coverage', link: '/development/test-coverage' },
           { text: 'Performance profiling', link: '/development/performance-profiling' },
           { text: 'Graph request tracing', link: '/development/graph-tap' },
+          { text: 'Teams scale rig', link: '/development/teams-scale-rig' },
           { text: 'Microsoft Graph skill', link: '/development/msgraph-skill' },
         ],
       },

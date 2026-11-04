@@ -432,6 +432,30 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
 
+  tools/teams-scale-rig:
+    dependencies:
+      '@microsoft/microsoft-graph-client':
+        specifier: ^3.0.7
+        version: 3.0.7(@azure/identity@4.14.1)
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@wisecom/atlas-m365-graph':
+        specifier: workspace:*
+        version: link:../../packages/m365-graph
+      '@wisecom/atlas-teams':
+        specifier: workspace:*
+        version: link:../../packages/teams
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      inversify:
+        specifier: ^8.2.3
+        version: 8.2.3(reflect-metadata@0.2.2)
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+
 packages:
 
   0x@6.0.0:
