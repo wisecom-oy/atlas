@@ -410,6 +410,9 @@ importers:
       '@wisecom/atlas-types':
         specifier: workspace:*
         version: link:../types
+      htmlparser2:
+        specifier: ^12.0.0
+        version: 12.0.0
       inversify:
         specifier: ^8.2.3
         version: 8.2.3(reflect-metadata@0.2.2)

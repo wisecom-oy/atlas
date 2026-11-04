@@ -8,6 +8,7 @@ import {
   TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN,
   TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
   TEAMS_INDEX_REPOSITORY_TOKEN,
+  TEAMS_SAVE_USE_CASE_TOKEN,
   TEAMS_STATUS_USE_CASE_TOKEN,
   TEAMS_VERIFICATION_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -26,6 +27,7 @@ import { S3TeamsIndexRepository } from '@/adapters/s3-teams-index-repository.ada
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { TeamsCatalogService } from '@/services/catalog/catalog.service';
 import { TeamsDeletionService } from '@/services/deletion/deletion.service';
+import { TeamsSaveService } from '@/services/save/save.service';
 import { TeamsStatusService } from '@/services/status/status.service';
 import { TeamsVerificationService } from '@/services/verification/verification.service';
 
@@ -79,4 +81,5 @@ export function bind_teams(container: Container, options: TeamsBindingOptions = 
   container.bind(TEAMS_CATALOG_USE_CASE_TOKEN).to(TeamsCatalogService).inSingletonScope();
   container.bind(TEAMS_STATUS_USE_CASE_TOKEN).to(TeamsStatusService).inSingletonScope();
   container.bind(TEAMS_DELETION_USE_CASE_TOKEN).to(TeamsDeletionService).inSingletonScope();
+  container.bind(TEAMS_SAVE_USE_CASE_TOKEN).to(TeamsSaveService).inSingletonScope();
 }

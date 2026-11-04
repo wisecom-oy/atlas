@@ -15,8 +15,10 @@ import {
   type TeamsDeleteOptions,
   type TeamsVerifyOptions,
 } from '@/commands/teams-data-ops.handlers';
+import { execute_teams_save, type TeamsSaveCommandOptions } from '@/commands/teams-save.handlers';
 import {
   with_object_lock,
+  with_output,
   with_required_snapshot,
   with_snapshot,
   with_tenant,
@@ -43,6 +45,7 @@ export function register_teams_command(program: Command, get_container: Containe
   register_teams_backup(group, get_container);
   register_teams_list_snapshots(group, get_container);
   register_teams_verify(group, get_container);
+  register_teams_save(group, get_container);
   register_teams_status(group, get_container);
   register_teams_delete(group, get_container);
 }
@@ -87,6 +90,19 @@ function register_teams_verify(group: Command, get_container: ContainerFactory):
   with_required_snapshot(command, 'snapshot identifier');
   with_tenant(command).action((options: TeamsVerifyOptions) =>
     execute_teams_verify(get_container(), options),
+  );
+}
+
+function register_teams_save(group: Command, get_container: ContainerFactory): void {
+  const command = group
+    .command('save')
+    .description('Save a Teams snapshot, or one channel of it, as a zip archive')
+    .requiredOption(TEAM_FLAG, TEAM_DESCRIPTION)
+    .option('--channel <id>', 'save only this channel');
+  with_required_snapshot(command, 'snapshot identifier');
+  with_output(command, 'output zip file path');
+  with_tenant(command).action((options: TeamsSaveCommandOptions) =>
+    execute_teams_save(get_container(), options),
   );
 }
 

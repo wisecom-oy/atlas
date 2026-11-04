@@ -34,3 +34,4 @@ export type {
 } from '@/ports/teams/use-case.port';
 export type { TeamsDeletionUseCase } from '@/ports/teams/deletion.port';
 export type { TeamsStatusUseCase, TeamsTeamStatus } from '@/ports/teams/status.port';
+export type { TeamsSaveUseCase, TeamsSaveOptions, TeamsSaveResult } from '@/ports/teams/save.port';

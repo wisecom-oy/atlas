@@ -26,6 +26,7 @@
     "@wisecom/atlas-drive": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@wisecom/atlas-types": "workspace:*",
+    "htmlparser2": "^12.0.0",
     "inversify": "^8.2.3",
     "reflect-metadata": "^0.2.2"
   }

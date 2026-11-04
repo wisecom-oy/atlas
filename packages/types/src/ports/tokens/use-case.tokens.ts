@@ -39,6 +39,7 @@ export const TEAMS_VERIFICATION_USE_CASE_TOKEN = Symbol.for('TeamsVerificationUs
 export const TEAMS_CATALOG_USE_CASE_TOKEN = Symbol.for('TeamsCatalogUseCase');
 export const TEAMS_STATUS_USE_CASE_TOKEN = Symbol.for('TeamsStatusUseCase');
 export const TEAMS_DELETION_USE_CASE_TOKEN = Symbol.for('TeamsDeletionUseCase');
+export const TEAMS_SAVE_USE_CASE_TOKEN = Symbol.for('TeamsSaveUseCase');
 export const CONTACTS_BACKUP_USE_CASE_TOKEN = Symbol.for('ContactsBackupUseCase');
 export const CONTACTS_RESTORE_USE_CASE_TOKEN = Symbol.for('ContactsRestoreUseCase');
 export const CONTACTS_CATALOG_USE_CASE_TOKEN = Symbol.for('ContactsCatalogUseCase');
