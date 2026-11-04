@@ -265,6 +265,21 @@ const manifest = (await atlas.onedrive.listSnapshots('owner-id')).find(
 
 See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-backup) for workload-specific examples.
 
+### Contacts
+
+`atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Owner arguments accept an email or Entra object ID.
+
+| Method                                | CLI equivalent              | Description                                                                 |
+| ------------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `backup(mailbox, options?)`           | `atlas contacts backup -m`  | Back up changed contacts                                                    |
+| `restore(mailbox, options)`           | `atlas contacts restore -m` | Restore a snapshot without overwriting; `targetMailboxId` sets the target   |
+| `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m` | Verify a snapshot                                                           |
+| `listSnapshots(mailbox)`              | `atlas contacts list -m`    | List snapshots for a mailbox                                                |
+| `deleteMailboxData(mailbox)`          | `atlas contacts delete -m`  | Delete all contacts data for a mailbox                                      |
+| `deleteSnapshot(mailbox, snapshotId)` | `atlas contacts delete -m -s` | Delete one snapshot manifest                                              |
+
+See [Contacts backup](/contacts-backup) for the storage layout and restore behaviour.
+
 ### Tenant-wide methods
 
 | Method                                   | Description                                                                                      |

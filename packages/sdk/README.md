@@ -2,7 +2,7 @@
 
 Programmatic API for embedding [Atlas](https://github.com/wisecom-oy/atlas) in Node.js applications. Atlas backs up and restores Microsoft 365 data.
 
-Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, OneDrive, and SharePoint workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
+Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, contacts, OneDrive, and SharePoint workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
 
 ## Requirements
 
@@ -43,6 +43,9 @@ await atlas.outlook.backup('user@example.com');
 // OneDrive backup
 await atlas.onedrive.backup('user@example.com');
 
+// Contacts backup
+await atlas.contacts.backup('user@example.com');
+
 // SharePoint backup: pass a site URL or Graph site id, add subsites when needed
 await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering', {
   includeSubsites: true,
@@ -65,6 +68,7 @@ Run one operation at a time per tenant unless your scheduler guarantees that no 
 | --------------------------- | -------------------------------------------------------------------------------- |
 | `atlas.outlook`             | Mailbox backup, restore, verify, catalog                                         |
 | `atlas.onedrive`            | OneDrive backup and verification                                                 |
+| `atlas.contacts`            | Contacts backup, restore, verification, and deletion                             |
 | `atlas.sharepoint`          | SharePoint site backup and restore                                               |
 | `atlas.getBucketStats()`    | Storage statistics                                                               |
 | `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |

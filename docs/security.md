@@ -100,7 +100,7 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 ### What a ciphertext is bound to
 
-Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
+Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
 | Attack                                                        | Result                                                       |
 | ------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -120,6 +120,7 @@ Objects written before the header existed have no magic bytes and decrypt withou
 | Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
 | OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{content_name}`                                             |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
+| Contacts data, photos, and manifests       | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                            |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
@@ -430,7 +431,7 @@ Atlas separates read and write storage access, so an operator who only browses n
 
 | Command class                                                                                                                | Required S3 actions                                                                                                       | Provisioning |
 | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                         | None         |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket` | None |
 | Storage usage: `stats storage`                                                                                               | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`           | None         |
 | Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                       | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
 

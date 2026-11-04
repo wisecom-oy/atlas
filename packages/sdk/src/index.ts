@@ -61,6 +61,18 @@ export type {
 } from '@wisecom/atlas-types';
 
 export type {
+  ContactsApi,
+  ContactsSdkBackupOptions,
+  ContactsSdkBackupResult,
+  ContactsSdkVerificationOptions,
+  ContactsSdkVerificationResult,
+  ContactsSdkRestoreOptions,
+  ContactsSdkRestoreResult,
+  ContactsSdkSnapshotManifest,
+  ContactsSdkDeletionResult,
+} from '@wisecom/atlas-types';
+
+export type {
   SharePointApi,
   SharePointSdkBackupOptions,
   SharePointSdkBackupResult,

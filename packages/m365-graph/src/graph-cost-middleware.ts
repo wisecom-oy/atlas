@@ -82,6 +82,10 @@ function batch_sub_request_count(context: Context, url: string): number {
   }
 }
 
+/** Mail, calendar, and contact paths that bill to the Exchange `outlook` pool. */
+const OUTLOOK_PATH =
+  /\/(messages|mailfolders|mailboxsettings|sendmail|events|calendars?|contactfolders|contacts)\b/;
+
 /**
  * Best-effort pool for a request made outside any declared operation.
  *
@@ -93,9 +97,7 @@ function batch_sub_request_count(context: Context, url: string): number {
 function pool_for_url(url: string): GraphServicePool {
   const path = url.replace(/^https?:\/\/[^/]+/, '').toLowerCase();
   if (/\/(drives?|sites|shares)\b/.test(path)) return 'sharepoint_onedrive';
-  if (/\/(messages|mailfolders|mailboxsettings|sendmail|events|calendars?)\b/.test(path)) {
-    return 'outlook';
-  }
+  if (OUTLOOK_PATH.test(path)) return 'outlook';
   return 'identity';
 }
 

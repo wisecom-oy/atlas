@@ -14,6 +14,7 @@ import type { DekRewrapResult } from '@/ports/keys/dek-rewrap.port';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
 import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
+import type { ContactsApi } from '@/ports/atlas/contacts-api.port';
 import type { SharePointApi } from '@/ports/atlas/sharepoint-api.port';
 import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
 import type { IdentityRegistry } from '@/domain/identity-registry';
@@ -50,6 +51,7 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly outlook: OutlookApi;
   readonly onedrive: OneDriveApi;
   readonly sharepoint: SharePointApi;
+  readonly contacts: ContactsApi;
 
   /**
    * Checks tenant-bucket access, the existing wrapped key when present, and Graph token issuance.

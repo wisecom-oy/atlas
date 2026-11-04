@@ -23,6 +23,7 @@ export interface GraphRequestStub {
   select(fields: string | string[]): GraphRequestStub;
   header(name: string, value: string): GraphRequestStub;
   headers(values: Record<string, string>): GraphRequestStub;
+  responseType(type: string): GraphRequestStub;
   get(): Promise<unknown>;
   post(body?: unknown): Promise<unknown>;
   put(body?: unknown): Promise<unknown>;
@@ -59,6 +60,7 @@ export function stub_graph_client(route: GraphRoute): StubGraphClient {
         return request;
       },
       header: () => request,
+      responseType: () => request,
       headers: () => request,
       get: () => send('get'),
       post: (body) => send('post', body),

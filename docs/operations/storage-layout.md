@@ -4,7 +4,7 @@ description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with
 
 # Storage layout
 
-Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
 
 ```
 atlas-{tenant_id}/
@@ -21,6 +21,11 @@ atlas-{tenant_id}/
 ├── data/{owner_id}/{content_name}               # Outlook messages
 ├── attachments/{owner_id}/{content_name}        # Outlook attachments (legacy JSON entries)
 ├── manifests/{owner_id}/{snapshot_id}.json      # Outlook manifests
+├── contacts/
+│   ├── data/{owner_id}/{sha256}                # contact records
+│   ├── photos/{owner_id}/{sha256}              # contact photos
+│   ├── manifests/{owner_id}/{snapshot_id}.json # contacts manifests
+│   └── _meta/{owner_id}/delta.json             # delta cursor
 ├── onedrive/
 │   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
@@ -89,6 +94,15 @@ The first backup after an upgrade is the exception. Existing cursors have no wat
 ### Subsites
 
 A subsite has its own Graph `site_id`, so `atlas sharepoint backup --include-subsites` writes a separate snapshot under the subsite's own prefix. Its blobs, indexes, and cursors follow the same split. Backup, restore, and retention for a subsite are independent of its parent.
+
+## Contacts
+
+| Prefix                                 | Contents                                  | Notes                                                            |
+| -------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `contacts/data/{owner_id}/`            | Contact records as JSON, named by SHA-256 | Owner is the Entra object ID.                                    |
+| `contacts/photos/{owner_id}/`          | Contact photo bytes, named by SHA-256     | Identical photos are stored once per mailbox.                    |
+| `contacts/manifests/{owner_id}/`       | Snapshot manifests                        | Each manifest is complete. Snapshots do not chain to older ones. |
+| `contacts/_meta/{owner_id}/delta.json` | Delta cursor                              | Graph delta link used by the next backup.                        |
 
 ## The DEK object
 

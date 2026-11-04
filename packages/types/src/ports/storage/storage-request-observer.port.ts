@@ -1,5 +1,6 @@
 /** Which part of the bucket layout a request touched; `bucket` for bucket-level commands. */
-export type StorageRequestWorkload = 'outlook' | 'onedrive' | 'sharepoint' | 'shared' | 'bucket';
+export type StorageRequestWorkload =
+  'outlook' | 'onedrive' | 'sharepoint' | 'contacts' | 'shared' | 'bucket';
 
 /** The kind of object a request touched, read from the key's leading path segments. */
 export type StorageKeyClass =
