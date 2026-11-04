@@ -29,8 +29,8 @@ function no_snapshot_result(healthy: boolean): TeamsBackupResult {
       channels_scanned: 1,
       channels_full_read: 0,
       threads_changed: 0,
-      threads_stored: 0,
-      threads_deduplicated: 0,
+      messages_stored: 0,
+      messages_deduplicated: 0,
       threads_deleted: 0,
       hosted_content_stored: 0,
       cursor_updated: false,
@@ -116,9 +116,8 @@ describe('teams backup no-snapshot report', () => {
     await execute_teams_backup(container, { tenant: TENANT, team: ['team-a', 'team-b'] });
 
     expect(backup_team).toHaveBeenCalledTimes(1);
-    expect(logger.error).toHaveBeenCalledWith(
-      'Run incomplete: 0 team error(s) (interrupted) -- exit 2',
-    );
+    expect(logger.warn).toHaveBeenCalledWith('Run interrupted before all items were processed');
+    expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining('Run incomplete'));
     expect(logger.error).toHaveBeenCalledWith('Status: UNHEALTHY');
     expect(process.exitCode).toBe(EXIT_PARTIAL);
   });

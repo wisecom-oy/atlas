@@ -10,6 +10,7 @@ import type {
 import {
   AuthError,
   TEAMS_BACKUP_USE_CASE_TOKEN,
+  THROTTLE_COORDINATOR_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { build_object_lock_request } from '@/command-object-lock';
@@ -164,6 +165,13 @@ export async function execute_teams_backup(
     gate.dispose();
   }
 
+  // Ctrl+C aborts the request but not the cooldown the run raised. That timer is not unref'd, so
+  // it would keep the process alive until the Retry-After expires. Unbinding the coordinator runs
+  // its deactivation hook, which clears the fence timers.
+  if (run.interrupted && container.isBound(THROTTLE_COORDINATOR_TOKEN)) {
+    await container.unbindAsync(THROTTLE_COORDINATOR_TOKEN);
+  }
+
   report_run_outcome(
     { errors: run.failed_teams, warnings: [], interrupted: run.interrupted },
     'team',
@@ -269,8 +277,8 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);
     const counters: SummaryEntry[] = [
       { label: 'changed', value: result.summary.threads_changed, color: 'cyan' },
-      { label: 'stored', value: result.summary.threads_stored, color: 'green' },
-      { label: 'dedup', value: result.summary.threads_deduplicated, color: 'yellow' },
+      { label: 'stored', value: result.summary.messages_stored, color: 'green' },
+      { label: 'dedup', value: result.summary.messages_deduplicated, color: 'yellow' },
     ];
     if (result.summary.threads_deleted > 0) {
       counters.push({ label: 'deleted', value: result.summary.threads_deleted, color: 'red' });

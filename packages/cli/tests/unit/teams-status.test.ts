@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
+import { render_static_view } from '@/ui/render';
 import { execute_teams_status } from '@/commands/teams-data-ops.handlers';
 import {
   TEAMS_STATUS_USE_CASE_TOKEN,
@@ -24,6 +25,7 @@ function team(overrides: Partial<TeamsTeamStatus>): TeamsTeamStatus {
     unreadable_keys: [],
     unsupported_keys: [],
     failed_root_count: 0,
+    pending_recheck_count: 0,
     ...overrides,
   };
 }
@@ -63,6 +65,21 @@ describe('teams status warnings', () => {
     await execute_teams_status(container, { tenant: TENANT });
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('3 channel root(s) failed'));
+  });
+
+  it('shows failed-root and pending-recheck counts in each team row (P9)', async () => {
+    check_teams_status.mockResolvedValueOnce([
+      team({ failed_root_count: 3, pending_recheck_count: 2 }),
+    ]);
+
+    await execute_teams_status(container, { tenant: TENANT });
+
+    const table = vi.mocked(render_static_view).mock.calls.at(-1)?.[0] as unknown as {
+      props: { rows: unknown[] };
+    };
+    expect(table.props.rows).toEqual([
+      expect.objectContaining({ failed_roots: '3', pending_rechecks: '2' }),
+    ]);
   });
 
   it('prints no warnings for a healthy team', async () => {

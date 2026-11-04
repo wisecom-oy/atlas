@@ -42,6 +42,8 @@ interface StatusRow {
   last_backup: string;
   last_snapshot: string;
   channels: string;
+  failed_roots: string;
+  pending_rechecks: string;
 }
 
 const status_columns: TableColumn<StatusRow>[] = [
@@ -49,6 +51,8 @@ const status_columns: TableColumn<StatusRow>[] = [
   { key: 'last_backup', header: 'Last snapshot' },
   { key: 'last_snapshot', header: 'Snapshot' },
   { key: 'channels', header: 'Channels', align: 'right' },
+  { key: 'failed_roots', header: 'Failed roots', align: 'right' },
+  { key: 'pending_rechecks', header: 'Pending rechecks', align: 'right' },
 ];
 
 /** Verifies every blob a Teams snapshot references and sets exit 1 on any failure. */
@@ -105,6 +109,8 @@ export async function execute_teams_status(
     last_backup: team.last_backup_at?.toISOString() ?? 'never',
     last_snapshot: team.last_snapshot_id ?? '-',
     channels: String(team.total_channels),
+    failed_roots: String(team.failed_root_count),
+    pending_rechecks: String(team.pending_recheck_count),
   }));
   await render_static_view(<DataTable columns={status_columns} rows={rows} />);
   for (const team of teams) warn_team_status(team);
