@@ -2,11 +2,16 @@ import type { Container } from 'inversify';
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
 import type {
+  TeamsBackupOptions,
   TeamsBackupResult,
   TeamsBackupUseCase,
   TeamsCatalogUseCase,
 } from '@wisecom/atlas-types';
-import { TEAMS_BACKUP_USE_CASE_TOKEN, TEAMS_CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import {
+  AuthError,
+  TEAMS_BACKUP_USE_CASE_TOKEN,
+  TEAMS_CATALOG_USE_CASE_TOKEN,
+} from '@wisecom/atlas-types';
 import { build_object_lock_request } from '@/command-object-lock';
 import { report_run_outcome } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
@@ -117,44 +122,78 @@ export async function execute_teams_backup(
   const tenant_id = resolve_tenant_id(container, options);
   // Built before any Graph call: invalid Object Lock flags must fail without a network call.
   const object_lock_request = build_object_lock_request(options);
+  assert_channel_scope(options);
   const team_ids = await resolve_backup_team_ids(container, tenant_id, options);
 
   const backup = container.get<TeamsBackupUseCase>(TEAMS_BACKUP_USE_CASE_TOKEN);
   const gate = install_interrupt_gate(
-    '[!] Stopping after the current channel; the delta cursor is not advanced for an interrupted run',
+    "[!] Stopping after the current thread; threads already stored are kept and the interrupted channel's delta link is not advanced",
   );
-  const results: TeamsBackupResult[] = [];
+  let run: TeamsBackupRun;
   try {
-    for (const team_id of team_ids) {
-      const result = await backup.backup_team(tenant_id, team_id, {
-        force_full: options.full ?? false,
-        channel_id: options.channel,
-        object_lock_request,
-        should_interrupt: gate.should_interrupt,
-      });
-      results.push(result);
-      if (result.interrupted || gate.should_interrupt()) break;
-    }
+    run = await run_team_backups(backup, tenant_id, team_ids, {
+      force_full: options.full ?? false,
+      channel_id: options.channel,
+      object_lock_request,
+      should_interrupt: gate.should_interrupt,
+    });
   } finally {
     gate.dispose();
   }
 
   await render_static_view(<Banner title={banner_title('teams', 'Backup')} />);
-  if (results.length > 1) {
-    logger.info(`Backed up ${results.length} team(s)`);
+  if (run.results.length > 1) {
+    logger.info(`Backed up ${run.results.length} team(s)`);
   }
 
-  for (const result of results) {
+  for (const result of run.results) {
     await report_team_backup(result);
   }
+  report_run_outcome({ errors: run.failed_teams, warnings: [] }, 'team');
+  if (run.fatal) throw run.fatal;
 
   // Per-channel reporting already listed the errors and set the partial-run exit code.
-  if (results.every((r) => r.summary.healthy)) {
+  if (run.failed_teams.length === 0 && run.results.every((r) => r.summary.healthy)) {
     logger.success('Status: HEALTHY');
     return;
   }
 
   logger.error('Status: UNHEALTHY');
+}
+
+/** Outcome of backing up a list of teams in turn. */
+interface TeamsBackupRun {
+  results: TeamsBackupResult[];
+  failed_teams: string[];
+  fatal?: Error;
+}
+
+/**
+ * Backs up each team in turn. A failing team is recorded and the rest still run.
+ * A single-team run or an auth failure stops the run and is rethrown after reporting.
+ */
+async function run_team_backups(
+  backup: TeamsBackupUseCase,
+  tenant_id: string,
+  team_ids: string[],
+  base_options: TeamsBackupOptions,
+): Promise<TeamsBackupRun> {
+  const run: TeamsBackupRun = { results: [], failed_teams: [] };
+  for (const team_id of team_ids) {
+    try {
+      const result = await backup.backup_team(tenant_id, team_id, base_options);
+      run.results.push(result);
+      if (result.interrupted || base_options.should_interrupt?.()) break;
+    } catch (thrown) {
+      const error = thrown instanceof Error ? thrown : new Error(String(thrown));
+      if (team_ids.length === 1 || error instanceof AuthError) {
+        run.fatal = error;
+        break;
+      }
+      run.failed_teams.push(`${team_id}: ${error.message}`);
+    }
+  }
+  return run;
 }
 
 /** Resolves the `--team` ids, or every team in the tenant with `--all`. */
@@ -173,6 +212,14 @@ async function resolve_backup_team_ids(
   }
   if (options.team?.length) return options.team;
   throw new Error('Pass --team <id> (repeatable) or --all');
+}
+
+/** `--channel` names one channel inside one team, so it is rejected for `--all` or several `--team` values. */
+function assert_channel_scope(options: TeamsBackupCommandOptions): void {
+  if (options.channel === undefined) return;
+  if (options.all || options.team?.length !== 1) {
+    throw new Error('--channel requires exactly one --team');
+  }
 }
 
 /** Renders the per-team section of a backup run. */

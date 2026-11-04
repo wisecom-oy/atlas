@@ -889,26 +889,26 @@ atlas teams delete --team <team-id> -s <snapshot-id>
 atlas teams delete --team <team-id> -y
 ```
 
-| Subcommand       | Description                                                                      |
-| ---------------- | -------------------------------------------------------------------------------- |
-| `list-teams`     | List the teams the application can read                                          |
-| `backup`         | Incremental backup of one, several, or all teams. Exits `2` if any channel fails |
-| `list-snapshots` | List Teams snapshots for one team                                                |
-| `verify`         | Check that every blob a snapshot references is present and matches its SHA-256   |
-| `status`         | Show the last backup run recorded for each team in the tenant                    |
-| `delete`         | Delete one team's Teams backups, or one snapshot                                 |
+| Subcommand       | Description                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| `list-teams`     | List the teams the application can read                                                  |
+| `backup`         | Incremental backup of one, several, or all teams. Exits `2` if any team or channel fails |
+| `list-snapshots` | List Teams snapshots for one team                                                        |
+| `verify`         | Check that every blob a snapshot references is present and matches its SHA-256           |
+| `status`         | Show the last backup run recorded for each team in the tenant                            |
+| `delete`         | Delete one team's Teams backups, or one snapshot                                         |
 
 **`atlas teams backup`**
 
-| Option                 | Description                                                                                        |
-| ---------------------- | -------------------------------------------------------------------------------------------------- |
-| `--team <id>`          | Team to back up. Repeat for several teams                                                          |
-| `--all`                | Back up every team the application can read                                                        |
-| `--channel <id>`       | Back up only this channel. Other channels carry forward from the previous manifest                 |
-| `--full`               | Force a full read, ignoring saved delta links                                                      |
-| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                        |
-| `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days` |
-| `-t, --tenant <id>`    | Override the tenant ID from config                                                                 |
+| Option                 | Description                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `--team <id>`          | Team to back up. Repeat for several teams                                                                |
+| `--all`                | Back up every team the application can read                                                              |
+| `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward |
+| `--full`               | Force a full read, ignoring saved delta links                                                            |
+| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                              |
+| `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
+| `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
 
 **`atlas teams list-snapshots`**
 
