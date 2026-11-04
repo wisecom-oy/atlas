@@ -164,6 +164,39 @@ export type {
   OneDriveSdkStats,
 } from './atlas/onedrive-api.port';
 export type {
+  ContactsApi,
+  ContactsSdkBackupOptions,
+  ContactsSdkBackupResult,
+  ContactsSdkRestoreOptions,
+  ContactsSdkRestoreResult,
+  ContactsSdkVerificationOptions,
+  ContactsSdkVerificationResult,
+  ContactsSdkSnapshotManifest,
+  ContactsSdkDeletionResult,
+} from './atlas/contacts-api.port';
+export type {
+  ContactsConnector,
+  ContactFolderDelta,
+  GraphContactFolder,
+  GraphContactPayload,
+} from './contacts/connector.port';
+export type {
+  ContactsManifestRepository,
+  ContactsDeltaCursorRepository,
+} from './contacts/repository.port';
+export type {
+  ContactsBackupOptions,
+  ContactsBackupSummary,
+  ContactsBackupResult,
+  ContactsRestoreOptions,
+  ContactsRestoreResult,
+  ContactsBackupUseCase,
+  ContactsRestoreUseCase,
+  ContactsCatalogUseCase,
+  ContactsVerificationUseCase,
+  ContactsDeletionUseCase,
+} from './contacts/use-case.port';
+export type {
   SharePointApi,
   SharePointSdkBackupOptions,
   SharePointSdkBackupResult,

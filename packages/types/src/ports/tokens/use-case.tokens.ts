@@ -34,3 +34,8 @@ export const ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN = Symbol.for('OneDriveVersi
 export const SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN = Symbol.for(
   'SharePointVersionRestoreUseCase',
 );
+export const CONTACTS_BACKUP_USE_CASE_TOKEN = Symbol.for('ContactsBackupUseCase');
+export const CONTACTS_RESTORE_USE_CASE_TOKEN = Symbol.for('ContactsRestoreUseCase');
+export const CONTACTS_CATALOG_USE_CASE_TOKEN = Symbol.for('ContactsCatalogUseCase');
+export const CONTACTS_VERIFICATION_USE_CASE_TOKEN = Symbol.for('ContactsVerificationUseCase');
+export const CONTACTS_DELETION_USE_CASE_TOKEN = Symbol.for('ContactsDeletionUseCase');

@@ -265,6 +265,23 @@ const manifest = (await atlas.onedrive.listSnapshots('owner-id')).find(
 
 See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-backup) for workload-specific examples.
 
+### Contacts
+
+`atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Owner arguments accept an email or Entra object ID.
+
+Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a contacts snapshot ID, and the mailbox and tenant rehydrate methods skip contacts.
+
+| Method                                | CLI equivalent              | Description                                                                 |
+| ------------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `backup(mailbox, options?)`           | `atlas contacts backup -m`  | Back up changed contacts                                                    |
+| `restore(mailbox, options)`           | `atlas contacts restore -m` | Restore a snapshot without overwriting; `targetMailboxId` sets the target   |
+| `verify(mailbox, snapshotId, options?)` | `atlas contacts verify -m` | Verify a snapshot                                                           |
+| `listSnapshots(mailbox)`              | `atlas contacts list -m`    | List snapshots for a mailbox                                                |
+| `deleteMailboxData(mailbox)`          | `atlas contacts delete -m`  | Delete all contacts data for a mailbox                                      |
+| `deleteSnapshot(mailbox, snapshotId)` | `atlas contacts delete -m -s` | Delete one snapshot manifest                                              |
+
+See [Contacts backup](/contacts-backup) for the storage layout and restore behaviour.
+
 ### Tenant-wide methods
 
 | Method                                   | Description                                                                                      |
@@ -279,7 +296,7 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                 |
 | `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                             |
 | `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                    |
-| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                    |
+| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts are not covered |
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                             |
 | `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                               |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                    |

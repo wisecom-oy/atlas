@@ -90,7 +90,7 @@ export default defineConfig({
         text: 'Guide',
         link: '/getting-started',
         activeMatch:
-          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|self-hosting|operations)',
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|contacts-backup|self-hosting|operations)',
       },
       { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
       {
@@ -126,6 +126,7 @@ export default defineConfig({
         items: [
           { text: 'OneDrive', link: '/onedrive-backup' },
           { text: 'SharePoint', link: '/sharepoint-backup' },
+          { text: 'Contacts', link: '/contacts-backup' },
         ],
       },
       {

@@ -21,6 +21,14 @@ const DRIVE_CLASSES: Record<string, StorageKeyClass> = {
   _meta: '_meta',
 };
 
+/** Prefixes under `contacts/`; contact photos count as data. */
+const CONTACTS_CLASSES: Record<string, StorageKeyClass> = {
+  data: 'data',
+  photos: 'data',
+  manifests: 'manifests',
+  _meta: '_meta',
+};
+
 const BUCKET_LEVEL: StorageKeyClassification = { workload: 'bucket', key_class: 'other' };
 
 /**
@@ -37,6 +45,12 @@ export function classify_storage_key(key: string | undefined): StorageKeyClassif
   if (first === 'onedrive' || first === 'sharepoint') {
     const drive_class = Object.hasOwn(DRIVE_CLASSES, second) ? DRIVE_CLASSES[second] : undefined;
     return { workload: first, key_class: drive_class ?? 'other' };
+  }
+  if (first === 'contacts') {
+    const contacts_class = Object.hasOwn(CONTACTS_CLASSES, second)
+      ? CONTACTS_CLASSES[second]
+      : undefined;
+    return { workload: 'contacts', key_class: contacts_class ?? 'other' };
   }
   if (first === '_meta') return { workload: 'shared', key_class: '_meta' };
 

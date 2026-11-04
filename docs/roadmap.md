@@ -15,8 +15,8 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
   </li>
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>
-    <h3>Calendars and contacts</h3>
-    <p>Exchange backup today covers mail only. Calendar events, including recurrences and attachments, and contacts become first-class items with their own restore.</p>
+    <h3>Calendars</h3>
+    <p>Exchange backup covers mail and contacts today. Calendar events, including recurrences and attachments, become first-class items with their own restore.</p>
   </li>
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>

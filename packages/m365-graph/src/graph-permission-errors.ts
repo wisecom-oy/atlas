@@ -9,11 +9,14 @@ import { AuthError, MailboxNotLicensedError, NotFoundError } from '@wisecom/atla
  * Detects 403 ErrorAccessDenied from Graph and rethrows with
  * actionable guidance about which API permissions to grant.
  */
-export function rethrow_if_access_denied(err: unknown): void {
+export function rethrow_if_access_denied(
+  err: unknown,
+  required_permissions?: readonly string[],
+): void {
   const graph_err = as_error_fields(err);
   if (graph_err.statusCode !== 403) return;
 
-  const required = [
+  const required = required_permissions ?? [
     'Mail.Read              -- read mailbox messages',
     'Mail.ReadWrite         -- delta sync and full message fetch',
     'User.Read.All          -- list tenant users / mailboxes',

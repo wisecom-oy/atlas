@@ -10,7 +10,8 @@
  * Where an object sits in the bucket layout. `meta` is the shared `_meta/` prefix; `other` is any
  * key outside the documented layout.
  */
-export type StorageUsageWorkload = 'outlook' | 'onedrive' | 'sharepoint' | 'meta' | 'other';
+export type StorageUsageWorkload =
+  'outlook' | 'onedrive' | 'sharepoint' | 'contacts' | 'meta' | 'other';
 
 /** Workloads whose manifests reference logical bytes. */
 export type LogicalWorkload = 'outlook' | 'onedrive' | 'sharepoint';
