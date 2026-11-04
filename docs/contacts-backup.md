@@ -28,13 +28,15 @@ A missing grant fails with `ATLAS_AUTH_DENIED` and names the permission to add. 
 3. Each changed contact is serialised to JSON and its photo is fetched. Both are encrypted under the tenant DEK and stored under a keyed content name (HMAC-SHA256 under a key derived from the DEK), the same naming mail and drive objects use. An object that already exists is not uploaded again.
 4. Atlas writes a manifest that lists every folder and contact. Each manifest is complete on its own, so restore and verify read one manifest and never fold a chain.
 
-A contact that fails to store keeps its entry from the previous snapshot, and its folder keeps the old delta link, so the next run picks the change up again. A run with no changes creates no snapshot. An interrupted run writes nothing. Contacts traffic counts against the Outlook Graph throttling pool, per mailbox.
+A contact that fails to store keeps its entry from the previous snapshot and is named in the run's errors, while the rest of its folder is still stored. The folder keeps its old delta link (or none, if Graph rejected the old one), so the next run delivers the failed contact again. The run is then reported as unhealthy and exits `2`. Missing consent (`ATLAS_AUTH_DENIED`) or an unlicensed mailbox ends the run at once, since no further request can succeed. A run with no changes creates no snapshot. An interrupted run writes nothing.
+
+Contacts in a folder are stored four at a time, matching the Exchange limit of four concurrent requests per mailbox. Contacts traffic counts against the Outlook Graph throttling pool.
 
 ## Restore
 
 Restore recreates missing folders by their display-name path, then creates each contact and its photo. It never overwrites. A contact whose display name and email addresses (trimmed, lowercased, sorted) match a contact already in the target folder is skipped and counted as skipped. Restoring a snapshot twice therefore creates nothing the second time, and a different person who shares an email address is left alone.
 
-Every object is checked against its recorded SHA-256 before it is written. A mismatch is reported as an error for that contact and the restore continues. A partial restore exits `2`.
+Every object is checked against its recorded SHA-256 before it is written. A mismatch is reported as an error naming the contact, and the restore continues. A contact whose photo upload fails still counts as restored, and the photo failure is reported separately. Missing consent ends the restore. A partial restore exits `2`.
 
 ## Deletion
 
