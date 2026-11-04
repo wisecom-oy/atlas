@@ -97,12 +97,17 @@ export async function execute_teams_list_snapshots(
   const tenant_id = resolve_tenant_id(container, options);
   const catalog = container.get<TeamsCatalogUseCase>(TEAMS_CATALOG_USE_CASE_TOKEN);
   const listing = await catalog.list_teams_snapshots(tenant_id, options.team);
-  const snapshots = listing.manifests;
+  const snapshots = listing.indexes;
 
   await render_static_view(<Banner title={banner_title('teams', 'Snapshots')} />);
   if (listing.unreadable_keys.length > 0) {
     logger.warn(
-      `${listing.unreadable_keys.length} snapshot manifest(s) could not be read and are not listed: ${listing.unreadable_keys.join(', ')}`,
+      `${listing.unreadable_keys.length} snapshot index(es) could not be read and are not listed: ${listing.unreadable_keys.join(', ')}`,
+    );
+  }
+  if (listing.unsupported_keys.length > 0) {
+    logger.warn(
+      `${listing.unsupported_keys.length} snapshot index(es) use a newer format and are not listed: ${listing.unsupported_keys.join(', ')}`,
     );
   }
   if (snapshots.length === 0) {
@@ -114,8 +119,8 @@ export async function execute_teams_list_snapshots(
     snapshot_id: snapshot.snapshot_id,
     created_at: snapshot.created_at.toISOString(),
     channels: String(snapshot.channels.length),
-    threads: String(snapshot.total_threads),
-    size_bytes: String(snapshot.total_size_bytes),
+    threads: String(snapshot.totals.thread_count),
+    size_bytes: String(snapshot.totals.size_bytes),
   }));
   await render_static_view(<DataTable columns={snapshot_columns} rows={rows} />);
 }

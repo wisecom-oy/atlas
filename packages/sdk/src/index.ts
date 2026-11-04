@@ -87,7 +87,7 @@ export type {
   TeamsSdkBackupResult,
   TeamsSdkVerificationOptions,
   TeamsSdkVerificationResult,
-  TeamsSdkSnapshotManifest,
+  TeamsSdkSnapshotIndex,
   TeamsSdkSnapshotListing,
   TeamsSdkTeamStatus,
   TeamsSdkTeam,

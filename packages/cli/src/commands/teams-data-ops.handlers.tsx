@@ -60,17 +60,17 @@ export async function execute_teams_verify(
   const result = await verifier.verify_teams_snapshot(tenant_id, options.team, options.snapshot);
 
   await render_static_view(<Banner title={banner_title('teams', 'Verify')} />);
-  if (result.failed_storage_keys.length === 0 && result.index_issues.length === 0) {
+  const missing = result.missing_storage_keys.length;
+  const failed = result.failed_storage_keys.length;
+  if (missing === 0 && failed === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;
   }
 
-  logger.error(
-    `Failures: blobs=${result.failed_storage_keys.length}, index=${result.index_issues.length}`,
-  );
+  logger.error(`Failures: missing=${missing}, blobs=${failed}`);
   const failures = [
+    ...result.missing_storage_keys.map((key) => `missing: ${key}`),
     ...result.failed_storage_keys.map((key) => `blob mismatch: ${key}`),
-    ...result.index_issues.map((issue) => `index: ${issue}`),
   ];
   await render_static_view(<ErrorList errors={failures} max={failures.length} />);
   process.exitCode = 1;

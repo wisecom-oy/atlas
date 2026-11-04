@@ -5,7 +5,7 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
-  TeamsManifestRepository,
+  TeamsIndexRepository,
   StorageTarget,
   StorageUsage,
   TenantContext,
@@ -54,8 +54,8 @@ function harness(bucket: FakeBucket = MIXED_BUCKET, readonly_fails = false): Har
     } as unknown as OneDriveManifestRepository,
     { list_all_manifests: async () => [] } as unknown as SharePointManifestRepository,
     {
-      list_all_manifests: async () => [{ total_size_bytes: 700 }],
-    } as unknown as TeamsManifestRepository,
+      list_all: async () => [{ totals: { size_bytes: 700 } }],
+    } as unknown as TeamsIndexRepository,
   );
   return { service, inventory, create_readonly };
 }

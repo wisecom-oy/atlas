@@ -14,6 +14,8 @@ const ATLAS_EXIT_CODES = {
   // script should stop re-running it and reach for `save` instead (issue #411).
   ATLAS_CONTENT_UNREADABLE: 9,
   ATLAS_CONFIG_INVALID: 6,
+  // Written by a newer Atlas: rerunning cannot help, upgrading does. Same category as unreadable.
+  ATLAS_FORMAT_UNSUPPORTED: 9,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {

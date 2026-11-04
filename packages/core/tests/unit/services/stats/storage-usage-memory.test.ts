@@ -6,7 +6,7 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
-  TeamsManifestRepository,
+  TeamsIndexRepository,
   StorageInventory,
   StorageListedObject,
   TenantContextFactory,
@@ -69,7 +69,7 @@ describe('StorageUsageService memory', () => {
       {} as ManifestRepository,
       {} as OneDriveManifestRepository,
       {} as SharePointManifestRepository,
-      {} as TeamsManifestRepository,
+      {} as TeamsIndexRepository,
     );
     collect_garbage();
     const before = process.memoryUsage().heapUsed;

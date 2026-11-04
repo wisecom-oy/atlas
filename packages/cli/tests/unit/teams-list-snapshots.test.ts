@@ -14,6 +14,7 @@ vi.mock('@/ui/render', () => ({ render_static_view: vi.fn(async () => {}) }));
 
 const TENANT = 'tenant-example';
 const UNREADABLE_KEY = 'teams/manifests/team-a/teams-snap-1000-aaaaaa.json';
+const UNSUPPORTED_KEY = 'teams/manifests/team-a/teams-snap-2000-bbbbbb.json';
 
 describe('teams list-snapshots listing', () => {
   let container: Container;
@@ -36,8 +37,12 @@ describe('teams list-snapshots listing', () => {
     vi.restoreAllMocks();
   });
 
-  it('reports no snapshots when the listing has no manifests', async () => {
-    const listing: TeamsSnapshotListing = { manifests: [], unreadable_keys: [] };
+  it('reports no snapshots when the listing has no indexes', async () => {
+    const listing: TeamsSnapshotListing = {
+      indexes: [],
+      unreadable_keys: [],
+      unsupported_keys: [],
+    };
     list_teams_snapshots.mockResolvedValueOnce(listing);
 
     await execute_teams_list_snapshots(container, { tenant: TENANT, team: 'team-a' });
@@ -45,12 +50,29 @@ describe('teams list-snapshots listing', () => {
     expect(logger.info).toHaveBeenCalledWith('No snapshots found.');
   });
 
-  it('warns and names the keys of manifests that could not be read', async () => {
-    const listing: TeamsSnapshotListing = { manifests: [], unreadable_keys: [UNREADABLE_KEY] };
+  it('warns and names the keys of indexes that could not be read', async () => {
+    const listing: TeamsSnapshotListing = {
+      indexes: [],
+      unreadable_keys: [UNREADABLE_KEY],
+      unsupported_keys: [],
+    };
     list_teams_snapshots.mockResolvedValueOnce(listing);
 
     await execute_teams_list_snapshots(container, { tenant: TENANT, team: 'team-a' });
 
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNREADABLE_KEY));
+  });
+
+  it('warns and names the keys of indexes written in a newer format', async () => {
+    const listing: TeamsSnapshotListing = {
+      indexes: [],
+      unreadable_keys: [],
+      unsupported_keys: [UNSUPPORTED_KEY],
+    };
+    list_teams_snapshots.mockResolvedValueOnce(listing);
+
+    await execute_teams_list_snapshots(container, { tenant: TENANT, team: 'team-a' });
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNSUPPORTED_KEY));
   });
 });
