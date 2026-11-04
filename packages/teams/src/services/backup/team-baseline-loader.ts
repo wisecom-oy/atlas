@@ -1,100 +1,114 @@
 import {
   UnreadableContentError,
+  UnsupportedFormatVersionError,
   type FailedItemLedger,
-  type TeamsDeltaCursor,
-  type TeamsDeltaCursorRepository,
-  type TeamsManifestRepository,
-  type TeamsSnapshotManifest,
+  type TeamsChannelCursor,
+  type TeamsChannelCursorRepository,
+  type TeamsChannelIndexEntry,
+  type TeamsIndexRepository,
+  type TeamsSnapshotIndex,
   type TenantContext,
 } from '@wisecom/atlas-types';
 
 /** The ports a run reads its starting state through. */
 export interface BaselinePorts {
-  readonly manifests: TeamsManifestRepository;
-  readonly cursors: TeamsDeltaCursorRepository;
+  readonly indexes: TeamsIndexRepository;
+  readonly cursors: TeamsChannelCursorRepository;
 }
 
-/** The state a run starts from: the latest readable snapshot and the cursor read against it. */
-export interface TeamsBaseline {
-  readonly previous: TeamsSnapshotManifest | undefined;
-  /**
-   * The stored cursor, only when it names the latest readable snapshot. Otherwise undefined, and
-   * the run reads every channel in full.
-   */
-  readonly cursor: TeamsDeltaCursor | undefined;
-  /**
-   * Failed roots from the stored cursor. Kept even when the cursor is not usable, so a root still
-   * pending keeps the run unhealthy.
-   */
+/** What a run starts from for one channel. */
+export interface ChannelBaseline {
+  /** The channel's entry in the latest readable index, if it had one. */
+  readonly previous_entry: TeamsChannelIndexEntry | undefined;
+  /** The stored delta link, only when its cursor was bound to `previous_entry`'s shard. */
+  readonly delta_link: string | undefined;
+  /** Failed roots from the channel's cursor. Kept even when the link is not usable. */
   readonly failed_roots: FailedItemLedger;
+}
+
+/** The state a run starts from: the latest readable index and each owned channel's baseline. */
+export interface TeamsBaseline {
+  readonly previous: TeamsSnapshotIndex | undefined;
+  readonly channels: ReadonlyMap<string, ChannelBaseline>;
   readonly errors: string[];
   readonly warnings: string[];
 }
 
 /**
- * Loads the latest readable snapshot and the cursor for a team. An unreadable cursor or newer
- * manifest is reported rather than silently treated as absent.
+ * Loads the latest readable index and each channel's cursor. An index written by a newer format
+ * throws before any write, so an older Atlas never overwrites it. An unreadable index or cursor is
+ * reported rather than silently treated as absent.
  */
 export async function load_team_baseline(
   ctx: TenantContext,
   ports: BaselinePorts,
   team_id: string,
+  channel_ids: readonly string[],
 ): Promise<TeamsBaseline> {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const stored = await load_stored_cursor(ctx, ports.cursors, team_id, warnings);
-  const latest = await ports.manifests.find_latest_by_team(ctx, team_id);
+  const latest = await ports.indexes.find_latest_readable(ctx, team_id);
+  if (latest.unsupported_keys.length > 0) {
+    throw new UnsupportedFormatVersionError(
+      `${latest.unsupported_keys.length} Teams snapshot index(es) were written by a newer Atlas format; upgrade Atlas before backing up this team`,
+    );
+  }
   for (const key of latest.unreadable_keys) {
     errors.push(`Snapshot ${key} could not be read; its channels were not compared`);
   }
   if (latest.unreadable_keys.length > 0) {
     warnings.push('The baseline is an older snapshot because a newer one could not be read');
   }
-  const cursor = usable_cursor(stored, latest.manifest?.snapshot_id, team_id, warnings);
-  return {
-    previous: latest.manifest,
-    cursor,
-    failed_roots: stored?.failed_roots ?? {},
-    errors,
-    warnings,
-  };
+  const channels = new Map<string, ChannelBaseline>();
+  for (const channel_id of channel_ids) {
+    const previous_entry = latest.index?.channels.find((c) => c.channel_id === channel_id);
+    const cursor = await load_cursor(ctx, ports.cursors, team_id, channel_id, warnings);
+    channels.set(channel_id, {
+      previous_entry,
+      delta_link: usable_delta_link(cursor, previous_entry, channel_id, warnings),
+      failed_roots: cursor?.failed_roots ?? {},
+    });
+  }
+  return { previous: latest.index, channels, errors, warnings };
 }
 
-async function load_stored_cursor(
+async function load_cursor(
   ctx: TenantContext,
-  cursors: TeamsDeltaCursorRepository,
+  cursors: TeamsChannelCursorRepository,
   team_id: string,
+  channel_id: string,
   warnings: string[],
-): Promise<TeamsDeltaCursor | undefined> {
+): Promise<TeamsChannelCursor | undefined> {
   try {
-    return await cursors.load(ctx, team_id);
+    return await cursors.load(ctx, team_id, channel_id);
   } catch (err) {
     if (!(err instanceof UnreadableContentError)) throw err;
     warnings.push(
-      `The delta cursor for team ${team_id} is unreadable; reading every channel in full`,
+      `The cursor for channel ${channel_id} is unreadable; reading the channel in full`,
     );
     return undefined;
   }
 }
 
 /**
- * Returns the cursor only when it was saved against the latest snapshot. A cursor without a
- * snapshot_id (legacy) is never trusted, because there is nothing to compare it against.
+ * Returns the cursor's delta link only when the cursor was saved against the channel's latest
+ * shard. A link from an older shard would skip changes the shard does not hold, so the channel is
+ * read in full instead.
  */
-function usable_cursor(
-  stored: TeamsDeltaCursor | undefined,
-  snapshot_id: string | undefined,
-  team_id: string,
+function usable_delta_link(
+  cursor: TeamsChannelCursor | undefined,
+  previous_entry: TeamsChannelIndexEntry | undefined,
+  channel_id: string,
   warnings: string[],
-): TeamsDeltaCursor | undefined {
-  if (stored === undefined) {
+): string | undefined {
+  if (cursor?.delta_link === undefined) {
     return undefined;
   }
-  if (stored.snapshot_id !== undefined && stored.snapshot_id === snapshot_id) {
-    return stored;
+  if (previous_entry !== undefined && cursor.baseline_shard_key === previous_entry.shard_key) {
+    return cursor.delta_link;
   }
   warnings.push(
-    `The delta cursor for team ${team_id} does not match the latest snapshot; reading every channel in full`,
+    `The cursor for channel ${channel_id} does not match its latest shard; reading the channel in full`,
   );
   return undefined;
 }

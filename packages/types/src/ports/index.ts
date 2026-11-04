@@ -189,7 +189,7 @@ export type {
   TeamsSdkBackupResult,
   TeamsSdkVerificationOptions,
   TeamsSdkVerificationResult,
-  TeamsSdkSnapshotManifest,
+  TeamsSdkSnapshotIndex,
   TeamsSdkSnapshotListing,
   TeamsSdkTeamStatus,
   TeamsSdkTeam,
@@ -311,11 +311,13 @@ export type {
   TeamsRootChange,
 } from './teams/connector.port';
 export type {
-  TeamsLatestManifest,
+  TeamsIndexRepository,
+  TeamsLatestIndex,
   TeamsSnapshotListing,
-  TeamsManifestRepository,
-} from './teams/manifest-repository.port';
-export type { TeamsDeltaCursorRepository } from './teams/delta-cursor-repository.port';
+  TeamsTeamListing,
+} from './teams/index-repository.port';
+export type { TeamsChannelShardRepository } from './teams/channel-shard-repository.port';
+export type { TeamsChannelCursorRepository } from './teams/channel-cursor-repository.port';
 export type {
   TeamsBackupUseCase,
   TeamsBackupSummary,

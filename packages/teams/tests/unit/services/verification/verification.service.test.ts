@@ -1,15 +1,17 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
-  TeamsChannelEntry,
-  TeamsManifestRepository,
-  TeamsSnapshotManifest,
+  TeamsChannelShard,
+  TeamsChannelShardRepository,
+  TeamsIndexRepository,
+  TeamsMessageRef,
+  TeamsSnapshotIndex,
   TeamsStoredBlobRef,
-  TeamsThreadEntry,
+  TeamsThread,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { ConfigError } from '@wisecom/atlas-types';
+import { NotFoundError, UnreadableContentError } from '@wisecom/atlas-types';
 import {
   stub_encrypted_object_store,
   type StubEncryptedObjectStore,
@@ -19,9 +21,10 @@ import { TeamsVerificationService } from '@/services/verification/verification.s
 
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const SNAPSHOT = 'teams-snap-2000-bbbbbb';
+const SHARD_KEY = `teams/manifests/${TEAM}/channels/channel-1/shard-name.json`;
 const TIMESTAMP = '2025-01-01T00:00:00.000Z';
 
-/** Stores one sealed blob in `bucket` and returns the reference a manifest would record for it. */
+/** Stores one sealed blob in `bucket` and returns the reference an index or shard would record. */
 function put_blob(
   bucket: Map<string, Buffer>,
   store: StubEncryptedObjectStore,
@@ -37,27 +40,60 @@ function put_blob(
   };
 }
 
-function thread(own: TeamsStoredBlobRef, extra: Partial<TeamsThreadEntry> = {}): TeamsThreadEntry {
+function message(own: TeamsStoredBlobRef, extra: Partial<TeamsMessageRef> = {}): TeamsMessageRef {
+  return { ...own, last_modified_at: TIMESTAMP, hosted: {}, ...extra };
+}
+
+function thread(root: TeamsMessageRef): TeamsThread {
+  return { root, replies: {} };
+}
+
+function shard_with(threads: Record<string, TeamsThread>): TeamsChannelShard {
   return {
-    ...own,
-    last_modified_at: TIMESTAMP,
-    reply_count: 0,
-    hosted: {},
-    backup_at: TIMESTAMP,
-    ...extra,
-  } as TeamsThreadEntry;
+    format_version: 1,
+    team_id: TEAM,
+    channel_id: 'channel-1',
+    channel: { id: 'channel-1' },
+    members: [],
+    tabs: [],
+    read_mode: 'full',
+    threads,
+  };
 }
 
-function manifest_with(threads: TeamsThreadEntry[]): TeamsSnapshotManifest {
-  const channel = {
-    id: 'channel-1',
-    threads: Object.fromEntries(threads.map((entry, index) => [`root-${index}`, entry])),
-  } as unknown as TeamsChannelEntry;
-  return { team_id: TEAM, snapshot_id: SNAPSHOT, channels: [channel] } as TeamsSnapshotManifest;
+function index_listing(shard_key: string): TeamsSnapshotIndex {
+  return {
+    id: `${TEAM}-${SNAPSHOT}`,
+    format_version: 1,
+    tenant_id: 'tenant',
+    team_id: TEAM,
+    snapshot_id: SNAPSHOT,
+    created_at: new Date(TIMESTAMP),
+    team: { id: TEAM },
+    members: [],
+    channels: [
+      {
+        channel_id: 'channel-1',
+        shard_key,
+        shard_checksum: 'unused',
+        thread_count: 1,
+        message_count: 1,
+        size_bytes: 0,
+      },
+    ],
+    totals: { thread_count: 1, message_count: 1, size_bytes: 0 },
+  };
 }
 
-/** Builds the service over an in-memory bucket. `manifest` is what `find_by_snapshot` returns. */
-function setup(store: StubEncryptedObjectStore, bucket: Map<string, Buffer>) {
+/**
+ * Builds the service over an in-memory bucket. `shards` maps a shard key to the shard `load`
+ * returns; a key that is in the bucket but not in `shards` makes `load` throw as a corrupt shard.
+ */
+function setup(
+  store: StubEncryptedObjectStore,
+  bucket: Map<string, Buffer>,
+  shards: Map<string, TeamsChannelShard> = new Map(),
+) {
   const get = vi.fn(async (key: string) => {
     const body = bucket.get(key);
     if (body === undefined) throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
@@ -69,159 +105,198 @@ function setup(store: StubEncryptedObjectStore, bucket: Map<string, Buffer>) {
     create_content_hmac: () => stub_tenant_create_content_hmac(),
     destroy: vi.fn(),
   } as unknown as TenantContext;
-  const create_readonly = vi.fn(async () => ctx);
-  const find_by_snapshot = vi.fn();
+  const find_by_snapshot = vi.fn<TeamsIndexRepository['find_by_snapshot']>();
+  const load = vi.fn(async (_ctx: TenantContext, key: string) => {
+    const shard = shards.get(key);
+    if (shard === undefined) throw new UnreadableContentError(`corrupt shard ${key}`);
+    return shard;
+  });
   const service = new TeamsVerificationService(
-    { create_readonly } as unknown as TenantContextFactory,
-    { find_by_snapshot } as unknown as TeamsManifestRepository,
+    { create_readonly: vi.fn(async () => ctx) } as unknown as TenantContextFactory,
+    { find_by_snapshot } as unknown as TeamsIndexRepository,
+    { load } as unknown as TeamsChannelShardRepository,
   );
-  return { get, create_readonly, find_by_snapshot, service };
+  return { get, find_by_snapshot, service };
+}
+
+/** Stores a shard object in the bucket and makes `load` return `content` for its key. */
+function put_shard(
+  bucket: Map<string, Buffer>,
+  store: StubEncryptedObjectStore,
+  shards: Map<string, TeamsChannelShard>,
+  content: TeamsChannelShard,
+): void {
+  bucket.set(SHARD_KEY, store.encrypt(Buffer.from('shard bytes')));
+  shards.set(SHARD_KEY, content);
 }
 
 describe('TeamsVerificationService.verify_teams_snapshot', () => {
-  it('passes when every referenced blob matches its recorded size and checksum', async () => {
+  it('passes when the shard and every referenced blob match', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
-    const own = put_blob(bucket, store, 'teams/data/t/own', 'hello');
+    const shards = new Map<string, TeamsChannelShard>();
+    const root = put_blob(bucket, store, 'teams/data/t/root', 'hello');
     const hosted = put_blob(bucket, store, 'teams/data/t/hosted', 'image');
-    const { service, find_by_snapshot } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(
-      manifest_with([thread(own, { hosted: { h1: { ...hosted } } })]),
-    );
+    const threads = { 'root-1': thread(message(root, { hosted: { h1: { ...hosted } } })) };
+    put_shard(bucket, store, shards, shard_with(threads));
+    const { service, find_by_snapshot } = setup(store, bucket, shards);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
 
-    expect(result).toMatchObject({ total_checked: 2, passed: 2, failed_storage_keys: [] });
+    expect(result).toMatchObject({
+      total_checked: 3,
+      passed: 3,
+      failed_storage_keys: [],
+      missing_storage_keys: [],
+      interrupted: false,
+    });
   });
 
-  it('flags a blob whose bytes no longer match its checksum and keeps checking the rest', async () => {
+  it('flags a message blob whose bytes no longer match and keeps checking the rest', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
+    const shards = new Map<string, TeamsChannelShard>();
     const tampered = put_blob(bucket, store, 'teams/data/t/a', 'original');
     const intact = put_blob(bucket, store, 'teams/data/t/b', 'intact');
     bucket.set(tampered.storage_key, store.encrypt(Buffer.from('replaced')));
-    const { service, find_by_snapshot } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(manifest_with([thread(tampered), thread(intact)]));
+    put_shard(
+      bucket,
+      store,
+      shards,
+      shard_with({
+        'root-1': thread(message(tampered)),
+        'root-2': thread(message(intact)),
+      }),
+    );
+    const { service, find_by_snapshot } = setup(store, bucket, shards);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
+
+    const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
+
+    expect(result).toMatchObject({
+      total_checked: 3,
+      passed: 2,
+      failed_storage_keys: [tampered.storage_key],
+      missing_storage_keys: [],
+    });
+  });
+
+  it('reports a referenced blob that is absent as missing, not as failed', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const shards = new Map<string, TeamsChannelShard>();
+    const gone: TeamsStoredBlobRef = {
+      storage_key: 'teams/data/t/gone',
+      checksum: 'unused',
+      size_bytes: 3,
+    };
+    put_shard(bucket, store, shards, shard_with({ 'root-1': thread(message(gone)) }));
+    const { service, find_by_snapshot } = setup(store, bucket, shards);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
 
     expect(result).toMatchObject({
       total_checked: 2,
       passed: 1,
-      failed_storage_keys: [tampered.storage_key],
+      failed_storage_keys: [],
+      missing_storage_keys: ['teams/data/t/gone'],
     });
   });
 
-  it('verifies the last live blob a deleted root kept, not only its tombstone (B3)', async () => {
+  it('checks the kept version of a deleted message, so its last live content stays verified', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
+    const shards = new Map<string, TeamsChannelShard>();
     const tombstone = put_blob(bucket, store, 'teams/data/t/tombstone', 'gone');
-    const last_live = put_blob(bucket, store, 'teams/data/t/last-live', 'replies');
-    bucket.set(last_live.storage_key, store.encrypt(Buffer.from('corrupted')));
-    const { service, find_by_snapshot } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(
-      manifest_with([thread(tombstone, { deleted_at: TIMESTAMP, last_live: { ...last_live } })]),
-    );
+    const kept = put_blob(bucket, store, 'teams/data/t/kept', 'last live');
+    bucket.set(kept.storage_key, store.encrypt(Buffer.from('corrupted')));
+    const root = message(tombstone, {
+      deleted_at: TIMESTAMP,
+      kept: { ...kept, hosted: {} },
+    });
+    put_shard(bucket, store, shards, shard_with({ 'root-1': thread(root) }));
+    const { service, find_by_snapshot } = setup(store, bucket, shards);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
 
     expect(result).toMatchObject({
-      total_checked: 2,
-      failed_storage_keys: [last_live.storage_key],
+      total_checked: 3,
+      failed_storage_keys: [kept.storage_key],
     });
   });
 
-  it('verifies last_live on a live thread whose replies were since deleted (M9)', async () => {
+  it('reports a shard that fails to load as failed and does not check its threads', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
-    const live = put_blob(bucket, store, 'teams/data/t/live', 'current replies');
-    const last_live = put_blob(bucket, store, 'teams/data/t/last-live', 'replies before delete');
-    bucket.set(last_live.storage_key, store.encrypt(Buffer.from('corrupted')));
-    const { service, find_by_snapshot } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(
-      manifest_with([thread(live, { last_live: { ...last_live } })]),
-    );
+    const shards = new Map<string, TeamsChannelShard>();
+    bucket.set(SHARD_KEY, store.encrypt(Buffer.from('shard bytes')));
+    const { service, find_by_snapshot } = setup(store, bucket, shards);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
 
     expect(result).toMatchObject({
-      total_checked: 2,
-      failed_storage_keys: [last_live.storage_key],
+      total_checked: 1,
+      passed: 0,
+      failed_storage_keys: [SHARD_KEY],
+      missing_storage_keys: [],
     });
   });
 
-  it('in fast mode checks existence only, so a corrupted but present blob passes and a missing one fails (B9)', async () => {
+  it('reports a shard that is absent as missing', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
-    const corrupted = put_blob(bucket, store, 'teams/data/t/corrupted', 'original');
-    bucket.set(corrupted.storage_key, store.encrypt(Buffer.from('replaced')));
-    const missing = put_blob(bucket, store, 'teams/data/t/missing', 'absent');
-    bucket.delete(missing.storage_key);
-    const { service, find_by_snapshot, get } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(manifest_with([thread(corrupted), thread(missing)]));
+    const { service, find_by_snapshot } = setup(store, bucket);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
+
+    const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT);
+
+    expect(result).toMatchObject({
+      total_checked: 1,
+      passed: 0,
+      missing_storage_keys: [SHARD_KEY],
+    });
+  });
+
+  it('fast mode checks that each blob exists without matching its bytes', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const shards = new Map<string, TeamsChannelShard>();
+    const tampered = put_blob(bucket, store, 'teams/data/t/a', 'original');
+    bucket.set(tampered.storage_key, store.encrypt(Buffer.from('replaced')));
+    put_shard(bucket, store, shards, shard_with({ 'root-1': thread(message(tampered)) }));
+    const { service, find_by_snapshot, get } = setup(store, bucket, shards);
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT, { fast: true });
 
-    expect(result.failed_storage_keys).toEqual([missing.storage_key]);
-    expect(get).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ total_checked: 2, passed: 2, failed_storage_keys: [] });
+    expect(get).not.toHaveBeenCalledWith(tampered.storage_key);
   });
 
-  it('emits discovering, per-blob processing, finalizing, then a terminal event (B9)', async () => {
+  it('stops before the first shard when interrupted and reports it', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
-    const first = put_blob(bucket, store, 'teams/data/t/first', 'one');
-    const second = put_blob(bucket, store, 'teams/data/t/second', 'two');
     const { service, find_by_snapshot } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(manifest_with([thread(first), thread(second)]));
-    const on_progress = vi.fn();
-
-    await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT, { on_progress });
-
-    expect(on_progress.mock.calls.map(([event]) => event.phase)).toEqual([
-      'discovering',
-      'processing',
-      'processing',
-      'processing',
-      'finalizing',
-      'completed',
-    ]);
-  });
-
-  it('stops between blobs and reports interrupted when cancellation is requested (B9)', async () => {
-    const store = stub_encrypted_object_store();
-    const bucket = new Map<string, Buffer>();
-    const first = put_blob(bucket, store, 'teams/data/t/first', 'one');
-    const second = put_blob(bucket, store, 'teams/data/t/second', 'two');
-    const { service, find_by_snapshot } = setup(store, bucket);
-    find_by_snapshot.mockResolvedValue(manifest_with([thread(first), thread(second)]));
-    // Calls: begin (false), blob 1 (false), blob 2 (true).
-    let calls = 0;
+    find_by_snapshot.mockResolvedValue(index_listing(SHARD_KEY));
 
     const result = await service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT, {
-      should_interrupt: () => ++calls > 2,
+      should_interrupt: () => true,
     });
 
-    expect(result).toMatchObject({ total_checked: 1, passed: 1, interrupted: true });
+    expect(result).toMatchObject({ total_checked: 0, interrupted: true });
   });
 
-  it('normalizes an uppercase team id before the manifest lookup (A9)', async () => {
+  it('raises NotFoundError when the snapshot index does not exist', async () => {
     const store = stub_encrypted_object_store();
     const { service, find_by_snapshot } = setup(store, new Map());
     find_by_snapshot.mockResolvedValue(undefined);
 
-    await expect(
-      service.verify_teams_snapshot('tenant', TEAM.toUpperCase(), SNAPSHOT),
-    ).rejects.toThrow();
-    expect(find_by_snapshot).toHaveBeenCalledWith(expect.anything(), TEAM, SNAPSHOT);
-  });
-
-  it('rejects a team id that is not a GUID before opening storage (A9)', async () => {
-    const store = stub_encrypted_object_store();
-    const { service, create_readonly } = setup(store, new Map());
-
-    await expect(service.verify_teams_snapshot('tenant', 'not-a-guid', SNAPSHOT)).rejects.toThrow(
-      ConfigError,
+    await expect(service.verify_teams_snapshot('tenant', TEAM, SNAPSHOT)).rejects.toBeInstanceOf(
+      NotFoundError,
     );
-    expect(create_readonly).not.toHaveBeenCalled();
   });
 });

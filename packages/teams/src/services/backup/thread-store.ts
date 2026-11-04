@@ -1,171 +1,77 @@
-import type {
-  TeamsGraphResource,
-  TeamsRootChange,
-  TeamsStoredBlobRef,
-  TeamsThreadEntry,
-} from '@wisecom/atlas-types';
+import type { TeamsGraphResource, TeamsMessageRef, TeamsThread } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
-import { same_hosted_refs, store_hosted_contents } from '@/services/backup/thread-hosted-store';
 import {
-  digest_thread_blob,
-  thread_blobs_present,
-  write_blob,
-} from '@/services/backup/thread-blob-writer';
+  mark_message_removed,
+  type MessageStoreOutcome,
+  store_message,
+} from '@/services/backup/message-store';
+
+/** Result of storing one channel-root thread: the new thread and what was reused. */
+export interface ThreadStoreResult {
+  readonly thread: TeamsThread;
+  readonly warnings: string[];
+  /** Root and reply versions written with new content. */
+  readonly stored: number;
+  /** Root and reply versions reused unchanged from the previous run. */
+  readonly deduped: number;
+}
 
 /**
- * Stores one changed root and returns its entry. A root Graph reports with `deletedDateTime`
- * gets a tombstone blob and no hosted-content calls. A live root whose digest matches the previous
- * entry keeps that entry while its blobs are still in storage, so unchanged threads are not
- * uploaded again. `--full` re-reads every thread from Graph but never rewrites a stored blob.
+ * Stores a channel-root thread from its root and the replies Graph returned. Each message gets its
+ * own blob. Replies missing from `replies` are carried over from `previous`, because an empty
+ * list means the replies were not read this run, not that they are gone.
  */
 export async function store_thread(
   scope: BackupRunScope,
   channel_id: string,
-  change: TeamsRootChange,
-  previous: TeamsThreadEntry | undefined,
-): Promise<TeamsThreadEntry> {
-  scope.counters.threads_changed++;
-  if (change.deleted) {
-    return store_tombstone(scope, change.root, change.replies ?? [], previous);
-  }
-  const replies =
-    change.replies ??
-    (await scope.connector.list_replies(
-      scope.tenant_id,
-      scope.team_id,
-      channel_id,
-      change.root.id,
-    ));
-  return store_live_thread(scope, channel_id, change.root, replies, previous);
-}
-
-/**
- * Marks a thread removed from its channel without any Graph call. The entry keeps the last live
- * blob reference, so the content can still be restored.
- */
-export function mark_thread_removed(
-  scope: BackupRunScope,
-  previous: TeamsThreadEntry,
-): TeamsThreadEntry {
-  if (previous.deleted_at !== undefined) {
-    return previous;
-  }
-  scope.counters.threads_deleted++;
-  return { ...previous, deleted_at: scope.backup_at, last_live: last_live_for(previous) };
-}
-
-async function store_tombstone(
-  scope: BackupRunScope,
+  previous: TeamsThread | undefined,
   root: TeamsGraphResource,
   replies: TeamsGraphResource[],
-  previous: TeamsThreadEntry | undefined,
-): Promise<TeamsThreadEntry> {
-  const digest = digest_thread_blob(scope, { root, replies });
-  const same_tombstone =
-    previous !== undefined &&
-    previous.deleted_at !== undefined &&
-    previous.checksum === digest.checksum;
-  if (
-    previous !== undefined &&
-    same_tombstone &&
-    !scope.force_full &&
-    (await thread_blobs_present(scope, previous))
-  ) {
-    scope.counters.threads_deduplicated++;
-    return previous;
+): Promise<ThreadStoreResult> {
+  const root_locator = { team_id: scope.team_id, channel_id, root_id: root.id };
+  const root_outcome = await store_message(
+    scope,
+    root_locator,
+    { root_id: root.id },
+    previous?.root,
+    root,
+  );
+  const outcomes: MessageStoreOutcome[] = [root_outcome];
+  const reply_refs: Record<string, TeamsMessageRef> = {};
+  for (const reply of replies) {
+    const outcome = await store_message(
+      scope,
+      { ...root_locator, reply_id: reply.id },
+      { root_id: root.id, reply_id: reply.id },
+      previous?.replies[reply.id],
+      reply,
+    );
+    outcomes.push(outcome);
+    reply_refs[reply.id] = outcome.ref;
   }
-  await write_blob(scope, digest.storage_key, digest.plaintext);
-  scope.counters.threads_stored++;
-  if (previous?.deleted_at === undefined) {
-    scope.counters.threads_deleted++;
-  }
-  if (previous !== undefined && same_tombstone) {
-    return previous;
-  }
-  return {
-    storage_key: digest.storage_key,
-    checksum: digest.checksum,
-    size_bytes: digest.plaintext.length,
-    last_modified_at:
-      typeof root.lastModifiedDateTime === 'string' ? root.lastModifiedDateTime : '',
-    reply_count: replies.length,
-    hosted: previous?.hosted ?? {},
-    backup_at: scope.backup_at,
-    deleted_at: previous?.deleted_at ?? scope.backup_at,
-    last_live: last_live_for(previous),
-  };
-}
-
-async function store_live_thread(
-  scope: BackupRunScope,
-  channel_id: string,
-  root: TeamsGraphResource,
-  replies: TeamsGraphResource[],
-  previous: TeamsThreadEntry | undefined,
-): Promise<TeamsThreadEntry> {
-  const digest = digest_thread_blob(scope, { root, replies });
-  const same_content = previous !== undefined && previous.checksum === digest.checksum;
-  const last_live = live_last_live(previous, replies);
-  if (
-    previous !== undefined &&
-    same_content &&
-    !scope.force_full &&
-    (await thread_blobs_present(scope, previous))
-  ) {
-    scope.counters.threads_deduplicated++;
-    return { ...previous, deleted_at: undefined, last_live };
-  }
-  const fetched = await store_hosted_contents(scope, channel_id, root, replies, previous);
-  // Hosted refs of a deleted reply stay with the kept blob, so their images stay restorable.
-  const hosted = { ...(last_live === undefined ? undefined : previous?.hosted), ...fetched.hosted };
-  const hosted_missing = fetched.missing.length > 0 ? fetched.missing : undefined;
-  await write_blob(scope, digest.storage_key, digest.plaintext);
-  scope.counters.threads_stored++;
-  if (previous !== undefined && same_content && same_hosted_refs(previous.hosted, hosted)) {
-    return { ...previous, deleted_at: undefined, last_live, hosted_missing };
+  // ponytail: a reply Graph hard-deletes is never reported, so it stays live here forever. Upgrade when Graph exposes a reply removal signal.
+  for (const [id, ref] of Object.entries(previous?.replies ?? {})) {
+    if (!(id in reply_refs)) {
+      reply_refs[id] = ref;
+    }
   }
   return {
-    storage_key: digest.storage_key,
-    checksum: digest.checksum,
-    size_bytes: digest.plaintext.length,
-    last_modified_at:
-      typeof root.lastModifiedDateTime === 'string' ? root.lastModifiedDateTime : '',
-    reply_count: replies.length,
-    hosted,
-    backup_at: scope.backup_at,
-    last_live,
-    hosted_missing,
-  };
-}
-
-/** The last live blob: the entry's own blob while it is live, otherwise the one it kept. */
-function last_live_for(previous: TeamsThreadEntry | undefined): TeamsStoredBlobRef | undefined {
-  if (previous === undefined) {
-    return undefined;
-  }
-  if (previous.deleted_at !== undefined) {
-    return previous.last_live;
-  }
-  return {
-    storage_key: previous.storage_key,
-    checksum: previous.checksum,
-    size_bytes: previous.size_bytes,
+    thread: {
+      root: root_outcome.ref,
+      replies: reply_refs,
+      deleted_at: root_outcome.ref.deleted_at,
+    },
+    warnings: outcomes.flatMap((outcome) => outcome.warnings),
+    stored: outcomes.filter((outcome) => !outcome.deduped).length,
+    deduped: outcomes.filter((outcome) => outcome.deduped).length,
   };
 }
 
 /**
- * The last live blob a live root keeps. It keeps one once a reply is deleted, pinned to the blob
- * from before the first deletion, so the deleted reply's content stays restorable.
+ * Marks a thread's root removed when Graph reports the removal without a body. Replies are left
+ * as they were, since they are not re-read.
  */
-function live_last_live(
-  previous: TeamsThreadEntry | undefined,
-  replies: TeamsGraphResource[],
-): TeamsStoredBlobRef | undefined {
-  if (previous === undefined || previous.deleted_at !== undefined) {
-    return undefined;
-  }
-  if (previous.last_live !== undefined) {
-    return previous.last_live;
-  }
-  return replies.some((reply) => reply.deletedDateTime) ? last_live_for(previous) : undefined;
+export function mark_root_removed(scope: BackupRunScope, previous: TeamsThread): TeamsThread {
+  const root = mark_message_removed(scope, previous.root);
+  return { ...previous, root, deleted_at: root.deleted_at };
 }

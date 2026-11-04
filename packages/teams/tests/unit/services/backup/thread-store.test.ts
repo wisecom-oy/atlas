@@ -1,229 +1,147 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import type { TeamsRootChange, TeamsThreadEntry } from '@wisecom/atlas-types';
-import { mark_thread_removed, store_thread } from '@/services/backup/thread-store';
+import { describe, expect, it } from 'vitest';
+import type { TeamsGraphResource, TeamsMessageRef, TeamsThread } from '@wisecom/atlas-types';
+import { mark_root_removed, store_thread } from '@/services/backup/thread-store';
 import {
   BACKUP_AT,
-  HOSTED_BODY,
-  live,
+  DELETED_AT,
+  CHANNEL_ID,
+  deleted,
   make_harness,
-  root,
-  tombstone,
+  message,
   type ThreadHarness,
 } from './thread-store-harness';
 
-describe('store_thread', () => {
-  let harness: ThreadHarness;
+async function store(
+  harness: ThreadHarness,
+  previous: TeamsThread | undefined,
+  root: TeamsGraphResource,
+  replies: TeamsGraphResource[],
+): Promise<TeamsThread> {
+  const result = await store_thread(harness.scope, CHANNEL_ID, previous, root, replies);
+  return result.thread;
+}
 
-  beforeEach(() => {
-    harness = make_harness();
-  });
+function blob_of(harness: ThreadHarness, ref: TeamsMessageRef): unknown {
+  return JSON.parse(harness.objects[ref.storage_key]?.toString('utf8') ?? 'null');
+}
 
-  it('stores a deleted root as a tombstone without listing replies or hosted contents', async () => {
-    const entry = await store_thread(harness.scope, 'channel-1', tombstone(), undefined);
+describe('store_thread blobs', () => {
+  it('writes each message as its own raw Graph JSON blob', async () => {
+    const harness = make_harness();
+    const root = message('root-1', { body: { contentType: 'html', content: 'parent' } });
+    const reply = message('reply-1', { body: { contentType: 'html', content: 'child' } });
 
-    expect(harness.list_replies).not.toHaveBeenCalled();
-    expect(harness.list_hosted_contents).not.toHaveBeenCalled();
-    expect(harness.put).toHaveBeenCalledTimes(1);
-    expect(entry.deleted_at).toBe(BACKUP_AT);
-  });
+    const thread = await store(harness, undefined, root, [reply]);
 
-  it('keeps the last live blob of a thread that was deleted', async () => {
-    const previous: TeamsThreadEntry = {
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 42,
-      last_modified_at: '',
-      reply_count: 0,
-      hosted: {},
-      backup_at: BACKUP_AT,
-    };
-    const change: TeamsRootChange = { root: root({ deletedDateTime: 'x' }), deleted: true };
-
-    const entry = await store_thread(harness.scope, 'channel-1', change, previous);
-
-    expect(entry.last_live).toEqual({
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 42,
-    });
-  });
-
-  it('keeps the previous live blob and hosted images when a live root loses a reply', async () => {
-    const previous: TeamsThreadEntry = {
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 42,
-      last_modified_at: '',
-      reply_count: 1,
-      hosted: { h1: { storage_key: 'hosted-key', checksum: 'hosted-checksum', size_bytes: 3 } },
-      backup_at: BACKUP_AT,
-    };
-    const change = live([{ id: 'reply-1', deletedDateTime: 'x' }]);
-
-    const entry = await store_thread(harness.scope, 'channel-1', change, previous);
-
-    expect(entry.last_live).toEqual({
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 42,
-    });
-    expect(entry.hosted.h1).toEqual(previous.hosted.h1);
-  });
-
-  it('keeps the pinned last live blob when the same content is seen again', async () => {
-    harness = make_harness(true);
-    const pinned = { storage_key: 'pinned-key', checksum: 'pinned-checksum', size_bytes: 7 };
-    const previous: TeamsThreadEntry = {
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 42,
-      last_modified_at: '',
-      reply_count: 1,
-      hosted: {},
-      backup_at: BACKUP_AT,
-      last_live: pinned,
-    };
-    const change = live([{ id: 'reply-1', deletedDateTime: 'x' }]);
-
-    const first = await store_thread(harness.scope, 'channel-1', change, previous);
-    const second = await store_thread(harness.scope, 'channel-1', change, first);
-
-    expect(first.last_live).toEqual(pinned);
-    expect(second.last_live).toEqual(pinned);
-  });
-
-  it('does not upload a live thread whose content matches the previous entry', async () => {
-    harness = make_harness(true);
-    const first = await store_thread(harness.scope, 'channel-1', live(), undefined);
-    harness.put.mockClear();
-
-    const again = await store_thread(harness.scope, 'channel-1', live(), first);
-
-    expect(harness.put).not.toHaveBeenCalled();
-    expect(again.checksum).toBe(first.checksum);
-    expect(harness.scope.counters.threads_deduplicated).toBe(1);
-  });
-
-  it('uploads a thread again when its reply count changes', async () => {
-    const first = await store_thread(harness.scope, 'channel-1', live(), undefined);
-    harness.put.mockClear();
-    const reply = { id: 'reply-1', body: { content: 'new reply' } };
-
-    const again = await store_thread(harness.scope, 'channel-1', live([reply]), first);
-
-    expect(harness.put).toHaveBeenCalledTimes(1);
-    expect(again.reply_count).toBe(1);
-  });
-
-  it('revives a deleted thread when Graph reports it live again with the same content', async () => {
-    const first = await store_thread(harness.scope, 'channel-1', live(), undefined);
-    const deleted = mark_thread_removed(harness.scope, first);
-
-    const revived = await store_thread(harness.scope, 'channel-1', live(), deleted);
-
-    expect(revived.deleted_at).toBeUndefined();
-    expect(revived.last_live).toBeUndefined();
-  });
-
-  it('fetches replies through the connector when the change does not inline them', async () => {
-    await store_thread(harness.scope, 'channel-1', { root: root(), deleted: false }, undefined);
-
-    expect(harness.list_replies).toHaveBeenCalledWith(
-      'tenant-1',
-      '00000000-0000-0000-0000-000000000001',
-      'channel-1',
-      'root-1',
-    );
-  });
-
-  it('stores hosted contents referenced by the root and downloads them once', async () => {
-    harness.list_hosted_contents.mockResolvedValueOnce([{ id: 'h1', contentType: 'image/png' }]);
-
-    const entry = await store_thread(
-      harness.scope,
-      'channel-1',
-      live([], root({ body: { content: HOSTED_BODY } })),
-      undefined,
-    );
-
-    expect(harness.list_hosted_contents).toHaveBeenCalledTimes(1);
-    expect(harness.download_hosted_content).toHaveBeenCalledTimes(1);
-    expect(Object.keys(entry.hosted)).toEqual(['h1']);
-    expect(entry.hosted.h1?.content_type).toBe('image/png');
-  });
-
-  it('does not list hosted contents when no message references them', async () => {
-    await store_thread(harness.scope, 'channel-1', live(), undefined);
-
-    expect(harness.list_hosted_contents).not.toHaveBeenCalled();
-  });
-
-  it('does not reference hosted contents of a reply Graph reports as deleted', async () => {
-    const deleted_reply = {
-      id: 'reply-1',
-      body: { content: HOSTED_BODY },
-      deletedDateTime: '2025-01-02T00:00:00Z',
-    };
-
-    await store_thread(harness.scope, 'channel-1', live([deleted_reply]), undefined);
-
-    expect(harness.list_hosted_contents).not.toHaveBeenCalled();
-  });
-
-  it('skips the upload when the content key already exists in storage', async () => {
-    harness = make_harness(true);
-
-    await store_thread(harness.scope, 'channel-1', live(), undefined);
-
-    expect(harness.exists).toHaveBeenCalled();
-    expect(harness.put).not.toHaveBeenCalled();
-  });
-
-  it('binds each blob to its storage key as associated data', async () => {
-    const entry = await store_thread(harness.scope, 'channel-1', live(), undefined);
-
-    expect(harness.encrypt).toHaveBeenCalledWith(expect.any(Buffer), entry.storage_key);
+    expect(blob_of(harness, thread.root)).toEqual(root);
+    expect(blob_of(harness, thread.replies['reply-1'] as TeamsMessageRef)).toEqual(reply);
+    expect(thread.root.storage_key).not.toBe(thread.replies['reply-1']?.storage_key);
   });
 });
 
-describe('mark_thread_removed', () => {
-  it('marks a live thread deleted, keeps its blob as the last live one, and makes no Graph call', () => {
+describe('store_thread kept model (N9)', () => {
+  it('keeps a reply’s last live version when that reply is deleted', async () => {
     const harness = make_harness();
-    const previous: TeamsThreadEntry = {
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 7,
-      last_modified_at: '',
-      reply_count: 0,
+    const first = await store(harness, undefined, message('root-1'), [message('reply-1')]);
+    const live = first.replies['reply-1'] as TeamsMessageRef;
+
+    const second = await store(harness, first, message('root-1'), [deleted('reply-1')]);
+
+    expect(second.replies['reply-1']?.deleted_at).toBe(DELETED_AT);
+    expect(second.replies['reply-1']?.kept).toEqual({
+      storage_key: live.storage_key,
+      checksum: live.checksum,
+      size_bytes: live.size_bytes,
       hosted: {},
-      backup_at: BACKUP_AT,
-    };
-
-    const removed = mark_thread_removed(harness.scope, previous);
-
-    expect(removed.deleted_at).toBe(BACKUP_AT);
-    expect(removed.last_live).toEqual({
-      storage_key: 'live-key',
-      checksum: 'live-checksum',
-      size_bytes: 7,
     });
-    expect(harness.list_replies).not.toHaveBeenCalled();
-    expect(harness.put).not.toHaveBeenCalled();
   });
 
-  it('returns an already deleted thread unchanged', () => {
+  it('keeps another reply’s kept version when a sibling reply is deleted later', async () => {
     const harness = make_harness();
-    const deleted: TeamsThreadEntry = {
-      storage_key: 'tomb',
-      checksum: 'tomb',
-      size_bytes: 1,
-      last_modified_at: '',
-      reply_count: 0,
-      hosted: {},
-      backup_at: BACKUP_AT,
-      deleted_at: '2024-12-01T00:00:00.000Z',
-    };
+    const first = await store(harness, undefined, message('root-1'), [
+      message('reply-1'),
+      message('reply-2'),
+    ]);
+    const second = await store(harness, first, message('root-1'), [
+      deleted('reply-1'),
+      message('reply-2'),
+    ]);
+    const kept_reply_1 = second.replies['reply-1']?.kept;
 
-    expect(mark_thread_removed(harness.scope, deleted)).toBe(deleted);
+    const third = await store(harness, second, message('root-1'), [
+      message('reply-1'),
+      deleted('reply-2'),
+    ]);
+
+    expect(third.replies['reply-1']?.kept).toEqual(kept_reply_1);
+    expect(third.replies['reply-2']?.kept?.storage_key).toBe(
+      second.replies['reply-2']?.storage_key,
+    );
+  });
+
+  it('never replaces a kept version with a later live version', async () => {
+    const harness = make_harness();
+    const first = await store(harness, undefined, message('root-1'), [message('reply-1')]);
+    const deleted_once = await store(harness, first, message('root-1'), [deleted('reply-1')]);
+    const kept = deleted_once.replies['reply-1']?.kept;
+
+    const relive = await store(harness, deleted_once, message('root-1'), [
+      message('reply-1', { body: { contentType: 'html', content: 'changed' } }),
+    ]);
+    const deleted_again = await store(harness, relive, message('root-1'), [deleted('reply-1')]);
+
+    expect(deleted_again.replies['reply-1']?.kept).toEqual(kept);
+  });
+
+  it('leaves a message first seen already deleted without a kept version', async () => {
+    const harness = make_harness();
+
+    const thread = await store(harness, undefined, message('root-1'), [deleted('reply-1')]);
+
+    expect(thread.replies['reply-1']?.kept).toBeUndefined();
+  });
+
+  it('sets the thread deleted_at from the root only', async () => {
+    const harness = make_harness();
+    const first = await store(harness, undefined, message('root-1'), [message('reply-1')]);
+
+    const second = await store(harness, first, deleted('root-1'), [message('reply-1')]);
+
+    expect(second.deleted_at).toBe(DELETED_AT);
+    expect(second.replies['reply-1']?.deleted_at).toBeUndefined();
+  });
+});
+
+describe('store_thread reply carry-over', () => {
+  it('carries a reply that this run did not list from the previous thread', async () => {
+    const harness = make_harness();
+    const first = await store(harness, undefined, message('root-1'), [message('reply-1')]);
+
+    const second = await store(harness, first, message('root-1'), []);
+
+    expect(second.replies['reply-1']).toEqual(first.replies['reply-1']);
+  });
+});
+
+describe('mark_root_removed', () => {
+  it('marks the root deleted, keeps its last live version, and leaves replies alone', async () => {
+    const harness = make_harness();
+    const first = await store(harness, undefined, message('root-1'), [message('reply-1')]);
+    const live_root = first.root;
+
+    const removed = mark_root_removed(harness.scope, first);
+
+    expect(removed.root.deleted_at).toBe(BACKUP_AT);
+    expect(removed.root.kept?.storage_key).toBe(live_root.storage_key);
+    expect(removed.replies).toEqual(first.replies);
+    expect(removed.deleted_at).toBe(BACKUP_AT);
+  });
+
+  it('returns an equal thread when the root is already removed', async () => {
+    const harness = make_harness();
+    const first = await store(harness, undefined, message('root-1'), []);
+    const removed = mark_root_removed(harness.scope, first);
+
+    expect(mark_root_removed(harness.scope, removed)).toEqual(removed);
   });
 });

@@ -1,319 +1,251 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  FailedItemLedger,
-  TeamsRootChange,
-  TeamsThreadEntry,
-  TenantContext,
-} from '@wisecom/atlas-types';
+import { AuthError, type FailedItemLedger, type TeamsThread } from '@wisecom/atlas-types';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
 import { apply_root_changes } from '@/services/backup/channel-root-applier';
-import { mark_thread_removed, store_thread } from '@/services/backup/thread-store';
+import { mark_root_removed, store_thread } from '@/services/backup/thread-store';
+import {
+  BACKUP_AT,
+  make_connector,
+  make_scope,
+  root_change,
+  thread_entry,
+} from './channel-backup-processor-harness';
 
 vi.mock('@/services/backup/thread-store', () => ({
   store_thread: vi.fn(),
-  mark_thread_removed: vi.fn(),
+  mark_root_removed: vi.fn(),
 }));
 
-const BACKUP_AT = '2025-01-01T00:00:00.000Z';
+const DELTA: ChannelRootRead = { changes: [], link: 'link-2', is_full: false };
+const FULL: ChannelRootRead = { changes: [], link: undefined, is_full: true };
 
-function thread(id: string): TeamsThreadEntry {
+function failure(item_id: string, attempts: number): FailedItemLedger[string] {
   return {
-    storage_key: `${id}-key`,
-    checksum: `${id}-checksum`,
-    size_bytes: 1,
-    last_modified_at: '',
-    reply_count: 0,
-    hosted: {},
-    backup_at: BACKUP_AT,
+    item_id,
+    drive_id: 'channel-1',
+    name: item_id,
+    reason: 'earlier',
+    attempts,
+    first_failed_at: BACKUP_AT,
+    last_failed_at: BACKUP_AT,
   };
 }
 
-function live(id: string): TeamsRootChange {
-  return { root: { id }, deleted: false };
-}
+beforeEach(() => {
+  vi.mocked(store_thread).mockReset();
+  vi.mocked(store_thread).mockImplementation(async (_scope, _channel, _previous, root) => ({
+    thread: thread_entry(root.id),
+    warnings: [],
+    stored: 1,
+    deduped: 0,
+  }));
+  vi.mocked(mark_root_removed).mockReset();
+  vi.mocked(mark_root_removed).mockImplementation((_scope, previous) => ({
+    ...previous,
+    deleted_at: BACKUP_AT,
+  }));
+});
 
-function scope_with(should_interrupt = (): boolean => false): BackupRunScope {
-  return {
-    ctx: {} as TenantContext,
-    connector: {} as BackupRunScope['connector'],
-    tenant_id: 'tenant-1',
-    team_id: '00000000-0000-0000-0000-000000000001',
-    backup_at: BACKUP_AT,
-    counters: create_backup_counters(),
-    should_interrupt,
-    force_full: false,
-  };
-}
-
-function delta_read(changes: TeamsRootChange[]): ChannelRootRead {
-  return { changes, link: 'link-new', is_full: false };
-}
-
-function full_read(changes: TeamsRootChange[]): ChannelRootRead {
-  return { changes, link: 'link-new', is_full: true };
-}
-
-describe('apply_root_changes', () => {
-  beforeEach(() => {
-    vi.mocked(store_thread).mockReset();
-    vi.mocked(mark_thread_removed).mockReset();
-    vi.mocked(store_thread).mockImplementation(async (_scope, _channel, change) =>
-      thread(change.root.id),
-    );
-    vi.mocked(mark_thread_removed).mockImplementation((_scope, previous) => ({
-      ...previous,
-      deleted_at: BACKUP_AT,
-    }));
-  });
-
-  it('keeps a failed root at its previous entry and records it in the ledger', async () => {
-    vi.mocked(store_thread).mockRejectedValueOnce(new Error('upload refused'));
-    const previous = { 'root-1': thread('old') };
+describe('apply_root_changes stored roots', () => {
+  it('stores each changed root and keeps untouched previous threads', async () => {
+    const connector = make_connector();
+    const previous = { m2: thread_entry('m2') };
 
     const out = await apply_root_changes(
-      scope_with(),
+      make_scope(connector),
       'channel-1',
-      delta_read([live('root-1')]),
+      { ...DELTA, changes: [root_change('m1')] },
       previous,
       {},
     );
 
-    expect(out.threads['root-1']).toEqual(thread('old'));
-    expect(out.failed_roots['channel-1/root-1']).toMatchObject({
-      item_id: 'channel-1/root-1',
-      drive_id: 'channel-1',
-      reason: 'upload refused',
-      attempts: 1,
-    });
-    expect(out.errors).toEqual(['Channel channel-1 root root-1: upload refused']);
+    expect(Object.keys(out.threads).sort()).toEqual(['m1', 'm2']);
+    expect(out.failed_roots).toEqual({});
+    expect(out.interrupted).toBe(false);
   });
 
-  it('clears the ledger entry of a root that now succeeds', async () => {
-    const ledger: FailedItemLedger = {
-      'channel-1/root-1': {
-        item_id: 'channel-1/root-1',
-        drive_id: 'channel-1',
-        name: 'root-1',
-        reason: 'old failure',
-        attempts: 2,
-        first_failed_at: BACKUP_AT,
-        last_failed_at: BACKUP_AT,
-      },
-    };
+  it('fetches replies for a live root and none for a deleted root', async () => {
+    const connector = make_connector({
+      list_replies: vi.fn(async () => [{ id: 'r1' }]),
+    });
 
-    const out = await apply_root_changes(
-      scope_with(),
+    await apply_root_changes(
+      make_scope(connector),
       'channel-1',
-      delta_read([live('root-1')]),
+      {
+        ...DELTA,
+        changes: [
+          root_change('m1'),
+          { root: { id: 'm2', deletedDateTime: BACKUP_AT }, deleted: true },
+        ],
+      },
       {},
-      ledger,
+      {},
     );
 
-    expect(out.failed_roots).not.toHaveProperty('channel-1/root-1');
-    expect(out.threads['root-1']).toEqual(thread('root-1'));
+    expect(connector.list_replies).toHaveBeenCalledTimes(1);
+    expect(connector.list_replies).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.any(String),
+      'channel-1',
+      'm1',
+    );
+    expect(vi.mocked(store_thread).mock.calls[1]?.[4]).toEqual([]);
   });
 
-  it('re-keys a legacy ledger entry to its channel and clears it once the root succeeds', async () => {
-    const ledger: FailedItemLedger = {
-      'root-1': {
-        item_id: 'root-1',
-        drive_id: 'channel-1',
-        name: 'root-1',
-        reason: 'old failure',
-        attempts: 2,
-        first_failed_at: BACKUP_AT,
-        last_failed_at: BACKUP_AT,
-      },
-    };
+  it('marks a previous root removed on a full read when Graph no longer lists it', async () => {
+    const scope = make_scope(make_connector());
+    const previous = { m1: thread_entry('m1'), m2: thread_entry('m2') };
 
     const out = await apply_root_changes(
-      scope_with(),
+      scope,
       'channel-1',
-      delta_read([live('root-1')]),
+      { ...FULL, changes: [root_change('m1')] },
+      previous,
       {},
-      ledger,
+    );
+
+    expect(out.threads.m2?.deleted_at).toBe(BACKUP_AT);
+    expect(out.threads.m1?.deleted_at).toBeUndefined();
+    expect(scope.counters.threads_deleted).toBe(1);
+  });
+
+  it('does not mark previous roots removed on a delta read', async () => {
+    const out = await apply_root_changes(
+      make_scope(make_connector()),
+      'channel-1',
+      DELTA,
+      { m1: thread_entry('m1') },
+      {},
+    );
+
+    expect(mark_root_removed).not.toHaveBeenCalled();
+    expect(out.threads.m1?.deleted_at).toBeUndefined();
+  });
+
+  it('stops before the next root when the run is interrupted', async () => {
+    const out = await apply_root_changes(
+      make_scope(make_connector(), () => true),
+      'channel-1',
+      { ...DELTA, changes: [root_change('m1')] },
+      {},
+      {},
+    );
+
+    expect(out.interrupted).toBe(true);
+    expect(store_thread).not.toHaveBeenCalled();
+  });
+});
+
+describe('apply_root_changes failed-root ledger', () => {
+  it('records a failing root with its error and increments its attempts on repeat', async () => {
+    vi.mocked(store_thread).mockRejectedValueOnce(new Error('boom'));
+
+    const out = await apply_root_changes(
+      make_scope(make_connector()),
+      'channel-1',
+      { ...DELTA, changes: [root_change('m1')] },
+      {},
+      { m1: failure('m1', 2) },
+    );
+
+    expect(out.errors).toEqual(['Channel channel-1 root m1: boom']);
+    expect(out.failed_roots.m1?.attempts).toBe(3);
+  });
+
+  it('clears a ledger root that a delta read applies successfully', async () => {
+    const out = await apply_root_changes(
+      make_scope(make_connector()),
+      'channel-1',
+      { ...DELTA, changes: [root_change('m1')] },
+      {},
+      { m1: failure('m1', 1) },
     );
 
     expect(out.failed_roots).toEqual({});
   });
 
-  describe('ledger roots the delta read did not return', () => {
-    const TEAM_ID = '00000000-0000-0000-0000-000000000001';
-
-    function ledger_with(attempts: number): FailedItemLedger {
-      return {
-        'channel-1/root-1': {
-          item_id: 'channel-1/root-1',
-          drive_id: 'channel-1',
-          name: 'root-1',
-          reason: 'old failure',
-          attempts,
-          first_failed_at: BACKUP_AT,
-          last_failed_at: BACKUP_AT,
-        },
-      };
-    }
-
-    function scope_fetching(get_channel_message: unknown): BackupRunScope {
-      return {
-        ...scope_with(),
-        connector: { get_channel_message } as unknown as BackupRunScope['connector'],
-      };
-    }
-
-    it('re-fetches a ledger root the delta read did not return and stores it', async () => {
-      const get = vi.fn(async () => live('root-1'));
-
-      const out = await apply_root_changes(
-        scope_fetching(get),
-        'channel-1',
-        delta_read([]),
-        {},
-        ledger_with(1),
-      );
-
-      expect(get).toHaveBeenCalledWith('tenant-1', TEAM_ID, 'channel-1', 'root-1');
-      expect(out.threads['root-1']).toEqual(thread('root-1'));
-      expect(out.failed_roots).toEqual({});
+  it('re-fetches a ledger root the delta read did not return', async () => {
+    const connector = make_connector({
+      get_channel_message: vi.fn(async () => root_change('m9')),
     });
-
-    it('marks a ledger root Graph no longer has as removed', async () => {
-      const get = vi.fn(async () => undefined);
-
-      const out = await apply_root_changes(
-        scope_fetching(get),
-        'channel-1',
-        delta_read([]),
-        { 'root-1': thread('old') },
-        ledger_with(1),
-      );
-
-      expect(out.threads['root-1']).toMatchObject({ deleted_at: BACKUP_AT });
-      expect(out.failed_roots).toEqual({});
-    });
-
-    it('counts another attempt when re-fetching a ledger root fails', async () => {
-      const get = vi.fn(async () => {
-        throw new Error('graph 500');
-      });
-
-      const out = await apply_root_changes(
-        scope_fetching(get),
-        'channel-1',
-        delta_read([]),
-        {},
-        ledger_with(1),
-      );
-
-      expect(out.failed_roots['channel-1/root-1']).toMatchObject({ attempts: 2 });
-      expect(out.errors).toEqual(['Channel channel-1 root root-1: graph 500']);
-    });
-
-    it('does not re-fetch a ledger root past the retry budget', async () => {
-      const get = vi.fn(async () => live('root-1'));
-
-      const out = await apply_root_changes(
-        scope_fetching(get),
-        'channel-1',
-        delta_read([]),
-        {},
-        ledger_with(MAX_FAILED_ITEM_ATTEMPTS),
-      );
-
-      expect(get).not.toHaveBeenCalled();
-      expect(out.failed_roots['channel-1/root-1']).toBeDefined();
-    });
-
-    it('does not re-fetch a ledger root the delta read already returned', async () => {
-      const get = vi.fn(async () => live('root-1'));
-
-      await apply_root_changes(
-        scope_fetching(get),
-        'channel-1',
-        delta_read([live('root-1')]),
-        {},
-        ledger_with(1),
-      );
-
-      expect(get).not.toHaveBeenCalled();
-    });
-  });
-
-  it('marks a previous root removed when a full read no longer lists it', async () => {
-    const previous = { 'root-1': thread('root-1'), 'root-gone': thread('root-gone') };
 
     const out = await apply_root_changes(
-      scope_with(),
+      make_scope(connector),
       'channel-1',
-      full_read([live('root-1')]),
+      DELTA,
+      {},
+      { m9: failure('m9', 1) },
+    );
+
+    expect(connector.get_channel_message).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.any(String),
+      'channel-1',
+      'm9',
+    );
+    expect(out.threads.m9).toBeDefined();
+    expect(out.failed_roots).toEqual({});
+  });
+
+  it('marks a ledger root removed when Graph no longer has it', async () => {
+    const previous: Record<string, TeamsThread> = { m9: thread_entry('m9') };
+
+    const out = await apply_root_changes(
+      make_scope(make_connector()),
+      'channel-1',
+      DELTA,
       previous,
-      {},
+      { m9: failure('m9', 1) },
     );
 
-    expect(mark_thread_removed).toHaveBeenCalledTimes(1);
-    expect(out.threads['root-gone']?.deleted_at).toBe(BACKUP_AT);
-    expect(out.threads['root-1']).toEqual(thread('root-1'));
+    expect(mark_root_removed).toHaveBeenCalledWith(expect.anything(), previous.m9);
+    expect(out.threads.m9?.deleted_at).toBe(BACKUP_AT);
+    expect(out.failed_roots).toEqual({});
   });
 
-  it('keeps previous roots a delta read does not list, since a delta lists only changes', async () => {
-    const previous = { 'root-gone': thread('root-gone') };
+  it('does not re-fetch a ledger root that spent its attempt budget', async () => {
+    const connector = make_connector({ get_channel_message: vi.fn() });
 
     const out = await apply_root_changes(
-      scope_with(),
+      make_scope(connector),
       'channel-1',
-      delta_read([live('root-1')]),
-      previous,
+      DELTA,
       {},
+      { m9: failure('m9', MAX_FAILED_ITEM_ATTEMPTS) },
     );
 
-    expect(mark_thread_removed).not.toHaveBeenCalled();
-    expect(out.threads['root-gone']).toEqual(thread('root-gone'));
+    expect(connector.get_channel_message).not.toHaveBeenCalled();
+    expect(out.failed_roots.m9).toBeDefined();
   });
 
-  it('marks a deleted root removed without storing it', async () => {
-    const previous = { 'root-1': thread('root-1') };
-    const change: TeamsRootChange = { root: { id: 'root-1' }, deleted: true };
+  it('drops ledger roots a full read no longer lists (N7)', async () => {
+    const connector = make_connector({ get_channel_message: vi.fn() });
 
     const out = await apply_root_changes(
-      scope_with(),
+      make_scope(connector),
       'channel-1',
-      delta_read([change]),
-      previous,
+      { ...FULL, changes: [root_change('m1')] },
       {},
+      { m1: failure('m1', 1), m9: failure('m9', 1) },
     );
 
-    expect(store_thread).not.toHaveBeenCalled();
-    expect(out.threads['root-1']?.deleted_at).toBe(BACKUP_AT);
+    expect(out.failed_roots).toEqual({});
+    expect(connector.get_channel_message).not.toHaveBeenCalled();
   });
 
-  it('stores nothing for a deleted root that was never backed up', async () => {
-    const change: TeamsRootChange = { root: { id: 'root-new' }, deleted: true };
+  it('rethrows an AuthError from a root without recording it', async () => {
+    vi.mocked(store_thread).mockRejectedValueOnce(new AuthError('denied'));
 
-    const out = await apply_root_changes(scope_with(), 'channel-1', delta_read([change]), {}, {});
-
-    expect(store_thread).not.toHaveBeenCalled();
-    expect(out.threads).not.toHaveProperty('root-new');
-  });
-
-  it('stops at an interruption and reports it without marking anything removed', async () => {
-    let calls = 0;
-    const scope = scope_with(() => {
-      calls++;
-      return calls > 1;
-    });
-
-    const out = await apply_root_changes(
-      scope,
-      'channel-1',
-      full_read([live('root-1'), live('root-2')]),
-      { 'root-gone': thread('root-gone') },
-      {},
-    );
-
-    expect(out.interrupted).toBe(true);
-    expect(store_thread).toHaveBeenCalledTimes(1);
-    expect(mark_thread_removed).not.toHaveBeenCalled();
+    await expect(
+      apply_root_changes(
+        make_scope(make_connector()),
+        'channel-1',
+        { ...DELTA, changes: [root_change('m1')] },
+        {},
+        {},
+      ),
+    ).rejects.toBeInstanceOf(AuthError);
   });
 });

@@ -59,18 +59,22 @@ export type {
   SharePointDeltaCursor,
   SharePointVersionWatermark,
 } from './sharepoint-manifest';
+export { TEAMS_FORMAT_VERSION } from './teams-manifest';
 export type {
   TeamsGraphResource,
-  TeamsThreadBlob,
   TeamsStoredBlobRef,
-  TeamsHostedContentRef,
-  TeamsThreadEntry,
+  TeamsHostedRef,
+  TeamsKeptMessageRef,
+  TeamsMessageRef,
+  TeamsThread,
   TeamsThreadListing,
   TeamsChannelReadMode,
   TeamsFilesFolderRef,
-  TeamsChannelEntry,
-  TeamsSnapshotManifest,
-  TeamsDeltaCursor,
+  TeamsChannelIndexEntry,
+  TeamsSnapshotTotals,
+  TeamsSnapshotIndex,
+  TeamsChannelShard,
+  TeamsChannelCursor,
 } from './teams-manifest';
 export type {
   GraphOperation,

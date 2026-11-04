@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FailedItemLedger, TeamsChannelEntry } from '@wisecom/atlas-types';
-import { backup_channel } from '@/services/backup/channel-backup-processor';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { TeamsChannelIndexEntry, TeamsGraphResource } from '@wisecom/atlas-types';
+import { backup_channel, type ChannelStartState } from '@/services/backup/channel-backup-processor';
 import { store_thread } from '@/services/backup/thread-store';
 import {
   BACKUP_AT,
@@ -8,154 +8,250 @@ import {
   CHANNEL_WITH_EMAIL,
   make_connector,
   make_scope,
-  previous_channel,
+  previous_shard,
   root_change,
   thread_entry,
 } from './channel-backup-processor-harness';
 
 vi.mock('@/services/backup/thread-store', () => ({
   store_thread: vi.fn(),
-  mark_thread_removed: vi.fn(),
+  mark_root_removed: vi.fn(),
 }));
 
-describe('backup_channel run modes and retries', () => {
-  beforeEach(() => {
-    vi.mocked(store_thread).mockReset();
-    vi.mocked(store_thread).mockImplementation(async (_scope, _channel, root) =>
-      thread_entry(root.root.id),
-    );
+const previous_entry: TeamsChannelIndexEntry = {
+  channel_id: 'channel-1',
+  shard_key: 'shard-key',
+  shard_checksum: 'shard-sum',
+  thread_count: 1,
+  message_count: 1,
+  size_bytes: 1,
+  deleted_at: BACKUP_AT,
+};
+
+function start(overrides: Partial<ChannelStartState> = {}): ChannelStartState {
+  return {
+    previous_entry: undefined,
+    previous_shard: undefined,
+    stored_link: undefined,
+    failed_roots: {},
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  vi.mocked(store_thread).mockReset();
+  vi.mocked(store_thread).mockImplementation(async (_scope, _channel, _previous, root) => ({
+    thread: thread_entry(root.id),
+    warnings: [],
+    stored: 1,
+    deduped: 0,
+  }));
+});
+
+describe('backup_channel read modes', () => {
+  it('reads every root in full for a channel without a mail address, with no link', async () => {
+    const connector = make_connector({
+      list_channel_messages: vi.fn(async () => [root_change('m1')]),
+    });
+
+    const output = await backup_channel(make_scope(connector), CHANNEL, start());
+
+    expect(connector.list_channel_messages).toHaveBeenCalledTimes(1);
+    expect(connector.fetch_message_delta).not.toHaveBeenCalled();
+    expect(output.shard.read_mode).toBe('full');
+    expect(output.next_link).toBeUndefined();
+    expect(Object.keys(output.shard.threads)).toEqual(['m1']);
   });
 
-  it('reuses the stored files folder unless the run is a full run', async () => {
-    const folder = { id: 'folder-1' } as unknown as TeamsChannelEntry['files_folder'];
-    const previous: TeamsChannelEntry = { ...previous_channel({}), files_folder: folder };
+  it('follows the stored link for a channel with a mail address', async () => {
+    const connector = make_connector({
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('m2')],
+        delta_link: 'link-2',
+      })),
+    });
 
-    const reused_connector = make_connector();
-    const reused = await backup_channel(
-      make_scope(reused_connector),
-      CHANNEL,
-      previous,
-      undefined,
-      {},
-    );
-    expect(reused_connector.get_channel_files_folder).not.toHaveBeenCalled();
-    expect(reused.entry.files_folder).toBe(folder);
-
-    const full_connector = make_connector();
-    await backup_channel(
-      make_scope(full_connector, () => false, true),
-      CHANNEL,
-      previous,
-      undefined,
-      {},
-    );
-    expect(full_connector.get_channel_files_folder).toHaveBeenCalledTimes(1);
-  });
-
-  it('counts a channel read in full and not one that follows its link', async () => {
-    const full = make_scope(make_connector({ list_channel_messages: vi.fn(async () => []) }));
-    await backup_channel(full, CHANNEL, undefined, undefined, {});
-    expect(full.counters.channels_full_read).toBe(1);
-
-    const delta = make_scope(make_connector());
-    await backup_channel(delta, CHANNEL_WITH_EMAIL, previous_channel({}), 'link-old', {});
-    expect(delta.counters.channels_full_read).toBe(0);
-  });
-
-  it('ignores the stored link on a --full run', async () => {
-    const connector = make_connector({ list_channel_messages: vi.fn(async () => []) });
-
-    await backup_channel(
-      make_scope(connector, () => false, true),
+    const output = await backup_channel(
+      make_scope(connector),
       CHANNEL_WITH_EMAIL,
-      undefined,
-      'link-old',
-      {},
+      start({ stored_link: 'stored-link' }),
     );
 
     expect(connector.fetch_message_delta).toHaveBeenCalledWith(
       'tenant-1',
-      '00000000-0000-0000-0000-000000000001',
+      expect.any(String),
+      'channel-1',
+      'stored-link',
+    );
+    expect(output.shard.read_mode).toBe('delta');
+    expect(output.next_link).toBe('link-2');
+  });
+
+  it('ignores the stored link on a --full run', async () => {
+    const connector = make_connector({
+      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-fresh' })),
+    });
+
+    const output = await backup_channel(
+      make_scope(connector, undefined, true),
+      CHANNEL_WITH_EMAIL,
+      start({ stored_link: 'stored-link' }),
+    );
+
+    expect(connector.fetch_message_delta).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.any(String),
       'channel-1',
       undefined,
     );
+    expect(output.shard.read_mode).toBe('full');
+    expect(output.next_link).toBe('link-fresh');
   });
 
-  it('withholds the link of a --full run that leaves a root failed', async () => {
-    vi.mocked(store_thread).mockRejectedValueOnce(new Error('boom'));
+  it('falls back to a full read when Graph rejects the stored link', async () => {
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
-        roots: [root_change('root-1')],
-        delta_link: 'link-new',
-      })),
+      fetch_message_delta: vi
+        .fn()
+        .mockRejectedValueOnce(Object.assign(new Error('gone'), { statusCode: 400 }))
+        .mockResolvedValueOnce({ roots: [root_change('m1')], delta_link: 'link-new' }),
     });
 
-    const out = await backup_channel(
-      make_scope(connector, () => false, true),
+    const output = await backup_channel(
+      make_scope(connector),
       CHANNEL_WITH_EMAIL,
-      undefined,
-      'link-old',
-      {},
+      start({ stored_link: 'stored-link' }),
     );
 
-    expect(out.complete).toBe(false);
-    expect(out.next_link).toBe('link-old');
+    expect(output.shard.read_mode).toBe('full');
+    expect(output.next_link).toBe('link-new');
   });
+});
 
-  it('stops retrying a root after its fifth failed attempt and lets the link advance', async () => {
+describe('backup_channel retries and link retention', () => {
+  it('keeps the stored link when a root fails, so the next run presents it again', async () => {
     vi.mocked(store_thread).mockRejectedValueOnce(new Error('boom'));
     const connector = make_connector({
       fetch_message_delta: vi.fn(async () => ({
-        roots: [root_change('root-1')],
-        delta_link: 'link-new',
+        roots: [root_change('m1')],
+        delta_link: 'link-2',
       })),
     });
-    const ledger: FailedItemLedger = {
-      'channel-1/root-1': {
-        item_id: 'root-1',
+
+    const output = await backup_channel(
+      make_scope(connector),
+      CHANNEL_WITH_EMAIL,
+      start({ stored_link: 'stored-link' }),
+    );
+
+    expect(output.errors).toEqual(['Channel channel-1 root m1: boom']);
+    expect(output.failed_roots).toEqual({
+      m1: expect.objectContaining({ item_id: 'm1' }),
+    });
+    expect(output.next_link).toBe('stored-link');
+  });
+
+  it('retries a root that failed on an earlier run even when Graph did not return it', async () => {
+    const earlier = {
+      m9: {
+        item_id: 'm9',
         drive_id: 'channel-1',
-        name: 'root-1',
-        reason: 'boom',
-        attempts: 4,
+        name: 'm9',
+        reason: 'earlier',
+        attempts: 1,
         first_failed_at: BACKUP_AT,
         last_failed_at: BACKUP_AT,
       },
     };
-
-    const out = await backup_channel(
-      make_scope(connector),
-      CHANNEL_WITH_EMAIL,
-      undefined,
-      'link-old',
-      ledger,
-    );
-
-    expect(out.failed_roots['channel-1/root-1']?.attempts).toBe(5);
-    expect(out.complete).toBe(true);
-    expect(out.next_link).toBe('link-new');
-  });
-
-  it('marks a files folder Graph refuses and skips the lookup until a --full run', async () => {
     const connector = make_connector({
-      get_channel_files_folder: vi.fn(async () => 'unavailable' as const),
+      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-2' })),
+      get_channel_message: vi.fn(async () => root_change('m9')),
     });
 
-    const first = await backup_channel(make_scope(connector), CHANNEL, undefined, undefined, {});
-    expect(first.entry.files_folder_unavailable).toBe(true);
-    expect(first.warnings).toEqual([
-      'Channel channel-1: files folder not accessible (403); not retried until a --full run',
-    ]);
-
-    await backup_channel(make_scope(connector), CHANNEL, first.entry, undefined, {});
-    expect(connector.get_channel_files_folder).toHaveBeenCalledTimes(1);
-
-    await backup_channel(
-      make_scope(connector, () => false, true),
-      CHANNEL,
-      first.entry,
-      undefined,
-      {},
+    const output = await backup_channel(
+      make_scope(connector),
+      CHANNEL_WITH_EMAIL,
+      start({ stored_link: 'stored-link', failed_roots: earlier }),
     );
-    expect(connector.get_channel_files_folder).toHaveBeenCalledTimes(2);
+
+    expect(connector.get_channel_message).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.any(String),
+      'channel-1',
+      'm9',
+    );
+    expect(Object.keys(output.failed_roots)).toEqual([]);
+    expect(output.next_link).toBe('link-2');
+  });
+
+  it('marks the run interrupted and keeps the stored link when the run stops mid-channel', async () => {
+    let calls = 0;
+    const connector = make_connector({
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('m1'), root_change('m2')],
+        delta_link: 'link-2',
+      })),
+    });
+
+    const output = await backup_channel(
+      make_scope(connector, () => ++calls > 1),
+      CHANNEL_WITH_EMAIL,
+      start({ stored_link: 'stored-link' }),
+    );
+
+    expect(output.interrupted).toBe(true);
+    expect(output.next_link).toBe('stored-link');
+  });
+});
+
+describe('backup_channel shard reuse', () => {
+  it('reuses the previous entry when content is unchanged, even if the read mode differs', async () => {
+    const prior = previous_shard({ m1: thread_entry('m1') }, 'full');
+    const connector = make_connector({
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('m1')],
+        delta_link: 'link-2',
+      })),
+    });
+
+    const output = await backup_channel(
+      make_scope(connector),
+      { ...CHANNEL_WITH_EMAIL },
+      start({
+        previous_entry,
+        previous_shard: { ...prior, channel: CHANNEL_WITH_EMAIL as TeamsGraphResource },
+        stored_link: 'stored-link',
+      }),
+    );
+
+    expect(output.shard.read_mode).toBe('delta');
+    expect(output.reused_entry).toEqual({ ...previous_entry, deleted_at: undefined });
+  });
+
+  it('returns no reused entry when a stored root changed content', async () => {
+    const prior = previous_shard({ m1: thread_entry('m1') }, 'full');
+    vi.mocked(store_thread).mockResolvedValueOnce({
+      thread: { ...thread_entry('m1'), root: { ...thread_entry('m1').root, checksum: 'changed' } },
+      warnings: [],
+      stored: 1,
+      deduped: 0,
+    });
+    const connector = make_connector({
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('m1')],
+        delta_link: 'link-2',
+      })),
+    });
+
+    const output = await backup_channel(
+      make_scope(connector),
+      CHANNEL_WITH_EMAIL,
+      start({
+        previous_entry,
+        previous_shard: { ...prior, channel: CHANNEL_WITH_EMAIL as TeamsGraphResource },
+        stored_link: 'stored-link',
+      }),
+    );
+
+    expect(output.reused_entry).toBeUndefined();
   });
 });

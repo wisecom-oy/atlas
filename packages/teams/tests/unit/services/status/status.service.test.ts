@@ -1,80 +1,101 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
-  TeamsManifestRepository,
-  TeamsSnapshotManifest,
+  TeamsIndexRepository,
+  TeamsSnapshotIndex,
+  TeamsTeamListing,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { TeamsStatusService } from '@/services/status/status.service';
 
-const TENANT = 'tenant-1';
-const CREATED_AT = new Date('2025-01-01T00:00:00.000Z');
+const TEAM_A = '00000000-0000-0000-0000-000000000001';
+const TEAM_B = '00000000-0000-0000-0000-000000000002';
 
-function manifest(snapshot_id: string, channel_count: number): TeamsSnapshotManifest {
+function index(snapshot_id: string, channel_count: number): TeamsSnapshotIndex {
   return {
+    id: `${TEAM_A}-${snapshot_id}`,
+    format_version: 1,
+    tenant_id: 'tenant',
+    team_id: TEAM_A,
     team_display_name: 'Finance',
     snapshot_id,
-    created_at: CREATED_AT,
-    channels: Array.from({ length: channel_count }, (_, index) => ({ id: `channel-${index}` })),
-  } as unknown as TeamsSnapshotManifest;
+    created_at: new Date('2025-01-01T00:00:00.000Z'),
+    team: { id: TEAM_A },
+    members: [],
+    channels: Array.from({ length: channel_count }, (_, n) => ({
+      channel_id: `channel-${n}`,
+      shard_key: `key-${n}`,
+      shard_checksum: 'unused',
+      thread_count: 0,
+      message_count: 0,
+      size_bytes: 0,
+    })),
+    totals: { thread_count: 0, message_count: 0, size_bytes: 0 },
+  };
 }
 
-function setup(rows: Array<{ team_id: string; manifest: TeamsSnapshotManifest | undefined }>) {
+function setup(listings: TeamsTeamListing[]) {
   const ctx = { destroy: vi.fn() };
-  const list_latest_per_team = vi.fn(async () => rows);
-  const list_all_manifests = vi.fn(async () => []);
+  const list_teams = vi.fn(async () => listings);
   const service = new TeamsStatusService(
     { create_readonly: vi.fn(async () => ctx) } as unknown as TenantContextFactory,
-    { list_latest_per_team, list_all_manifests } as unknown as TeamsManifestRepository,
+    { list_teams } as unknown as TeamsIndexRepository,
   );
-  return { service, list_latest_per_team, list_all_manifests };
+  return { service, list_teams, ctx };
 }
 
 describe('TeamsStatusService.check_teams_status', () => {
-  it('reads one latest manifest per team and never decrypts every manifest (C4)', async () => {
-    const { service, list_latest_per_team, list_all_manifests } = setup([
+  it('reports the newest readable index of each team with the keys it skipped', async () => {
+    const newest = index('teams-snap-2000-bbbbbb', 2);
+    const { service, list_teams } = setup([
       {
-        team_id: '00000000-0000-0000-0000-000000000001',
-        manifest: manifest('teams-snap-2000-bbbbbb', 2),
+        team_id: TEAM_A,
+        listing: {
+          indexes: [newest, index('teams-snap-1000-aaaaaa', 5)],
+          unreadable_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
+          unsupported_keys: [],
+        },
       },
     ]);
 
-    await service.check_teams_status(TENANT);
+    const rows = await service.check_teams_status('tenant');
 
-    expect(list_latest_per_team).toHaveBeenCalledTimes(1);
-    expect(list_all_manifests).not.toHaveBeenCalled();
-  });
-
-  it('maps a team with a readable manifest to its backup fields', async () => {
-    const { service } = setup([
+    expect(rows).toEqual([
       {
-        team_id: '00000000-0000-0000-0000-000000000001',
-        manifest: manifest('teams-snap-2000-bbbbbb', 2),
-      },
-    ]);
-
-    expect(await service.check_teams_status(TENANT)).toEqual([
-      {
-        team_id: '00000000-0000-0000-0000-000000000001',
+        team_id: TEAM_A,
         team_display_name: 'Finance',
-        last_backup_at: CREATED_AT,
+        last_backup_at: newest.created_at,
         last_snapshot_id: 'teams-snap-2000-bbbbbb',
         total_channels: 2,
+        unreadable_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
+        unsupported_keys: [],
       },
     ]);
+    expect(list_teams).toHaveBeenCalledTimes(1);
   });
 
-  it('lists a team with no readable manifest with empty backup fields', async () => {
+  it('still lists a team whose only indexes are newer-format, with no backup and the key reported', async () => {
     const { service } = setup([
-      { team_id: '00000000-0000-0000-0000-000000000002', manifest: undefined },
+      {
+        team_id: TEAM_B,
+        listing: {
+          indexes: [],
+          unreadable_keys: [],
+          unsupported_keys: ['teams/manifests/b/teams-snap-3000-dddddd.json'],
+        },
+      },
     ]);
 
-    expect(await service.check_teams_status(TENANT)).toEqual([
+    const rows = await service.check_teams_status('tenant');
+
+    expect(rows).toEqual([
       {
-        team_id: '00000000-0000-0000-0000-000000000002',
+        team_id: TEAM_B,
         team_display_name: undefined,
         last_backup_at: undefined,
         last_snapshot_id: undefined,
         total_channels: 0,
+        unreadable_keys: [],
+        unsupported_keys: ['teams/manifests/b/teams-snap-3000-dddddd.json'],
       },
     ]);
   });

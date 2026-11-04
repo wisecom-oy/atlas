@@ -1,25 +1,53 @@
 import type { TeamsGraphResource } from '@wisecom/atlas-types';
 
-/**
- * A hosted-content path counts only inside an `src` or `url` attribute value (HTML or card JSON),
- * so plain text that mentions the path does not reference an image.
- */
-const HOSTED_REFERENCE_RE =
-  /(?:src|url)\\?"?\s*[=:]\s*\\?["'][^"'\\<>\s]*?hostedContents\/([^/"'\s<>?#&\\]+)/g;
+/** The message whose hosted contents are scanned: a root, or one reply inside it. */
+export interface HostedOwner {
+  readonly root_id: string;
+  readonly reply_id?: string | undefined;
+}
+
+/** Any `name="value"` or `name":"value"` pair, with JSON or HTML quoting around the value. */
+const ATTRIBUTE_VALUE_RE = /([A-Za-z_][\w-]*)\\?"?\s*[=:]\s*\\?["']([^"'\\<>\s]*)/g;
+
+/** Attribute names that carry a URL: `src`, `url`, any suffix of those, and `backgroundImage`. */
+const URL_ATTRIBUTE_RE = /(?:src|url)$|^backgroundimage$/i;
 
 /**
- * Returns the hosted-content ids a message's body and attachments reference. Graph escapes these
- * references differently per field: JSON-escaped slashes (`\/`) inside attachment content, HTML
- * entities (`&sol;`, `&#47;`, `&#x2F;`) in the body, and percent-encoding in the id itself.
+ * Returns the hosted-content ids that a message's body and attachments reference through a URL
+ * attribute and that point at this message's own `hostedContents` path. Plain text and other
+ * messages' images do not count. Graph escapes references differently per field: JSON-escaped
+ * slashes inside card content, HTML entities in the body, and percent-encoding in the id.
  */
-export function referenced_hosted_ids(message: TeamsGraphResource): string[] {
-  const serialized = JSON.stringify({ body: message.body, attachments: message.attachments });
-  const text = unescape_reference_text(serialized);
+export function referenced_hosted_ids(message: TeamsGraphResource, owner: HostedOwner): string[] {
+  const prefix = hosted_path_prefix(owner);
+  const text = unescape_reference_text(
+    JSON.stringify({ body: message.body, attachments: message.attachments }),
+  );
   const ids = new Set<string>();
-  for (const match of text.matchAll(HOSTED_REFERENCE_RE)) {
-    ids.add(decode_segment(match[1] ?? ''));
+  for (const match of text.matchAll(ATTRIBUTE_VALUE_RE)) {
+    const [, name = '', value = ''] = match;
+    const id = URL_ATTRIBUTE_RE.test(name) ? hosted_id_after(value, prefix) : undefined;
+    if (id !== undefined) {
+      ids.add(id);
+    }
   }
-  return [...ids].filter((id) => id.length > 0);
+  return [...ids];
+}
+
+/** The path that names this message's hosted contents, with the hosted-content id still to come. */
+function hosted_path_prefix(owner: HostedOwner): string {
+  return owner.reply_id === undefined
+    ? `/messages/${owner.root_id}/hostedContents/`
+    : `/messages/${owner.root_id}/replies/${owner.reply_id}/hostedContents/`;
+}
+
+function hosted_id_after(value: string, prefix: string): string | undefined {
+  const index = value.indexOf(prefix);
+  if (index < 0) {
+    return undefined;
+  }
+  const segment = /^[^/?#]+/.exec(value.slice(index + prefix.length))?.[0];
+  return segment === undefined ? undefined : decode_segment(segment);
 }
 
 function unescape_reference_text(text: string): string {

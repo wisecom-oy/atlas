@@ -1,36 +1,27 @@
 import { inject, injectable } from 'inversify';
 import type {
-  TeamsManifestRepository,
-  TeamsSnapshotManifest,
+  TeamsIndexRepository,
+  TeamsSnapshotListing,
   TeamsStatusUseCase,
   TeamsTeamStatus,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import {
-  TEAMS_MANIFEST_REPOSITORY_TOKEN,
-  TENANT_CONTEXT_FACTORY_TOKEN,
-} from '@wisecom/atlas-types';
+import { TEAMS_INDEX_REPOSITORY_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 
-/** Maps a team's newest readable manifest to its status row. A team with none reports no backup. */
-function team_status(
-  team_id: string,
-  manifest: TeamsSnapshotManifest | undefined,
-): TeamsTeamStatus {
-  if (manifest === undefined) {
-    return {
-      team_id,
-      team_display_name: undefined,
-      last_backup_at: undefined,
-      last_snapshot_id: undefined,
-      total_channels: 0,
-    };
-  }
+/**
+ * Maps a team's newest readable index to its status row, carrying the keys the listing skipped.
+ * A team with no readable index reports no backup.
+ */
+function team_status(team_id: string, listing: TeamsSnapshotListing): TeamsTeamStatus {
+  const newest = listing.indexes[0];
   return {
     team_id,
-    team_display_name: manifest.team_display_name,
-    last_backup_at: manifest.created_at,
-    last_snapshot_id: manifest.snapshot_id,
-    total_channels: manifest.channels.length,
+    team_display_name: newest?.team_display_name,
+    last_backup_at: newest?.created_at,
+    last_snapshot_id: newest?.snapshot_id,
+    total_channels: newest?.channels.length ?? 0,
+    unreadable_keys: listing.unreadable_keys,
+    unsupported_keys: listing.unsupported_keys,
   };
 }
 
@@ -38,19 +29,20 @@ function team_status(
 export class TeamsStatusService implements TeamsStatusUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
-    @inject(TEAMS_MANIFEST_REPOSITORY_TOKEN)
-    private readonly _manifests: TeamsManifestRepository,
+    @inject(TEAMS_INDEX_REPOSITORY_TOKEN) private readonly _indexes: TeamsIndexRepository,
   ) {}
 
   /**
-   * Reports the newest readable backup run for each team in the tenant. Only one manifest per
-   * team is decrypted, so the cost does not grow with the number of snapshots.
+   * Reports the newest readable backup run for each team in the tenant, with the index keys that
+   * could not be read or were written by a newer format.
+   * ponytail: decrypts every team's indexes per call, not one per team; indexes hold no content, so
+   * this stays small. Cache the newest index per team if snapshot counts grow.
    */
   async check_teams_status(tenant_id: string): Promise<TeamsTeamStatus[]> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const latest = await this._manifests.list_latest_per_team(ctx);
-      return latest.map(({ team_id, manifest }) => team_status(team_id, manifest));
+      const teams = await this._indexes.list_teams(ctx);
+      return teams.map(({ team_id, listing }) => team_status(team_id, listing));
     } finally {
       ctx.destroy();
     }

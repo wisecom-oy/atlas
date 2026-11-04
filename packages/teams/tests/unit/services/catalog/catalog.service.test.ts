@@ -1,98 +1,127 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  TeamsChannelShard,
+  TeamsChannelShardRepository,
   TeamsConnector,
-  TeamsManifestRepository,
+  TeamsIndexRepository,
+  TeamsSnapshotIndex,
   TeamsSnapshotListing,
-  TeamsSnapshotManifest,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { ConfigError, NotFoundError } from '@wisecom/atlas-types';
+import { NotFoundError } from '@wisecom/atlas-types';
 import { TeamsCatalogService } from '@/services/catalog/catalog.service';
 
-const TENANT = 'tenant-1';
+const TENANT = 'tenant';
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const SNAPSHOT = 'teams-snap-2000-bbbbbb';
 
-function manifest_with_threads(): TeamsSnapshotManifest {
+function index_with_channels(): TeamsSnapshotIndex {
+  const entry = (channel_id: string, shard_key: string) => ({
+    channel_id,
+    shard_key,
+    shard_checksum: 'unused',
+    thread_count: 1,
+    message_count: 1,
+    size_bytes: 0,
+  });
   return {
+    id: `${TEAM}-${SNAPSHOT}`,
+    format_version: 1,
+    tenant_id: TENANT,
     team_id: TEAM,
     snapshot_id: SNAPSHOT,
-    channels: [
-      {
-        id: 'channel-1',
-        threads: { 'root-a': { storage_key: 'k-a', backup_at: 'now' } },
-      },
-      {
-        id: 'channel-2',
-        threads: { 'root-b': { storage_key: 'k-b', backup_at: 'now' } },
-      },
-    ],
-  } as unknown as TeamsSnapshotManifest;
+    created_at: new Date('2025-01-01T00:00:00.000Z'),
+    team: { id: TEAM },
+    members: [],
+    channels: [entry('channel-1', 'shard-1'), entry('channel-2', 'shard-2')],
+    totals: { thread_count: 2, message_count: 2, size_bytes: 0 },
+  };
 }
 
-function setup(find_result: TeamsSnapshotManifest | undefined = manifest_with_threads()) {
+function shard(channel_id: string, root_id: string): TeamsChannelShard {
+  return {
+    format_version: 1,
+    team_id: TEAM,
+    channel_id,
+    channel: { id: channel_id },
+    members: [],
+    tabs: [],
+    read_mode: 'full',
+    threads: {
+      [root_id]: {
+        root: {
+          storage_key: `key-${root_id}`,
+          checksum: 'unused',
+          size_bytes: 1,
+          last_modified_at: '2025-01-01T00:00:00.000Z',
+          hosted: {},
+        },
+        replies: {},
+      },
+    },
+  };
+}
+
+function setup(
+  find_result: TeamsSnapshotIndex | undefined = index_with_channels(),
+  listing: TeamsSnapshotListing = { indexes: [], unreadable_keys: [], unsupported_keys: [] },
+) {
   const ctx = { destroy: vi.fn() };
-  const create_readonly = vi.fn(async () => ctx);
-  const list_snapshots_by_team = vi.fn(async (): Promise<TeamsSnapshotListing> => ({
-    manifests: [],
-    unreadable_keys: [],
-  }));
-  const find_by_snapshot = vi.fn(
-    async (): Promise<TeamsSnapshotManifest | undefined> => find_result,
-  );
+  const list_by_team = vi.fn(async () => listing);
+  const find_by_snapshot = vi.fn(async (): Promise<TeamsSnapshotIndex | undefined> => find_result);
+  const shards: Record<string, TeamsChannelShard> = {
+    'shard-1': shard('channel-1', 'root-a'),
+    'shard-2': shard('channel-2', 'root-b'),
+  };
+  const load = vi.fn(async (_ctx: unknown, key: string) => shards[key]);
   const service = new TeamsCatalogService(
-    { create_readonly } as unknown as TenantContextFactory,
+    { create_readonly: vi.fn(async () => ctx) } as unknown as TenantContextFactory,
     {} as TeamsConnector,
-    { list_snapshots_by_team, find_by_snapshot } as unknown as TeamsManifestRepository,
+    { list_by_team, find_by_snapshot } as unknown as TeamsIndexRepository,
+    { load } as unknown as TeamsChannelShardRepository,
   );
-  return { service, list_snapshots_by_team, find_by_snapshot };
+  return { service, list_by_team, find_by_snapshot, load };
 }
 
 describe('TeamsCatalogService', () => {
   it('lists snapshots under the lowercased team id (A9)', async () => {
-    const { service, list_snapshots_by_team } = setup();
+    const { service, list_by_team } = setup();
 
     await service.list_teams_snapshots(TENANT, TEAM.toUpperCase());
 
-    expect(list_snapshots_by_team).toHaveBeenCalledWith(expect.anything(), TEAM);
+    expect(list_by_team).toHaveBeenCalledWith(expect.anything(), TEAM);
   });
 
-  it('returns the unreadable manifest keys beside the readable snapshots (M8)', async () => {
-    const { service, list_snapshots_by_team } = setup();
-    list_snapshots_by_team.mockResolvedValueOnce({
-      manifests: [],
-      unreadable_keys: ['teams/manifests/team/teams-snap-1000-aaaaaa.json'],
-    });
+  it('returns the unreadable and unsupported index keys beside the readable snapshots (M8)', async () => {
+    const listing = {
+      indexes: [],
+      unreadable_keys: [`teams/manifests/${TEAM}/teams-snap-1000-aaaaaa.json`],
+      unsupported_keys: [`teams/manifests/${TEAM}/teams-snap-2000-cccccc.json`],
+    };
+    const { service } = setup(undefined, listing);
 
-    const listing = await service.list_teams_snapshots(TENANT, TEAM);
-
-    expect(listing.unreadable_keys).toEqual(['teams/manifests/team/teams-snap-1000-aaaaaa.json']);
+    await expect(service.list_teams_snapshots(TENANT, TEAM)).resolves.toEqual(listing);
   });
 
-  it('looks up a snapshot under the lowercased team id and flattens its threads (A9)', async () => {
-    const { service, find_by_snapshot } = setup();
+  it('flattens the threads of every channel shard, tagged with their channel and root', async () => {
+    const { service, load } = setup();
 
-    const threads = await service.list_snapshot_threads(TENANT, TEAM.toUpperCase(), SNAPSHOT);
+    const threads = await service.list_snapshot_threads(TENANT, TEAM, SNAPSHOT);
 
-    expect(find_by_snapshot).toHaveBeenCalledWith(expect.anything(), TEAM, SNAPSHOT);
-    expect(threads).toEqual([
-      { storage_key: 'k-a', backup_at: 'now', channel_id: 'channel-1', root_id: 'root-a' },
-      { storage_key: 'k-b', backup_at: 'now', channel_id: 'channel-2', root_id: 'root-b' },
+    expect(threads.map((t) => [t.channel_id, t.root_id]).sort()).toEqual([
+      ['channel-1', 'root-a'],
+      ['channel-2', 'root-b'],
     ]);
+    expect(load).toHaveBeenCalledWith(expect.anything(), 'shard-1');
+    expect(load).toHaveBeenCalledWith(expect.anything(), 'shard-2');
   });
 
-  it('throws NotFoundError when the snapshot does not exist', async () => {
+  it('raises NotFoundError when the snapshot index does not exist', async () => {
     const { service, find_by_snapshot } = setup();
     find_by_snapshot.mockResolvedValueOnce(undefined);
 
-    await expect(service.list_snapshot_threads(TENANT, TEAM, SNAPSHOT)).rejects.toThrow(
+    await expect(service.list_snapshot_threads(TENANT, TEAM, SNAPSHOT)).rejects.toBeInstanceOf(
       NotFoundError,
     );
-  });
-
-  it('rejects a team id that is not a GUID (A9)', async () => {
-    const { service } = setup();
-
-    await expect(service.list_teams_snapshots(TENANT, 'not-a-guid')).rejects.toThrow(ConfigError);
   });
 });

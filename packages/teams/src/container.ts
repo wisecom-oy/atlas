@@ -4,8 +4,9 @@ import {
   TEAMS_CATALOG_USE_CASE_TOKEN,
   TEAMS_CONNECTOR_TOKEN,
   TEAMS_DELETION_USE_CASE_TOKEN,
-  TEAMS_DELTA_CURSOR_REPOSITORY_TOKEN,
-  TEAMS_MANIFEST_REPOSITORY_TOKEN,
+  TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN,
+  TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
   TEAMS_STATUS_USE_CASE_TOKEN,
   TEAMS_VERIFICATION_USE_CASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -14,8 +15,9 @@ import {
 import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 import { scope_connector_throttling } from '@wisecom/atlas-m365-graph';
 import { GraphTeamsConnector } from '@/adapters/graph-teams-connector.adapter';
-import { S3TeamsDeltaCursorRepository } from '@/adapters/s3-teams-delta-cursor-repository.adapter';
-import { S3TeamsManifestRepository } from '@/adapters/s3-teams-manifest-repository.adapter';
+import { S3TeamsChannelCursorRepository } from '@/adapters/s3-teams-channel-cursor-repository.adapter';
+import { S3TeamsChannelShardRepository } from '@/adapters/s3-teams-channel-shard-repository.adapter';
+import { S3TeamsIndexRepository } from '@/adapters/s3-teams-index-repository.adapter';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { TeamsCatalogService } from '@/services/catalog/catalog.service';
 import { TeamsDeletionService } from '@/services/deletion/deletion.service';
@@ -41,10 +43,14 @@ export function bind_teams(container: Container): void {
       ),
     )
     .inSingletonScope();
-  container.bind(TEAMS_MANIFEST_REPOSITORY_TOKEN).to(S3TeamsManifestRepository).inSingletonScope();
+  container.bind(TEAMS_INDEX_REPOSITORY_TOKEN).to(S3TeamsIndexRepository).inSingletonScope();
   container
-    .bind(TEAMS_DELTA_CURSOR_REPOSITORY_TOKEN)
-    .to(S3TeamsDeltaCursorRepository)
+    .bind(TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN)
+    .to(S3TeamsChannelShardRepository)
+    .inSingletonScope();
+  container
+    .bind(TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN)
+    .to(S3TeamsChannelCursorRepository)
     .inSingletonScope();
   container.bind(TEAMS_BACKUP_USE_CASE_TOKEN).to(TeamsBackupService).inSingletonScope();
   container.bind(TEAMS_VERIFICATION_USE_CASE_TOKEN).to(TeamsVerificationService).inSingletonScope();

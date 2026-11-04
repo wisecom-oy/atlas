@@ -5,7 +5,7 @@ export interface TeamsRootChange {
   readonly root: TeamsGraphResource;
   /** A root Graph reports removed (`@removed`) or with `deletedDateTime` set. */
   readonly deleted: boolean;
-  /** Replies inlined by `$expand=replies`, present only when Graph returned them complete. */
+  /** Replies inlined by `$expand=replies` when Graph returned them complete; absent otherwise. */
   readonly replies?: TeamsGraphResource[] | undefined;
 }
 
@@ -98,8 +98,8 @@ export interface TeamsConnector {
   ): Promise<TeamsRootChange[]>;
 
   /**
-   * Reads one root message with its replies inlined. Resolves undefined when Graph no longer has
-   * it (404), so the caller can treat the root as removed.
+   * Reads one root message, without replies (callers use {@link list_replies}). Resolves undefined
+   * when Graph no longer has it (404), so the caller can treat the root as removed.
    */
   get_channel_message(
     tenant_id: string,

@@ -1,20 +1,18 @@
-import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
-import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import {
   begin_operation_progress,
-  emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import {
   NotFoundError,
-  TEAMS_MANIFEST_REPOSITORY_TOKEN,
+  TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type {
-  TeamsManifestRepository,
-  TeamsSnapshotManifest,
-  TeamsStoredBlobRef,
+  TeamsChannelShardRepository,
+  TeamsIndexRepository,
+  TeamsSnapshotIndex,
   TeamsVerificationResult,
   TeamsVerificationUseCase,
   TenantContext,
@@ -22,51 +20,26 @@ import type {
   VerificationOptions,
 } from '@wisecom/atlas-types';
 import { normalize_team_id } from '@/services/shared/team-id';
-import { thread_stored_blobs } from '@/services/shared/thread-blobs';
-
-/** Every blob a snapshot references: thread blobs, hosted contents, and last live blobs. */
-function collect_blob_refs(manifest: TeamsSnapshotManifest): TeamsStoredBlobRef[] {
-  return manifest.channels.flatMap((channel) =>
-    Object.values(channel.threads).flatMap(thread_stored_blobs),
-  );
-}
-
-/**
- * Downloads, decrypts, and hashes one blob. A missing object or one that fails to decrypt or
- * hash to its recorded checksum counts as a failure. Other storage errors propagate.
- */
-async function blob_matches(ctx: TenantContext, ref: TeamsStoredBlobRef): Promise<boolean> {
-  let encrypted: Buffer;
-  try {
-    encrypted = await ctx.storage.get(ref.storage_key);
-  } catch (err) {
-    if (is_absent_object_error(err)) {
-      return false;
-    }
-    throw err;
-  }
-  try {
-    const plaintext = ctx.decrypt(encrypted, ref.storage_key);
-    return (
-      plaintext.length === ref.size_bytes &&
-      compute_content_digests(ctx, plaintext).checksum === ref.checksum
-    );
-  } catch {
-    return false;
-  }
-}
+import { message_thread_blobs } from '@/services/shared/thread-blobs';
+import {
+  check_channel_shards,
+  check_message_blobs,
+  IntegrityTally,
+} from '@/services/verification/integrity-checks';
 
 @injectable()
 export class TeamsVerificationService implements TeamsVerificationUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
-    @inject(TEAMS_MANIFEST_REPOSITORY_TOKEN)
-    private readonly _manifests: TeamsManifestRepository,
+    @inject(TEAMS_INDEX_REPOSITORY_TOKEN) private readonly _indexes: TeamsIndexRepository,
+    @inject(TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN)
+    private readonly _shards: TeamsChannelShardRepository,
   ) {}
 
   /**
-   * Checks every blob a snapshot references against its recorded size and SHA-256 checksum.
-   * `fast` checks only that each blob exists, and progress is reported per blob.
+   * Checks every object a snapshot references: each channel shard, then each message, hosted, and
+   * kept blob its threads reference. Shards are always loaded, so `fast` only skips the download
+   * and checksum of each message blob and checks that it exists.
    */
   async verify_teams_snapshot(
     tenant_id: string,
@@ -82,72 +55,63 @@ export class TeamsVerificationService implements TeamsVerificationUseCase {
         total_checked: 0,
         passed: 0,
         failed_storage_keys: [],
+        missing_storage_keys: [],
         interrupted: true,
-        index_issues: [],
       };
     }
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifest = await this._manifests.find_by_snapshot(ctx, normalized_team_id, snapshot_id);
-      if (manifest === undefined) {
+      const index = await this._indexes.find_by_snapshot(ctx, normalized_team_id, snapshot_id);
+      if (index === undefined) {
         throw new NotFoundError(
           `Teams snapshot ${snapshot_id} not found for team ${normalized_team_id}`,
         );
       }
-      const refs = collect_blob_refs(manifest);
-      emit_operation_progress(options, {
-        operation: 'verify',
-        workload: 'teams',
-        phase: 'processing',
-        processed: 0,
-        total: refs.length,
-      });
-      const { failed_storage_keys, total_checked } = await this.check_blobs(ctx, refs, options);
-      const interrupted = finish_operation_progress(
-        options,
-        'verify',
-        'teams',
-        total_checked,
-        refs.length,
-        total_checked < refs.length,
-      );
-      return {
-        snapshot_id,
-        total_checked,
-        passed: total_checked - failed_storage_keys.length,
-        failed_storage_keys,
-        interrupted,
-        index_issues: [],
-      };
+      return await this.verify_index(ctx, index, options);
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Checks blobs one at a time in manifest order, stopping early when interrupted. */
-  private async check_blobs(
+  /** Checks the shards an index lists, then the blobs of every shard that loaded. */
+  private async verify_index(
     ctx: TenantContext,
-    refs: TeamsStoredBlobRef[],
+    index: TeamsSnapshotIndex,
     options: VerificationOptions,
-  ): Promise<{ failed_storage_keys: string[]; total_checked: number }> {
-    const failed_storage_keys: string[] = [];
-    let total_checked = 0;
-    for (const ref of refs) {
-      if (options.should_interrupt?.() === true) break;
-      total_checked++;
-      const intact =
-        options.fast === true
-          ? await ctx.storage.exists(ref.storage_key)
-          : await blob_matches(ctx, ref);
-      if (!intact) failed_storage_keys.push(ref.storage_key);
-      emit_operation_progress(options, {
-        operation: 'verify',
-        workload: 'teams',
-        phase: 'processing',
-        processed: total_checked,
-        total: refs.length,
-      });
-    }
-    return { failed_storage_keys, total_checked };
+  ): Promise<TeamsVerificationResult> {
+    const shard_keys = index.channels.map((channel) => channel.shard_key);
+    const shard_tally = new IntegrityTally();
+    const shards = await check_channel_shards(ctx, this._shards, shard_keys, options, shard_tally);
+    const refs = shards.loaded.flatMap((shard) =>
+      Object.values(shard.threads).flatMap(message_thread_blobs),
+    );
+    const blob_tally = new IntegrityTally();
+    const blobs_interrupted = await check_message_blobs(ctx, refs, options, blob_tally);
+
+    const total_checked = shard_tally.checked + blob_tally.checked;
+    const missing_storage_keys = [
+      ...shard_tally.missing_storage_keys,
+      ...blob_tally.missing_storage_keys,
+    ];
+    const failed_storage_keys = [
+      ...shard_tally.failed_storage_keys,
+      ...blob_tally.failed_storage_keys,
+    ];
+    const interrupted = finish_operation_progress(
+      options,
+      'verify',
+      'teams',
+      total_checked,
+      shard_keys.length + refs.length,
+      shards.interrupted || blobs_interrupted,
+    );
+    return {
+      snapshot_id: index.snapshot_id,
+      total_checked,
+      passed: total_checked - missing_storage_keys.length - failed_storage_keys.length,
+      failed_storage_keys,
+      missing_storage_keys,
+      interrupted,
+    };
   }
 }

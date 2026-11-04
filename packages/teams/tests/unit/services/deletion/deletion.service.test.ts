@@ -6,7 +6,7 @@ import {
   delete_snapshot_manifest,
 } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
 import { TeamsDeletionService } from '@/services/deletion/deletion.service';
-import { TEAMS_KEYS } from '@/services/shared/storage-keys';
+import { teams_meta_prefix_for, TEAMS_KEYS } from '@/services/shared/storage-keys';
 
 vi.mock('@wisecom/atlas-core/services/deletion/shared/prefix-deleter', () => ({
   delete_scopes: vi.fn(async () => ({
@@ -52,7 +52,7 @@ describe('TeamsDeletionService.delete_team_data', () => {
 
     expect(delete_scopes).toHaveBeenCalledTimes(1);
     expect(delete_scopes).toHaveBeenCalledWith(STORAGE, [
-      TEAMS_KEYS.delta_cursor_key(TEAM),
+      teams_meta_prefix_for(TEAM),
       TEAMS_KEYS.manifest_prefix_for(TEAM),
       TEAMS_KEYS.data_prefix_for(TEAM),
     ]);
@@ -64,7 +64,7 @@ describe('TeamsDeletionService.delete_team_data', () => {
     await service.delete_team_data(TENANT, TEAM.toUpperCase());
 
     expect(delete_scopes).toHaveBeenCalledWith(STORAGE, [
-      TEAMS_KEYS.delta_cursor_key(TEAM),
+      teams_meta_prefix_for(TEAM),
       TEAMS_KEYS.manifest_prefix_for(TEAM),
       TEAMS_KEYS.data_prefix_for(TEAM),
     ]);

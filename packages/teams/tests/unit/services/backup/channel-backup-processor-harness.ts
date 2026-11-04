@@ -1,15 +1,16 @@
 import { vi } from 'vitest';
 import type {
-  TeamsChannelEntry,
+  TeamsChannelShard,
   TeamsConnector,
   TeamsGraphResource,
   TeamsRootChange,
-  TeamsThreadEntry,
+  TeamsThread,
   TenantContext,
 } from '@wisecom/atlas-types';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 
 export const BACKUP_AT = '2025-01-01T00:00:00.000Z';
+export const TEAM_ID = '00000000-0000-0000-0000-000000000001';
 export const CHANNEL: TeamsGraphResource = { id: 'channel-1', displayName: 'General' };
 export const CHANNEL_WITH_EMAIL = {
   id: 'channel-1',
@@ -27,29 +28,38 @@ export function root_change(id: string): TeamsRootChange {
   return { root: { id }, deleted: false };
 }
 
-export function thread_entry(id: string): TeamsThreadEntry {
+/** A stored thread with no replies, as the thread store would write it. */
+export function thread_entry(id: string): TeamsThread {
   return {
-    storage_key: `key-${id}`,
-    checksum: `sum-${id}`,
-    size_bytes: 1,
-    last_modified_at: BACKUP_AT,
-    reply_count: 0,
-    hosted: {},
-    backup_at: BACKUP_AT,
+    root: {
+      storage_key: `key-${id}`,
+      checksum: `sum-${id}`,
+      size_bytes: 1,
+      last_modified_at: BACKUP_AT,
+      hosted: {},
+    },
+    replies: {},
   };
 }
 
-export function previous_channel(threads: Record<string, TeamsThreadEntry>): TeamsChannelEntry {
+/** A previous channel shard holding the given threads. */
+export function previous_shard(
+  threads: Record<string, TeamsThread>,
+  read_mode: TeamsChannelShard['read_mode'] = 'full',
+): TeamsChannelShard {
   return {
-    id: 'channel-1',
+    format_version: 1,
+    team_id: TEAM_ID,
+    channel_id: 'channel-1',
     channel: CHANNEL,
     members: [],
     tabs: [],
-    read_mode: 'full',
+    read_mode,
     threads,
   };
 }
 
+/** A connector whose every channel call resolves to an empty result unless overridden. */
 export function make_connector(overrides: Partial<TeamsConnector> = {}): TeamsConnector {
   return {
     list_channel_members: vi.fn(async () => []),
@@ -58,10 +68,13 @@ export function make_connector(overrides: Partial<TeamsConnector> = {}): TeamsCo
     list_channel_shared_teams: vi.fn(async () => []),
     fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-default' })),
     list_channel_messages: vi.fn(async () => []),
+    list_replies: vi.fn(async () => []),
+    get_channel_message: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as TeamsConnector;
 }
 
+/** A run scope over the given connector. */
 export function make_scope(
   connector: TeamsConnector,
   should_interrupt = (): boolean => false,
@@ -71,7 +84,7 @@ export function make_scope(
     ctx: {} as TenantContext,
     connector,
     tenant_id: 'tenant-1',
-    team_id: '00000000-0000-0000-0000-000000000001',
+    team_id: TEAM_ID,
     backup_at: BACKUP_AT,
     counters: create_backup_counters(),
     should_interrupt,

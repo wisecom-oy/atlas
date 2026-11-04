@@ -6,7 +6,7 @@ import type { DeletionResult } from '@wisecom/atlas-types';
 import type { TeamsDeletionUseCase, TenantContextFactory } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { inject, injectable } from 'inversify';
-import { TEAMS_KEYS } from '@/services/shared/storage-keys';
+import { teams_meta_prefix_for, TEAMS_KEYS } from '@/services/shared/storage-keys';
 import { normalize_team_id } from '@/services/shared/team-id';
 
 /**
@@ -19,14 +19,14 @@ export class TeamsDeletionService implements TeamsDeletionUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
   ) {}
 
-  /** Deletes every blob, manifest, and delta cursor of a team. */
+  /** Deletes every blob, index, shard, and channel cursor of a team. */
   async delete_team_data(tenant_id: string, team_id: string): Promise<DeletionResult> {
     const normalized_team_id = normalize_team_id(team_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    // Cursor goes first so no incremental run follows a partial delete; manifests go before data
-    // so no surviving manifest points at deleted blobs.
+    // Cursors go first so no incremental run follows a partial delete; indexes and shards go before
+    // data so no surviving index points at deleted blobs.
     return delete_scopes(storage, [
-      TEAMS_KEYS.delta_cursor_key(normalized_team_id),
+      teams_meta_prefix_for(normalized_team_id),
       TEAMS_KEYS.manifest_prefix_for(normalized_team_id),
       TEAMS_KEYS.data_prefix_for(normalized_team_id),
     ]);

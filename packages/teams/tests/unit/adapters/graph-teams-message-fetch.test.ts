@@ -152,14 +152,12 @@ describe('get_channel_message', () => {
     return { client: { api } as unknown as Client, api };
   }
 
-  it('reads one root message with its replies expanded', async () => {
+  it('reads one root message without expanding its replies (N6)', async () => {
     const { client, api } = client_returning(async () => ({ id: 'root-1' }));
 
     const root = await get_channel_message(client, TEAM, CHANNEL, 'root-1');
 
-    expect(api).toHaveBeenCalledWith(
-      `/teams/${TEAM}/channels/${CHANNEL}/messages/root-1?$expand=replies`,
-    );
+    expect(api).toHaveBeenCalledWith(`/teams/${TEAM}/channels/${CHANNEL}/messages/root-1`);
     expect(root).toMatchObject({ root: { id: 'root-1' }, deleted: false });
   });
 

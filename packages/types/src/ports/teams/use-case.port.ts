@@ -1,11 +1,11 @@
 import type { OperationCost } from '@/domain/graph-cost';
 import type {
   TeamsGraphResource,
-  TeamsSnapshotManifest,
+  TeamsSnapshotIndex,
   TeamsThreadListing,
 } from '@/domain/teams-manifest';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
-import type { TeamsSnapshotListing } from '@/ports/teams/manifest-repository.port';
+import type { TeamsSnapshotListing } from '@/ports/teams/index-repository.port';
 import type { NoSnapshotReason, ObjectLockRequest } from '@/ports/backup/use-case.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 
@@ -32,7 +32,7 @@ export interface TeamsBackupSummary {
 export interface TeamsBackupResult {
   readonly team_id: string;
   readonly graph_cost?: OperationCost | undefined;
-  readonly snapshot: TeamsSnapshotManifest | undefined;
+  readonly snapshot: TeamsSnapshotIndex | undefined;
   readonly interrupted: boolean;
   readonly summary: TeamsBackupSummary;
 }
@@ -62,9 +62,11 @@ export interface TeamsVerificationResult {
   readonly snapshot_id: string;
   readonly total_checked: number;
   readonly passed: number;
+  /** Objects that exist but fail their checksum or cannot be decrypted. */
   readonly failed_storage_keys: string[];
+  /** Objects the snapshot references that are absent from storage. */
+  readonly missing_storage_keys: string[];
   readonly interrupted: boolean;
-  readonly index_issues: string[];
 }
 
 export interface TeamsVerificationUseCase {

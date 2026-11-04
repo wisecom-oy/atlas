@@ -73,8 +73,8 @@ export async function list_channel_messages(
 }
 
 /**
- * Reads one root message with its replies inlined. Resolves undefined when Graph no longer has
- * it (404), so the caller can treat the root as removed.
+ * Reads one root message without its replies; callers list replies separately. Resolves undefined
+ * when Graph no longer has it (404), so the caller can treat the root as removed.
  */
 export async function get_channel_message(
   client: Client,
@@ -82,7 +82,7 @@ export async function get_channel_message(
   channel_id: string,
   root_id: string,
 ): Promise<TeamsRootChange | undefined> {
-  const url = `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}?$expand=replies`;
+  const url = `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}`;
   try {
     const message = await graph_teams_call(
       () => client.api(url).get() as Promise<GraphChannelMessage>,

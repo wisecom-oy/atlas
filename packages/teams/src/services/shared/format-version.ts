@@ -1,15 +1,22 @@
-import { UnreadableContentError } from '@wisecom/atlas-types';
+import {
+  TEAMS_FORMAT_VERSION,
+  UnreadableContentError,
+  UnsupportedFormatVersionError,
+} from '@wisecom/atlas-types';
 
-/** The Teams manifest and cursor layout this Atlas reads. A missing version is legacy and reads the same. */
-export const TEAMS_FORMAT_VERSION = 1;
-
-/** Rejects state written by a different layout version, so an older Atlas never misreads newer fields. */
-export function assert_readable_format_version(
-  key: string,
-  format_version: number | undefined,
-): void {
-  if (format_version === undefined || format_version === TEAMS_FORMAT_VERSION) return;
+/**
+ * Accepts only the Teams layout this build writes. A higher version is intact content from a newer
+ * Atlas and raises `UnsupportedFormatVersionError`, so the fix is an upgrade; any other version is
+ * damage and raises `UnreadableContentError`.
+ */
+export function assert_readable_format_version(key: string, format_version: unknown): void {
+  if (format_version === TEAMS_FORMAT_VERSION) return;
+  if (typeof format_version === 'number' && format_version > TEAMS_FORMAT_VERSION) {
+    throw new UnsupportedFormatVersionError(
+      `The Teams object at ${key} uses format_version ${format_version}; this Atlas reads format_version ${TEAMS_FORMAT_VERSION}. Upgrade Atlas to read it.`,
+    );
+  }
   throw new UnreadableContentError(
-    `The Teams state at ${key} uses format_version ${format_version}; this Atlas reads format_version ${TEAMS_FORMAT_VERSION}. Upgrade Atlas to read it.`,
+    `The Teams object at ${key} has format_version ${String(format_version)}; this Atlas reads format_version ${TEAMS_FORMAT_VERSION}.`,
   );
 }
