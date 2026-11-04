@@ -51,3 +51,30 @@ export function parse_retry_after_ms(
 function clamp(ms: number): number {
   return Math.min(ms, MAX_RETRY_AFTER_MS);
 }
+
+/**
+ * Reads `Retry-After` from a Graph or network error, or undefined when it carries none.
+ *
+ * The Graph SDK stores the raw response's fetch `Headers` object on the error. That object answers
+ * `get()`, not property reads, so a plain `headers['retry-after']` never found the header and every
+ * 429 fell back to the default cooldown. Both shapes are read here.
+ */
+export function extract_retry_after_ms(err: unknown): number | undefined {
+  if (typeof err !== 'object' || err === null || !('headers' in err)) return undefined;
+  return parse_retry_after_ms(read_header(err.headers, 'retry-after'));
+}
+
+function has_get(headers: object): headers is { get(name: string): unknown } {
+  return 'get' in headers && typeof headers.get === 'function';
+}
+
+function read_header(headers: unknown, name: string): string | undefined {
+  if (typeof headers !== 'object' || headers === null) return undefined;
+  if (has_get(headers)) {
+    const value: unknown = headers.get(name);
+    return typeof value === 'string' ? value : undefined;
+  }
+  const match = Object.entries(headers).find(([key]) => key.toLowerCase() === name);
+  const value: unknown = match?.[1];
+  return typeof value === 'string' ? value : undefined;
+}

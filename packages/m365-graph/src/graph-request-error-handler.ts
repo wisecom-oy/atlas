@@ -4,7 +4,7 @@ import {
   get_active_throttle_pool,
   get_active_throttle_scope,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { parse_retry_after_ms } from '@/graph-retry-after';
+import { extract_retry_after_ms } from '@/graph-retry-after';
 import { ThrottledError } from '@wisecom/atlas-types';
 
 /**
@@ -37,6 +37,13 @@ const MAX_DELAY_MS = 300_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 /** Cooldown applied to a 429 that arrives without a usable Retry-After. */
 const DEFAULT_THROTTLE_SECONDS = 30;
+
+/**
+ * Wall-clock ceiling on one logical call's retries, waits and cooldowns included. Sized just above
+ * the 12-retry exponential schedule (about 23.5 minutes at the 5-minute cap, plus jitter), so backoff
+ * alone always keeps every retry; Retry-After and cooldown waits are what it bounds.
+ */
+const RETRY_BUDGET_MS = 24 * 60_000;
 
 export interface GraphRetryOptions {
   /**
@@ -113,9 +120,10 @@ export function is_retryable_error(err: unknown): boolean {
  * transient HTTP errors (429, 500, 502, 503, 504) and network-level errors (ETIMEDOUT,
  * ECONNRESET, socket hang up, etc.).
  *
- * Retries up to 12 times with delays capped at 5 minutes, giving a total
- * retry budget of ~23 minutes to survive extended network outages.
- * Respects Retry-After on 429. Each retry is logged for observability.
+ * Retries up to 12 times with delays capped at 5 minutes. A call stops retrying when its next
+ * wait would pass a 24 minute budget, counting waits and cooldowns, so one call cannot outlast it.
+ * Respects Retry-After on 429 exactly, and fails with ThrottledError when Retry-After exceeds the
+ * 5-minute cap. Each retry is logged for observability.
  *
  * This function is designed to be reusable across backup, restore, save, and
  * any other operation that communicates over the network.
@@ -125,23 +133,24 @@ export async function with_graph_retry<T>(
   options: GraphRetryOptions = {},
 ): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
+  const deadline = Date.now() + RETRY_BUDGET_MS;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     // Per attempt, not per call. A retry loop that started before the cooldown
     // began would otherwise keep firing into Graph for the whole of it.
-    await wait_out_throttle();
+    await wait_out_throttle(deadline);
     try {
       return await race_timeout(fn(), timeout_ms);
     } catch (err) {
       if (!is_retryable_error(err)) throw err;
-      if (attempt === MAX_RETRIES) throw as_exhausted_failure(err);
 
-      const retry_after = extract_retry_after(err);
+      const retry_after = extract_retry_after_ms(err);
       // Raise on the response that carried the 429, not after the budget is
       // spent, so every other owner backs off during this cooldown too.
       raise_throttle_on_429(err, retry_after);
-      const base = retry_after ?? BASE_DELAY_MS * 2 ** attempt;
-      const jitter = Math.random() * BASE_DELAY_MS;
-      const delay = Math.min(base + jitter, MAX_DELAY_MS);
+      const delay = retry_delay_ms(attempt, retry_after);
+      if (attempt === MAX_RETRIES || delay === undefined || Date.now() + delay > deadline) {
+        throw as_exhausted_failure(err, attempt);
+      }
 
       const reason = describe_graph_error(err);
       logger.debug(
@@ -158,21 +167,59 @@ export async function with_graph_retry<T>(
  * Turns a 429 that outlasted the retry budget into the documented `ThrottledError`, keeping the
  * Graph error as `cause`. Other exhausted failures are rethrown unchanged (issue #440).
  */
-function as_exhausted_failure(err: unknown): unknown {
-  if ((err as Record<string, unknown>).statusCode !== 429) return err;
+function as_exhausted_failure(err: unknown, retries: number): unknown {
+  if (status_code_of(err) !== 429) return err;
   return new ThrottledError(
-    `Microsoft Graph kept throttling the request through ${MAX_RETRIES} retries: ` +
+    `Microsoft Graph kept throttling the request after ${retries} retries: ` +
       describe_graph_error(err),
-    extract_retry_after(err),
+    extract_retry_after_ms(err),
     { cause: err },
   );
 }
 
-/** Waits out any cooldown the ambient coordinator holds for this request's pool. */
-async function wait_out_throttle(): Promise<void> {
+/** The HTTP status a Graph or network error carries, or undefined when it carries none. */
+function status_code_of(err: unknown): unknown {
+  return typeof err === 'object' && err !== null && 'statusCode' in err
+    ? err.statusCode
+    : undefined;
+}
+
+/**
+ * Waits out any cooldown the ambient coordinator holds for this request's pool, but no longer than
+ * the retry budget. A cooldown another owner raised can outlast the budget; the call then fails
+ * with the throttle instead of waiting past its own bound.
+ */
+async function wait_out_throttle(deadline: number): Promise<void> {
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
-  if (throttle && pool) await throttle.coordinator.wait(pool, get_active_throttle_scope());
+  if (!throttle || !pool) return;
+  await race_budget(
+    throttle.coordinator.wait(pool, get_active_throttle_scope()),
+    deadline - Date.now(),
+  );
+}
+
+/** Resolves with `promise`, or rejects with ThrottledError once `ms` elapses first. */
+function race_budget(promise: Promise<void>, ms: number): Promise<void> {
+  const { promise: expired, reject } = Promise.withResolvers<never>();
+  const timer = setTimeout(
+    () => reject(new ThrottledError('Microsoft Graph cooldown outlasted the retry budget')),
+    Math.max(ms, 0),
+  );
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The wait before the next attempt. A Retry-After is honoured exactly: jitter would overrun it, and
+ * the cooldown raised from the same value already holds every other request for that long. Without
+ * one, jittered exponential backoff capped at MAX_DELAY_MS. Undefined when Retry-After exceeds that
+ * cap: waiting it out would break the cap and retrying early would ignore it, so the call fails.
+ */
+function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): number | undefined {
+  if (retry_after_ms === undefined) {
+    return Math.min(BASE_DELAY_MS * 2 ** attempt + Math.random() * BASE_DELAY_MS, MAX_DELAY_MS);
+  }
+  return retry_after_ms <= MAX_DELAY_MS ? retry_after_ms : undefined;
 }
 
 /**
@@ -185,7 +232,7 @@ async function wait_out_throttle(): Promise<void> {
  * one extend it rather than stacking it.
  */
 function raise_throttle_on_429(err: unknown, retry_after_ms: number | undefined): void {
-  if ((err as Record<string, unknown>).statusCode !== 429) return;
+  if (status_code_of(err) !== 429) return;
 
   const throttle = get_active_throttle();
   const pool = get_active_throttle_pool();
@@ -196,23 +243,6 @@ function raise_throttle_on_429(err: unknown, retry_after_ms: number | undefined)
     retry_after_ms ?? DEFAULT_THROTTLE_SECONDS * 1000,
     get_active_throttle_scope(),
   );
-}
-
-/** Extracts the Retry-After header value (in ms) from a Graph error, if present. */
-function extract_retry_after(err: unknown): number | undefined {
-  const graph_err = err as Record<string, unknown>;
-  const headers_sources = [
-    graph_err.headers as Record<string, string> | undefined,
-    graph_err.responseHeaders as Record<string, string> | undefined,
-    (graph_err.response as Record<string, unknown> | undefined)?.headers as
-      Record<string, string> | undefined,
-  ];
-  for (const headers of headers_sources) {
-    if (!headers) continue;
-    const parsed = parse_retry_after_ms(headers['retry-after'] ?? headers['Retry-After']);
-    if (parsed !== undefined) return parsed;
-  }
-  return undefined;
 }
 
 /**
