@@ -1,5 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { ResponseType } from '@microsoft/microsoft-graph-client';
+import { GraphError, ResponseType } from '@microsoft/microsoft-graph-client';
 import type {
   TeamsGraphResource,
   TeamsHostedContent,
@@ -46,24 +46,48 @@ export async function list_hosted_contents(
   return items;
 }
 
-/** The raw `$value` response: bytes plus the headers Graph sent with them. */
+/** The raw `$value` response: status, bytes and the headers Graph sent with them. */
 interface RawHostedResponse {
+  readonly ok: boolean;
+  readonly status: number;
   readonly headers: { get(name: string): string | null };
   arrayBuffer(): Promise<ArrayBuffer>;
+  json(): Promise<unknown>;
 }
 
-/** Downloads one hosted content item's raw bytes and its Content-Type header. */
+/**
+ * Downloads one hosted content item's raw bytes and its Content-Type header. A raw response is
+ * not checked by the Graph client, so a non-2xx is turned into a GraphError here, inside the
+ * retried call: otherwise a 404 or 429 error body would be stored as the image.
+ */
 export async function download_hosted_content(
   client: Client,
   locator: TeamsMessageLocator,
   hosted_id: string,
 ): Promise<TeamsHostedContent> {
   const url = `${hosted_contents_path(locator)}/${encodeURIComponent(hosted_id)}/$value`;
-  const response = await graph_teams_call(
-    () => client.api(url).responseType(ResponseType.RAW).get() as Promise<RawHostedResponse>,
-  );
+  const response = await graph_teams_call(async () => {
+    const raw = (await client.api(url).responseType(ResponseType.RAW).get()) as RawHostedResponse;
+    if (!raw.ok) throw await graph_error_from(raw);
+    return raw;
+  });
   return {
     bytes: Buffer.from(await response.arrayBuffer()),
     content_type: response.headers.get('content-type') ?? undefined,
   };
+}
+
+/**
+ * Builds the GraphError the client would have thrown for a non-raw request: status, Graph error
+ * code, body, and headers, so retry, Retry-After, 403 and 404 handling all see the usual shape.
+ */
+async function graph_error_from(raw: RawHostedResponse): Promise<GraphError> {
+  const body = (await raw.json().catch(() => null)) as {
+    error?: { code?: string; message?: string };
+  } | null;
+  const error = new GraphError(raw.status, body?.error?.message ?? `HTTP ${raw.status}`);
+  error.code = body?.error?.code ?? null;
+  error.body = body;
+  error.headers = raw.headers as unknown as Headers;
+  return error;
 }

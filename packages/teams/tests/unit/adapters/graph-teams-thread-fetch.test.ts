@@ -90,10 +90,13 @@ describe('download_hosted_content', () => {
   });
 
   /** A client whose `$value` request answers with the given bytes and response headers. */
-  function client_answering(bytes: number[], headers: Record<string, string>) {
+  function client_answering(bytes: number[], headers: Record<string, string>, status = 200) {
     const get = vi.fn(async () => ({
+      ok: status >= 200 && status < 300,
+      status,
       headers: { get: (name: string) => headers[name] ?? null },
       arrayBuffer: async () => new Uint8Array(bytes).buffer,
+      json: async () => ({ error: { code: 'NotFound', message: 'not found' } }),
     }));
     const response_type = vi.fn(() => ({ get }));
     const api = vi.fn((_url: string) => ({ responseType: response_type }));
@@ -122,5 +125,13 @@ describe('download_hosted_content', () => {
     const hosted = await download_hosted_content(client, locator, 'hosted-1');
 
     expect(hosted.content_type).toBeUndefined();
+  });
+
+  it('throws a Graph error carrying the status instead of storing an error body', async () => {
+    const { client } = client_answering([], { 'content-type': 'application/json' }, 404);
+
+    await expect(download_hosted_content(client, locator, 'hosted-1')).rejects.toMatchObject({
+      statusCode: 404,
+    });
   });
 });

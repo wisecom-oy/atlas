@@ -63,6 +63,8 @@ describe('download_hosted_content path encoding', () => {
       api: (url: string) => {
         urls.push(url);
         const response = {
+          ok: true,
+          status: 200,
           headers: { get: () => null },
           arrayBuffer: async () => new ArrayBuffer(0),
         };
