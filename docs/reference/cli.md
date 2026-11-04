@@ -892,10 +892,10 @@ atlas teams delete --team <team-id> -y
 | Subcommand       | Description                                                                              |
 | ---------------- | ---------------------------------------------------------------------------------------- |
 | `list-teams`     | List the teams the application can read                                                  |
-| `backup`         | Incremental backup of one, several, or all teams. Exits `2` if any team or channel fails |
+| `backup`         | Incremental backup of one, several, or all teams. Exits `2` on channel errors            |
 | `list-snapshots` | List Teams snapshots for one team                                                        |
 | `verify`         | Check that every blob a snapshot references is present and matches its SHA-256           |
-| `status`         | Show the last backup run recorded for each team in the tenant                            |
+| `status`         | Show the newest snapshot for each team: creation time and ID                             |
 | `delete`         | Delete one team's Teams backups, or one snapshot                                         |
 
 **`atlas teams backup`**
@@ -933,7 +933,7 @@ atlas teams delete --team <team-id> -y
 
 **`atlas teams delete`**
 
-Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team. With `-s`, only that snapshot is deleted.
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team. With `-s`, only that snapshot's manifest is deleted, and its blobs stay because later snapshots can reference them.
 
 | Option                | Description                                       |
 | --------------------- | ------------------------------------------------- |
@@ -943,7 +943,9 @@ Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it 
 | `-t, --tenant <id>`   | Override the tenant ID from config                |
 
 ::: tip Permissions
-Teams backup uses seven Application permissions. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
+Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
+
+A run with channel errors exits `2`. See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check
@@ -1220,7 +1222,7 @@ atlas rehydrate --all \
   --source-secret-key - < source-secret.txt
 ```
 
-`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. The summary breaks the run down by workload, so a partial recovery is visible:
+`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. Teams is not part of tenant recovery yet, so `--all` always prints `Tenant recovery does not cover teams yet. That data is not restored by this run.` The summary breaks the run down by workload, so a partial recovery is visible:
 
 ```
 Workload    Scope        Copied  Skipped  Failed  Size

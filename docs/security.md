@@ -147,7 +147,8 @@ Channel messages hold personal data: what people wrote, who they addressed, and 
 - **App-only read access.** Atlas reads channel messages with the application permission `ChannelMessage.Read.All`. No user signs in, and the permission reaches every team and channel in the tenant, private channels included.
 - **Protected API.** Microsoft may require approval before the permission works. See [Azure AD setup](/azure-ad-setup#teams-application-permissions).
 - **A compromised client secret.** The passphrase protects stored backups only. Anyone holding the client secret can call Graph as the app and read live channel messages, replies, and member lists across the tenant. Rotate the secret on a schedule and limit who holds it.
-- **Deletion is not instant.** A message deleted in Teams stays in earlier snapshots until those snapshots are deleted or their Object Lock retention expires. Run `atlas teams delete` for one team's data, or `atlas delete --purge` for the whole tenant.
+- **Deleted messages stay in older snapshots.** Atlas does not remove a message from snapshots taken before it was deleted in Teams, and later snapshots carry the deleted message forward. Its blobs stay until `atlas teams delete --team` removes the team's data, or `atlas delete --purge` removes the tenant's. Deleting one snapshot removes only its manifest.
+- **Reused blobs keep their first retention.** An unchanged thread or file is not uploaded again, so it keeps the Object Lock retention set when it was first written. A later run does not extend that retention.
 
 ## Replication security
 

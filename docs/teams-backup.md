@@ -43,7 +43,7 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 | File attachments                       | Recorded as links. Atlas does not download them. Team files are covered by [SharePoint backup](/sharepoint-backup)        |
 | Team settings, members, channels, tabs | Raw Graph objects                                                                                                         |
 
-Shared channels owned by another team are skipped and logged. Back up the hosting team to cover them.
+Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`.
 
 Earlier versions of an edited or deleted message survive in the thread blobs of the snapshots that recorded them.
 
@@ -60,10 +60,15 @@ Teams backup uses application permissions only. Atlas makes no delegated sign-in
 | `ChannelMember.Read.All`  | List channel members              |
 | `ChannelMessage.Read.All` | Read channel messages and replies |
 | `TeamsTab.Read.All`       | Read channel tabs                 |
+| `Files.Read.All`          | Find each channel's files folder  |
 
 Consent steps are in [Azure AD setup](/azure-ad-setup#teams-application-permissions).
 
+`Files.Read.All` is the least-privileged application permission for the files folder call, and `Sites.Read.All` also covers it. Without either, Graph returns `403` for that call. Atlas then marks the channel's files folder unavailable and continues.
+
 ## Commands
+
+Team IDs must be Graph team GUIDs. Atlas trims and lowercases the value, so upper-case and lower-case spellings address the same team.
 
 ### list-teams
 
@@ -84,7 +89,7 @@ atlas teams backup --all
 atlas teams backup --team <team-id> --channel <channel-id>
 ```
 
-Each team and channel runs independently. If a team or channel fails, the rest still complete, and the run exits `2`. An authentication error stops the run and exits `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+Each team and channel runs independently. A channel error is recorded and the run exits `2`. With several teams, a team that fails with an error other than an authentication error is recorded, and the other teams still run. The run then exits `2`. A single `--team` run stops on its first error and exits with that error's category code. An authentication error on a team's first channel also stops the run, with exit `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
 ### list-snapshots
 
@@ -104,7 +109,7 @@ atlas teams verify --team <team-id> -s <snapshot-id>
 
 ### status
 
-Shows the last backup run recorded for each team in the tenant.
+Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no manifest does not change it.
 
 ```bash
 atlas teams status
@@ -112,7 +117,7 @@ atlas teams status
 
 ### delete
 
-Deletes every Teams backup for one team. With `-s`, it deletes only that snapshot. Atlas asks for confirmation unless you pass `-y`.
+Deletes every Teams backup for one team: its manifests, thread and image blobs, and delta cursors. With `-s`, it deletes only that snapshot's manifest. Its blobs stay, because later snapshots can reference them. Atlas asks for confirmation unless you pass `-y`.
 
 ```bash
 atlas teams delete --team <team-id>
@@ -127,14 +132,16 @@ Deletion cannot be undone. Objects under Object Lock retention stay until the re
 
 Each channel is read with its own message delta link.
 
-1. **Delta.** Atlas asks Graph for the messages that changed since the last run. A new reply, reaction, edit, or deletion returns the root message of its thread. The root's `lastModifiedDateTime` and `etag` do not change for reply activity, so Atlas cannot use them to detect changes.
-2. **Thread refetch.** For each returned root, Atlas reads the full reply list and rebuilds the thread blob.
+1. **Delta.** Atlas asks Graph for the messages that changed since the last run. Delta returns only messages from the last eight months. A first run or a forced full read reads older messages too. A new reply, reaction, edit, or deletion returns the root message of its thread. The root's `lastModifiedDateTime` and `etag` do not change for reply activity, so Atlas cannot use them to detect changes.
+2. **Thread refetch.** For each returned root, Atlas reads the full reply list and rebuilds the thread blob. Replies arrive inline through `$expand=replies`. When Graph truncates that list, Atlas pages the replies through `/replies`.
 3. **Deduplication.** Atlas hashes the thread blob. An unchanged thread is not uploaded again.
-4. **Cursor commit.** Atlas saves the new delta link only after the manifest that includes the changes is written. A failed channel keeps its previous link, so its changes are read again next run.
+4. **Cursor commit.** Atlas saves the new delta link once the manifest for the run is written. A channel that fails keeps its previous link, so its changes are read again next run.
 
-A channel is read in full, with no delta link, when it has no channel email address, Graph rejects the delta request with `400`, or the saved sync state is no longer valid. The run continues. The channel is recorded with `read_mode: full` in the manifest.
+When nothing changed, Atlas writes no manifest. A healthy run prints `No Teams changes detected. Snapshot skipped.` The delta cursor is still saved.
 
-Deleted roots stay in the manifest with `deleted_at` set. Their blobs are kept.
+A channel is read in full, with no delta link, when it has no channel email address, when no link is stored (a first run, or `--full`), or when Graph rejects the saved link with `400`. A `400` logs a warning and falls back to a full read. The channel is recorded with `read_mode: full` in the manifest. A saved cursor is used only when its `snapshot_id` matches the latest readable manifest. A mismatch, a cursor from an older release without `snapshot_id`, or an unreadable cursor means every channel is read in full, with a warning.
+
+Deleted messages and channels are carried forward, not dropped. A root that Graph reports as deleted, or that a full read no longer returns, is recorded with `deleted_at` set. Later snapshots keep it, and its blobs stay in place. A channel the team no longer lists keeps `deleted_at` in later manifests.
 
 Ctrl+C stops after the current thread. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged.
 
@@ -154,7 +161,11 @@ teams/
 
 ## Failed channels
 
-If a channel cannot be read, the run records it and continues with the next channel. The same applies to teams under `--all` or repeated `--team`. The run then exits `2`. Inspect the reported channels before relying on the snapshot.
+If a channel cannot be read, the run records the error and continues with the next channel. Teams under `--all` or repeated `--team` are isolated the same way.
+
+A thread root that fails is kept in a ledger keyed by channel and root (`channel_id/root_id`), stored with the delta cursor. Each later run that reads the root again retries it, up to five attempts. The report shows `will retry (attempt N of 5)`. After the fifth failure it shows `PERMANENTLY SKIPPED after 5 attempts`. The channel no longer waits on that root, so its delta link can advance. An entry is cleared once its root reads cleanly.
+
+Each failed attempt is reported as a channel error, and the run exits `2`. While any ledger entry remains, the run reports `Status: UNHEALTHY`.
 
 ```bash
 status=0

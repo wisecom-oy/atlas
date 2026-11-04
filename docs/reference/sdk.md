@@ -277,9 +277,9 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                          |
 | `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel |
 | `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team                                                |
-| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check that every blob a snapshot references is present and matches its SHA-256 |
-| `status()`                             | `atlas teams status`                           | Last backup run recorded for each team in the tenant                           |
-| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only the snapshot given               |
+| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check every blob's size and SHA-256. `options.fast` checks existence only      |
+| `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID              |
+| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's manifest          |
 
 ```typescript
 const run = await atlas.teams.backup(teamId);
@@ -331,7 +331,7 @@ Methods accept the same identifiers as the CLI and normalize them the same way.
 | `atlas.onedrive.*`   | Email or UPN, or Entra object ID                                                      | An argument containing `@` resolves through Graph. Anything else is used as given                    |
 | `atlas.outlook.*`    | Email or UPN, or Entra object ID                                                      | An argument containing `@` resolves through Graph. Anything else is used as given                    |
 | `atlas.sharepoint.*` | Site URL or hostname, or site ID (`siteGuid,webGuid`, with or without a leading host) | An argument without commas resolves through Graph. A site ID drops its hostname without a Graph call |
-| `atlas.teams.*`      | Graph team ID (GUID)                                                                  | Used as given. No Graph call is made to resolve it                                                   |
+| `atlas.teams.*`      | Graph team ID (GUID)                                                                  | Trimmed and lowercased, then checked as a GUID. No Graph call is made to resolve it                 |
 
 A failed resolution throws, so a mistyped address fails instead of addressing an empty scope. Resolved identities are cached per instance. Backups record the resolved email and display name as snapshot metadata, which makes owners readable in later listings. Storage keys always use the object ID. `resolveUser` and `resolveSite` are available on their own.
 
@@ -1164,7 +1164,7 @@ try {
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
-`ThrottledError` is the exception to the camelCase rule. It exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries. Retries back off exponentially, capped at 5 minutes per wait, so with no `Retry-After` the waits add up to roughly 23 minutes. The CLI exits with code `3` for this error.
+`ThrottledError` is the exception to the camelCase rule. It exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries, when the next wait would pass the retry budget, or at once when `Retry-After` is longer than 5 minutes. Retries back off exponentially, capped at 5 minutes per wait. Retries, waits, and cooldowns share one 24-minute budget, so with no `Retry-After` they stop at about 24 minutes. The CLI exits with code `3` for this error.
 
 `WrongPassphraseError` needs a note. AES-GCM reports a wrong key and damaged ciphertext as the same authentication failure. Atlas names the passphrase because it is the likelier cause and the only one an operator can act on. The raw crypto error stays in `cause`. If the passphrase is known to be correct for that tenant, treat the error as a possible integrity problem and run `atlas verify` on the snapshot.
 
