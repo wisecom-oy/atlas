@@ -1,4 +1,4 @@
-import type { SharePointSnapshotManifest } from '../../domain/sharepoint-manifest';
+import type { SharePointSnapshotManifest } from '../../domain/sharepoint/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 export interface SharePointManifestRepository {

@@ -1,8 +1,8 @@
-import type { Manifest } from '@/domain/manifest';
-import type { Snapshot } from '@/domain/snapshot';
-import type { OperationCost } from '@/domain/graph-cost';
+import type { Manifest } from '@/domain/outlook/manifest';
+import type { Snapshot } from '@/domain/shared/snapshot';
+import type { OperationCost } from '@/domain/graph/cost';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
-import type { ExcludedFolder } from '@/ports/mail/connector.port';
+import type { ExcludedFolder } from '@/ports/outlook/connector.port';
 
 export type BackupSyncMode = 'full' | 'incremental' | 'initial';
 export type ObjectLockMode = 'GOVERNANCE' | 'COMPLIANCE';

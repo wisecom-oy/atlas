@@ -18,8 +18,11 @@ import type {
   DeltaSyncResult,
   DeltaPageCallback,
   MessageAttachment,
-} from '@wisecom/atlas-types/ports/mail/connector.port';
-import type { ExtendedProperty, MailboxPurpose } from '@wisecom/atlas-types/domain/manifest';
+} from '@wisecom/atlas-types/ports/outlook/connector.port';
+import type {
+  ExtendedProperty,
+  MailboxPurpose,
+} from '@wisecom/atlas-types/domain/outlook/manifest';
 import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,

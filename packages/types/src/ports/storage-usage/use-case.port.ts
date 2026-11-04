@@ -1,4 +1,4 @@
-import type { StorageUsage, StorageUsageBreakdown } from '@/domain/storage-usage';
+import type { StorageUsage, StorageUsageBreakdown } from '@/domain/stats/storage-usage';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
 export interface StorageUsageRequest {

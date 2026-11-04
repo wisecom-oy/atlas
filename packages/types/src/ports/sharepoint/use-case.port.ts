@@ -1,7 +1,7 @@
 import type {
   SharePointFileVersionRecord,
   SharePointSnapshotManifest,
-} from '../../domain/sharepoint-manifest';
+} from '../../domain/sharepoint/manifest';
 import type { NoSnapshotReason, ObjectLockRequest } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';

@@ -1,0 +1,325 @@
+import { Box } from 'ink';
+import type { Container } from 'inversify';
+import type { AtlasConfig } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
+import type {
+  CatalogUseCase,
+  VerificationUseCase,
+  VerificationResult,
+  StatusUseCase,
+  MailboxStatusResult,
+  FolderStatus,
+  MailboxDiscoveryService,
+  TenantMailbox,
+} from '@wisecom/atlas-types';
+import {
+  CATALOG_USE_CASE_TOKEN,
+  VERIFICATION_USE_CASE_TOKEN,
+  STATUS_USE_CASE_TOKEN,
+  MAILBOX_DISCOVERY_TOKEN,
+  NotFoundError,
+} from '@wisecom/atlas-types';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { format_bytes } from '@/command-formatters';
+import { logger } from '@wisecom/atlas-core';
+import { banner_title } from '@/ui/banner-title';
+import { Banner } from '@/ui/components/banner';
+import { DataTable, type TableColumn } from '@/ui/components/data-table';
+import { KeyValueList } from '@/ui/components/key-value-list';
+import { render_static_view } from '@/ui/render';
+import { resolve_owner } from '@/commands/onedrive/command.handlers';
+
+/** Archive-enabled mailboxes named individually before the warning summarises. */
+const ARCHIVE_WARNING_LIMIT = 10;
+
+export interface OutlookVerifyOptions {
+  snapshot: string;
+  mailbox: string;
+  tenant?: string;
+  fast?: boolean;
+}
+
+export interface OutlookStatusOptions {
+  mailbox: string;
+  tenant?: string;
+}
+
+export interface OutlookMailboxesOptions {
+  tenant?: string;
+  licensedOnly?: boolean;
+}
+
+/** Verifies a snapshot after confirming it belongs to the `-m` mailbox, then logs the outcome. */
+export async function execute_outlook_verify(
+  container: Container,
+  options: OutlookVerifyOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  await render_static_view(
+    <Box flexDirection="column">
+      <Banner title={banner_title('outlook', 'Verify')} />
+      <KeyValueList items={[{ label: 'Mailbox', value: options.mailbox }]} />
+    </Box>,
+  );
+  await assert_snapshot_owned_by_mailbox(container, tenant_id, options);
+  logger.info(`Verifying snapshot ${options.snapshot}...`);
+
+  const verification_use_case = container.get<VerificationUseCase>(VERIFICATION_USE_CASE_TOKEN);
+  const result = await verification_use_case.verify_snapshot_integrity(
+    tenant_id,
+    options.snapshot,
+    {
+      fast: options.fast ?? false,
+    },
+  );
+  report_verification_result(result);
+}
+
+/**
+ * Throws `NotFoundError` unless the snapshot's manifest is stored under the `-m` mailbox (issue
+ * #516). An object ID, or a v5 manifest keyed by the lowercased address, matches the input as
+ * typed with no Graph call, so a v5 snapshot of a since-deleted user still verifies. Otherwise an
+ * address is resolved to the object ID a v6 manifest is keyed by.
+ */
+async function assert_snapshot_owned_by_mailbox(
+  container: Container,
+  tenant_id: string,
+  options: OutlookVerifyOptions,
+): Promise<void> {
+  const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
+  const manifest = await catalog.get_snapshot_detail(tenant_id, options.snapshot);
+  if (!manifest) throw new NotFoundError(`No manifest found for snapshot ${options.snapshot}`);
+
+  const snapshot_owner = normalize_owner_id(manifest.owner_id);
+  if (normalize_owner_id(options.mailbox) === snapshot_owner) return;
+  const owner = await resolve_owner(container, tenant_id, options.mailbox);
+  if (normalize_owner_id(owner.object_id) === snapshot_owner) return;
+  throw new NotFoundError(
+    `Snapshot ${options.snapshot} does not belong to mailbox ${options.mailbox} ` +
+      `(it belongs to ${manifest.owner_email ?? manifest.owner_id})`,
+  );
+}
+
+/** Runs the status check and prints the result. */
+export async function execute_outlook_status(
+  container: Container,
+  options: OutlookStatusOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  const status_use_case = container.get<StatusUseCase>(STATUS_USE_CASE_TOKEN);
+
+  await render_static_view(
+    <Box flexDirection="column">
+      <Banner title={banner_title('outlook', 'Status')} />
+      <KeyValueList
+        items={[
+          { label: 'Tenant', value: tenant_id },
+          { label: 'Mailbox', value: options.mailbox },
+        ]}
+      />
+    </Box>,
+  );
+
+  const owner = await resolve_owner(container, tenant_id, options.mailbox);
+  const result = await status_use_case.check_mailbox_status(tenant_id, owner.object_id);
+  await print_status_result(result);
+}
+
+/** Lists tenant mailboxes from Microsoft Graph. */
+export async function execute_outlook_mailboxes(
+  container: Container,
+  options: OutlookMailboxesOptions,
+): Promise<void> {
+  const tenant_id = resolve_tenant_id(container, options);
+  await render_static_view(
+    <Box flexDirection="column">
+      <Banner title={banner_title('outlook', 'Mailboxes')} />
+      <KeyValueList items={[{ label: 'Tenant', value: tenant_id }]} />
+    </Box>,
+  );
+
+  const discovery = container.get<MailboxDiscoveryService>(MAILBOX_DISCOVERY_TOKEN);
+  const discovery_options =
+    options.licensedOnly === undefined ? undefined : { licensed_only: options.licensedOnly };
+  const mailboxes = await discovery.list_tenant_mailboxes(tenant_id, discovery_options);
+
+  if (mailboxes.length === 0) {
+    logger.warn(
+      options.licensedOnly
+        ? 'No Exchange-licensed mailboxes found in tenant'
+        : 'No mailboxes found in tenant',
+    );
+    return;
+  }
+
+  const licensed = mailboxes.filter((m) => m.has_exchange_license).length;
+  const shared = mailboxes.filter((m) => m.mailbox_purpose === 'shared').length;
+  logger.info(
+    `${mailboxes.length} mailbox(es) found (${licensed} Exchange-licensed, ${shared} shared)\n`,
+  );
+
+  await print_mailbox_table(mailboxes);
+}
+
+function resolve_tenant_id(container: Container, options: { tenant?: string }): string {
+  if (options.tenant) return options.tenant;
+  const config = container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN);
+  return config.tenant_id;
+}
+
+function report_verification_result(result: VerificationResult): void {
+  logger.info(`Verified merged state across ${result.manifests_in_chain} manifest(s) in the chain`);
+
+  for (const id of result.unverifiable) {
+    logger.warn(`  unverifiable (no stored blob): ${id}`);
+  }
+
+  if (result.failed.length === 0 && result.unverifiable.length === 0) {
+    logger.success(`All ${result.total_checked} objects passed integrity check`);
+    return;
+  }
+
+  if (result.failed.length > 0) {
+    logger.error(`${result.failed.length} of ${result.total_checked} objects failed verification`);
+    for (const id of result.failed) {
+      logger.error(`  - ${id}`);
+    }
+  }
+  if (result.unverifiable.length > 0) {
+    logger.error(
+      `${result.unverifiable.length} object(s) have no stored blob and cannot be verified`,
+    );
+  }
+  process.exitCode = 1;
+}
+
+interface FolderStatusRow {
+  folder: string;
+  status: string;
+  status_color: string;
+  pending: string;
+  pending_color: string;
+}
+
+/** Derives the status/pending cells and their colors for one folder. */
+function build_folder_status_row(f: FolderStatus): FolderStatusRow {
+  const total = f.pending_new + f.pending_removed;
+  if (!f.has_backup) {
+    return {
+      folder: f.folder_name,
+      status: 'never backed up',
+      status_color: 'yellow',
+      pending: '-',
+      pending_color: 'gray',
+    };
+  }
+  return {
+    folder: f.folder_name,
+    status: f.is_up_to_date ? 'up-to-date' : `${total} change(s)`,
+    status_color: f.is_up_to_date ? 'green' : 'red',
+    pending: String(total),
+    pending_color: total === 0 ? 'green' : 'red',
+  };
+}
+
+async function print_status_result(result: MailboxStatusResult): Promise<void> {
+  if (result.last_backup_at) {
+    const ts = result.last_backup_at.toISOString().replace('T', ' ').slice(0, 16);
+    logger.info(`Last backup: ${ts} (${result.last_snapshot_id ?? 'unknown'})\n`);
+  } else {
+    logger.warn('No previous backup found for this mailbox.\n');
+  }
+
+  const columns: TableColumn<FolderStatusRow>[] = [
+    { key: 'folder', header: 'Folder', max_width: 26 },
+    { key: 'status', header: 'Status', color: (row) => row.status_color },
+    { key: 'pending', header: 'Pending', color: (row) => row.pending_color },
+  ];
+  await render_static_view(
+    <DataTable columns={columns} rows={result.folders.map(build_folder_status_row)} />,
+  );
+
+  if (result.is_up_to_date) {
+    logger.success('Mailbox is up to date -- no pending changes.');
+  } else {
+    const changes = result.total_pending_changes;
+    const not_backed_up = result.folders.filter((f) => !f.has_backup).length;
+    const parts: string[] = [];
+    if (changes > 0) parts.push(`${changes} pending change(s)`);
+    if (not_backed_up > 0) parts.push(`${not_backed_up} folder(s) never backed up`);
+    logger.info(`Overall: ${parts.join(', ')} across ${result.total_folders} folder(s)`);
+  }
+}
+
+async function print_mailbox_table(mailboxes: TenantMailbox[]): Promise<void> {
+  const has_sizes = mailboxes.some((m) => m.mailbox_size_bytes !== undefined);
+  const archive_known = mailboxes.some((m) => m.has_in_place_archive !== undefined);
+
+  interface MailboxRow {
+    mail: string;
+    display_name: string;
+    exchange: string;
+    status: string;
+    type: string;
+    size: string;
+    archive: string;
+    created: string;
+  }
+  const columns: TableColumn<MailboxRow>[] = [
+    { key: 'mail', header: 'Mail', max_width: 36 },
+    { key: 'display_name', header: 'Display Name', max_width: 22 },
+    { key: 'exchange', header: 'Exchange' },
+    { key: 'status', header: 'Status' },
+    { key: 'type', header: 'Type' },
+    ...(has_sizes ? [{ key: 'size', header: 'Size' } satisfies TableColumn<MailboxRow>] : []),
+    ...(archive_known
+      ? [{ key: 'archive', header: 'Archive' } satisfies TableColumn<MailboxRow>]
+      : []),
+    { key: 'created', header: 'Created' },
+  ];
+  const rows = mailboxes.map((m) => ({
+    mail: m.mail,
+    display_name: m.display_name,
+    exchange: m.has_exchange_license ? 'Yes' : 'No',
+    status: m.exchange_plan_status ?? '--',
+    type: m.mailbox_purpose ?? '--',
+    size: m.mailbox_size_bytes === undefined ? '--' : format_bytes(m.mailbox_size_bytes, 2),
+    archive: format_in_place_archive(m.has_in_place_archive),
+    created: m.created_at ? m.created_at.toISOString().slice(0, 10) : '--',
+  }));
+  await render_static_view(<DataTable columns={columns} rows={rows} />);
+  warn_about_in_place_archives(mailboxes);
+}
+
+/**
+ * Renders the tri-state archive cell.
+ *
+ * `--` is unknown, never "no": the signal comes from an optional usage report,
+ * and claiming a mailbox has no archive when Atlas could not check is the
+ * false reassurance this column exists to remove.
+ */
+export function format_in_place_archive(has_archive: boolean | undefined): string {
+  if (has_archive === undefined) return '--';
+  return has_archive ? 'Yes' : 'No';
+}
+
+/**
+ * Names mailboxes whose In-Place Archive sits outside backup scope.
+ *
+ * Graph cannot read archive mailboxes at all, so this is the only signal an
+ * operator gets that a backup of this mailbox is not a backup of all its mail.
+ */
+function warn_about_in_place_archives(mailboxes: TenantMailbox[]): void {
+  const archived = mailboxes.filter((m) => m.has_in_place_archive === true);
+  if (archived.length === 0) return;
+
+  logger.warn(
+    `${archived.length} mailbox(es) have an In-Place Archive (Online Archive), which Graph cannot read and Atlas does not back up:`,
+  );
+  for (const m of archived.slice(0, ARCHIVE_WARNING_LIMIT)) {
+    logger.warn(`  ${m.mail}`);
+  }
+  const hidden = archived.length - ARCHIVE_WARNING_LIMIT;
+  if (hidden > 0) logger.warn(`  ...and ${hidden} more`);
+  logger.info('Coverage detail: docs/security.md, "In-Place Archive is out of scope".');
+}

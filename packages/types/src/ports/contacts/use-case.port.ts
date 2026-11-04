@@ -1,4 +1,4 @@
-import type { ContactsSnapshotManifest } from '@/domain/contacts-manifest';
+import type { ContactsSnapshotManifest } from '@/domain/contacts/manifest';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,

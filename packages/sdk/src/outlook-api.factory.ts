@@ -33,7 +33,7 @@ import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/ob
 import type {
   OutlookBackupOptions,
   OutlookRestoreOptions,
-} from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
+} from '@wisecom/atlas-types/ports/outlook/api.port';
 import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */

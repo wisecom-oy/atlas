@@ -17,3 +17,14 @@ export type {
   ContactsVerificationUseCase,
   ContactsDeletionUseCase,
 } from './use-case.port';
+export type {
+  ContactsApi,
+  ContactsSdkBackupOptions,
+  ContactsSdkBackupResult,
+  ContactsSdkRestoreOptions,
+  ContactsSdkRestoreResult,
+  ContactsSdkVerificationOptions,
+  ContactsSdkVerificationResult,
+  ContactsSdkSnapshotManifest,
+  ContactsSdkDeletionResult,
+} from './api.port';

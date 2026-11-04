@@ -1,4 +1,4 @@
-import type { ContactsDeltaCursor, ContactsSnapshotManifest } from '@/domain/contacts-manifest';
+import type { ContactsDeltaCursor, ContactsSnapshotManifest } from '@/domain/contacts/manifest';
 import type { BackupProgressReporter } from '@/ports/backup/use-case.port';
 import type {
   ContactFolderDelta,

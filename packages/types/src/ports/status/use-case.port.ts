@@ -1,4 +1,4 @@
-import type { OperationCost } from '@/domain/graph-cost';
+import type { OperationCost } from '@/domain/graph/cost';
 
 export interface FolderStatus {
   readonly folder_id: string;

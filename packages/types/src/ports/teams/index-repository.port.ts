@@ -1,4 +1,4 @@
-import type { TeamsSnapshotIndex } from '@/domain/teams-manifest';
+import type { TeamsSnapshotIndex } from '@/domain/teams/manifest';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 /** The newest readable index of a team, plus the keys of the indexes it skipped. */

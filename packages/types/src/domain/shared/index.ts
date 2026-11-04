@@ -1,0 +1,10 @@
+export type { Tenant } from './tenant';
+export type { Snapshot } from './snapshot';
+export { SnapshotStatus } from './snapshot';
+export type { BackupObject } from './backup-object';
+export type { FailedItemRecord, FailedItemLedger } from './failed-item';
+export type {
+  IdentityRegistry,
+  IdentityRegistryEntry,
+  IdentityEntryStatus,
+} from './identity-registry';

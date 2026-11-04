@@ -1,7 +1,7 @@
 import type {
   TeamsChannelCheckpointHead,
   TeamsChannelCheckpointSegment,
-} from '@/domain/teams-checkpoint';
+} from '@/domain/teams/checkpoint';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 /**

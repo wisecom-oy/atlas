@@ -1,7 +1,7 @@
 import type {
   SharePointFileVersionIndex,
   SharePointVersionWatermark,
-} from '../../domain/sharepoint-manifest';
+} from '../../domain/sharepoint/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 /**

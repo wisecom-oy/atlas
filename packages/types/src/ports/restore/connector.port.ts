@@ -1,4 +1,4 @@
-import type { MailFolder } from '@/ports/mail/connector.port';
+import type { MailFolder } from '@/ports/outlook/connector.port';
 
 export interface AttachmentUpload {
   readonly name: string;

@@ -1,4 +1,4 @@
-import type { TeamsFilesFolderRef, TeamsGraphResource } from '@/domain/teams-manifest';
+import type { TeamsFilesFolderRef, TeamsGraphResource } from '@/domain/teams/manifest';
 
 /** A channel root message reported by a read. `deleted` roots carry only their `id`. */
 export interface TeamsRootChange {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MailboxConnector } from '@wisecom/atlas-types/ports/mail/connector.port';
+import type { MailboxConnector } from '@wisecom/atlas-types/ports/outlook/connector.port';
 import { RateLimitedGraphConnector } from '@/rate-limited-graph-connector.adapter';
 import { with_graph_retry } from '@/graph-request-error-handler';
 import { InProcessThrottleCoordinator } from '@wisecom/atlas-core/services/shared/in-process-throttle-coordinator';

@@ -1,4 +1,4 @@
-import type { ReplicationResult } from '@/domain/replication';
+import type { ReplicationResult } from '@/domain/replication/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
 export interface SharePointReplicationUseCase {
