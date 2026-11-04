@@ -15,6 +15,7 @@ import {
   TEAMS_DELETION_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
+import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { adapt_operation_options } from '@/operation-options';
 
 /** Builds the TeamsApi sub-namespace from the DI container. */
@@ -27,9 +28,11 @@ export function create_teams_api(tenant_id: string, container: Container): Teams
 
   return {
     async backup(team_id, options) {
-      return camelize(
-        await backup.backup_team(tenant_id, team_id, adapt_operation_options(options)),
+      // Tracked like Outlook: the cost covers every Graph call the backup made, graphCost included.
+      const [result, cost_result] = await run_with_cost_tracking(() =>
+        backup.backup_team(tenant_id, team_id, adapt_operation_options(options)),
       );
+      return camelize({ ...result, graph_cost: cost_result });
     },
     async verify(team_id, snapshot_id, options) {
       return camelize(

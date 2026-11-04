@@ -270,7 +270,7 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 
 ### Teams
 
-`atlas.teams` backs up channel messages one team per call. Each call returns one result for that team. Restore and save are not available yet.
+`atlas.teams` backs up channel messages one team per call. Each call returns one result for that team, with `graphCost` counted in the `teams` pool. Restore and save are not available yet.
 
 | Method                                 | CLI equivalent                                 | Description                                                                    |
 | -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |

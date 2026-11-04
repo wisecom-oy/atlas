@@ -47,13 +47,14 @@ Each pool has its own budget. Using one does not reduce another:
 - Each mailbox has its own Outlook budget, so 50 parallel mailbox backups draw from 50 budgets.
 - All SharePoint and OneDrive calls from one app share one budget per tenant, however many drives or sites they touch.
 
-Atlas uses three pools:
+Atlas uses four pools:
 
-| Pool                          | Scope                | Cost model                 | Used by                        |
-| ----------------------------- | -------------------- | -------------------------- | ------------------------------ |
-| Outlook                       | Per app, per mailbox | Flat (1 request = 1)       | Mail backup and restore        |
-| SharePoint / OneDrive         | Per app, per tenant  | Resource units (1 to 5 RU) | OneDrive and SharePoint backup |
-| Identity (Microsoft Entra ID) | Per app, per tenant  | Resource units (1 to 5 RU) | Mailbox discovery              |
+| Pool                          | Scope                                         | Cost model                 | Used by                        |
+| ----------------------------- | --------------------------------------------- | -------------------------- | ------------------------------ |
+| Outlook                       | Per app, per mailbox                          | Flat (1 request = 1)       | Mail backup and restore        |
+| SharePoint / OneDrive         | Per app, per tenant                           | Resource units (1 to 5 RU) | OneDrive and SharePoint backup |
+| Identity (Microsoft Entra ID) | Per app, per tenant                           | Resource units (1 to 5 RU) | Mailbox discovery              |
+| Teams                         | Per app, per tenant, plus per team or channel | Flat (1 request = 1)       | Teams channel backup           |
 
 ## Outlook pool
 
@@ -201,14 +202,26 @@ Modifiers: `$select` reduces the cost by 1 RU, `$expand` adds 1 RU, and `$top` b
 
 Atlas reads from this pool only during mailbox discovery and existence checks. These run at job start, so they seldom matter at small scale. They matter when many tenants list mailboxes at once.
 
+## Teams pool
+
+This pool is per app, per tenant, with extra limits per team and per channel. Each call costs one request. Microsoft publishes these limits in its [throttling limits reference](https://learn.microsoft.com/en-us/graph/throttling-limits#microsoft-teams-service-limits):
+
+| Endpoint              | Per app, per tenant | Per team or channel      |
+| --------------------- | ------------------- | ------------------------ |
+| Channel message reads | 20 per second       | 1 per second per channel |
+| Team reads            | 30 per second       | 4 per second per team    |
+
+A 429 from the Teams pool pauses only the Teams pool, the same as the other pools. See [Throttle handling](#throttle-handling).
+
 ## Summary
 
-| Pool                  | Scope       | Cost model     | Constraint                                   |
-| --------------------- | ----------- | -------------- | -------------------------------------------- |
-| Outlook               | Per mailbox | Flat           | Primary limit for mail backup and restore    |
-| SharePoint / OneDrive | Per tenant  | Resource units | Coordinate drive jobs per tenant             |
-| Identity              | Per tenant  | Resource units | Matters only for discovery at scale          |
-| Global                | Per app     | Flat           | Matters only with hundreds of active tenants |
+| Pool                  | Scope                                | Cost model     | Constraint                                   |
+| --------------------- | ------------------------------------ | -------------- | -------------------------------------------- |
+| Outlook               | Per mailbox                          | Flat           | Primary limit for mail backup and restore    |
+| SharePoint / OneDrive | Per tenant                           | Resource units | Coordinate drive jobs per tenant             |
+| Identity              | Per tenant                           | Resource units | Matters only for discovery at scale          |
+| Teams                 | Per tenant, plus per team or channel | Flat           | Limits for busy channels and teams           |
+| Global                | Per app                              | Flat           | Matters only with hundreds of active tenants |
 
 For scheduling:
 

@@ -92,7 +92,7 @@ function batch_sub_request_count(context: Context, url: string): number {
  */
 function pool_for_url(url: string): GraphServicePool {
   const path = url.replace(/^https?:\/\/[^/]+/, '').toLowerCase();
-  if (/^\/(teams|channels)\b/.test(path)) return 'teams';
+  if (/^(?:\/(?:v1\.0|beta))?\/(teams|channels)\b/.test(path)) return 'teams';
   if (/\/(drives?|sites|shares)\b/.test(path)) return 'sharepoint_onedrive';
   if (/\/(messages|mailfolders|mailboxsettings|sendmail|events|calendars?)\b/.test(path)) {
     return 'outlook';

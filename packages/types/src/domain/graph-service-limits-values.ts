@@ -65,4 +65,14 @@ export const GRAPH_SERVICE_LIMITS: GraphServiceLimits = Object.freeze({
     user_get_cost: 1,
     default_read_cost: 1,
   }),
+
+  teams: Object.freeze({
+    pool: 'teams' as const,
+    scope: 'per_app_per_tenant' as const,
+    cost_model: 'flat' as const,
+    messages_requests_per_second: 20,
+    messages_requests_per_second_per_channel: 1,
+    team_requests_per_second: 30,
+    team_requests_per_second_per_team: 4,
+  }),
 });

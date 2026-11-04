@@ -57,9 +57,26 @@ export interface IdentityServiceLimits {
   readonly default_read_cost: number;
 }
 
-/** Combined limits for all three Microsoft Graph service pools used by Atlas. */
+/**
+ * Microsoft Teams service pool limits (channel messages and team reads).
+ * Scope: per app per tenant, plus per channel and per team.
+ * Cost model: flat, every request = 1.
+ * @see https://learn.microsoft.com/en-us/graph/throttling-limits#microsoft-teams-service-limits
+ */
+export interface TeamsServiceLimits {
+  readonly pool: 'teams';
+  readonly scope: 'per_app_per_tenant';
+  readonly cost_model: 'flat';
+  readonly messages_requests_per_second: number;
+  readonly messages_requests_per_second_per_channel: number;
+  readonly team_requests_per_second: number;
+  readonly team_requests_per_second_per_team: number;
+}
+
+/** Combined limits for all four Microsoft Graph service pools used by Atlas. */
 export interface GraphServiceLimits {
   readonly outlook: OutlookServiceLimits;
   readonly sharepoint_onedrive: SharePointServiceLimits;
   readonly identity: IdentityServiceLimits;
+  readonly teams: TeamsServiceLimits;
 }
