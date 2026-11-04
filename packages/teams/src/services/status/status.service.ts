@@ -36,6 +36,10 @@ function team_status(
       (sum, cursor) => sum + Object.keys(cursor.failed_roots ?? {}).length,
       0,
     ),
+    pending_recheck_count: cursors.cursors.reduce(
+      (sum, cursor) => sum + Object.keys(cursor.hosted_recheck ?? {}).length,
+      0,
+    ),
   };
 }
 

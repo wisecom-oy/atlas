@@ -46,7 +46,6 @@ beforeEach(() => {
     warnings: [],
     stored: 1,
     deduped: 0,
-    hosted_missing_roots: [],
   }));
 });
 
@@ -239,7 +238,6 @@ describe('backup_channel shard reuse', () => {
       warnings: [],
       stored: 1,
       deduped: 0,
-      hosted_missing_roots: [],
     });
     const connector = make_connector({
       fetch_message_delta: vi.fn(async () => ({

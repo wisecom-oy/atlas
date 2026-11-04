@@ -161,6 +161,15 @@ describe('assert_shard_shape', () => {
       error_of(() => assert_shard_shape(SHARD_KEY, shard_body({ format_version: 2 }))),
     ).toBeInstanceOf(UnsupportedFormatVersionError);
   });
+
+  it('rejects a hosted content ref without a size', () => {
+    const hosted = { 'hc-1': { storage_key: 'teams/data/aa/hc', checksum: 'c' } };
+    const threads = { 'root-1': { root: message_ref({ hosted }), replies: {} } };
+
+    expect(error_of(() => assert_shard_shape(SHARD_KEY, shard_body({ threads })))).toBeInstanceOf(
+      UnreadableContentError,
+    );
+  });
 });
 
 describe('assert_cursor_shape', () => {
@@ -180,6 +189,23 @@ describe('assert_cursor_shape', () => {
   it('rejects a cursor whose failed_roots is not an object', () => {
     expect(
       error_of(() => assert_cursor_shape(CURSOR_KEY, cursor_body({ failed_roots: [] }))),
+    ).toBeInstanceOf(UnreadableContentError);
+  });
+
+  it('rejects a hosted_recheck count that is not a number, naming the cursor key', () => {
+    const error = error_of(() =>
+      assert_cursor_shape(CURSOR_KEY, cursor_body({ hosted_recheck: { 'root-1': 'two' } })),
+    );
+
+    expect(error).toBeInstanceOf(UnreadableContentError);
+    expect((error as Error).message).toContain(CURSOR_KEY);
+  });
+
+  it('rejects a failed root record without an attempts count', () => {
+    const failed_roots = { 'root-1': { item_id: 'root-1' } };
+
+    expect(
+      error_of(() => assert_cursor_shape(CURSOR_KEY, cursor_body({ failed_roots }))),
     ).toBeInstanceOf(UnreadableContentError);
   });
 });

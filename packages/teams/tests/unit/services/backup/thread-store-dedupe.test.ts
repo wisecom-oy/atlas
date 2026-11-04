@@ -48,7 +48,7 @@ describe('store_thread dedupe', () => {
     const second = await store(harness.scope, first);
 
     expect(harness.put).not.toHaveBeenCalled();
-    expect(second.stored).toBe(1);
+    expect(second.stored).toBe(0);
     expect(second.deduped).toBe(0);
   });
 
@@ -103,5 +103,21 @@ describe('store_thread dedupe', () => {
 
     expect(harness.list_hosted_contents).toHaveBeenCalledTimes(1);
     expect(second.deduped).toBe(0);
+  });
+
+  it('does not count a reverted root as stored when its blob already exists', async () => {
+    const harness = make_harness();
+    const original = await store(harness.scope, undefined);
+    const edited = await store(
+      harness.scope,
+      original,
+      message('root-1', { body: { contentType: 'html', content: 'edited' } }),
+    );
+
+    const reverted = await store(harness.scope, edited);
+
+    expect(reverted.thread.root.storage_key).toBe(original.thread.root.storage_key);
+    expect(reverted.stored).toBe(0);
+    expect(reverted.deduped).toBe(0);
   });
 });

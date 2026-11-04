@@ -54,7 +54,6 @@ beforeEach(() => {
     warnings: [],
     stored: 1,
     deduped: 0,
-    hosted_missing_roots: [],
   }));
   vi.mocked(mark_root_removed).mockReset();
 });
@@ -91,7 +90,6 @@ describe('hosted content recheck (P5)', () => {
       warnings: [],
       stored: 1,
       deduped: 0,
-      hosted_missing_roots: [],
     });
     const first = await apply_root_changes(
       make_scope(make_connector()),
@@ -124,13 +122,12 @@ describe('hosted content recheck (P5)', () => {
     expect(second.failed_roots).toEqual({});
   });
 
-  it('gives up after the fifth attempt and warns once', async () => {
+  it('gives up after the fifth attempt and keeps the count at the limit', async () => {
     vi.mocked(store_thread).mockResolvedValue({
       thread: thread_missing_hosted('m1'),
       warnings: [],
       stored: 1,
       deduped: 0,
-      hosted_missing_roots: [],
     });
 
     const out = await apply_root_changes(
@@ -142,7 +139,7 @@ describe('hosted content recheck (P5)', () => {
       { m1: 4 },
     );
 
-    expect(out.hosted_recheck).toEqual({});
+    expect(out.hosted_recheck).toEqual({ m1: 5 });
     expect(out.warnings).toContainEqual(expect.stringContaining('gave up re-checking'));
   });
 

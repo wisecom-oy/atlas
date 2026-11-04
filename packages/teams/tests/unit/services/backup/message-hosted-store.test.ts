@@ -159,16 +159,16 @@ describe('store_thread hosted contents', () => {
     expect(second.thread.root.hosted.h1?.content_type).toBe('image/gif');
   });
 
-  it('reports the root id in hosted_missing_roots while an item is missing', async () => {
+  it('marks the root with the missing item while an item is missing', async () => {
     const harness = make_harness();
     harness.download_hosted_content.mockRejectedValueOnce(graph_error(404, 'ItemNotFound', 'gone'));
 
     const result = await store_root(harness, undefined, root_with_image());
 
-    expect(result.hosted_missing_roots).toEqual(['root-1']);
+    expect(result.thread.root.hosted_missing).toEqual(['h1']);
   });
 
-  it('reports the root id when a reply item is missing', async () => {
+  it('marks the reply with the missing item when a reply item is missing', async () => {
     const harness = make_harness();
     harness.download_hosted_content.mockRejectedValueOnce(graph_error(404, 'ItemNotFound', 'gone'));
     const reply = message('reply-1', {
@@ -179,27 +179,26 @@ describe('store_thread hosted contents', () => {
       reply,
     ]);
 
-    expect(result.hosted_missing_roots).toEqual(['root-1']);
+    expect(result.thread.replies['reply-1']?.hosted_missing).toEqual(['h2']);
   });
 
-  it('reports no root when every referenced item is stored', async () => {
+  it('leaves no missing marker when every referenced item is stored', async () => {
     const harness = make_harness();
 
     const result = await store_root(harness, undefined, root_with_image());
 
-    expect(result.hosted_missing_roots).toEqual([]);
+    expect(result.thread.root.hosted_missing).toBeUndefined();
   });
 
-  it('drops the root from hosted_missing_roots once a re-check finds the item', async () => {
+  it('clears the missing marker once a re-check finds the item', async () => {
     const harness = make_harness();
     harness.download_hosted_content.mockRejectedValueOnce(graph_error(404, 'ItemNotFound', 'gone'));
     const first = await store_root(harness, undefined, root_with_image());
-    expect(first.hosted_missing_roots).toEqual(['root-1']);
+    expect(first.thread.root.hosted_missing).toEqual(['h1']);
     harness.list_hosted_contents.mockResolvedValue([{ id: 'h1', contentType: 'image/png' }]);
 
     const second = await store_root(harness, first, root_with_image());
 
     expect(second.thread.root.hosted_missing).toBeUndefined();
-    expect(second.hosted_missing_roots).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthError, type FailedItemLedger, type TeamsThread } from '@wisecom/atlas-types';
+import { AuthError, type FailedItemLedger } from '@wisecom/atlas-types';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
 import { apply_root_changes } from '@/services/backup/channel-root-applier';
@@ -39,7 +39,6 @@ beforeEach(() => {
     warnings: [],
     stored: 1,
     deduped: 0,
-    hosted_missing_roots: [],
   }));
   vi.mocked(mark_root_removed).mockReset();
   vi.mocked(mark_root_removed).mockImplementation((_scope, previous) => ({

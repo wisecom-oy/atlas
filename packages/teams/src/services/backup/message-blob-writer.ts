@@ -37,17 +37,19 @@ export function digest_message_blob(
 }
 
 /**
- * Writes a blob under its content-addressed key. An existing blob is kept as is, even under
- * `--full`: the key is a keyed digest of the content, so a stored blob already holds these bytes,
- * and rewriting it would create a new version under Object Lock.
+ * Writes a blob under its content-addressed key and returns true when it wrote the blob. An
+ * existing blob is kept as is, even under `--full`: the key is a keyed digest of the content, so a
+ * stored blob already holds these bytes, and rewriting it would create a new version under Object
+ * Lock.
  */
 export async function write_blob(
   scope: BackupRunScope,
   storage_key: string,
   plaintext: Buffer,
-): Promise<void> {
+): Promise<boolean> {
   if (await scope.ctx.storage.exists(storage_key)) {
-    return;
+    return false;
   }
   await scope.ctx.storage.put(storage_key, scope.ctx.encrypt(plaintext, storage_key));
+  return true;
 }

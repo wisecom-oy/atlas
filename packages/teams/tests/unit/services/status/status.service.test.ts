@@ -101,6 +101,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         unreadable_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
         unsupported_keys: [],
         failed_root_count: 0,
+        pending_recheck_count: 0,
       },
     ]);
     expect(list_teams).toHaveBeenCalledTimes(1);
@@ -130,6 +131,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         unreadable_keys: [],
         unsupported_keys: ['teams/manifests/b/teams-snap-3000-dddddd.json'],
         failed_root_count: 0,
+        pending_recheck_count: 0,
       },
     ]);
   });
@@ -165,5 +167,30 @@ describe('TeamsStatusService.check_teams_status', () => {
     expect(row?.unreadable_keys).toEqual([damaged_cursor]);
     expect(row?.unsupported_keys).toEqual([newer_cursor]);
     expect(row?.failed_root_count).toBe(3);
+  });
+
+  it('counts hosted rechecks still pending per team (P9)', async () => {
+    const cursor = {
+      ...cursor_with_failed_roots('channel-1', []),
+      hosted_recheck: { 'root-1': 1, 'root-2': 2 },
+    } as TeamsChannelCursor;
+    const { service } = setup(
+      [
+        {
+          team_id: TEAM_A,
+          listing: {
+            indexes: [index('teams-snap-2000-bbbbbb', 1)],
+            unreadable_keys: [],
+            unsupported_keys: [],
+          },
+        },
+      ],
+      { [TEAM_A]: { cursors: [cursor], unreadable_keys: [], unsupported_keys: [] } },
+    );
+
+    const [row] = await service.check_teams_status('tenant');
+
+    expect(row?.pending_recheck_count).toBe(2);
+    expect(row?.failed_root_count).toBe(0);
   });
 });

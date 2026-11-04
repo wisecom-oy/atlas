@@ -13,8 +13,8 @@ export interface TeamsBackupSummary {
   readonly channels_scanned: number;
   readonly channels_full_read: number;
   readonly threads_changed: number;
-  readonly threads_stored: number;
-  readonly threads_deduplicated: number;
+  readonly messages_stored: number;
+  readonly messages_deduplicated: number;
   readonly threads_deleted: number;
   readonly hosted_content_stored: number;
   readonly cursor_updated: boolean;

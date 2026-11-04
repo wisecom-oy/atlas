@@ -4,8 +4,8 @@ import type { TeamsConnector, TenantContext } from '@wisecom/atlas-types';
 export interface BackupCounters {
   channels_full_read: number;
   threads_changed: number;
-  threads_stored: number;
-  threads_deduplicated: number;
+  messages_stored: number;
+  messages_deduplicated: number;
   threads_deleted: number;
   hosted_content_stored: number;
 }
@@ -29,8 +29,8 @@ export function create_backup_counters(): BackupCounters {
   return {
     channels_full_read: 0,
     threads_changed: 0,
-    threads_stored: 0,
-    threads_deduplicated: 0,
+    messages_stored: 0,
+    messages_deduplicated: 0,
     threads_deleted: 0,
     hosted_content_stored: 0,
   };

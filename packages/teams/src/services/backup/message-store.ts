@@ -14,10 +14,14 @@ import {
 import { store_message_hosted } from '@/services/backup/message-hosted-store';
 import { message_ref_blobs } from '@/services/shared/thread-blobs';
 
-/** Outcome of storing one message version: its new ref, its warnings, and whether it was reused. */
+/**
+ * Outcome of storing one message version: its new ref, its warnings, whether its blob was written
+ * this run, and whether the version was reused unchanged from the previous run.
+ */
 export interface MessageStoreOutcome {
   readonly ref: TeamsMessageRef;
   readonly warnings: string[];
+  readonly written: boolean;
   readonly deduped: boolean;
 }
 
@@ -38,7 +42,7 @@ export async function store_message(
     return store_tombstone(scope, previous, message, digest);
   }
   if (previous !== undefined && (await is_unchanged(scope, previous, digest.storage_key))) {
-    return { ref: previous, warnings: [], deduped: true };
+    return { ref: previous, warnings: [], written: false, deduped: true };
   }
   return store_live_version(scope, locator, owner, previous, message, digest);
 }
@@ -76,9 +80,7 @@ async function store_tombstone(
     previous?.deleted_at !== undefined &&
     previous.storage_key === digest.storage_key &&
     (await scope.ctx.storage.exists(digest.storage_key));
-  if (!reusable) {
-    await write_blob(scope, digest.storage_key, digest.plaintext);
-  }
+  const written = !reusable && (await write_blob(scope, digest.storage_key, digest.plaintext));
   const ref: TeamsMessageRef = {
     storage_key: digest.storage_key,
     checksum: digest.checksum,
@@ -89,7 +91,7 @@ async function store_tombstone(
     kept: kept_for_deleted(previous),
     hosted: {},
   };
-  return { ref, warnings: [], deduped: reusable };
+  return { ref, warnings: [], written, deduped: reusable };
 }
 
 /**
@@ -148,7 +150,7 @@ async function store_live_version(
     previous?.hosted ?? {},
     relist,
   );
-  await write_blob(scope, digest.storage_key, digest.plaintext);
+  const written = await write_blob(scope, digest.storage_key, digest.plaintext);
   const warnings =
     missing.length === 0
       ? []
@@ -162,5 +164,5 @@ async function store_live_version(
     hosted,
     hosted_missing: missing.length === 0 ? undefined : missing,
   };
-  return { ref, warnings, deduped: false };
+  return { ref, warnings, written, deduped: false };
 }

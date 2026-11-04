@@ -64,7 +64,7 @@ export class S3TeamsIndexRepository implements TeamsIndexRepository {
     return this.read_listing(ctx, await this.list_index_keys(ctx, team_id));
   }
 
-  /** Index keys of one team; shard objects under the same prefix are left out. */
+  /** Index keys of one team; only `{snapshot}.json` objects under its manifest prefix count. */
   private async list_index_keys(ctx: TenantContext, team_id: string): Promise<string[]> {
     const keys = await ctx.storage.list(TEAMS_KEYS.manifest_prefix_for(team_id));
     return team_index_keys(keys, team_id);

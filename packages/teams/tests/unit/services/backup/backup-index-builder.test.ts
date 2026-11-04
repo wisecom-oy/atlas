@@ -78,6 +78,21 @@ describe('build_channel_index_entry', () => {
     expect(entry.thread_count).toBe(0);
     expect(entry.size_bytes).toBe(0);
   });
+
+  it('counts a blob once when a deleted message kept version shares its storage key (Q11)', () => {
+    const root = {
+      ...message_ref('root-1', 10),
+      kept: { storage_key: 'root-1', checksum: 'sum-root-1', size_bytes: 10, hosted: {} },
+    };
+
+    const entry = build_channel_index_entry(shard({ 'root-1': { root, replies: {} } }), {
+      storage_key: 'shard-key',
+      checksum: 'shard-sum',
+      size_bytes: 1,
+    });
+
+    expect(entry.size_bytes).toBe(10);
+  });
 });
 
 describe('build_team_index', () => {

@@ -10,6 +10,8 @@ export interface TeamsTeamStatus {
   readonly unsupported_keys: string[];
   /** Channel roots that failed in a previous run, summed over the team's channel cursors. */
   readonly failed_root_count: number;
+  /** Hosted content roots still waiting for a recheck, summed over the team's channel cursors. */
+  readonly pending_recheck_count: number;
 }
 
 export interface TeamsStatusUseCase {

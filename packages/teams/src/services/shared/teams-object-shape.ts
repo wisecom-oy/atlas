@@ -87,7 +87,19 @@ const CURSOR_SHAPE: Shape = {
   delta_link: 'string?',
   baseline_shard_key: 'string',
   failed_roots: 'record?',
+  hosted_recheck: 'record?',
   updated_at: 'string',
+};
+
+const FAILED_ROOT_SHAPE: Shape = {
+  item_id: 'string',
+  attempts: 'number',
+};
+
+const HOSTED_REF_SHAPE: Shape = {
+  storage_key: 'string',
+  checksum: 'string',
+  size_bytes: 'number',
 };
 
 function is_record(value: unknown): value is Record<string, unknown> {
@@ -178,20 +190,44 @@ export function assert_shard_shape(key: string, body: unknown): asserts body is 
   }
 }
 
-/** Checks one stored message, root or reply, and its optional kept version. */
+/** Checks one stored message, root or reply, its hosted content, and its optional kept version. */
 function assert_message_ref(key: string, value: unknown): void {
   const message = assert_fields(key, 'Teams channel shard message', value, MESSAGE_REF_SHAPE);
+  assert_record_entries(
+    key,
+    'Teams channel shard hosted content',
+    message.hosted,
+    HOSTED_REF_SHAPE,
+  );
   if (message.kept !== undefined) {
-    assert_fields(key, 'Teams channel shard kept message', message.kept, KEPT_REF_SHAPE);
+    const kept = assert_fields(
+      key,
+      'Teams channel shard kept message',
+      message.kept,
+      KEPT_REF_SHAPE,
+    );
+    assert_record_entries(
+      key,
+      'Teams channel shard kept hosted content',
+      kept.hosted,
+      HOSTED_REF_SHAPE,
+    );
   }
 }
 
-/** Checks a channel cursor body's version and fields. */
+/** Checks a channel cursor body's version, fields, failed-root records, and hosted-recheck counts. */
 export function assert_cursor_shape(
   key: string,
   body: unknown,
 ): asserts body is TeamsChannelCursor {
-  assert_teams_object(key, 'Teams channel cursor', body, CURSOR_SHAPE);
+  const cursor = assert_teams_object(key, 'Teams channel cursor', body, CURSOR_SHAPE);
+  assert_record_entries(
+    key,
+    'Teams channel cursor failed root',
+    cursor.failed_roots,
+    FAILED_ROOT_SHAPE,
+  );
+  assert_hosted_recheck_counts(key, cursor.hosted_recheck);
 }
 
 /** The elements of a field already checked as an array; empty otherwise. */
@@ -202,4 +238,20 @@ function elements(value: unknown): unknown[] {
 /** The values of a field already checked as a record; empty otherwise. */
 function record_values(value: unknown): unknown[] {
   return is_record(value) ? Object.values(value) : [];
+}
+
+/** Checks every entry of a record field against `shape`. */
+function assert_record_entries(key: string, label: string, value: unknown, shape: Shape): void {
+  for (const entry of record_values(value)) assert_fields(key, label, entry, shape);
+}
+
+/** Checks every hosted-recheck count is a finite number. */
+function assert_hosted_recheck_counts(key: string, value: unknown): void {
+  for (const attempts of record_values(value)) {
+    if (typeof attempts !== 'number' || !Number.isFinite(attempts)) {
+      throw new UnreadableContentError(
+        `The Teams channel cursor at ${key} has a mistyped hosted_recheck count`,
+      );
+    }
+  }
 }

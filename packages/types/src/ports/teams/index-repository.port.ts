@@ -24,8 +24,8 @@ export interface TeamsTeamListing {
 }
 
 /**
- * Snapshot indexes. Only objects named `teams/manifests/{team}/{snapshot}.json` are indexes; shard
- * objects under the same prefix are ignored.
+ * Snapshot indexes, stored as `teams/manifests/{team}/{snapshot}.json`. Channel shards live under
+ * `teams/shards/`, outside this prefix, so they never appear in an index listing.
  *
  * Reads that find damaged or newer-format content report it as a key rather than throwing, except
  * `find_by_snapshot`, which raises for the one snapshot the caller named.

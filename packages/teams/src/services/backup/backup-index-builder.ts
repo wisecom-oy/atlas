@@ -7,6 +7,7 @@ import {
   type TeamsGraphResource,
   type TeamsSnapshotIndex,
   type TeamsStoredBlobRef,
+  type TeamsThread,
 } from '@wisecom/atlas-types';
 import { message_thread_blobs } from '@/services/shared/thread-blobs';
 
@@ -50,9 +51,7 @@ export function build_channel_index_entry(
     shard_checksum: stored.checksum,
     thread_count: threads.length,
     message_count: sum_of(threads, (thread) => 1 + Object.keys(thread.replies).length),
-    size_bytes: sum_of(threads, (thread) =>
-      sum_of(message_thread_blobs(thread), (blob) => blob.size_bytes),
-    ),
+    size_bytes: distinct_blob_size(threads),
   };
 }
 
@@ -93,4 +92,16 @@ export function build_channel_cursor(input: ChannelCursorInput): TeamsChannelCur
 
 function sum_of<T>(items: readonly T[], value: (item: T) => number): number {
   return items.reduce((sum, item) => sum + value(item), 0);
+}
+
+/**
+ * Sums each distinct blob once. A deleted message's kept version can share its storage key with
+ * the live copy, and both would otherwise count.
+ */
+function distinct_blob_size(threads: readonly TeamsThread[]): number {
+  const sizes = new Map<string, number>();
+  for (const thread of threads) {
+    for (const blob of message_thread_blobs(thread)) sizes.set(blob.storage_key, blob.size_bytes);
+  }
+  return sum_of([...sizes.values()], (size) => size);
 }
