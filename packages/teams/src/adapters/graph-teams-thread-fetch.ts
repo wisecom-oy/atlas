@@ -23,7 +23,7 @@ export async function list_replies(
 ): Promise<TeamsGraphResource[]> {
   const { items } = await read_all_pages<TeamsGraphResource>(
     client,
-    `${message_path(team_id, channel_id, root_id)}/replies`,
+    `${message_path(team_id, channel_id, root_id)}/replies?$top=50`,
   );
   return items;
 }

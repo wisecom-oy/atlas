@@ -91,6 +91,19 @@ export class GraphTeamsConnector implements TeamsConnector {
     return items;
   }
 
+  /** Lists the teams a shared channel is shared with. */
+  async list_channel_shared_teams(
+    _tenant_id: string,
+    team_id: string,
+    channel_id: string,
+  ): Promise<TeamsGraphResource[]> {
+    const { items } = await read_all_pages<TeamsGraphResource>(
+      this._client,
+      `/teams/${team_id}/channels/${channel_id}/sharedWithTeams`,
+    );
+    return items;
+  }
+
   /**
    * Resolves the channel's Files folder to its SharePoint drive item. Resolves undefined when
    * Graph has no folder for the channel (404).

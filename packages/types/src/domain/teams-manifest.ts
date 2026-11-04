@@ -1,3 +1,5 @@
+import type { FailedItemLedger } from '@/domain/failed-item';
+
 /**
  * A Microsoft Graph resource stored exactly as Graph returned it.
  *
@@ -43,8 +45,13 @@ export interface TeamsThreadEntry extends TeamsStoredBlobRef {
   readonly reply_count: number;
   /** Hosted-content ID (root or reply) to its stored blob. */
   readonly hosted: Record<string, TeamsHostedContentRef>;
-  /** Set when Graph reports the root removed. The entry and its blob are kept. */
+  /**
+   * Set when Graph reports the root removed. The entry keeps the blob it had: the tombstone
+   * when Graph returned one, otherwise the last live blob. See `last_live`.
+   */
   readonly deleted_at?: string | undefined;
+  /** The last live thread blob, kept once the root is deleted so its replies stay restorable. */
+  readonly last_live?: TeamsStoredBlobRef | undefined;
   readonly backup_at: string;
 }
 
@@ -76,6 +83,10 @@ export interface TeamsChannelEntry {
   /** Raw Graph `teamsTab` objects, with `teamsApp` expanded. */
   readonly tabs: TeamsGraphResource[];
   readonly files_folder?: TeamsFilesFolderRef | undefined;
+  /** Set when Graph reports the channel gone. The entry is kept and its delta link dropped. */
+  readonly deleted_at?: string | undefined;
+  /** Teams a shared channel is shared with, from `/channels/{id}/sharedWithTeams`. */
+  readonly shared_with_teams?: TeamsGraphResource[] | undefined;
   readonly read_mode: TeamsChannelReadMode;
   /** Thread entries keyed by the channel-root message ID. */
   readonly threads: Record<string, TeamsThreadEntry>;
@@ -102,5 +113,10 @@ export interface TeamsDeltaCursor {
   readonly team_id: string;
   /** Message delta link per channel ID. Absent for a channel that must be read in full. */
   readonly delta_link_by_channel: Record<string, string>;
+  /**
+   * Roots whose backup failed, keyed by root ID, with their attempt count. `drive_id` holds the
+   * channel ID. A channel with an unexhausted record keeps its previous link and retries.
+   */
+  readonly failed_roots?: FailedItemLedger | undefined;
   readonly updated_at: string;
 }

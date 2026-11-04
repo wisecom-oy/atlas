@@ -75,7 +75,7 @@ atlas teams list-teams
 
 ### backup
 
-Backs up one or more teams. Pass `--team` once per team, or `--all` for every team in the tenant. `--channel <id>` backs up only that channel. Other channels carry forward from the previous manifest.
+Backs up one or more teams. Pass `--team` once per team, or `--all` for every team in the tenant. `--channel <id>` backs up only that channel, needs exactly one `--team`, and cannot be combined with `--all`. Other channels carry forward from the previous manifest.
 
 ```bash
 atlas teams backup --team <team-id>
@@ -84,7 +84,7 @@ atlas teams backup --all
 atlas teams backup --team <team-id> --channel <channel-id>
 ```
 
-Each channel runs independently. If a channel fails, the other channels still complete, and the run exits `2`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+Each team and channel runs independently. If a team or channel fails, the rest still complete, and the run exits `2`. An authentication error stops the run and exits `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
 ### list-snapshots
 
@@ -136,6 +136,8 @@ A channel is read in full, with no delta link, when it has no channel email addr
 
 Deleted roots stay in the manifest with `deleted_at` set. Their blobs are kept.
 
+Ctrl+C stops after the current thread. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged.
+
 ## Storage layout
 
 Teams objects live under the `teams/` prefix of the tenant bucket.
@@ -152,7 +154,7 @@ teams/
 
 ## Failed channels
 
-If a channel cannot be read, the run records it and continues with the next channel. The run then exits `2`. Inspect the reported channels before relying on the snapshot.
+If a channel cannot be read, the run records it and continues with the next channel. The same applies to teams under `--all` or repeated `--team`. The run then exits `2`. Inspect the reported channels before relying on the snapshot.
 
 ```bash
 status=0
@@ -169,7 +171,8 @@ See [Exit codes](/reference/cli#exit-codes) for the full list.
 
 - **Not covered:** 1:1 chats, group chats, and meeting chats. These belong to individual users and carry separate legal and retention duties. Atlas does not use the metered bulk-export API for them.
 - **Restore and save:** not available yet.
-- **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint.
+- **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint. Limits are in [Graph rate limits](/operations/graph-rate-limits#teams-pool).
+- **Replication:** Teams snapshots cannot be replicated or rehydrated yet. Those calls refuse `teams-snap-*` IDs with `Teams snapshots are not replicated yet`.
 
 ## SDK usage
 

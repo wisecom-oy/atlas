@@ -3,7 +3,10 @@ import type { TeamsFilesFolderRef, TeamsGraphResource } from '@/domain/teams-man
 /** A channel root message reported by a read. `deleted` roots carry only their `id`. */
 export interface TeamsRootChange {
   readonly root: TeamsGraphResource;
+  /** A root Graph reports removed (`@removed`) or with `deletedDateTime` set. */
   readonly deleted: boolean;
+  /** Replies inlined by `$expand=replies`, present only when Graph returned them complete. */
+  readonly replies?: TeamsGraphResource[] | undefined;
 }
 
 /** Result of a channel message delta read. */
@@ -65,6 +68,13 @@ export interface TeamsConnector {
     team_id: string,
     channel_id: string,
   ): Promise<TeamsFilesFolderRef | undefined>;
+
+  /** Lists the teams a shared channel is shared with (`/channels/{id}/sharedWithTeams`). */
+  list_channel_shared_teams(
+    tenant_id: string,
+    team_id: string,
+    channel_id: string,
+  ): Promise<TeamsGraphResource[]>;
 
   /**
    * Reads channel message changes since `prev_delta_link`, or everything when it is undefined.

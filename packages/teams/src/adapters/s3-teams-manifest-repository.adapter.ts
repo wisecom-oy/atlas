@@ -18,6 +18,12 @@ class InvalidTeamsManifestError extends Error {
   }
 }
 
+/** Epoch from a manifest key's `teams-snap-{epoch}-` snapshot id; -1 when the key has none. */
+function snapshot_epoch(key: string): number {
+  const match = /teams-snap-(\d+)-/.exec(key);
+  return match ? Number(match[1]) : -1;
+}
+
 /** Persists Teams snapshot manifests as encrypted JSON in object storage. */
 @injectable()
 export class S3TeamsManifestRepository implements TeamsManifestRepository {
@@ -39,12 +45,18 @@ export class S3TeamsManifestRepository implements TeamsManifestRepository {
     return this.download_manifest(ctx, expected_key);
   }
 
-  /** Returns the most recent manifest for a team. */
+  /** Returns the most recent manifest for a team, decrypting only the newest key. */
   async find_latest_by_team(
     ctx: TenantContext,
     team_id: string,
   ): Promise<TeamsSnapshotManifest | undefined> {
-    return (await this.list_snapshots_by_team(ctx, team_id)).at(0);
+    const keys = await ctx.storage.list(TEAMS_KEYS.manifest_prefix_for(team_id));
+    const newest = keys.reduce<string | undefined>(
+      (best, key) =>
+        best === undefined || snapshot_epoch(key) > snapshot_epoch(best) ? key : best,
+      undefined,
+    );
+    return newest === undefined ? undefined : this.download_manifest(ctx, newest);
   }
 
   /** Lists every manifest of a team, sorted newest first. */

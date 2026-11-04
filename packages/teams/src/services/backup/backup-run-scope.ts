@@ -20,6 +20,8 @@ export interface BackupRunScope {
   readonly backup_at: string;
   readonly counters: BackupCounters;
   readonly should_interrupt: () => boolean;
+  /** True for `--full`: ignore stored files folders and delta links. */
+  readonly force_full: boolean;
 }
 
 /** Returns zeroed counters for a new run. */

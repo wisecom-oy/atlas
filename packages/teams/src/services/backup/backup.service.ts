@@ -1,18 +1,17 @@
-import { randomBytes } from 'node:crypto';
+import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import {
   begin_operation_progress,
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 import { inject, injectable } from 'inversify';
 import type {
   TeamsBackupOptions,
   TeamsBackupResult,
+  TeamsBackupSummary,
   TeamsBackupUseCase,
-  TeamsChannelEntry,
-  TeamsSnapshotManifest,
   TeamsConnector,
   TeamsDeltaCursorRepository,
   TeamsGraphResource,
@@ -27,27 +26,15 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import {
-  build_teams_cursor,
-  build_teams_manifest,
-} from '@/services/backup/backup-manifest-builder';
-import { backup_channel } from '@/services/backup/channel-backup-processor';
+  merge_channel_entries,
+  split_owned_channels,
+} from '@/services/backup/channel-entry-merger';
+import { process_channels, type ChannelRunState } from '@/services/backup/channel-run-loop';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
-
-/** What the channel loop produced: entries and links for channels it finished, plus run flags. */
-interface ChannelRunState {
-  readonly entries: Map<string, TeamsChannelEntry>;
-  readonly links: Record<string, string>;
-  readonly errors: string[];
-  attempted: number;
-  interrupted: boolean;
-}
-
-/** Read-only inputs for one channel step: the previous snapshot, stored links, and run options. */
-interface ChannelRunInputs {
-  readonly previous_channels: TeamsChannelEntry[] | undefined;
-  readonly stored_links: Record<string, string>;
-  readonly options: TeamsBackupOptions;
-}
+import {
+  persist_team_snapshot,
+  type SnapshotPersistResult,
+} from '@/services/backup/team-snapshot-persister';
 
 @injectable()
 export class TeamsBackupService implements TeamsBackupUseCase {
@@ -69,14 +56,15 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     team_id: string,
     options: TeamsBackupOptions = {},
   ): Promise<TeamsBackupResult> {
+    const normalized_team_id = normalize_owner_id(team_id);
     if (begin_operation_progress(options, 'backup', 'teams')) {
       finish_operation_progress(options, 'backup', 'teams', 0, 0);
-      return empty_result(team_id);
+      return empty_result(normalized_team_id);
     }
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
-      return await this.run_backup(ctx, tenant_id, team_id, options);
+      return await this.run_backup(ctx, tenant_id, normalized_team_id, options);
     } finally {
       tenant_ctx.destroy();
     }
@@ -94,6 +82,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     const team = await this._connector.get_team(tenant_id, team_id);
     const members = await this._connector.list_team_members(tenant_id, team_id);
     const all_channels = await this._connector.list_channels(tenant_id, team_id);
+    const { owned, warnings: ownership_warnings } = split_owned_channels(all_channels, tenant_id);
     emit_operation_progress(options, {
       operation: 'backup',
       workload: 'teams',
@@ -108,25 +97,24 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       backup_at: backup_at.toISOString(),
       counters: create_backup_counters(),
       should_interrupt: () => options.should_interrupt?.() === true,
+      force_full: options.force_full === true,
     };
-    const stored_links = stored_cursor?.delta_link_by_channel ?? {};
-    const state = await this.process_channels(
+    const state = await process_channels(
       scope,
-      all_channels,
-      stored_links,
-      previous?.channels,
-      options,
+      owned,
+      {
+        previous_channels: previous?.channels,
+        stored_links: stored_cursor?.delta_link_by_channel ?? {},
+        options,
+      },
+      stored_cursor?.failed_roots ?? {},
     );
-    if (
-      options.channel_id !== undefined &&
-      !all_channels.some((c) => c.id === options.channel_id)
-    ) {
-      state.errors.push(`Channel ${options.channel_id} is not in team ${team_id}`);
-    }
-    const channels = all_channels.flatMap((channel) => {
-      const entry =
-        state.entries.get(channel.id) ?? previous?.channels.find((c) => c.id === channel.id);
-      return entry === undefined ? [] : [entry];
+    state.errors.push(...missing_channel_errors(options.channel_id, all_channels, team_id));
+    const channels = merge_channel_entries({
+      channels: all_channels,
+      processed: state.entries,
+      previous: previous?.channels,
+      backup_at: backup_at.toISOString(),
     });
     emit_operation_progress(options, {
       operation: 'backup',
@@ -134,139 +122,30 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       phase: 'finalizing',
       processed: state.attempted,
     });
-    const manifest = await this.persist_snapshot(ctx, {
-      tenant_id,
-      team_id,
-      team_display_name: options.team_display_name ?? team.displayName,
-      backup_at,
-      team,
-      members,
-      channels,
-      links: state.links,
-      channel_ids: new Set(all_channels.map((c) => c.id)),
-    });
+    const persisted = await persist_team_snapshot(
+      ctx,
+      { manifests: this._manifests, cursors: this._cursors },
+      {
+        tenant_id,
+        team_id,
+        team_display_name: options.team_display_name ?? team.displayName,
+        backup_at,
+        team,
+        members,
+        channels,
+        previous,
+        links: state.links,
+        channel_ids: new Set(all_channels.map((c) => c.id)),
+        failed_roots: state.ledger,
+      },
+    );
     finish_operation_progress(options, 'backup', 'teams', state.attempted, state.attempted);
-    const healthy = !state.interrupted && state.errors.length === 0;
     return {
       team_id,
-      snapshot: manifest,
+      snapshot: persisted.manifest,
       interrupted: state.interrupted,
-      summary: {
-        channels_scanned: state.attempted,
-        ...scope.counters,
-        cursor_updated: true,
-        snapshot_created: true,
-        errors: state.errors,
-        warnings: [],
-        healthy,
-      },
+      summary: summarize_run(scope, state, ownership_warnings, persisted),
     };
-  }
-
-  /** Saves the snapshot manifest, then the cursor that points past it (#339). */
-  private async persist_snapshot(
-    ctx: TenantContext,
-    input: {
-      tenant_id: string;
-      team_id: string;
-      team_display_name: string | undefined;
-      backup_at: Date;
-      team: TeamsGraphResource;
-      members: TeamsGraphResource[];
-      channels: TeamsChannelEntry[];
-      links: Parameters<typeof build_teams_cursor>[1];
-      channel_ids: Set<string>;
-    },
-  ): Promise<TeamsSnapshotManifest> {
-    const snapshot_id = `teams-snap-${input.backup_at.getTime()}-${randomBytes(3).toString('hex')}`;
-    const manifest = build_teams_manifest({
-      tenant_id: input.tenant_id,
-      team_id: input.team_id,
-      team_display_name: input.team_display_name,
-      snapshot_id,
-      created_at: input.backup_at,
-      team: input.team,
-      members: input.members,
-      channels: input.channels,
-    });
-    await this._manifests.save(ctx, manifest);
-    const cursor = build_teams_cursor(
-      input.team_id,
-      input.links,
-      input.channel_ids,
-      input.backup_at.toISOString(),
-    );
-    await this._cursors.save(ctx, cursor);
-    return manifest;
-  }
-
-  /**
-   * Processes the selected channels in order. Stops at the first interruption. A channel that
-   * fails is recorded and skipped, so the others still run.
-   */
-  private async process_channels(
-    scope: BackupRunScope,
-    channels: TeamsGraphResource[],
-    stored_links: Record<string, string>,
-    previous_channels: TeamsChannelEntry[] | undefined,
-    options: TeamsBackupOptions,
-  ): Promise<ChannelRunState> {
-    const state: ChannelRunState = {
-      entries: new Map(),
-      links: { ...stored_links },
-      errors: [],
-      attempted: 0,
-      interrupted: false,
-    };
-    for (const channel of channels) {
-      if (options.channel_id !== undefined && channel.id !== options.channel_id) {
-        continue;
-      }
-      if (scope.should_interrupt()) {
-        state.interrupted = true;
-        break;
-      }
-      state.attempted++;
-      const continues = await this.run_channel(scope, channel, state, {
-        previous_channels,
-        stored_links,
-        options,
-      });
-      if (!continues) {
-        state.interrupted = true;
-        break;
-      }
-    }
-    return state;
-  }
-
-  /** Backs up one channel into `state`. Returns false when the run was interrupted during it. */
-  private async run_channel(
-    scope: BackupRunScope,
-    channel: TeamsGraphResource,
-    state: ChannelRunState,
-    inputs: ChannelRunInputs,
-  ): Promise<boolean> {
-    const previous_entry = inputs.previous_channels?.find((c) => c.id === channel.id);
-    const prev_link =
-      inputs.options.force_full === true ? undefined : inputs.stored_links[channel.id];
-    try {
-      const output = await backup_channel(scope, channel, previous_entry, prev_link);
-      if (output === undefined) {
-        return false;
-      }
-      state.entries.set(channel.id, output.entry);
-      if (output.next_link === undefined) {
-        delete state.links[channel.id];
-      } else {
-        state.links[channel.id] = output.next_link;
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn(`Teams channel ${channel.id} backup failed: ${message}`);
-      state.errors.push(`Channel ${channel.id}: ${message}`);
-    }
-    return true;
   }
 }
 
@@ -285,4 +164,35 @@ function empty_result(team_id: string): TeamsBackupResult {
       healthy: false,
     },
   };
+}
+
+/** Builds the run summary from the channel loop state and the snapshot step's result. */
+function summarize_run(
+  scope: BackupRunScope,
+  state: ChannelRunState,
+  ownership_warnings: string[],
+  persisted: SnapshotPersistResult,
+): TeamsBackupSummary {
+  return {
+    channels_scanned: state.attempted,
+    ...scope.counters,
+    cursor_updated: true,
+    snapshot_created: persisted.manifest !== undefined,
+    no_snapshot_reason: persisted.no_snapshot_reason,
+    errors: state.errors,
+    warnings: [...ownership_warnings, ...state.warnings, ...describe_failed_items(state.ledger)],
+    healthy: !state.interrupted && state.errors.length === 0,
+  };
+}
+
+/** Reports a requested channel id that the team does not list. */
+function missing_channel_errors(
+  channel_id: string | undefined,
+  channels: TeamsGraphResource[],
+  team_id: string,
+): string[] {
+  if (channel_id === undefined || channels.some((c) => c.id === channel_id)) {
+    return [];
+  }
+  return [`Channel ${channel_id} is not in team ${team_id}`];
 }

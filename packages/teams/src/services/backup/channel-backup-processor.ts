@@ -1,148 +1,114 @@
-import { is_invalid_delta_error } from '@wisecom/atlas-m365-graph';
-import { logger } from '@wisecom/atlas-core/utils/logger';
-import type {
-  TeamsChannelEntry,
-  TeamsChannelReadMode,
-  TeamsGraphResource,
-  TeamsRootChange,
-  TeamsThreadEntry,
-} from '@wisecom/atlas-types';
+import { retryable_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import type { FailedItemLedger, TeamsChannelEntry, TeamsGraphResource } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
-import { store_thread } from '@/services/backup/thread-store';
-import { graph_status_of } from '@/services/shared/graph-error-status';
+import { apply_root_changes } from '@/services/backup/channel-root-applier';
+import { read_channel_roots } from '@/services/backup/channel-root-reader';
+import { error_message } from '@/services/shared/error-message';
 
-/** A channel that was backed up, with the delta link to store for it. */
+/** What one channel backup produced: its entry, the delta link to store, and what went wrong. */
 export interface ChannelBackupOutput {
   readonly entry: TeamsChannelEntry;
+  /** Fresh link when the channel completed, otherwise the previous link so the next run re-reads. */
   readonly next_link: string | undefined;
-}
-
-interface ChannelRead {
-  readonly mode: TeamsChannelReadMode;
-  readonly roots: TeamsRootChange[];
-  readonly next_link: string | undefined;
+  readonly complete: boolean;
+  readonly interrupted: boolean;
+  readonly failed_roots: FailedItemLedger;
+  readonly errors: string[];
+  readonly warnings: string[];
 }
 
 /**
- * Backs up one channel. Returns undefined when the run was interrupted before every change was
- * applied, so the caller keeps the channel's previous entry and delta link.
+ * Backs up one channel: its metadata, then its root changes. A channel with a failed root or an
+ * interruption keeps its previous delta link, so the next run presents those roots again.
  */
 export async function backup_channel(
   scope: BackupRunScope,
   channel: TeamsGraphResource,
   previous: TeamsChannelEntry | undefined,
   prev_link: string | undefined,
-): Promise<ChannelBackupOutput | undefined> {
+  ledger: FailedItemLedger,
+): Promise<ChannelBackupOutput> {
   const { tenant_id, team_id } = scope;
+  const warnings: string[] = [];
   const members = await scope.connector.list_channel_members(tenant_id, team_id, channel.id);
   const tabs = await scope.connector.list_channel_tabs(tenant_id, team_id, channel.id);
-  const files_folder = await scope.connector.get_channel_files_folder(
-    tenant_id,
-    team_id,
-    channel.id,
-  );
+  const files_folder = await resolve_files_folder(scope, channel.id, previous, warnings);
+  const shared_with_teams = await resolve_shared_teams(scope, channel, previous, warnings);
   const read = await read_channel_roots(scope, channel, prev_link);
-  if (read.mode === 'full') {
-    scope.counters.channels_full_read++;
-  }
-  const threads = await apply_root_changes(scope, channel.id, read, previous?.threads ?? {});
-  if (threads === undefined) {
-    return undefined;
-  }
+  const applied = await apply_root_changes(
+    scope,
+    channel.id,
+    read,
+    previous?.threads ?? {},
+    ledger,
+  );
+  const complete =
+    !applied.interrupted && retryable_items(applied.failed_roots, channel.id).length === 0;
   const entry: TeamsChannelEntry = {
     id: channel.id,
     channel,
     members,
     tabs,
     files_folder,
-    read_mode: read.mode,
-    threads,
+    shared_with_teams,
+    read_mode: read.is_full ? 'full' : 'delta',
+    threads: applied.threads,
   };
-  return { entry, next_link: read.next_link };
+  return {
+    entry,
+    next_link: complete ? read.link : prev_link,
+    complete,
+    interrupted: applied.interrupted,
+    failed_roots: applied.failed_roots,
+    errors: applied.errors,
+    warnings,
+  };
 }
 
-/**
- * Reads changed roots by delta when the channel has an email address, which Graph requires for
- * message delta. Falls back to a full read when Graph rejects the delta link or the channel has
- * no email.
- */
-async function read_channel_roots(
+/** Reuses the stored files folder unless `--full`. A lookup failure keeps the previous value. */
+async function resolve_files_folder(
   scope: BackupRunScope,
-  channel: TeamsGraphResource,
-  prev_link: string | undefined,
-): Promise<ChannelRead> {
-  if (typeof channel.email !== 'string' || channel.email === '') {
-    return read_full(scope, channel.id);
+  channel_id: string,
+  previous: TeamsChannelEntry | undefined,
+  warnings: string[],
+): Promise<TeamsChannelEntry['files_folder']> {
+  if (!scope.force_full && previous?.files_folder !== undefined) {
+    return previous.files_folder;
   }
   try {
-    const delta = await scope.connector.fetch_message_delta(
+    return await scope.connector.get_channel_files_folder(
+      scope.tenant_id,
+      scope.team_id,
+      channel_id,
+    );
+  } catch (err) {
+    warnings.push(
+      `Channel ${channel_id}: files folder not resolved (${error_message(err)}); kept the previous value`,
+    );
+    return previous?.files_folder;
+  }
+}
+
+/** Lists the teams a shared channel is shared with. A lookup failure keeps the previous value. */
+async function resolve_shared_teams(
+  scope: BackupRunScope,
+  channel: TeamsGraphResource,
+  previous: TeamsChannelEntry | undefined,
+  warnings: string[],
+): Promise<TeamsGraphResource[] | undefined> {
+  if (channel.membershipType !== 'shared') {
+    return undefined;
+  }
+  try {
+    return await scope.connector.list_channel_shared_teams(
       scope.tenant_id,
       scope.team_id,
       channel.id,
-      prev_link,
     );
-    return { mode: 'delta', roots: delta.roots, next_link: delta.delta_link };
   } catch (err) {
-    if (graph_status_of(err) !== 400 && !is_invalid_delta_error(err)) {
-      throw err;
-    }
-    logger.warn(`Teams channel ${channel.id}: delta rejected, reading every root in full`);
-    return read_full(scope, channel.id);
+    warnings.push(
+      `Channel ${channel.id}: shared teams not resolved (${error_message(err)}); kept the previous value`,
+    );
+    return previous?.shared_with_teams;
   }
-}
-
-async function read_full(scope: BackupRunScope, channel_id: string): Promise<ChannelRead> {
-  const roots = await scope.connector.list_channel_messages(
-    scope.tenant_id,
-    scope.team_id,
-    channel_id,
-  );
-  return { mode: 'full', roots, next_link: undefined };
-}
-
-/**
- * Applies the read to the previous thread map. A delta read only touches the roots it reports; a
- * full read is the whole channel, so a previous root it no longer lists is marked deleted.
- * ponytail: the full read is held in memory before storing; a page callback upgrades this for
- * very large channels.
- */
-async function apply_root_changes(
-  scope: BackupRunScope,
-  channel_id: string,
-  read: ChannelRead,
-  previous_threads: Record<string, TeamsThreadEntry>,
-): Promise<Record<string, TeamsThreadEntry> | undefined> {
-  const threads: Record<string, TeamsThreadEntry> = { ...previous_threads };
-  const seen = new Set<string>();
-  for (const change of read.roots) {
-    if (scope.should_interrupt()) {
-      return undefined;
-    }
-    const root_id = change.root.id;
-    seen.add(root_id);
-    const previous = previous_threads[root_id];
-    if (change.deleted) {
-      if (previous !== undefined) {
-        threads[root_id] = mark_deleted(scope, previous);
-      }
-      continue;
-    }
-    threads[root_id] = await store_thread(scope, channel_id, change.root, previous);
-  }
-  if (read.mode === 'full') {
-    for (const [root_id, previous] of Object.entries(previous_threads)) {
-      if (!seen.has(root_id)) {
-        threads[root_id] = mark_deleted(scope, previous);
-      }
-    }
-  }
-  return threads;
-}
-
-function mark_deleted(scope: BackupRunScope, entry: TeamsThreadEntry): TeamsThreadEntry {
-  if (entry.deleted_at !== undefined) {
-    return entry;
-  }
-  scope.counters.threads_deleted++;
-  return { ...entry, deleted_at: scope.backup_at };
 }

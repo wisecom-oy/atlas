@@ -11,18 +11,27 @@ import { backup_channel } from '@/services/backup/channel-backup-processor';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 import { store_thread } from '@/services/backup/thread-store';
 
-vi.mock('@/services/backup/thread-store', () => ({ store_thread: vi.fn() }));
+vi.mock('@/services/backup/thread-store', () => ({
+  store_thread: vi.fn(),
+  mark_thread_removed: vi.fn(),
+}));
 
 const BACKUP_AT = '2025-01-01T00:00:00.000Z';
 const CHANNEL: TeamsGraphResource = { id: 'channel-1', displayName: 'General' };
-const CHANNEL_WITH_EMAIL: TeamsGraphResource = {
+const CHANNEL_WITH_EMAIL = {
   id: 'channel-1',
   displayName: 'General',
   email: 'general@example.invalid',
-};
+} as TeamsGraphResource;
+const SHARED_CHANNEL = {
+  id: 'channel-1',
+  displayName: 'Shared',
+  email: 'shared@example.invalid',
+  membershipType: 'shared',
+} as TeamsGraphResource;
 
-function root_change(id: string, deleted = false): TeamsRootChange {
-  return { root: { id }, deleted };
+function root_change(id: string): TeamsRootChange {
+  return { root: { id }, deleted: false };
 }
 
 function thread_entry(id: string): TeamsThreadEntry {
@@ -53,14 +62,19 @@ function make_connector(overrides: Partial<TeamsConnector> = {}): TeamsConnector
     list_channel_members: vi.fn(async () => []),
     list_channel_tabs: vi.fn(async () => []),
     get_channel_files_folder: vi.fn(async () => undefined),
+    list_channel_shared_teams: vi.fn(async () => []),
     fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-default' })),
     list_channel_messages: vi.fn(async () => []),
     ...overrides,
   } as unknown as TeamsConnector;
 }
 
-function make_scope(connector: TeamsConnector, should_interrupt = (): boolean => false) {
-  const scope: BackupRunScope = {
+function make_scope(
+  connector: TeamsConnector,
+  should_interrupt = (): boolean => false,
+  force_full = false,
+): BackupRunScope {
+  return {
     ctx: {} as TenantContext,
     connector,
     tenant_id: 'tenant-1',
@@ -68,106 +82,194 @@ function make_scope(connector: TeamsConnector, should_interrupt = (): boolean =>
     backup_at: BACKUP_AT,
     counters: create_backup_counters(),
     should_interrupt,
+    force_full,
   };
-  return scope;
 }
 
 describe('backup_channel', () => {
   beforeEach(() => {
     vi.mocked(store_thread).mockReset();
     vi.mocked(store_thread).mockImplementation(async (_scope, _channel, root) =>
-      thread_entry(root.id),
+      thread_entry(root.root.id),
     );
   });
 
-  it('reads the whole channel without delta when the channel has no email', async () => {
+  it('reads every root in full and stores the delta link for a channel with an email', async () => {
     const connector = make_connector({
-      list_channel_messages: vi.fn(async () => [root_change('msg-1')]),
+      list_channel_messages: vi.fn(async () => [root_change('root-1')]),
+      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-new' })),
     });
-    const out = await backup_channel(make_scope(connector), CHANNEL, undefined, undefined);
-    expect(out?.entry.read_mode).toBe('full');
-    expect(out?.next_link).toBeUndefined();
-    expect(connector.fetch_message_delta).not.toHaveBeenCalled();
-    expect(Object.keys(out?.entry.threads ?? {})).toEqual(['msg-1']);
-  });
 
-  it('stores the delta link and reads changes by delta when the channel has an email', async () => {
-    const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
-        roots: [root_change('msg-1')],
-        delta_link: 'link-2',
-      })),
-    });
     const out = await backup_channel(
       make_scope(connector),
       CHANNEL_WITH_EMAIL,
       undefined,
-      'link-1',
+      undefined,
+      {},
     );
-    expect(out?.entry.read_mode).toBe('delta');
-    expect(out?.next_link).toBe('link-2');
+
+    expect(connector.list_channel_messages).toHaveBeenCalledWith('tenant-1', 'team-1', 'channel-1');
     expect(connector.fetch_message_delta).toHaveBeenCalledWith(
       'tenant-1',
       'team-1',
       'channel-1',
-      'link-1',
+      undefined,
     );
+    expect(out.next_link).toBe('link-new');
+    expect(out.complete).toBe(true);
+    expect(out.entry.read_mode).toBe('full');
+    expect(Object.keys(out.entry.threads)).toEqual(['root-1']);
   });
 
-  it('falls back to a full read when Graph rejects the delta link with 400', async () => {
+  it('reads in full and stores no link for a channel without an email, even with a stored link', async () => {
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => {
-        throw Object.assign(new Error('Bad Request'), { statusCode: 400 });
-      }),
-      list_channel_messages: vi.fn(async () => [root_change('msg-1')]),
+      list_channel_messages: vi.fn(async () => [root_change('root-1')]),
     });
-    const scope = make_scope(connector);
-    const out = await backup_channel(scope, CHANNEL_WITH_EMAIL, undefined, 'stale');
-    expect(out?.entry.read_mode).toBe('full');
-    expect(out?.next_link).toBeUndefined();
-    expect(scope.counters.channels_full_read).toBe(1);
+
+    const out = await backup_channel(make_scope(connector), CHANNEL, undefined, 'link-old', {});
+
+    expect(connector.fetch_message_delta).not.toHaveBeenCalled();
+    expect(out.next_link).toBeUndefined();
+    expect(out.entry.read_mode).toBe('full');
   });
 
-  it('rethrows delta errors that are not a rejected link', async () => {
+  it('reads only the changes since the stored link for a channel with an email', async () => {
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => {
-        throw Object.assign(new Error('Too Many Requests'), { statusCode: 429 });
-      }),
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('root-2')],
+        delta_link: 'link-new',
+      })),
     });
-    await expect(
-      backup_channel(make_scope(connector), CHANNEL_WITH_EMAIL, undefined, 'link-1'),
-    ).rejects.toThrow('Too Many Requests');
+
+    const out = await backup_channel(
+      make_scope(connector),
+      CHANNEL_WITH_EMAIL,
+      previous_channel({ 'root-1': thread_entry('root-1') }),
+      'link-old',
+      {},
+    );
+
+    expect(connector.fetch_message_delta).toHaveBeenCalledWith(
+      'tenant-1',
+      'team-1',
+      'channel-1',
+      'link-old',
+    );
+    expect(connector.list_channel_messages).not.toHaveBeenCalled();
+    expect(out.entry.read_mode).toBe('delta');
+    expect(out.entry.threads).toHaveProperty('root-1');
+    expect(out.next_link).toBe('link-new');
   });
 
-  it('marks a previous root that a full read no longer lists as deleted', async () => {
-    const connector = make_connector({ list_channel_messages: vi.fn(async () => []) });
-    const previous = previous_channel({ 'msg-old': thread_entry('msg-old') });
-    const scope = make_scope(connector);
-    const out = await backup_channel(scope, CHANNEL, previous, undefined);
-    expect(out?.entry.threads['msg-old']?.deleted_at).toBe(BACKUP_AT);
-    expect(scope.counters.threads_deleted).toBe(1);
-  });
-
-  it('keeps a previous root on a delta read that does not mention it', async () => {
+  it('keeps the previous entry and withholds the link when a root fails, then clears it on retry', async () => {
+    const previous = thread_entry('root-1');
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-2' })),
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('root-1')],
+        delta_link: 'link-new',
+      })),
     });
-    const previous = previous_channel({ 'msg-old': thread_entry('msg-old') });
-    const out = await backup_channel(make_scope(connector), CHANNEL_WITH_EMAIL, previous, 'link-1');
-    expect(out?.entry.threads['msg-old']?.deleted_at).toBeUndefined();
+    vi.mocked(store_thread).mockRejectedValueOnce(new Error('boom'));
+
+    const failed = await backup_channel(
+      make_scope(connector),
+      CHANNEL_WITH_EMAIL,
+      previous_channel({ 'root-1': previous }),
+      'link-old',
+      {},
+    );
+
+    expect(failed.entry.threads['root-1']).toEqual(previous);
+    expect(failed.errors).toEqual(['Channel channel-1 root root-1: boom']);
+    expect(failed.complete).toBe(false);
+    expect(failed.next_link).toBe('link-old');
+    expect(Object.keys(failed.failed_roots)).toEqual(['root-1']);
+
+    const retried = await backup_channel(
+      make_scope(connector),
+      CHANNEL_WITH_EMAIL,
+      previous_channel({ 'root-1': previous }),
+      'link-old',
+      failed.failed_roots,
+    );
+
+    expect(retried.errors).toEqual([]);
+    expect(retried.complete).toBe(true);
+    expect(retried.next_link).toBe('link-new');
+    expect(retried.failed_roots).toEqual({});
   });
 
-  it('returns undefined when the run is interrupted mid-channel', async () => {
+  it('keeps the previous link and entry when interrupted before any root is stored', async () => {
+    const previous = thread_entry('root-1');
     const connector = make_connector({
-      list_channel_messages: vi.fn(async () => [root_change('msg-1')]),
+      fetch_message_delta: vi.fn(async () => ({
+        roots: [root_change('root-2')],
+        delta_link: 'link-new',
+      })),
     });
+
     const out = await backup_channel(
       make_scope(connector, () => true),
-      CHANNEL,
-      undefined,
-      undefined,
+      CHANNEL_WITH_EMAIL,
+      previous_channel({ 'root-1': previous }),
+      'link-old',
+      {},
     );
-    expect(out).toBeUndefined();
+
     expect(store_thread).not.toHaveBeenCalled();
+    expect(out.interrupted).toBe(true);
+    expect(out.complete).toBe(false);
+    expect(out.next_link).toBe('link-old');
+    expect(out.entry.threads).toEqual({ 'root-1': previous });
+  });
+
+  it('looks up shared teams only for a shared channel and stores them on the entry', async () => {
+    const connector = make_connector({
+      list_channel_shared_teams: vi.fn(async () => [{ id: 'team-2', displayName: 'Other' }]),
+    });
+
+    const out = await backup_channel(
+      make_scope(connector),
+      SHARED_CHANNEL,
+      undefined,
+      undefined,
+      {},
+    );
+    const plain = await backup_channel(make_scope(connector), CHANNEL, undefined, undefined, {});
+
+    expect(connector.list_channel_shared_teams).toHaveBeenCalledTimes(1);
+    expect(connector.list_channel_shared_teams).toHaveBeenCalledWith(
+      'tenant-1',
+      'team-1',
+      'channel-1',
+    );
+    expect(out.entry.shared_with_teams).toEqual([{ id: 'team-2', displayName: 'Other' }]);
+    expect(plain.entry.shared_with_teams).toBeUndefined();
+  });
+
+  it('reuses the stored files folder unless the run is a full run', async () => {
+    const folder = { id: 'folder-1' } as unknown as TeamsChannelEntry['files_folder'];
+    const previous: TeamsChannelEntry = { ...previous_channel({}), files_folder: folder };
+
+    const reused_connector = make_connector();
+    const reused = await backup_channel(
+      make_scope(reused_connector),
+      CHANNEL,
+      previous,
+      undefined,
+      {},
+    );
+    expect(reused_connector.get_channel_files_folder).not.toHaveBeenCalled();
+    expect(reused.entry.files_folder).toBe(folder);
+
+    const full_connector = make_connector();
+    await backup_channel(
+      make_scope(full_connector, () => false, true),
+      CHANNEL,
+      previous,
+      undefined,
+      {},
+    );
+    expect(full_connector.get_channel_files_folder).toHaveBeenCalledTimes(1);
   });
 });

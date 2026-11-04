@@ -1,3 +1,4 @@
+import type { OperationCost } from '@/domain/graph-cost';
 import type {
   TeamsGraphResource,
   TeamsSnapshotManifest,
@@ -29,6 +30,7 @@ export interface TeamsBackupSummary {
 
 export interface TeamsBackupResult {
   readonly team_id: string;
+  readonly graph_cost?: OperationCost | undefined;
   readonly snapshot: TeamsSnapshotManifest | undefined;
   readonly interrupted: boolean;
   readonly summary: TeamsBackupSummary;
