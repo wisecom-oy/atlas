@@ -304,36 +304,7 @@ export type {
   SharePointLibraryStatus,
 } from './sharepoint/status.port';
 
-export type {
-  TeamsConnector,
-  TeamsMessageLocator,
-  TeamsMessageDeltaResult,
-  TeamsRootChange,
-  TeamsRootFetchResult,
-  TeamsHostedContent,
-} from './teams/connector.port';
-export type {
-  TeamsIndexRepository,
-  TeamsLatestIndex,
-  TeamsSnapshotListing,
-  TeamsTeamListing,
-} from './teams/index-repository.port';
-export type { TeamsChannelShardRepository } from './teams/channel-shard-repository.port';
-export type {
-  TeamsChannelCursorRepository,
-  TeamsCursorScan,
-} from './teams/channel-cursor-repository.port';
-export type {
-  TeamsBackupUseCase,
-  TeamsBackupSummary,
-  TeamsBackupResult,
-  TeamsBackupOptions,
-  TeamsCatalogUseCase,
-  TeamsVerificationUseCase,
-  TeamsVerificationResult,
-} from './teams/use-case.port';
-export type { TeamsDeletionUseCase } from './teams/deletion.port';
-export type { TeamsStatusUseCase, TeamsTeamStatus } from './teams/status.port';
+export type * from '@/ports/teams';
 
 export type * from './storage/storage-inventory.port';
 export type * from './storage-usage/use-case.port';
