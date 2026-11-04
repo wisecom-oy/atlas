@@ -35,7 +35,7 @@ Atlas reports two sizes that answer different questions:
 
 Deduplication keeps physical size below logical size, because one stored object serves every snapshot that references it. Other factors push physical size up: base64 encoding in MIME adds about 33% to attachments, each object carries encryption overhead, noncurrent versions stay until they expire, and legacy index objects and staging leftovers take up space that the manifests do not reference.
 
-A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. Reading the manifests requires the tenant's data key. A bucket with no backups, or a replica without the key, returns the physical report only.
+A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. `logical_bytes_by_workload` splits it across Outlook, OneDrive, SharePoint, and Teams. Reading the manifests requires the tenant's data key. A bucket with no backups, or a replica without the key, returns the physical report only.
 
 ## Categories
 

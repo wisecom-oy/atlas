@@ -5,6 +5,7 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
+  TeamsManifestRepository,
   StorageTarget,
   StorageUsage,
   TenantContext,
@@ -52,6 +53,9 @@ function harness(bucket: FakeBucket = MIXED_BUCKET, readonly_fails = false): Har
       list_all_manifests: async () => [{ total_size_bytes: 4000 }],
     } as unknown as OneDriveManifestRepository,
     { list_all_manifests: async () => [] } as unknown as SharePointManifestRepository,
+    {
+      list_all_manifests: async () => [{ total_size_bytes: 700 }],
+    } as unknown as TeamsManifestRepository,
   );
   return { service, inventory, create_readonly };
 }
@@ -101,8 +105,9 @@ describe('StorageUsageService', () => {
       outlook: 150,
       onedrive: 4000,
       sharepoint: 0,
+      teams: 700,
     });
-    expect(usage.logical_bytes_referenced).toBe(4150);
+    expect(usage.logical_bytes_referenced).toBe(4850);
   });
 
   it('still reports physical usage when the manifests cannot be read', async () => {
