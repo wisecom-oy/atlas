@@ -3,6 +3,8 @@ import { logger } from '@wisecom/atlas-core';
 export interface InterruptGate {
   /** Passed to a use case as `should_interrupt`. */
   readonly should_interrupt: () => boolean;
+  /** Aborts on the first Ctrl+C, so in-flight Graph waits stop rather than running to their timeout. */
+  readonly abort_signal: AbortSignal;
   /** Removes the SIGINT listener. Always call it, in a `finally`. */
   readonly dispose: () => void;
 }
@@ -19,17 +21,20 @@ export interface InterruptGate {
  */
 export function install_interrupt_gate(message: string): InterruptGate {
   let interrupted = false;
+  const controller = new AbortController();
 
   const on_sigint = (): void => {
     if (interrupted) return;
     interrupted = true;
     logger.warn(message);
+    controller.abort(new Error('Run interrupted by Ctrl+C'));
   };
 
   process.on('SIGINT', on_sigint);
 
   return {
     should_interrupt: () => interrupted,
+    abort_signal: controller.signal,
     dispose: () => process.removeListener('SIGINT', on_sigint),
   };
 }

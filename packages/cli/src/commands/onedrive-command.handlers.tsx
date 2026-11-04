@@ -119,7 +119,7 @@ export async function execute_onedrive_backup(
   );
 
   const gate = install_interrupt_gate(
-    '[!] Stopping after the current file; the delta cursor is not advanced for an interrupted run',
+    'Stopping after the current file; the delta cursor is not advanced for an interrupted run',
   );
   let result;
   try {
