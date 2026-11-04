@@ -933,6 +933,8 @@ Checks the snapshot's index, channel shards, and every blob it references. Exits
 
 **`atlas teams status`**
 
+Prints one row per team, with the newest snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean.
+
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |
 | `-t, --tenant <id>` | Override the tenant ID from config |
@@ -951,7 +953,7 @@ Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it 
 ::: tip Permissions
 Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
 
-A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, an interrupted run, or an unreadable index newer than the latest readable one. See [Failed channels](../teams-backup.md#failed-channels).
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, an interrupted run, or an unreadable index newer than the latest readable one. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check

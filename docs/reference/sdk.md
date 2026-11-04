@@ -291,6 +291,8 @@ if (run.snapshot) {
 }
 ```
 
+`run.summary` reports the run's counters, camelCased: `threadsChanged`, `messagesStored`, `messagesDeduplicated`, `hostedContentStored`, and `threadsDeleted`. `status()` returns `failedRootCount` and `pendingRecheckCount` for each team, the values behind the `Failed roots` and `Pending rechecks` columns of `atlas teams status`. See [Teams backup](../teams-backup.md#backup) for what each counter means.
+
 ### Tenant-wide methods
 
 | Method                                   | Description                                                                                      |

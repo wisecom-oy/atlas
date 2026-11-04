@@ -92,7 +92,7 @@ If deletion stops between the two steps, you are left with orphan data objects. 
 
 `atlas teams delete` removes the channel cursors first, then the snapshot indexes, then the channel shards, then the message and image blobs.
 
-While retention is active, a delete removes what it can and reports what it kept. The command exits with code `8` (`ATLAS_OBJECT_LOCK_RETAINED`) to signal that deletion is incomplete. Treat a purge in an immutable bucket as "delete everything possible and list the leftovers", not as immediate destruction.
+While retention is active, a delete removes what it can and reports what it kept. The command exits with code `1` to signal that deletion is incomplete. Treat a purge in an immutable bucket as "delete everything possible and list the leftovers", not as immediate destruction.
 
 ## Lifecycle rules
 

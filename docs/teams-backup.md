@@ -95,6 +95,16 @@ atlas teams backup --team <team-id> --channel <channel-id>
 
 Each team runs independently and is reported when it finishes. A channel error is recorded, and the next channel still runs. With several teams, a team that fails with an error other than an authentication error is recorded, and the other teams still run. The run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. A single `--team` run stops on its first error and exits with that error's category code. An authentication error on a team's first channel also stops the run, with exit `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
+Each run that creates a snapshot prints these counters:
+
+| Counter | Meaning |
+| ------- | ------- |
+| `changed` | Threads whose stored record differs from the previous run. New threads count too, and so does a recheck that downloaded an inline image. |
+| `stored` | Messages whose blob was written in this run. |
+| `dedup` | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here. |
+| `hosted` | Inline images written in this run. |
+| `deleted` | Threads recorded as deleted in this run. Printed only when above zero. |
+
 ### list-snapshots
 
 Lists the snapshots stored for one team, newest first. An index Atlas cannot read, or one written by a newer Atlas format, is named in a warning with its storage key, and the rest of the list still prints. See [Unreadable snapshots](#unreadable-snapshots).
@@ -113,7 +123,7 @@ atlas teams verify --team <team-id> -s <snapshot-id>
 
 ### status
 
-Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it. Below the table, a warning names each team's unreadable objects, its newer-format objects, and its channel roots that failed in a previous run.
+Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it. Below the table, a warning names each team's unreadable objects, its newer-format objects, and its channel roots that failed in a previous run. `Failed roots` counts the team's failed-root ledger entries across its channel cursors, including `PERMANENTLY SKIPPED` roots. `Pending rechecks` counts hosted content roots still waiting for a recheck. A root that reached the five-attempt cap is not counted.
 
 ```bash
 atlas teams status
@@ -181,7 +191,7 @@ A `400` from Graph on a root's replies or re-read is permanent. The root is repo
 
 A root that fails is reported as a channel error. A root that Graph returns `404` for on re-read is kept as previously stored, reported as a warning, and still counts as an attempt. While any ledger entry remains, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run raised no channel error.
 
-A thread whose inline image Graph did not return is re-checked on later runs. Each run warns `hosted content still missing (attempt N of 5); re-checking next run`. The fifth attempt warns once that Atlas gave up re-checking. The count then stays at 5, so delta runs stop re-checking that root. A full read still lists it and re-applies it. A `404` on a re-check counts as an attempt. These are warnings only, so they do not make the run unhealthy.
+A thread whose inline image Graph did not return is re-checked on later runs. Each run warns `hosted content still missing (attempt N of 5); re-checking next run`. The fifth attempt warns once that Atlas gave up re-checking. The count then stays at 5, so delta runs stop re-checking that root. A full read still lists it and re-applies it. A `404` or `403` from Graph for an inline image is handled the same way and counts as an attempt. These are warnings only, so they do not make the run unhealthy: a run with only these warnings still prints `Status: HEALTHY`.
 
 ```bash
 status=0
