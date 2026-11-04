@@ -1,13 +1,20 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
+import { ResponseType } from '@microsoft/microsoft-graph-client';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
+import type * as graph_request from '@/adapters/graph-teams-request';
+import {
+  graph_teams_call,
+  INCLUDE_UNKNOWN_ENUM_HEADERS,
+  read_all_pages,
+} from '@/adapters/graph-teams-request';
 import {
   download_hosted_content,
   list_hosted_contents,
   list_replies,
 } from '@/adapters/graph-teams-thread-fetch';
 
-vi.mock('@/adapters/graph-teams-request', () => ({
+vi.mock('@/adapters/graph-teams-request', async (import_original) => ({
+  ...(await import_original<typeof graph_request>()),
   read_all_pages: vi.fn(),
   graph_teams_call: vi.fn(),
 }));
@@ -31,6 +38,7 @@ describe('list_replies', () => {
     expect(read).toHaveBeenCalledWith(
       expect.anything(),
       `/teams/${TEAM}/channels/${CHANNEL}/messages/${ROOT}/replies?$top=50`,
+      INCLUDE_UNKNOWN_ENUM_HEADERS,
     );
     expect(replies).toEqual([{ id: 'reply-1' }]);
   });
@@ -74,30 +82,45 @@ describe('list_hosted_contents', () => {
 
 describe('download_hosted_content', () => {
   const guarded = graph_teams_call as unknown as Mock;
+  const locator = { team_id: TEAM, channel_id: CHANNEL, root_id: ROOT };
 
   beforeEach(() => {
     guarded.mockReset();
     guarded.mockImplementation(async (fn: () => Promise<unknown>) => fn());
   });
 
-  it('downloads the raw bytes of one hosted content as a Buffer', async () => {
-    const api = vi.fn((_url: string) => ({
-      responseType: () => ({
-        get: async () => new Uint8Array([1, 2, 3]).buffer,
-      }),
+  /** A client whose `$value` request answers with the given bytes and response headers. */
+  function client_answering(bytes: number[], headers: Record<string, string>) {
+    const get = vi.fn(async () => ({
+      headers: { get: (name: string) => headers[name] ?? null },
+      arrayBuffer: async () => new Uint8Array(bytes).buffer,
     }));
-    const client = { api } as unknown as Client;
+    const response_type = vi.fn(() => ({ get }));
+    const api = vi.fn((_url: string) => ({ responseType: response_type }));
+    return { client: { api } as unknown as Client, api, response_type };
+  }
 
-    const bytes = await download_hosted_content(
-      client,
-      { team_id: TEAM, channel_id: CHANNEL, root_id: ROOT },
-      'hosted-1',
-    );
+  it('returns the raw bytes and the Content-Type Graph sent with them', async () => {
+    const { client, api, response_type } = client_answering([1, 2, 3], {
+      'content-type': 'image/png',
+    });
+
+    const hosted = await download_hosted_content(client, locator, 'hosted-1');
 
     expect(api).toHaveBeenCalledWith(
       `/teams/${TEAM}/channels/${CHANNEL}/messages/${ROOT}/hostedContents/hosted-1/$value`,
     );
-    expect(Buffer.isBuffer(bytes)).toBe(true);
-    expect([...bytes]).toEqual([1, 2, 3]);
+    expect(response_type).toHaveBeenCalledWith(ResponseType.RAW);
+    expect(Buffer.isBuffer(hosted.bytes)).toBe(true);
+    expect([...hosted.bytes]).toEqual([1, 2, 3]);
+    expect(hosted.content_type).toBe('image/png');
+  });
+
+  it('leaves content_type undefined when the response has no Content-Type', async () => {
+    const { client } = client_answering([9], {});
+
+    const hosted = await download_hosted_content(client, locator, 'hosted-1');
+
+    expect(hosted.content_type).toBeUndefined();
   });
 });

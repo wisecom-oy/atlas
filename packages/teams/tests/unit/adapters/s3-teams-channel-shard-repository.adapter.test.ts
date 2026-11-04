@@ -57,7 +57,7 @@ describe('S3TeamsChannelShardRepository', () => {
 
     const ref = await repository.save(ctx, shard());
 
-    expect(ref.storage_key.startsWith(`teams/manifests/${TEAM}/channels/${CHANNEL}/`)).toBe(true);
+    expect(ref.storage_key.startsWith(`teams/shards/${TEAM}/${CHANNEL}/`)).toBe(true);
     await expect(repository.load(ctx, ref.storage_key)).resolves.toEqual(shard());
   });
 
@@ -99,6 +99,27 @@ describe('S3TeamsChannelShardRepository', () => {
 
     await expect(load).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
     await expect(load).rejects.not.toBeInstanceOf(UnreadableContentError);
+  });
+
+  it('raises UnreadableContentError naming the key for a shard whose thread root lacks storage_key (P1)', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const { ctx } = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelShardRepository();
+    const { storage_key: _omitted, ...root } = {
+      storage_key: 'teams/data/aa/bb',
+      checksum: 'c',
+      size_bytes: 1,
+      last_modified_at: '2025-01-01T00:00:00.000Z',
+      hosted: {},
+    };
+    const malformed = shard({ threads: { 'root-1': { root, replies: {} } } as never });
+    const ref = await repository.save(ctx, malformed);
+
+    const load = repository.load(ctx, ref.storage_key);
+
+    await expect(load).rejects.toBeInstanceOf(UnreadableContentError);
+    await expect(load).rejects.toThrow(ref.storage_key);
   });
 
   it('raises UnreadableContentError for a shard that is absent', async () => {

@@ -11,19 +11,21 @@ import type {
 } from '@wisecom/atlas-types';
 
 /** What a check found at one storage key. */
-export type StorageKeyStatus = 'intact' | 'missing' | 'failed';
+export type StorageKeyStatus = 'intact' | 'missing' | 'failed' | 'unsupported';
 
 /** Counts checked keys and collects the ones that were missing or failed. */
 export class IntegrityTally {
   checked = 0;
   readonly missing_storage_keys: string[] = [];
   readonly failed_storage_keys: string[] = [];
+  readonly unsupported_storage_keys: string[] = [];
 
   /** Records one checked key under its status. */
   record(storage_key: string, status: StorageKeyStatus): void {
     this.checked++;
     if (status === 'missing') this.missing_storage_keys.push(storage_key);
     if (status === 'failed') this.failed_storage_keys.push(storage_key);
+    if (status === 'unsupported') this.unsupported_storage_keys.push(storage_key);
   }
 }
 
@@ -76,7 +78,8 @@ export async function check_message_blobs(
 /**
  * Loads each channel shard in order and returns the ones that load, so their threads can be
  * checked. A shard is intact when it exists, decrypts, has a readable format version, and
- * names the content it was read from. Stops early when interrupted.
+ * names the content it was read from. A shard in a newer format is unsupported, not failed.
+ * Stops early when interrupted.
  */
 export async function check_channel_shards(
   ctx: TenantContext,
@@ -111,7 +114,11 @@ async function load_shard_status(
     tally.record(key, 'intact');
     return shard;
   } catch (err) {
-    if (err instanceof UnreadableContentError || err instanceof UnsupportedFormatVersionError) {
+    if (err instanceof UnsupportedFormatVersionError) {
+      tally.record(key, 'unsupported');
+      return undefined;
+    }
+    if (err instanceof UnreadableContentError) {
       tally.record(key, 'failed');
       return undefined;
     }

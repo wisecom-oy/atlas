@@ -33,7 +33,10 @@ export function make_harness(force_full = false): ThreadHarness {
     create_content_hmac: () => stub_tenant_create_content_hmac(),
   } as unknown as TenantContext;
   const list_hosted_contents = vi.fn(async () => [] as TeamsGraphResource[]);
-  const download_hosted_content = vi.fn(async () => Buffer.from('image-bytes'));
+  const download_hosted_content = vi.fn(async () => ({
+    bytes: Buffer.from('image-bytes'),
+    content_type: 'image/png',
+  }));
   const connector = { list_hosted_contents, download_hosted_content } as unknown as TeamsConnector;
   const scope: BackupRunScope = {
     ctx,

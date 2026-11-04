@@ -20,11 +20,16 @@ function sealed(
   extra: Record<string, unknown> = {},
 ): Buffer {
   const body = {
+    id: snapshot_id,
     format_version: 1,
+    tenant_id: 'tenant-test',
     team_id,
     snapshot_id,
     created_at: '2025-01-01T00:00:00.000Z',
+    team: {},
+    members: [],
     channels: [],
+    totals: { thread_count: 0, message_count: 0, size_bytes: 0 },
     ...extra,
   };
   return store.encrypt(Buffer.from(JSON.stringify(body), 'utf-8'));
@@ -84,6 +89,43 @@ describe('S3TeamsIndexRepository.list_teams', () => {
 
     expect(teams[0]?.listing.unreadable_keys).toEqual([]);
     expect(get).not.toHaveBeenCalledWith(shard);
+  });
+});
+
+describe('S3TeamsIndexRepository branch-era indexes (P1)', () => {
+  /** A format 1 index written before channels carried shard_key: the version passes, the shape does not. */
+  const branch_era_channels = [{ channel_id: 'channel-1', thread_count: 0, message_count: 0 }];
+
+  it('lists a branch-era index as unreadable, naming its key, instead of trusting it', async () => {
+    const store = stub_encrypted_object_store();
+    const branch_key = TEAMS_KEYS.manifest_key(TEAM, OLD_SNAPSHOT);
+    const { ctx } = make_ctx(store, {
+      [branch_key]: sealed(store, TEAM, OLD_SNAPSHOT, { channels: branch_era_channels }),
+    });
+
+    const teams = await new S3TeamsIndexRepository().list_teams(ctx);
+
+    expect(teams[0]?.listing).toMatchObject({
+      indexes: [],
+      unreadable_keys: [branch_key],
+      unsupported_keys: [],
+    });
+  });
+
+  it('skips a branch-era index when finding the latest readable one', async () => {
+    const store = stub_encrypted_object_store();
+    const branch_key = TEAMS_KEYS.manifest_key(TEAM, NEW_SNAPSHOT);
+    const { ctx } = make_ctx(store, {
+      [TEAMS_KEYS.manifest_key(TEAM, OLD_SNAPSHOT)]: sealed(store, TEAM, OLD_SNAPSHOT),
+      [branch_key]: sealed(store, TEAM, NEW_SNAPSHOT, { channels: branch_era_channels }),
+    });
+
+    const latest = await new S3TeamsIndexRepository().find_latest_readable(ctx, TEAM);
+
+    expect(latest).toMatchObject({
+      index: { snapshot_id: OLD_SNAPSHOT },
+      unreadable_keys: [branch_key],
+    });
   });
 });
 

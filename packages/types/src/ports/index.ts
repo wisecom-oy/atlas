@@ -309,6 +309,8 @@ export type {
   TeamsMessageLocator,
   TeamsMessageDeltaResult,
   TeamsRootChange,
+  TeamsRootFetchResult,
+  TeamsHostedContent,
 } from './teams/connector.port';
 export type {
   TeamsIndexRepository,
@@ -317,7 +319,10 @@ export type {
   TeamsTeamListing,
 } from './teams/index-repository.port';
 export type { TeamsChannelShardRepository } from './teams/channel-shard-repository.port';
-export type { TeamsChannelCursorRepository } from './teams/channel-cursor-repository.port';
+export type {
+  TeamsChannelCursorRepository,
+  TeamsCursorScan,
+} from './teams/channel-cursor-repository.port';
 export type {
   TeamsBackupUseCase,
   TeamsBackupSummary,

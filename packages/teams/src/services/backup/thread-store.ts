@@ -14,6 +14,8 @@ export interface ThreadStoreResult {
   readonly stored: number;
   /** Root and reply versions reused unchanged from the previous run. */
   readonly deduped: number;
+  /** Root id when the root or a reply still lacks hosted content, so a later run re-checks it. */
+  readonly hosted_missing_roots: string[];
 }
 
 /**
@@ -55,6 +57,9 @@ export async function store_thread(
       reply_refs[id] = ref;
     }
   }
+  const has_missing_hosted = [root_outcome.ref, ...Object.values(reply_refs)].some(
+    (ref) => (ref.hosted_missing?.length ?? 0) > 0,
+  );
   return {
     thread: {
       root: root_outcome.ref,
@@ -64,6 +69,7 @@ export async function store_thread(
     warnings: outcomes.flatMap((outcome) => outcome.warnings),
     stored: outcomes.filter((outcome) => !outcome.deduped).length,
     deduped: outcomes.filter((outcome) => outcome.deduped).length,
+    hosted_missing_roots: has_missing_hosted ? [root.id] : [],
   };
 }
 

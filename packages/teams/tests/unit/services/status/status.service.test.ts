@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type {
+  TeamsChannelCursor,
+  TeamsChannelCursorRepository,
+  TeamsCursorScan,
   TeamsIndexRepository,
   TeamsSnapshotIndex,
   TeamsTeamListing,
@@ -33,14 +36,43 @@ function index(snapshot_id: string, channel_count: number): TeamsSnapshotIndex {
   };
 }
 
-function setup(listings: TeamsTeamListing[]) {
+const EMPTY_SCAN: TeamsCursorScan = { cursors: [], unreadable_keys: [], unsupported_keys: [] };
+
+function setup(listings: TeamsTeamListing[], scans: Record<string, TeamsCursorScan> = {}) {
   const ctx = { destroy: vi.fn() };
   const list_teams = vi.fn(async () => listings);
+  const scan = vi.fn(async (_ctx: unknown, team_id: string) => scans[team_id] ?? EMPTY_SCAN);
   const service = new TeamsStatusService(
     { create_readonly: vi.fn(async () => ctx) } as unknown as TenantContextFactory,
     { list_teams } as unknown as TeamsIndexRepository,
+    { scan } as unknown as TeamsChannelCursorRepository,
   );
-  return { service, list_teams, ctx };
+  return { service, list_teams, ctx, scan };
+}
+
+function cursor_with_failed_roots(channel_id: string, root_ids: string[]): TeamsChannelCursor {
+  const failed_roots = Object.fromEntries(
+    root_ids.map((root_id) => [
+      root_id,
+      {
+        item_id: root_id,
+        drive_id: channel_id,
+        name: root_id,
+        reason: 'graph 500',
+        attempts: 1,
+        first_failed_at: '2025-01-01T00:00:00.000Z',
+        last_failed_at: '2025-01-01T00:00:00.000Z',
+      },
+    ]),
+  );
+  return {
+    format_version: 1,
+    team_id: TEAM_A,
+    channel_id,
+    baseline_shard_key: `teams/shards/${TEAM_A}/${channel_id}/name.json`,
+    failed_roots,
+    updated_at: '2025-01-01T00:00:00.000Z',
+  } as TeamsChannelCursor;
 }
 
 describe('TeamsStatusService.check_teams_status', () => {
@@ -68,6 +100,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         total_channels: 2,
         unreadable_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
         unsupported_keys: [],
+        failed_root_count: 0,
       },
     ]);
     expect(list_teams).toHaveBeenCalledTimes(1);
@@ -96,7 +129,41 @@ describe('TeamsStatusService.check_teams_status', () => {
         total_channels: 0,
         unreadable_keys: [],
         unsupported_keys: ['teams/manifests/b/teams-snap-3000-dddddd.json'],
+        failed_root_count: 0,
       },
     ]);
+  });
+
+  it('adds damaged and newer-format cursor keys to the team lists and counts failed roots (P9)', async () => {
+    const damaged_cursor = 'teams/_meta/a/channels/channel-9.json';
+    const newer_cursor = 'teams/_meta/a/channels/channel-8.json';
+    const { service } = setup(
+      [
+        {
+          team_id: TEAM_A,
+          listing: {
+            indexes: [index('teams-snap-2000-bbbbbb', 1)],
+            unreadable_keys: [],
+            unsupported_keys: [],
+          },
+        },
+      ],
+      {
+        [TEAM_A]: {
+          cursors: [
+            cursor_with_failed_roots('channel-1', ['root-1', 'root-2']),
+            cursor_with_failed_roots('channel-2', ['root-3']),
+          ],
+          unreadable_keys: [damaged_cursor],
+          unsupported_keys: [newer_cursor],
+        },
+      },
+    );
+
+    const [row] = await service.check_teams_status('tenant');
+
+    expect(row?.unreadable_keys).toEqual([damaged_cursor]);
+    expect(row?.unsupported_keys).toEqual([newer_cursor]);
+    expect(row?.failed_root_count).toBe(3);
   });
 });

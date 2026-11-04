@@ -29,6 +29,7 @@ export interface ChannelCursorInput {
   readonly delta_link: string | undefined;
   readonly baseline_shard_key: string;
   readonly failed_roots: FailedItemLedger;
+  readonly hosted_recheck: Record<string, number>;
   readonly updated_at: string;
 }
 
@@ -85,6 +86,7 @@ export function build_channel_cursor(input: ChannelCursorInput): TeamsChannelCur
     delta_link: input.delta_link,
     baseline_shard_key: input.baseline_shard_key,
     failed_roots: input.failed_roots,
+    hosted_recheck: input.hosted_recheck,
     updated_at: input.updated_at,
   };
 }

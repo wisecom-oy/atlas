@@ -10,9 +10,9 @@ export const TEAMS_FORMAT_VERSION = 1;
 /**
  * A Microsoft Graph resource stored exactly as Graph returned it.
  *
- * Atlas reads only `id` and `displayName`. Every other field (authors, timestamps, mentions,
- * reactions, attachments, `etag`) is kept verbatim, because restore and export need the original
- * values and the migration API takes them unchanged.
+ * Atlas reads only `id` and `displayName`. Every other content field (authors, timestamps,
+ * mentions, reactions, attachments) is kept verbatim, because restore and export need the original
+ * values. The `@odata.*` annotations and the inline `replies` are not stored in the blob.
  */
 export interface TeamsGraphResource {
   readonly id: string;
@@ -31,7 +31,7 @@ export interface TeamsStoredBlobRef {
 
 /** An inline image or other `hostedContents` item, stored as raw bytes. */
 export interface TeamsHostedRef extends TeamsStoredBlobRef {
-  /** Graph `chatMessageHostedContent` `contentType`, when Graph reports one. */
+  /** Content-Type of the `$value` download, else the listed `contentType`. */
   readonly content_type?: string | undefined;
 }
 
@@ -51,8 +51,8 @@ export interface TeamsMessageRef extends TeamsStoredBlobRef {
   /** Set when Graph reports the message removed. `storage_key` then points at the tombstone. */
   readonly deleted_at?: string | undefined;
   /**
-   * The last live version, with its hosted content. Set once, when the message first turns
-   * deleted, and never overwritten, so the content of a deleted message stays restorable.
+   * The latest live version, set when the message turns deleted. A live ref never carries it, and
+   * an already-deleted message keeps the value it had, so deleted content stays restorable.
    */
   readonly kept?: TeamsKeptMessageRef | undefined;
   /** Hosted content of this version, keyed by hosted-content ID. */
@@ -173,5 +173,7 @@ export interface TeamsChannelCursor {
   readonly baseline_shard_key: string;
   /** This channel's failed roots, keyed by root ID, with attempt counts. */
   readonly failed_roots?: FailedItemLedger | undefined;
+  /** Roots whose hosted content Graph has not returned, keyed by root ID, with attempt counts. */
+  readonly hosted_recheck?: Record<string, number> | undefined;
   readonly updated_at: string;
 }

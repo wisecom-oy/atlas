@@ -1,13 +1,19 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { read_all_pages } from '@/adapters/graph-teams-request';
+import type * as graph_request from '@/adapters/graph-teams-request';
+import {
+  INCLUDE_UNKNOWN_ENUM_HEADERS,
+  INCLUDE_UNKNOWN_ENUM_PREFER,
+  read_all_pages,
+} from '@/adapters/graph-teams-request';
 import {
   fetch_message_delta,
   get_channel_message,
   list_channel_messages,
 } from '@/adapters/graph-teams-message-fetch';
 
-vi.mock('@/adapters/graph-teams-request', () => ({
+vi.mock('@/adapters/graph-teams-request', async (import_original) => ({
+  ...(await import_original<typeof graph_request>()),
   read_all_pages: vi.fn(),
   graph_teams_call: (fn: () => Promise<unknown>) => fn(),
 }));
@@ -39,6 +45,7 @@ describe('fetch_message_delta', () => {
     expect(read).toHaveBeenCalledWith(
       CLIENT,
       `/teams/${TEAM}/channels/${CHANNEL}/messages/delta?${EXPANDED_QUERY}`,
+      INCLUDE_UNKNOWN_ENUM_HEADERS,
     );
   });
 
@@ -47,7 +54,7 @@ describe('fetch_message_delta', () => {
 
     await fetch_message_delta(CLIENT, TEAM, CHANNEL, 'stored-link');
 
-    expect(read).toHaveBeenCalledWith(CLIENT, 'stored-link');
+    expect(read).toHaveBeenCalledWith(CLIENT, 'stored-link', INCLUDE_UNKNOWN_ENUM_HEADERS);
   });
 
   it('throws when Graph ends the read without a delta link', async () => {
@@ -141,32 +148,41 @@ describe('list_channel_messages', () => {
     expect(read).toHaveBeenCalledWith(
       CLIENT,
       `/teams/${TEAM}/channels/${CHANNEL}/messages?${EXPANDED_QUERY}`,
+      INCLUDE_UNKNOWN_ENUM_HEADERS,
     );
     expect(roots).toEqual([{ root: { id: 'root-1' }, deleted: false, replies: undefined }]);
   });
 });
 
 describe('get_channel_message', () => {
-  function client_returning(get: () => Promise<unknown>): { client: Client; api: Mock } {
-    const api = vi.fn(() => ({ get }));
-    return { client: { api } as unknown as Client, api };
+  function client_returning(get: () => Promise<unknown>): {
+    client: Client;
+    api: Mock;
+    header: Mock;
+  } {
+    const header = vi.fn(() => ({ get }));
+    const api = vi.fn(() => ({ header }));
+    return { client: { api } as unknown as Client, api, header };
   }
 
   it('reads one root message without expanding its replies (N6)', async () => {
-    const { client, api } = client_returning(async () => ({ id: 'root-1' }));
+    const { client, api, header } = client_returning(async () => ({ id: 'root-1' }));
 
     const root = await get_channel_message(client, TEAM, CHANNEL, 'root-1');
 
     expect(api).toHaveBeenCalledWith(`/teams/${TEAM}/channels/${CHANNEL}/messages/root-1`);
-    expect(root).toMatchObject({ root: { id: 'root-1' }, deleted: false });
+    expect(header).toHaveBeenCalledWith('Prefer', INCLUDE_UNKNOWN_ENUM_PREFER);
+    expect(root).toEqual({ status: 'found', change: { root: { id: 'root-1' }, deleted: false } });
   });
 
-  it('resolves undefined when Graph no longer has the root (404)', async () => {
+  it('resolves not_found when Graph no longer has the root (404)', async () => {
     const { client } = client_returning(async () => {
       throw Object.assign(new Error('not found'), { statusCode: 404 });
     });
 
-    await expect(get_channel_message(client, TEAM, CHANNEL, 'root-1')).resolves.toBeUndefined();
+    await expect(get_channel_message(client, TEAM, CHANNEL, 'root-1')).resolves.toEqual({
+      status: 'not_found',
+    });
   });
 
   it('rethrows any other Graph error', async () => {

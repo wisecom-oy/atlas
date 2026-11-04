@@ -76,6 +76,7 @@ describe('load_team_baseline', () => {
       previous_entry: entry('channel-1'),
       delta_link: 'stored-link',
       failed_roots: {},
+      hosted_recheck: {},
     });
     expect(baseline.warnings).toEqual([]);
     expect(baseline.errors).toEqual([]);
@@ -93,6 +94,7 @@ describe('load_team_baseline', () => {
       previous_entry: undefined,
       delta_link: undefined,
       failed_roots: {},
+      hosted_recheck: {},
     });
   });
 
@@ -164,6 +166,7 @@ describe('load_team_baseline', () => {
       previous_entry: entry('channel-1'),
       delta_link: undefined,
       failed_roots: {},
+      hosted_recheck: {},
     });
     expect(baseline.warnings).toEqual([
       'The cursor for channel channel-1 is unreadable; reading the channel in full',
@@ -195,6 +198,19 @@ describe('load_team_baseline', () => {
     ]);
     expect(baseline.warnings).toEqual([
       'The baseline is an older snapshot because a newer one could not be read',
+    ]);
+  });
+
+  it('warns that every channel is read in full when no snapshot is readable (P8)', async () => {
+    const baseline = await load_team_baseline(
+      CTX,
+      ports({ unreadable_keys: ['snap-unreadable'] }, undefined),
+      TEAM,
+      ['channel-1'],
+    );
+
+    expect(baseline.warnings).toEqual([
+      'No readable snapshot exists; every channel is read in full',
     ]);
   });
 });

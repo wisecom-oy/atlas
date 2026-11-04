@@ -16,7 +16,7 @@ function cursor(overrides: Partial<TeamsChannelCursor> = {}): TeamsChannelCursor
     format_version: 1,
     team_id: TEAM,
     channel_id: CHANNEL,
-    baseline_shard_key: `teams/manifests/${TEAM}/channels/${CHANNEL}/name.json`,
+    baseline_shard_key: `teams/shards/${TEAM}/${CHANNEL}/name.json`,
     updated_at: '2025-01-01T00:00:00.000Z',
     ...overrides,
   } as TeamsChannelCursor;
@@ -61,7 +61,7 @@ describe('S3TeamsChannelCursorRepository', () => {
     );
   });
 
-  it('rejects a cursor copied under another channel key', async () => {
+  it('scan reports a cursor copied under another channel key as unreadable and keeps the rest (P9)', async () => {
     const store = stub_encrypted_object_store();
     const bucket = new Map<string, Buffer>();
     const ctx = make_ctx(store, bucket);
@@ -69,9 +69,40 @@ describe('S3TeamsChannelCursorRepository', () => {
     const moved = teams_cursor_key(TEAM, 'channel-2');
     bucket.set(moved, bucket.get(teams_cursor_key(TEAM, CHANNEL)) ?? Buffer.alloc(0));
 
-    await expect(new S3TeamsChannelCursorRepository().list(ctx, TEAM)).rejects.toBeInstanceOf(
-      UnreadableContentError,
-    );
+    const scan = await new S3TeamsChannelCursorRepository().scan(ctx, TEAM);
+
+    expect(scan.unreadable_keys).toEqual([moved]);
+    expect(scan.unsupported_keys).toEqual([]);
+    expect(scan.cursors.map((c) => c.channel_id)).toEqual([CHANNEL]);
+  });
+
+  it('scan reports a newer-format cursor as unsupported, not unreadable (P9)', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const ctx = make_ctx(store, bucket);
+    const newer_key = teams_cursor_key(TEAM, 'channel-3');
+    const newer = { ...cursor({ channel_id: 'channel-3' }), format_version: 2 };
+    bucket.set(newer_key, store.encrypt(Buffer.from(JSON.stringify(newer))));
+
+    const scan = await new S3TeamsChannelCursorRepository().scan(ctx, TEAM);
+
+    expect(scan.unsupported_keys).toEqual([newer_key]);
+    expect(scan.unreadable_keys).toEqual([]);
+    expect(scan.cursors).toEqual([]);
+  });
+
+  it('raises UnreadableContentError naming the key for a branch-era cursor without baseline_shard_key (P1)', async () => {
+    const store = stub_encrypted_object_store();
+    const bucket = new Map<string, Buffer>();
+    const ctx = make_ctx(store, bucket);
+    const { baseline_shard_key: _omitted, ...branch_era } = cursor();
+    const key = teams_cursor_key(TEAM, CHANNEL);
+    bucket.set(key, store.encrypt(Buffer.from(JSON.stringify(branch_era))));
+
+    const load = new S3TeamsChannelCursorRepository().load(ctx, TEAM, CHANNEL);
+
+    await expect(load).rejects.toBeInstanceOf(UnreadableContentError);
+    await expect(load).rejects.toThrow(key);
   });
 
   it('raises UnsupportedFormatVersionError for a newer cursor', async () => {

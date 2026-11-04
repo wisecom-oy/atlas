@@ -5,9 +5,11 @@ import type {
   TeamsConnector,
   TeamsFilesFolderRef,
   TeamsGraphResource,
+  TeamsHostedContent,
   TeamsMessageDeltaResult,
   TeamsMessageLocator,
   TeamsRootChange,
+  TeamsRootFetchResult,
 } from '@wisecom/atlas-types';
 import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
 import { graph_status_of } from '@/services/shared/graph-error-status';
@@ -165,15 +167,15 @@ export class GraphTeamsConnector implements TeamsConnector {
   }
 
   /**
-   * Reads one root message with its replies inlined. Resolves undefined when Graph has no root
-   * (404).
+   * Reads one root message without its replies. Resolves `not_found` when Graph answers 404, so
+   * the caller can tell a missing root from a read that succeeded.
    */
   async get_channel_message(
     _tenant_id: string,
     team_id: string,
     channel_id: string,
     root_id: string,
-  ): Promise<TeamsRootChange | undefined> {
+  ): Promise<TeamsRootFetchResult> {
     return get_channel_message(this._client, team_id, channel_id, root_id);
   }
 
@@ -200,7 +202,7 @@ export class GraphTeamsConnector implements TeamsConnector {
     _tenant_id: string,
     locator: TeamsMessageLocator,
     hosted_id: string,
-  ): Promise<Buffer> {
+  ): Promise<TeamsHostedContent> {
     return download_hosted_content(this._client, locator, hosted_id);
   }
 }

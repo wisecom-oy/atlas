@@ -37,6 +37,7 @@ export function channel_output(
     next_link: `link-${id}`,
     interrupted: false,
     failed_roots: {},
+    hosted_recheck: {},
     errors: [],
     warnings: [],
     ...overrides,

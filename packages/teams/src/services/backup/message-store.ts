@@ -23,8 +23,8 @@ export interface MessageStoreOutcome {
 
 /**
  * Stores one root or reply version. A live message whose blob and hosted content are unchanged
- * reuses its previous ref. A message that Graph reports deleted keeps its last live version once
- * (N9), and writes a tombstone whose blob is the message as Graph returned it.
+ * reuses its previous ref. A message that Graph reports deleted gets its latest live version as
+ * its kept version (P3), and writes a tombstone whose blob is the message as Graph returned it.
  */
 export async function store_message(
   scope: BackupRunScope,
@@ -60,7 +60,7 @@ export function mark_message_removed(
     size_bytes: previous.size_bytes,
     last_modified_at: previous.last_modified_at,
     deleted_at: scope.backup_at,
-    kept: previous.kept ?? live_version_of(previous),
+    kept: live_version_of(previous),
     hosted: {},
   };
 }
@@ -92,15 +92,15 @@ async function store_tombstone(
   return { ref, warnings: [], deduped: reusable };
 }
 
-/** Keeps the first live version a message had. Once set, the kept version is never replaced. */
+/**
+ * The kept version of a deletion: the latest live version, or, when the message is already
+ * deleted, the version it kept before. A live ref never carries one.
+ */
 function kept_for_deleted(previous: TeamsMessageRef | undefined): TeamsKeptMessageRef | undefined {
   if (previous === undefined) {
     return undefined;
   }
-  if (previous.kept !== undefined) {
-    return previous.kept;
-  }
-  return previous.deleted_at === undefined ? live_version_of(previous) : undefined;
+  return previous.deleted_at === undefined ? live_version_of(previous) : previous.kept;
 }
 
 function live_version_of(ref: TeamsMessageRef): TeamsKeptMessageRef {
@@ -159,7 +159,6 @@ async function store_live_version(
     size_bytes: digest.plaintext.length,
     last_modified_at:
       typeof message.lastModifiedDateTime === 'string' ? message.lastModifiedDateTime : '',
-    kept: previous?.kept,
     hosted,
     hosted_missing: missing.length === 0 ? undefined : missing,
   };

@@ -7,10 +7,16 @@ import {
   AuthError,
   type FailedItemLedger,
   type TeamsRootChange,
+  type TeamsRootFetchResult,
   type TeamsThread,
 } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
+import {
+  advance_hosted_recheck,
+  type HostedRecheck,
+  has_missing_hosted,
+} from '@/services/backup/hosted-recheck';
 import { mark_root_removed, store_thread } from '@/services/backup/thread-store';
 import { error_message } from '@/services/shared/error-message';
 
@@ -19,25 +25,25 @@ export interface RootApplyOutput {
   readonly threads: Record<string, TeamsThread>;
   /** This channel's failed roots, keyed by root id. */
   readonly failed_roots: FailedItemLedger;
+  /** Roots whose hosted content is still missing, with their attempt counts. */
+  readonly hosted_recheck: HostedRecheck;
   readonly errors: string[];
   readonly warnings: string[];
   readonly interrupted: boolean;
 }
 
-/** One root to apply: its id and how to load its current change from Graph. */
+/** One root to apply: its id and how to load its current state from Graph. */
 interface RootTask {
   readonly root_id: string;
-  readonly load: () => Promise<TeamsRootChange>;
+  readonly load: () => Promise<TeamsRootFetchResult>;
 }
 
 /**
  * Applies a channel read to its previous thread map. A root that fails keeps its previous thread
- * and is recorded in the channel's failed-root ledger. A delta run re-fetches each ledger root the
- * read did not return, until its attempt budget is spent. A full read covers the whole channel:
- * a previous root it no longer lists is marked removed, and ledger roots it no longer lists are
- * dropped.
- * ponytail: the full read and each root's replies are held in memory before storing; a page
- * callback upgrades this for very large channels.
+ * and is recorded in the channel's failed-root ledger. A delta run re-fetches each ledger root and
+ * each root with missing hosted content that the read did not return. A full read covers the whole
+ * channel: a previous root it no longer lists is marked removed, and ledger and recheck roots it no
+ * longer lists are dropped.
  */
 export async function apply_root_changes(
   scope: BackupRunScope,
@@ -45,15 +51,17 @@ export async function apply_root_changes(
   read: ChannelRootRead,
   previous_threads: Record<string, TeamsThread>,
   ledger: FailedItemLedger,
+  previous_recheck: HostedRecheck,
 ): Promise<RootApplyOutput> {
   const threads: Record<string, TeamsThread> = { ...previous_threads };
   const errors: string[] = [];
   const warnings: string[] = [];
   const seen = new Set<string>();
   let failed_roots = ledger;
-  for (const task of root_tasks(scope, channel_id, read, ledger)) {
+  let hosted_recheck = { ...previous_recheck };
+  for (const task of root_tasks(scope, channel_id, read, ledger, previous_recheck)) {
     if (scope.should_interrupt()) {
-      return { threads, failed_roots, errors, warnings, interrupted: true };
+      return { threads, failed_roots, hosted_recheck, errors, warnings, interrupted: true };
     }
     seen.add(task.root_id);
     const outcome = await apply_task(
@@ -63,7 +71,10 @@ export async function apply_root_changes(
       previous_threads[task.root_id],
       warnings,
     );
-    if (outcome.failed) {
+    if (outcome.kind === 'interrupted') {
+      return { threads, failed_roots, hosted_recheck, errors, warnings, interrupted: true };
+    }
+    if (outcome.kind === 'failed') {
       failed_roots = record_item_failure(failed_roots, {
         item_id: task.root_id,
         drive_id: channel_id,
@@ -73,23 +84,51 @@ export async function apply_root_changes(
       errors.push(`Channel ${channel_id} root ${task.root_id}: ${outcome.message}`);
       continue;
     }
+    if (outcome.kind === 'missing') {
+      // A 404 on re-read is not proof of removal: it counts an attempt and keeps the thread.
+      failed_roots = record_item_failure(failed_roots, {
+        item_id: task.root_id,
+        drive_id: channel_id,
+        name: task.root_id,
+        reason: 'Graph returned 404 for the root on re-read',
+      });
+      warnings.push(
+        `Channel ${channel_id} root ${task.root_id}: Graph returned 404 on re-read; kept as previously stored`,
+      );
+      continue;
+    }
     if (outcome.thread === undefined) delete threads[task.root_id];
     else threads[task.root_id] = outcome.thread;
     failed_roots = clear_item_failure(failed_roots, task.root_id);
+    hosted_recheck = next_recheck(
+      hosted_recheck,
+      channel_id,
+      task.root_id,
+      outcome.thread,
+      warnings,
+    );
   }
   if (read.is_full) {
     Object.assign(threads, removed_unseen_roots(scope, previous_threads, seen));
     failed_roots = clear_unseen_failures(failed_roots, seen);
+    hosted_recheck = Object.fromEntries(
+      Object.entries(hosted_recheck).filter(([root_id]) => seen.has(root_id)),
+    );
   }
-  return { threads, failed_roots, errors, warnings, interrupted: false };
+  return { threads, failed_roots, hosted_recheck, errors, warnings, interrupted: false };
 }
 
-/** Outcome of applying one root: the thread to keep (undefined when removed), or the failure. */
+/** Outcome of applying one root task. Only `applied` carries the thread to keep. */
 type RootTaskOutcome =
-  | { readonly failed: false; readonly thread: TeamsThread | undefined }
-  | { readonly failed: true; readonly message: string };
+  | { readonly kind: 'applied'; readonly thread: TeamsThread | undefined }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'failed'; readonly message: string }
+  | { readonly kind: 'interrupted' };
 
-/** Applies one root task. An auth failure is rethrown so the channel stops; other failures are returned. */
+/**
+ * Applies one root task. An auth failure is rethrown so the channel stops. A failure during an
+ * interrupt is reported as `interrupted`, not as a root failure.
+ */
 async function apply_task(
   scope: BackupRunScope,
   channel_id: string,
@@ -98,12 +137,14 @@ async function apply_task(
   warnings: string[],
 ): Promise<RootTaskOutcome> {
   try {
-    const change = await task.load();
-    const thread = await apply_one_root(scope, channel_id, change, previous, warnings);
-    return { failed: false, thread };
+    const fetched = await task.load();
+    if (fetched.status === 'not_found') return { kind: 'missing' };
+    const thread = await apply_one_root(scope, channel_id, fetched.change, previous, warnings);
+    return { kind: 'applied', thread };
   } catch (err) {
     if (err instanceof AuthError) throw err;
-    return { failed: true, message: error_message(err) };
+    if (scope.should_interrupt()) return { kind: 'interrupted' };
+    return { kind: 'failed', message: error_message(err) };
   }
 }
 
@@ -135,43 +176,57 @@ function clear_unseen_failures(
 }
 
 /**
+ * Records one root's hosted-content state after it was applied: a root still missing content
+ * advances its attempt count, and a resolved or removed root leaves the recheck.
+ */
+function next_recheck(
+  recheck: HostedRecheck,
+  channel_id: string,
+  root_id: string,
+  thread: TeamsThread | undefined,
+  warnings: string[],
+): HostedRecheck {
+  const attempts =
+    thread !== undefined && has_missing_hosted(thread)
+      ? advance_hosted_recheck(channel_id, root_id, recheck[root_id], warnings)
+      : undefined;
+  const next = { ...recheck };
+  if (attempts === undefined) delete next[root_id];
+  else next[root_id] = attempts;
+  return next;
+}
+
+/**
  * The roots to apply: every root the read returned, then, on a delta read, each retryable ledger
- * root that the read did not return. A full read already covers every root, so it retries none.
+ * root and each recheck root that the read did not return. A full read already covers every root.
  */
 function root_tasks(
   scope: BackupRunScope,
   channel_id: string,
   read: ChannelRootRead,
   ledger: FailedItemLedger,
+  recheck: HostedRecheck,
 ): RootTask[] {
   const returned = new Set(read.changes.map((change) => change.root.id));
   const retry_ids = read.is_full
     ? []
-    : retryable_items(ledger, channel_id)
-        .map((record) => record.item_id)
-        .filter((root_id) => !returned.has(root_id));
+    : [
+        ...new Set([
+          ...retryable_items(ledger, channel_id).map((record) => record.item_id),
+          ...Object.keys(recheck),
+        ]),
+      ].filter((root_id) => !returned.has(root_id));
   return [
-    ...read.changes.map((change) => ({ root_id: change.root.id, load: async () => change })),
+    ...read.changes.map((change) => ({
+      root_id: change.root.id,
+      load: async (): Promise<TeamsRootFetchResult> => ({ status: 'found', change }),
+    })),
     ...retry_ids.map((root_id) => ({
       root_id,
-      load: () => load_ledger_root(scope, channel_id, root_id),
+      load: () =>
+        scope.connector.get_channel_message(scope.tenant_id, scope.team_id, channel_id, root_id),
     })),
   ];
-}
-
-/** Re-fetches one ledger root from Graph. A root Graph no longer has is treated as removed. */
-async function load_ledger_root(
-  scope: BackupRunScope,
-  channel_id: string,
-  root_id: string,
-): Promise<TeamsRootChange> {
-  const change = await scope.connector.get_channel_message(
-    scope.tenant_id,
-    scope.team_id,
-    channel_id,
-    root_id,
-  );
-  return change ?? { root: { id: root_id }, deleted: true };
 }
 
 /**

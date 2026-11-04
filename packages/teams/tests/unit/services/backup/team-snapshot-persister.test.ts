@@ -191,6 +191,7 @@ describe('persist_team_snapshot index', () => {
       delta_link: 'link-2',
       baseline_shard_key: 'shard-new',
       failed_roots: failed,
+      hosted_recheck: {},
       updated_at: BACKUP_AT,
     });
   });

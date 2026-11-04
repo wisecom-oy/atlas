@@ -66,31 +66,32 @@ describe('store_thread kept model (N9)', () => {
       deleted('reply-1'),
       message('reply-2'),
     ]);
-    const kept_reply_1 = second.replies['reply-1']?.kept;
-
     const third = await store(harness, second, message('root-1'), [
       message('reply-1'),
       deleted('reply-2'),
     ]);
 
-    expect(third.replies['reply-1']?.kept).toEqual(kept_reply_1);
+    expect(third.replies['reply-1']?.kept).toBeUndefined();
     expect(third.replies['reply-2']?.kept?.storage_key).toBe(
       second.replies['reply-2']?.storage_key,
     );
   });
 
-  it('never replaces a kept version with a later live version', async () => {
+  it('keeps the latest live version at each deletion, and a live ref carries none', async () => {
     const harness = make_harness();
     const first = await store(harness, undefined, message('root-1'), [message('reply-1')]);
     const deleted_once = await store(harness, first, message('root-1'), [deleted('reply-1')]);
-    const kept = deleted_once.replies['reply-1']?.kept;
-
     const relive = await store(harness, deleted_once, message('root-1'), [
       message('reply-1', { body: { contentType: 'html', content: 'changed' } }),
     ]);
+    const live_v2 = relive.replies['reply-1'] as TeamsMessageRef;
     const deleted_again = await store(harness, relive, message('root-1'), [deleted('reply-1')]);
 
-    expect(deleted_again.replies['reply-1']?.kept).toEqual(kept);
+    expect(deleted_once.replies['reply-1']?.kept?.storage_key).toBe(
+      first.replies['reply-1']?.storage_key,
+    );
+    expect(relive.replies['reply-1']?.kept).toBeUndefined();
+    expect(deleted_again.replies['reply-1']?.kept?.storage_key).toBe(live_v2.storage_key);
   });
 
   it('leaves a message first seen already deleted without a kept version', async () => {

@@ -9,7 +9,7 @@ import { UnreadableContentError } from '@wisecom/atlas-types';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import { canonical_json } from '@/services/shared/canonical-json';
-import { assert_readable_format_version } from '@/services/shared/format-version';
+import { assert_shard_shape } from '@/services/shared/teams-object-shape';
 import { teams_channel_shard_key } from '@/services/shared/storage-keys';
 
 /** Fetches and decrypts one shard. A missing object and a failed decryption are both damage. */
@@ -34,18 +34,18 @@ async function read_plaintext(ctx: TenantContext, key: string): Promise<Buffer> 
   }
 }
 
-/** Parses a shard body and checks its format version before any field is trusted. */
+/** Parses a shard body and checks its format version and shape before any field is trusted. */
 function parse_shard(key: string, plaintext: Buffer): TeamsChannelShard {
-  let shard: TeamsChannelShard;
+  let body: unknown;
   try {
-    shard = JSON.parse(plaintext.toString('utf-8')) as TeamsChannelShard;
+    body = JSON.parse(plaintext.toString('utf-8'));
   } catch (err) {
     throw new UnreadableContentError(`The Teams channel shard at ${key} is not valid JSON`, {
       cause: err,
     });
   }
-  assert_readable_format_version(key, shard.format_version);
-  return shard;
+  assert_shard_shape(key, body);
+  return body;
 }
 
 /**

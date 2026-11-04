@@ -66,6 +66,11 @@ export interface TeamsVerificationResult {
   readonly failed_storage_keys: string[];
   /** Objects the snapshot references that are absent from storage. */
   readonly missing_storage_keys: string[];
+  /**
+   * Shards written in a newer format than this build reads. They cannot be checked, so they are
+   * not counted as passed, and they are not blob mismatches.
+   */
+  readonly unsupported_storage_keys: string[];
   readonly interrupted: boolean;
 }
 

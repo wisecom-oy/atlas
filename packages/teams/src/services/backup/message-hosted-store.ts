@@ -1,5 +1,10 @@
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
-import type { TeamsGraphResource, TeamsHostedRef, TeamsMessageLocator } from '@wisecom/atlas-types';
+import type {
+  TeamsGraphResource,
+  TeamsHostedContent,
+  TeamsHostedRef,
+  TeamsMessageLocator,
+} from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
   type HostedOwner,
@@ -20,7 +25,8 @@ export interface MessageHostedResult {
  * call. Otherwise each referenced id is downloaded directly by its path (T4). Only when `relist`
  * is set, because a previous run left ids missing, does the message's `hostedContents` get listed
  * first, and an id the listing lacks is reported missing without a download attempt. A 404 on a
- * download also marks the id missing. The thread is still stored, and the next run retries it.
+ * download also marks the id missing. The message is still stored without that item, and its id is
+ * listed in `missing`, so a later run re-checks it.
  * A previously stored item is reused while its blob exists.
  */
 export async function store_message_hosted(
@@ -81,19 +87,25 @@ async function store_hosted_content(
   id: string,
   listed: TeamsGraphResource | undefined,
 ): Promise<TeamsHostedRef | undefined> {
-  let bytes: Buffer;
+  let downloaded: TeamsHostedContent;
   try {
-    bytes = await scope.connector.download_hosted_content(scope.tenant_id, locator, id);
+    downloaded = await scope.connector.download_hosted_content(scope.tenant_id, locator, id);
   } catch (err) {
     if (graph_status_of(err) === 404) {
       return undefined;
     }
     throw err;
   }
+  const { bytes, content_type: header_type } = downloaded;
   const { checksum, content_name } = compute_content_digests(scope.ctx, bytes);
   const storage_key = teams_hosted_content_key(scope.team_id, content_name);
   await write_blob(scope, storage_key, bytes);
   scope.counters.hosted_content_stored++;
-  const content_type = typeof listed?.contentType === 'string' ? listed.contentType : undefined;
-  return { storage_key, checksum, size_bytes: bytes.length, content_type };
+  const listed_type = typeof listed?.contentType === 'string' ? listed.contentType : undefined;
+  return {
+    storage_key,
+    checksum,
+    size_bytes: bytes.length,
+    content_type: header_type ?? listed_type,
+  };
 }

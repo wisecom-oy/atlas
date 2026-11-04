@@ -46,6 +46,24 @@ describe('TeamsBackupService.backup_team abort signal', () => {
     expect(result.interrupted).toBe(true);
   });
 
+  it('ends with an interrupted progress phase, not completed, when the signal aborts (P7)', async () => {
+    const ports = make_ports();
+    const controller = new AbortController();
+    vi.mocked(backup_channel).mockImplementation(async (_scope, channel) => {
+      controller.abort();
+      return channel_output(channel.id);
+    });
+    const phases: string[] = [];
+
+    await ports.service.backup_team('tenant-1', TEAM_ID, {
+      abort_signal: controller.signal,
+      on_progress: (event) => phases.push(event.phase),
+    });
+
+    expect(phases.at(-1)).toBe('interrupted');
+    expect(phases).not.toContain('completed');
+  });
+
   it('publishes the abort signal to the Graph calls made while a channel runs', async () => {
     const ports = make_ports();
     const controller = new AbortController();

@@ -10,17 +10,14 @@ import type {
 import { UnreadableContentError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { all_index_keys, team_index_keys, TEAMS_KEYS } from '@/services/shared/storage-keys';
-import { assert_readable_format_version } from '@/services/shared/format-version';
-
-/** An index as stored: `created_at` is the ISO string JSON.stringify wrote. */
-type StoredIndex = Omit<TeamsSnapshotIndex, 'created_at'> & { readonly created_at: string };
+import { assert_index_shape, type StoredTeamsIndex } from '@/services/shared/teams-object-shape';
 
 /**
  * Whether an index body names the key it was read from. Every object is encrypted under the same
  * tenant key, so a body copied to another key still decrypts; rebuilding the key from the body is
  * what tells them apart.
  */
-function names_key(index: StoredIndex, key: string): boolean {
+function names_key(index: StoredTeamsIndex, key: string): boolean {
   try {
     return TEAMS_KEYS.manifest_key(index.team_id, index.snapshot_id) === key;
   } catch {
@@ -144,9 +141,9 @@ export class S3TeamsIndexRepository implements TeamsIndexRepository {
     ctx: TenantContext,
     key: string,
   ): Promise<TeamsSnapshotIndex | undefined> {
-    const stored = await load_encrypted_json<StoredIndex>(ctx, key);
+    const stored = await load_encrypted_json<unknown>(ctx, key);
     if (stored === undefined) return undefined;
-    assert_readable_format_version(key, stored.format_version);
+    assert_index_shape(key, stored);
     if (!names_key(stored, key)) {
       throw new UnreadableContentError(
         `The Teams snapshot index at ${key} names a different team or snapshot than its key`,

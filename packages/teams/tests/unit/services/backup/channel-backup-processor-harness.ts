@@ -69,7 +69,7 @@ export function make_connector(overrides: Partial<TeamsConnector> = {}): TeamsCo
     fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-default' })),
     list_channel_messages: vi.fn(async () => []),
     list_replies: vi.fn(async () => []),
-    get_channel_message: vi.fn(async () => undefined),
+    get_channel_message: vi.fn(async () => ({ status: 'not_found' })),
     ...overrides,
   } as unknown as TeamsConnector;
 }

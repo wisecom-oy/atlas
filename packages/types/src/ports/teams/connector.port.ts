@@ -9,6 +9,10 @@ export interface TeamsRootChange {
   readonly replies?: TeamsGraphResource[] | undefined;
 }
 
+/** Result of re-reading one root: its change, or `not_found` when Graph answers 404 for it. */
+export type TeamsRootFetchResult =
+  { readonly status: 'found'; readonly change: TeamsRootChange } | { readonly status: 'not_found' };
+
 /** Result of a channel message delta read. */
 export interface TeamsMessageDeltaResult {
   /** Every root whose thread changed since the previous link, including reply-only changes. */
@@ -24,6 +28,12 @@ export interface TeamsMessageLocator {
   readonly root_id: string;
   /** Set to address a reply's hosted content; absent for the root message's own content. */
   readonly reply_id?: string | undefined;
+}
+
+/** One hosted-content download: its bytes and the Content-Type Graph sent with them. */
+export interface TeamsHostedContent {
+  readonly bytes: Buffer;
+  readonly content_type?: string | undefined;
 }
 
 /**
@@ -98,15 +108,16 @@ export interface TeamsConnector {
   ): Promise<TeamsRootChange[]>;
 
   /**
-   * Reads one root message, without replies (callers use {@link list_replies}). Resolves undefined
-   * when Graph no longer has it (404), so the caller can treat the root as removed.
+   * Reads one root message, without replies (callers use {@link list_replies}). Resolves
+   * `not_found` on a 404, which is not evidence the root was removed: only a delta removal or a
+   * full read that omits the root removes it.
    */
   get_channel_message(
     tenant_id: string,
     team_id: string,
     channel_id: string,
     root_id: string,
-  ): Promise<TeamsRootChange | undefined>;
+  ): Promise<TeamsRootFetchResult>;
 
   /**
    * Lists every reply of a root message, paged, including deleted replies. Graph has no delta
@@ -125,10 +136,10 @@ export interface TeamsConnector {
     locator: TeamsMessageLocator,
   ): Promise<TeamsGraphResource[]>;
 
-  /** Downloads one hosted content item's bytes (`.../hostedContents/{id}/$value`). */
+  /** Downloads one hosted content item's bytes and Content-Type (`.../hostedContents/{id}/$value`). */
   download_hosted_content(
     tenant_id: string,
     locator: TeamsMessageLocator,
     hosted_id: string,
-  ): Promise<Buffer>;
+  ): Promise<TeamsHostedContent>;
 }

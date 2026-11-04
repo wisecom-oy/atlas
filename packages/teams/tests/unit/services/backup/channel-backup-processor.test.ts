@@ -24,6 +24,7 @@ function start(overrides: Partial<ChannelStartState> = {}): ChannelStartState {
     previous_shard: undefined,
     stored_link: undefined,
     failed_roots: {},
+    hosted_recheck: {},
     ...overrides,
   };
 }

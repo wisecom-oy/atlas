@@ -85,6 +85,7 @@ async function run_channel(
     if (err instanceof AuthError || err instanceof UnsupportedFormatVersionError) {
       throw err;
     }
+    if (scope.should_interrupt()) return false;
     const message = error_message(err);
     logger.warn(`Teams channel ${channel.id} backup failed: ${message}`);
     state.errors.push(`Channel ${channel.id}: ${message}`);
@@ -108,5 +109,6 @@ async function channel_start_state(
         : await inputs.shards.load(scope.ctx, previous_entry.shard_key),
     stored_link: base?.delta_link,
     failed_roots: base?.failed_roots ?? {},
+    hosted_recheck: base?.hosted_recheck ?? {},
   };
 }

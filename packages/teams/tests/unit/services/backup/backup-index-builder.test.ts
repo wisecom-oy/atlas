@@ -132,6 +132,7 @@ describe('build_channel_cursor', () => {
       delta_link: 'link-1',
       baseline_shard_key: 'shard-key',
       failed_roots: {},
+      hosted_recheck: {},
       updated_at: BACKUP_AT,
     });
 
@@ -142,6 +143,7 @@ describe('build_channel_cursor', () => {
       delta_link: 'link-1',
       baseline_shard_key: 'shard-key',
       failed_roots: {},
+      hosted_recheck: {},
       updated_at: BACKUP_AT,
     });
   });

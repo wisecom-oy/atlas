@@ -3,8 +3,14 @@ import type {
   TeamsGraphResource,
   TeamsMessageDeltaResult,
   TeamsRootChange,
+  TeamsRootFetchResult,
 } from '@wisecom/atlas-types';
-import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
+import {
+  graph_teams_call,
+  INCLUDE_UNKNOWN_ENUM_HEADERS,
+  INCLUDE_UNKNOWN_ENUM_PREFER,
+  read_all_pages,
+} from '@/adapters/graph-teams-request';
 import { graph_status_of } from '@/services/shared/graph-error-status';
 
 /** A channel message as Graph returns it from `/messages` or `/messages/delta`. */
@@ -52,7 +58,11 @@ export async function fetch_message_delta(
   const start =
     prev_delta_link ??
     `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/delta?${ROOT_QUERY}`;
-  const { items, delta_link } = await read_all_pages<GraphChannelMessage>(client, start);
+  const { items, delta_link } = await read_all_pages<GraphChannelMessage>(
+    client,
+    start,
+    INCLUDE_UNKNOWN_ENUM_HEADERS,
+  );
   if (delta_link === undefined) {
     throw new Error(`Graph ended the message delta of channel ${channel_id} without a delta link`);
   }
@@ -68,28 +78,33 @@ export async function list_channel_messages(
   const { items } = await read_all_pages<GraphChannelMessage>(
     client,
     `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages?${ROOT_QUERY}`,
+    INCLUDE_UNKNOWN_ENUM_HEADERS,
   );
   return items.map(to_root_change);
 }
 
 /**
- * Reads one root message without its replies; callers list replies separately. Resolves undefined
- * when Graph no longer has it (404), so the caller can treat the root as removed.
+ * Reads one root message without its replies; callers list replies separately. Resolves
+ * `not_found` on a 404 so the caller can count the miss without treating the root as removed.
  */
 export async function get_channel_message(
   client: Client,
   team_id: string,
   channel_id: string,
   root_id: string,
-): Promise<TeamsRootChange | undefined> {
+): Promise<TeamsRootFetchResult> {
   const url = `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}`;
   try {
     const message = await graph_teams_call(
-      () => client.api(url).get() as Promise<GraphChannelMessage>,
+      () =>
+        client
+          .api(url)
+          .header('Prefer', INCLUDE_UNKNOWN_ENUM_PREFER)
+          .get() as Promise<GraphChannelMessage>,
     );
-    return to_root_change(message);
+    return { status: 'found', change: to_root_change(message) };
   } catch (err) {
-    if (graph_status_of(err) === 404) return undefined;
+    if (graph_status_of(err) === 404) return { status: 'not_found' };
     throw err;
   }
 }

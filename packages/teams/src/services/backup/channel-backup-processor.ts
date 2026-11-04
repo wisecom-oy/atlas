@@ -10,6 +10,7 @@ import {
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import { apply_root_changes } from '@/services/backup/channel-root-applier';
 import { read_channel_roots } from '@/services/backup/channel-root-reader';
+import type { HostedRecheck } from '@/services/backup/hosted-recheck';
 import { shard_fingerprint } from '@/services/backup/shard-fingerprint';
 import { error_message } from '@/services/shared/error-message';
 
@@ -20,6 +21,7 @@ export interface ChannelStartState {
   /** The cursor's delta link, already trusted only when the cursor matches the previous shard. */
   readonly stored_link: string | undefined;
   readonly failed_roots: FailedItemLedger;
+  readonly hosted_recheck: HostedRecheck;
 }
 
 /** What one channel backup produced. */
@@ -32,6 +34,7 @@ export interface ChannelBackupOutput {
   readonly next_link: string | undefined;
   readonly interrupted: boolean;
   readonly failed_roots: FailedItemLedger;
+  readonly hosted_recheck: HostedRecheck;
   readonly errors: string[];
   readonly warnings: string[];
 }
@@ -79,6 +82,7 @@ export async function backup_channel(
     read,
     start.previous_shard?.threads ?? {},
     start.failed_roots,
+    start.hosted_recheck,
   );
   warnings.push(...applied.warnings);
   const complete =
@@ -103,6 +107,7 @@ export async function backup_channel(
     next_link: complete ? read.link : start.stored_link,
     interrupted: applied.interrupted,
     failed_roots: applied.failed_roots,
+    hosted_recheck: applied.hosted_recheck,
     errors: applied.errors,
     warnings,
   };

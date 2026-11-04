@@ -34,6 +34,7 @@ function output(id: string, overrides: Partial<ChannelBackupOutput> = {}): Chann
     next_link: `link-${id}`,
     interrupted: false,
     failed_roots: {},
+    hosted_recheck: {},
     errors: [],
     warnings: [],
     ...overrides,
@@ -123,7 +124,10 @@ describe('process_channels', () => {
       },
     };
     const channels = new Map<string, ChannelBaseline>([
-      ['channel-1', { previous_entry, delta_link: 'stored-link', failed_roots }],
+      [
+        'channel-1',
+        { previous_entry, delta_link: 'stored-link', failed_roots, hosted_recheck: { m1: 2 } },
+      ],
     ]);
     const inputs = make_inputs({ baseline: { ...make_inputs().baseline, channels } });
     vi.mocked(inputs.shards.load).mockResolvedValue(shard);
@@ -136,6 +140,7 @@ describe('process_channels', () => {
       previous_shard: shard,
       stored_link: 'stored-link',
       failed_roots,
+      hosted_recheck: { m1: 2 },
     });
   });
 
@@ -169,6 +174,24 @@ describe('process_channels', () => {
 
     expect(state.errors).toEqual(['Channel channel-1: boom']);
     expect([...state.results.keys()]).toEqual(['channel-2']);
+  });
+
+  it('does not record a channel error when the channel fails during an interrupt (P4)', async () => {
+    let stop = false;
+    vi.mocked(backup_channel).mockImplementationOnce(async () => {
+      stop = true;
+      throw new Error('cancelled mid-request');
+    });
+
+    const state = await process_channels(
+      make_scope(() => stop),
+      CHANNELS.slice(0, 2),
+      make_inputs(),
+    );
+
+    expect(state.errors).toEqual([]);
+    expect(state.results.size).toBe(0);
+    expect(state.interrupted).toBe(true);
   });
 
   it('rethrows an AuthError from a later channel and runs no channel after it (R6)', async () => {

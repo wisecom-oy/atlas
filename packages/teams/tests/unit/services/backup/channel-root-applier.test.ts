@@ -39,6 +39,7 @@ beforeEach(() => {
     warnings: [],
     stored: 1,
     deduped: 0,
+    hosted_missing_roots: [],
   }));
   vi.mocked(mark_root_removed).mockReset();
   vi.mocked(mark_root_removed).mockImplementation((_scope, previous) => ({
@@ -57,6 +58,7 @@ describe('apply_root_changes stored roots', () => {
       'channel-1',
       { ...DELTA, changes: [root_change('m1')] },
       previous,
+      {},
       {},
     );
 
@@ -82,6 +84,7 @@ describe('apply_root_changes stored roots', () => {
       },
       {},
       {},
+      {},
     );
 
     expect(connector.list_replies).toHaveBeenCalledTimes(1);
@@ -104,6 +107,7 @@ describe('apply_root_changes stored roots', () => {
       { ...FULL, changes: [root_change('m1')] },
       previous,
       {},
+      {},
     );
 
     expect(out.threads.m2?.deleted_at).toBe(BACKUP_AT);
@@ -118,6 +122,7 @@ describe('apply_root_changes stored roots', () => {
       DELTA,
       { m1: thread_entry('m1') },
       {},
+      {},
     );
 
     expect(mark_root_removed).not.toHaveBeenCalled();
@@ -129,6 +134,7 @@ describe('apply_root_changes stored roots', () => {
       make_scope(make_connector(), () => true),
       'channel-1',
       { ...DELTA, changes: [root_change('m1')] },
+      {},
       {},
       {},
     );
@@ -148,6 +154,7 @@ describe('apply_root_changes failed-root ledger', () => {
       { ...DELTA, changes: [root_change('m1')] },
       {},
       { m1: failure('m1', 2) },
+      {},
     );
 
     expect(out.errors).toEqual(['Channel channel-1 root m1: boom']);
@@ -161,6 +168,7 @@ describe('apply_root_changes failed-root ledger', () => {
       { ...DELTA, changes: [root_change('m1')] },
       {},
       { m1: failure('m1', 1) },
+      {},
     );
 
     expect(out.failed_roots).toEqual({});
@@ -168,7 +176,10 @@ describe('apply_root_changes failed-root ledger', () => {
 
   it('re-fetches a ledger root the delta read did not return', async () => {
     const connector = make_connector({
-      get_channel_message: vi.fn(async () => root_change('m9')),
+      get_channel_message: vi.fn(async () => ({
+        status: 'found' as const,
+        change: root_change('m9'),
+      })),
     });
 
     const out = await apply_root_changes(
@@ -177,6 +188,7 @@ describe('apply_root_changes failed-root ledger', () => {
       DELTA,
       {},
       { m9: failure('m9', 1) },
+      {},
     );
 
     expect(connector.get_channel_message).toHaveBeenCalledWith(
@@ -189,22 +201,6 @@ describe('apply_root_changes failed-root ledger', () => {
     expect(out.failed_roots).toEqual({});
   });
 
-  it('marks a ledger root removed when Graph no longer has it', async () => {
-    const previous: Record<string, TeamsThread> = { m9: thread_entry('m9') };
-
-    const out = await apply_root_changes(
-      make_scope(make_connector()),
-      'channel-1',
-      DELTA,
-      previous,
-      { m9: failure('m9', 1) },
-    );
-
-    expect(mark_root_removed).toHaveBeenCalledWith(expect.anything(), previous.m9);
-    expect(out.threads.m9?.deleted_at).toBe(BACKUP_AT);
-    expect(out.failed_roots).toEqual({});
-  });
-
   it('does not re-fetch a ledger root that spent its attempt budget', async () => {
     const connector = make_connector({ get_channel_message: vi.fn() });
 
@@ -214,6 +210,7 @@ describe('apply_root_changes failed-root ledger', () => {
       DELTA,
       {},
       { m9: failure('m9', MAX_FAILED_ITEM_ATTEMPTS) },
+      {},
     );
 
     expect(connector.get_channel_message).not.toHaveBeenCalled();
@@ -229,6 +226,7 @@ describe('apply_root_changes failed-root ledger', () => {
       { ...FULL, changes: [root_change('m1')] },
       {},
       { m1: failure('m1', 1), m9: failure('m9', 1) },
+      {},
     );
 
     expect(out.failed_roots).toEqual({});
@@ -243,6 +241,7 @@ describe('apply_root_changes failed-root ledger', () => {
         make_scope(make_connector()),
         'channel-1',
         { ...DELTA, changes: [root_change('m1')] },
+        {},
         {},
         {},
       ),

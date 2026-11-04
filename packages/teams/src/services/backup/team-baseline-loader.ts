@@ -9,6 +9,7 @@ import {
   type TeamsSnapshotIndex,
   type TenantContext,
 } from '@wisecom/atlas-types';
+import type { HostedRecheck } from '@/services/backup/hosted-recheck';
 
 /** The ports a run reads its starting state through. */
 export interface BaselinePorts {
@@ -24,6 +25,8 @@ export interface ChannelBaseline {
   readonly delta_link: string | undefined;
   /** Failed roots from the channel's cursor. Kept even when the link is not usable. */
   readonly failed_roots: FailedItemLedger;
+  /** Hosted-content recheck attempts from the channel's cursor. */
+  readonly hosted_recheck: HostedRecheck;
 }
 
 /** The state a run starts from: the latest readable index and each owned channel's baseline. */
@@ -57,7 +60,11 @@ export async function load_team_baseline(
     errors.push(`Snapshot ${key} could not be read; its channels were not compared`);
   }
   if (latest.unreadable_keys.length > 0) {
-    warnings.push('The baseline is an older snapshot because a newer one could not be read');
+    warnings.push(
+      latest.index === undefined
+        ? 'No readable snapshot exists; every channel is read in full'
+        : 'The baseline is an older snapshot because a newer one could not be read',
+    );
   }
   const channels = new Map<string, ChannelBaseline>();
   for (const channel_id of channel_ids) {
@@ -67,6 +74,7 @@ export async function load_team_baseline(
       previous_entry,
       delta_link: usable_delta_link(cursor, previous_entry, channel_id, warnings),
       failed_roots: cursor?.failed_roots ?? {},
+      hosted_recheck: cursor?.hosted_recheck ?? {},
     });
   }
   return { previous: latest.index, channels, errors, warnings };

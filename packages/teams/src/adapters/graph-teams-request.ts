@@ -8,6 +8,12 @@ export interface GraphCollectionResponse<T> {
   '@odata.deltaLink'?: string;
 }
 
+/** Asks Graph to return message fields with enum values this client does not know, not drop them. */
+export const INCLUDE_UNKNOWN_ENUM_PREFER = 'include-unknown-enum-members';
+export const INCLUDE_UNKNOWN_ENUM_HEADERS: Readonly<Record<string, string>> = {
+  Prefer: INCLUDE_UNKNOWN_ENUM_PREFER,
+};
+
 /** Runs one Graph call with throttling retry, naming the Teams permissions a 403 needs. */
 export async function graph_teams_call<T>(fn: () => Promise<T>): Promise<T> {
   try {

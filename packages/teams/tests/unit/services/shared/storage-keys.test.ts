@@ -4,8 +4,10 @@ import {
   teams_channel_shard_key,
   teams_cursor_key,
   teams_meta_prefix_for,
+  teams_shard_prefix_for,
   team_index_keys,
 } from '@/services/shared/storage-keys';
+import { TEAMS_KEYS } from '@/services/shared/storage-keys';
 
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const OTHER_TEAM = '00000000-0000-4000-8000-000000000002';
@@ -35,7 +37,12 @@ describe('Teams cursor and shard keys', () => {
     expect(cursor.endsWith('/channel-1.json')).toBe(true);
   });
 
-  it('places each channel shard under the team manifest prefix', () => {
-    expect(SHARD.startsWith(`teams/manifests/${TEAM}/channels/channel-1/`)).toBe(true);
+  it('places each channel shard as teams/shards/{team}/{channel}/{content}.json (P10)', () => {
+    expect(SHARD).toBe(`teams/shards/${TEAM}/channel-1/shard-name.json`);
+    expect(SHARD.startsWith(teams_shard_prefix_for(TEAM))).toBe(true);
+  });
+
+  it('keeps shards out of the manifest prefix so an index listing never returns them (P10)', () => {
+    expect(SHARD.startsWith(TEAMS_KEYS.manifest_prefix_for(TEAM))).toBe(false);
   });
 });

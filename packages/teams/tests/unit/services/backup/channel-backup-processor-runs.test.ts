@@ -34,6 +34,7 @@ function start(overrides: Partial<ChannelStartState> = {}): ChannelStartState {
     previous_shard: undefined,
     stored_link: undefined,
     failed_roots: {},
+    hosted_recheck: {},
     ...overrides,
   };
 }
@@ -45,6 +46,7 @@ beforeEach(() => {
     warnings: [],
     stored: 1,
     deduped: 0,
+    hosted_missing_roots: [],
   }));
 });
 
@@ -164,7 +166,10 @@ describe('backup_channel retries and link retention', () => {
     };
     const connector = make_connector({
       fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-2' })),
-      get_channel_message: vi.fn(async () => root_change('m9')),
+      get_channel_message: vi.fn(async () => ({
+        status: 'found' as const,
+        change: root_change('m9'),
+      })),
     });
 
     const output = await backup_channel(
@@ -234,6 +239,7 @@ describe('backup_channel shard reuse', () => {
       warnings: [],
       stored: 1,
       deduped: 0,
+      hosted_missing_roots: [],
     });
     const connector = make_connector({
       fetch_message_delta: vi.fn(async () => ({

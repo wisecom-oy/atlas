@@ -12,14 +12,26 @@ export interface DigestedBlob {
 }
 
 /**
+ * Graph keys that are not message content: OData annotations (`@odata.etag`, `@odata.nextLink`)
+ * and the reply list, which is stored in its own blobs. A GET and a list read differ only here.
+ */
+export function strip_volatile_keys(message: TeamsGraphResource): TeamsGraphResource {
+  return Object.fromEntries(
+    Object.entries(message).filter(
+      ([key]) => !(key.startsWith('@odata.') || key === 'replies' || key.startsWith('replies@')),
+    ),
+  ) as TeamsGraphResource;
+}
+
+/**
  * Serializes one raw Graph message canonically, so the same content always hashes to the same key.
- * The blob is the message as Graph returned it, without the hosted-content refs.
+ * The blob is the Graph message minus the keys {@link strip_volatile_keys} removes.
  */
 export function digest_message_blob(
   scope: BackupRunScope,
   message: TeamsGraphResource,
 ): DigestedBlob {
-  const plaintext = Buffer.from(canonical_json(message), 'utf-8');
+  const plaintext = Buffer.from(canonical_json(strip_volatile_keys(message)), 'utf-8');
   const { checksum, content_name } = compute_content_digests(scope.ctx, plaintext);
   return { plaintext, checksum, storage_key: TEAMS_KEYS.data_key(scope.team_id, content_name) };
 }

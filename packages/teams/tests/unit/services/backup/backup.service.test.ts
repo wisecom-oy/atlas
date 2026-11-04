@@ -245,6 +245,17 @@ describe('TeamsBackupService.backup_team', () => {
     expect(result.summary.healthy).toBe(false);
   });
 
+  it('keeps one ledger entry per channel when two channels fail the same root id (P12)', async () => {
+    const ports = make_ports({ channels: [{ id: 'channel-1' }, { id: 'channel-2' }] });
+    vi.mocked(backup_channel).mockImplementation(async (_scope, channel) =>
+      channel_output(channel.id, { failed_roots: FAILED_ROOT }),
+    );
+
+    const result = await ports.service.backup_team('tenant-1', TEAM_ID, {});
+
+    expect(result.summary.warnings.filter((w) => w.includes('(root-1)'))).toHaveLength(2);
+  });
+
   it('marks the run interrupted and backs up no channel when it is already interrupted', async () => {
     const ports = make_ports();
 

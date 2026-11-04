@@ -56,6 +56,7 @@ export class TeamsVerificationService implements TeamsVerificationUseCase {
         passed: 0,
         failed_storage_keys: [],
         missing_storage_keys: [],
+        unsupported_storage_keys: [],
         interrupted: true,
       };
     }
@@ -82,9 +83,11 @@ export class TeamsVerificationService implements TeamsVerificationUseCase {
     const shard_keys = index.channels.map((channel) => channel.shard_key);
     const shard_tally = new IntegrityTally();
     const shards = await check_channel_shards(ctx, this._shards, shard_keys, options, shard_tally);
-    const refs = shards.loaded.flatMap((shard) =>
+    const all_refs = shards.loaded.flatMap((shard) =>
       Object.values(shard.threads).flatMap(message_thread_blobs),
     );
+    // A kept version can share its blob with a live version; each stored object is checked once.
+    const refs = [...new Map(all_refs.map((ref) => [ref.storage_key, ref])).values()];
     const blob_tally = new IntegrityTally();
     const blobs_interrupted = await check_message_blobs(ctx, refs, options, blob_tally);
 
@@ -108,9 +111,14 @@ export class TeamsVerificationService implements TeamsVerificationUseCase {
     return {
       snapshot_id: index.snapshot_id,
       total_checked,
-      passed: total_checked - missing_storage_keys.length - failed_storage_keys.length,
+      passed:
+        total_checked -
+        missing_storage_keys.length -
+        failed_storage_keys.length -
+        shard_tally.unsupported_storage_keys.length,
       failed_storage_keys,
       missing_storage_keys,
+      unsupported_storage_keys: shard_tally.unsupported_storage_keys,
       interrupted,
     };
   }

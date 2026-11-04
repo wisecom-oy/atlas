@@ -142,7 +142,14 @@ export class TeamsBackupService implements TeamsBackupUseCase {
         saves,
       },
     );
-    finish_operation_progress(options, 'backup', 'teams', state.attempted, state.attempted);
+    finish_operation_progress(
+      options,
+      'backup',
+      'teams',
+      state.attempted,
+      state.attempted,
+      state.interrupted,
+    );
     const failed_roots = pending_failed_roots(owned, state.results, baseline);
     return {
       team_id,
@@ -180,10 +187,13 @@ function pending_failed_roots(
 ): FailedItemLedger {
   const merged: FailedItemLedger = {};
   for (const channel of channels) {
-    Object.assign(
-      merged,
-      results.get(channel.id)?.failed_roots ?? baseline.channels.get(channel.id)?.failed_roots,
-    );
+    const ledger =
+      results.get(channel.id)?.failed_roots ??
+      baseline.channels.get(channel.id)?.failed_roots ??
+      {};
+    for (const [root_id, record] of Object.entries(ledger)) {
+      merged[`${channel.id}/${root_id}`] = record;
+    }
   }
   return merged;
 }

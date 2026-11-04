@@ -1,7 +1,15 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { ResponseType } from '@microsoft/microsoft-graph-client';
-import type { TeamsGraphResource, TeamsMessageLocator } from '@wisecom/atlas-types';
-import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
+import type {
+  TeamsGraphResource,
+  TeamsHostedContent,
+  TeamsMessageLocator,
+} from '@wisecom/atlas-types';
+import {
+  graph_teams_call,
+  INCLUDE_UNKNOWN_ENUM_HEADERS,
+  read_all_pages,
+} from '@/adapters/graph-teams-request';
 
 function message_path(team_id: string, channel_id: string, root_id: string): string {
   return `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}`;
@@ -24,6 +32,7 @@ export async function list_replies(
   const { items } = await read_all_pages<TeamsGraphResource>(
     client,
     `${message_path(team_id, channel_id, root_id)}/replies?$top=50`,
+    INCLUDE_UNKNOWN_ENUM_HEADERS,
   );
   return items;
 }
@@ -37,15 +46,24 @@ export async function list_hosted_contents(
   return items;
 }
 
-/** Downloads one hosted content item's raw bytes. */
+/** The raw `$value` response: bytes plus the headers Graph sent with them. */
+interface RawHostedResponse {
+  readonly headers: { get(name: string): string | null };
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/** Downloads one hosted content item's raw bytes and its Content-Type header. */
 export async function download_hosted_content(
   client: Client,
   locator: TeamsMessageLocator,
   hosted_id: string,
-): Promise<Buffer> {
+): Promise<TeamsHostedContent> {
   const url = `${hosted_contents_path(locator)}/${encodeURIComponent(hosted_id)}/$value`;
-  const bytes = await graph_teams_call(
-    () => client.api(url).responseType(ResponseType.ARRAYBUFFER).get() as Promise<ArrayBuffer>,
+  const response = await graph_teams_call(
+    () => client.api(url).responseType(ResponseType.RAW).get() as Promise<RawHostedResponse>,
   );
-  return Buffer.from(bytes);
+  return {
+    bytes: Buffer.from(await response.arrayBuffer()),
+    content_type: response.headers.get('content-type') ?? undefined,
+  };
 }

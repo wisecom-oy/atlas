@@ -6,7 +6,11 @@ import type { DeletionResult } from '@wisecom/atlas-types';
 import type { TeamsDeletionUseCase, TenantContextFactory } from '@wisecom/atlas-types';
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { inject, injectable } from 'inversify';
-import { teams_meta_prefix_for, TEAMS_KEYS } from '@/services/shared/storage-keys';
+import {
+  teams_meta_prefix_for,
+  teams_shard_prefix_for,
+  TEAMS_KEYS,
+} from '@/services/shared/storage-keys';
 import { normalize_team_id } from '@/services/shared/team-id';
 
 /**
@@ -24,10 +28,11 @@ export class TeamsDeletionService implements TeamsDeletionUseCase {
     const normalized_team_id = normalize_team_id(team_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
     // Cursors go first so no incremental run follows a partial delete; indexes and shards go before
-    // data so no surviving index points at deleted blobs.
+    // data so no surviving index or shard points at deleted blobs.
     return delete_scopes(storage, [
       teams_meta_prefix_for(normalized_team_id),
       TEAMS_KEYS.manifest_prefix_for(normalized_team_id),
+      teams_shard_prefix_for(normalized_team_id),
       TEAMS_KEYS.data_prefix_for(normalized_team_id),
     ]);
   }

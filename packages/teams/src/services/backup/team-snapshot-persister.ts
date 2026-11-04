@@ -110,6 +110,7 @@ export async function persist_team_snapshot(
         delta_link: output.next_link,
         baseline_shard_key: entry.shard_key,
         failed_roots: output.failed_roots,
+        hosted_recheck: output.hosted_recheck,
         updated_at,
       }),
     );
