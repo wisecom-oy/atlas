@@ -254,7 +254,7 @@ describe('ReplicationService', () => {
     expect(result.objects_copied).toBe(0);
   });
 
-  it('rehydrate_tenant recovers Outlook, OneDrive, and SharePoint, not Outlook alone', async () => {
+  it('rehydrate_tenant recovers Outlook, OneDrive, and SharePoint and reports Teams unsupported', async () => {
     const m1 = make_manifest('snap-1', 'mbx-1', []);
     const m2 = make_manifest('snap-2', 'mbx-2', []);
 
@@ -297,6 +297,7 @@ describe('ReplicationService', () => {
     expect(by_workload.get('sharepoint')?.objects_copied).toBe(59);
     expect(result.total.objects_copied).toBe(by_workload.get('outlook')!.objects_copied + 7 + 59);
     expect(result.total.bytes_copied).toBe(by_workload.get('outlook')!.bytes_copied + 700 + 5900);
+    expect(result.unsupported_workloads).toEqual(['teams']);
   });
 
   it('rehydrate_tenant reports a workload that failed without hiding it in the aggregate', async () => {

@@ -229,6 +229,7 @@ export class ReplicationService implements ReplicationUseCase {
         source.target_id,
       ),
       workloads,
+      unsupported_workloads: ['teams'],
     };
   }
 
