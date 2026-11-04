@@ -207,7 +207,7 @@ Graph offers no way to write into Recoverable Items. Recovered items land in the
 :::
 
 ::: warning Exit codes for backup, restore, and save
-This applies to Outlook, Contacts, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: a snapshot was saved, but per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. A partial backup is restorable but missing the listed items.
+This applies to Outlook, Contacts, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. Do not read `2` as proof that a snapshot was saved: an interrupted Contacts backup saves none, and a Contacts run whose only changes failed has nothing new to save. Check the run output or `atlas contacts list` for the snapshot.
 
 `restore` and `save` follow the same contract. A file they cannot decrypt or write is counted as skipped, and any skipped file exits `2`. An archive missing some files is not a success, and a cron job that only checks for `0` must be able to see the difference.
 

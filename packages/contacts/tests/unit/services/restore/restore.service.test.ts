@@ -234,6 +234,22 @@ describe('ContactsRestoreService', () => {
     expect(result.errors[0]).toMatch(/c1.*restored without its photo: Graph 500/);
   });
 
+  it('restores the contact without uploading a photo that fails its checksum', async () => {
+    const objects: Record<string, Buffer> = {};
+    const good = stored_entry(objects, 'c1', 'src-default', contact('c1'), Buffer.from([1]));
+    const target = target_connector();
+
+    const result = await restore_with(
+      [{ ...good, photo_checksum: '0'.repeat(64) }],
+      objects,
+      target,
+    );
+
+    expect(result.contacts_restored).toBe(1);
+    expect(target.photos).toHaveLength(0);
+    expect(result.errors[0]).toMatch(/c1.*restored without its photo/);
+  });
+
   it('stops the restore on an auth failure instead of failing every contact', async () => {
     const objects: Record<string, Buffer> = {};
     const entries = [

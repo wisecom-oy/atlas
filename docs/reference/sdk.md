@@ -269,6 +269,8 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 
 `atlas.contacts` backs up, restores, verifies, and deletes one mailbox's personal contacts. Owner arguments accept an email or Entra object ID.
 
+Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a contacts snapshot ID, and the mailbox and tenant rehydrate methods skip contacts.
+
 | Method                                | CLI equivalent              | Description                                                                 |
 | ------------------------------------- | --------------------------- | --------------------------------------------------------------------------- |
 | `backup(mailbox, options?)`           | `atlas contacts backup -m`  | Back up changed contacts                                                    |
@@ -294,7 +296,7 @@ See [Contacts backup](/contacts-backup) for the storage layout and restore behav
 | `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                 |
 | `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                             |
 | `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                    |
-| `rehydrateTenant(source)`                | Restores every workload from a replica, reported per workload                                    |
+| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts are not covered |
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                             |
 | `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                               |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                    |

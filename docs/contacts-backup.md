@@ -14,10 +14,13 @@ Every option is listed in the [CLI reference](/reference/cli#atlas-contacts).
 
 ## Permissions
 
-| Operation            | Application permission |
-| -------------------- | ---------------------- |
-| Backup, list, verify | `Contacts.Read`        |
-| Restore              | `Contacts.ReadWrite`   |
+| Operation            | Graph application permission                   |
+| -------------------- | ---------------------------------------------- |
+| Backup               | `Contacts.Read`                                |
+| Restore              | `Contacts.ReadWrite`                           |
+| List, verify, delete | None: these read and write backup storage only |
+
+Passing a mailbox as an email address resolves it to an Entra object ID first, which needs `User.Read.All`. Passing the object ID skips that lookup.
 
 A missing grant fails with `ATLAS_AUTH_DENIED` and names the permission to add. Mail-only app registrations do not have either, so add them before the first contacts run. See [Azure AD setup](/azure-ad-setup).
 
@@ -28,7 +31,7 @@ A missing grant fails with `ATLAS_AUTH_DENIED` and names the permission to add. 
 3. Each changed contact is serialised to JSON and its photo is fetched. Both are encrypted under the tenant DEK and stored under a keyed content name (HMAC-SHA256 under a key derived from the DEK), the same naming mail and drive objects use. An object that already exists is not uploaded again.
 4. Atlas writes a manifest that lists every folder and contact. Each manifest is complete on its own, so restore and verify read one manifest and never fold a chain.
 
-A contact that fails to store keeps its entry from the previous snapshot and is named in the run's errors, while the rest of its folder is still stored. The folder keeps its old delta link (or none, if Graph rejected the old one), so the next run delivers the failed contact again. The run is then reported as unhealthy and exits `2`. Missing consent (`ATLAS_AUTH_DENIED`) or an unlicensed mailbox ends the run at once, since no further request can succeed. A run with no changes creates no snapshot. An interrupted run writes nothing.
+A contact that fails to store keeps its entry from the previous snapshot and is named in the run's errors, while the rest of its folder is still stored. The folder keeps its old delta link (or none, if Graph rejected the old one), so the next run delivers the failed contact again. The run is then reported as unhealthy and exits `2`. Missing consent (`ATLAS_AUTH_DENIED`) or an unlicensed mailbox ends the run at once, since no further request can succeed. A run with no changes creates no snapshot. An interrupted run saves no manifest and no cursor, so it leaves no restorable snapshot; contact and photo objects it already uploaded stay in storage (and under Object Lock, if requested) and are reused by the next run.
 
 Contacts in a folder are stored four at a time, matching the Exchange limit of four concurrent requests per mailbox. Contacts traffic counts against the Outlook Graph throttling pool.
 

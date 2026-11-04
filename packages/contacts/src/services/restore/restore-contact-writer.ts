@@ -36,28 +36,27 @@ async function read_contact(
   return parsed;
 }
 
-async function restore_photo(
-  deps: RestoreWriteDeps,
-  entry: ContactManifestEntry,
-  folder_id: string,
-  contact_id: string,
-): Promise<void> {
-  if (entry.photo_storage_key === undefined) return;
-  const photo = await read_content(deps.ctx, entry.photo_storage_key);
-  assert_checksum(deps.ctx, photo, entry.photo_checksum ?? '', 'Contact photo');
-  await deps.connector.upload_contact_photo(
-    deps.tenant_id,
-    deps.target_mailbox_id,
-    folder_id,
-    contact_id,
-    photo,
-  );
+/** The verified photo bytes, or the reason the stored photo cannot be used. */
+type PhotoRead =
+  { readonly photo: Buffer | undefined } | { readonly photo: undefined; readonly error: unknown };
+
+/** Reads and checksums the stored photo before anything is written to the mailbox. */
+async function read_photo(deps: RestoreWriteDeps, entry: ContactManifestEntry): Promise<PhotoRead> {
+  if (entry.photo_storage_key === undefined) return { photo: undefined };
+  try {
+    const photo = await read_content(deps.ctx, entry.photo_storage_key);
+    assert_checksum(deps.ctx, photo, entry.photo_checksum ?? '', 'Contact photo');
+    return { photo };
+  } catch (err) {
+    return { photo: undefined, error: err };
+  }
 }
 
 /**
  * Restores one manifest entry into a target folder. A contact whose collision key is already
- * present is skipped, so restore never overwrites existing data. A photo failure after the
- * contact was created is returned rather than thrown, because the contact itself landed.
+ * present is skipped, so restore never overwrites existing data. The photo is verified before
+ * the contact is created; a bad stored photo or a failed upload still restores the contact and
+ * is returned as `photo_error`, because a rerun would skip the contact and never retry the photo.
  */
 export async function restore_entry(
   deps: RestoreWriteDeps,
@@ -68,6 +67,7 @@ export async function restore_entry(
   const contact = await read_contact(deps.ctx, entry);
   const key = collision_key(contact);
   if (key !== undefined && existing_keys.has(key)) return { status: 'skipped' };
+  const photo = await read_photo(deps, entry);
 
   const payload = Object.fromEntries(
     Object.entries(contact).filter(
@@ -80,8 +80,16 @@ export async function restore_entry(
     folder_id,
     payload,
   );
+  if ('error' in photo) return { status: 'restored', photo_error: photo.error };
+  if (photo.photo === undefined) return { status: 'restored' };
   try {
-    await restore_photo(deps, entry, folder_id, contact_id);
+    await deps.connector.upload_contact_photo(
+      deps.tenant_id,
+      deps.target_mailbox_id,
+      folder_id,
+      contact_id,
+      photo.photo,
+    );
   } catch (err) {
     if (is_run_fatal(err)) throw err;
     return { status: 'restored', photo_error: err };
