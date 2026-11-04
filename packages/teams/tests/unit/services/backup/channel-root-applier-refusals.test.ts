@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { record_item_failure } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
-import { apply_root_changes } from '@/services/backup/channel-root-applier';
+import { apply_root_changes, type ChannelRootRead } from './channel-root-applier-harness';
 import { store_thread } from '@/services/backup/thread-store';
 import {
   make_connector,

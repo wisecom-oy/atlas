@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   all_index_keys,
   teams_channel_shard_key,
+  teams_checkpoint_head_key,
+  teams_checkpoint_prefix,
+  teams_checkpoint_segment_key,
   teams_cursor_key,
   teams_meta_prefix_for,
   teams_shard_prefix_for,
@@ -44,5 +47,21 @@ describe('Teams cursor and shard keys', () => {
 
   it('keeps shards out of the manifest prefix so an index listing never returns them (P10)', () => {
     expect(SHARD.startsWith(TEAMS_KEYS.manifest_prefix_for(TEAM))).toBe(false);
+  });
+});
+
+describe('Teams checkpoint keys', () => {
+  it('places each channel checkpoint under the team meta prefix so team deletion removes it', () => {
+    const head = teams_checkpoint_head_key(TEAM, 'channel-1');
+
+    expect(head.startsWith(teams_meta_prefix_for(TEAM))).toBe(true);
+    expect(head.startsWith(teams_checkpoint_prefix(TEAM, 'channel-1'))).toBe(true);
+  });
+
+  it('names segments under their channel prefix, apart from the head', () => {
+    const segment = teams_checkpoint_segment_key(TEAM, 'channel-1', 'seg-abc-0');
+
+    expect(segment.startsWith(teams_checkpoint_prefix(TEAM, 'channel-1'))).toBe(true);
+    expect(segment).not.toBe(teams_checkpoint_head_key(TEAM, 'channel-1'));
   });
 });

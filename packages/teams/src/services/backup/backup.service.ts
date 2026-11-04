@@ -13,6 +13,7 @@ import type {
   TeamsBackupResult,
   TeamsBackupSummary,
   TeamsBackupUseCase,
+  TeamsChannelCheckpointRepository,
   TeamsChannelCursorRepository,
   TeamsChannelShardRepository,
   TeamsConnector,
@@ -22,6 +23,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
+  TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN,
   TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN,
   TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
   TEAMS_CONNECTOR_TOKEN,
@@ -29,12 +31,17 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
+import { build_channel_run_reports } from '@/services/backup/backup-run-report';
 import type { ChannelBackupOutput } from '@/services/backup/channel-backup-processor';
 import {
   merge_channel_entries,
   split_owned_channels,
 } from '@/services/backup/channel-entry-merger';
-import { process_channels, type ChannelRunState } from '@/services/backup/channel-run-loop';
+import {
+  process_channels,
+  select_channels,
+  type ChannelRunState,
+} from '@/services/backup/channel-run-loop';
 import { load_team_baseline, type TeamsBaseline } from '@/services/backup/team-baseline-loader';
 import {
   persist_team_snapshot,
@@ -42,7 +49,23 @@ import {
   type ChannelSave,
   type SnapshotPersistResult,
 } from '@/services/backup/team-snapshot-persister';
+import { resolve_channel_concurrency } from '@/services/backup/resolve-channel-concurrency';
+import {
+  run_with_teams_request_stats,
+  TeamsRequestStats,
+} from '@/services/backup/teams-request-stats';
 import { normalize_team_id } from '@/services/shared/team-id';
+
+/** Per-run settings the team backup threads through its steps. */
+interface RunSettings {
+  readonly stats: TeamsRequestStats;
+  readonly concurrency: number;
+  /** The tenant context without the run's Object Lock, for checkpoint writes. */
+  readonly checkpoint_ctx?: TenantContext | undefined;
+}
+
+/** Summary fields the run measures itself: wall-clock time, channel outcomes, request counts. */
+type RunReport = Pick<TeamsBackupSummary, 'elapsed_ms' | 'channels' | 'requests'>;
 
 @injectable()
 export class TeamsBackupService implements TeamsBackupUseCase {
@@ -54,6 +77,8 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     private readonly _shards: TeamsChannelShardRepository,
     @inject(TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: TeamsChannelCursorRepository,
+    @inject(TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN)
+    private readonly _checkpoints: TeamsChannelCheckpointRepository,
   ) {}
 
   /**
@@ -66,6 +91,10 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     options: TeamsBackupOptions = {},
   ): Promise<TeamsBackupResult> {
     const normalized_team_id = normalize_team_id(team_id);
+    const settings: RunSettings = {
+      stats: new TeamsRequestStats(),
+      concurrency: resolve_channel_concurrency(options.concurrency),
+    };
     if (begin_operation_progress(options, 'backup', 'teams')) {
       finish_operation_progress(options, 'backup', 'teams', 0, 0);
       return empty_result(normalized_team_id);
@@ -74,7 +103,13 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     try {
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
       return await run_with_abort_signal(options.abort_signal, () =>
-        this.run_backup(ctx, tenant_id, normalized_team_id, options),
+        run_with_teams_request_stats(settings.stats, () =>
+          this.run_backup(ctx, tenant_id, normalized_team_id, options, {
+            ...settings,
+            // Checkpoints are short-lived and rewritten every page: never put them under the run's lock.
+            checkpoint_ctx: tenant_ctx,
+          }),
+        ),
       );
     } finally {
       tenant_ctx.destroy();
@@ -86,7 +121,9 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     tenant_id: string,
     team_id: string,
     options: TeamsBackupOptions,
+    settings: RunSettings,
   ): Promise<TeamsBackupResult> {
+    const started = Date.now();
     const backup_at = new Date();
     const team = await this._connector.get_team(tenant_id, team_id);
     const members = await this._connector.list_team_members(tenant_id, team_id);
@@ -100,6 +137,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       owned.map((channel) => channel.id),
     );
     emit_backup_progress(options, 'processing', 0);
+    const roots_applied = new Map<string, number>();
     const scope: BackupRunScope = {
       ctx,
       connector: this._connector,
@@ -107,6 +145,13 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       team_id,
       backup_at: backup_at.toISOString(),
       counters: create_backup_counters(),
+      checkpoints: this._checkpoints,
+      checkpoint_ctx: settings.checkpoint_ctx,
+      progress: {
+        roots_applied: (channel_id, count) => {
+          roots_applied.set(channel_id, (roots_applied.get(channel_id) ?? 0) + count);
+        },
+      },
       should_interrupt: () =>
         options.should_interrupt?.() === true || options.abort_signal?.aborted === true,
       force_full: options.force_full === true,
@@ -115,6 +160,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       baseline,
       shards: this._shards,
       options,
+      concurrency: settings.concurrency,
     });
     state.interrupted = state.interrupted || scope.should_interrupt();
     apply_baseline_findings(state, baseline);
@@ -129,7 +175,12 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     emit_backup_progress(options, 'finalizing', state.attempted);
     const persisted = await persist_team_snapshot(
       ctx,
-      { indexes: this._indexes, cursors: this._cursors },
+      {
+        indexes: this._indexes,
+        cursors: this._cursors,
+        checkpoints: this._checkpoints,
+        checkpoint_ctx: settings.checkpoint_ctx,
+      },
       {
         tenant_id,
         team_id,
@@ -151,11 +202,29 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       state.interrupted,
     );
     const failed_roots = pending_failed_roots(owned, state.results, baseline);
+    const elapsed_ms = Date.now() - started;
+    const report: RunReport = {
+      elapsed_ms,
+      channels: build_channel_run_reports(
+        select_channels(owned, options.channel_id),
+        state,
+        roots_applied,
+      ),
+      requests: settings.stats.snapshot(elapsed_ms),
+    };
     return {
       team_id,
       snapshot: persisted.index,
       interrupted: state.interrupted,
-      summary: summarize_run(scope, state, failed_roots, ownership_warnings, persisted, saves),
+      summary: summarize_run(
+        scope,
+        state,
+        failed_roots,
+        ownership_warnings,
+        persisted,
+        saves,
+        report,
+      ),
     };
   }
 }
@@ -198,6 +267,7 @@ function pending_failed_roots(
   return merged;
 }
 
+/** The result of a run that another run already holds. It backed up nothing and is interrupted. */
 function empty_result(team_id: string): TeamsBackupResult {
   return {
     team_id,
@@ -211,6 +281,9 @@ function empty_result(team_id: string): TeamsBackupResult {
       errors: [],
       warnings: [],
       healthy: false,
+      elapsed_ms: 0,
+      channels: [],
+      requests: new TeamsRequestStats().snapshot(0),
     },
   };
 }
@@ -227,6 +300,7 @@ function summarize_run(
   ownership_warnings: string[],
   persisted: SnapshotPersistResult,
   saves: readonly ChannelSave[],
+  report: RunReport,
 ): TeamsBackupSummary {
   const healthy =
     !state.interrupted && state.errors.length === 0 && Object.keys(failed_roots).length === 0;
@@ -239,6 +313,7 @@ function summarize_run(
     errors: state.errors,
     warnings: [...ownership_warnings, ...state.warnings, ...describe_failed_items(failed_roots)],
     healthy,
+    ...report,
   };
 }
 

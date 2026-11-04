@@ -4,17 +4,17 @@ import type * as graph_request from '@/adapters/graph-teams-request';
 import {
   INCLUDE_UNKNOWN_ENUM_HEADERS,
   INCLUDE_UNKNOWN_ENUM_PREFER,
-  read_all_pages,
+  read_collection_page,
 } from '@/adapters/graph-teams-request';
 import {
-  fetch_message_delta,
+  fetch_message_delta_page,
   get_channel_message,
-  list_channel_messages,
+  list_channel_messages_page,
 } from '@/adapters/graph-teams-message-fetch';
 
 vi.mock('@/adapters/graph-teams-request', async (import_original) => ({
   ...(await import_original<typeof graph_request>()),
-  read_all_pages: vi.fn(),
+  read_collection_page: vi.fn(),
   graph_teams_call: (fn: () => Promise<unknown>) => fn(),
 }));
 
@@ -23,15 +23,13 @@ const TEAM = '00000000-0000-0000-0000-000000000001';
 const CHANNEL = 'channel-1';
 const EXPANDED_QUERY = '$top=50&$expand=replies';
 
-function page(
-  items: unknown[],
-  delta_link?: string,
-): { items: unknown[]; delta_link: string | undefined } {
-  return { items, delta_link };
+/** One Graph collection page; the links are set only when a test needs them. */
+function page(value: unknown[], delta_link?: string, next_link?: string): Record<string, unknown> {
+  return { value, '@odata.deltaLink': delta_link, '@odata.nextLink': next_link };
 }
 
-describe('fetch_message_delta', () => {
-  const read = read_all_pages as unknown as Mock;
+describe('fetch_message_delta_page', () => {
+  const read = read_collection_page as unknown as Mock;
 
   beforeEach(() => {
     read.mockReset();
@@ -40,7 +38,7 @@ describe('fetch_message_delta', () => {
   it('starts a full read with a page size of 50 and inline replies', async () => {
     read.mockResolvedValueOnce(page([], 'delta-link'));
 
-    await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(read).toHaveBeenCalledWith(
       CLIENT,
@@ -52,15 +50,24 @@ describe('fetch_message_delta', () => {
   it('resumes from the stored link without rebuilding the query', async () => {
     read.mockResolvedValueOnce(page([], 'delta-link-2'));
 
-    await fetch_message_delta(CLIENT, TEAM, CHANNEL, 'stored-link');
+    await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, 'stored-link');
 
     expect(read).toHaveBeenCalledWith(CLIENT, 'stored-link', INCLUDE_UNKNOWN_ENUM_HEADERS);
+  });
+
+  it('returns the next link while more pages remain', async () => {
+    read.mockResolvedValueOnce(page([], undefined, 'next-link'));
+
+    const result = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
+
+    expect(result.next_link).toBe('next-link');
+    expect(result.delta_link).toBeUndefined();
   });
 
   it('throws when Graph ends the read without a delta link', async () => {
     read.mockResolvedValueOnce(page([]));
 
-    await expect(fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined)).rejects.toThrow(
+    await expect(fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined)).rejects.toThrow(
       'without a delta link',
     );
   });
@@ -70,7 +77,7 @@ describe('fetch_message_delta', () => {
       page([{ id: 'root-1', '@removed': { reason: 'softDelete' } }], 'delta-link'),
     );
 
-    const { roots } = await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    const { roots } = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(roots).toEqual([{ root: { id: 'root-1' }, deleted: true, replies: undefined }]);
   });
@@ -80,7 +87,7 @@ describe('fetch_message_delta', () => {
       page([{ id: 'root-1', deletedDateTime: '2025-01-02T00:00:00Z' }], 'delta-link'),
     );
 
-    const { roots } = await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    const { roots } = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(roots[0]?.deleted).toBe(true);
     expect(roots[0]?.root.deletedDateTime).toBe('2025-01-02T00:00:00Z');
@@ -89,7 +96,7 @@ describe('fetch_message_delta', () => {
   it('does not mark a message with a null deletedDateTime as deleted', async () => {
     read.mockResolvedValueOnce(page([{ id: 'root-1', deletedDateTime: null }], 'delta-link'));
 
-    const { roots } = await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    const { roots } = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(roots[0]?.deleted).toBe(false);
   });
@@ -98,7 +105,7 @@ describe('fetch_message_delta', () => {
     const replies = [{ id: 'reply-1' }];
     read.mockResolvedValueOnce(page([{ id: 'root-1', replies }], 'delta-link'));
 
-    const { roots } = await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    const { roots } = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(roots[0]?.replies).toEqual(replies);
     expect(roots[0]?.root).not.toHaveProperty('replies');
@@ -118,7 +125,7 @@ describe('fetch_message_delta', () => {
       ),
     );
 
-    const { roots } = await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    const { roots } = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(roots[0]?.replies).toBeUndefined();
     expect(roots[0]?.root).not.toHaveProperty('replies@odata.nextLink');
@@ -127,23 +134,23 @@ describe('fetch_message_delta', () => {
   it('leaves replies undefined when the root has no replies array', async () => {
     read.mockResolvedValueOnce(page([{ id: 'root-1' }], 'delta-link'));
 
-    const { roots } = await fetch_message_delta(CLIENT, TEAM, CHANNEL, undefined);
+    const { roots } = await fetch_message_delta_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(roots[0]?.replies).toBeUndefined();
   });
 });
 
-describe('list_channel_messages', () => {
-  const read = read_all_pages as unknown as Mock;
+describe('list_channel_messages_page', () => {
+  const read = read_collection_page as unknown as Mock;
 
   beforeEach(() => {
     read.mockReset();
   });
 
-  it('reads every root with /messages, a page size of 50, and inline replies', async () => {
+  it('reads the first /messages page with a page size of 50 and inline replies', async () => {
     read.mockResolvedValueOnce(page([{ id: 'root-1' }]));
 
-    const roots = await list_channel_messages(CLIENT, TEAM, CHANNEL);
+    const { roots } = await list_channel_messages_page(CLIENT, TEAM, CHANNEL, undefined);
 
     expect(read).toHaveBeenCalledWith(
       CLIENT,
@@ -151,6 +158,14 @@ describe('list_channel_messages', () => {
       INCLUDE_UNKNOWN_ENUM_HEADERS,
     );
     expect(roots).toEqual([{ root: { id: 'root-1' }, deleted: false, replies: undefined }]);
+  });
+
+  it('propagates next_link while more pages remain', async () => {
+    read.mockResolvedValueOnce(page([], undefined, 'next-link'));
+
+    const { next_link } = await list_channel_messages_page(CLIENT, TEAM, CHANNEL, undefined);
+
+    expect(next_link).toBe('next-link');
   });
 });
 

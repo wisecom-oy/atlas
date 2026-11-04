@@ -6,6 +6,7 @@ import type {
   TeamsIndexRepository,
   TeamsChannelShardRepository,
   TeamsChannelCursorRepository,
+  TeamsChannelCheckpointRepository,
   TenantContextFactory,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -45,6 +46,7 @@ function service_with_throttled_team_get(): TeamsBackupService {
     {} as TeamsIndexRepository,
     {} as TeamsChannelShardRepository,
     {} as TeamsChannelCursorRepository,
+    {} as TeamsChannelCheckpointRepository,
   );
 }
 

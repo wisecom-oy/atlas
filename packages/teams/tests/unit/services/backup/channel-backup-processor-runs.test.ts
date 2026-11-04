@@ -52,13 +52,13 @@ beforeEach(() => {
 describe('backup_channel read modes', () => {
   it('reads every root in full for a channel without a mail address, with no link', async () => {
     const connector = make_connector({
-      list_channel_messages: vi.fn(async () => [root_change('m1')]),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root_change('m1')] })),
     });
 
     const output = await backup_channel(make_scope(connector), CHANNEL, start());
 
-    expect(connector.list_channel_messages).toHaveBeenCalledTimes(1);
-    expect(connector.fetch_message_delta).not.toHaveBeenCalled();
+    expect(connector.list_channel_messages_page).toHaveBeenCalledTimes(1);
+    expect(connector.fetch_message_delta_page).not.toHaveBeenCalled();
     expect(output.shard.read_mode).toBe('full');
     expect(output.next_link).toBeUndefined();
     expect(Object.keys(output.shard.threads)).toEqual(['m1']);
@@ -66,7 +66,7 @@ describe('backup_channel read modes', () => {
 
   it('follows the stored link for a channel with a mail address', async () => {
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
+      fetch_message_delta_page: vi.fn(async () => ({
         roots: [root_change('m2')],
         delta_link: 'link-2',
       })),
@@ -78,7 +78,7 @@ describe('backup_channel read modes', () => {
       start({ stored_link: 'stored-link' }),
     );
 
-    expect(connector.fetch_message_delta).toHaveBeenCalledWith(
+    expect(connector.fetch_message_delta_page).toHaveBeenCalledWith(
       'tenant-1',
       expect.any(String),
       'channel-1',
@@ -90,7 +90,7 @@ describe('backup_channel read modes', () => {
 
   it('ignores the stored link on a --full run', async () => {
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-fresh' })),
+      fetch_message_delta_page: vi.fn(async () => ({ roots: [], delta_link: 'link-fresh' })),
     });
 
     const output = await backup_channel(
@@ -99,7 +99,7 @@ describe('backup_channel read modes', () => {
       start({ stored_link: 'stored-link' }),
     );
 
-    expect(connector.fetch_message_delta).toHaveBeenCalledWith(
+    expect(connector.fetch_message_delta_page).toHaveBeenCalledWith(
       'tenant-1',
       expect.any(String),
       'channel-1',
@@ -111,7 +111,7 @@ describe('backup_channel read modes', () => {
 
   it('falls back to a full read when Graph rejects the stored link', async () => {
     const connector = make_connector({
-      fetch_message_delta: vi
+      fetch_message_delta_page: vi
         .fn()
         .mockRejectedValueOnce(Object.assign(new Error('gone'), { statusCode: 400 }))
         .mockResolvedValueOnce({ roots: [root_change('m1')], delta_link: 'link-new' }),
@@ -132,7 +132,7 @@ describe('backup_channel retries and link retention', () => {
   it('keeps the stored link when a root fails, so the next run presents it again', async () => {
     vi.mocked(store_thread).mockRejectedValueOnce(new Error('boom'));
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
+      fetch_message_delta_page: vi.fn(async () => ({
         roots: [root_change('m1')],
         delta_link: 'link-2',
       })),
@@ -164,7 +164,7 @@ describe('backup_channel retries and link retention', () => {
       },
     };
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-2' })),
+      fetch_message_delta_page: vi.fn(async () => ({ roots: [], delta_link: 'link-2' })),
       get_channel_message: vi.fn(async () => ({
         status: 'found' as const,
         change: root_change('m9'),
@@ -190,7 +190,7 @@ describe('backup_channel retries and link retention', () => {
   it('marks the run interrupted and keeps the stored link when the run stops mid-channel', async () => {
     let calls = 0;
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
+      fetch_message_delta_page: vi.fn(async () => ({
         roots: [root_change('m1'), root_change('m2')],
         delta_link: 'link-2',
       })),
@@ -211,7 +211,7 @@ describe('backup_channel shard reuse', () => {
   it('reuses the previous entry when content is unchanged, even if the read mode differs', async () => {
     const prior = previous_shard({ m1: thread_entry('m1') }, 'full');
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
+      fetch_message_delta_page: vi.fn(async () => ({
         roots: [root_change('m1')],
         delta_link: 'link-2',
       })),
@@ -240,7 +240,7 @@ describe('backup_channel shard reuse', () => {
       deduped: 0,
     });
     const connector = make_connector({
-      fetch_message_delta: vi.fn(async () => ({
+      fetch_message_delta_page: vi.fn(async () => ({
         roots: [root_change('m1')],
         delta_link: 'link-2',
       })),

@@ -13,12 +13,21 @@ export interface TeamsRootChange {
 export type TeamsRootFetchResult =
   { readonly status: 'found'; readonly change: TeamsRootChange } | { readonly status: 'not_found' };
 
-/** Result of a channel message delta read. */
-export interface TeamsMessageDeltaResult {
-  /** Every root whose thread changed since the previous link, including reply-only changes. */
+/** One page of a channel message delta read. `delta_link` is set on the last page only. */
+export interface TeamsMessageDeltaPage {
+  /** Every root whose thread changed on this page, including reply-only changes. */
   readonly roots: TeamsRootChange[];
-  /** Link to pass to the next run. Persisted only once the manifest it was read against is saved. */
-  readonly delta_link: string;
+  /** Graph's `@odata.nextLink`; absent on the last page. */
+  readonly next_link?: string | undefined;
+  /** Graph's `@odata.deltaLink`, on the last page. Persist it only once the work it covers is durable. */
+  readonly delta_link?: string | undefined;
+}
+
+/** One page of a channel `/messages` list read. */
+export interface TeamsMessageListPage {
+  readonly roots: TeamsRootChange[];
+  /** Graph's `@odata.nextLink`; absent on the last page. */
+  readonly next_link?: string | undefined;
 }
 
 /** Addresses one thread, or one reply inside it, for hosted-content calls. */
@@ -40,7 +49,8 @@ export interface TeamsHostedContent {
  * Read access to Teams teams, channels, and channel messages through Microsoft Graph (app-only).
  *
  * Methods throw the Graph error unchanged. Delta callers treat a 400 or `is_invalid_delta_error`
- * as "read this channel in full" and call {@link list_channel_messages}.
+ * as "read this channel in full": they restart from the first page of
+ * {@link list_channel_messages_page}.
  */
 export interface TeamsConnector {
   /** Lists every team in the tenant. */
@@ -87,25 +97,27 @@ export interface TeamsConnector {
   ): Promise<TeamsGraphResource[]>;
 
   /**
-   * Reads channel message changes since `prev_delta_link`, or everything when it is undefined.
-   * Pages through `@odata.nextLink` and returns the final `@odata.deltaLink`.
+   * Reads one page of channel message changes. `url` undefined starts the delta read (no link:
+   * every change Graph still holds); otherwise it is a `next_link` or the stored delta link.
+   * Each page is one paged request; callers loop, applying each page before reading the next.
    */
-  fetch_message_delta(
+  fetch_message_delta_page(
     tenant_id: string,
     team_id: string,
     channel_id: string,
-    prev_delta_link: string | undefined,
-  ): Promise<TeamsMessageDeltaResult>;
+    url: string | undefined,
+  ): Promise<TeamsMessageDeltaPage>;
 
   /**
-   * Reads every root message in a channel with `/messages`. Used when delta is unavailable.
-   * Returns no deleted roots and no delta link.
+   * Reads one page of the channel's root messages with `/messages`. `url` undefined starts from
+   * the first page; otherwise it is a `next_link`. Returns no deleted roots and no delta link.
    */
-  list_channel_messages(
+  list_channel_messages_page(
     tenant_id: string,
     team_id: string,
     channel_id: string,
-  ): Promise<TeamsRootChange[]>;
+    url: string | undefined,
+  ): Promise<TeamsMessageListPage>;
 
   /**
    * Reads one root message, without replies (callers use {@link list_replies}). Resolves

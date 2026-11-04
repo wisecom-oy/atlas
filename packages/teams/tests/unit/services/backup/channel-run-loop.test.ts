@@ -37,6 +37,8 @@ function output(id: string, overrides: Partial<ChannelBackupOutput> = {}): Chann
     hosted_recheck: {},
     errors: [],
     warnings: [],
+    resumed_from_checkpoint: false,
+    checkpoint: undefined,
     ...overrides,
   };
 }
@@ -56,6 +58,7 @@ function make_inputs(overrides: Partial<ChannelRunInputs> = {}): ChannelRunInput
     baseline,
     shards: { load: vi.fn(), save: vi.fn() } as unknown as TeamsChannelShardRepository,
     options: {},
+    concurrency: 1,
     ...overrides,
   };
 }

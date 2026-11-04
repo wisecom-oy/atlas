@@ -38,7 +38,9 @@ import { resolve_owner_object_id } from '@/owner-resolution';
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
   const atlas_config = normalize_config(config);
-  const container = create_container_from_config(atlas_config, config.throttleCoordinator);
+  const container = create_container_from_config(atlas_config, config.throttleCoordinator, {
+    tenant_pacing_share: config.teamsPacingShare,
+  });
   if (config.onStorageRequest) {
     const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
     observe_storage_requests(s3_client, config.onStorageRequest, 'primary');

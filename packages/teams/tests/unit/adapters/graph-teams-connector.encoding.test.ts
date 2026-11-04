@@ -53,13 +53,13 @@ const CASES: readonly EncodingCase[] = [
     path: `${CHANNEL_PATH}/filesFolder`,
   },
   {
-    name: 'fetch_message_delta',
-    call: (c) => c.fetch_message_delta(TENANT, TEAM, CHANNEL, undefined),
+    name: 'fetch_message_delta_page',
+    call: (c) => c.fetch_message_delta_page(TENANT, TEAM, CHANNEL, undefined),
     path: `${CHANNEL_PATH}/messages/delta?$top=50&$expand=replies`,
   },
   {
-    name: 'list_channel_messages',
-    call: (c) => c.list_channel_messages(TENANT, TEAM, CHANNEL),
+    name: 'list_channel_messages_page',
+    call: (c) => c.list_channel_messages_page(TENANT, TEAM, CHANNEL, undefined),
     path: `${CHANNEL_PATH}/messages?$top=50&$expand=replies`,
   },
 ];

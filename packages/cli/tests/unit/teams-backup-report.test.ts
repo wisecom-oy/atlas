@@ -38,6 +38,12 @@ function no_snapshot_result(healthy: boolean): TeamsBackupResult {
       errors: healthy ? [] : ['channel listing refused'],
       warnings: [],
       no_snapshot_reason: 'no_content',
+      elapsed_ms: 0,
+      channels: [],
+      requests: {
+        messages: { requests: 0, throttled: 0, achieved_rps: 0 },
+        default: { requests: 0, throttled: 0, achieved_rps: 0 },
+      },
     },
   };
 }

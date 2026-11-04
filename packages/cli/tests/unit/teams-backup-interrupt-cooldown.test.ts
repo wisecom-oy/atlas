@@ -76,7 +76,18 @@ describe('teams backup Ctrl+C with a Retry-After cooldown in force', () => {
             team_id: team,
             snapshot: undefined,
             interrupted: true,
-            summary: { channels_scanned: 0, healthy: false, errors: [], warnings: [] },
+            summary: {
+              channels_scanned: 0,
+              healthy: false,
+              errors: [],
+              warnings: [],
+              elapsed_ms: 0,
+              channels: [],
+              requests: {
+                messages: { requests: 0, throttled: 0, achieved_rps: 0 },
+                default: { requests: 0, throttled: 0, achieved_rps: 0 },
+              },
+            },
           }),
         );
         return promise;

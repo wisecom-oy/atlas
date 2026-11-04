@@ -24,6 +24,20 @@ export async function graph_teams_call<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Reads one collection page through the Teams retry and permission handling. */
+export async function read_collection_page<T>(
+  client: Client,
+  url: string,
+  extra_headers: Readonly<Record<string, string>> = {},
+): Promise<GraphCollectionResponse<T>> {
+  return graph_teams_call(
+    () =>
+      Object.entries(extra_headers)
+        .reduce((request, [name, value]) => request.header(name, value), client.api(url))
+        .get() as Promise<GraphCollectionResponse<T>>,
+  );
+}
+
 /**
  * Follows every `@odata.nextLink` from `start`. Returns all items and the delta link of the last
  * page, which is set only for delta reads.
@@ -37,12 +51,10 @@ export async function read_all_pages<T>(
   let next: string | undefined = start;
   let delta_link: string | undefined;
   while (next !== undefined) {
-    const url: string = next;
-    const page: GraphCollectionResponse<T> = await graph_teams_call(
-      () =>
-        Object.entries(extra_headers)
-          .reduce((request, [name, value]) => request.header(name, value), client.api(url))
-          .get() as Promise<GraphCollectionResponse<T>>,
+    const page: GraphCollectionResponse<T> = await read_collection_page<T>(
+      client,
+      next,
+      extra_headers,
     );
     items.push(...(page.value ?? []));
     delta_link = page['@odata.deltaLink'] ?? delta_link;

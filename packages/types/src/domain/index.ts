@@ -83,6 +83,12 @@ export type {
   TeamsChannelCursor,
 } from './teams-manifest';
 export type {
+  TeamsCheckpointMode,
+  TeamsCheckpointPhase,
+  TeamsChannelCheckpointHead,
+  TeamsChannelCheckpointSegment,
+} from './teams-checkpoint';
+export type {
   GraphOperation,
   OperationCost,
   ServicePoolCost,
