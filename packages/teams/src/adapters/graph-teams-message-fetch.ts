@@ -1,7 +1,8 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type {
   TeamsGraphResource,
-  TeamsMessageDeltaResult,
+  TeamsMessageDeltaPage,
+  TeamsMessageListPage,
   TeamsRootChange,
   TeamsRootFetchResult,
 } from '@wisecom/atlas-types';
@@ -9,7 +10,7 @@ import {
   graph_teams_call,
   INCLUDE_UNKNOWN_ENUM_HEADERS,
   INCLUDE_UNKNOWN_ENUM_PREFER,
-  read_all_pages,
+  read_collection_page,
 } from '@/adapters/graph-teams-request';
 import { graph_status_of } from '@/services/shared/graph-error-status';
 
@@ -45,42 +46,52 @@ function to_root_change(message: GraphChannelMessage): TeamsRootChange {
   return { root, deleted, replies: replies_complete ? message.replies : undefined };
 }
 
-/**
- * Reads a channel's root message changes since `prev_delta_link`, or every root when it is
- * undefined. Throws when Graph ends the read without a delta link.
- */
-export async function fetch_message_delta(
-  client: Client,
-  team_id: string,
-  channel_id: string,
-  prev_delta_link: string | undefined,
-): Promise<TeamsMessageDeltaResult> {
-  const start =
-    prev_delta_link ??
-    `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/delta?${ROOT_QUERY}`;
-  const { items, delta_link } = await read_all_pages<GraphChannelMessage>(
-    client,
-    start,
-    INCLUDE_UNKNOWN_ENUM_HEADERS,
-  );
-  if (delta_link === undefined) {
-    throw new Error(`Graph ended the message delta of channel ${channel_id} without a delta link`);
-  }
-  return { roots: items.map(to_root_change), delta_link };
+/** First delta page URL of a channel: every change Graph still holds. */
+function delta_start_url(team_id: string, channel_id: string): string {
+  return `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/delta?${ROOT_QUERY}`;
 }
 
-/** Reads every root message of a channel with `/messages`, for channels delta cannot serve. */
-export async function list_channel_messages(
+/** First `/messages` page URL of a channel. */
+function list_start_url(team_id: string, channel_id: string): string {
+  return `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages?${ROOT_QUERY}`;
+}
+
+/**
+ * Reads one page of a channel's message delta feed. `url` undefined starts the feed; a page
+ * without a next link must carry the delta link, or Graph has ended the read without one.
+ */
+export async function fetch_message_delta_page(
   client: Client,
   team_id: string,
   channel_id: string,
-): Promise<TeamsRootChange[]> {
-  const { items } = await read_all_pages<GraphChannelMessage>(
+  url: string | undefined,
+): Promise<TeamsMessageDeltaPage> {
+  const page = await read_collection_page<GraphChannelMessage>(
     client,
-    `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages?${ROOT_QUERY}`,
+    url ?? delta_start_url(team_id, channel_id),
     INCLUDE_UNKNOWN_ENUM_HEADERS,
   );
-  return items.map(to_root_change);
+  const next_link = page['@odata.nextLink'];
+  const delta_link = page['@odata.deltaLink'];
+  if (next_link === undefined && delta_link === undefined) {
+    throw new Error(`Graph ended the message delta of channel ${channel_id} without a delta link`);
+  }
+  return { roots: (page.value ?? []).map(to_root_change), next_link, delta_link };
+}
+
+/** Reads one page of a channel's `/messages`, for channels delta cannot serve or a full read. */
+export async function list_channel_messages_page(
+  client: Client,
+  team_id: string,
+  channel_id: string,
+  url: string | undefined,
+): Promise<TeamsMessageListPage> {
+  const page = await read_collection_page<GraphChannelMessage>(
+    client,
+    url ?? list_start_url(team_id, channel_id),
+    INCLUDE_UNKNOWN_ENUM_HEADERS,
+  );
+  return { roots: (page.value ?? []).map(to_root_change), next_link: page['@odata.nextLink'] };
 }
 
 /**

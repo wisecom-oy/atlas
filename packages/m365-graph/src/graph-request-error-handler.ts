@@ -1,6 +1,7 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   get_active_abort_signal,
+  get_active_request_pacing,
   get_active_throttle,
   get_active_throttle_pool,
   get_active_throttle_scope,
@@ -145,6 +146,13 @@ export async function with_graph_retry<T>(
     // Per attempt, not per call. A retry loop that started before the cooldown
     // began would otherwise keep firing into Graph for the whole of it.
     waited_ms += await wait_out_throttle(RETRY_BUDGET_MS - waited_ms, abort_signal);
+    // Pacing is charged to no budget: it spaces requests out, it is not a cooldown Graph imposed.
+    // A cooldown raised while this request waited for its slot is honoured before it is sent.
+    const pacing = get_active_request_pacing();
+    if (pacing) {
+      await pacing.before_attempt(abort_signal);
+      waited_ms += await wait_out_throttle(RETRY_BUDGET_MS - waited_ms, abort_signal);
+    }
     try {
       return await race_timeout(race_abort(fn(), abort_signal), timeout_ms);
     } catch (err) {
@@ -155,6 +163,7 @@ export async function with_graph_retry<T>(
       // Raise on the response that carried the 429, not after the budget is
       // spent, so every other owner backs off during this cooldown too.
       raise_throttle_on_429(err, retry_after);
+      if (status_code_of(err) === 429) get_active_request_pacing()?.on_throttled();
       const delay = retry_delay_ms(attempt, retry_after);
       if (attempt === MAX_RETRIES || delay === undefined || waited_ms + delay > RETRY_BUDGET_MS) {
         throw as_exhausted_failure(err, attempt);

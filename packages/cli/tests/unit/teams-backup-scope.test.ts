@@ -33,6 +33,12 @@ function healthy_result(team_id: string): TeamsBackupResult {
       errors: [],
       warnings: [],
       no_snapshot_reason: 'no_changes',
+      elapsed_ms: 0,
+      channels: [],
+      requests: {
+        messages: { requests: 0, throttled: 0, achieved_rps: 0 },
+        default: { requests: 0, throttled: 0, achieved_rps: 0 },
+      },
     },
   };
 }

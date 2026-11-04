@@ -1,7 +1,8 @@
 export type {
   TeamsConnector,
   TeamsMessageLocator,
-  TeamsMessageDeltaResult,
+  TeamsMessageDeltaPage,
+  TeamsMessageListPage,
   TeamsRootChange,
   TeamsRootFetchResult,
   TeamsHostedContent,
@@ -17,6 +18,7 @@ export type {
   TeamsChannelCursorRepository,
   TeamsCursorScan,
 } from '@/ports/teams/channel-cursor-repository.port';
+export type { TeamsChannelCheckpointRepository } from '@/ports/teams/channel-checkpoint-repository.port';
 export type {
   TeamsBackupUseCase,
   TeamsBackupSummary,
@@ -25,6 +27,11 @@ export type {
   TeamsCatalogUseCase,
   TeamsVerificationUseCase,
   TeamsVerificationResult,
+  TeamsChannelRunOutcome,
+  TeamsChannelRunReport,
+  TeamsRequestClassReport,
+  TeamsRequestReport,
 } from '@/ports/teams/use-case.port';
 export type { TeamsDeletionUseCase } from '@/ports/teams/deletion.port';
 export type { TeamsStatusUseCase, TeamsTeamStatus } from '@/ports/teams/status.port';
+export type { TeamsSaveUseCase, TeamsSaveOptions, TeamsSaveResult } from '@/ports/teams/save.port';

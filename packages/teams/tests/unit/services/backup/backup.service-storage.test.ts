@@ -24,7 +24,7 @@ const CHANGE_AT = '2025-01-02T00:00:00.000Z';
 describe('TeamsBackupService over the real storage adapters', () => {
   it('first run writes one index, one shard and one cursor', async () => {
     const env = build_env(CHANNEL, {
-      list_channel_messages: vi.fn(async () => [root(message('m1'))]),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root(message('m1'))] })),
     });
 
     const result = await env.service.backup_team(TENANT, TEAM);
@@ -37,7 +37,7 @@ describe('TeamsBackupService over the real storage adapters', () => {
 
   it('unchanged run writes only the cursor', async () => {
     const env = build_env(CHANNEL, {
-      list_channel_messages: vi.fn(async () => [root(message('m1'))]),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root(message('m1'))] })),
     });
     await env.service.backup_team(TENANT, TEAM);
     const put = vi.spyOn(env.harness.ctx.storage, 'put');
@@ -51,7 +51,7 @@ describe('TeamsBackupService over the real storage adapters', () => {
   it('a changed reply adds one data blob, one shard and one index', async () => {
     let reply_text = 'first';
     const env = build_env(CHANNEL, {
-      list_channel_messages: vi.fn(async () => [root(message('m1'))]),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root(message('m1'))] })),
       list_replies: vi.fn(async () => [
         message('r1', { replyToId: 'm1', body: { contentType: 'html', content: reply_text } }),
       ]),
@@ -75,7 +75,7 @@ describe('TeamsBackupService over the real storage adapters', () => {
   it('a cancel mid-channel records no ledger attempt and reports interrupted', async () => {
     let stopped = false;
     const env = build_env(CHANNEL, {
-      list_channel_messages: vi.fn(async () => [root(message('m1'))]),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root(message('m1'))] })),
       list_replies: vi.fn(async () => {
         stopped = true;
         throw new Error('cancelled by the operator');
@@ -96,8 +96,11 @@ describe('TeamsBackupService over the real storage adapters', () => {
     let delta_roots: TeamsRootChange[] = [];
     const get_channel_message = vi.fn(async () => ({ status: 'not_found' as const }));
     const env = build_env(CHANNEL_WITH_EMAIL, {
-      list_channel_messages: vi.fn(async () => [root(message('m1'))]),
-      fetch_message_delta: vi.fn(async () => ({ roots: delta_roots, delta_link: 'link-next' })),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root(message('m1'))] })),
+      fetch_message_delta_page: vi.fn(async () => ({
+        roots: delta_roots,
+        delta_link: 'link-next',
+      })),
       list_replies: vi.fn(async () => {
         if (fail_replies) throw new Error('transient reply failure');
         return [];
@@ -133,8 +136,8 @@ describe('TeamsBackupService over the real storage adapters', () => {
       return { bytes: Buffer.from('png'), content_type: 'image/png' };
     });
     const env = build_env(CHANNEL_WITH_EMAIL, {
-      list_channel_messages: vi.fn(async () => [root(hosted_root)]),
-      fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-next' })),
+      list_channel_messages_page: vi.fn(async () => ({ roots: [root(hosted_root)] })),
+      fetch_message_delta_page: vi.fn(async () => ({ roots: [], delta_link: 'link-next' })),
       get_channel_message: vi.fn(async () => ({
         status: 'found' as const,
         change: root(hosted_root),

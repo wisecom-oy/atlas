@@ -9,6 +9,7 @@ import type { TeamsSnapshotListing } from '@/ports/teams/index-repository.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { TeamsSaveOptions, TeamsSaveResult } from '@/ports/teams/save.port';
 import type { Camelize } from '@/public/case-convert';
 
 export type TeamsSdkBackupOptions = Camelize<
@@ -25,6 +26,11 @@ export type TeamsSdkSnapshotIndex = Camelize<TeamsSnapshotIndex>;
 export type TeamsSdkSnapshotListing = Camelize<TeamsSnapshotListing>;
 export type TeamsSdkTeamStatus = Camelize<TeamsTeamStatus>;
 export type TeamsSdkDeletionResult = Camelize<DeletionResult>;
+export type TeamsSdkSaveOptions = Camelize<
+  Omit<TeamsSaveOptions, 'on_progress' | 'should_interrupt'>
+> &
+  SdkOperationOptions;
+export type TeamsSdkSaveResult = Camelize<TeamsSaveResult>;
 
 /** Teams as Graph returned them, unconverted: Graph's own camelCase fields are kept verbatim. */
 export type TeamsSdkTeam = TeamsGraphResource;
@@ -46,4 +52,6 @@ export interface TeamsApi {
   status(): Promise<TeamsSdkTeamStatus[]>;
   /** Deletes all backed-up data for a team, or only `snapshotId` when it is given. */
   delete(teamId: string, snapshotId?: string): Promise<TeamsSdkDeletionResult>;
+  /** Exports one snapshot as a zip: team.json, per-channel messages.json, and HTML transcripts. */
+  save(teamId: string, options: TeamsSdkSaveOptions): Promise<TeamsSdkSaveResult>;
 }

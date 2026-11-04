@@ -46,6 +46,11 @@ export interface AtlasInstanceConfig {
    * processes run operations for the same tenant.
    */
   readonly throttleCoordinator?: ThrottleCoordinator;
+  /**
+   * Share of the tenant-wide Teams pacing budget this instance uses, above 0 and at most 1.
+   * Defaults to 1. Set it to `1 / n` when `n` processes back up teams of the same tenant.
+   */
+  readonly teamsPacingShare?: number;
 }
 
 export interface AtlasInstance extends AsyncDisposable {

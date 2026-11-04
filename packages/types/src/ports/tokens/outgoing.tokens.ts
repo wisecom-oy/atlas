@@ -34,3 +34,6 @@ export const TEAMS_CONNECTOR_TOKEN = Symbol.for('TeamsConnector');
 export const TEAMS_INDEX_REPOSITORY_TOKEN = Symbol.for('TeamsIndexRepository');
 export const TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN = Symbol.for('TeamsChannelShardRepository');
 export const TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN = Symbol.for('TeamsChannelCursorRepository');
+export const TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN = Symbol.for(
+  'TeamsChannelCheckpointRepository',
+);

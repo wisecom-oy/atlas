@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FailedItemLedger, TeamsThread } from '@wisecom/atlas-types';
-import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
-import { apply_root_changes } from '@/services/backup/channel-root-applier';
+import { apply_root_changes, type ChannelRootRead } from './channel-root-applier-harness';
 import { mark_root_removed, store_thread } from '@/services/backup/thread-store';
 import {
   BACKUP_AT,

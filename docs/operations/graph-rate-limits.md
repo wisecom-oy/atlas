@@ -211,7 +211,7 @@ This pool is per app, per tenant, with extra limits per team and per channel. Ea
 | Channel message reads | 20 per second       | 1 per second per channel |
 | Team reads            | 30 per second       | 4 per second per team    |
 
-A 429 from the Teams pool pauses only the Teams pool, the same as the other pools. See [Throttle handling](#throttle-handling).
+Atlas paces Teams requests at 80 % of these limits before Graph has to throttle them. See [Teams pacing](/teams-backup#pacing). A 429 from the Teams pool pauses only the team it came from, and the other teams of the tenant keep running. Listing the tenant's teams has no team, so a 429 there pauses the whole Teams pool. Other pools are never paused by a Teams 429. See [Throttle handling](#throttle-handling).
 
 ## Summary
 

@@ -1,12 +1,12 @@
 import type { GraphServicePool } from '@/domain/graph-cost';
 
 /**
- * Narrows a throttle cooldown below its pool. Graph meters Outlook per mailbox per application, so
- * a 429 on one mailbox says nothing about another; the other pools are metered per tenant and carry
- * no scope.
+ * Narrows a throttle cooldown below its pool. Graph meters Outlook per mailbox per application and
+ * Teams per team, so a 429 on one mailbox or team says nothing about another; the other pools are
+ * metered per tenant and carry no scope.
  */
 export interface ThrottleScope {
-  /** Normalized owner id (mailbox object id or address, lowercased) for the `outlook` pool. */
+  /** Normalized owner id (mailbox object id or address, or team id, lowercased) for the `outlook` and `teams` pools. */
   readonly ownerId?: string;
 }
 

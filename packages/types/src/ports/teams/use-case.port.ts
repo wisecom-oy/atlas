@@ -27,6 +27,42 @@ export interface TeamsBackupSummary {
   readonly errors: string[];
   readonly warnings: string[];
   readonly healthy: boolean;
+  /** Wall-clock time the run took, from the start of the team backup to its return. */
+  readonly elapsed_ms: number;
+  /** One report per channel of the team, in the channel listing order. */
+  readonly channels: readonly TeamsChannelRunReport[];
+  /** Graph requests the run issued, split by the Graph limit class they count against. */
+  readonly requests: TeamsRequestReport;
+}
+
+/** How a channel's run ended. `not_started` marks a channel the run never reached. */
+export type TeamsChannelRunOutcome =
+  'completed' | 'incomplete' | 'interrupted' | 'failed' | 'not_started';
+
+export interface TeamsChannelRunReport {
+  readonly channel_id: string;
+  readonly outcome: TeamsChannelRunOutcome;
+  /** `full` or `delta`, the read the channel ran. Absent when the channel did not read. */
+  readonly read_mode?: 'full' | 'delta' | undefined;
+  /** Thread roots applied to the snapshot by this run. */
+  readonly roots_applied: number;
+  /** True when the channel continued from a checkpoint saved by an interrupted earlier run. */
+  readonly resumed_from_checkpoint: boolean;
+  readonly elapsed_ms: number;
+}
+
+/** Requests issued in one Graph limit class over a run. */
+export interface TeamsRequestClassReport {
+  readonly requests: number;
+  /** 429 responses Graph returned for this class. */
+  readonly throttled: number;
+  /** Requests per second the run achieved against this class, over the run's wall-clock time. */
+  readonly achieved_rps: number;
+}
+
+export interface TeamsRequestReport {
+  readonly messages: TeamsRequestClassReport;
+  readonly default: TeamsRequestClassReport;
 }
 
 export interface TeamsBackupResult {
@@ -47,6 +83,8 @@ export interface TeamsBackupOptions extends OperationControlOptions {
    * the bucket for subsequent writes.
    */
   readonly object_lock_request?: ObjectLockRequest | undefined;
+  /** Channels backed up at once within a team, 1 to 16. Defaults to 4. */
+  readonly concurrency?: number | undefined;
 }
 
 export interface TeamsBackupUseCase {

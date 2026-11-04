@@ -10,8 +10,6 @@ import {
   type TeamsThread,
 } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
-import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
-import type { HostedRecheck } from '@/services/backup/hosted-recheck';
 import { MAX_HOSTED_RECHECK_ATTEMPTS } from '@/services/backup/hosted-recheck';
 import {
   type RootApplyState,
@@ -25,61 +23,50 @@ import { mark_root_removed, store_thread } from '@/services/backup/thread-store'
 import { canonical_json } from '@/services/shared/canonical-json';
 import { error_message } from '@/services/shared/error-message';
 
-/** What applying one channel's root changes produced. */
-export interface RootApplyOutput {
-  readonly threads: Record<string, TeamsThread>;
-  /** This channel's failed roots, keyed by root id. */
-  readonly failed_roots: FailedItemLedger;
-  /** Roots whose hosted content is still missing, with their attempt counts. */
-  readonly hosted_recheck: HostedRecheck;
-  readonly errors: string[];
-  readonly warnings: string[];
+/** The outcome of one batch of root tasks: roots it recorded, and whether an interrupt stopped it. */
+export interface RootBatchResult {
+  readonly processed: string[];
   readonly interrupted: boolean;
 }
 
 /**
- * Applies one channel read to its stored threads. Each root the read returned is applied. A delta
- * read also re-fetches each ledger root and each root with missing hosted content that the read
- * did not return. A full read covers the whole channel: a previous root it no longer lists is
- * marked removed, and ledger and recheck roots it no longer lists are dropped.
+ * Applies a batch of root tasks in order into the pass state. An interrupt stops the batch before the
+ * next root; roots already recorded stay recorded.
  */
-export async function apply_root_changes(
+export async function apply_root_tasks(
   scope: BackupRunScope,
   channel_id: string,
-  read: ChannelRootRead,
-  previous_threads: Record<string, TeamsThread>,
-  ledger: FailedItemLedger,
-  previous_recheck: HostedRecheck,
-): Promise<RootApplyOutput> {
-  const state: RootApplyState = {
-    threads: { ...previous_threads },
-    failed_roots: ledger,
-    hosted_recheck: { ...previous_recheck },
-    errors: [],
-    warnings: [],
-  };
-  const seen = new Set<string>();
-  for (const task of root_tasks(scope, channel_id, read, ledger, previous_recheck)) {
-    if (scope.should_interrupt()) return { ...state, interrupted: true };
-    seen.add(task.root_id);
-    const outcome = await apply_task(
-      scope,
-      channel_id,
-      task,
-      previous_threads[task.root_id],
-      state.warnings,
-    );
-    if (outcome.kind === 'interrupted') return { ...state, interrupted: true };
+  tasks: RootTask[],
+  state: RootApplyState,
+): Promise<RootBatchResult> {
+  const processed: string[] = [];
+  for (const task of tasks) {
+    if (scope.should_interrupt()) return { processed, interrupted: true };
+    const previous = state.threads[task.root_id];
+    const outcome = await apply_task(scope, channel_id, task, previous, state.warnings);
+    if (outcome.kind === 'interrupted') return { processed, interrupted: true };
     record_root_outcome(state, channel_id, task, outcome);
+    processed.push(task.root_id);
   }
-  if (read.is_full) {
-    Object.assign(state.threads, removed_unseen_roots(scope, previous_threads, seen));
-    state.failed_roots = clear_unseen_failures(state.failed_roots, seen);
-    state.hosted_recheck = Object.fromEntries(
-      Object.entries(state.hosted_recheck).filter(([root_id]) => seen.has(root_id)),
-    );
-  }
-  return { ...state, interrupted: false };
+  return { processed, interrupted: false };
+}
+
+/**
+ * Marks removed every live root a full read never listed, and drops the ledger and recheck entries
+ * of roots it did not list. Returns the IDs of the roots it marked.
+ */
+export function apply_full_read_sweep(
+  scope: BackupRunScope,
+  state: RootApplyState,
+  seen: ReadonlySet<string>,
+): string[] {
+  const removed = removed_unseen_roots(scope, state.threads, seen);
+  Object.assign(state.threads, removed);
+  state.failed_roots = clear_unseen_failures(state.failed_roots, seen);
+  state.hosted_recheck = Object.fromEntries(
+    Object.entries(state.hosted_recheck).filter(([root_id]) => seen.has(root_id)),
+  );
+  return Object.keys(removed);
 }
 
 /**
@@ -135,47 +122,47 @@ function clear_unseen_failures(
   return next;
 }
 
-/**
- * The roots to apply: every root the read returned, then, on a delta read, each retryable ledger
- * root and each recheck root that the read did not return, has not reached the limit, and has no
- * failure record. A full read already covers every root.
- */
-function root_tasks(
-  scope: BackupRunScope,
-  channel_id: string,
-  read: ChannelRootRead,
-  ledger: FailedItemLedger,
-  recheck: HostedRecheck,
-): RootTask[] {
-  const returned = new Set(read.changes.map((change) => change.root.id));
-  const retry_roots = read.is_full
-    ? []
-    : retryable_items(ledger, channel_id)
-        .map((record) => record.item_id)
-        .filter((root_id) => !returned.has(root_id));
-  const recheck_roots = read.is_full
-    ? []
-    : Object.entries(recheck)
-        .filter(
-          ([root_id, attempts]) =>
-            attempts < MAX_HOSTED_RECHECK_ATTEMPTS &&
-            !returned.has(root_id) &&
-            !(root_id in ledger),
-        )
-        .map(([root_id]) => root_id);
-  return [
-    ...read.changes.map((change) => ({
-      root_id: change.root.id,
-      reason: 'changed' as const,
-      load: async (): Promise<TeamsRootFetchResult> => ({ status: 'found', change }),
-    })),
-    ...retry_roots.map((root_id) => fetched_task(scope, channel_id, root_id, 'retry')),
-    ...recheck_roots.map((root_id) => fetched_task(scope, channel_id, root_id, 'recheck')),
-  ];
+/** One task per root a page returned: the version the page carries is the one applied. */
+export function changed_tasks(changes: TeamsRootChange[]): RootTask[] {
+  return changes.map((change) => ({
+    root_id: change.root.id,
+    reason: 'changed' as const,
+    load: async (): Promise<TeamsRootFetchResult> => ({ status: 'found', change }),
+  }));
 }
 
-/** A root re-read by id for a retry or a recheck. A 400 or 404 from Graph is classified by the applier. */
-function fetched_task(
+/** A root a retry pass re-reads, and why. */
+export interface RetryRoot {
+  readonly root_id: string;
+  readonly reason: Exclude<RootReason, 'changed'>;
+}
+
+/**
+ * The roots a retry pass still owes the channel: retryable ledger roots first, then recheck roots
+ * under the limit that have no failure record. Roots the read already applied are left out.
+ */
+export function pending_retry_roots(
+  state: RootApplyState,
+  channel_id: string,
+  seen: ReadonlySet<string>,
+): RetryRoot[] {
+  const retry = retryable_items(state.failed_roots, channel_id)
+    .map((record) => record.item_id)
+    .filter((root_id) => !seen.has(root_id))
+    .map((root_id): RetryRoot => ({ root_id, reason: 'retry' }));
+  const recheck = Object.entries(state.hosted_recheck)
+    .filter(
+      ([root_id, attempts]) =>
+        attempts < MAX_HOSTED_RECHECK_ATTEMPTS &&
+        !seen.has(root_id) &&
+        !(root_id in state.failed_roots),
+    )
+    .map(([root_id]): RetryRoot => ({ root_id, reason: 'recheck' }));
+  return [...retry, ...recheck];
+}
+
+/** A root re-read by id for a retry or recheck; the applier classifies its Graph refusals. */
+export function fetched_task(
   scope: BackupRunScope,
   channel_id: string,
   root_id: string,

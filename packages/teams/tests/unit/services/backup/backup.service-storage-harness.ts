@@ -11,6 +11,7 @@ import {
   in_memory_tenant_context,
   type InMemoryTenantContext,
 } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
+import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
 import { S3TeamsChannelCursorRepository } from '@/adapters/s3-teams-channel-cursor-repository.adapter';
 import { S3TeamsChannelShardRepository } from '@/adapters/s3-teams-channel-shard-repository.adapter';
 import { S3TeamsIndexRepository } from '@/adapters/s3-teams-index-repository.adapter';
@@ -44,7 +45,14 @@ export function build_env(channel: TeamsGraphResource, overrides: Partial<TeamsC
   const indexes = new S3TeamsIndexRepository();
   const shards = new S3TeamsChannelShardRepository();
   const cursors = new S3TeamsChannelCursorRepository();
-  const service = new TeamsBackupService(factory, connector, indexes, shards, cursors);
+  const service = new TeamsBackupService(
+    factory,
+    connector,
+    indexes,
+    shards,
+    cursors,
+    new InMemoryTeamsChannelCheckpointRepository(),
+  );
   return { harness, service, connector, indexes, shards, cursors };
 }
 

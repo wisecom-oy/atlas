@@ -38,6 +38,27 @@ export function teams_cursor_prefix_for(team_id: string): string {
   return `${teams_meta_prefix_for(team_id)}channels/`;
 }
 
+/** Prefix of every object of one channel's read checkpoint: its head and its segments. */
+export function teams_checkpoint_prefix(team_id: string, channel_id: string): string {
+  TEAMS_KEYS.validate_key_segment(channel_id);
+  return `${teams_meta_prefix_for(team_id)}checkpoints/${channel_id}/`;
+}
+
+/** Key of one channel's read checkpoint head. */
+export function teams_checkpoint_head_key(team_id: string, channel_id: string): string {
+  return `${teams_checkpoint_prefix(team_id, channel_id)}head.json`;
+}
+
+/** Key of one checkpoint segment, named by the run and its position, e.g. `seg-<run>-<n>`. */
+export function teams_checkpoint_segment_key(
+  team_id: string,
+  channel_id: string,
+  segment_name: string,
+): string {
+  TEAMS_KEYS.validate_key_segment(segment_name);
+  return `${teams_checkpoint_prefix(team_id, channel_id)}${segment_name}.json`;
+}
+
 /** Prefix of everything a team keeps under `_meta`, which deletion removes with the team. */
 export function teams_meta_prefix_for(team_id: string): string {
   return `${TEAMS_KEYS.meta_prefix}/${team_key_segment(team_id)}/`;

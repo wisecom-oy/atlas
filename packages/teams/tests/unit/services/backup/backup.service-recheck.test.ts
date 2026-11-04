@@ -12,8 +12,8 @@ const HOSTED_ROOT = message('m1', {
 /** Connector overrides for a root whose hosted item stays missing on every run. */
 function missing_hosted_overrides() {
   return {
-    list_channel_messages: vi.fn(async () => [root(HOSTED_ROOT)]),
-    fetch_message_delta: vi.fn(async () => ({ roots: [], delta_link: 'link-next' })),
+    list_channel_messages_page: vi.fn(async () => ({ roots: [root(HOSTED_ROOT)] })),
+    fetch_message_delta_page: vi.fn(async () => ({ roots: [], delta_link: 'link-next' })),
     list_hosted_contents: vi.fn(async () => [{ id: 'h1' }]),
     download_hosted_content: vi.fn(async () => {
       throw Object.assign(new Error('not found'), { statusCode: 404 });

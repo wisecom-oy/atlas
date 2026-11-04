@@ -12,6 +12,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import type { ChannelBackupOutput } from '@/services/backup/channel-backup-processor';
 
@@ -40,6 +41,8 @@ export function channel_output(
     hosted_recheck: {},
     errors: [],
     warnings: [],
+    resumed_from_checkpoint: false,
+    checkpoint: undefined,
     ...overrides,
   };
 }
@@ -111,6 +114,7 @@ export function make_ports(options: PortOptions = {}): Ports {
     indexes as unknown as TeamsIndexRepository,
     shards as unknown as TeamsChannelShardRepository,
     cursors as unknown as TeamsChannelCursorRepository,
+    new InMemoryTeamsChannelCheckpointRepository(),
   );
   return { service, order, connector, indexes, shards, cursors };
 }

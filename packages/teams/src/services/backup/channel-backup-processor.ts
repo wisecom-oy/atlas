@@ -2,14 +2,16 @@ import { retryable_items } from '@wisecom/atlas-core/services/shared/failed-item
 import {
   TEAMS_FORMAT_VERSION,
   type FailedItemLedger,
+  type TeamsChannelCheckpointHead,
   type TeamsChannelIndexEntry,
   type TeamsChannelShard,
   type TeamsFilesFolderRef,
   type TeamsGraphResource,
 } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
-import { apply_root_changes } from '@/services/backup/channel-root-applier';
-import { read_channel_roots } from '@/services/backup/channel-root-reader';
+import { read_channel_pages } from '@/services/backup/channel-root-reader';
+import { open_channel_run, type ChannelRunStart } from '@/services/backup/channel-run-state';
+import { channel_hosted_journal } from '@/services/backup/hosted-journal';
 import type { HostedRecheck } from '@/services/backup/hosted-recheck';
 import { shard_fingerprint } from '@/services/backup/shard-fingerprint';
 import { error_message } from '@/services/shared/error-message';
@@ -33,6 +35,10 @@ export interface ChannelBackupOutput {
   /** Fresh link when the channel completed, otherwise the stored link so the next run re-reads. */
   readonly next_link: string | undefined;
   readonly interrupted: boolean;
+  /** True when a valid checkpoint was loaded and this run continued it. */
+  readonly resumed_from_checkpoint: boolean;
+  /** The checkpoint head as last saved by this run. Undefined when none is in storage. */
+  readonly checkpoint: TeamsChannelCheckpointHead | undefined;
   readonly failed_roots: FailedItemLedger;
   readonly hosted_recheck: HostedRecheck;
   readonly errors: string[];
@@ -70,23 +76,29 @@ export async function backup_channel(
     start.previous_shard,
     warnings,
   );
-  const read = await read_channel_roots(
-    scope,
-    channel,
-    scope.force_full ? undefined : start.stored_link,
-  );
-  if (read.is_full) scope.counters.channels_full_read++;
-  const applied = await apply_root_changes(
+  const has_email = typeof channel.email === 'string' && channel.email !== '';
+  const mode = scope.force_full || start.stored_link === undefined || !has_email ? 'full' : 'delta';
+  const run = await open_channel_run(
     scope,
     channel.id,
-    read,
-    start.previous_shard?.threads ?? {},
-    start.failed_roots,
-    start.hosted_recheck,
+    {
+      baseline_shard_key: start.previous_entry?.shard_key,
+      stored_link: start.stored_link,
+      threads: start.previous_shard?.threads ?? {},
+      failed_roots: start.failed_roots,
+      hosted_recheck: start.hosted_recheck,
+    } satisfies ChannelRunStart,
+    mode,
+    has_email,
   );
-  warnings.push(...applied.warnings);
-  const complete =
-    !applied.interrupted && retryable_items(applied.failed_roots, channel.id).length === 0;
+  const interrupted = await read_channel_pages(
+    { ...scope, hosted_journal: channel_hosted_journal(scope, run) },
+    channel,
+    run,
+  );
+  if (run.mode === 'full') scope.counters.channels_full_read++;
+  warnings.push(...run.state.warnings);
+  const complete = !interrupted && retryable_items(run.state.failed_roots, channel.id).length === 0;
   const shard: TeamsChannelShard = {
     format_version: TEAMS_FORMAT_VERSION,
     team_id,
@@ -98,17 +110,19 @@ export async function backup_channel(
     files_folder: folder.files_folder,
     files_folder_unavailable: folder.files_folder_unavailable,
     shared_with_teams,
-    read_mode: read.is_full ? 'full' : 'delta',
-    threads: applied.threads,
+    read_mode: run.mode,
+    threads: run.state.threads,
   };
   return {
     shard,
     reused_entry: reused_entry(shard, start),
-    next_link: complete ? read.link : start.stored_link,
-    interrupted: applied.interrupted,
-    failed_roots: applied.failed_roots,
-    hosted_recheck: applied.hosted_recheck,
-    errors: applied.errors,
+    next_link: complete ? run.pending_delta_link : start.stored_link,
+    interrupted,
+    resumed_from_checkpoint: run.resumed,
+    checkpoint: run.head,
+    failed_roots: run.state.failed_roots,
+    hosted_recheck: run.state.hosted_recheck,
+    errors: run.state.errors,
     warnings,
   };
 }

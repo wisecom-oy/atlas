@@ -6,17 +6,17 @@ import type {
   TeamsFilesFolderRef,
   TeamsGraphResource,
   TeamsHostedContent,
-  TeamsMessageDeltaResult,
+  TeamsMessageDeltaPage,
+  TeamsMessageListPage,
   TeamsMessageLocator,
-  TeamsRootChange,
   TeamsRootFetchResult,
 } from '@wisecom/atlas-types';
 import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
 import { graph_status_of } from '@/services/shared/graph-error-status';
 import {
-  fetch_message_delta,
+  fetch_message_delta_page,
   get_channel_message,
-  list_channel_messages,
+  list_channel_messages_page,
 } from '@/adapters/graph-teams-message-fetch';
 import {
   download_hosted_content,
@@ -147,23 +147,24 @@ export class GraphTeamsConnector implements TeamsConnector {
       : { drive_id, item_id: folder.id, web_url: folder.webUrl };
   }
 
-  /** Reads channel message changes since `prev_delta_link`, or everything when it is undefined. */
-  async fetch_message_delta(
+  /** Reads one page of channel message changes; `url` undefined starts the delta feed. */
+  async fetch_message_delta_page(
     _tenant_id: string,
     team_id: string,
     channel_id: string,
-    prev_delta_link: string | undefined,
-  ): Promise<TeamsMessageDeltaResult> {
-    return fetch_message_delta(this._client, team_id, channel_id, prev_delta_link);
+    url: string | undefined,
+  ): Promise<TeamsMessageDeltaPage> {
+    return fetch_message_delta_page(this._client, team_id, channel_id, url);
   }
 
-  /** Reads every root message in a channel with `/messages`. */
-  async list_channel_messages(
+  /** Reads one page of a channel's root messages with `/messages`. */
+  async list_channel_messages_page(
     _tenant_id: string,
     team_id: string,
     channel_id: string,
-  ): Promise<TeamsRootChange[]> {
-    return list_channel_messages(this._client, team_id, channel_id);
+    url: string | undefined,
+  ): Promise<TeamsMessageListPage> {
+    return list_channel_messages_page(this._client, team_id, channel_id, url);
   }
 
   /**

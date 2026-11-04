@@ -4,6 +4,7 @@ import { logger } from '@wisecom/atlas-core';
 import type {
   TeamsBackupOptions,
   TeamsBackupResult,
+  TeamsBackupSummary,
   TeamsBackupUseCase,
   TeamsCatalogUseCase,
 } from '@wisecom/atlas-types';
@@ -13,6 +14,7 @@ import {
   THROTTLE_COORDINATOR_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
+import { resolve_channel_concurrency } from '@wisecom/atlas-teams';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
@@ -33,6 +35,7 @@ export interface TeamsBackupCommandOptions extends TeamsTenantOptions {
   all?: boolean;
   channel?: string;
   full?: boolean;
+  concurrency?: string;
   retentionDays?: string;
   lockMode?: string;
 }
@@ -135,6 +138,10 @@ export async function execute_teams_backup(
   // Built before any Graph call: invalid Object Lock flags must fail without a network call.
   const object_lock_request = build_object_lock_request(options);
   assert_channel_scope(options);
+  // Checked once here, so a bad value fails the command instead of every team in turn.
+  const concurrency = resolve_channel_concurrency(
+    options.concurrency === undefined ? undefined : Number(options.concurrency),
+  );
   const team_ids = await resolve_backup_team_ids(container, tenant_id, options);
 
   const backup = container.get<TeamsBackupUseCase>(TEAMS_BACKUP_USE_CASE_TOKEN);
@@ -155,6 +162,7 @@ export async function execute_teams_backup(
       {
         force_full: options.full ?? false,
         channel_id: options.channel,
+        concurrency,
         object_lock_request,
         should_interrupt: gate.should_interrupt,
         abort_signal: gate.abort_signal,
@@ -272,6 +280,7 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
       />
     </Box>,
   );
+  log_run_detail(result.summary);
 
   if (result.snapshot) {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);
@@ -300,4 +309,23 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
     },
     'channel',
   );
+}
+
+/** Lists each channel the run selected, then the request counts per Graph limit class. */
+function log_run_detail(summary: TeamsBackupSummary): void {
+  for (const channel of summary.channels) {
+    const mode = channel.read_mode === undefined ? '' : ` ${channel.read_mode} read,`;
+    const label = `  ${channel.channel_id}: ${channel.outcome},${mode}`;
+    logger.info(`${label} ${channel.roots_applied} root(s)`);
+  }
+  const { messages, default: other } = summary.requests;
+  for (const [label, report] of [
+    ['messages', messages],
+    ['default', other],
+  ] as const) {
+    logger.info(
+      `Requests (${label}): ${report.requests} at ${report.achieved_rps.toFixed(1)}/s, ` +
+        `throttled ${report.throttled}`,
+    );
+  }
 }

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type {
   NoSnapshotReason,
+  TeamsChannelCheckpointRepository,
   TeamsChannelCursorRepository,
   TeamsChannelIndexEntry,
   TeamsChannelShardRepository,
@@ -28,6 +29,9 @@ export interface ChannelSave {
 export interface SnapshotPorts {
   readonly indexes: TeamsIndexRepository;
   readonly cursors: TeamsChannelCursorRepository;
+  readonly checkpoints: TeamsChannelCheckpointRepository;
+  /** The context checkpoints are written through, without the run's Object Lock. Defaults to `ctx`. */
+  readonly checkpoint_ctx?: TenantContext | undefined;
 }
 
 /** Everything the snapshot step writes: the team-level content and the processed channels. */
@@ -114,8 +118,36 @@ export async function persist_team_snapshot(
         updated_at,
       }),
     );
+    await settle_checkpoint(
+      ports.checkpoint_ctx ?? ctx,
+      ports.checkpoints,
+      input.team_id,
+      channel_id,
+      entry,
+      output,
+    );
   }
   return { index, no_snapshot_reason: reason };
+}
+
+/**
+ * Settles a channel's checkpoint once its cursor is saved. A finished read deletes its checkpoint.
+ * An interrupted read rebinds its checkpoint to the shard just saved, so the next run can resume.
+ */
+async function settle_checkpoint(
+  ctx: TenantContext,
+  checkpoints: TeamsChannelCheckpointRepository,
+  team_id: string,
+  channel_id: string,
+  entry: TeamsChannelIndexEntry,
+  output: ChannelBackupOutput,
+): Promise<void> {
+  if (output.checkpoint === undefined) return;
+  if (!output.interrupted) {
+    await checkpoints.delete_channel(ctx, team_id, channel_id);
+    return;
+  }
+  await checkpoints.save_head(ctx, { ...output.checkpoint, baseline_shard_key: entry.shard_key });
 }
 
 /**

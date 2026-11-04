@@ -904,7 +904,7 @@ Backup and verification need the application permissions `Sites.Read.All` and `F
 
 ## atlas teams
 
-Back up Microsoft Teams channel messages, replies, membership, and tabs per team, using a Graph delta cursor for each channel. Blobs and manifests live under the `teams/` prefix of the tenant bucket. Teams backup targets a team by its Graph team ID. Restore and save are not yet available. See [Teams backup](../teams-backup.md).
+Back up Microsoft Teams channel messages, replies, membership, and tabs per team, using a Graph delta cursor for each channel. Blobs and manifests live under the `teams/` prefix of the tenant bucket. Teams backup targets a team by its Graph team ID. Restore is not yet available. `save` exports one snapshot as a zip archive. See [Teams backup](../teams-backup.md).
 
 ```bash
 atlas teams list-teams
@@ -912,8 +912,10 @@ atlas teams backup --team <team-id>
 atlas teams backup --team <team-id> --team <other-team-id>
 atlas teams backup --all
 atlas teams backup --team <team-id> --channel <channel-id>
+atlas teams backup --all --concurrency 8
 atlas teams list-snapshots --team <team-id>
 atlas teams verify --team <team-id> -s <snapshot-id>
+atlas teams save --team <team-id> -s <snapshot-id> --output <path>
 atlas teams status
 atlas teams delete --team <team-id> -s <snapshot-id>
 atlas teams delete --team <team-id> -y
@@ -925,6 +927,7 @@ atlas teams delete --team <team-id> -y
 | `backup`         | Incremental backup of one, several, or all teams. Exits `2` when any team is unhealthy   |
 | `list-snapshots` | List Teams snapshots for one team                                                        |
 | `verify`         | Check the snapshot's index, channel shards, and every blob it references                 |
+| `save`           | Export one snapshot, or one channel of it, as a zip archive                              |
 | `status`         | Show the newest snapshot for each team: creation time and ID                             |
 | `delete`         | Delete one team's Teams backups, or one snapshot                                         |
 
@@ -936,11 +939,12 @@ atlas teams delete --team <team-id> -y
 | `--all`                | Back up every team the application can read                                                              |
 | `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward |
 | `--full`               | Force a full read: ignores saved delta links and cached files folders                                    |
+| `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16 (default 4). Requests stay paced, see [Pacing](../teams-backup.md#pacing) |
 | `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                              |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
 
-Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a failed attempt, and messages already stored are kept. The interrupted channel keeps its previous delta link. A second Ctrl+C exits at once with status `130`, before the run writes its index.
+Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a failed attempt, and messages already stored are kept. The interrupted channel keeps its previous delta link and its checkpoint, so the next run resumes its read. A second Ctrl+C exits at once with status `130`, before the run writes its index.
 
 **`atlas teams list-snapshots`**
 
@@ -960,6 +964,18 @@ Checks the snapshot's index, channel shards, and every blob it references. Exits
 | `--team <id>`         | Team ID (required)                 |
 | `-s, --snapshot <id>` | Snapshot to verify (required)      |
 | `-t, --tenant <id>`   | Override the tenant ID from config |
+
+**`atlas teams save`**
+
+Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout.
+
+| Option                | Description                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                                                           |
+| `-s, --snapshot <id>` | Snapshot to save (required)                                                                  |
+| `--channel <id>`      | Save only this channel. The archive then lists only that channel                             |
+| `--output <path>`     | Zip file to write. Default `teams-<snapshot-id>-<timestamp>.zip` in the current directory   |
+| `-t, --tenant <id>`   | Override the tenant ID from config                                                           |
 
 **`atlas teams status`**
 

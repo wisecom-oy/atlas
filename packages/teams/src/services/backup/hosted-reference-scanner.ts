@@ -35,13 +35,14 @@ export function referenced_hosted_ids(message: TeamsGraphResource, owner: Hosted
 }
 
 /** The path that names this message's hosted contents, with the hosted-content id still to come. */
-function hosted_path_prefix(owner: HostedOwner): string {
+export function hosted_path_prefix(owner: HostedOwner): string {
   return owner.reply_id === undefined
     ? `/messages/${owner.root_id}/hostedContents/`
     : `/messages/${owner.root_id}/replies/${owner.reply_id}/hostedContents/`;
 }
 
-function hosted_id_after(value: string, prefix: string): string | undefined {
+/** The decoded hosted-content id that follows `prefix` in `value`, or undefined when absent. */
+export function hosted_id_after(value: string, prefix: string): string | undefined {
   const index = value.indexOf(prefix);
   if (index < 0) {
     return undefined;

@@ -6,6 +6,7 @@ import type {
   TeamsCatalogUseCase,
   TeamsStatusUseCase,
   TeamsDeletionUseCase,
+  TeamsSaveUseCase,
 } from '@wisecom/atlas-types';
 import {
   TEAMS_BACKUP_USE_CASE_TOKEN,
@@ -13,10 +14,11 @@ import {
   TEAMS_CATALOG_USE_CASE_TOKEN,
   TEAMS_STATUS_USE_CASE_TOKEN,
   TEAMS_DELETION_USE_CASE_TOKEN,
+  TEAMS_SAVE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { run_with_cost_tracking } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { adapt_operation_options } from '@/operation-options';
+import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 
 /** Builds the TeamsApi sub-namespace from the DI container. */
 export function create_teams_api(tenant_id: string, container: Container): TeamsApi {
@@ -25,6 +27,7 @@ export function create_teams_api(tenant_id: string, container: Container): Teams
   const catalog = container.get<TeamsCatalogUseCase>(TEAMS_CATALOG_USE_CASE_TOKEN);
   const status = container.get<TeamsStatusUseCase>(TEAMS_STATUS_USE_CASE_TOKEN);
   const deletion = container.get<TeamsDeletionUseCase>(TEAMS_DELETION_USE_CASE_TOKEN);
+  const save = container.get<TeamsSaveUseCase>(TEAMS_SAVE_USE_CASE_TOKEN);
 
   return {
     async backup(team_id, options) {
@@ -58,6 +61,15 @@ export function create_teams_api(tenant_id: string, container: Container): Teams
         snapshot_id === undefined
           ? await deletion.delete_team_data(tenant_id, team_id)
           : await deletion.delete_snapshot(tenant_id, team_id, snapshot_id),
+      );
+    },
+    async save(team_id, options) {
+      return camelize(
+        await save.save_snapshot(
+          tenant_id,
+          team_id,
+          adapt_required_operation_options(options, 'teams.save()'),
+        ),
       );
     },
   };

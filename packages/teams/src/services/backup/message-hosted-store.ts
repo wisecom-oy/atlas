@@ -51,6 +51,7 @@ export async function store_message_hosted(
     }
     const ref =
       (await reusable_hosted_ref(scope, previous[id])) ??
+      (await reusable_hosted_ref(scope, scope.hosted_journal?.lookup(locator, id))) ??
       (await store_hosted_content(scope, locator, id, listed?.get(id)));
     if (ref === undefined) {
       missing.push(id);
@@ -103,13 +104,17 @@ async function store_hosted_content(
   const { bytes, content_type: header_type } = downloaded;
   const { checksum, content_name } = compute_content_digests(scope.ctx, bytes);
   const storage_key = teams_hosted_content_key(scope.team_id, content_name);
-  await write_blob(scope, storage_key, bytes);
-  scope.counters.hosted_content_stored++;
   const listed_type = typeof listed?.contentType === 'string' ? listed.contentType : undefined;
-  return {
+  const ref: TeamsHostedRef = {
     storage_key,
     checksum,
     size_bytes: bytes.length,
     content_type: header_type ?? listed_type,
   };
+  // Journaled before the write: a crash after the write then never downloads the item again, and a
+  // crash before it finds no blob on resume, so the journal entry is ignored.
+  await scope.hosted_journal?.record(locator, id, ref);
+  await write_blob(scope, storage_key, bytes);
+  scope.counters.hosted_content_stored++;
+  return ref;
 }

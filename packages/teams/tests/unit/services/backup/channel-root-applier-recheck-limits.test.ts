@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TeamsThread } from '@wisecom/atlas-types';
-import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
-import { apply_root_changes } from '@/services/backup/channel-root-applier';
+import { apply_root_changes, type ChannelRootRead } from './channel-root-applier-harness';
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { MAX_HOSTED_RECHECK_ATTEMPTS } from '@/services/backup/hosted-recheck';
 import { store_thread } from '@/services/backup/thread-store';

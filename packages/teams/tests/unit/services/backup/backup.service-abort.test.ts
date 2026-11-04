@@ -38,8 +38,10 @@ describe('TeamsBackupService.backup_team abort signal', () => {
       return channel_output(channel.id);
     });
 
+    // Serial, so channel 2 is not already in flight when channel 1 aborts the run.
     const result = await ports.service.backup_team('tenant-1', TEAM_ID, {
       abort_signal: controller.signal,
+      concurrency: 1,
     });
 
     expect(backup_channel).toHaveBeenCalledTimes(1);
@@ -64,17 +66,24 @@ describe('TeamsBackupService.backup_team abort signal', () => {
     expect(phases).not.toContain('completed');
   });
 
-  it('publishes the abort signal to the Graph calls made while a channel runs', async () => {
+  it('gives the Graph calls a live signal that aborts with the run', async () => {
     const ports = make_ports();
     const controller = new AbortController();
     let seen: AbortSignal | undefined;
+    let started_aborted: boolean | undefined;
     vi.mocked(backup_channel).mockImplementation(async (_scope, channel) => {
       seen = get_active_abort_signal();
+      started_aborted = seen?.aborted;
+      controller.abort();
       return channel_output(channel.id);
     });
 
-    await ports.service.backup_team('tenant-1', TEAM_ID, { abort_signal: controller.signal });
+    await ports.service.backup_team('tenant-1', TEAM_ID, {
+      abort_signal: controller.signal,
+      concurrency: 1,
+    });
 
-    expect(seen).toBe(controller.signal);
+    expect(started_aborted).toBe(false);
+    expect(seen?.aborted).toBe(true);
   });
 });
