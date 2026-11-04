@@ -17,14 +17,16 @@ export interface InterruptGate {
  * indistinguishable from a crash, while the Outlook backup has always stopped gracefully
  * (issue #367).
  *
- * A second Ctrl+C is left to the default handler, so an operator can always force the issue.
+ * A second Ctrl+C exits at once with 130, so an operator can always force the issue. The listener
+ * stays installed for the whole run, which suppresses Node's default SIGINT exit, so the gate must
+ * exit itself.
  */
 export function install_interrupt_gate(message: string): InterruptGate {
   let interrupted = false;
   const controller = new AbortController();
 
   const on_sigint = (): void => {
-    if (interrupted) return;
+    if (interrupted) process.exit(130);
     interrupted = true;
     logger.warn(message);
     controller.abort(new Error('Run interrupted by Ctrl+C'));

@@ -43,6 +43,19 @@ describe('the drive backup interrupt gate', () => {
     expect(gate.should_interrupt()).toBe(false);
   });
 
+  it('exits with 130 on a second Ctrl+C instead of swallowing it', () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const gate = install_interrupt_gate('stopping');
+    try {
+      process.emit('SIGINT');
+      expect(exit).not.toHaveBeenCalled();
+      process.emit('SIGINT');
+      expect(exit).toHaveBeenCalledWith(130);
+    } finally {
+      gate.dispose();
+    }
+  });
+
   it('exits partial for an interrupted run that had no item errors', () => {
     report_run_outcome({ errors: [], warnings: [], interrupted: true }, 'file');
 
