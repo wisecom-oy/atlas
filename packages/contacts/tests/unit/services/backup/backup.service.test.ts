@@ -153,12 +153,12 @@ describe('ContactsBackupService incremental run', () => {
 });
 
 describe('ContactsBackupService failure handling', () => {
-  it('keeps a folder at its previous entries and link when one of its contacts fails', async () => {
+  it('stores the rest of a folder, reports the failed contact, and keeps the old link', async () => {
     const h = harness();
     script_initial(h.script);
     await h.run();
     h.script.deltas['f-default'] = {
-      upserted: [contact('c5')],
+      upserted: [contact('c4'), contact('c5')],
       removed_ids: [],
       delta_link: 'link-default-2',
       reset: false,
@@ -168,10 +168,11 @@ describe('ContactsBackupService failure handling', () => {
     const result = await h.run();
 
     expect(result.summary.errors).toHaveLength(1);
-    expect(result.summary.errors[0]).toContain('Contacts');
+    expect(result.summary.errors[0]).toContain('c5');
     expect(result.summary.healthy).toBe(false);
-    expect(result.snapshot).toBeUndefined();
-    expect(result.summary.no_snapshot_reason).toBe('no_changes');
+    expect(result.summary.no_snapshot_reason).toBeUndefined();
+    expect(entry_ids(result.snapshot?.entries ?? [])).toContain('c4');
+    expect(entry_ids(result.snapshot?.entries ?? [])).not.toContain('c5');
     expect(h.cursors.saved.at(-1)?.delta_link_by_folder['f-default']).toBe('link-default-1');
   });
 

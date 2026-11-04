@@ -161,7 +161,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
       contacts_removed: counts.removed,
       objects_stored: loop.objects_stored,
       snapshot_created: snapshot !== undefined,
-      ...(snapshot === undefined
+      ...(snapshot === undefined && loop.errors.length === 0 && !loop.interrupted
         ? {
             no_snapshot_reason:
               previous === undefined && loop.entries.length === 0 ? 'no_content' : 'no_changes',
@@ -208,7 +208,6 @@ function empty_summary(): ContactsBackupSummary {
     contacts_removed: 0,
     objects_stored: 0,
     snapshot_created: false,
-    no_snapshot_reason: 'no_changes',
     errors: [],
     healthy: true,
   };

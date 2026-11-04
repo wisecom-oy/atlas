@@ -10,6 +10,7 @@ import type {
   ContactsSnapshotManifest,
   GraphContactPayload,
 } from '@wisecom/atlas-types';
+import { AuthError } from '@wisecom/atlas-types';
 import {
   contact,
   fake_connector,
@@ -211,8 +212,43 @@ describe('ContactsRestoreService', () => {
     const result = await restore_with(entries, objects, target);
 
     expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toContain('Contact restore failed');
+    expect(result.errors[0]).toContain('c1');
     expect(result.contacts_restored).toBe(1);
+  });
+
+  it('counts a contact as restored and reports it when only its photo upload fails', async () => {
+    const objects: Record<string, Buffer> = {};
+    const entries = [
+      stored_entry(objects, 'c1', 'src-default', contact('c1'), Buffer.from([1])),
+      stored_entry(objects, 'c2', 'src-default', contact('c2')),
+    ];
+    const target = target_connector();
+    target.connector.upload_contact_photo = async () => {
+      throw new Error('Graph 500');
+    };
+
+    const result = await restore_with(entries, objects, target);
+
+    expect(result.contacts_restored).toBe(2);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatch(/c1.*restored without its photo: Graph 500/);
+  });
+
+  it('stops the restore on an auth failure instead of failing every contact', async () => {
+    const objects: Record<string, Buffer> = {};
+    const entries = [
+      stored_entry(objects, 'c1', 'src-default', contact('c1')),
+      stored_entry(objects, 'c2', 'src-default', contact('c2')),
+    ];
+    const target = target_connector();
+    let attempts = 0;
+    target.connector.create_contact = async () => {
+      attempts += 1;
+      throw new AuthError('denied');
+    };
+
+    await expect(restore_with(entries, objects, target)).rejects.toBeInstanceOf(AuthError);
+    expect(attempts).toBe(1);
   });
 
   it('rejects when the snapshot is not in the mailbox', async () => {

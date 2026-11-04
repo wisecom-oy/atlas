@@ -2,8 +2,17 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 import type { ContactManifestEntry, OperationControlOptions } from '@wisecom/atlas-types';
 
 import { collision_key } from '@/services/restore/collision-key';
-import { restore_entry, type RestoreWriteDeps } from '@/services/restore/restore-contact-writer';
+import {
+  type EntryOutcome,
+  restore_entry,
+  type RestoreWriteDeps,
+} from '@/services/restore/restore-contact-writer';
 import { error_message } from '@/services/shared/error-message';
+import { is_run_fatal } from '@/services/shared/run-fatal-error';
+
+function describe_entry(entry: ContactManifestEntry): string {
+  return entry.display_name ? `${entry.display_name} (${entry.contact_id})` : entry.contact_id;
+}
 
 export interface RestoreLoopOutcome {
   readonly processed: number;
@@ -35,9 +44,22 @@ async function existing_keys_for(
   return keys;
 }
 
+/** Restores one entry into the target folder its source folder was mapped to. */
+async function restore_mapped_entry(
+  deps: RestoreWriteDeps,
+  entry: ContactManifestEntry,
+  target_by_source: ReadonlyMap<string, string>,
+  keys_by_folder: Map<string, Set<string>>,
+): Promise<EntryOutcome> {
+  const folder_id = target_by_source.get(entry.folder_id);
+  if (folder_id === undefined) throw new Error('source folder was not mapped to a target folder');
+  const keys = await existing_keys_for(deps, folder_id, keys_by_folder);
+  return restore_entry(deps, entry, folder_id, keys);
+}
+
 /**
  * Restores every manifest entry in order. A failed entry is recorded and the run continues;
- * interruption is checked before each entry.
+ * auth and licence failures end the run. Interruption is checked before each entry.
  */
 export async function restore_all_entries(
   deps: RestoreWriteDeps,
@@ -59,16 +81,17 @@ export async function restore_all_entries(
     }
     processed += 1;
     try {
-      const folder_id = target_by_source.get(entry.folder_id);
-      if (folder_id === undefined) {
-        throw new Error('source folder was not mapped to a target folder');
+      const outcome = await restore_mapped_entry(deps, entry, target_by_source, keys_by_folder);
+      if (outcome.status === 'skipped') skipped += 1;
+      else restored += 1;
+      if (outcome.status === 'restored' && outcome.photo_error !== undefined) {
+        errors.push(
+          `Contact ${describe_entry(entry)} restored without its photo: ${error_message(outcome.photo_error)}`,
+        );
       }
-      const keys = await existing_keys_for(deps, folder_id, keys_by_folder);
-      const outcome = await restore_entry(deps, entry, folder_id, keys);
-      if (outcome === 'restored') restored += 1;
-      else skipped += 1;
     } catch (err) {
-      errors.push(`Contact restore failed: ${error_message(err)}`);
+      if (is_run_fatal(err)) throw err;
+      errors.push(`Contact ${describe_entry(entry)} failed to restore: ${error_message(err)}`);
     }
     emit_operation_progress(control, {
       operation: 'restore',

@@ -52,9 +52,17 @@ async function read_delta(
     delta_link = page['@odata.deltaLink'] ?? delta_link;
   }
   if (delta_link === undefined) throw new Error('Contacts delta response carried no deltaLink');
+  // A contact can appear more than once in one round (edited across pages, removed then re-added);
+  // only its last appearance describes the folder's current state.
+  const last_by_id = new Map<string, DeltaItem>();
+  for (const item of items) {
+    last_by_id.delete(item.id);
+    last_by_id.set(item.id, item);
+  }
+  const finals = [...last_by_id.values()];
   return {
-    upserted: items.filter((item) => !('@removed' in item)),
-    removed_ids: items.filter((item) => '@removed' in item).map((item) => item.id),
+    upserted: finals.filter((item) => !('@removed' in item)),
+    removed_ids: finals.filter((item) => '@removed' in item).map((item) => item.id),
     delta_link,
     reset,
   };

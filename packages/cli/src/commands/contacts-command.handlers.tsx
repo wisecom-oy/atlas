@@ -109,8 +109,10 @@ export async function execute_contacts_backup(
     await render_static_view(<ResultSummary entries={counters} />);
   } else if (summary.no_snapshot_reason === 'no_content') {
     logger.warn('No contacts found. Nothing was backed up and no snapshot exists.');
-  } else {
+  } else if (summary.no_snapshot_reason === 'no_changes') {
     logger.info('No contact changes detected. Snapshot skipped.');
+  } else {
+    logger.warn('No snapshot created: the run was interrupted or every change failed.');
   }
 
   if (summary.healthy) {

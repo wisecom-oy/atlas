@@ -3,6 +3,7 @@ import type { ContactManifestEntry, ContactsConnector, TenantContext } from '@wi
 import { collision_key } from '@/services/restore/collision-key';
 import { assert_checksum, read_content } from '@/services/shared/content-objects';
 import { is_record } from '@/services/shared/json-record';
+import { is_run_fatal } from '@/services/shared/run-fatal-error';
 
 /** Graph-owned fields that Graph rejects or regenerates on create. */
 const READ_ONLY_FIELDS: Readonly<Record<string, true>> = {
@@ -20,7 +21,9 @@ export interface RestoreWriteDeps {
   readonly target_mailbox_id: string;
 }
 
-export type EntryOutcome = 'restored' | 'skipped';
+/** A restored contact whose photo failed still counts as restored; `photo_error` says why. */
+export type EntryOutcome =
+  { readonly status: 'skipped' } | { readonly status: 'restored'; readonly photo_error?: unknown };
 
 async function read_contact(
   ctx: TenantContext,
@@ -53,7 +56,8 @@ async function restore_photo(
 
 /**
  * Restores one manifest entry into a target folder. A contact whose collision key is already
- * present is skipped, so restore never overwrites existing data.
+ * present is skipped, so restore never overwrites existing data. A photo failure after the
+ * contact was created is returned rather than thrown, because the contact itself landed.
  */
 export async function restore_entry(
   deps: RestoreWriteDeps,
@@ -63,7 +67,7 @@ export async function restore_entry(
 ): Promise<EntryOutcome> {
   const contact = await read_contact(deps.ctx, entry);
   const key = collision_key(contact);
-  if (key !== undefined && existing_keys.has(key)) return 'skipped';
+  if (key !== undefined && existing_keys.has(key)) return { status: 'skipped' };
 
   const payload = Object.fromEntries(
     Object.entries(contact).filter(
@@ -76,6 +80,11 @@ export async function restore_entry(
     folder_id,
     payload,
   );
-  await restore_photo(deps, entry, folder_id, contact_id);
-  return 'restored';
+  try {
+    await restore_photo(deps, entry, folder_id, contact_id);
+  } catch (err) {
+    if (is_run_fatal(err)) throw err;
+    return { status: 'restored', photo_error: err };
+  }
+  return { status: 'restored' };
 }

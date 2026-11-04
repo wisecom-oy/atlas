@@ -1,6 +1,7 @@
 import type { ContactFolderRecord, ContactsConnector } from '@wisecom/atlas-types';
 
 import { error_message } from '@/services/shared/error-message';
+import { is_run_fatal } from '@/services/shared/run-fatal-error';
 
 /** Source-to-target folder mapping produced before any contact is written. */
 export interface FolderMapping {
@@ -55,6 +56,7 @@ export async function map_source_folders(
       target_by_source.set(folder.folder_id, created.id);
       folders_created += 1;
     } catch (err) {
+      if (is_run_fatal(err)) throw err;
       errors.push(
         `Contacts folder ${folder.display_name} could not be created: ${error_message(err)}`,
       );
