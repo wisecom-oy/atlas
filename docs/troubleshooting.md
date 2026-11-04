@@ -226,9 +226,9 @@ In the SDK, the error is `UnreadableContentError` with code `ATLAS_CONTENT_UNREA
 `atlas teams list-snapshots` names every index it cannot read. Two causes:
 
 - **Newer format** (`ATLAS_FORMAT_UNSUPPORTED`, exit `9`): another Atlas version wrote the index. Upgrade Atlas. The team's backup stops before it writes anything.
-- **Damaged or unparseable**: the run skips the index and exits `2`. It warns that the baseline is an older snapshot and that the unreadable snapshot's channels were not compared.
+- **Damaged or unparseable**: the run exits `2` when the index is newer than the latest readable one. It names the key (`Snapshot <key> could not be read; its channels were not compared`) and warns that the baseline is an older snapshot.
 
-The same warning appears when no readable index exists at all, for example after a bucket wipe with Object Lock-retained legacy manifests. The next run is healthy once it has written a readable index. See [Unreadable snapshots](/teams-backup#unreadable-snapshots).
+When no readable index exists at all, for example after a bucket wipe with Object Lock-retained legacy manifests, the backup warns `No readable snapshot exists; every channel is read in full`. Once a run writes a readable index, later runs stop at it and do not read the older keys, so they are healthy again. `atlas teams status` and `list-snapshots` still list the unreadable keys. See [Unreadable snapshots](/teams-backup#unreadable-snapshots).
 
 ## Backup state errors
 

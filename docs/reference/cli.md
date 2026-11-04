@@ -894,7 +894,7 @@ atlas teams delete --team <team-id> -y
 | `list-teams`     | List the teams the application can read                                                  |
 | `backup`         | Incremental backup of one, several, or all teams. Exits `2` when any team is unhealthy   |
 | `list-snapshots` | List Teams snapshots for one team                                                        |
-| `verify`         | Check that every blob a snapshot references is present and matches its SHA-256           |
+| `verify`         | Check the snapshot's index, channel shards, and every blob it references                 |
 | `status`         | Show the newest snapshot for each team: creation time and ID                             |
 | `delete`         | Delete one team's Teams backups, or one snapshot                                         |
 
@@ -910,7 +910,7 @@ atlas teams delete --team <team-id> -y
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
 
-Ctrl+C stops the run and exits `2`. Messages already stored are kept, and the interrupted channel keeps its previous delta link. A second Ctrl+C exits at once with status `130`, before the run writes its index.
+Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a failed attempt, and messages already stored are kept. The interrupted channel keeps its previous delta link. A second Ctrl+C exits at once with status `130`, before the run writes its index.
 
 **`atlas teams list-snapshots`**
 
@@ -923,7 +923,7 @@ Snapshot indexes Atlas cannot read are skipped and named in a warning with their
 
 **`atlas teams verify`**
 
-Checks the snapshot's index, channel shards, and every blob it references. Exits `1` when any object is missing or fails its check.
+Checks the snapshot's index, channel shards, and every blob it references. Exits `1` when any object is missing, fails its check, or is a shard written by a newer format.
 
 | Option                | Description                        |
 | --------------------- | ---------------------------------- |
@@ -939,7 +939,7 @@ Checks the snapshot's index, channel shards, and every blob it references. Exits
 
 **`atlas teams delete`**
 
-Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, then indexes and channel shards, then blobs. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, indexes, channel shards, then blobs. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
 
 | Option                | Description                                       |
 | --------------------- | ------------------------------------------------- |

@@ -120,8 +120,8 @@ Objects written before the header existed have no magic bytes and decrypt withou
 | Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
 | OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{content_name}`                                             |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
-| Teams thread blobs and inline images         | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
-| Teams manifests and delta state              | Yes       | `teams/manifests`, `teams/_meta`                                                          |
+| Teams message blobs and inline images        | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
+| Teams indexes, channel shards, and delta state | Yes     | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
@@ -141,9 +141,9 @@ Bucket listings therefore do not reveal which email account owns a subtree unles
 
 ## Teams channel messages are personal data
 
-Channel messages hold personal data: what people wrote, who they addressed, and the files and images they shared. Atlas stores the raw thread JSON, so the backup holds the same content a channel member can read.
+Channel messages hold personal data: what people wrote, who they addressed, and the files and images they shared. Atlas stores each message version as the Graph object it returned, with its reply list and `@odata` annotations removed, so the backup holds the same content a channel member can read.
 
-- **Encrypted at rest.** Thread blobs, inline images, manifests, and delta links are encrypted under the tenant DEK with AES-256-GCM. Object names are keyed as described under [What object names reveal](#what-object-names-reveal).
+- **Encrypted at rest.** Message blobs, inline images, indexes, shards, and delta links are encrypted under the tenant DEK with AES-256-GCM. Object names are keyed as described under [What object names reveal](#what-object-names-reveal).
 - **App-only read access.** Atlas reads channel messages with the application permission `ChannelMessage.Read.All`. No user signs in, and the permission reaches every team and channel in the tenant, private channels included.
 - **Protected API.** Microsoft may require approval before the permission works. See [Azure AD setup](/azure-ad-setup#teams-application-permissions).
 - **A compromised client secret.** The passphrase protects stored backups only. Anyone holding the client secret can call Graph as the app and read live channel messages, replies, and member lists across the tenant. Rotate the secret on a schedule and limit who holds it.
@@ -317,7 +317,7 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 
 ### Per-user erasure is not available for Teams
 
-Atlas cannot erase one person's Teams messages. A thread blob holds a whole thread, so a member's reply sits in the same blob as other members' messages, and Atlas has no operation that rewrites a blob. The erasure units are the snapshot manifest and the whole team. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
+Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob. Every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
 
 ### Retained or failed
 

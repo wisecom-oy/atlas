@@ -105,7 +105,7 @@ atlas teams list-snapshots --team <team-id>
 
 ### verify
 
-Checks the snapshot index, its channel shards, and every message, reply, image, and kept blob the index references. A missing object is reported as missing. An object that cannot be decrypted or parsed, or a blob whose content does not match its SHA-256 checksum, is reported as failed. Any failure makes the command exit `1`.
+Checks the snapshot index, its channel shards, and every message, reply, image, and kept blob the index references. A missing object is reported as missing. An object that cannot be decrypted or parsed, or a blob whose content does not match its SHA-256 checksum, is reported as failed. A shard written by a newer Atlas format is reported as unsupported, and the blobs it lists are not checked. Any missing, failed, or unsupported object makes the command exit `1`.
 
 ```bash
 atlas teams verify --team <team-id> -s <snapshot-id>
@@ -113,7 +113,7 @@ atlas teams verify --team <team-id> -s <snapshot-id>
 
 ### status
 
-Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it.
+Shows, for each team with a snapshot, the newest snapshot's creation time (`Last snapshot`) and ID. A run that wrote no index does not change it. Below the table, a warning names each team's unreadable objects, its newer-format objects, and its channel roots that failed in a previous run.
 
 ```bash
 atlas teams status
@@ -121,7 +121,7 @@ atlas teams status
 
 ### delete
 
-Deletes every Teams backup for one team, in this order: channel cursors, then snapshot indexes and channel shards, then message and image blobs. With `-s`, it deletes only that snapshot's index. Its shards and blobs stay, because later snapshots can reference them. `-s` removes the index by key without reading it, so it also removes a snapshot that `list-snapshots` cannot read. Atlas asks for confirmation unless you pass `-y`.
+Deletes every Teams backup for one team, in this order: channel cursors, snapshot indexes, channel shards, then message and image blobs. With `-s`, it deletes only that snapshot's index. Its shards and blobs stay, because later snapshots can reference them. `-s` removes the index by key without reading it, so it also removes a snapshot that `list-snapshots` cannot read. Atlas asks for confirmation unless you pass `-y`.
 
 ```bash
 atlas teams delete --team <team-id>
@@ -147,7 +147,7 @@ A channel is read in full, with no delta link, when it has no channel email addr
 
 Deleted messages and channels are carried forward, not dropped. A root or reply that Graph reports as deleted, or a root that a full read no longer returns, is recorded with `deleted_at` set, and its last live version is kept in `kept`. No blob is removed. A channel the team no longer lists keeps `deleted_at` in later indexes.
 
-Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is recorded as a failed attempt. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
+Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is not recorded as a failure, so no ledger entry is added for it. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
 
 ## Storage layout
 
@@ -158,7 +158,7 @@ teams/
   data/{team_id}/{content_name}                                   encrypted message and reply blobs
   data/{team_id}/hosted/{content_name}                            encrypted inline images
   manifests/{team_id}/{snapshot_id}.json                          encrypted snapshot indexes
-  manifests/{team_id}/channels/{channel_id}/{content_name}.json   encrypted channel shards
+  shards/{team_id}/{channel_id}/{content_name}.json                encrypted channel shards
   _meta/{team_id}/channels/{channel_id}.json                      encrypted channel cursors
 ```
 
@@ -177,7 +177,9 @@ If a channel cannot be read, the run records the error and continues with the ne
 
 A thread root that fails is recorded in its channel's cursor, as a ledger entry keyed by root ID. Each run re-fetches ledger roots that the delta read did not return, until the root has failed five times. The report shows `will retry (attempt N of 5)`. After the fifth failure it shows `PERMANENTLY SKIPPED after 5 attempts`, and Atlas stops re-fetching that root, so the channel's delta link can advance. The entry stays in the ledger until a read processes the root cleanly.
 
-Each failed attempt is reported as a channel error. While any ledger entry remains, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run raised no channel error.
+A root that fails is reported as a channel error. A root that Graph returns `404` for on re-read is kept as previously stored, reported as a warning, and still counts as an attempt. While any ledger entry remains, including a `PERMANENTLY SKIPPED` one, the run reports `Status: UNHEALTHY` and exits `2`, even when that run raised no channel error.
+
+A thread whose inline image Graph did not return is re-checked on later runs. Each run warns `hosted content still missing (attempt N of 5); re-checking next run`. The fifth attempt warns that Atlas gave up re-checking. These are warnings only, so they do not make the run unhealthy.
 
 ```bash
 status=0
@@ -204,7 +206,7 @@ A full read processes every root Graph returns for the channel, so a root that n
 
 ### Unreadable snapshots
 
-`list-snapshots` skips an index it cannot read and names its storage key in a warning. An index is unreadable when it cannot be decrypted or parsed, or when its team, snapshot, or `created_at` does not match its key. An index with a higher `format_version` is reported as newer-format instead. If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded. An unreadable index newer than the latest readable one makes the backup exit `2` until a later backup writes a readable index.
+`list-snapshots` skips an index it cannot read and names its storage key in a warning. An index is unreadable when it cannot be decrypted or parsed, when its team or snapshot ID does not match its key, or when its `created_at` is not a valid timestamp. An index with a higher `format_version` is reported as newer-format instead. If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded. An unreadable index newer than the latest readable one makes the backup exit `2` until a later backup writes a readable index. When no readable index exists at all, the backup warns `No readable snapshot exists; every channel is read in full`. This can follow a bucket wipe that Object Lock partly blocked, which leaves legacy manifests behind.
 
 - If the warning says a newer format, upgrade Atlas.
 - Otherwise the index is damaged. Delete it by snapshot ID. The snapshot ID is the last segment of the key, without `.json`.

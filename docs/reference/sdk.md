@@ -277,7 +277,7 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                          |
 | `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel |
 | `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team, as `{ manifests, unreadableKeys }`            |
-| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check every channel shard and blob: decrypt, then compare its checksum. `options.fast` checks existence only |
+| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check each channel shard and every blob it references: decrypt, then compare the blob's SHA-256. `options.fast` checks existence only |
 | `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID              |
 | `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's index                                           |
 
@@ -471,7 +471,7 @@ OneDrive and SharePoint accept `signal` only. It reaches the transfer itself: a 
 
 Some operations cannot be cancelled mid-request. Small-file content under 64 MiB goes through the Graph SDK client, which is bounded by its own 60-second request timeout. Every mail operation also goes through that client. Cancelling those waits for the item in flight. The CLI has no equivalent for drive backups, so Ctrl+C there behaves as before.
 
-Teams `backup` stops waiting on the request in flight as soon as the signal fires, and it resolves with `interrupted: true`. Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is recorded as a failed attempt. Only the channel loop honors the signal. A signal fired during the team or channel lookups takes effect when the loop starts.
+Teams `backup` stops waiting on the request in flight as soon as the signal fires, and it resolves with `interrupted: true`. Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is not recorded as a failed attempt. Only the channel loop honors the signal. A signal fired during the team or channel lookups takes effect when the loop starts.
 
 ## Outlook options and results
 
