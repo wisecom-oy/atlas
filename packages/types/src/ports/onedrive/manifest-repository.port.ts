@@ -1,4 +1,4 @@
-import type { OneDriveSnapshotManifest } from '../../domain/onedrive-manifest';
+import type { OneDriveSnapshotManifest } from '../../domain/onedrive/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 export interface OneDriveManifestRepository {

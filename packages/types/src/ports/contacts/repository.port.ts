@@ -1,4 +1,4 @@
-import type { ContactsDeltaCursor, ContactsSnapshotManifest } from '@/domain/contacts-manifest';
+import type { ContactsDeltaCursor, ContactsSnapshotManifest } from '@/domain/contacts/manifest';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 export interface ContactsManifestRepository {

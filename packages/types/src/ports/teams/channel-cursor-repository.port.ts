@@ -1,4 +1,4 @@
-import type { TeamsChannelCursor } from '@/domain/teams-manifest';
+import type { TeamsChannelCursor } from '@/domain/teams/manifest';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 /** The readable cursors of one team, and the keys of the damaged or newer-format ones the scan skipped. */

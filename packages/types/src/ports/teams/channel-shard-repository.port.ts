@@ -1,4 +1,4 @@
-import type { TeamsChannelShard, TeamsStoredBlobRef } from '@/domain/teams-manifest';
+import type { TeamsChannelShard, TeamsStoredBlobRef } from '@/domain/teams/manifest';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 /**

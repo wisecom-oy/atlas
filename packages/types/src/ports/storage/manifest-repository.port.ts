@@ -1,4 +1,4 @@
-import type { Manifest } from '@/domain/manifest';
+import type { Manifest } from '@/domain/outlook/manifest';
 import type { TenantContext, TenantStorageContext } from '@/ports/tenant/context.port';
 
 export interface ManifestRepository {

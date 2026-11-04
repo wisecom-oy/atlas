@@ -1,9 +1,9 @@
-import type { OperationCost } from '@/domain/graph-cost';
+import type { OperationCost } from '@/domain/graph/cost';
 import type {
   TeamsGraphResource,
   TeamsSnapshotIndex,
   TeamsThreadListing,
-} from '@/domain/teams-manifest';
+} from '@/domain/teams/manifest';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { TeamsSnapshotListing } from '@/ports/teams/index-repository.port';
 import type { NoSnapshotReason, ObjectLockRequest } from '@/ports/backup/use-case.port';

@@ -1,7 +1,7 @@
 import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
-} from '../../domain/onedrive-manifest';
+} from '../../domain/onedrive/manifest';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,

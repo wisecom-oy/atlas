@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GRAPH_SERVICE_LIMITS } from '@/domain/graph-service-limits-values';
+import { GRAPH_SERVICE_LIMITS } from '@/domain/graph/service-limits-values';
 
 describe('GRAPH_SERVICE_LIMITS', () => {
   it('the root object is frozen', () => {

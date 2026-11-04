@@ -35,3 +35,15 @@ export type {
 export type { TeamsDeletionUseCase } from '@/ports/teams/deletion.port';
 export type { TeamsStatusUseCase, TeamsTeamStatus } from '@/ports/teams/status.port';
 export type { TeamsSaveUseCase, TeamsSaveOptions, TeamsSaveResult } from '@/ports/teams/save.port';
+export type {
+  TeamsApi,
+  TeamsSdkBackupOptions,
+  TeamsSdkBackupResult,
+  TeamsSdkVerificationOptions,
+  TeamsSdkVerificationResult,
+  TeamsSdkSnapshotIndex,
+  TeamsSdkSnapshotListing,
+  TeamsSdkTeamStatus,
+  TeamsSdkTeam,
+  TeamsSdkDeletionResult,
+} from './api.port';

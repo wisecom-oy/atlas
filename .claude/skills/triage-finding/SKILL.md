@@ -51,7 +51,7 @@ being verified` is an invariant. Contradicting it is a finding; misreading it
   is not.
 - **Whether a `ponytail:` comment already owns it.** Those mark deliberate
   shortcuts and name their ceiling and upgrade path (`packages/s3/src/adapters/s3-bucket-manager.ts:75`,
-  `packages/types/src/ports/mail/connector.port.ts:100`). A shortcut behaving as
+  `packages/types/src/ports/outlook/connector.port.ts:100`). A shortcut behaving as
   documented is not a defect. `ponytail-debt` already harvests these, so filing
   one as a bug double-tracks it. Recording it is justified only when you can show
   the named ceiling has actually been crossed.

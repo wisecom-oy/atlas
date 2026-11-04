@@ -1,4 +1,4 @@
-import type { GraphServicePool } from '@/domain/graph-cost';
+import type { GraphServicePool } from '@/domain/graph/cost';
 
 /**
  * Narrows a throttle cooldown below its pool. Graph meters Outlook per mailbox per application and

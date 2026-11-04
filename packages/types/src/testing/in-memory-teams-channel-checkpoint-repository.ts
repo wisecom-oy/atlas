@@ -2,7 +2,7 @@ import type { TeamsChannelCheckpointRepository } from '@/ports/teams/channel-che
 import type {
   TeamsChannelCheckpointHead,
   TeamsChannelCheckpointSegment,
-} from '@/domain/teams-checkpoint';
+} from '@/domain/teams/checkpoint';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 /** An in-memory checkpoint store keyed by team and channel, for tests that never touch S3. */

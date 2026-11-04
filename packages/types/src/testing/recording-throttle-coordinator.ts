@@ -1,4 +1,4 @@
-import type { GraphServicePool } from '@/domain/graph-cost';
+import type { GraphServicePool } from '@/domain/graph/cost';
 import type { ThrottleCoordinator } from '@/ports/shared/throttle-coordinator.port';
 
 /** A {@link ThrottleCoordinator} that also records every call, for asserting throttling behaviour. */

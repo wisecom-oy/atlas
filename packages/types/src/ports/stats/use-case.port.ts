@@ -1,4 +1,4 @@
-import type { BucketStats, MailboxStats, DriveStats } from '@/domain/stats';
+import type { BucketStats, MailboxStats, DriveStats } from '@/domain/stats/stats';
 
 export interface StatsUseCase {
   get_bucket_stats(tenant_id: string): Promise<BucketStats>;

@@ -2,7 +2,7 @@ import type {
   ReplicationResult,
   ReplicationStatusRecord,
   TenantRehydrationResult,
-} from '@/domain/replication';
+} from '@/domain/replication/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 
 export interface ReplicationUseCase {

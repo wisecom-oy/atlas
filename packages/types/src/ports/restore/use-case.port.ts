@@ -1,4 +1,4 @@
-import type { OperationCost } from '@/domain/graph-cost';
+import type { OperationCost } from '@/domain/graph/cost';
 import type { TransferProgressReporter } from '@/ports/shared/transfer-progress.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 
