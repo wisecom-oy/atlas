@@ -6,7 +6,7 @@ description: 'Back up Microsoft Teams channel messages, replies, members, and ta
 
 Atlas backs up the channels of Microsoft Teams teams. It stores channel messages with their replies, edits, deletions, and inline images, plus team settings, members, channels, and tabs. Each channel keeps its own delta cursor, so a later run reads only the threads that changed.
 
-Backup and verification are available. Restore and save are not yet available. Atlas stores the raw Graph objects, so a later release can restore them.
+Backup, verification, and save are available. `save` exports a snapshot as JSON and browsable HTML. Atlas does not write messages back into Teams; see [Restore](#restore).
 
 ## Quick start
 
@@ -25,6 +25,9 @@ atlas teams backup --team <team-id> --channel <channel-id>
 
 # Check a snapshot
 atlas teams verify --team <team-id> -s <snapshot-id>
+
+# Save one snapshot as a browsable zip
+atlas teams save --team <team-id> -s <snapshot-id> --output teams.zip
 ```
 
 ::: warning Protected API
@@ -91,7 +94,10 @@ atlas teams backup --team <team-id>
 atlas teams backup --team <team-id> --team <other-team-id>
 atlas teams backup --all
 atlas teams backup --team <team-id> --channel <channel-id>
+atlas teams backup --all --concurrency 8
 ```
+
+Within one team, Atlas backs up up to four channels at once. `--concurrency <n>` sets the number, from 1 to 16. More channels in flight raise throughput only until the team's Graph budget is reached; see [Pacing](#pacing).
 
 Each team runs independently and is reported when it finishes. A channel error is recorded, and the next channel still runs. With several teams, a team that fails with an error other than an authentication error is recorded, and the other teams still run. The run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. A single `--team` run stops on its first error and exits with that error's category code. An authentication error on a team's first channel also stops the run, with exit `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
@@ -104,6 +110,8 @@ Each run that creates a snapshot prints these counters:
 | `dedup` | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here. |
 | `hosted` | Inline images written in this run. |
 | `deleted` | Threads recorded as deleted in this run. Printed only when above zero. |
+
+After the counters, the run lists each channel with its outcome (`completed`, `incomplete`, `interrupted`, `failed`, or `not_started`), its read mode, and the roots it applied, then the Graph requests per limit class with the achieved rate and the number of `429` answers.
 
 ### list-snapshots
 
@@ -120,6 +128,21 @@ Checks the snapshot index, its channel shards, and every message, reply, image, 
 ```bash
 atlas teams verify --team <team-id> -s <snapshot-id>
 ```
+
+### save
+
+Writes one snapshot as a zip archive that opens in a browser without Atlas. `save` reads storage only and makes no Graph calls.
+
+```bash
+atlas teams save --team <team-id> -s <snapshot-id> --output teams.zip
+atlas teams save --team <team-id> -s <snapshot-id> --channel <channel-id> --output channel.zip
+```
+
+The archive holds `team.json`, which lists the saved channels, and one folder per channel with `messages.json` and `index.html`. Each page sets a Content-Security-Policy that allows only inline styles and embedded images. Scripts, frames, forms, `on*` event attributes, and `<meta>` or `<base>` elements are removed from message bodies before the page is written. Hosted images are embedded as `data:` URIs, so the page loads nothing over the network.
+
+Only message bodies are rendered. File attachments are not included. A deleted message shows its last kept version, marked as deleted. A deleted message with no kept version appears as a tombstone.
+
+A message or image that cannot be read is listed in the command output, and the export continues. The command exits `1` in that case, and the archive still holds everything else. Ctrl+C stops the export after the current channel: the archive is still written with the channels finished so far, and the command exits `2`. The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
 ### status
 
@@ -157,7 +180,23 @@ A channel is read in full, with no delta link, when it has no channel email addr
 
 Deleted messages and channels are carried forward, not dropped. A root or reply that Graph reports as deleted, or a root that a full read no longer returns, is recorded with `deleted_at` set, and its last live version is kept in `kept`. No blob is removed. A channel the team no longer lists keeps `deleted_at` in later indexes.
 
-Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is not recorded as a failure, so no ledger entry is added for it. Threads already stored are kept. The interrupted channel keeps its previous delta link, so its changes are read again next run, and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
+Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is not recorded as a failure, so no ledger entry is added for it. Threads already stored are kept. The interrupted channel keeps its previous delta link and its checkpoint, so the next run resumes its read (see [Resuming an interrupted backup](#resuming-an-interrupted-backup)), and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
+
+## Resuming an interrupted backup
+
+Each channel's read saves its progress after every page of 50 roots. The page's threads go to an encrypted segment, and a head object records where the read stands. Both live under `_meta/{team_id}/checkpoints/{channel_id}/`.
+
+If a run stops partway through a channel, by Ctrl+C or a crash, the next run continues from the last saved page. Pages already applied are not read again. Each inline image is recorded in the checkpoint as soon as it is stored, so a resumed run reuses it instead of downloading it again.
+
+::: tip
+A crash can repeat the page that was in flight when it stopped. Graph reads for that page run again, but its content is not stored twice and its images are not downloaded twice.
+:::
+
+A checkpoint resumes only when it matches the run: the same baseline shard and the same stored delta link. A `--full` run resumes only a full-read checkpoint. A run without `--full` also resumes a full-read checkpoint, which is what a rejected delta link leaves behind. A checkpoint that does not match, or whose parts cannot be read, is deleted with a warning, and the channel is read from its start.
+
+Checkpoints are written without the run's Object Lock retention (`--retention-days`), because they are rewritten after every page and deleted when the read finishes.
+
+When a channel's read finishes, Atlas saves its cursor first and then deletes the checkpoint. Roots that failed stay in the cursor's failed-root ledger and are retried on the next run.
 
 ## Storage layout
 
@@ -170,6 +209,7 @@ teams/
   manifests/{team_id}/{snapshot_id}.json                          encrypted snapshot indexes
   shards/{team_id}/{channel_id}/{content_name}.json                encrypted channel shards
   _meta/{team_id}/channels/{channel_id}.json                      encrypted channel cursors
+  _meta/{team_id}/checkpoints/{channel_id}/                       encrypted read checkpoints (head and segments)
 ```
 
 `content_name` is the keyed name Atlas uses for every content object. It is an HMAC, so it does not match a plain SHA-256 of the content. See [What object names reveal](/security#what-object-names-reveal).
@@ -239,16 +279,55 @@ atlas teams backup --team <team-id> --full
 
 Without `--full`, the cached result stays in place.
 
+## Pacing
+
+Atlas paces Teams requests before Graph has to throttle them. Microsoft meters Teams reads per application per tenant, and again per team and per channel. Atlas spaces its requests at 80 % of each published limit:
+
+| Scope | Requests | Paced at |
+| ----- | -------- | -------- |
+| Tenant | Channel messages, replies, and inline images | 16 per second |
+| Tenant | Team, members, channels, tabs, and files folder | 24 per second |
+| Team | Team, members, channels, tabs, and files folder | 3.2 per second |
+| Channel | Channel messages, replies, and inline images | 0.8 per second |
+
+Every request in one Atlas process shares these budgets, including requests from several teams backed up at once. The remaining 20 % leaves room for other applications and for Graph's sustained window, which Microsoft evaluates below the listed rate.
+
+A `429` from one team pauses only that team. Other teams of the tenant keep running. The run then waits out Graph's `Retry-After` for that team, as described in [Throttle handling](/operations/graph-rate-limits#throttle-handling).
+
+A first backup reads every message once, so its duration follows from the channel budget. A channel is read at 0.8 requests per second, and each request returns up to 50 roots with their replies. Back up several teams at once to use the tenant budget: with the default four channels per team, five teams in parallel reach the 16 requests per second the tenant allows.
+
+## Restore
+
+Atlas does not restore messages into Teams. To recover channel content, export a snapshot with [`save`](#save) and open `index.html`, or read `messages.json`.
+
+Microsoft offers one way to write past messages into a channel: the [Teams message import API](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/import-messages/import-external-messages-to-teams). Atlas does not use it:
+
+- **Permission.** The import API needs `Teamwork.Migrate.All`, an application permission that lets the application post messages as any user, with any past timestamp, into any channel of the tenant. A backup application with that permission turns a stolen client secret into a way to forge conversation history. Atlas keeps its Teams permissions read-only.
+- **No undo.** Imported messages are new messages. Microsoft's only correction for a wrong import is to delete the team and import again.
+- **No merge.** Graph cannot overwrite a message by ID, so an import into a channel that still holds messages duplicates them. Edit history, deletions, and messages from other tenants cannot be imported.
+
+The stored snapshot keeps the raw Graph objects, inline images with their content type, members, and tabs, so a later release can add an import path without a new backup.
+
 ## Limits
 
 - **Not covered:** 1:1 chats, group chats, and meeting chats. These belong to individual users and carry separate legal and retention duties. Atlas does not use the metered bulk-export API for them.
-- **Restore and save:** not available yet.
-- **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint. Limits are in [Graph rate limits](/operations/graph-rate-limits#teams-pool).
+- **Restore:** messages are not written back into Teams. See [Restore](#restore).
+- **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint, and are paced per tenant, team, and channel. See [Pacing](#pacing) and [Graph rate limits](/operations/graph-rate-limits#teams-pool).
 - **Replication:** Teams snapshots cannot be replicated or rehydrated yet. Those calls refuse `teams-snap-*` IDs with `Teams snapshots are not replicated yet`.
 
 ## SDK usage
 
 The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. Never run two operations on one team at once. See [Concurrent operations](/reference/sdk#concurrent-operations).
+
+`backup` accepts `concurrency`, the number of channels backed up at once (1 to 16, default 4). The result's `summary` reports `elapsedMs`, one entry per channel in `channels` (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event names the channel that finished in `current` and carries `etaMs`, an estimate of the time left based on the channels finished so far.
+
+To back up many teams, run several `backup` calls at once, one per team. All calls on one Atlas instance share the pacing budgets above. When several processes back up one tenant:
+
+- Give them a shared `throttleCoordinator`. For `teams` requests its `wait` and `raise` receive the team ID as `scope.ownerId`, so a cooldown applies to one team.
+- Set `teamsPacingShare` on each instance to its share of the tenant budget, for example `0.25` for four processes. Pacing state lives in each process, so without it four processes would together send up to four times the tenant rate. Team and channel budgets stay whole.
+- Run only one operation per team at a time, for example with a lease keyed by the team ID. Two runs on one team would also split its channel budget.
+
+See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 ```ts
 import { createAtlasInstance } from '@wisecom/atlas-sdk';
