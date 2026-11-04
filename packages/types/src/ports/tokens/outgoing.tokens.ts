@@ -27,3 +27,6 @@ export const SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for(
 );
 export const STORAGE_DISPOSER_TOKEN = Symbol.for('StorageDisposer');
 export const THROTTLE_COORDINATOR_TOKEN = Symbol.for('ThrottleCoordinator');
+export const TEAMS_CONNECTOR_TOKEN = Symbol.for('TeamsConnector');
+export const TEAMS_MANIFEST_REPOSITORY_TOKEN = Symbol.for('TeamsManifestRepository');
+export const TEAMS_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('TeamsDeltaCursorRepository');

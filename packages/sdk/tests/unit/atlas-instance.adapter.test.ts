@@ -89,6 +89,11 @@ const mock_discovery = { list_tenant_mailboxes: vi.fn() };
 const mock_identity_resolver = { resolve_user: vi.fn() };
 const mock_identity_registry = { load: vi.fn() };
 const mock_tenant_factory = { create: vi.fn() };
+const mock_teams_backup = { backup_team: vi.fn() };
+const mock_teams_verification = { verify_teams_snapshot: vi.fn() };
+const mock_teams_catalog = { list_teams: vi.fn(), list_teams_snapshots: vi.fn() };
+const mock_teams_status = { check_teams_status: vi.fn() };
+const mock_teams_deletion = { delete_team_data: vi.fn(), delete_snapshot: vi.fn() };
 
 vi.mock('@/container', () => ({
   create_container_from_config: vi.fn(() => ({
@@ -125,6 +130,11 @@ vi.mock('@/container', () => ({
         UserIdentityResolver: mock_identity_resolver,
         IdentityRegistryRepository: mock_identity_registry,
         TenantContextFactory: mock_tenant_factory,
+        TeamsBackupUseCase: mock_teams_backup,
+        TeamsVerificationUseCase: mock_teams_verification,
+        TeamsCatalogUseCase: mock_teams_catalog,
+        TeamsStatusUseCase: mock_teams_status,
+        TeamsDeletionUseCase: mock_teams_deletion,
       };
       return map[token.description!];
     }),

@@ -1,6 +1,6 @@
 interface OperationProgressBase {
   readonly operation: 'backup' | 'restore' | 'save' | 'verify';
-  readonly workload: 'outlook' | 'onedrive' | 'sharepoint';
+  readonly workload: 'outlook' | 'onedrive' | 'sharepoint' | 'teams';
   readonly processed: number;
   readonly total?: number;
   readonly current?: string;

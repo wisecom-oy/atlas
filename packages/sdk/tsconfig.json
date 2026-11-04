@@ -18,6 +18,7 @@
     { "path": "../s3" },
     { "path": "../outlook" },
     { "path": "../onedrive" },
-    { "path": "../sharepoint" }
+    { "path": "../sharepoint" },
+    { "path": "../teams" }
   ]
 }

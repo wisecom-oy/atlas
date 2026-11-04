@@ -28,6 +28,7 @@ Atlas backs up three Microsoft 365 workloads. Each has its own CLI namespace and
 | **Outlook**    | `atlas outlook`    | Mailbox (email address or Entra object ID)   | `outlook/`     |
 | **OneDrive**   | `atlas onedrive`   | User (email or UPN, or Entra object ID)      | `onedrive/`    |
 | **SharePoint** | `atlas sharepoint` | Site (URL or Graph site ID)                  | `sharepoint/`  |
+| **Teams**      | `atlas teams`      | Team (Graph team ID)                         | `teams/`       |
 
 All workloads in a tenant share one data encryption key and one S3 bucket. Commands that operate across workloads, such as `atlas replicate`, `atlas rehydrate`, and `atlas stats`, act on the whole tenant.
 
@@ -91,5 +92,6 @@ Atlas stores delta state per folder for Outlook, per drive for OneDrive, and per
 
 - [OneDrive backup](./onedrive-backup.md): backup, restore, and verification for OneDrive
 - [SharePoint backup](./sharepoint-backup.md): site backup and document library sync
+- [Teams backup](./teams-backup.md): channel message backup and verification
 - [Storage layout](./operations/storage-layout.md): S3 key structure for each workload
 - [Delta sync](./operations/delta-sync.md): how incremental sync works for Outlook

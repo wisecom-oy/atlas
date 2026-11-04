@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@wisecom/atlas-types": ["../types/src/index.ts"],
+      "@wisecom/atlas-types/*": ["../types/src/*"],
+      "@wisecom/atlas-core": ["../core/src/index.ts"],
+      "@wisecom/atlas-core/*": ["../core/src/*"],
+      "@wisecom/atlas-m365-graph": ["../m365-graph/src/index.ts"],
+      "@wisecom/atlas-m365-graph/*": ["../m365-graph/src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"],
+  "references": [
+    { "path": "../types" },
+    { "path": "../core" },
+    { "path": "../m365-graph" },
+    { "path": "../drive" }
+  ]
+}

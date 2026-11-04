@@ -120,6 +120,8 @@ Objects written before the header existed have no magic bytes and decrypt withou
 | Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
 | OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{content_name}`                                             |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
+| Teams thread blobs and inline images         | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
+| Teams manifests and delta state              | Yes       | `teams/manifests`, `teams/_meta`                                                          |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
@@ -136,6 +138,16 @@ Objects written before keyed naming are named by the plain SHA-256 of their plai
 Storage prefixes use the Entra object ID, not the SMTP address. For OneDrive, `atlas onedrive` resolves a user principal name or email passed to `--owner` to an object ID before computing the prefix. Passing a UUID skips resolution and must match the user's directory object ID. Mailbox backups namespace `data/`, `attachments/`, and `manifests/` by the owner's object ID too. The SMTP address is recorded only as display metadata on snapshots.
 
 Bucket listings therefore do not reveal which email account owns a subtree unless someone can correlate Graph IDs. Address-keyed objects written by v5 are not renamed or aliased. They stay under their old prefixes until something deletes them, and Object Lock expiry only makes them deletable. See [Migrating to v6](/migration/v6).
+
+## Teams channel messages are personal data
+
+Channel messages hold personal data: what people wrote, who they addressed, and the files and images they shared. Atlas stores the raw thread JSON, so the backup holds the same content a channel member can read.
+
+- **Encrypted at rest.** Thread blobs, inline images, manifests, and delta links are encrypted under the tenant DEK with AES-256-GCM. Object names are keyed as described under [What object names reveal](#what-object-names-reveal).
+- **App-only read access.** Atlas reads channel messages with the application permission `ChannelMessage.Read.All`. No user signs in, and the permission reaches every team and channel in the tenant, private channels included.
+- **Protected API.** Microsoft may require approval before the permission works. See [Azure AD setup](/azure-ad-setup#teams-application-permissions).
+- **A compromised client secret.** The passphrase protects stored backups only. Anyone holding the client secret can call Graph as the app and read live channel messages, replies, and member lists across the tenant. Rotate the secret on a schedule and limit who holds it.
+- **Deletion is not instant.** A message deleted in Teams stays in earlier snapshots until those snapshots are deleted or their Object Lock retention expires. Run `atlas teams delete` for one team's data, or `atlas delete --purge` for the whole tenant.
 
 ## Replication security
 
@@ -428,11 +440,11 @@ Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_R
 
 Atlas separates read and write storage access, so an operator who only browses never needs write credentials:
 
-| Command class                                                                                                                | Required S3 actions                                                                                                       | Provisioning |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                         | None         |
-| Storage usage: `stats storage`                                                                                               | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`           | None         |
-| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                       | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
+| Command class                                                                                                                                                                                    | Required S3 actions                                                                                                                       | Provisioning |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
+| Storage usage: `stats storage`                                                                                                                                                                   | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                            | None         |
+| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`, `teams backup`                                                                                                           | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
 
 Read-only commands never create the bucket or write `_meta/dek.enc`, so a mistyped tenant ID fails with `No backups found for tenant <id>` instead of leaving behind a new bucket.
 

@@ -2,7 +2,7 @@
 
 Programmatic API for embedding [Atlas](https://github.com/wisecom-oy/atlas) in Node.js applications. Atlas backs up and restores Microsoft 365 data.
 
-Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, OneDrive, and SharePoint workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
+Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, OneDrive, SharePoint, and Teams workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
 
 ## Requirements
 
@@ -47,6 +47,9 @@ await atlas.onedrive.backup('user@example.com');
 await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering', {
   includeSubsites: true,
 });
+
+// Teams backup: one team per call, identified by its Graph team ID
+await atlas.teams.backup('<team-id>');
 ```
 
 Construction validates required fields, a minimum passphrase length of 14 UTF-8 bytes, and an absolute HTTP(S) S3 endpoint without embedded credentials, query or fragment. Invalid values throw `ConfigError` synchronously, without network requests.
@@ -66,6 +69,7 @@ Run one operation at a time per tenant unless your scheduler guarantees that no 
 | `atlas.outlook`             | Mailbox backup, restore, verify, catalog                                         |
 | `atlas.onedrive`            | OneDrive backup and verification                                                 |
 | `atlas.sharepoint`          | SharePoint site backup and restore                                               |
+| `atlas.teams`               | Teams channel backup, verification, and snapshot catalog                         |
 | `atlas.getBucketStats()`    | Storage statistics                                                               |
 | `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
 | `atlas.checkStorage()`      | S3 Object Lock readiness                                                         |

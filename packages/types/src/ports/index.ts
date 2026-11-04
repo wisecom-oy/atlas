@@ -184,6 +184,17 @@ export type {
   SharePointSdkStats,
 } from './atlas/sharepoint-api.port';
 export type {
+  TeamsApi,
+  TeamsSdkBackupOptions,
+  TeamsSdkBackupResult,
+  TeamsSdkVerificationOptions,
+  TeamsSdkVerificationResult,
+  TeamsSdkSnapshotManifest,
+  TeamsSdkTeamStatus,
+  TeamsSdkTeam,
+  TeamsSdkDeletionResult,
+} from './atlas/teams-api.port';
+export type {
   OperationProgressEvent,
   OperationProgressPhase,
   OperationProgressCallback,
@@ -291,6 +302,26 @@ export type {
   SharePointStatusResult,
   SharePointLibraryStatus,
 } from './sharepoint/status.port';
+
+export type {
+  TeamsConnector,
+  TeamsMessageLocator,
+  TeamsMessageDeltaResult,
+  TeamsRootChange,
+} from './teams/connector.port';
+export type { TeamsManifestRepository } from './teams/manifest-repository.port';
+export type { TeamsDeltaCursorRepository } from './teams/delta-cursor-repository.port';
+export type {
+  TeamsBackupUseCase,
+  TeamsBackupSummary,
+  TeamsBackupResult,
+  TeamsBackupOptions,
+  TeamsCatalogUseCase,
+  TeamsVerificationUseCase,
+  TeamsVerificationResult,
+} from './teams/use-case.port';
+export type { TeamsDeletionUseCase } from './teams/deletion.port';
+export type { TeamsStatusUseCase, TeamsTeamStatus } from './teams/status.port';
 
 export type * from './storage/storage-inventory.port';
 export type * from './storage-usage/use-case.port';

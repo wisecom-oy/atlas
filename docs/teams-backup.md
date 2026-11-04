@@ -1,0 +1,208 @@
+---
+description: 'Back up Microsoft Teams channel messages, replies, members, and tabs incrementally through Microsoft Graph, with every blob encrypted before it reaches storage.'
+---
+
+# Teams backup
+
+Atlas backs up the channels of Microsoft Teams teams. It stores channel messages with their replies, edits, deletions, and inline images, plus team settings, members, channels, and tabs. Each channel keeps its own delta cursor, so a later run reads only the threads that changed.
+
+Backup and verification are available. Restore and save are not yet available. Atlas stores the raw Graph objects, so a later release can restore them.
+
+## Quick start
+
+```bash
+# List the teams the application can read
+atlas teams list-teams
+
+# Back up one team
+atlas teams backup --team <team-id>
+
+# Back up every team in the tenant
+atlas teams backup --all
+
+# Back up a single channel of one team
+atlas teams backup --team <team-id> --channel <channel-id>
+
+# Check a snapshot
+atlas teams verify --team <team-id> -s <snapshot-id>
+```
+
+::: warning Protected API
+Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft Graph permission. Microsoft may need to approve it for your tenant before backups succeed. See [Azure AD setup](/azure-ad-setup#teams-application-permissions).
+:::
+
+## What is backed up
+
+| Item                                   | Coverage                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Channel messages                       | Every root message in each channel the team hosts, including private channels                                             |
+| Replies                                | Stored with their root in one thread blob. A deleted reply stays in the blob with `deletedDateTime` set and an empty body |
+| Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit                           |
+| Inline images                          | Stored as encrypted bytes. The image URLs in each message are kept                                                        |
+| System messages                        | Stored with their thread, as Graph returns them                                                                           |
+| File attachments                       | Recorded as links. Atlas does not download them. Team files are covered by [SharePoint backup](/sharepoint-backup)        |
+| Team settings, members, channels, tabs | Raw Graph objects                                                                                                         |
+
+Shared channels owned by another team are skipped and logged. Back up the hosting team to cover them.
+
+Earlier versions of an edited or deleted message survive in the thread blobs of the snapshots that recorded them.
+
+## Permissions
+
+Teams backup uses application permissions only. Atlas makes no delegated sign-in and never acts as a user.
+
+| Permission                | Used for                          |
+| ------------------------- | --------------------------------- |
+| `Team.ReadBasic.All`      | List teams and read team settings |
+| `TeamSettings.Read.All`   | Read team settings                |
+| `TeamMember.Read.All`     | List team members                 |
+| `Channel.ReadBasic.All`   | List channels                     |
+| `ChannelMember.Read.All`  | List channel members              |
+| `ChannelMessage.Read.All` | Read channel messages and replies |
+| `TeamsTab.Read.All`       | Read channel tabs                 |
+
+Consent steps are in [Azure AD setup](/azure-ad-setup#teams-application-permissions).
+
+## Commands
+
+### list-teams
+
+Lists the teams the application can read. Use the IDs it prints with `backup` and `list-snapshots`.
+
+```bash
+atlas teams list-teams
+```
+
+### backup
+
+Backs up one or more teams. Pass `--team` once per team, or `--all` for every team in the tenant. `--channel <id>` backs up only that channel. Other channels carry forward from the previous manifest.
+
+```bash
+atlas teams backup --team <team-id>
+atlas teams backup --team <team-id> --team <other-team-id>
+atlas teams backup --all
+atlas teams backup --team <team-id> --channel <channel-id>
+```
+
+Each channel runs independently. If a channel fails, the other channels still complete, and the run exits `2`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+
+### list-snapshots
+
+Lists the snapshots stored for one team.
+
+```bash
+atlas teams list-snapshots --team <team-id>
+```
+
+### verify
+
+Checks that every blob a snapshot references is present and matches its SHA-256 digest.
+
+```bash
+atlas teams verify --team <team-id> -s <snapshot-id>
+```
+
+### status
+
+Shows the last backup run recorded for each team in the tenant.
+
+```bash
+atlas teams status
+```
+
+### delete
+
+Deletes every Teams backup for one team. With `-s`, it deletes only that snapshot. Atlas asks for confirmation unless you pass `-y`.
+
+```bash
+atlas teams delete --team <team-id>
+atlas teams delete --team <team-id> -s <snapshot-id>
+```
+
+::: danger Irreversible
+Deletion cannot be undone. Objects under Object Lock retention stay until the retention period ends.
+:::
+
+## How a run finds changes
+
+Each channel is read with its own message delta link.
+
+1. **Delta.** Atlas asks Graph for the messages that changed since the last run. A new reply, reaction, edit, or deletion returns the root message of its thread. The root's `lastModifiedDateTime` and `etag` do not change for reply activity, so Atlas cannot use them to detect changes.
+2. **Thread refetch.** For each returned root, Atlas reads the full reply list and rebuilds the thread blob.
+3. **Deduplication.** Atlas hashes the thread blob. An unchanged thread is not uploaded again.
+4. **Cursor commit.** Atlas saves the new delta link only after the manifest that includes the changes is written. A failed channel keeps its previous link, so its changes are read again next run.
+
+A channel is read in full, with no delta link, when it has no channel email address, Graph rejects the delta request with `400`, or the saved sync state is no longer valid. The run continues. The channel is recorded with `read_mode: full` in the manifest.
+
+Deleted roots stay in the manifest with `deleted_at` set. Their blobs are kept.
+
+## Storage layout
+
+Teams objects live under the `teams/` prefix of the tenant bucket.
+
+```
+teams/
+  data/{team_id}/{content_name}            encrypted thread blobs
+  data/{team_id}/hosted/{content_name}     encrypted inline images
+  manifests/{team_id}/{snapshot_id}.json   encrypted snapshot manifests
+  _meta/{team_id}/delta.json               encrypted delta links per channel
+```
+
+`content_name` is the keyed name Atlas uses for every content object. It is an HMAC, so it does not match a plain SHA-256 of the content. See [What object names reveal](/security#what-object-names-reveal).
+
+## Failed channels
+
+If a channel cannot be read, the run records it and continues with the next channel. The run then exits `2`. Inspect the reported channels before relying on the snapshot.
+
+```bash
+status=0
+atlas teams backup --all || status=$?
+if [ "$status" -eq 2 ]; then
+  echo "Some channels failed. Review the report before relying on this run." >&2
+fi
+exit "$status"
+```
+
+See [Exit codes](/reference/cli#exit-codes) for the full list.
+
+## Limits
+
+- **Not covered:** 1:1 chats, group chats, and meeting chats. These belong to individual users and carry separate legal and retention duties. Atlas does not use the metered bulk-export API for them.
+- **Restore and save:** not available yet.
+- **Throttling:** Teams calls use their own throttle pool, separate from OneDrive and SharePoint.
+
+## SDK usage
+
+The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`.
+
+```ts
+import { createAtlasInstance } from '@wisecom/atlas-sdk';
+
+const atlas = createAtlasInstance({
+  tenantId: '<tenant-id>',
+  clientId: '<client-id>',
+  clientSecret: '<client-secret>',
+  s3Endpoint: 'http://localhost:9000',
+  s3AccessKey: '<access-key>',
+  s3SecretKey: '<secret-key>',
+  encryptionPassphrase: '<passphrase>',
+});
+
+const teamId = '<team-id>';
+
+const run = await atlas.teams.backup(teamId);
+if (run.snapshot) {
+  const check = await atlas.teams.verify(teamId, run.snapshot.snapshotId);
+  if (check.failedStorageKeys.length > 0) {
+    console.error(`${check.failedStorageKeys.length} blobs failed verification`);
+  }
+}
+```
+
+## See also
+
+- [CLI reference](/reference/cli#atlas-teams)
+- [Programmatic SDK](/reference/sdk)
+- [Azure AD setup](/azure-ad-setup)
+- [SharePoint backup](/sharepoint-backup)
+- [Security](/security)

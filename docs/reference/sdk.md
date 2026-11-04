@@ -33,7 +33,7 @@ console.log(result.snapshot.id, result.summary.stored);
 
 `await using` needs TypeScript 5.2 or later, and the SDK requires Node.js 22.8 or later. Without it, call `atlas.dispose()` in a `finally` block. See [Instance lifecycle](#instance-lifecycle).
 
-The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`), with tenant-wide methods on the root instance such as `replicateSnapshot`, `getBucketStats`, and `getStorageUsage`.
+The API is organized by workload (`atlas.outlook`, `atlas.onedrive`, `atlas.sharepoint`, `atlas.teams`), with tenant-wide methods on the root instance such as `replicateSnapshot`, `getBucketStats`, and `getStorageUsage`.
 
 ## Configuration
 
@@ -215,6 +215,9 @@ const tree = await atlas.sharepoint.backup(site, { includeSubsites: true });
 await atlas.sharepoint.verify(site, 'sp-snap-123');
 const sites = await atlas.sharepoint.listSites();
 const spStats = await atlas.sharepoint.getStats(site); // omit the site for every site
+// Teams: one team per call, identified by its Graph team ID
+const teamRun = await atlas.teams.backup(teamId);
+const teamStatus = await atlas.teams.status();
 
 // Tenant scope
 const check = await atlas.checkStorage({ mode: 'GOVERNANCE', retentionDays: 30 });
@@ -265,6 +268,29 @@ const manifest = (await atlas.onedrive.listSnapshots('owner-id')).find(
 
 See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-backup) for workload-specific examples.
 
+### Teams
+
+`atlas.teams` backs up channel messages one team per call. Each call returns one result for that team. Restore and save are not available yet.
+
+| Method                                 | CLI equivalent                                 | Description                                                                    |
+| -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
+| `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                          |
+| `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel |
+| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team                                                |
+| `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check that every blob a snapshot references is present and matches its SHA-256 |
+| `status()`                             | `atlas teams status`                           | Last backup run recorded for each team in the tenant                           |
+| `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only the snapshot given               |
+
+```typescript
+const run = await atlas.teams.backup(teamId);
+if (!run.summary.healthy) {
+  // One or more channels failed. The other channels still ran.
+}
+if (run.snapshot) {
+  await atlas.teams.verify(teamId, run.snapshot.snapshotId);
+}
+```
+
 ### Tenant-wide methods
 
 | Method                                   | Description                                                                                      |
@@ -305,6 +331,7 @@ Methods accept the same identifiers as the CLI and normalize them the same way.
 | `atlas.onedrive.*`   | Email or UPN, or Entra object ID                                                      | An argument containing `@` resolves through Graph. Anything else is used as given                    |
 | `atlas.outlook.*`    | Email or UPN, or Entra object ID                                                      | An argument containing `@` resolves through Graph. Anything else is used as given                    |
 | `atlas.sharepoint.*` | Site URL or hostname, or site ID (`siteGuid,webGuid`, with or without a leading host) | An argument without commas resolves through Graph. A site ID drops its hostname without a Graph call |
+| `atlas.teams.*`      | Graph team ID (GUID)                                                                  | Used as given. No Graph call is made to resolve it                                                   |
 
 A failed resolution throws, so a mistyped address fails instead of addressing an empty scope. Resolved identities are cached per instance. Backups record the resolved email and display name as snapshot metadata, which makes owners readable in later listings. Storage keys always use the object ID. `resolveUser` and `resolveSite` are available on their own.
 
@@ -339,18 +366,18 @@ while (!part.complete) {
 | `continuationToken` | `string`                | Resume a run that stopped early                                                                        |
 | `signal`            | `AbortSignal`           | Stop at the next page boundary and return a continuation token instead of throwing                     |
 
-| Field                                         | Description                                                                                               |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `totals`                                      | `current`, `noncurrent`, `staging`, and `incompleteUploads` as `{ objects, bytes }`, plus `deleteMarkers` |
-| `byWorkload`                                  | The same breakdown per `outlook`, `onedrive`, `sharepoint`, `meta`, and `other`. Rows sum to `totals`     |
-| `byOwner`                                     | With `breakdown: 'owner'`, rows of `{ workload, ownerId, totals }`, largest first                         |
-| `storedBytes`                                 | Current plus noncurrent plus incomplete upload parts                                                      |
-| `logicalBytesReferenced`                      | Logical bytes that all manifests reference. Set only on a complete run whose manifests could all be read  |
-| `logicalBytesByWorkload`                      | The same, per workload                                                                                    |
-| `versionsVisible`, `incompleteUploadsVisible` | `false` when the credentials cannot list versions or multipart uploads. Those figures are then incomplete |
-| `complete`, `continuationToken`               | Whether the run finished. The token resumes it when it did not                                            |
-| `listRequests`                                | S3 requests made so far, across resumed calls                                                             |
-| `target`, `startedAt`, `measuredAt`           | `primary` or the target's `targetId`. When the first call started, and when this call finished            |
+| Field                                         | Description                                                                                                    |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `totals`                                      | `current`, `noncurrent`, `staging`, and `incompleteUploads` as `{ objects, bytes }`, plus `deleteMarkers`      |
+| `byWorkload`                                  | The same breakdown per `outlook`, `onedrive`, `sharepoint`, `teams`, `meta`, and `other`. Rows sum to `totals` |
+| `byOwner`                                     | With `breakdown: 'owner'`, rows of `{ workload, ownerId, totals }`, largest first                              |
+| `storedBytes`                                 | Current plus noncurrent plus incomplete upload parts                                                           |
+| `logicalBytesReferenced`                      | Logical bytes that all manifests reference. Set only on a complete run whose manifests could all be read       |
+| `logicalBytesByWorkload`                      | The same, per workload                                                                                         |
+| `versionsVisible`, `incompleteUploadsVisible` | `false` when the credentials cannot list versions or multipart uploads. Those figures are then incomplete      |
+| `complete`, `continuationToken`               | Whether the run finished. The token resumes it when it did not                                                 |
+| `listRequests`                                | S3 requests made so far, across resumed calls                                                                  |
+| `target`, `startedAt`, `measuredAt`           | `primary` or the target's `targetId`. When the first call started, and when this call finished                 |
 
 A run that stops early returns rather than throws, so a scheduler can store the token and continue on its next tick. A run that fails on an S3 error throws, and the error carries a token for the last page counted:
 
@@ -846,7 +873,7 @@ The compare-and-swap writes need a backend that honours `If-Match` and `If-None-
 - Restore, deletion, purge and key re-wrap assume nothing else is writing to the tenant. Run them alone.
 - Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them.
 
-**Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive` or `identity`. The optional `scope` is a `ThrottleScope`, `{ ownerId }`, set only for Outlook requests and carrying the normalized mailbox owner id. Drive, site, and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool. A 429 on one mailbox pauses only that mailbox's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook 429 as pool-wide.
+**Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive`, `identity`, or `teams`. The `teams` pool has its own cooldown, so a Teams throttle does not pause mail or drive requests. The optional `scope` is a `ThrottleScope`, `{ ownerId }`, set only for Outlook requests and carrying the normalized mailbox owner id. Drive and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool. A 429 on one mailbox pauses only that mailbox's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook 429 as pool-wide.
 
 Supply a `throttleCoordinator` when several processes back up the same tenant. Without it, each process only learns about the 429s it receives itself. `wait` runs before every attempt, so answer it from local state, for example a cached cooldown deadline, rather than a network round trip. Cooldowns must not be additive: a shorter `raise` never shortens a longer one already in force. A supplied coordinator fails open. If `wait` rejects, Atlas sends the request anyway, and if `raise` throws or returns a rejected promise, Atlas logs a warning and keeps backing off on Graph's own `Retry-After`. An outage in your shared state costs coordination, not the operation. Per-mailbox request windows and in-flight limits stay inside each instance whichever coordinator is used.
 
@@ -1003,7 +1030,7 @@ interface ServicePoolCost {
   uploadBytes: number; // Request body bytes. Relevant for the Outlook 150 MB per 5 minute limit
 }
 
-type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity';
+type GraphServicePool = 'outlook' | 'sharepoint_onedrive' | 'identity' | 'teams';
 ```
 
 `byService` lists only the pools the operation used. A mail backup usually has `outlook` and `identity` entries.
@@ -1147,8 +1174,8 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 
 - **Factories and values:** `createAtlasInstance`, `createStorageTarget`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`
 - **Instance types:** `AtlasInstance`, `AtlasInstanceConfig`, `LogSink`, `LogFields`, `ThrottleCoordinator`
-- **Sub-API types:** `OutlookApi`, `OneDriveApi`, `SharePointApi`
-- **Workload options and results:** the `Outlook*`, `OneDriveSdk*`, and `SharePointSdk*` types each API uses
+- **Sub-API types:** `OutlookApi`, `OneDriveApi`, `SharePointApi`, `TeamsApi`
+- **Workload options and results:** the `Outlook*`, `OneDriveSdk*`, `SharePointSdk*`, and `TeamsSdk*` types each API uses
 - **Operation control:** `SdkOperationOptions`, `OperationProgressEvent`, `OperationProgressCallback`, `OperationProgressPhase`
 - **Storage targets and usage:** `StorageTarget`, `StorageTargetConfig`, `StorageUsage`, `StorageUsageTotals`, `StorageOwnerUsage`, `StorageUsageOptions`, `StorageUsageBreakdown`, `StorageUsageWorkload`, `LogicalWorkload`
 - **Storage request events:** `StorageRequestEvent`, `StorageRequestObserver`, `StorageRequestWorkload`, `StorageKeyClass`

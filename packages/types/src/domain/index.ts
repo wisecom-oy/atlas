@@ -60,6 +60,19 @@ export type {
   SharePointVersionWatermark,
 } from './sharepoint-manifest';
 export type {
+  TeamsGraphResource,
+  TeamsThreadBlob,
+  TeamsStoredBlobRef,
+  TeamsHostedContentRef,
+  TeamsThreadEntry,
+  TeamsThreadListing,
+  TeamsChannelReadMode,
+  TeamsFilesFolderRef,
+  TeamsChannelEntry,
+  TeamsSnapshotManifest,
+  TeamsDeltaCursor,
+} from './teams-manifest';
+export type {
   GraphOperation,
   OperationCost,
   ServicePoolCost,

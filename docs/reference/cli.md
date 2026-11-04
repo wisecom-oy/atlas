@@ -872,6 +872,80 @@ Deletes the site's SharePoint backups behind a confirmation prompt. Without `-s`
 Backup and verification need the application permissions `Sites.Read.All` and `Files.Read.All`. Restore also needs `Sites.ReadWrite.All`.
 :::
 
+## atlas teams
+
+Back up Microsoft Teams channel messages, replies, membership, and tabs per team, using a Graph delta cursor for each channel. Blobs and manifests live under the `teams/` prefix of the tenant bucket. Teams backup targets a team by its Graph team ID. Restore and save are not yet available. See [Teams backup](../teams-backup.md).
+
+```bash
+atlas teams list-teams
+atlas teams backup --team <team-id>
+atlas teams backup --team <team-id> --team <other-team-id>
+atlas teams backup --all
+atlas teams backup --team <team-id> --channel <channel-id>
+atlas teams list-snapshots --team <team-id>
+atlas teams verify --team <team-id> -s <snapshot-id>
+atlas teams status
+atlas teams delete --team <team-id> -s <snapshot-id>
+atlas teams delete --team <team-id> -y
+```
+
+| Subcommand       | Description                                                                      |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `list-teams`     | List the teams the application can read                                          |
+| `backup`         | Incremental backup of one, several, or all teams. Exits `2` if any channel fails |
+| `list-snapshots` | List Teams snapshots for one team                                                |
+| `verify`         | Check that every blob a snapshot references is present and matches its SHA-256   |
+| `status`         | Show the last backup run recorded for each team in the tenant                    |
+| `delete`         | Delete one team's Teams backups, or one snapshot                                 |
+
+**`atlas teams backup`**
+
+| Option                 | Description                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `--team <id>`          | Team to back up. Repeat for several teams                                                          |
+| `--all`                | Back up every team the application can read                                                        |
+| `--channel <id>`       | Back up only this channel. Other channels carry forward from the previous manifest                 |
+| `--full`               | Force a full read, ignoring saved delta links                                                      |
+| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                        |
+| `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days` |
+| `-t, --tenant <id>`    | Override the tenant ID from config                                                                 |
+
+**`atlas teams list-snapshots`**
+
+| Option              | Description                        |
+| ------------------- | ---------------------------------- |
+| `--team <id>`       | Team ID (required)                 |
+| `-t, --tenant <id>` | Override the tenant ID from config |
+
+**`atlas teams verify`**
+
+| Option                | Description                        |
+| --------------------- | ---------------------------------- |
+| `--team <id>`         | Team ID (required)                 |
+| `-s, --snapshot <id>` | Snapshot to verify (required)      |
+| `-t, --tenant <id>`   | Override the tenant ID from config |
+
+**`atlas teams status`**
+
+| Option              | Description                        |
+| ------------------- | ---------------------------------- |
+| `-t, --tenant <id>` | Override the tenant ID from config |
+
+**`atlas teams delete`**
+
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team. With `-s`, only that snapshot is deleted.
+
+| Option                | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                |
+| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
+| `-y, --yes`           | Skip the confirmation prompt                      |
+| `-t, --tenant <id>`   | Override the tenant ID from config                |
+
+::: tip Permissions
+Teams backup uses seven Application permissions. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
+:::
+
 ## atlas storage-check
 
 Check whether the bucket can hold immutable backups, without running a backup. The command reports versioning, Object Lock status, and the bucket class:

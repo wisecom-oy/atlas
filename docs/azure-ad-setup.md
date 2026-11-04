@@ -38,6 +38,26 @@ OneDrive and SharePoint backups use their own permission sets, granted on the sa
 
 See [OneDrive backup](./onedrive-backup.md) and [SharePoint backup](./sharepoint-backup.md) for the commands that use them.
 
+## Teams application permissions
+
+Teams backup reads team structure, membership, and channel messages with these **Application** permissions. Grant all seven on the same app registration.
+
+| Permission                | Used for                                                    |
+| ------------------------- | ----------------------------------------------------------- |
+| `Team.ReadBasic.All`      | List teams and read team settings                           |
+| `TeamSettings.Read.All`   | Read team settings                                          |
+| `TeamMember.Read.All`     | List team members                                           |
+| `Channel.ReadBasic.All`   | List channels and tabs                                      |
+| `ChannelMember.Read.All`  | List channel members                                        |
+| `ChannelMessage.Read.All` | Read channel messages and replies. Protected API, see below |
+| `TeamsTab.Read.All`       | Read channel tabs                                           |
+
+::: warning ChannelMessage.Read.All may need Microsoft approval
+`ChannelMessage.Read.All` is a protected Microsoft Graph API. Microsoft may require approval of the app before Graph returns channel messages, even after admin consent. Request access at [https://aka.ms/teamsgraph/requestaccess](https://aka.ms/teamsgraph/requestaccess) before you schedule Teams backups.
+:::
+
+This permission exposes the text of every channel message in the tenant, including private channels. Treat it as the most sensitive permission on the app. See [Teams backup](./teams-backup.md) for what is stored.
+
 ## Security implications
 
 The client credentials flow has no user in the loop, so the secret carries the full risk:
