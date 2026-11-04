@@ -78,7 +78,7 @@ A `429` response includes `Retry-After`, the number of seconds to wait. Throttle
 
 Atlas handles a throttled response in two steps:
 
-1. The call that was throttled retries with exponential backoff, honouring `Retry-After`, for up to 12 retries. Retries and waits share one 24-minute budget.
+1. The call that was throttled retries with exponential backoff, honouring `Retry-After`, for up to 12 retries. Backoff and `Retry-After` waits share one 24-minute budget. Time spent inside each request does not count.
 2. The instance's throttle coordinator starts a cooldown for the pool the request was charged to, for the `Retry-After` window, or 30 seconds when Graph sends none. Every request to that pool waits for the cooldown before it sends, including each retry attempt.
 
 The coordinator keeps one cooldown per Outlook mailbox, and one per pool for `sharepoint_onedrive` and `identity`. A 429 on one mailbox pauses only that mailbox's requests, because Outlook limits are counted per mailbox. Other mailboxes keep sending. A 429 on a drive or site pauses the instance's other drive and site requests, which share one per-tenant budget. The cooldown does not cross pools. The cooldown starts on the first throttled response, so calls already in a retry loop see it between attempts.

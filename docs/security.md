@@ -315,6 +315,10 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 
 `purge_tenant` enumerates the whole bucket instead of a fixed list of prefixes. A prefix list falls behind when a workload is added, and it then erases less than reported. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that can neither be restored nor reported as erased.
 
+### Per-user erasure is not available for Teams
+
+Atlas cannot erase one person's Teams messages. A thread blob holds a whole thread, so a member's reply sits in the same blob as other members' messages, and Atlas has no operation that rewrites a blob. The erasure units are the snapshot manifest and the whole team. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
+
 ### Retained or failed
 
 A refused delete counts as **retained** only when the backend names Object Lock as the reason. AWS returns `AccessDenied: Access Denied because object protected by object lock`, and MinIO returns `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when retention expires.

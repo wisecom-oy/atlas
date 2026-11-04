@@ -276,7 +276,7 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 | -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
 | `listTeams()`                          | `atlas teams list-teams`                       | Teams the application can read, as Graph returns them                          |
 | `backup(teamId, options?)`             | `atlas teams backup --team <id>`               | Back up one team's channels. `options.channelId` limits the run to one channel |
-| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team                                                |
+| `listSnapshots(teamId)`                | `atlas teams list-snapshots --team <id>`       | Snapshot manifests for one team, as `{ manifests, unreadableKeys }`            |
 | `verify(teamId, snapshotId, options?)` | `atlas teams verify --team <id> -s <snapshot>` | Check every blob's size and SHA-256. `options.fast` checks existence only      |
 | `status()`                             | `atlas teams status`                           | Newest snapshot for each team in the tenant: creation time and ID              |
 | `delete(teamId, snapshotId?)`          | `atlas teams delete --team <id>`               | Delete all backed-up data for a team, or only one snapshot's manifest          |
@@ -284,7 +284,7 @@ See [OneDrive backup](/onedrive-backup) and [SharePoint backup](/sharepoint-back
 ```typescript
 const run = await atlas.teams.backup(teamId);
 if (!run.summary.healthy) {
-  // One or more channels failed. The other channels still ran.
+  // One or more channels failed, a ledger root is still listed, or the run was interrupted. The other channels still ran.
 }
 if (run.snapshot) {
   await atlas.teams.verify(teamId, run.snapshot.snapshotId);
@@ -398,7 +398,7 @@ Invalid options, and a token issued for a different tenant, target, or breakdown
 
 ## Progress and cancellation
 
-Every Outlook, OneDrive, and SharePoint `backup`, `restore`, `save`, and `verify` method accepts:
+Every Outlook, OneDrive, and SharePoint `backup`, `restore`, `save`, and `verify` method accepts the options below. Teams `backup` and `verify` accept them too:
 
 | Option       | Type                                      | Description                                                                              |
 | ------------ | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -470,6 +470,8 @@ Both return `interrupted: true` and keep the snapshot manifest written so far. `
 OneDrive and SharePoint accept `signal` only. It reaches the transfer itself: a cancelled run aborts the chunk request in flight, skips the retry backoff, and closes a historical version's stream. A file transfer is the long unit of work for these workloads, so no escalation signal is needed.
 
 Some operations cannot be cancelled mid-request. Small-file content under 64 MiB goes through the Graph SDK client, which is bounded by its own 60-second request timeout. Every mail operation also goes through that client. Cancelling those waits for the item in flight. The CLI has no equivalent for drive backups, so Ctrl+C there behaves as before.
+
+Teams `backup` stops waiting on the request in flight as soon as the signal fires, and it resolves with `interrupted: true`. Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is recorded as a failed attempt. Only the channel loop honors the signal. A signal fired during the team or channel lookups takes effect when the loop starts.
 
 ## Outlook options and results
 
@@ -869,7 +871,7 @@ The compare-and-swap writes need a backend that honours `If-Match` and `If-None-
 
 **What the host must guarantee.**
 
-- Never run two operations on the same mailbox, drive owner or site at once. Their cursors and staging objects collide. A SharePoint backup with `includeSubsites: true` also covers each subsite, so it must not overlap a backup of one of those subsites.
+- Never run two operations on the same mailbox, drive owner, site or team at once. Their cursors and staging objects collide. Each team's delta cursors live in one object, so concurrent backups of one team overwrite each other's cursors. A SharePoint backup with `includeSubsites: true` also covers each subsite, so it must not overlap a backup of one of those subsites.
 - Restore, deletion, purge and key re-wrap assume nothing else is writing to the tenant. Run them alone.
 - Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them.
 
@@ -1164,7 +1166,7 @@ try {
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
-`ThrottledError` is the exception to the camelCase rule. It exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries, when the next wait would pass the retry budget, or at once when `Retry-After` is longer than 5 minutes. Retries back off exponentially, capped at 5 minutes per wait. Retries, waits, and cooldowns share one 24-minute budget, so with no `Retry-After` they stop at about 24 minutes. The CLI exits with code `3` for this error.
+`ThrottledError` is the exception to the camelCase rule. It exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries, when the next wait would pass the retry budget, or at once when `Retry-After` is longer than 5 minutes. Retries back off exponentially, capped at 5 minutes per wait. Backoff waits, `Retry-After` waits, and cooldown waits share one 24-minute budget, so retries stop after about 24 minutes of waiting. Time spent inside a request does not count toward the budget. The CLI exits with code `3` for this error.
 
 `WrongPassphraseError` needs a note. AES-GCM reports a wrong key and damaged ciphertext as the same authentication failure. Atlas names the passphrase because it is the likelier cause and the only one an operator can act on. The raw crypto error stays in `cause`. If the passphrase is known to be correct for that tenant, treat the error as a possible integrity problem and run `atlas verify` on the snapshot.
 

@@ -892,7 +892,7 @@ atlas teams delete --team <team-id> -y
 | Subcommand       | Description                                                                              |
 | ---------------- | ---------------------------------------------------------------------------------------- |
 | `list-teams`     | List the teams the application can read                                                  |
-| `backup`         | Incremental backup of one, several, or all teams. Exits `2` on channel errors            |
+| `backup`         | Incremental backup of one, several, or all teams. Exits `2` when any team is unhealthy   |
 | `list-snapshots` | List Teams snapshots for one team                                                        |
 | `verify`         | Check that every blob a snapshot references is present and matches its SHA-256           |
 | `status`         | Show the newest snapshot for each team: creation time and ID                             |
@@ -905,12 +905,16 @@ atlas teams delete --team <team-id> -y
 | `--team <id>`          | Team to back up. Repeat for several teams                                                                |
 | `--all`                | Back up every team the application can read                                                              |
 | `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward |
-| `--full`               | Force a full read, ignoring saved delta links                                                            |
+| `--full`               | Force a full read: ignores saved delta links and cached files folders                                    |
 | `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                              |
 | `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
 | `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
 
+Ctrl+C stops the run and exits `2`. Threads already stored are kept, and the interrupted channel keeps its previous delta link.
+
 **`atlas teams list-snapshots`**
+
+Manifests Atlas cannot read are skipped and named in a warning with their storage keys. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
 
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |
@@ -933,7 +937,7 @@ atlas teams delete --team <team-id> -y
 
 **`atlas teams delete`**
 
-Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team. With `-s`, only that snapshot's manifest is deleted, and its blobs stay because later snapshots can reference them.
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team. With `-s`, only that snapshot's manifest is deleted, and its blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
 
 | Option                | Description                                       |
 | --------------------- | ------------------------------------------------- |
@@ -945,7 +949,7 @@ Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it 
 ::: tip Permissions
 Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
 
-A run with channel errors exits `2`. See [Failed channels](../teams-backup.md#failed-channels).
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check

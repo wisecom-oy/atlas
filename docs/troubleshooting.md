@@ -31,8 +31,8 @@ For any other AADSTS code, look it up in Microsoft's AADSTS error reference, the
 
 Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 504 under load. Atlas retries these automatically:
 
-- It honors the `Retry-After` header when Graph sends one. Without it, a 429 applies a 30-second cooldown.
-- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Retries, waits, and cooldowns share one 24-minute budget. A `Retry-After` longer than 5 minutes fails the call at once.
+- It honors the `Retry-After` header when Graph sends one. A value under one second is raised to 1 to 2 seconds. Without the header, a 429 applies a 30-second cooldown.
+- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Backoff waits, `Retry-After` waits, and cooldowns share one 24-minute budget of waiting. Time spent inside each request does not count. A `Retry-After` longer than 5 minutes fails the call at once.
 - If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
 
 Occasional 429 and 5xx responses during a large first backup need no action.
