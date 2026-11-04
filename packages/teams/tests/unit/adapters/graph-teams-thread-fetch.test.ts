@@ -12,7 +12,7 @@ vi.mock('@/adapters/graph-teams-request', () => ({
   graph_teams_call: vi.fn(),
 }));
 
-const TEAM = 'team-1';
+const TEAM = '00000000-0000-0000-0000-000000000001';
 const CHANNEL = 'channel-1';
 const ROOT = 'root-1';
 

@@ -11,16 +11,27 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 
-/** Keeps the newest manifest per team. */
-function latest_per_team(manifests: TeamsSnapshotManifest[]): TeamsSnapshotManifest[] {
-  const latest = new Map<string, TeamsSnapshotManifest>();
-  for (const manifest of manifests) {
-    const current = latest.get(manifest.team_id);
-    if (current === undefined || manifest.created_at.getTime() > current.created_at.getTime()) {
-      latest.set(manifest.team_id, manifest);
-    }
+/** Maps a team's newest readable manifest to its status row. A team with none reports no backup. */
+function team_status(
+  team_id: string,
+  manifest: TeamsSnapshotManifest | undefined,
+): TeamsTeamStatus {
+  if (manifest === undefined) {
+    return {
+      team_id,
+      team_display_name: undefined,
+      last_backup_at: undefined,
+      last_snapshot_id: undefined,
+      total_channels: 0,
+    };
   }
-  return [...latest.values()];
+  return {
+    team_id,
+    team_display_name: manifest.team_display_name,
+    last_backup_at: manifest.created_at,
+    last_snapshot_id: manifest.snapshot_id,
+    total_channels: manifest.channels.length,
+  };
 }
 
 @injectable()
@@ -32,21 +43,14 @@ export class TeamsStatusService implements TeamsStatusUseCase {
   ) {}
 
   /**
-   * Reports the last backup run recorded for each team in the tenant, from the manifests.
-   * ponytail: decrypts every manifest to find the newest per team; a per-team listing upgrades
-   * this when tenants hold many snapshots.
+   * Reports the newest readable backup run for each team in the tenant. Only one manifest per
+   * team is decrypted, so the cost does not grow with the number of snapshots.
    */
   async check_teams_status(tenant_id: string): Promise<TeamsTeamStatus[]> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = await this._manifests.list_all_manifests(ctx);
-      return latest_per_team(manifests).map((manifest) => ({
-        team_id: manifest.team_id,
-        team_display_name: manifest.team_display_name,
-        last_backup_at: manifest.created_at,
-        last_snapshot_id: manifest.snapshot_id,
-        total_channels: manifest.channels.length,
-      }));
+      const latest = await this._manifests.list_latest_per_team(ctx);
+      return latest.map(({ team_id, manifest }) => team_status(team_id, manifest));
     } finally {
       ctx.destroy();
     }

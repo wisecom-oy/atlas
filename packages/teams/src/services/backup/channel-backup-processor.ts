@@ -8,7 +8,7 @@ import { error_message } from '@/services/shared/error-message';
 /** What one channel backup produced: its entry, the delta link to store, and what went wrong. */
 export interface ChannelBackupOutput {
   readonly entry: TeamsChannelEntry;
-  /** Fresh link when the channel completed, otherwise the previous link so the next run re-reads. */
+  /** Fresh link when the channel completed, otherwise the stored link so the next run re-reads. */
   readonly next_link: string | undefined;
   readonly complete: boolean;
   readonly interrupted: boolean;
@@ -17,24 +17,32 @@ export interface ChannelBackupOutput {
   readonly warnings: string[];
 }
 
+/** The Files folder fields of a channel entry, as resolved for this run. */
+interface FilesFolderState {
+  readonly files_folder: TeamsChannelEntry['files_folder'];
+  readonly files_folder_unavailable: true | undefined;
+}
+
 /**
- * Backs up one channel: its metadata, then its root changes. A channel with a failed root or an
- * interruption keeps its previous delta link, so the next run presents those roots again.
+ * Backs up one channel: its metadata, then its root changes. `stored_link` is the delta link from
+ * the previous run. `--full` reads every root instead of following it. A channel with a failed root
+ * or an interruption keeps the stored link, so the next run presents those roots again.
  */
 export async function backup_channel(
   scope: BackupRunScope,
   channel: TeamsGraphResource,
   previous: TeamsChannelEntry | undefined,
-  prev_link: string | undefined,
+  stored_link: string | undefined,
   ledger: FailedItemLedger,
 ): Promise<ChannelBackupOutput> {
   const { tenant_id, team_id } = scope;
   const warnings: string[] = [];
   const members = await scope.connector.list_channel_members(tenant_id, team_id, channel.id);
   const tabs = await scope.connector.list_channel_tabs(tenant_id, team_id, channel.id);
-  const files_folder = await resolve_files_folder(scope, channel.id, previous, warnings);
+  const folder = await resolve_files_folder(scope, channel.id, previous, warnings);
   const shared_with_teams = await resolve_shared_teams(scope, channel, previous, warnings);
-  const read = await read_channel_roots(scope, channel, prev_link);
+  const read = await read_channel_roots(scope, channel, scope.force_full ? undefined : stored_link);
+  if (read.is_full) scope.counters.channels_full_read++;
   const applied = await apply_root_changes(
     scope,
     channel.id,
@@ -49,14 +57,15 @@ export async function backup_channel(
     channel,
     members,
     tabs,
-    files_folder,
+    files_folder: folder.files_folder,
+    files_folder_unavailable: folder.files_folder_unavailable,
     shared_with_teams,
     read_mode: read.is_full ? 'full' : 'delta',
     threads: applied.threads,
   };
   return {
     entry,
-    next_link: complete ? read.link : prev_link,
+    next_link: complete ? read.link : stored_link,
     complete,
     interrupted: applied.interrupted,
     failed_roots: applied.failed_roots,
@@ -65,27 +74,43 @@ export async function backup_channel(
   };
 }
 
-/** Reuses the stored files folder unless `--full`. A lookup failure keeps the previous value. */
+/**
+ * Reuses the stored files folder, or the stored unavailable marker, unless `--full`. A 403 sets the
+ * marker so the lookup is not repeated every run. A lookup error keeps the previous state.
+ */
 async function resolve_files_folder(
   scope: BackupRunScope,
   channel_id: string,
   previous: TeamsChannelEntry | undefined,
   warnings: string[],
-): Promise<TeamsChannelEntry['files_folder']> {
+): Promise<FilesFolderState> {
   if (!scope.force_full && previous?.files_folder !== undefined) {
-    return previous.files_folder;
+    return { files_folder: previous.files_folder, files_folder_unavailable: undefined };
+  }
+  if (!scope.force_full && previous?.files_folder_unavailable === true) {
+    return { files_folder: undefined, files_folder_unavailable: true };
   }
   try {
-    return await scope.connector.get_channel_files_folder(
+    const found = await scope.connector.get_channel_files_folder(
       scope.tenant_id,
       scope.team_id,
       channel_id,
     );
+    if (found === 'unavailable') {
+      warnings.push(
+        `Channel ${channel_id}: files folder not accessible (403); not retried until a --full run`,
+      );
+      return { files_folder: undefined, files_folder_unavailable: true };
+    }
+    return { files_folder: found, files_folder_unavailable: undefined };
   } catch (err) {
     warnings.push(
       `Channel ${channel_id}: files folder not resolved (${error_message(err)}); kept the previous value`,
     );
-    return previous?.files_folder;
+    return {
+      files_folder: previous?.files_folder,
+      files_folder_unavailable: previous?.files_folder_unavailable,
+    };
   }
 }
 

@@ -1,6 +1,6 @@
 import { inject, injectable } from 'inversify';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GRAPH_CLIENT_TOKEN } from '@wisecom/atlas-m365-graph';
+import { GRAPH_CLIENT_TOKEN, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type {
   TeamsConnector,
   TeamsFilesFolderRef,
@@ -43,7 +43,10 @@ export class GraphTeamsConnector implements TeamsConnector {
   /** Fetches one team with its settings. */
   async get_team(_tenant_id: string, team_id: string): Promise<TeamsGraphResource> {
     return graph_teams_call(
-      () => this._client.api(`/teams/${team_id}`).get() as Promise<TeamsGraphResource>,
+      () =>
+        this._client
+          .api(`/teams/${encodeURIComponent(team_id)}`)
+          .get() as Promise<TeamsGraphResource>,
     );
   }
 
@@ -51,7 +54,7 @@ export class GraphTeamsConnector implements TeamsConnector {
   async list_team_members(_tenant_id: string, team_id: string): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${team_id}/members`,
+      `/teams/${encodeURIComponent(team_id)}/members`,
     );
     return items;
   }
@@ -60,7 +63,7 @@ export class GraphTeamsConnector implements TeamsConnector {
   async list_channels(_tenant_id: string, team_id: string): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${team_id}/channels`,
+      `/teams/${encodeURIComponent(team_id)}/channels`,
     );
     return items;
   }
@@ -73,7 +76,7 @@ export class GraphTeamsConnector implements TeamsConnector {
   ): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${team_id}/channels/${channel_id}/members`,
+      `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/members`,
     );
     return items;
   }
@@ -86,7 +89,7 @@ export class GraphTeamsConnector implements TeamsConnector {
   ): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${team_id}/channels/${channel_id}/tabs?$expand=teamsApp`,
+      `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/tabs?$expand=teamsApp`,
     );
     return items;
   }
@@ -99,30 +102,36 @@ export class GraphTeamsConnector implements TeamsConnector {
   ): Promise<TeamsGraphResource[]> {
     const { items } = await read_all_pages<TeamsGraphResource>(
       this._client,
-      `/teams/${team_id}/channels/${channel_id}/sharedWithTeams`,
+      `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/sharedWithTeams`,
     );
     return items;
   }
 
   /**
    * Resolves the channel's Files folder to its SharePoint drive item. Resolves undefined when
-   * Graph has no folder for the channel (404).
+   * Graph has no folder for the channel (404), and `unavailable` when the app is refused it (403).
+   * Calls `with_graph_retry` directly, not `graph_teams_call`, so a 403 is a per-channel gap and
+   * does not fail the run with the Teams permission hint.
    */
   async get_channel_files_folder(
     _tenant_id: string,
     team_id: string,
     channel_id: string,
-  ): Promise<TeamsFilesFolderRef | undefined> {
+  ): Promise<TeamsFilesFolderRef | 'unavailable' | undefined> {
     let folder: GraphFilesFolder;
     try {
-      folder = await graph_teams_call(
+      folder = await with_graph_retry(
         () =>
           this._client
-            .api(`/teams/${team_id}/channels/${channel_id}/filesFolder`)
+            .api(
+              `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/filesFolder`,
+            )
             .get() as Promise<GraphFilesFolder>,
       );
     } catch (err) {
-      if (graph_status_of(err) === 404) return undefined;
+      const status = graph_status_of(err);
+      if (status === 404) return undefined;
+      if (status === 403) return 'unavailable';
       throw err;
     }
     const drive_id = folder.parentReference?.driveId;

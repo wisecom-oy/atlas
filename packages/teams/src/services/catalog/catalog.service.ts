@@ -15,6 +15,7 @@ import {
   TEAMS_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
+import { normalize_team_id } from '@/services/shared/team-id';
 
 @injectable()
 export class TeamsCatalogService implements TeamsCatalogUseCase {
@@ -33,7 +34,7 @@ export class TeamsCatalogService implements TeamsCatalogUseCase {
   /** Lists the snapshot manifests recorded for a team, newest first. */
   async list_teams_snapshots(tenant_id: string, team_id: string): Promise<TeamsSnapshotManifest[]> {
     return this.with_readonly_ctx(tenant_id, (ctx) =>
-      this._manifests.list_snapshots_by_team(ctx, team_id),
+      this._manifests.list_snapshots_by_team(ctx, normalize_team_id(team_id)),
     );
   }
 
@@ -44,7 +45,11 @@ export class TeamsCatalogService implements TeamsCatalogUseCase {
     snapshot_id: string,
   ): Promise<TeamsThreadListing[]> {
     return this.with_readonly_ctx(tenant_id, async (ctx) => {
-      const manifest = await this._manifests.find_by_snapshot(ctx, team_id, snapshot_id);
+      const manifest = await this._manifests.find_by_snapshot(
+        ctx,
+        normalize_team_id(team_id),
+        snapshot_id,
+      );
       if (manifest === undefined) {
         throw new NotFoundError(`Teams snapshot ${snapshot_id} not found for team ${team_id}`);
       }

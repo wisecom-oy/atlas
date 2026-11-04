@@ -1,6 +1,10 @@
 import { is_invalid_delta_error } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import type { TeamsGraphResource, TeamsRootChange } from '@wisecom/atlas-types';
+import type {
+  TeamsGraphResource,
+  TeamsMessageDeltaResult,
+  TeamsRootChange,
+} from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import { graph_status_of } from '@/services/shared/graph-error-status';
 
@@ -60,17 +64,37 @@ async function read_full(
   if (!has_email) {
     return { changes: listed, link: undefined, is_full: true };
   }
-  const delta = await scope.connector.fetch_message_delta(
-    scope.tenant_id,
-    scope.team_id,
-    channel_id,
-    undefined,
-  );
+  const delta = await read_delta_without_link(scope, channel_id);
+  if (delta === undefined) {
+    return { changes: listed, link: undefined, is_full: true };
+  }
   return {
     changes: merge_root_changes(listed, delta.roots),
     link: delta.delta_link,
     is_full: true,
   };
+}
+
+/**
+ * Takes the link-less delta read that seeds the next run's link. Graph can reject it (400 or an
+ * invalid delta), in which case the caller keeps the listed roots and stores no link.
+ */
+async function read_delta_without_link(
+  scope: BackupRunScope,
+  channel_id: string,
+): Promise<TeamsMessageDeltaResult | undefined> {
+  try {
+    return await scope.connector.fetch_message_delta(
+      scope.tenant_id,
+      scope.team_id,
+      channel_id,
+      undefined,
+    );
+  } catch (err) {
+    if (graph_status_of(err) !== 400 && !is_invalid_delta_error(err)) throw err;
+    logger.warn(`Teams channel ${channel_id}: delta without a link rejected, no link stored`);
+    return undefined;
+  }
 }
 
 /** One change per root id. The delta read's version wins over the full read's. */

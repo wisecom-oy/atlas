@@ -8,7 +8,7 @@ vi.mock('@/adapters/graph-teams-request', () => ({
 }));
 
 const CLIENT = {} as Client;
-const TEAM = 'team-1';
+const TEAM = '00000000-0000-0000-0000-000000000001';
 const CHANNEL = 'channel-1';
 const EXPANDED_QUERY = '$top=50&$expand=replies';
 

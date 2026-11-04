@@ -83,6 +83,8 @@ export interface TeamsChannelEntry {
   /** Raw Graph `teamsTab` objects, with `teamsApp` expanded. */
   readonly tabs: TeamsGraphResource[];
   readonly files_folder?: TeamsFilesFolderRef | undefined;
+  /** Set when Graph refused the Files folder (403). Not retried until a `--full` run. */
+  readonly files_folder_unavailable?: true | undefined;
   /** Set when Graph reports the channel gone. The entry is kept and its delta link dropped. */
   readonly deleted_at?: string | undefined;
   /** Teams a shared channel is shared with, from `/channels/{id}/sharedWithTeams`. */
@@ -111,11 +113,13 @@ export interface TeamsSnapshotManifest {
 /** Per-team delta state. Saved only after the manifest that the links were read against. */
 export interface TeamsDeltaCursor {
   readonly team_id: string;
+  /** `snapshot_id` of the manifest the links were read against. A mismatch forces a full read. */
+  readonly snapshot_id?: string | undefined;
   /** Message delta link per channel ID. Absent for a channel that must be read in full. */
   readonly delta_link_by_channel: Record<string, string>;
   /**
-   * Roots whose backup failed, keyed by root ID, with their attempt count. `drive_id` holds the
-   * channel ID. A channel with an unexhausted record keeps its previous link and retries.
+   * Roots whose backup failed, keyed by `${channel_id}/${root_id}`, with their attempt count.
+   * `drive_id` holds the channel ID. A channel with an unexhausted record keeps its previous link.
    */
   readonly failed_roots?: FailedItemLedger | undefined;
   readonly updated_at: string;

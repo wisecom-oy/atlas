@@ -1,27 +1,22 @@
-import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import type {
   TeamsGraphResource,
-  TeamsHostedContentRef,
-  TeamsMessageLocator,
   TeamsRootChange,
   TeamsStoredBlobRef,
-  TeamsThreadBlob,
   TeamsThreadEntry,
 } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
-import { TEAMS_KEYS, teams_hosted_content_key } from '@/services/shared/storage-keys';
-
-/** A thread blob ready to store: its plaintext, digest, and the key it is stored under. */
-interface DigestedBlob {
-  readonly plaintext: Buffer;
-  readonly checksum: string;
-  readonly storage_key: string;
-}
+import { same_hosted_refs, store_hosted_contents } from '@/services/backup/thread-hosted-store';
+import {
+  digest_thread_blob,
+  thread_blobs_present,
+  write_blob,
+} from '@/services/backup/thread-blob-writer';
 
 /**
  * Stores one changed root and returns its entry. A root Graph reports with `deletedDateTime`
  * gets a tombstone blob and no hosted-content calls. A live root whose digest matches the previous
- * entry keeps that entry, so unchanged threads are not uploaded again.
+ * entry keeps that entry while its blobs are still in storage, so unchanged threads are not
+ * uploaded again. `--full` rewrites every blob it reads.
  */
 export async function store_thread(
   scope: BackupRunScope,
@@ -66,10 +61,26 @@ async function store_tombstone(
   previous: TeamsThreadEntry | undefined,
 ): Promise<TeamsThreadEntry> {
   const digest = digest_thread_blob(scope, { root, replies });
-  await put_once(scope, digest.storage_key, digest.plaintext);
+  const same_tombstone =
+    previous !== undefined &&
+    previous.deleted_at !== undefined &&
+    previous.checksum === digest.checksum;
+  if (
+    previous !== undefined &&
+    same_tombstone &&
+    !scope.force_full &&
+    (await thread_blobs_present(scope, previous))
+  ) {
+    scope.counters.threads_deduplicated++;
+    return previous;
+  }
+  await write_blob(scope, digest.storage_key, digest.plaintext, scope.force_full);
   scope.counters.threads_stored++;
   if (previous?.deleted_at === undefined) {
     scope.counters.threads_deleted++;
+  }
+  if (previous !== undefined && same_tombstone) {
+    return previous;
   }
   return {
     storage_key: digest.storage_key,
@@ -93,13 +104,22 @@ async function store_live_thread(
   previous: TeamsThreadEntry | undefined,
 ): Promise<TeamsThreadEntry> {
   const digest = digest_thread_blob(scope, { root, replies });
-  if (previous?.checksum === digest.checksum) {
+  const same_content = previous !== undefined && previous.checksum === digest.checksum;
+  if (
+    previous !== undefined &&
+    same_content &&
+    !scope.force_full &&
+    (await thread_blobs_present(scope, previous))
+  ) {
     scope.counters.threads_deduplicated++;
     return { ...previous, deleted_at: undefined, last_live: undefined };
   }
   const hosted = await store_hosted_contents(scope, channel_id, root, replies, previous);
-  await put_once(scope, digest.storage_key, digest.plaintext);
+  await write_blob(scope, digest.storage_key, digest.plaintext, scope.force_full);
   scope.counters.threads_stored++;
+  if (previous !== undefined && same_content && same_hosted_refs(previous.hosted, hosted)) {
+    return { ...previous, deleted_at: undefined, last_live: undefined };
+  }
   return {
     storage_key: digest.storage_key,
     checksum: digest.checksum,
@@ -110,74 +130,6 @@ async function store_live_thread(
     hosted,
     backup_at: scope.backup_at,
   };
-}
-
-/**
- * Stores hosted contents referenced by the root or a live reply. Messages whose body and
- * attachments do not mention `/hostedContents/` are not listed. An item already recorded on the
- * previous entry is reused, because Graph hosted-content IDs do not change content.
- */
-async function store_hosted_contents(
-  scope: BackupRunScope,
-  channel_id: string,
-  root: TeamsGraphResource,
-  replies: TeamsGraphResource[],
-  previous: TeamsThreadEntry | undefined,
-): Promise<Record<string, TeamsHostedContentRef>> {
-  const targets: Array<{ message: TeamsGraphResource; locator: TeamsMessageLocator }> = [
-    { message: root, locator: { team_id: scope.team_id, channel_id, root_id: root.id } },
-    ...replies
-      .filter((reply) => !reply.deletedDateTime)
-      .map((reply) => ({
-        message: reply,
-        locator: { team_id: scope.team_id, channel_id, root_id: root.id, reply_id: reply.id },
-      })),
-  ];
-  const hosted: Record<string, TeamsHostedContentRef> = {};
-  for (const { message, locator } of targets) {
-    const references = JSON.stringify({ body: message.body, attachments: message.attachments });
-    if (!references.includes('/hostedContents/')) {
-      continue;
-    }
-    const items = await scope.connector.list_hosted_contents(scope.tenant_id, locator);
-    for (const item of items) {
-      hosted[item.id] =
-        previous?.hosted[item.id] ?? (await store_hosted_content(scope, locator, item));
-    }
-  }
-  return hosted;
-}
-
-async function store_hosted_content(
-  scope: BackupRunScope,
-  locator: TeamsMessageLocator,
-  item: TeamsGraphResource,
-): Promise<TeamsHostedContentRef> {
-  const bytes = await scope.connector.download_hosted_content(scope.tenant_id, locator, item.id);
-  const { checksum, content_name } = compute_content_digests(scope.ctx, bytes);
-  const storage_key = teams_hosted_content_key(scope.team_id, content_name);
-  await put_once(scope, storage_key, bytes);
-  scope.counters.hosted_content_stored++;
-  const content_type = typeof item.contentType === 'string' ? item.contentType : undefined;
-  return { storage_key, checksum, size_bytes: bytes.length, content_type };
-}
-
-function digest_thread_blob(scope: BackupRunScope, blob: TeamsThreadBlob): DigestedBlob {
-  const plaintext = Buffer.from(JSON.stringify(blob), 'utf-8');
-  const { checksum, content_name } = compute_content_digests(scope.ctx, plaintext);
-  return { plaintext, checksum, storage_key: TEAMS_KEYS.data_key(scope.team_id, content_name) };
-}
-
-/** Uploads a blob unless its content-addressed key already exists in storage. */
-async function put_once(
-  scope: BackupRunScope,
-  storage_key: string,
-  plaintext: Buffer,
-): Promise<void> {
-  if (await scope.ctx.storage.exists(storage_key)) {
-    return;
-  }
-  await scope.ctx.storage.put(storage_key, scope.ctx.encrypt(plaintext, storage_key));
 }
 
 /** The last live blob: the entry's own blob while it is live, otherwise the one it kept. */

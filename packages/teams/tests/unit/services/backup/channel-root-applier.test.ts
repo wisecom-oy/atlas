@@ -38,7 +38,7 @@ function scope_with(should_interrupt = (): boolean => false): BackupRunScope {
     ctx: {} as TenantContext,
     connector: {} as BackupRunScope['connector'],
     tenant_id: 'tenant-1',
-    team_id: 'team-1',
+    team_id: '00000000-0000-0000-0000-000000000001',
     backup_at: BACKUP_AT,
     counters: create_backup_counters(),
     should_interrupt,
@@ -80,8 +80,8 @@ describe('apply_root_changes', () => {
     );
 
     expect(out.threads['root-1']).toEqual(thread('old'));
-    expect(out.failed_roots['root-1']).toMatchObject({
-      item_id: 'root-1',
+    expect(out.failed_roots['channel-1/root-1']).toMatchObject({
+      item_id: 'channel-1/root-1',
       drive_id: 'channel-1',
       reason: 'upload refused',
       attempts: 1,
@@ -90,6 +90,31 @@ describe('apply_root_changes', () => {
   });
 
   it('clears the ledger entry of a root that now succeeds', async () => {
+    const ledger: FailedItemLedger = {
+      'channel-1/root-1': {
+        item_id: 'channel-1/root-1',
+        drive_id: 'channel-1',
+        name: 'root-1',
+        reason: 'old failure',
+        attempts: 2,
+        first_failed_at: BACKUP_AT,
+        last_failed_at: BACKUP_AT,
+      },
+    };
+
+    const out = await apply_root_changes(
+      scope_with(),
+      'channel-1',
+      delta_read([live('root-1')]),
+      {},
+      ledger,
+    );
+
+    expect(out.failed_roots).not.toHaveProperty('channel-1/root-1');
+    expect(out.threads['root-1']).toEqual(thread('root-1'));
+  });
+
+  it('re-keys a legacy ledger entry to its channel and clears it once the root succeeds', async () => {
     const ledger: FailedItemLedger = {
       'root-1': {
         item_id: 'root-1',
@@ -110,8 +135,7 @@ describe('apply_root_changes', () => {
       ledger,
     );
 
-    expect(out.failed_roots).not.toHaveProperty('root-1');
-    expect(out.threads['root-1']).toEqual(thread('root-1'));
+    expect(out.failed_roots).toEqual({});
   });
 
   it('marks a previous root removed when a full read no longer lists it', async () => {

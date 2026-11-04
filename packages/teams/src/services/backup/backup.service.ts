@@ -1,5 +1,4 @@
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
-import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import {
   begin_operation_progress,
@@ -29,12 +28,15 @@ import {
   merge_channel_entries,
   split_owned_channels,
 } from '@/services/backup/channel-entry-merger';
+import { keep_ledger_for_channels } from '@/services/backup/backup-manifest-builder';
+import { load_team_baseline, type TeamsBaseline } from '@/services/backup/team-baseline-loader';
 import { process_channels, type ChannelRunState } from '@/services/backup/channel-run-loop';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
   persist_team_snapshot,
   type SnapshotPersistResult,
 } from '@/services/backup/team-snapshot-persister';
+import { normalize_team_id } from '@/services/shared/team-id';
 
 @injectable()
 export class TeamsBackupService implements TeamsBackupUseCase {
@@ -56,7 +58,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     team_id: string,
     options: TeamsBackupOptions = {},
   ): Promise<TeamsBackupResult> {
-    const normalized_team_id = normalize_owner_id(team_id);
+    const normalized_team_id = normalize_team_id(team_id);
     if (begin_operation_progress(options, 'backup', 'teams')) {
       finish_operation_progress(options, 'backup', 'teams', 0, 0);
       return empty_result(normalized_team_id);
@@ -77,18 +79,17 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     options: TeamsBackupOptions,
   ): Promise<TeamsBackupResult> {
     const backup_at = new Date();
-    const stored_cursor = await this._cursors.load(ctx, team_id);
-    const previous = await this._manifests.find_latest_by_team(ctx, team_id);
+    const baseline = await load_team_baseline(
+      ctx,
+      { manifests: this._manifests, cursors: this._cursors },
+      team_id,
+    );
     const team = await this._connector.get_team(tenant_id, team_id);
     const members = await this._connector.list_team_members(tenant_id, team_id);
     const all_channels = await this._connector.list_channels(tenant_id, team_id);
-    const { owned, warnings: ownership_warnings } = split_owned_channels(all_channels, tenant_id);
-    emit_operation_progress(options, {
-      operation: 'backup',
-      workload: 'teams',
-      phase: 'processing',
-      processed: 0,
-    });
+    const team_tenant = typeof team.tenantId === 'string' ? team.tenantId : tenant_id;
+    const { owned, warnings: ownership_warnings } = split_owned_channels(all_channels, team_tenant);
+    emit_backup_progress(options, 'processing', 0);
     const scope: BackupRunScope = {
       ctx,
       connector: this._connector,
@@ -103,25 +104,23 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       scope,
       owned,
       {
-        previous_channels: previous?.channels,
-        stored_links: stored_cursor?.delta_link_by_channel ?? {},
+        previous_channels: baseline.previous?.channels,
+        stored_links: baseline.cursor?.delta_link_by_channel ?? {},
         options,
       },
-      stored_cursor?.failed_roots ?? {},
+      baseline.failed_roots,
     );
+    const channel_ids = new Set(all_channels.map((c) => c.id));
+    apply_baseline_findings(state, baseline);
     state.errors.push(...missing_channel_errors(options.channel_id, all_channels, team_id));
+    state.ledger = keep_ledger_for_channels(state.ledger, channel_ids);
     const channels = merge_channel_entries({
       channels: all_channels,
       processed: state.entries,
-      previous: previous?.channels,
+      previous: baseline.previous?.channels,
       backup_at: backup_at.toISOString(),
     });
-    emit_operation_progress(options, {
-      operation: 'backup',
-      workload: 'teams',
-      phase: 'finalizing',
-      processed: state.attempted,
-    });
+    emit_backup_progress(options, 'finalizing', state.attempted);
     const persisted = await persist_team_snapshot(
       ctx,
       { manifests: this._manifests, cursors: this._cursors },
@@ -133,9 +132,9 @@ export class TeamsBackupService implements TeamsBackupUseCase {
         team,
         members,
         channels,
-        previous,
+        previous: baseline.previous,
         links: state.links,
-        channel_ids: new Set(all_channels.map((c) => c.id)),
+        channel_ids,
         failed_roots: state.ledger,
       },
     );
@@ -147,6 +146,21 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       summary: summarize_run(scope, state, ownership_warnings, persisted),
     };
   }
+}
+
+/** Reports a backup phase to the progress callback. */
+function emit_backup_progress(
+  options: TeamsBackupOptions,
+  phase: 'processing' | 'finalizing',
+  processed: number,
+): void {
+  emit_operation_progress(options, { operation: 'backup', workload: 'teams', phase, processed });
+}
+
+/** Adds the baseline's load errors and warnings to the run state. */
+function apply_baseline_findings(state: ChannelRunState, baseline: TeamsBaseline): void {
+  state.errors.push(...baseline.errors);
+  state.warnings.push(...baseline.warnings);
 }
 
 function empty_result(team_id: string): TeamsBackupResult {
@@ -166,22 +180,28 @@ function empty_result(team_id: string): TeamsBackupResult {
   };
 }
 
-/** Builds the run summary from the channel loop state and the snapshot step's result. */
+/**
+ * Builds the run summary from the channel loop state and the snapshot step's result. A run is
+ * healthy only when it finished, failed no channel, and left no failed root behind. Only a healthy
+ * run reports why it wrote no snapshot.
+ */
 function summarize_run(
   scope: BackupRunScope,
   state: ChannelRunState,
   ownership_warnings: string[],
   persisted: SnapshotPersistResult,
 ): TeamsBackupSummary {
+  const healthy =
+    !state.interrupted && state.errors.length === 0 && Object.keys(state.ledger).length === 0;
   return {
     channels_scanned: state.attempted,
     ...scope.counters,
     cursor_updated: true,
     snapshot_created: persisted.manifest !== undefined,
-    no_snapshot_reason: persisted.no_snapshot_reason,
+    no_snapshot_reason: healthy ? persisted.no_snapshot_reason : undefined,
     errors: state.errors,
     warnings: [...ownership_warnings, ...state.warnings, ...describe_failed_items(state.ledger)],
-    healthy: !state.interrupted && state.errors.length === 0,
+    healthy,
   };
 }
 

@@ -13,6 +13,7 @@ import {
   build_teams_cursor,
   build_teams_manifest,
 } from '@/services/backup/backup-manifest-builder';
+import { canonical_json } from '@/services/shared/canonical-json';
 
 /** The content a snapshot records for a team. */
 export interface SnapshotContent {
@@ -27,8 +28,11 @@ export interface SnapshotPersistInput extends SnapshotContent {
   readonly team_id: string;
   readonly team_display_name: string | undefined;
   readonly backup_at: Date;
-  /** The previous snapshot, if any, used to detect a run that changed nothing. */
-  readonly previous: SnapshotContent | undefined;
+  /**
+   * The latest readable snapshot, if any. Detects a run that changed nothing and names the
+   * cursor's snapshot.
+   */
+  readonly previous: TeamsSnapshotManifest | undefined;
   readonly links: Record<string, string>;
   readonly channel_ids: ReadonlySet<string>;
   readonly failed_roots: FailedItemLedger;
@@ -66,7 +70,9 @@ export function snapshot_skip_reason(
 
 /**
  * Saves the snapshot manifest when the run changed something, then always saves the cursor that
- * points past it (#339). A manifest save failure leaves the cursor where it was.
+ * points past it (#339). The cursor names the snapshot it was read against, so the next run only
+ * trusts its links when that snapshot is still the latest. A manifest save failure leaves the
+ * cursor where it was.
  */
 export async function persist_team_snapshot(
   ctx: TenantContext,
@@ -88,13 +94,16 @@ export async function persist_team_snapshot(
     });
     await ports.manifests.save(ctx, manifest);
   }
-  const cursor = build_teams_cursor(
-    input.team_id,
-    input.links,
-    input.channel_ids,
-    input.backup_at.toISOString(),
-    input.failed_roots,
-  );
+  const cursor = {
+    ...build_teams_cursor(
+      input.team_id,
+      input.links,
+      input.channel_ids,
+      input.backup_at.toISOString(),
+      input.failed_roots,
+    ),
+    snapshot_id: manifest?.snapshot_id ?? input.previous?.snapshot_id,
+  };
   await ports.cursors.save(ctx, cursor);
   return { manifest, no_snapshot_reason: reason };
 }
@@ -106,7 +115,7 @@ export async function persist_team_snapshot(
  * unchanged run look changed.
  */
 function snapshot_fingerprint(content: SnapshotContent): string {
-  return JSON.stringify({
+  return canonical_json({
     team: content.team,
     members: sort_by_id(content.members),
     channels: content.channels.map((channel) => ({

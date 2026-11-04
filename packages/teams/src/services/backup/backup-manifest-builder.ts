@@ -5,6 +5,7 @@ import type {
   TeamsGraphResource,
   TeamsSnapshotManifest,
 } from '@wisecom/atlas-types';
+import { thread_stored_blobs } from '@/services/shared/thread-blobs';
 
 /** Inputs for the manifest a run writes. */
 export interface ManifestInput {
@@ -23,9 +24,7 @@ export function build_teams_manifest(input: ManifestInput): TeamsSnapshotManifes
   const threads = input.channels.flatMap((channel) => Object.values(channel.threads));
   const total_size_bytes = threads.reduce(
     (sum, thread) =>
-      sum +
-      thread.size_bytes +
-      Object.values(thread.hosted).reduce((hosted_sum, item) => hosted_sum + item.size_bytes, 0),
+      sum + thread_stored_blobs(thread).reduce((blob_sum, blob) => blob_sum + blob.size_bytes, 0),
     0,
   );
   return {
@@ -43,7 +42,23 @@ export function build_teams_manifest(input: ManifestInput): TeamsSnapshotManifes
   };
 }
 
-/** Builds the delta cursor for a team, keeping links and failed roots only for channels the team still has. */
+/**
+ * Keeps only the failed-root records whose channel the team still has. A record for a removed
+ * channel can never be retried, so it must not keep the run unhealthy.
+ */
+export function keep_ledger_for_channels(
+  ledger: FailedItemLedger,
+  channel_ids: ReadonlySet<string>,
+): FailedItemLedger {
+  return Object.fromEntries(
+    Object.entries(ledger).filter(([, record]) => channel_ids.has(record.drive_id)),
+  );
+}
+
+/**
+ * Builds the delta cursor for a team, keeping links and failed roots only for channels the team
+ * still has.
+ */
 export function build_teams_cursor(
   team_id: string,
   links: Record<string, string>,
@@ -52,13 +67,10 @@ export function build_teams_cursor(
   failed_roots: FailedItemLedger,
 ): TeamsDeltaCursor {
   const kept = Object.entries(links).filter(([channel_id]) => channel_ids.has(channel_id));
-  const kept_roots = Object.entries(failed_roots).filter(([, record]) =>
-    channel_ids.has(record.drive_id),
-  );
   return {
     team_id,
     delta_link_by_channel: Object.fromEntries(kept),
-    failed_roots: Object.fromEntries(kept_roots),
+    failed_roots: keep_ledger_for_channels(failed_roots, channel_ids),
     updated_at,
   };
 }

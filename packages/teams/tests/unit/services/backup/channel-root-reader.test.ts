@@ -12,7 +12,7 @@ function make_scope(connector: Partial<TeamsConnector>): BackupRunScope {
     ctx: {} as TenantContext,
     connector: connector as TeamsConnector,
     tenant_id: 'tenant-1',
-    team_id: 'team-1',
+    team_id: '00000000-0000-0000-0000-000000000001',
     backup_at: '2025-01-01T00:00:00.000Z',
     counters: create_backup_counters(),
     should_interrupt: () => false,
@@ -39,7 +39,12 @@ describe('read_channel_roots', () => {
       'link-old',
     );
 
-    expect(fetch_message_delta).toHaveBeenCalledWith('tenant-1', 'team-1', 'channel-1', 'link-old');
+    expect(fetch_message_delta).toHaveBeenCalledWith(
+      'tenant-1',
+      '00000000-0000-0000-0000-000000000001',
+      'channel-1',
+      'link-old',
+    );
     expect(list_channel_messages).not.toHaveBeenCalled();
     expect(read).toEqual({ changes: [root('root-1')], link: 'link-new', is_full: false });
   });
@@ -64,7 +69,12 @@ describe('read_channel_roots', () => {
       undefined,
     );
 
-    expect(fetch_message_delta).toHaveBeenCalledWith('tenant-1', 'team-1', 'channel-1', undefined);
+    expect(fetch_message_delta).toHaveBeenCalledWith(
+      'tenant-1',
+      '00000000-0000-0000-0000-000000000001',
+      'channel-1',
+      undefined,
+    );
     expect(read.link).toBe('link-new');
     expect(read.is_full).toBe(true);
   });
@@ -99,7 +109,7 @@ describe('read_channel_roots', () => {
     expect(fetch_message_delta).toHaveBeenNthCalledWith(
       2,
       'tenant-1',
-      'team-1',
+      '00000000-0000-0000-0000-000000000001',
       'channel-1',
       undefined,
     );
@@ -120,5 +130,51 @@ describe('read_channel_roots', () => {
       ),
     ).rejects.toThrow('server down');
     expect(list_channel_messages).not.toHaveBeenCalled();
+  });
+
+  it('stores no link when the link-less delta read is rejected with a 400', async () => {
+    fetch_message_delta.mockRejectedValueOnce(
+      Object.assign(new Error('bad sync state'), { statusCode: 400 }),
+    );
+
+    const read = await read_channel_roots(
+      make_scope({ fetch_message_delta, list_channel_messages }),
+      EMAIL_CHANNEL,
+      undefined,
+    );
+
+    expect(read).toEqual({
+      changes: [root('root-1'), root('root-2')],
+      link: undefined,
+      is_full: true,
+    });
+  });
+
+  it('stores no link when the link-less delta read reports an invalid sync state', async () => {
+    fetch_message_delta.mockRejectedValueOnce(new Error('syncStateNotFound: token expired'));
+
+    const read = await read_channel_roots(
+      make_scope({ fetch_message_delta, list_channel_messages }),
+      EMAIL_CHANNEL,
+      undefined,
+    );
+
+    expect(read.link).toBeUndefined();
+    expect(read.is_full).toBe(true);
+    expect(read.changes.map((c) => c.root.id)).toEqual(['root-1', 'root-2']);
+  });
+
+  it('rethrows a link-less delta failure that is not a 400 or invalid sync state', async () => {
+    fetch_message_delta.mockRejectedValueOnce(
+      Object.assign(new Error('server down'), { statusCode: 500 }),
+    );
+
+    await expect(
+      read_channel_roots(
+        make_scope({ fetch_message_delta, list_channel_messages }),
+        EMAIL_CHANNEL,
+        undefined,
+      ),
+    ).rejects.toThrow('server down');
   });
 });

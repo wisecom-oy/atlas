@@ -7,6 +7,7 @@ import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import type { ChannelRootRead } from '@/services/backup/channel-root-reader';
 import { mark_thread_removed, store_thread } from '@/services/backup/thread-store';
 import { error_message } from '@/services/shared/error-message';
+import { migrate_legacy_root_keys, root_ledger_key } from '@/services/shared/root-ledger-key';
 
 /** What applying one channel's root changes produced. */
 export interface RootApplyOutput {
@@ -33,7 +34,7 @@ export async function apply_root_changes(
   const threads: Record<string, TeamsThreadEntry> = { ...previous_threads };
   const errors: string[] = [];
   const seen = new Set<string>();
-  let failed_roots = ledger;
+  let failed_roots = migrate_legacy_root_keys(ledger, channel_id);
   for (const change of read.changes) {
     if (scope.should_interrupt()) {
       return { threads, failed_roots, errors, interrupted: true };
@@ -47,11 +48,11 @@ export async function apply_root_changes(
       } else {
         threads[root_id] = entry;
       }
-      failed_roots = clear_item_failure(failed_roots, root_id);
+      failed_roots = clear_item_failure(failed_roots, root_ledger_key(channel_id, root_id));
     } catch (err) {
       const message = error_message(err);
       failed_roots = record_item_failure(failed_roots, {
-        item_id: root_id,
+        item_id: root_ledger_key(channel_id, root_id),
         drive_id: channel_id,
         name: root_id,
         reason: message,
@@ -63,7 +64,7 @@ export async function apply_root_changes(
     for (const [root_id, previous] of Object.entries(previous_threads)) {
       if (!seen.has(root_id)) {
         threads[root_id] = mark_thread_removed(scope, previous);
-        failed_roots = clear_item_failure(failed_roots, root_id);
+        failed_roots = clear_item_failure(failed_roots, root_ledger_key(channel_id, root_id));
       }
     }
   }

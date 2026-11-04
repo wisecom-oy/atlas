@@ -61,13 +61,13 @@ export interface TeamsConnector {
 
   /**
    * Resolves the channel's Files folder to its SharePoint drive item. Resolves undefined when
-   * Graph has no folder for the channel.
+   * Graph has no folder for the channel, and `unavailable` when the app is refused access (403).
    */
   get_channel_files_folder(
     tenant_id: string,
     team_id: string,
     channel_id: string,
-  ): Promise<TeamsFilesFolderRef | undefined>;
+  ): Promise<TeamsFilesFolderRef | 'unavailable' | undefined>;
 
   /** Lists the teams a shared channel is shared with (`/channels/{id}/sharedWithTeams`). */
   list_channel_shared_teams(

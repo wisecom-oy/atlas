@@ -309,7 +309,10 @@ export type {
   TeamsMessageDeltaResult,
   TeamsRootChange,
 } from './teams/connector.port';
-export type { TeamsManifestRepository } from './teams/manifest-repository.port';
+export type {
+  TeamsLatestManifest,
+  TeamsManifestRepository,
+} from './teams/manifest-repository.port';
 export type { TeamsDeltaCursorRepository } from './teams/delta-cursor-repository.port';
 export type {
   TeamsBackupUseCase,

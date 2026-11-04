@@ -74,10 +74,14 @@ async function run_channel(
   inputs: ChannelRunInputs,
 ): Promise<boolean> {
   const previous_entry = inputs.previous_channels?.find((c) => c.id === channel.id);
-  const prev_link =
-    inputs.options.force_full === true ? undefined : inputs.stored_links[channel.id];
   try {
-    const output = await backup_channel(scope, channel, previous_entry, prev_link, state.ledger);
+    const output = await backup_channel(
+      scope,
+      channel,
+      previous_entry,
+      inputs.stored_links[channel.id],
+      state.ledger,
+    );
     state.entries.set(channel.id, output.entry);
     state.ledger = output.failed_roots;
     state.errors.push(...output.errors);

@@ -14,7 +14,10 @@ import {
 } from '@/services/backup/team-snapshot-persister';
 
 const BACKUP_AT = new Date('2025-01-01T00:00:00.000Z');
-const TEAM: TeamsGraphResource = { id: 'team-1', displayName: 'Team One' };
+const TEAM: TeamsGraphResource = {
+  id: '00000000-0000-0000-0000-000000000001',
+  displayName: 'Team One',
+};
 
 function channel(id: string, overrides: Partial<TeamsChannelEntry> = {}): TeamsChannelEntry {
   return {
@@ -31,7 +34,7 @@ function channel(id: string, overrides: Partial<TeamsChannelEntry> = {}): TeamsC
 function input(overrides: Partial<SnapshotPersistInput> = {}): SnapshotPersistInput {
   return {
     tenant_id: 'tenant-1',
-    team_id: 'team-1',
+    team_id: '00000000-0000-0000-0000-000000000001',
     team_display_name: 'Team One',
     backup_at: BACKUP_AT,
     team: TEAM,
@@ -214,5 +217,51 @@ describe('persist_team_snapshot', () => {
     expect(save_manifest).not.toHaveBeenCalled();
     expect(save_cursor).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ manifest: undefined, no_snapshot_reason: 'no_content' });
+  });
+
+  it('names the manifest it just saved in the cursor', async () => {
+    const { ports, save_cursor } = make_ports();
+
+    const result = await persist_team_snapshot(CTX, ports, input());
+
+    const cursor = save_cursor.mock.calls[0]?.[1] as TeamsDeltaCursor;
+    expect(result.manifest).toBeDefined();
+    expect(cursor.snapshot_id).toBe(result.manifest?.snapshot_id);
+  });
+
+  it('keeps the previous snapshot id in the cursor when the run changed nothing', async () => {
+    const { ports, save_cursor } = make_ports();
+    const previous = {
+      snapshot_id: 'teams-snap-old',
+      team: TEAM,
+      members: [],
+      channels: [channel('channel-1')],
+    } as unknown as TeamsSnapshotManifest;
+
+    await persist_team_snapshot(CTX, ports, input({ previous }));
+
+    const cursor = save_cursor.mock.calls[0]?.[1] as TeamsDeltaCursor;
+    expect(cursor.snapshot_id).toBe('teams-snap-old');
+  });
+
+  it('treats a channel with reordered keys as unchanged', async () => {
+    const { ports, save_manifest } = make_ports();
+    const previous = {
+      team: TEAM,
+      members: [],
+      channels: [channel('channel-1', { channel: { id: 'channel-1', displayName: 'General' } })],
+    } as unknown as TeamsSnapshotManifest;
+    const reordered = channel('channel-1', {
+      channel: { displayName: 'General', id: 'channel-1' },
+    });
+
+    const result = await persist_team_snapshot(
+      CTX,
+      ports,
+      input({ channels: [reordered], previous }),
+    );
+
+    expect(save_manifest).not.toHaveBeenCalled();
+    expect(result.no_snapshot_reason).toBe('no_changes');
   });
 });

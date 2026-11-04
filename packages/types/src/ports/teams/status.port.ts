@@ -7,6 +7,9 @@ export interface TeamsTeamStatus {
 }
 
 export interface TeamsStatusUseCase {
-  /** Reports the last backup run recorded for each team in the tenant, from the manifests. */
+  /**
+   * Reports the newest readable snapshot per team in the tenant. A team with no readable snapshot
+   * is still listed, with undefined backup fields and zero channels.
+   */
   check_teams_status(tenant_id: string): Promise<TeamsTeamStatus[]>;
 }

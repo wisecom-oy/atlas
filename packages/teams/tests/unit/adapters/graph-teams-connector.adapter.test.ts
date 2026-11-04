@@ -18,15 +18,26 @@ describe('GraphTeamsConnector.list_channel_shared_teams', () => {
 
   it('reads every page of the channel sharedWithTeams list', async () => {
     const client = {} as Client;
-    read.mockResolvedValueOnce({ items: [{ id: 'shared-team-1' }, { id: 'shared-team-2' }] });
+    read.mockResolvedValueOnce({
+      items: [
+        { id: '00000000-0000-0000-0000-000000000003' },
+        { id: '00000000-0000-0000-0000-000000000004' },
+      ],
+    });
 
     const teams = await new GraphTeamsConnector(client).list_channel_shared_teams(
       'tenant-1',
-      'team-1',
+      '00000000-0000-0000-0000-000000000001',
       'channel-1',
     );
 
-    expect(read).toHaveBeenCalledWith(client, '/teams/team-1/channels/channel-1/sharedWithTeams');
-    expect(teams).toEqual([{ id: 'shared-team-1' }, { id: 'shared-team-2' }]);
+    expect(read).toHaveBeenCalledWith(
+      client,
+      '/teams/00000000-0000-0000-0000-000000000001/channels/channel-1/sharedWithTeams',
+    );
+    expect(teams).toEqual([
+      { id: '00000000-0000-0000-0000-000000000003' },
+      { id: '00000000-0000-0000-0000-000000000004' },
+    ]);
   });
 });

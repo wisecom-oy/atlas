@@ -49,7 +49,8 @@ export async function fetch_message_delta(
   prev_delta_link: string | undefined,
 ): Promise<TeamsMessageDeltaResult> {
   const start =
-    prev_delta_link ?? `/teams/${team_id}/channels/${channel_id}/messages/delta?${ROOT_QUERY}`;
+    prev_delta_link ??
+    `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/delta?${ROOT_QUERY}`;
   const { items, delta_link } = await read_all_pages<GraphChannelMessage>(client, start);
   if (delta_link === undefined) {
     throw new Error(`Graph ended the message delta of channel ${channel_id} without a delta link`);
@@ -65,7 +66,7 @@ export async function list_channel_messages(
 ): Promise<TeamsRootChange[]> {
   const { items } = await read_all_pages<GraphChannelMessage>(
     client,
-    `/teams/${team_id}/channels/${channel_id}/messages?${ROOT_QUERY}`,
+    `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages?${ROOT_QUERY}`,
   );
   return items.map(to_root_change);
 }

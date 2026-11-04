@@ -44,7 +44,7 @@ function make_scope(should_interrupt = (): boolean => false): BackupRunScope {
     ctx: {} as TenantContext,
     connector: {} as BackupRunScope['connector'],
     tenant_id: 'tenant-1',
-    team_id: 'team-1',
+    team_id: '00000000-0000-0000-0000-000000000001',
     backup_at: BACKUP_AT,
     counters: create_backup_counters(),
     should_interrupt,
@@ -108,25 +108,31 @@ describe('process_channels', () => {
     expect([...state.entries.keys()]).toEqual(['channel-2']);
   });
 
-  it('drops the stored link on a full run and keeps it otherwise', async () => {
+  it('hands each channel its stored link, leaving the full-run decision to the processor', async () => {
     const stored = { 'channel-1': 'link-stored' };
 
     await process_channels(
-      make_scope(),
+      { ...make_scope(), force_full: true },
       CHANNELS.slice(0, 1),
       inputs({ stored_links: stored }),
       {},
     );
-    expect(vi.mocked(backup_channel).mock.calls[0]?.[3]).toBe('link-stored');
 
-    vi.mocked(backup_channel).mockClear();
-    await process_channels(
+    expect(vi.mocked(backup_channel).mock.calls[0]?.[3]).toBe('link-stored');
+  });
+
+  it('keeps the stored link of a channel that throws', async () => {
+    vi.mocked(backup_channel).mockRejectedValueOnce(new Error('boom'));
+
+    const state = await process_channels(
       make_scope(),
       CHANNELS.slice(0, 1),
-      inputs({ stored_links: stored, options: { force_full: true } }),
+      inputs({ stored_links: { 'channel-1': 'link-old' } }),
       {},
     );
-    expect(vi.mocked(backup_channel).mock.calls[0]?.[3]).toBeUndefined();
+
+    expect(state.links['channel-1']).toBe('link-old');
+    expect(state.errors).toEqual(['Channel channel-1: boom']);
   });
 
   it('keeps the new link for a completed channel and removes the link of a channel with none', async () => {

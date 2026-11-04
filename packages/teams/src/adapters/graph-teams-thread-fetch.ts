@@ -4,14 +4,14 @@ import type { TeamsGraphResource, TeamsMessageLocator } from '@wisecom/atlas-typ
 import { graph_teams_call, read_all_pages } from '@/adapters/graph-teams-request';
 
 function message_path(team_id: string, channel_id: string, root_id: string): string {
-  return `/teams/${team_id}/channels/${channel_id}/messages/${root_id}`;
+  return `/teams/${encodeURIComponent(team_id)}/channels/${encodeURIComponent(channel_id)}/messages/${encodeURIComponent(root_id)}`;
 }
 
 function hosted_contents_path(locator: TeamsMessageLocator): string {
   const root = message_path(locator.team_id, locator.channel_id, locator.root_id);
   return locator.reply_id === undefined
     ? `${root}/hostedContents`
-    : `${root}/replies/${locator.reply_id}/hostedContents`;
+    : `${root}/replies/${encodeURIComponent(locator.reply_id)}/hostedContents`;
 }
 
 /** Lists every reply of a root message, deleted replies included. */
@@ -43,7 +43,7 @@ export async function download_hosted_content(
   locator: TeamsMessageLocator,
   hosted_id: string,
 ): Promise<Buffer> {
-  const url = `${hosted_contents_path(locator)}/${hosted_id}/$value`;
+  const url = `${hosted_contents_path(locator)}/${encodeURIComponent(hosted_id)}/$value`;
   const bytes = await graph_teams_call(
     () => client.api(url).responseType(ResponseType.ARRAYBUFFER).get() as Promise<ArrayBuffer>,
   );

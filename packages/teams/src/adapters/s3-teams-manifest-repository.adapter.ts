@@ -1,22 +1,13 @@
 import { injectable } from 'inversify';
 import type {
+  TeamsLatestManifest,
   TeamsManifestRepository,
   TeamsSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { StorageError } from '@wisecom/atlas-types';
-import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
+import { UnreadableContentError } from '@wisecom/atlas-types';
+import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { TEAMS_KEYS } from '@/services/shared/storage-keys';
-
-/** A manifest whose decrypted body does not describe the snapshot its key names. */
-class InvalidTeamsManifestError extends Error {
-  constructor(
-    readonly storage_key: string,
-    reason: string,
-  ) {
-    super(`The Teams manifest at ${storage_key} ${reason}`);
-  }
-}
 
 /** Epoch from a manifest key's `teams-snap-{epoch}-` snapshot id; -1 when the key has none. */
 function snapshot_epoch(key: string): number {
@@ -45,18 +36,35 @@ export class S3TeamsManifestRepository implements TeamsManifestRepository {
     return this.download_manifest(ctx, expected_key);
   }
 
-  /** Returns the most recent manifest for a team, decrypting only the newest key. */
-  async find_latest_by_team(
-    ctx: TenantContext,
-    team_id: string,
-  ): Promise<TeamsSnapshotManifest | undefined> {
+  /**
+   * Returns the newest readable manifest of a team. Newer manifests that cannot be read are
+   * listed in `unreadable_keys` instead of failing the lookup, so one damaged snapshot does not
+   * block every later run.
+   */
+  async find_latest_by_team(ctx: TenantContext, team_id: string): Promise<TeamsLatestManifest> {
     const keys = await ctx.storage.list(TEAMS_KEYS.manifest_prefix_for(team_id));
-    const newest = keys.reduce<string | undefined>(
-      (best, key) =>
-        best === undefined || snapshot_epoch(key) > snapshot_epoch(best) ? key : best,
-      undefined,
-    );
-    return newest === undefined ? undefined : this.download_manifest(ctx, newest);
+    return this.first_readable(ctx, keys);
+  }
+
+  /**
+   * Returns the newest readable manifest of every team, keyed by team id. A team whose manifests
+   * are all unreadable is still listed, with `manifest` undefined.
+   */
+  async list_latest_per_team(
+    ctx: TenantContext,
+  ): Promise<Array<{ team_id: string; manifest: TeamsSnapshotManifest | undefined }>> {
+    const root = TEAMS_KEYS.manifest_root_prefix();
+    const keys_by_team = new Map<string, string[]>();
+    for (const key of await ctx.storage.list(root)) {
+      const team_id = key.slice(root.length).split('/')[0] ?? '';
+      keys_by_team.set(team_id, [...(keys_by_team.get(team_id) ?? []), key]);
+    }
+    const latest: Array<{ team_id: string; manifest: TeamsSnapshotManifest | undefined }> = [];
+    for (const [team_id, keys] of keys_by_team) {
+      const { manifest } = await this.first_readable(ctx, keys);
+      latest.push({ team_id, manifest });
+    }
+    return latest;
   }
 
   /** Lists every manifest of a team, sorted newest first. */
@@ -70,6 +78,24 @@ export class S3TeamsManifestRepository implements TeamsManifestRepository {
   /** Lists every manifest in the tenant, sorted newest first. */
   async list_all_manifests(ctx: TenantContext): Promise<TeamsSnapshotManifest[]> {
     return this.download_under(ctx, TEAMS_KEYS.manifest_root_prefix());
+  }
+
+  /**
+   * Returns the first manifest in `keys` that reads back, trying the newest epoch first. Unreadable
+   * keys are recorded before it; absent keys are skipped silently.
+   */
+  private async first_readable(ctx: TenantContext, keys: string[]): Promise<TeamsLatestManifest> {
+    const unreadable_keys: string[] = [];
+    for (const key of [...keys].sort((a, b) => snapshot_epoch(b) - snapshot_epoch(a))) {
+      try {
+        const manifest = await this.download_manifest(ctx, key);
+        if (manifest) return { manifest, unreadable_keys };
+      } catch (err) {
+        if (!(err instanceof UnreadableContentError)) throw err;
+        unreadable_keys.push(key);
+      }
+    }
+    return { manifest: undefined, unreadable_keys };
   }
 
   private async download_under(
@@ -89,26 +115,23 @@ export class S3TeamsManifestRepository implements TeamsManifestRepository {
    *
    * Every manifest is encrypted under the same tenant key, so one manifest decrypts at any other
    * manifest's key. Rebuilding the key from the body is what tells them apart (the same guard
-   * SharePoint uses, issue #340). Only absence returns undefined; anything else is damage.
+   * SharePoint uses, issue #340). Absence returns undefined. A body that fails to decrypt, parse,
+   * or match its key raises `UnreadableContentError`, the same class the cursor raises.
    */
   private async download_manifest(
     ctx: TenantContext,
     key: string,
   ): Promise<TeamsSnapshotManifest | undefined> {
-    let parsed: TeamsSnapshotManifest;
-    try {
-      const payload = await ctx.storage.get(key);
-      parsed = JSON.parse(ctx.decrypt(payload, key).toString('utf-8')) as TeamsSnapshotManifest;
-    } catch (err) {
-      if (is_absent_object_error(err)) return undefined;
-      throw new StorageError(`Could not read the Teams manifest at ${key}`, { cause: err });
-    }
+    const parsed = await load_encrypted_json<TeamsSnapshotManifest>(ctx, key);
+    if (parsed === undefined) return undefined;
     if (TEAMS_KEYS.manifest_key(parsed.team_id, parsed.snapshot_id) !== key) {
-      throw new InvalidTeamsManifestError(key, 'names a different team or snapshot than its key');
+      throw new UnreadableContentError(
+        `The Teams manifest at ${key} names a different team or snapshot than its key`,
+      );
     }
     const created_at = new Date(parsed.created_at);
     if (Number.isNaN(created_at.getTime())) {
-      throw new InvalidTeamsManifestError(key, 'has an unreadable created_at');
+      throw new UnreadableContentError(`The Teams manifest at ${key} has an unreadable created_at`);
     }
     return { ...parsed, created_at };
   }
