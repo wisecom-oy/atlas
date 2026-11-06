@@ -33,7 +33,11 @@ describe('postinstall takeover', () => {
   function with_sandbox(global: boolean): {
     install: string;
     link: string;
-    run: () => { stdout: string; stderr: string; status: number | null };
+    run: (extra_env?: Record<string, string>) => {
+      stdout: string;
+      stderr: string;
+      status: number | null;
+    };
   } {
     const sandbox = mkdtempSync(join(tmpdir(), 'atlas-postinstall-'));
     sandboxes.push(sandbox);
@@ -60,13 +64,14 @@ describe('postinstall takeover', () => {
     return {
       install,
       link,
-      run: () => {
+      run: (extra_env = {}) => {
         const result = spawnSync(process.execPath, [join(install, 'scripts', 'postinstall.mjs')], {
           encoding: 'utf8',
           env: {
             PATH: `${join(sandbox, 'home', '.local', 'bin')}${delimiter}/usr/bin:/bin`,
             HOME: join(sandbox, 'home'),
             ...(global ? { BUN_INSTALL: join(sandbox, 'bun') } : {}),
+            ...extra_env,
           },
         });
         return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', status: result.status };
@@ -87,6 +92,14 @@ describe('postinstall takeover', () => {
     const { status, stdout, stderr } = run();
     expect(stderr + stdout, `exit ${status}`).toContain('skipped');
     expect(realpathSync(link)).toBe(before);
+  });
+
+  it('takes the command over from a local install when linking is asked for explicitly', () => {
+    const { install, link, run } = with_sandbox(false);
+    // `pnpm run link-cli` sets the lifecycle event, and agent or CI shells often set CI too.
+    const { status, stdout, stderr } = run({ npm_lifecycle_event: 'link-cli', CI: 'true' });
+    expect(stderr + stdout, `exit ${status}`).toContain('re-linked');
+    expect(realpathSync(link)).toBe(realpathSync(join(install, 'dist', 'cli.mjs')));
   });
 
   it('replaces a broken stale link on a global install', () => {
