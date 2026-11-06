@@ -4,6 +4,7 @@ export * from './replication';
 export type * from './stats';
 export type * from './onedrive';
 export type * from './contacts';
+export type * from './calendar';
 export type * from './sharepoint';
 export * from './teams';
 export * from './graph';

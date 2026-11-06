@@ -84,6 +84,27 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@22.20.1)(@vitest/coverage-v8@4.1.12)(vite@6.4.5(@types/node@22.20.1)(yaml@2.9.0))
 
+  packages/calendar:
+    dependencies:
+      '@microsoft/microsoft-graph-client':
+        specifier: ^3.0.7
+        version: 3.0.7(@azure/identity@4.14.1)
+      '@wisecom/atlas-core':
+        specifier: workspace:*
+        version: link:../core
+      '@wisecom/atlas-m365-graph':
+        specifier: workspace:*
+        version: link:../m365-graph
+      '@wisecom/atlas-types':
+        specifier: workspace:*
+        version: link:../types
+      inversify:
+        specifier: ^8.2.3
+        version: 8.2.3(reflect-metadata@0.2.2)
+      reflect-metadata:
+        specifier: ^0.2.2
+        version: 0.2.2
+
   packages/cli:
     dependencies:
       '@aws-sdk/client-s3':
@@ -126,6 +147,9 @@ importers:
       '@types/react':
         specifier: ^19.2.18
         version: 19.2.18
+      '@wisecom/atlas-calendar':
+        specifier: workspace:*
+        version: link:../calendar
       '@wisecom/atlas-contacts':
         specifier: workspace:*
         version: link:../contacts
@@ -341,6 +365,9 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2
     devDependencies:
+      '@wisecom/atlas-calendar':
+        specifier: workspace:*
+        version: link:../calendar
       '@wisecom/atlas-contacts':
         specifier: workspace:*
         version: link:../contacts

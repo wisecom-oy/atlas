@@ -7,6 +7,7 @@
     { "path": "packages/outlook" },
     { "path": "packages/onedrive" },
     { "path": "packages/contacts" },
+    { "path": "packages/calendar" },
     { "path": "packages/sharepoint" },
     { "path": "packages/teams" },
     { "path": "packages/cli" },

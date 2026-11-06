@@ -11,6 +11,7 @@ const s3_src = resolve(root_dir, '../s3/src');
 const outlook_src = resolve(root_dir, '../outlook/src');
 const onedrive_src = resolve(root_dir, '../onedrive/src');
 const contacts_src = resolve(root_dir, '../contacts/src');
+const calendar_src = resolve(root_dir, '../calendar/src');
 const sharepoint_src = resolve(root_dir, '../sharepoint/src');
 const teams_src = resolve(root_dir, '../teams/src');
 
@@ -46,6 +47,8 @@ export default defineConfig({
       { find: '@wisecom/atlas-onedrive', replacement: resolve(onedrive_src, 'index.ts') },
       { find: /^@wisecom\/atlas-contacts\/(.+)$/, replacement: `${contacts_src}/$1` },
       { find: '@wisecom/atlas-contacts', replacement: resolve(contacts_src, 'index.ts') },
+      { find: /^@wisecom\/atlas-calendar\/(.+)$/, replacement: `${calendar_src}/$1` },
+      { find: '@wisecom/atlas-calendar', replacement: resolve(calendar_src, 'index.ts') },
       { find: /^@wisecom\/atlas-sharepoint\/(.+)$/, replacement: `${sharepoint_src}/$1` },
       { find: '@wisecom/atlas-sharepoint', replacement: resolve(sharepoint_src, 'index.ts') },
       { find: /^@wisecom\/atlas-teams\/(.+)$/, replacement: `${teams_src}/$1` },

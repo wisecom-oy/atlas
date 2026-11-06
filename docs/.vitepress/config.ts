@@ -90,7 +90,7 @@ export default defineConfig({
         text: 'Guide',
         link: '/getting-started',
         activeMatch:
-          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|teams|contacts-backup|self-hosting|operations)',
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|teams|contacts-backup|calendar-backup|self-hosting|operations)',
       },
       { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
       {
@@ -128,6 +128,7 @@ export default defineConfig({
           { text: 'SharePoint', link: '/sharepoint-backup' },
           { text: 'Microsoft Teams', link: '/teams-backup' },
           { text: 'Contacts', link: '/contacts-backup' },
+          { text: 'Calendar', link: '/calendar-backup' },
         ],
       },
       {

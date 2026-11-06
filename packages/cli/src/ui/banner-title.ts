@@ -7,7 +7,8 @@
  */
 
 /** Which surface a command acts on: a workload, or the tenant as a whole. */
-export type BannerScope = 'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'tenant';
+export type BannerScope =
+  'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'calendar' | 'tenant';
 
 const SCOPE_LABELS: Record<BannerScope, string> = {
   outlook: 'Outlook',
@@ -15,6 +16,7 @@ const SCOPE_LABELS: Record<BannerScope, string> = {
   sharepoint: 'SharePoint',
   teams: 'Teams',
   contacts: 'Contacts',
+  calendar: 'Calendar',
   tenant: '',
 };
 

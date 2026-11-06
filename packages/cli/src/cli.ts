@@ -6,6 +6,7 @@ import { compose_container } from '@/container';
 import { register_outlook_command } from '@/commands/outlook/outlook.command';
 import { register_onedrive_command } from '@/commands/onedrive/onedrive.command';
 import { register_contacts_command } from '@/commands/contacts/contacts.command';
+import { register_calendar_command } from '@/commands/calendar/calendar.command';
 import { register_sharepoint_command } from '@/commands/sharepoint/sharepoint.command';
 import { register_teams_command } from '@/commands/teams/teams.command';
 import { register_tenant_delete_command } from '@/commands/tenant/delete.command';
@@ -55,6 +56,7 @@ function register_commands(program: Command): void {
   register_outlook_command(program, get_container);
   register_onedrive_command(program, get_container);
   register_contacts_command(program, get_container);
+  register_calendar_command(program, get_container);
   register_sharepoint_command(program, get_container);
   register_teams_command(program, get_container);
   register_tenant_delete_command(program, get_container);

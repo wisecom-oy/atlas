@@ -13,10 +13,10 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
     <h3>v6: stable storage keys</h3>
     <p>Outlook keyed by Entra object ID and SharePoint by hostname-free site ID, so renames no longer orphan backups. Breaking; see <a href="/migration/v6">Migrating to v6</a>.</p>
   </li>
-  <li data-status="planned">
-    <span class="wc-roadmap-status">Planned</span>
+  <li data-status="progress">
+    <span class="wc-roadmap-status">In progress</span>
     <h3>Calendars</h3>
-    <p>Exchange backup covers mail and contacts today. Calendar events, including recurrences and attachments, become first-class items with their own restore.</p>
+    <p>Exchange backup covers mail and contacts today. Calendar backup, restore, listing, and verification are in progress (issue #134), with recurring series, exceptions, and file attachments. Replication and rehydrate do not cover calendars yet. See <a href="/calendar-backup">Calendar backup</a>.</p>
   </li>
   <li data-status="progress">
     <span class="wc-roadmap-status">In progress</span>

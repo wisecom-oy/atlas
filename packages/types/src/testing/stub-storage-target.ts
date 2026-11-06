@@ -43,7 +43,7 @@ export function stub_storage_target(options: StubStorageTargetOptions = {}): Stu
     exists: async (key: string) => key in objects,
     get: async (key: string) => {
       const blob = objects[key];
-      if (!blob) throw new Error(`missing ${key}`);
+      if (!blob) throw Object.assign(new Error(`missing ${key}`), { name: 'NoSuchKey' });
       return blob;
     },
     put: async (key: string, data: Buffer) => {

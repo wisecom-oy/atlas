@@ -100,7 +100,7 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 ### What a ciphertext is bound to
 
-Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
+Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `calendar/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
 | Attack                                                        | Result                                                       |
 | ------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -119,6 +119,7 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
 | Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
 | Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                |
+| Calendar events, attachments, and manifests    | Yes       | `calendar/data`, `calendar/attachments`, `calendar/manifests`, `calendar/_meta`           |
 | Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                   |
 | S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
@@ -405,6 +406,10 @@ A restore does not rebuild per-item sharing or links. A restored library inherit
 
 Capturing permissions is expensive. Each permission operation costs 5 resource units from the tenant-wide SharePoint and OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)). A 100,000-file drive would need 500,000 RU. At 1,250 RU per minute, that is about 6.7 hours of the tenant's quota, which would slow every other app. Graph's `shared` facet can flag only the items that are shared, which would reduce the cost, but restore-side reapplication is not implemented.
 
+## Calendar restore does not notify attendees
+
+A calendar restore writes events through Graph without their attendee lists. Atlas removes attendees and the organizer from each created event and writes them as text at the top of the body, so the restore sends no invitations, updates, or cancellations to anyone. The cost is that restored events carry no working invitations and no new Teams meeting. A restore skips events the target already holds (matching iCalUId, or an event Atlas restored earlier), so re-running it does not create duplicates. Treat the attendee text as a record of the original meeting, not as live invitations.
+
 ## Storage request events
 
 An SDK host can pass `onStorageRequest` to receive one event per S3 request. See [Storage request events](/reference/storage-request-events). Hosts often export these to metrics systems that are less protected than the backup bucket, so the event carries only values that identify nothing:
@@ -448,7 +453,7 @@ Atlas separates read and write storage access, so an operator who only browses n
 
 | Command class                                                                                                                                                                                                     | Required S3 actions                                                                                                                       | Provisioning |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
 | Storage usage: `stats storage`                                                                                                                                                                                    | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                            | None         |
 | Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`, `teams backup`                                                                                                                            | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
 

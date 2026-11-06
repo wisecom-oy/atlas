@@ -50,16 +50,17 @@ The source profile supplies the storage tenant, S3 credentials, and passphrase. 
 | -------------------------- | ------------------------------ |
 | `atlas outlook restore`    | `-T, --target <email>`         |
 | `atlas contacts restore`   | `-T, --target <email or id>`   |
+| `atlas calendar restore`   | `-T, --target <email or id>`   |
 | `atlas onedrive restore`   | `--target-owner <email or id>` |
 | `atlas sharepoint restore` | `--target-site <url-or-id>`    |
 
 Before you run a cross-tenant restore:
 
 - The destination owner exists in the destination tenant and holds the license for that workload.
-- The destination app registration has write permissions there: `Mail.ReadWrite` (Outlook), `Contacts.ReadWrite` (contacts), `Files.ReadWrite.All` (OneDrive), or `Sites.ReadWrite.All` (SharePoint).
+- The destination app registration has write permissions there: `Mail.ReadWrite` (Outlook), `Contacts.ReadWrite` (contacts), `Calendars.ReadWrite` (calendar), `Files.ReadWrite.All` (OneDrive), or `Sites.ReadWrite.All` (SharePoint).
 - `ATLAS_*` environment variables do not apply to the target profile. Set its credentials only in the profile.
 
-`--target-profile` applies to `outlook`, `contacts`, `onedrive`, and `sharepoint` restores. `restore-version` does not accept it and writes into the source tenant. See [Tenant profiles](/configuration#tenant-profiles) and [Security](/security#tenant-profiles-and-cross-tenant-restore).
+`--target-profile` applies to `outlook`, `contacts`, `calendar`, `onedrive`, and `sharepoint` restores. `restore-version` does not accept it and writes into the source tenant. See [Tenant profiles](/configuration#tenant-profiles) and [Security](/security#tenant-profiles-and-cross-tenant-restore).
 
 ## See also
 

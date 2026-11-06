@@ -312,6 +312,25 @@ Contacts snapshots are not replicated or rehydrated yet. `replicateSnapshot` rej
 
 See [Contacts backup](/contacts-backup) for the storage layout and restore behaviour.
 
+### Calendar
+
+`atlas.calendar` backs up, restores, verifies, and deletes one mailbox's Outlook calendars, including recurring series and file attachments on events. Owner arguments accept an email or Entra object ID.
+
+Calendar snapshots are not replicated or rehydrated yet. `replicateSnapshot` rejects a calendar snapshot ID, and the mailbox and tenant rehydrate methods skip calendars.
+
+| Method                                | CLI equivalent                | Description                                                                 |
+| ------------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `backup(mailbox, options?)`           | `atlas calendar backup -m`    | Back up changed calendars and events                                        |
+| `restore(mailbox, options)`           | `atlas calendar restore -m`   | Restore a snapshot without overwriting; `targetMailboxId` sets the target   |
+| `verify(mailbox, snapshotId, options?)` | `atlas calendar verify -m`  | Verify a snapshot                                                           |
+| `listSnapshots(mailbox)`              | `atlas calendar list -m`      | List snapshots for a mailbox                                                |
+| `deleteMailboxData(mailbox)`          | `atlas calendar delete -m`    | Delete all calendar data for a mailbox                                      |
+| `deleteSnapshot(mailbox, snapshotId)` | `atlas calendar delete -m -s` | Delete one snapshot manifest                                                |
+
+The backup result's `summary` reports the run's counters, camelCased: `calendarsScanned`, `calendarsSkipped` (read-only calendars such as Birthdays), `eventsChanged`, `eventsRemoved`, `objectsStored`, `snapshotCreated`, `noSnapshotReason` when no snapshot was written, `warnings` (for example item and reference attachments that are not captured), `errors`, and `healthy`. The restore result reports `snapshotId`, `eventsRestored`, `eventsSkipped`, `calendarsCreated`, `errors`, and `interrupted`. An event is skipped when the target already holds it. Restore never sends meeting invitations: restored events carry no attendees, and the attendee list is written into the event body. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited).
+
+See [Calendar backup](/calendar-backup) for the storage layout and restore behaviour.
+
 ### Tenant-wide methods
 
 | Method                                   | Description                                                                                      |
@@ -326,7 +345,7 @@ See [Contacts backup](/contacts-backup) for the storage layout and restore behav
 | `replicateMailbox(mailboxId, targets)`   | Copies every unreplicated snapshot for a mailbox                                                 |
 | `rehydrateSnapshot(snapshotId, source)`  | Restores one snapshot from a replica                                                             |
 | `rehydrateMailbox(mailboxId, source)`    | Restores a mailbox's snapshots from a replica                                                    |
-| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts are not covered |
+| `rehydrateTenant(source)`                | Restores Outlook, OneDrive, and SharePoint from a replica, reported per workload. Contacts and calendars are not covered |
 | `getReplicationStatus(snapshotId?)`      | Replication status for one snapshot or all snapshots                                             |
 | `getReplicationStatusByOwner(mailboxId)` | Replication status for every snapshot of one owner                                               |
 | `rewrapDataKey(newPassphrase?)`          | Re-wraps the tenant data key. See [Key re-wrap](#key-re-wrap)                                    |
@@ -985,6 +1004,7 @@ The instance still reads and decrypts the backup with its own S3 credentials and
 | `outlook.restore`        | `targetMailbox`        |
 | `outlook.restoreMailbox` | `targetMailbox`        |
 | `contacts.restore`       | `targetMailboxId`      |
+| `calendar.restore`       | `targetMailboxId`      |
 | `onedrive.restore`       | `targetOwnerId`        |
 | `sharepoint.restore`     | `targetSiteId`         |
 
