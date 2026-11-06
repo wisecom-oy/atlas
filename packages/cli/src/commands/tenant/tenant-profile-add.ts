@@ -75,8 +75,10 @@ function build_credentials(options: AddProfileOptions): TenantProfile {
       throw new Error(`Invalid --${spec.key}: ${error}`);
     }
   }
+  // Entra tenant IDs are case-insensitive, but the bucket named after one must be lowercase
+  // (issue #598), and a second spelling of the same tenant would address a second bucket.
   return {
-    tenant_id: options.tenantId,
+    tenant_id: options.tenantId.toLowerCase(),
     client_id: options.clientId,
     client_secret,
   };

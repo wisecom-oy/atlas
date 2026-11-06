@@ -14,6 +14,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import type { BucketCache } from '@/adapters/bucket-cache';
+import { invalid_bucket_name_error } from '@/adapters/tenant-bucket-name';
 
 /**
  * Ensures a bucket exists, creating it if necessary.
@@ -35,8 +36,12 @@ export async function ensure_bucket_exists(
 ): Promise<void> {
   if (!skip_cache && cache.is_bucket_checked(bucket)) return;
 
-  const exists = await bucket_exists(client, bucket);
+  const exists = await bucket_exists(client, bucket).catch((err: unknown) => {
+    throw invalid_bucket_name_error(bucket, err) ?? err;
+  });
   if (!exists) {
+    const invalid_name = invalid_bucket_name_error(bucket);
+    if (invalid_name) throw invalid_name;
     await create_lock_capable_bucket(client, bucket);
     // Applied whether or not this run's CreateBucket won. The put is a full replace and
     // best-effort, and the other party may not be a concurrent run at all: an SDK retry of a

@@ -180,6 +180,25 @@ describe('atlas tenants add', () => {
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
 
+  it('stores the tenant ID in lowercase, the only form a bucket name accepts', async () => {
+    await run([
+      'add',
+      'work',
+      '--tenant-id',
+      'Contoso.OnMicrosoft.com',
+      '--client-id',
+      CLIENT,
+      '--client-secret',
+      SECRET,
+    ]);
+
+    expect(mocks.write_secure_config).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenants: { work: { ...WORK, tenant_id: 'contoso.onmicrosoft.com' } },
+      }),
+    );
+  });
+
   it('reads the client secret from stdin when given "-"', async () => {
     fs_mocks.readFileSync.mockReturnValue('  FAKE-from-stdin \n');
 
