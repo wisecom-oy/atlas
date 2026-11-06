@@ -23,6 +23,14 @@ export function with_tenant(command: Command): Command {
   return command.option('-t, --tenant <id>', 'tenant identifier (defaults to config)');
 }
 
+/** `--target-profile`: the tenant profile whose Graph credentials perform a cross-tenant restore. */
+export function with_target_profile(command: Command): Command {
+  return command.option(
+    '--target-profile <name>',
+    'tenant profile whose Graph credentials perform the restore (cross-tenant restore)',
+  );
+}
+
 /** `-s, --snapshot`: `-s` is the snapshot on every command that has one, and nothing else. */
 export function with_snapshot(command: Command, description: string): Command {
   return command.option('-s, --snapshot <id>', description);

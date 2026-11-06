@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Command } from 'commander';
-import { CONFIG_KEYS } from '@wisecom/atlas-core';
+import { CONFIG_KEYS, TENANT_KEYS } from '@wisecom/atlas-core';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { register_config_command } from '@/commands/tenant/config.command';
 
@@ -20,8 +20,8 @@ const mocks = vi.hoisted(() => ({
   secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
 }));
 
-// Real CONFIG_KEYS, find_config_key and mask_secret: the point is to drive the
-// assertions from the shipped key table, not from a copy of it. Only the store
+// Real CONFIG_KEYS, TENANT_KEYS, find_config_key and mask_secret: the point is to drive the
+// assertions from the shipped key tables, not from a copy of them. Only the store
 // and environment readers are replaced, so no test touches ~/.atlas/config.enc.
 vi.mock('@wisecom/atlas-core', async (import_original) => {
   const actual = await import_original<Record<string, unknown>>();
@@ -30,9 +30,6 @@ vi.mock('@wisecom/atlas-core', async (import_original) => {
 
 /** Obviously fake, and long enough that masking cannot be mistaken for truncation. */
 const FAKE_VALUES: Record<string, string> = {
-  'tenant.id': '00000000-0000-0000-0000-000000000001',
-  'client.id': '00000000-0000-0000-0000-000000000002',
-  'client.secret': 'FAKE-client-secret-do-not-use-9Q7xVt',
   's3.endpoint': 'https://s3.example.invalid',
   's3.access-key': 'FAKEACCESSKEYID12345',
   's3.secret-key': 'FAKE-s3-secret-access-key-do-not-use-8Zk2',
@@ -116,11 +113,12 @@ describe('atlas config never prints a secret in full', () => {
 
 describe('credential-shaped keys carry the secret flag', () => {
   // The guarantee "secrets are never printed" holds only while every credential
-  // entry in CONFIG_KEYS is flagged. A key added later without it prints a
+  // entry in the key tables is flagged. A key added later without it prints a
   // client secret to stdout and into CI logs, which is what #174 and #175 were.
   const CREDENTIAL_PATTERN = /secret|passphrase|password|credential|token/i;
+  const ALL_KEYS = [...CONFIG_KEYS, ...TENANT_KEYS];
 
-  it.each(CONFIG_KEYS.map((spec) => [spec.key, spec.field, spec.secret] as const))(
+  it.each(ALL_KEYS.map((spec) => [spec.key, spec.field, spec.secret] as const))(
     '%s is flagged correctly for its name',
     (key, field, secret) => {
       const looks_like_credential =
@@ -131,10 +129,10 @@ describe('credential-shaped keys carry the secret flag', () => {
     },
   );
 
-  it('flags the three credential fields Atlas holds', () => {
+  it('flags the credential fields Atlas holds', () => {
     // Named explicitly as well as by pattern: a rename that dodges the regex
     // still has to fail something.
-    const flagged = CONFIG_KEYS.filter((spec) => spec.secret).map((spec) => spec.field);
+    const flagged = ALL_KEYS.filter((spec) => spec.secret).map((spec) => spec.field);
 
     expect(flagged).toContain('client_secret');
     expect(flagged).toContain('s3_secret_key');

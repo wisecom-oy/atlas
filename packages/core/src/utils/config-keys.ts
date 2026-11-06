@@ -5,7 +5,7 @@ export const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 const DOMAIN_RE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
 
 export interface ConfigKeySpec {
-  /** Dotted CLI key, e.g. "tenant.id". */
+  /** CLI name: a dotted `atlas config` key ("s3.endpoint") or an `atlas tenants add` flag. */
   readonly key: string;
   readonly field: keyof AtlasConfig;
   /** Secrets are masked in get/list output. */
@@ -15,10 +15,10 @@ export interface ConfigKeySpec {
   readonly validate: (value: string) => string | null;
 }
 
-/** All configuration keys addressable via "atlas config". */
-export const CONFIG_KEYS: readonly ConfigKeySpec[] = [
+/** The Graph credentials of one tenant profile, keyed by their `atlas tenants add` flag. */
+export const TENANT_KEYS: readonly ConfigKeySpec[] = [
   {
-    key: 'tenant.id',
+    key: 'tenant-id',
     field: 'tenant_id',
     secret: false,
     description: 'Microsoft Entra tenant (GUID or *.onmicrosoft.com domain)',
@@ -28,19 +28,23 @@ export const CONFIG_KEYS: readonly ConfigKeySpec[] = [
         : 'must be a GUID or a tenant domain like contoso.onmicrosoft.com',
   },
   {
-    key: 'client.id',
+    key: 'client-id',
     field: 'client_id',
     secret: false,
     description: 'Entra app registration (client) ID',
     validate: (v) => (GUID_RE.test(v) ? null : 'must be a GUID'),
   },
   {
-    key: 'client.secret',
+    key: 'client-secret',
     field: 'client_secret',
     secret: true,
     description: 'Entra app client secret',
     validate: (v) => (/\s/.test(v) || v.length === 0 ? 'must be a non-empty single token' : null),
   },
+];
+
+/** The settings every tenant profile shares, addressable via "atlas config". */
+export const CONFIG_KEYS: readonly ConfigKeySpec[] = [
   {
     key: 's3.endpoint',
     field: 's3_endpoint',

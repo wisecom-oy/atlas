@@ -96,7 +96,7 @@ echo "~/.atlas/config.enc: $(present "$HOME/.atlas/config.enc")"
 echo ".env: $(present .env)"
 
 set_vars=""
-for var in ATLAS_TENANT_ID ATLAS_CLIENT_ID ATLAS_CLIENT_SECRET ATLAS_ENCRYPTION_PASSPHRASE \
+for var in ATLAS_PROFILE ATLAS_TENANT_ID ATLAS_CLIENT_ID ATLAS_CLIENT_SECRET ATLAS_ENCRYPTION_PASSPHRASE \
   ATLAS_S3_ENDPOINT ATLAS_S3_REGION ATLAS_S3_ACCESS_KEY ATLAS_S3_SECRET_KEY; do
   eval "value=\${$var:-}"
   if [ -n "$value" ]; then

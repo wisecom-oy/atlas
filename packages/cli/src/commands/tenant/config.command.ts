@@ -1,9 +1,7 @@
-import { ListBucketsCommand } from '@aws-sdk/client-s3';
-import { ClientSecretCredential } from '@azure/identity';
 import type { Command } from 'commander';
 import { readFileSync } from 'node:fs';
 import { config as load_dotenv } from 'dotenv';
-import type { AtlasConfig, ConfigKeySpec } from '@wisecom/atlas-core';
+import type { AtlasConfig, ConfigKeySpec, StoredConfig } from '@wisecom/atlas-core';
 import {
   CONFIG_KEYS,
   find_config_key,
@@ -15,17 +13,19 @@ import {
   try_load_config_file,
   write_secure_config,
 } from '@wisecom/atlas-core';
-import { create_s3_client } from '@wisecom/atlas-s3';
+import { probe_s3 } from '@/commands/tenant/config-probes';
 
 type ConfigSources = {
-  readonly file: Partial<AtlasConfig>;
-  readonly secure: Partial<AtlasConfig>;
+  readonly file: StoredConfig;
+  readonly secure: StoredConfig;
   readonly env: Partial<AtlasConfig>;
   readonly merged: Partial<AtlasConfig>;
 };
 
-const GRAPH_FIELDS: (keyof AtlasConfig)[] = ['tenant_id', 'client_id', 'client_secret'];
 const S3_FIELDS: (keyof AtlasConfig)[] = ['s3_endpoint', 's3_access_key', 's3_secret_key'];
+
+/** Keys that moved to tenant profiles; kept here so the old spelling gets a pointer, not "unknown". */
+const TENANT_CONFIG_KEYS = ['tenant.id', 'client.id', 'client.secret'];
 
 /**
  * Registers the `atlas config` group.
@@ -36,10 +36,16 @@ const S3_FIELDS: (keyof AtlasConfig)[] = ['s3_endpoint', 's3_access_key', 's3_se
 export function register_config_command(program: Command): void {
   const group = program
     .command('config')
-    .description('Get and set Atlas configuration in the encrypted local store')
+    .description('Get and set shared Atlas settings in the encrypted local store')
     .addHelpText(
       'after',
-      ['', 'Keys:', ...CONFIG_KEYS.map((k) => `  ${k.key.padEnd(24)} ${k.description}`)].join('\n'),
+      [
+        '',
+        'Keys:',
+        ...CONFIG_KEYS.map((k) => `  ${k.key.padEnd(24)} ${k.description}`),
+        '',
+        'Tenant credentials are per profile: manage them with "atlas tenants".',
+      ].join('\n'),
     );
   // Inherited by every subcommand, so each verb sees ATLAS_* overrides from the environment.
   group.hook('preAction', () => {
@@ -48,19 +54,19 @@ export function register_config_command(program: Command): void {
 
   group
     .command('list')
-    .description('Print every key with its masked value and the source it resolves from')
+    .description('Print every shared key with its masked value and the source it resolves from')
     .action(() => execute_list());
 
   group
     .command('get')
     .description('Print the effective value of one key')
-    .argument('<key>', 'config key (e.g. tenant.id)')
+    .argument('<key>', 'config key (e.g. s3.region)')
     .action((key: string) => execute_get(require_config_key(key)));
 
   group
     .command('set')
     .description('Store a value in the encrypted local store')
-    .argument('<key>', 'config key (e.g. tenant.id)')
+    .argument('<key>', 'config key (e.g. s3.region)')
     .argument('<value>', 'value to set; "-" reads it from stdin')
     .action(async (key: string, value: string) => {
       // "-" reads the value from stdin so secrets never land in shell history.
@@ -71,17 +77,24 @@ export function register_config_command(program: Command): void {
   group
     .command('unset')
     .description('Remove a key from the encrypted local store')
-    .argument('<key>', 'config key (e.g. tenant.id)')
+    .argument('<key>', 'config key (e.g. s3.region)')
     .action((key: string) => execute_unset(key));
 
   group
     .command('validate')
-    .description('Live-validate Graph and S3 connectivity with the effective config')
+    .description('Live-validate S3 connectivity with the effective config')
+    .addHelpText('after', '\nTo validate tenant credentials, run "atlas tenants validate".')
     .action(async () => execute_validate());
 }
 
 /** Resolves a key spec, naming the discovery command when the key is unknown. */
 function require_config_key(key: string): ConfigKeySpec {
+  if (TENANT_CONFIG_KEYS.includes(key)) {
+    throw new Error(
+      'Tenant credentials now live in tenant profiles. Use ' +
+        '"atlas tenants add <name> --tenant-id <id> --client-id <id> --client-secret -".',
+    );
+  }
   const spec = find_config_key(key);
   if (spec === undefined) {
     throw new Error(`Unknown config key "${key}". Run "atlas config list" to see all keys.`);
@@ -89,7 +102,7 @@ function require_config_key(key: string): ConfigKeySpec {
   return spec;
 }
 
-/** Prints every key with its masked value and the source it resolves from. */
+/** Prints every shared key with its masked value and the source it resolves from. */
 function execute_list(): void {
   const sources = read_sources();
   for (const spec of CONFIG_KEYS) {
@@ -122,6 +135,7 @@ async function execute_set(spec: ConfigKeySpec, value: string): Promise<void> {
     throw new Error(`Invalid value for ${spec.key}: ${format_error}`);
   }
 
+  // Spread keeps tenants and active_tenant exactly as they are in the store.
   const stored = read_secure_config();
   write_secure_config({ ...stored, [spec.field]: value });
   logger.success(`Saved ${spec.key} to the encrypted store`);
@@ -145,34 +159,25 @@ function execute_unset(key: string): void {
     logger.warn(`${spec.key} is not set in the secure store`);
     return;
   }
-  const { [spec.field]: _removed, ...rest } = stored;
+  const rest = { ...stored };
+  delete rest[spec.field];
   write_secure_config(rest);
   logger.success(`Removed ${spec.key} from the encrypted store`);
 }
 
-/** Live-validates Graph and S3 connectivity with the effective config. */
+/** Live-validates S3 connectivity with the effective config. */
 async function execute_validate(): Promise<void> {
   const { merged } = read_sources();
-  const graph_ok = await probe_graph(merged);
-  const s3_ok = await probe_s3(merged);
-  if (!graph_ok || !s3_ok) {
+  if (!(await probe_s3(merged))) {
     process.exitCode = 1;
   }
 }
 
-/** Probes the service group a field belongs to, once all its fields are set. */
+/** Probes S3 once its fields are all set; region and passphrase changes wait for the next validate. */
 async function probe_group_if_complete(
   field: keyof AtlasConfig,
   merged: Partial<AtlasConfig>,
 ): Promise<void> {
-  if (GRAPH_FIELDS.includes(field)) {
-    if (GRAPH_FIELDS.every((f) => merged[f] !== undefined)) {
-      await probe_graph(merged);
-    } else {
-      logger.info('Graph credentials incomplete -- skipping live validation for now.');
-    }
-    return;
-  }
   if (S3_FIELDS.includes(field) || field === 's3_region') {
     if (S3_FIELDS.every((f) => merged[f] !== undefined)) {
       await probe_s3(merged);
@@ -182,51 +187,6 @@ async function probe_group_if_complete(
   }
   // encryption.passphrase has no live probe: it is only verifiable against
   // an existing tenant DEK, which requires a tenant bucket round-trip.
-}
-
-/** Requests a Graph token with the client credentials; logs the outcome. */
-async function probe_graph(config: Partial<AtlasConfig>): Promise<boolean> {
-  if (!GRAPH_FIELDS.every((f) => config[f] !== undefined)) {
-    logger.warn('Graph credentials incomplete -- set tenant.id, client.id, client.secret');
-    return false;
-  }
-  try {
-    const credential = new ClientSecretCredential(
-      config.tenant_id as string,
-      config.client_id as string,
-      config.client_secret as string,
-    );
-    await credential.getToken('https://graph.microsoft.com/.default');
-    logger.success('Microsoft Graph: token acquired (tenant and credentials valid)');
-    return true;
-  } catch (err) {
-    logger.error(`Microsoft Graph validation failed: ${(err as Error).message}`);
-    return false;
-  }
-}
-
-/** Lists buckets on the configured S3 endpoint; logs the outcome. */
-async function probe_s3(config: Partial<AtlasConfig>): Promise<boolean> {
-  if (!S3_FIELDS.every((f) => config[f] !== undefined)) {
-    logger.warn('S3 settings incomplete -- set s3.endpoint, s3.access-key, s3.secret-key');
-    return false;
-  }
-  const client = create_s3_client({
-    s3_endpoint: config.s3_endpoint as string,
-    s3_access_key: config.s3_access_key as string,
-    s3_secret_key: config.s3_secret_key as string,
-    s3_region: config.s3_region ?? 'us-east-1',
-  });
-  try {
-    await client.send(new ListBucketsCommand({}));
-    logger.success('S3: endpoint reachable and credentials accepted');
-    return true;
-  } catch (err) {
-    logger.error(`S3 validation failed: ${(err as Error).message}`);
-    return false;
-  } finally {
-    client.destroy();
-  }
 }
 
 /** Reads all three config sources plus their merge (env wins). */

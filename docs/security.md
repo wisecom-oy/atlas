@@ -458,7 +458,7 @@ Give monitoring and audit principals the read-only row only. If a principal hold
 
 ## Configuration file security
 
-`atlas.config.json` can contain `encryption_passphrase` and `client_secret` in plaintext. On Unix, Atlas checks the file mode at load time and logs a warning when any group or world bits (`0o077`) are set:
+`atlas.config.json` can contain `encryption_passphrase`, the S3 secret key, and the `client_secret` of every profile under `tenants`, in plaintext. On Unix, Atlas checks the file mode at load time and logs a warning when any group or world bits (`0o077`) are set:
 
 ```
 WARN Config file /home/user/atlas.config.json has overly permissive permissions (mode 0644). Recommended: chmod 600 /home/user/atlas.config.json
@@ -467,7 +467,7 @@ WARN Config file /home/user/atlas.config.json has overly permissive permissions 
 The check is advisory so existing deployments do not break. It is skipped on Windows.
 
 ::: danger Restrict the config file to its owner
-Run `chmod 600` on any config file that contains a passphrase or client secret. Anyone who can read the file can read the passphrase, and with it the DEK in the bucket.
+Run `chmod 600` on any config file that contains a passphrase, an S3 secret key, or a client secret. Anyone who can read the file can read the passphrase, and with it the DEK in the bucket. They can also act as every profile listed under `tenants`.
 :::
 
 Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file, but they are still readable from the process environment and from plaintext dotfiles, which malware checks first.
@@ -483,5 +483,17 @@ Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file, but they
 A disk sweep finds only ciphertext. A modified store file fails authentication at load time and is not used.
 
 Threat model: the store defends against offline exfiltration of the file and against unprivileged malware that reads environment variables. It does not defend against malware running as the logged-in user, which can call the keyring the same way Atlas does, or against an attacker with root. On systems without a keyring, the fallback key file is protected only by file permissions. Config values are still never stored in plaintext.
+
+## Tenant profiles and cross-tenant restore
+
+Every profile's client secret sits in the same encrypted store, protected by one key. Anyone who can unlock the store as the logged-in user can read all of them, so keep a profile only for a tenant whose backups that operator is trusted to manage.
+
+A cross-tenant restore uses two identities. The source profile reads the backup and supplies the storage tenant, S3 credentials, and passphrase. The `--target-profile` app performs the writes in the destination tenant. Keep these consequences in mind:
+
+- The target app needs write permissions in the destination tenant, such as `Mail.ReadWrite` for Outlook or `Files.ReadWrite.All` for OneDrive. Grant them only to the app that restores, and remove them when the restore is finished.
+- The S3 credentials and the passphrase are shared by every profile. A run with `--target-profile` therefore has the same access to the bucket as a run with the source profile, so the destination tenant does not isolate the backup data.
+- Source credentials are never used for writes in the destination tenant. Target owners resolve through the destination tenant's Graph and are never written to the source registry.
+- `ATLAS_*` environment variables never apply to the target profile, so a stray `ATLAS_CLIENT_SECRET` in the shell cannot change where writes go.
+- An unknown name in `--profile` or `--target-profile` fails the run, but the name of another stored profile is accepted as written. Confirm both names with `atlas tenants list` and read the Tenant and Target tenant lines in the restore banner.
 
 See also: [Configuration](/configuration), [Migrating to v6](/migration/v6), [CLI reference](/reference/cli).

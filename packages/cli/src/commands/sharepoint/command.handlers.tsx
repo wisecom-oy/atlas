@@ -28,6 +28,11 @@ import { build_object_lock_request } from '@/command-object-lock';
 import { report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
+import {
+  require_target_for_profile,
+  resolve_restore_container,
+  target_profile_items,
+} from '@/commands/shared/restore-target-container';
 
 export interface SharePointTenantOptions {
   tenant?: string;
@@ -50,6 +55,7 @@ export interface SharePointRestoreCommandOptions extends SharePointTenantOptions
   site: string;
   snapshot: string;
   targetSite?: string;
+  targetProfile?: string;
   fileFilter?: string[];
   conflict?: 'replace' | 'rename' | 'fail';
   destination?: string;
@@ -212,19 +218,23 @@ export async function execute_sharepoint_restore(
   container: Container,
   options: SharePointRestoreCommandOptions,
 ): Promise<void> {
+  require_target_for_profile(options.targetProfile, options.targetSite, '--target-site');
+  const restore_container = resolve_restore_container(container, options.targetProfile);
   const tenant_id = resolve_tenant_id(container, options);
   // The source names stored backups, so a site id needs no Graph call; only the target is live.
   const site_id = await resolve_site_id(container, tenant_id, options.site);
 
   let target_site_id: string | undefined;
   if (options.targetSite) {
-    const connector = container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
+    const connector = restore_container.get<SharePointSiteConnector>(SHAREPOINT_CONNECTOR_TOKEN);
     const target = await connector.resolve_site(tenant_id, options.targetSite);
     logger.info(`Target site: ${target.display_name} (${target.site_id})`);
     target_site_id = target.site_id;
   }
 
-  const restore = container.get<SharePointRestoreUseCase>(SHAREPOINT_RESTORE_USE_CASE_TOKEN);
+  const restore = restore_container.get<SharePointRestoreUseCase>(
+    SHAREPOINT_RESTORE_USE_CASE_TOKEN,
+  );
   const result = await restore.restore_sharepoint(tenant_id, site_id, {
     snapshot_id: options.snapshot,
     ...(target_site_id ? { target_site_id } : {}),
@@ -243,6 +253,7 @@ export async function execute_sharepoint_restore(
           { label: 'Snapshot', value: result.snapshot_id },
           { label: 'Files restored', value: String(result.files_restored) },
           { label: 'Folders created', value: String(result.folders_created) },
+          ...target_profile_items(options.targetProfile, restore_container),
         ]}
       />
     </Box>,

@@ -16,15 +16,20 @@ import { register_rehydrate_command } from '@/commands/tenant/rehydrate.command'
 import { register_list_users_command } from '@/commands/tenant/list-users.command';
 import { register_config_command } from '@/commands/tenant/config.command';
 import { register_keys_command } from '@/commands/tenant/keys.command';
+import { register_tenants_command } from '@/commands/tenant/tenants.command';
 import { handle_fatal_error } from '@/fatal-error';
 import type { Container } from 'inversify';
 
 let _container: Container | undefined;
 
-/** Lazily creates the DI container on first use, so --help works without config. */
+/**
+ * Lazily creates the DI container on first use, so --help works without config. The container
+ * belongs to the profile named by the global `--profile` flag, else `ATLAS_PROFILE`, else the
+ * active one.
+ */
 export function get_container(): Container {
   if (!_container) {
-    _container = compose_container();
+    _container = compose_container({ profile: program.opts<{ profile?: string }>().profile });
   }
   return _container;
 }
@@ -38,7 +43,11 @@ function create_program(): Command {
   return new Command()
     .name('atlas')
     .description('Atlas – Microsoft 365 backup to S3-compatible object storage (Wisecom Oy)')
-    .version(version);
+    .version(version)
+    .option(
+      '--profile <name>',
+      'tenant profile to use (defaults to ATLAS_PROFILE, then the active one)',
+    );
 }
 
 /** Registers all CLI subcommands against the program. */
@@ -56,6 +65,7 @@ function register_commands(program: Command): void {
   register_list_users_command(program, get_container);
   register_keys_command(program, get_container);
   register_config_command(program);
+  register_tenants_command(program);
 }
 
 const program = create_program();

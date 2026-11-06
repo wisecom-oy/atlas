@@ -78,8 +78,8 @@ Rotate the client secret at least every 90 days in production.
 
 1. In **Certificates & secrets**, add a new client secret.
 2. Copy the secret **Value** immediately. The portal shows it once. The **Secret ID** is not the secret.
-3. Update Atlas: set `ATLAS_CLIENT_SECRET`, or pipe the value to `atlas config set client.secret -`, which reads from stdin and keeps it out of shell history. See [Configuration](/configuration).
-4. Run `atlas config validate` to confirm authentication works, then delete the old secret in **Certificates & secrets**.
+3. Update Atlas: set `ATLAS_CLIENT_SECRET`, or re-register the profile with the new value piped from stdin, which keeps it out of shell history: `pbpaste | atlas tenants add <name> --tenant-id <tenant-id> --client-id <client-id> --client-secret - --replace`. See [Configuration](/configuration#tenant-profiles).
+4. Run `atlas tenants validate <name>` to confirm authentication works, then delete the old secret in **Certificates & secrets**.
 
 An expired or mistyped secret fails with `AADSTS7000215`. See [troubleshooting](/troubleshooting#aadsts-error-codes).
 

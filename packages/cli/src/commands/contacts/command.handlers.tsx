@@ -27,6 +27,11 @@ import {
   resolve_tenant_id,
   type ResolvedOwner,
 } from '@/commands/onedrive/command.handlers';
+import {
+  require_target_for_profile,
+  resolve_restore_container,
+  target_profile_items,
+} from '@/commands/shared/restore-target-container';
 
 export interface ContactsTenantOptions {
   tenant?: string;
@@ -43,6 +48,7 @@ export interface ContactsRestoreCommandOptions extends ContactsTenantOptions {
   mailbox: string;
   snapshot: string;
   target?: string;
+  targetProfile?: string;
 }
 
 export interface ContactsVerifyCommandOptions extends ContactsTenantOptions {
@@ -132,12 +138,14 @@ export async function execute_contacts_restore(
   container: Container,
   options: ContactsRestoreCommandOptions,
 ): Promise<void> {
+  require_target_for_profile(options.targetProfile, options.target, '-T/--target');
+  const restore_container = resolve_restore_container(container, options.targetProfile);
   const tenant_id = resolve_tenant_id(container, options);
   const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
   const target = options.target
-    ? await resolve_restore_target(container, tenant_id, options.target)
+    ? await resolve_restore_target(restore_container, tenant_id, options.target)
     : undefined;
-  const restore = container.get<ContactsRestoreUseCase>(CONTACTS_RESTORE_USE_CASE_TOKEN);
+  const restore = restore_container.get<ContactsRestoreUseCase>(CONTACTS_RESTORE_USE_CASE_TOKEN);
 
   const gate = install_interrupt_gate(RESTORE_INTERRUPT_MESSAGE);
   let result;
@@ -160,6 +168,7 @@ export async function execute_contacts_restore(
           { label: 'Contacts restored', value: String(result.contacts_restored) },
           { label: 'Contacts skipped (already present)', value: String(result.contacts_skipped) },
           { label: 'Folders created', value: String(result.folders_created) },
+          ...target_profile_items(options.targetProfile, restore_container),
         ]}
       />
     </Box>,

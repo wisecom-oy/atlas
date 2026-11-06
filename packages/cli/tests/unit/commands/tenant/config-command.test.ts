@@ -7,10 +7,11 @@ vi.mock('dotenv', () => ({ config: vi.fn() }));
 const fs_mocks = vi.hoisted(() => ({ readFileSync: vi.fn() }));
 vi.mock('node:fs', () => fs_mocks);
 
+// Config no longer probes Graph; the mock exists so a regression that does is caught.
 const azure_mocks = vi.hoisted(() => ({ get_token: vi.fn() }));
 // A `function`, not `vi.fn(() => ...)`: the credential is constructed with
 // `new`, and an arrow mock fails with "is not a constructor", which surfaces as
-// a failed Graph probe rather than as a broken test.
+// a failed probe rather than as a broken test.
 vi.mock('@azure/identity', () => ({
   ClientSecretCredential: function () {
     return { getToken: azure_mocks.get_token };
@@ -35,15 +36,22 @@ vi.mock('@wisecom/atlas-core', async (import_original) => {
   return { ...actual, ...mocks };
 });
 
-const COMPLETE_GRAPH = {
-  tenant_id: '00000000-0000-0000-0000-000000000001',
-  client_id: '00000000-0000-0000-0000-000000000002',
-  client_secret: 'FAKE-client-secret',
-};
 const COMPLETE_S3 = {
   s3_endpoint: 'https://s3.example.invalid',
   s3_access_key: 'FAKEACCESSKEYID12345',
   s3_secret_key: 'FAKE-s3-secret-key',
+};
+
+/** A store already holding a tenant profile, so the shape of the layout is exercised. */
+const STORE_WITH_PROFILE = {
+  tenants: {
+    default: {
+      tenant_id: '00000000-0000-0000-0000-000000000001',
+      client_id: '00000000-0000-0000-0000-000000000002',
+      client_secret: 'FAKE-client-secret',
+    },
+  },
+  active_tenant: 'default',
 };
 
 let output: string[];
@@ -84,18 +92,18 @@ describe('atlas config set', () => {
   it('reads the value from stdin when given "-", keeping it out of shell history', async () => {
     fs_mocks.readFileSync.mockReturnValue('  FAKE-secret-from-stdin  \n');
 
-    await run(['set', 'client.secret', '-']);
+    await run(['set', 's3.secret-key', '-']);
 
     // Read from fd 0, not from the argument vector.
     expect(fs_mocks.readFileSync).toHaveBeenCalledWith(0, 'utf-8');
     expect(mocks.write_secure_config).toHaveBeenCalledWith({
-      client_secret: 'FAKE-secret-from-stdin',
+      s3_secret_key: 'FAKE-secret-from-stdin',
     });
   });
 
   it('rejects an invalid value and writes nothing', async () => {
-    await expect(run(['set', 'tenant.id', 'not-a-guid'])).rejects.toThrow(
-      /Invalid value for tenant.id/,
+    await expect(run(['set', 's3.endpoint', 'not a url'])).rejects.toThrow(
+      /Invalid value for s3.endpoint/,
     );
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
@@ -109,13 +117,13 @@ describe('atlas config set', () => {
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
 
-  it('keeps existing keys when storing a new one', async () => {
-    mocks.read_secure_config.mockReturnValue({ tenant_id: 'existing-tenant' });
+  it('keeps existing keys, tenant profiles included, when storing a new one', async () => {
+    mocks.read_secure_config.mockReturnValue(STORE_WITH_PROFILE);
 
     await run(['set', 's3.region', 'eu-north-1']);
 
     expect(mocks.write_secure_config).toHaveBeenCalledWith({
-      tenant_id: 'existing-tenant',
+      ...STORE_WITH_PROFILE,
       s3_region: 'eu-north-1',
     });
   });
@@ -136,19 +144,20 @@ describe('atlas config set', () => {
     expect(output.join('\n')).not.toMatch(/environment variable currently overrides/);
   });
 
-  it('skips the live probe while the credential group is incomplete', async () => {
-    await run(['set', 'client.id', '00000000-0000-0000-0000-000000000002']);
+  it('skips the live probe while the S3 group is incomplete', async () => {
+    await run(['set', 's3.endpoint', 'https://s3.example.invalid']);
 
-    expect(output.join('\n')).toMatch(/Graph credentials incomplete/);
-    expect(azure_mocks.get_token).not.toHaveBeenCalled();
+    expect(output.join('\n')).toMatch(/S3 settings incomplete/);
+    expect(s3_mocks.send).not.toHaveBeenCalled();
   });
 
-  it('probes Graph once the last credential in the group is stored', async () => {
-    mocks.read_secure_config.mockReturnValue(COMPLETE_GRAPH);
+  it('probes S3 once the last S3 field is stored', async () => {
+    mocks.read_secure_config.mockReturnValue(COMPLETE_S3);
 
-    await run(['set', 'client.secret', 'FAKE-client-secret']);
+    await run(['set', 's3.secret-key', 'FAKE-s3-secret-key']);
 
-    expect(azure_mocks.get_token).toHaveBeenCalledTimes(1);
+    expect(s3_mocks.send).toHaveBeenCalledTimes(1);
+    expect(azure_mocks.get_token).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown key', async () => {
@@ -158,15 +167,35 @@ describe('atlas config set', () => {
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
+
+  it.each(['tenant.id', 'client.id', 'client.secret'])(
+    'points %s at atlas tenants instead of storing it',
+    async (key) => {
+      await expect(run(['set', key, 'FAKE-value'])).rejects.toThrow(
+        /Tenant credentials now live in tenant profiles/,
+      );
+
+      expect(mocks.write_secure_config).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('atlas config get', () => {
   it('warns and prints nothing when the key is unset', async () => {
-    await run(['get', 'tenant.id']);
+    await run(['get', 's3.region']);
 
-    expect(output.join('\n')).toMatch(/tenant\.id is not set/);
+    expect(output.join('\n')).toMatch(/s3\.region is not set/);
     expect(console.log).not.toHaveBeenCalled();
   });
+
+  it.each(['tenant.id', 'client.id', 'client.secret'])(
+    'points %s at atlas tenants instead of reading it',
+    async (key) => {
+      await expect(run(['get', key])).rejects.toThrow(
+        /Tenant credentials now live in tenant profiles/,
+      );
+    },
+  );
 });
 
 describe('atlas config list', () => {
@@ -195,6 +224,13 @@ describe('atlas config list', () => {
 
     expect(output.find((l) => l.includes('s3.region'))).toContain('(secure store)');
   });
+
+  it('lists only shared keys; tenant credentials are not listed here', async () => {
+    await run(['list']);
+
+    expect(output.join('\n')).not.toContain('tenant.id');
+    expect(output.join('\n')).not.toContain('client.secret');
+  });
 });
 
 describe('atlas config unset', () => {
@@ -211,45 +247,45 @@ describe('atlas config unset', () => {
   });
 
   it('warns and writes nothing when the key is not in the store', async () => {
-    await run(['unset', 'tenant.id']);
+    await run(['unset', 's3.region']);
 
     expect(output.join('\n')).toMatch(/not set in the secure store/);
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
   });
 
-  it('removes only the named key', async () => {
-    mocks.read_secure_config.mockReturnValue({
-      tenant_id: 'keep-me',
-      client_secret: 'FAKE-remove-me',
-    });
+  it('removes only the named key and keeps tenant profiles', async () => {
+    mocks.read_secure_config.mockReturnValue({ ...STORE_WITH_PROFILE, s3_region: 'eu-north-1' });
 
-    await run(['unset', 'client.secret']);
+    await run(['unset', 's3.region']);
 
-    expect(mocks.write_secure_config).toHaveBeenCalledWith({ tenant_id: 'keep-me' });
+    expect(mocks.write_secure_config).toHaveBeenCalledWith(STORE_WITH_PROFILE);
   });
+
+  it.each(['tenant.id', 'client.id', 'client.secret'])(
+    'points %s at atlas tenants instead of removing it',
+    async (key) => {
+      await expect(run(['unset', key])).rejects.toThrow(
+        /Tenant credentials now live in tenant profiles/,
+      );
+
+      expect(mocks.write_secure_config).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('atlas config validate', () => {
-  it('leaves the exit code clean when both probes pass', async () => {
-    mocks.read_secure_config.mockReturnValue({ ...COMPLETE_GRAPH, ...COMPLETE_S3 });
+  it('leaves the exit code clean when the S3 probe passes, and never touches Graph', async () => {
+    mocks.read_secure_config.mockReturnValue(COMPLETE_S3);
 
     await run(['validate']);
 
     expect(process.exitCode).toBeUndefined();
-  });
-
-  it('exits non-zero when the Graph probe fails', async () => {
-    mocks.read_secure_config.mockReturnValue({ ...COMPLETE_GRAPH, ...COMPLETE_S3 });
-    azure_mocks.get_token.mockRejectedValue(new Error('AADSTS7000215'));
-
-    await run(['validate']);
-
-    expect(process.exitCode).toBe(1);
-    expect(output.join('\n')).toMatch(/Graph validation failed/);
+    expect(s3_mocks.send).toHaveBeenCalledTimes(1);
+    expect(azure_mocks.get_token).not.toHaveBeenCalled();
   });
 
   it('exits non-zero when the S3 probe fails, and still releases the client', async () => {
-    mocks.read_secure_config.mockReturnValue({ ...COMPLETE_GRAPH, ...COMPLETE_S3 });
+    mocks.read_secure_config.mockReturnValue(COMPLETE_S3);
     s3_mocks.send.mockRejectedValue(new Error('InvalidAccessKeyId'));
 
     await run(['validate']);
@@ -258,11 +294,11 @@ describe('atlas config validate', () => {
     expect(s3_mocks.destroy).toHaveBeenCalled();
   });
 
-  it('exits non-zero when credentials are missing entirely', async () => {
+  it('exits non-zero when S3 settings are missing, and points Graph checks elsewhere', async () => {
     await run(['validate']);
 
     expect(process.exitCode).toBe(1);
-    expect(output.join('\n')).toMatch(/Graph credentials incomplete/);
     expect(output.join('\n')).toMatch(/S3 settings incomplete/);
+    expect(output.join('\n')).not.toMatch(/Graph/);
   });
 });

@@ -66,18 +66,21 @@ WantedBy=timers.target
 
 Put the configuration in `/etc/atlas/atlas.env`. Atlas reads these variables from the environment:
 
-| Variable                      | Purpose                                               |
-| ----------------------------- | ----------------------------------------------------- |
-| `ATLAS_TENANT_ID`             | Microsoft 365 tenant ID                               |
-| `ATLAS_CLIENT_ID`             | Application (client) ID                               |
-| `ATLAS_CLIENT_SECRET`         | Client secret for the application                     |
-| `ATLAS_S3_ENDPOINT`           | S3 endpoint, such as `https://minio.example.com:9000` |
-| `ATLAS_S3_ACCESS_KEY`         | S3 access key                                         |
-| `ATLAS_S3_SECRET_KEY`         | S3 secret key                                         |
-| `ATLAS_S3_REGION`             | S3 region, if your backend needs one                  |
-| `ATLAS_ENCRYPTION_PASSPHRASE` | Passphrase that protects the tenant data key          |
+| Variable                      | Purpose                                                  |
+| ----------------------------- | -------------------------------------------------------- |
+| `ATLAS_PROFILE`               | Tenant profile to run, if you store several              |
+| `ATLAS_TENANT_ID`             | Optional. Overrides the selected profile's tenant ID     |
+| `ATLAS_CLIENT_ID`             | Optional. Overrides the selected profile's client ID     |
+| `ATLAS_CLIENT_SECRET`         | Optional. Overrides the selected profile's client secret |
+| `ATLAS_S3_ENDPOINT`           | S3 endpoint, such as `https://minio.example.com:9000`    |
+| `ATLAS_S3_ACCESS_KEY`         | S3 access key                                            |
+| `ATLAS_S3_SECRET_KEY`         | S3 secret key                                            |
+| `ATLAS_S3_REGION`             | S3 region, if your backend needs one                     |
+| `ATLAS_ENCRYPTION_PASSPHRASE` | Passphrase that protects the tenant data key             |
 
-The file holds credentials. Restrict it to the service account with `chmod 600 /etc/atlas/atlas.env`. Atlas also reads these values from `atlas config`, from `atlas.config.json`, and from a `.env` file. Real environment variables take precedence over all of them.
+Store the Graph credentials as a tenant profile rather than in this file. Run `atlas tenants add` once as the service account, with the client secret on stdin, then set `ATLAS_PROFILE` if you keep several. See [Tenant profiles](/configuration#tenant-profiles).
+
+The file holds credentials. Restrict it to the service account with `chmod 600 /etc/atlas/atlas.env`. Atlas also reads S3 and passphrase settings from `atlas config`, from `atlas.config.json`, and from a `.env` file. Real environment variables take precedence over all of them.
 
 Enable the timer:
 

@@ -18,6 +18,7 @@ import {
   with_object_lock,
   with_required_snapshot,
   with_snapshot,
+  with_target_profile,
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
@@ -58,6 +59,7 @@ function register_contacts_restore(group: Command, get_container: ContainerFacto
     .requiredOption(MAILBOX_FLAG, MAILBOX_DESCRIPTION)
     .option('-T, --target <email|id>', 'target mailbox (defaults to the source mailbox)');
   with_required_snapshot(command, 'snapshot identifier to restore');
+  with_target_profile(command);
   with_tenant(command).action((options: ContactsRestoreCommandOptions) =>
     execute_contacts_restore(get_container(), options),
   );
