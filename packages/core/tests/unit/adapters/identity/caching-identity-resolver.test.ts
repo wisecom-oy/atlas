@@ -65,7 +65,9 @@ function build_resolver(params: { graph?: UserIdentityResolver; registry?: Ident
   const registry_repo = make_registry_repo(params.registry);
   const ctx_factory = make_ctx_factory();
 
-  const resolver = new CachingIdentityResolver(graph, registry_repo, ctx_factory);
+  const resolver = new CachingIdentityResolver(graph, registry_repo, ctx_factory, {
+    tenant_id: TENANT,
+  });
 
   return { resolver, registry_repo, graph };
 }

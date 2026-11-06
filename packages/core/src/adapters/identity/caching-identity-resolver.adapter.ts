@@ -13,6 +13,7 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { ATLAS_CONFIG_TOKEN, type GraphConfig } from '@/utils/config';
 import {
   merge_active_identity,
   normalize_registry_email,
@@ -33,6 +34,10 @@ export const GRAPH_IDENTITY_RESOLVER_TOKEN = Symbol.for('GraphIdentityResolver')
  *
  * Multiple entries can share the same email; only one is 'active'.
  * Old users are accessed via their object_id directly.
+ *
+ * Graph only speaks for the storage tenant when the configured credentials belong to it. When
+ * they belong to another tenant, as in a cross-tenant restore, the registry is read-only: see
+ * {@link CachingIdentityResolver.resolve_without_registering}.
  */
 @injectable()
 export class CachingIdentityResolver implements UserIdentityResolver {
@@ -49,11 +54,15 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     private readonly _registry_repo: IdentityRegistryRepository,
     @inject(TENANT_CONTEXT_FACTORY_TOKEN)
     private readonly _ctx_factory: TenantContextFactory,
+    @inject(ATLAS_CONFIG_TOKEN)
+    private readonly _config: Pick<GraphConfig, 'tenant_id'>,
   ) {}
 
   async resolve_user(tenant_id: string, email: string): Promise<ResolvedUserIdentity> {
     await this.ensure_loaded(tenant_id);
     const normalized = normalize_registry_email(email);
+    const graph_is_foreign = tenant_id.toLowerCase() !== this._config.tenant_id.toLowerCase();
+    if (graph_is_foreign) return this.resolve_without_registering(tenant_id, email, normalized);
 
     const graph = await this.try_graph_resolve(tenant_id, email);
 
@@ -69,11 +78,7 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     const active = this._active_by_email.get(normalized);
     if (active) {
       logger.debug(`User ${email} not found in Graph, using cached identity`);
-      return {
-        object_id: active.object_id,
-        display_name: active.display_name,
-        email: active.email,
-      };
+      return to_identity(active);
     }
 
     // Only a 404 says the user is absent. A 403, throttling or an outage says Graph could not
@@ -92,14 +97,29 @@ export class CachingIdentityResolver implements UserIdentityResolver {
   ): Promise<ResolvedUserIdentity | undefined> {
     await this.ensure_loaded(tenant_id);
     const cached = this._by_object_id.get(object_id);
-    if (cached) {
-      return {
-        object_id: cached.object_id,
-        display_name: cached.display_name,
-        email: cached.email,
-      };
-    }
+    if (cached) return to_identity(cached);
     return this._graph.resolve_by_object_id(tenant_id, object_id);
+  }
+
+  /**
+   * Resolves against a storage tenant that the Graph credentials do not belong to. Graph then
+   * describes the other tenant, so the stored registry wins and Graph's answer is never written
+   * back: a same-email user over there would otherwise be recorded as a recycled email and
+   * repoint the address at a foreign object id (issue #591).
+   */
+  private async resolve_without_registering(
+    tenant_id: string,
+    email: string,
+    normalized: string,
+  ): Promise<ResolvedUserIdentity> {
+    const active = this._active_by_email.get(normalized);
+    if (active) return to_identity(active);
+    logger.warn(
+      `${email} is not in the identity registry of tenant ${tenant_id}, and the configured Graph ` +
+        `credentials belong to tenant ${this._config.tenant_id}. Using that tenant's answer ` +
+        'without recording it; pass the Entra object ID to name a user of the backed-up tenant.',
+    );
+    return this._graph.resolve_user(tenant_id, email);
   }
 
   /**
@@ -195,6 +215,11 @@ export class CachingIdentityResolver implements UserIdentityResolver {
       }
     }
   }
+}
+
+/** Strips registry bookkeeping from an entry, leaving the identity a caller asked for. */
+function to_identity(entry: IdentityRegistryEntry): ResolvedUserIdentity {
+  return { object_id: entry.object_id, display_name: entry.display_name, email: entry.email };
 }
 
 /** Reports what a registration changed; nothing when another writer had already made it. */

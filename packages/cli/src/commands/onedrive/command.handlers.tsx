@@ -1,7 +1,7 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
 import type { AtlasConfig } from '@wisecom/atlas-core';
-import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
+import { ATLAS_CONFIG_TOKEN, GRAPH_IDENTITY_RESOLVER_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
   OneDriveBackupUseCase,
   OneDriveRestoreUseCase,
@@ -81,8 +81,30 @@ export async function resolve_owner(
   tenant_id: string,
   owner_input: string,
 ): Promise<ResolvedOwner> {
-  if (!owner_input.includes('@')) return { object_id: owner_input };
   const resolver = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
+  return resolve_owner_with(resolver, tenant_id, owner_input);
+}
+
+/**
+ * Resolves a restore target through Graph alone, never the identity registry. The target lives in
+ * the tenant the Graph credentials belong to, which in a cross-tenant restore is not the backed-up
+ * tenant whose registry the caching resolver reads and writes.
+ */
+export async function resolve_restore_target(
+  container: Container,
+  tenant_id: string,
+  target_input: string,
+): Promise<ResolvedOwner> {
+  const graph = container.get<UserIdentityResolver>(GRAPH_IDENTITY_RESOLVER_TOKEN);
+  return resolve_owner_with(graph, tenant_id, target_input);
+}
+
+async function resolve_owner_with(
+  resolver: UserIdentityResolver,
+  tenant_id: string,
+  owner_input: string,
+): Promise<ResolvedOwner> {
+  if (!owner_input.includes('@')) return { object_id: owner_input };
   const identity = await resolver.resolve_user(tenant_id, owner_input);
   logger.info(`Resolved ${owner_input} -> ${identity.object_id} (${identity.display_name})`);
   return {
@@ -184,7 +206,7 @@ export async function execute_onedrive_restore(
   const tenant_id = resolve_tenant_id(container, options);
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const target_owner = options.targetOwner
-    ? await resolve_owner(container, tenant_id, options.targetOwner)
+    ? await resolve_restore_target(container, tenant_id, options.targetOwner)
     : undefined;
   const restore = container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
   const result = await restore.restore_onedrive(tenant_id, owner.object_id, {
