@@ -20,6 +20,7 @@ import type { OneDriveStatusResult } from '@/ports/onedrive/status.port';
 import type { DriveStats } from '@/domain/stats/stats';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
 
 export type OneDriveSdkBackupOptions = Camelize<
@@ -33,7 +34,8 @@ export type OneDriveSdkVerificationOptions = Camelize<
 export type OneDriveSdkRestoreOptions = Camelize<
   Omit<OneDriveRestoreOptions, 'on_progress' | 'should_interrupt'>
 > &
-  SdkOperationOptions;
+  SdkOperationOptions &
+  TargetTenantOption;
 export type OneDriveSdkVersionRestoreOptions = Camelize<
   Omit<DriveVersionRestoreOptions, 'on_progress' | 'should_interrupt'>
 > &

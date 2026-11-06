@@ -595,13 +595,14 @@ const unknown = mailboxes.filter((mb) => mb.hasInPlaceArchive === undefined);
 
 `atlas.outlook.restore` and `atlas.outlook.restoreMailbox` accept:
 
-| Option          | Type     | Description                                                                                            |
-| --------------- | -------- | ------------------------------------------------------------------------------------------------------ |
-| `folderName`    | `string` | Restore only this folder and its subfolders (name or path)                                             |
-| `messageRef`    | `string` | Restore one message by index or ID                                                                     |
-| `targetMailbox` | `string` | Target mailbox for a cross-mailbox restore. An email address is resolved to its Entra object ID first |
-| `startDate`     | `Date`   | Include snapshots on or after this date                                                                |
-| `endDate`       | `Date`   | Include snapshots on or before this date                                                               |
+| Option          | Type          | Description                                                                                                        |
+| --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `folderName`    | `string`      | Restore only this folder and its subfolders (name or path)                                                         |
+| `messageRef`    | `string`      | Restore one message by index or ID                                                                                 |
+| `targetMailbox` | `string`      | Target mailbox for a cross-mailbox restore. An email address is resolved to its Entra object ID first              |
+| `targetTenant`  | `AtlasTenant` | Write the restore into another tenant. Requires `targetMailbox`. See [Cross-tenant restore](#cross-tenant-restore) |
+| `startDate`     | `Date`        | Include snapshots on or after this date                                                                            |
+| `endDate`       | `Date`        | Include snapshots on or before this date                                                                           |
 
 Both return a `RestoreResult`:
 
@@ -754,6 +755,8 @@ await atlas.onedrive.restore('owner-id', { snapshotId, inPlace: true });
 ```
 
 `restore` and `save` on both drive workloads require an options object with `snapshotId`. TypeScript enforces this. A JavaScript caller that omits it gets a `TypeError` that names the method. `verify` takes its options optionally.
+
+`restore` also takes `targetTenant` to write into another tenant. It then requires `targetOwnerId` on OneDrive or `targetSiteId` on SharePoint. See [Cross-tenant restore](#cross-tenant-restore).
 
 ### Version restore
 
@@ -952,6 +955,44 @@ Replication skips objects that already exist on the target. A snapshot whose man
 | `s3Region`             | `string`                               | S3 region. Default `us-east-1`                                                                                                                          |
 | `encryptionPassphrase` | `string`                               | Must match the primary passphrase. Replicas share its encryption model                                                                                  |
 | `onStorageRequest`     | `(event: StorageRequestEvent) => void` | Receives one event per S3 request sent to this target, with `target` set to `targetId`. See [Storage request events](/reference/storage-request-events) |
+
+## Cross-tenant restore
+
+`createTenant` returns an `AtlasTenant` handle for a second Microsoft 365 tenant. Pass it as `targetTenant` to a restore to write the backup into that tenant:
+
+```typescript
+import { createAtlasInstance, createTenant } from '@wisecom/atlas-sdk';
+
+const atlas = createAtlasInstance({/* source tenant config */});
+
+const destination = createTenant({
+  tenantId: 'contoso.onmicrosoft.com',
+  clientId: '<client-id>',
+  clientSecret: '<client-secret>',
+});
+await destination.validate(); // AuthError when Entra ID refuses the credentials
+
+await atlas.outlook.restore('snapshot-id', {
+  targetMailbox: 'john.doe@example.com',
+  targetTenant: destination,
+});
+```
+
+The instance still reads and decrypts the backup with its own S3 credentials and passphrase. The handle's credentials perform every Graph write. A target given as an email is resolved in the destination tenant and is never written to the instance's identity registry.
+
+| Method                   | Required target option |
+| ------------------------ | ---------------------- |
+| `outlook.restore`        | `targetMailbox`        |
+| `outlook.restoreMailbox` | `targetMailbox`        |
+| `contacts.restore`       | `targetMailboxId`      |
+| `onedrive.restore`       | `targetOwnerId`        |
+| `sharepoint.restore`     | `targetSiteId`         |
+
+Object IDs differ between tenants, so a restore with `targetTenant` and no target fails with a `TypeError` before any Graph or storage call. A `targetTenant` that `createTenant` did not return fails with a `ConfigError`.
+
+`createTenant` checks formats without network I/O. `tenantId` is a GUID or an `*.onmicrosoft.com` domain, `clientId` a GUID, and `clientSecret` a single token. The handle keeps the secret in a private field, so `JSON.stringify` and `console.log` of the handle never print it. The destination app needs write permission for the workload being restored there, for example `Mail.ReadWrite` for Outlook. See [Security](/security#tenant-profiles-and-cross-tenant-restore).
+
+Each cross-tenant restore builds its own Graph and S3 clients and releases them when the restore ends, including on failure.
 
 ## Key re-wrap
 
@@ -1196,7 +1237,8 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 
 `@wisecom/atlas-sdk` exports an explicit list. Internal domain types and ports are not exported. Infer other result types from `AtlasInstance` rather than importing internal models.
 
-- **Factories and values:** `createAtlasInstance`, `createStorageTarget`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`
+- **Factories and values:** `createAtlasInstance`, `createStorageTarget`, `createTenant`, `getGraphCost`, `getStorageUsageToken`, `GRAPH_SERVICE_LIMITS`
+- **Tenant handles:** `AtlasTenant`, `AtlasTenantConfig`
 - **Instance types:** `AtlasInstance`, `AtlasInstanceConfig`, `LogSink`, `LogFields`, `ThrottleCoordinator`
 - **Sub-API types:** `OutlookApi`, `OneDriveApi`, `SharePointApi`, `TeamsApi`
 - **Workload options and results:** the `Outlook*`, `OneDriveSdk*`, `SharePointSdk*`, and `TeamsSdk*` types each API uses

@@ -8,10 +8,12 @@
  */
 export { createAtlasInstance } from './atlas-instance.adapter';
 export { create_storage_target as createStorageTarget } from '@wisecom/atlas-s3';
+export { create_tenant as createTenant } from './target-tenant';
 export { getGraphCost, getStorageUsageToken, GRAPH_SERVICE_LIMITS } from './public-values';
 
 export type { AtlasInstance, AtlasInstanceConfig } from '@wisecom/atlas-types';
 export type { StorageTarget, StorageTargetConfig } from '@wisecom/atlas-types';
+export type { AtlasTenant, AtlasTenantConfig } from '@wisecom/atlas-types';
 export type { LogSink, LogFields } from '@wisecom/atlas-types';
 export type {
   StorageRequestEvent,

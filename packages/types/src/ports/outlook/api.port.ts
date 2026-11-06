@@ -9,6 +9,7 @@ import type { MailboxStats } from '@/domain/stats/stats';
 import type { MailboxStatusResult } from '@/ports/status/use-case.port';
 import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/outlook/discovery.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
 
 /**
@@ -39,7 +40,8 @@ export type OutlookVerificationOptions = Camelize<
 export type OutlookRestoreOptions = Camelize<
   Omit<RestoreOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
 > &
-  SdkOperationOptions;
+  SdkOperationOptions &
+  TargetTenantOption;
 export type OutlookSaveOptions = Camelize<
   Omit<SaveOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
 > &

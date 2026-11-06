@@ -29,6 +29,7 @@ import {
 import { camelize } from '@wisecom/atlas-types/public/case-convert';
 import { adapt_operation_options, adapt_required_operation_options } from '@/operation-options';
 import { resolve_owner_identity, resolve_owner_object_id } from '@/owner-resolution';
+import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
@@ -40,7 +41,6 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
   const version_restore = container.get<OneDriveVersionRestoreUseCase>(
     ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   );
-  const restore = container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
   const save = container.get<OneDriveSaveUseCase>(ONEDRIVE_SAVE_USE_CASE_TOKEN);
   const deletion = container.get<OneDriveDeletionUseCase>(ONEDRIVE_DELETION_USE_CASE_TOKEN);
   const replication = container.get<OneDriveReplicationUseCase>(
@@ -78,11 +78,20 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     },
     async restore(owner_input, options) {
       const owner_id = await resolve_owner_id(owner_input);
+      const [target_tenant, own] = split_target_tenant(options);
+      const adapted = adapt_required_operation_options(own, 'onedrive.restore()');
       return camelize(
-        await restore.restore_onedrive(
-          tenant_id,
-          owner_id,
-          adapt_required_operation_options(options, 'onedrive.restore()'),
+        await with_restore_side(
+          container,
+          target_tenant,
+          own?.targetOwnerId,
+          'onedrive.restore()',
+          (side) => {
+            const use_case = side.container.get<OneDriveRestoreUseCase>(
+              ONEDRIVE_RESTORE_USE_CASE_TOKEN,
+            );
+            return use_case.restore_onedrive(tenant_id, owner_id, adapted);
+          },
         ),
       );
     },

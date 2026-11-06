@@ -34,14 +34,7 @@ const KNOWN_METHOD_GAPS: Record<string, string> = {
 };
 
 /** DI tokens the CLI resolves and the SDK does not. */
-const KNOWN_TOKEN_GAPS: Record<string, string> = {
-  // Intentional: the uncached inner resolver, used during rehydrate when the identity
-  // cache lives in the bucket being recovered. The SDK takes owner ids directly.
-  GRAPH_IDENTITY_RESOLVER_TOKEN: 'intentional',
-  // Intentional: the encrypted local config store is a CLI concern. The SDK takes
-  // tenant and credentials from AtlasInstanceConfig.
-  ATLAS_CONFIG_TOKEN: 'intentional',
-};
+const KNOWN_TOKEN_GAPS: Record<string, string> = {};
 
 /** Reads every source file under dir. */
 function collect_sources(dir: string): string[] {
