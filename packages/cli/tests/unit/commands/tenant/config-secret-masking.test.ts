@@ -12,13 +12,23 @@ vi.mock('@azure/identity', () => ({
 }));
 vi.mock('@wisecom/atlas-s3', () => ({ create_s3_client: vi.fn() }));
 
-const mocks = vi.hoisted(() => ({
-  read_secure_config: vi.fn(),
-  write_secure_config: vi.fn(),
-  read_env_overrides: vi.fn(),
-  try_load_config_file: vi.fn(),
-  secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
-}));
+const mocks = vi.hoisted(() => {
+  const read_secure_config = vi.fn();
+  // Records what each locked update persisted; the store itself is never written.
+  const write_secure_config = vi.fn();
+  return {
+    read_secure_config,
+    write_secure_config,
+    update_secure_config: vi.fn((mutate: (current: object) => object) => {
+      const next = mutate(read_secure_config() ?? {});
+      write_secure_config(next);
+      return next;
+    }),
+    read_env_overrides: vi.fn(),
+    try_load_config_file: vi.fn(),
+    secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
+  };
+});
 
 // Real CONFIG_KEYS, TENANT_KEYS, find_config_key and mask_secret: the point is to drive the
 // assertions from the shipped key tables, not from a copy of them. Only the store

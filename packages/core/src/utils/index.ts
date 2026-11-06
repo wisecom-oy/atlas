@@ -20,7 +20,7 @@ export {
 export type { StoredConfig, TenantProfile } from './tenant-profiles';
 export {
   read_secure_config,
-  write_secure_config,
+  update_secure_config,
   secure_config_dir,
   detect_keyring_backend,
 } from './secure-config-store';

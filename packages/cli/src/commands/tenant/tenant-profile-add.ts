@@ -7,10 +7,9 @@ import {
   logger,
   profile_names,
   try_load_config_file,
-  write_secure_config,
 } from '@wisecom/atlas-core';
 import { probe_graph } from '@/commands/tenant/config-probes';
-import { build_store, read_store } from '@/commands/tenant/tenant-profile-store';
+import { build_store, update_store } from '@/commands/tenant/tenant-profile-store';
 import { resolve_secret_option } from '@/utils/secret-option';
 
 export interface AddProfileOptions {
@@ -33,22 +32,18 @@ export async function execute_add_profile(name: string, options: AddProfileOptio
 
   const credentials = build_credentials(options);
   const file = try_load_config_file();
-  const stored = read_store();
-
-  if (find_profile(name, file, stored) !== undefined && options.replace !== true) {
-    throw new Error(
-      `Tenant profile "${name}" already exists. Pass --replace to overwrite its credentials.`,
-    );
-  }
-
-  const activate = stored.active_tenant === undefined && profile_names(file, stored).length === 0;
-  write_secure_config(
-    build_store(
-      stored,
-      { ...stored.tenants, [name]: credentials },
-      activate ? name : stored.active_tenant,
-    ),
-  );
+  let activate = false;
+  // Checked and written under the store lock, so a parallel add cannot slip in between.
+  update_store((stored) => {
+    if (find_profile(name, file, stored) !== undefined && options.replace !== true) {
+      throw new Error(
+        `Tenant profile "${name}" already exists. Pass --replace to overwrite its credentials.`,
+      );
+    }
+    activate = stored.active_tenant === undefined && profile_names(file, stored).length === 0;
+    const tenants = { ...stored.tenants, [name]: credentials };
+    return build_store(stored, tenants, activate ? name : stored.active_tenant);
+  });
   logger.success(`Saved tenant profile "${name}" to the encrypted store`);
   if (activate) {
     logger.info(`"${name}" is the first profile, so it is now the active profile`);
