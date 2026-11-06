@@ -67,3 +67,4 @@ Before you run a cross-tenant restore:
 - [OneDrive backup](/onedrive-backup): OneDrive restore, save, and verify
 - [SharePoint backup](/sharepoint-backup): SharePoint restore, save, and verify
 - [Replication](/operations/replication): the replication and rehydration process in operational detail
+- [Migrating to v7](/migration/v7): moving credentials into tenant profiles

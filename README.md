@@ -88,6 +88,7 @@ Teams coverage is channel messages, replies, members, and tabs for each team. On
 | Troubleshooting   | [docs](https://wisecom-oy.github.io/atlas/troubleshooting)           |
 | CLI Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/cli)             |
 | SDK Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/sdk)             |
+| Migrating to v7   | [docs](https://wisecom-oy.github.io/atlas/migration/v7)              |
 | Migrating to v6   | [docs](https://wisecom-oy.github.io/atlas/migration/v6)              |
 
 **Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the programmatic Node.js API.

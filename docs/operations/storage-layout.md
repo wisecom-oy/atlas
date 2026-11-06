@@ -50,7 +50,9 @@ atlas-{tenant_id}/
 
 ## Bucket isolation
 
-Each tenant has a separate bucket with its own S3 credentials, its own `dek.enc`, and its own Object Lock and lifecycle settings. Credentials for one tenant's bucket do not grant access to another's. Managed service providers can give each customer access to its own bucket only.
+Each tenant has a separate bucket, `atlas-<tenant_id>`, with its own `dek.enc` and its own Object Lock and lifecycle settings. The bucket is named after the tenant ID of the profile or SDK instance that writes it, so switching profiles switches buckets.
+
+Bucket separation alone does not separate credentials. The CLI's [tenant profiles](/configuration#tenant-profiles) share one S3 access key and one passphrase, so that key can read every profile's bucket. Managed service providers that must give each customer access to its own bucket only should use one S3 key per tenant: a separate Atlas installation per customer, or one SDK instance per tenant with its own `s3AccessKey`, `s3SecretKey`, and `encryptionPassphrase`.
 
 ## Outlook
 
