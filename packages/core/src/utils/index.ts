@@ -1,11 +1,23 @@
 export { logger } from './logger';
-export type { AtlasConfig, GraphConfig, S3Config, CryptoConfig } from './config';
+export type { AtlasConfig, GraphConfig, S3Config, CryptoConfig, LoadConfigOptions } from './config';
 export {
   load_config,
+  load_tenant_profile,
   try_load_config_file,
   read_env_overrides,
   ATLAS_CONFIG_TOKEN,
 } from './config';
+export {
+  DEFAULT_PROFILE,
+  PROFILE_NAME_RE,
+  find_profile,
+  list_profiles,
+  normalize_stored_config,
+  profile_names,
+  select_profile_name,
+  unknown_profile_message,
+} from './tenant-profiles';
+export type { StoredConfig, TenantProfile } from './tenant-profiles';
 export {
   read_secure_config,
   write_secure_config,
@@ -13,7 +25,7 @@ export {
   detect_keyring_backend,
 } from './secure-config-store';
 export type { SecureStoreOptions, KeyringBackend } from './secure-config-store';
-export { CONFIG_KEYS, find_config_key, mask_secret } from './config-keys';
+export { CONFIG_KEYS, TENANT_KEYS, find_config_key, mask_secret } from './config-keys';
 export type { ConfigKeySpec } from './config-keys';
 export { html_to_text } from './html-to-text';
 export { is_gcm_auth_failure } from './gcm-auth';

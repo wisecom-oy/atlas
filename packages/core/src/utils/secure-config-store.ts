@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
-import type { AtlasConfig } from '@/utils/config';
+import type { StoredConfig } from '@/utils/tenant-profiles';
 import { logger } from '@/utils/logger';
 
 const CONFIG_FILE = 'config.enc';
@@ -32,7 +32,7 @@ export function secure_config_dir(options: SecureStoreOptions = {}): string {
  * Returns an empty object when no store exists (never touches the keyring
  * in that case, so read-only CLI runs stay exec-free).
  */
-export function read_secure_config(options: SecureStoreOptions = {}): Partial<AtlasConfig> {
+export function read_secure_config(options: SecureStoreOptions = {}): StoredConfig {
   const file_path = join(secure_config_dir(options), CONFIG_FILE);
   if (!existsSync(file_path)) return {};
 
@@ -45,14 +45,11 @@ export function read_secure_config(options: SecureStoreOptions = {}): Partial<At
   }
 
   const plaintext = decrypt_store(readFileSync(file_path), key, file_path);
-  return JSON.parse(plaintext.toString('utf-8')) as Partial<AtlasConfig>;
+  return JSON.parse(plaintext.toString('utf-8')) as StoredConfig;
 }
 
 /** Encrypts and persists the full set of stored config values. */
-export function write_secure_config(
-  values: Partial<AtlasConfig>,
-  options: SecureStoreOptions = {},
-): void {
+export function write_secure_config(values: StoredConfig, options: SecureStoreOptions = {}): void {
   const dir = secure_config_dir(options);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
 
