@@ -24,6 +24,7 @@ import type { SharePointStatusResult } from '@/ports/sharepoint/status.port';
 import type { DriveStats } from '@/domain/stats/stats';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
 
 export type SharePointSdkBackupOptions = Camelize<
@@ -37,7 +38,8 @@ export type SharePointSdkVerificationOptions = Camelize<
 export type SharePointSdkRestoreOptions = Camelize<
   Omit<SharePointRestoreOptions, 'on_progress' | 'should_interrupt'>
 > &
-  SdkOperationOptions;
+  SdkOperationOptions &
+  TargetTenantOption;
 export type SharePointSdkVersionRestoreOptions = Camelize<
   Omit<DriveVersionRestoreOptions, 'on_progress' | 'should_interrupt'>
 > &

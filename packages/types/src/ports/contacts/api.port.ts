@@ -8,6 +8,7 @@ import type {
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { VerificationOptions, VerificationResult } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
+import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
 
 export type ContactsSdkBackupOptions = Camelize<
@@ -17,7 +18,8 @@ export type ContactsSdkBackupOptions = Camelize<
 export type ContactsSdkRestoreOptions = Camelize<
   Omit<ContactsRestoreOptions, 'on_progress' | 'should_interrupt'>
 > &
-  SdkOperationOptions;
+  SdkOperationOptions &
+  TargetTenantOption;
 export type ContactsSdkVerificationOptions = Camelize<
   Omit<VerificationOptions, 'on_progress' | 'should_interrupt'>
 > &

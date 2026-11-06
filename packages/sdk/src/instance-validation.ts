@@ -58,7 +58,8 @@ async function validate_existing_passphrase(
   }
 }
 
-async function validate_graph_token(container: Container): Promise<void> {
+/** Requests a Graph token through the container's auth provider; throws `AuthError` on refusal. */
+export async function validate_graph_token(container: Container): Promise<void> {
   try {
     const auth_provider =
       container.get<TokenCredentialAuthenticationProvider>(GRAPH_AUTH_PROVIDER_TOKEN);
