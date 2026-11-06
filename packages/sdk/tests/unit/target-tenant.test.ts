@@ -35,7 +35,7 @@ function fake_container(services: Record<string, unknown>): Container & { dispos
   const container = {
     disposed: false,
     get: (token: symbol) => services[token.description!] ?? {},
-    isBound: () => false,
+    isBound: (token: symbol) => token.description! in services,
     unbindAllAsync: async () => {
       container.disposed = true;
     },
@@ -128,6 +128,29 @@ describe('restore with targetTenant', () => {
     expect(source_identity.resolve_user).not.toHaveBeenCalled();
     expect(source_restore.restore_snapshot).not.toHaveBeenCalled();
     expect(target.disposed).toBe(true);
+  });
+
+  it("reports the restore's storage requests to the instance's onStorageRequest observer", async () => {
+    const add_middleware = vi.fn();
+    const target_restore = { restore_snapshot: vi.fn().mockResolvedValue({ snapshot_id: 's' }) };
+    const source = fake_container({
+      AtlasConfig: SOURCE_CONFIG,
+      AtlasSdkStorageObserver: vi.fn(),
+    });
+    create_container_from_config.mockReturnValue(
+      fake_container({
+        RestoreUseCase: target_restore,
+        GraphIdentityResolver: { resolve_user: vi.fn() },
+        S3Client: { middlewareStack: { add: add_middleware } },
+      }),
+    );
+
+    await create_outlook_api('tenant-source', source).restore('snap-1', {
+      targetMailbox: DEST_OBJECT_ID,
+      targetTenant: create_tenant(DESTINATION),
+    });
+
+    expect(add_middleware).toHaveBeenCalled();
   });
 
   it('disposes the target container when the restore fails', async () => {

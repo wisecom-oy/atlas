@@ -1,3 +1,4 @@
+import type { S3Client } from '@aws-sdk/client-s3';
 import { Container } from 'inversify';
 import {
   ATLAS_CONFIG_TOKEN,
@@ -7,17 +8,25 @@ import {
   type GraphConfig,
 } from '@wisecom/atlas-core';
 import { bind_graph_client } from '@wisecom/atlas-m365-graph';
+import { observe_storage_requests, S3_CLIENT_TOKEN } from '@wisecom/atlas-s3';
 import {
   ConfigError,
   USER_IDENTITY_RESOLVER_TOKEN,
   type AtlasTenant,
   type AtlasTenantConfig,
   type TargetTenantOption,
+  type StorageRequestObserver,
   type UserIdentityResolver,
 } from '@wisecom/atlas-types';
 import { create_container_from_config } from '@/container';
 import { create_disposer } from '@/instance-disposal';
 import { validate_graph_token } from '@/instance-validation';
+
+/**
+ * The instance's `onStorageRequest` observer. Bound on the instance container so a cross-tenant
+ * restore, which reads the same bucket through its own S3 client, still reports every request.
+ */
+export const STORAGE_OBSERVER_TOKEN = Symbol.for('AtlasSdkStorageObserver');
 
 /** Public option name for each Graph field, in the order errors report them. */
 const PUBLIC_FIELDS = {
@@ -123,6 +132,13 @@ export async function with_restore_side<T>(
     ...container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN),
     ...graph,
   });
+  if (container.isBound(STORAGE_OBSERVER_TOKEN)) {
+    observe_storage_requests(
+      target_container.get<S3Client>(S3_CLIENT_TOKEN),
+      container.get<StorageRequestObserver>(STORAGE_OBSERVER_TOKEN),
+      'primary',
+    );
+  }
   try {
     const identity = target_container.get<UserIdentityResolver>(GRAPH_IDENTITY_RESOLVER_TOKEN);
     return await run({ container: target_container, target_identity: identity });

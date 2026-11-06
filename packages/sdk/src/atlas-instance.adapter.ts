@@ -34,6 +34,7 @@ import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 import { normalize_config } from '@/instance-config';
 import { validate_instance } from '@/instance-validation';
 import { resolve_owner_object_id } from '@/owner-resolution';
+import { STORAGE_OBSERVER_TOKEN } from '@/target-tenant';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
@@ -44,6 +45,7 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
   if (config.onStorageRequest) {
     const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
     observe_storage_requests(s3_client, config.onStorageRequest, 'primary');
+    container.bind(STORAGE_OBSERVER_TOKEN).toConstantValue(config.onStorageRequest);
   }
   const tenant_id = atlas_config.tenant_id;
 
