@@ -10,7 +10,7 @@
 
 **An open-source backup and recovery engine for Microsoft 365.**
 
-Atlas backs up Outlook mailboxes, OneDrive files, and SharePoint document libraries into S3-compatible object storage that you control. Data is encrypted per tenant before it leaves the process, stored content-addressed and deduplicated, and synchronised incrementally through Microsoft Graph delta queries.
+Atlas backs up Outlook mailboxes, personal Outlook contacts, Outlook calendars, OneDrive files, SharePoint document libraries, and Teams channel messages into S3-compatible object storage that you control. Data is encrypted per tenant before it leaves the process, stored content-addressed and deduplicated, and synchronised incrementally through Microsoft Graph delta queries.
 
 It is infrastructure rather than a desktop backup app: a CLI and a typed SDK, built to be automated, inspected, and operated by the people responsible for recovery. Atlas is free and open source under Apache-2.0, maintained by [Wisecom Oy](https://wisecom.fi). You can run it yourself, indefinitely, with no licence key and no feature gating.
 
@@ -43,8 +43,17 @@ atlas outlook status -m user@example.com            # check freshness
 # OneDrive
 atlas onedrive backup -o user@example.com
 
+# Contacts
+atlas contacts backup -m user@example.com
+
+# Calendar
+atlas calendar backup -m user@example.com
+
 # SharePoint
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
+
+# Teams
+atlas teams backup --team <team-id>
 ```
 
 Backups need a Microsoft Entra ID app registration and an S3 bucket. [Getting Started](https://wisecom-oy.github.io/atlas/getting-started) covers both, and [Microsoft Entra ID setup](https://wisecom-oy.github.io/atlas/azure-ad-setup) lists the exact Graph permissions and why each is required.
@@ -56,10 +65,15 @@ Restores, verification, catalogue queries, replication, and retention are docume
 Atlas currently protects:
 
 - **Exchange Online**: mailboxes, folder hierarchy, attachments
+- **Contacts**: personal Outlook contacts, with photos
+- **Calendar**: Outlook calendar events, with recurring series and file attachments
 - **OneDrive**: files with version history
 - **SharePoint**: document libraries, including subsites
+- **Microsoft Teams**: channel messages and replies, with channel members and tabs
 
 SharePoint coverage is document libraries only. Generic lists and site pages are not captured yet, and planned work is tracked in the [roadmap](https://wisecom-oy.github.io/atlas/roadmap).
+
+Teams coverage is channel messages, replies, members, and tabs for each team. One-to-one, group, and meeting chats are not captured.
 
 ## Documentation
 
@@ -71,11 +85,15 @@ SharePoint coverage is document libraries only. Generic lists and site pages are
 | Security Model    | [docs](https://wisecom-oy.github.io/atlas/security)                  |
 | Self-Hosting      | [docs](https://wisecom-oy.github.io/atlas/self-hosting)              |
 | OneDrive Backup   | [docs](https://wisecom-oy.github.io/atlas/onedrive-backup)           |
+| Contacts Backup   | [docs](https://wisecom-oy.github.io/atlas/contacts-backup)           |
+| Calendar Backup   | [docs](https://wisecom-oy.github.io/atlas/calendar-backup)           |
 | SharePoint Backup | [docs](https://wisecom-oy.github.io/atlas/sharepoint-backup)         |
+| Teams Backup      | [docs](https://wisecom-oy.github.io/atlas/teams-backup)              |
 | Storage Layout    | [docs](https://wisecom-oy.github.io/atlas/operations/storage-layout) |
 | Troubleshooting   | [docs](https://wisecom-oy.github.io/atlas/troubleshooting)           |
 | CLI Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/cli)             |
 | SDK Reference     | [docs](https://wisecom-oy.github.io/atlas/reference/sdk)             |
+| Migrating to v7   | [docs](https://wisecom-oy.github.io/atlas/migration/v7)              |
 | Migrating to v6   | [docs](https://wisecom-oy.github.io/atlas/migration/v6)              |
 
 **Packages:** [`@wisecom/atlas-cli`](https://www.npmjs.com/package/@wisecom/atlas-cli) for the command line, [`@wisecom/atlas-sdk`](https://www.npmjs.com/package/@wisecom/atlas-sdk) for the programmatic Node.js API.

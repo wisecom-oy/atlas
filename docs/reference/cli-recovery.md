@@ -31,9 +31,41 @@ Run [`atlas replicate`](/reference/cli#atlas-replicate) on a schedule against a 
 - Rehydration needs the replica's encryption key on primary. Atlas copies the key automatically into an empty bucket, or into a freshly initialized bucket whose only object is that key. Otherwise it aborts with `DekOverwriteRefusedError` rather than overwrite a key that protects existing data. If primary's content is disposable, run `atlas delete --purge` first, then rehydrate into the empty bucket.
 - Delta links in recovered manifests can be stale. Atlas falls back to a full sync on the next backup automatically, so that first backup takes longer.
 
+## Cross-tenant restore
+
+Use `--target-profile` to restore into a second Microsoft 365 tenant. The backup stays in the source tenant's bucket. The writes use the destination tenant's app registration, so both tenants need a profile:
+
+```bash
+pbpaste | atlas tenants add contoso --tenant-id <tenant-id> --client-id <client-id> --client-secret -
+pbpaste | atlas tenants add fabrikam --tenant-id <tenant-id> --client-id <client-id> --client-secret -
+atlas tenants validate --all
+
+atlas --profile contoso outlook restore -s <snapshot-id> --target-profile fabrikam -T john.doe@example.com
+atlas --profile contoso onedrive restore -o john.doe@example.com -s <snapshot-id> --target-owner jane.doe@example.com --target-profile fabrikam
+```
+
+The source profile supplies the storage tenant, S3 credentials, and passphrase. Each restore command needs its explicit target flag, because object IDs differ between tenants:
+
+| Command                    | Explicit target flag           |
+| -------------------------- | ------------------------------ |
+| `atlas outlook restore`    | `-T, --target <email>`         |
+| `atlas contacts restore`   | `-T, --target <email or id>`   |
+| `atlas calendar restore`   | `-T, --target <email or id>`   |
+| `atlas onedrive restore`   | `--target-owner <email or id>` |
+| `atlas sharepoint restore` | `--target-site <url-or-id>`    |
+
+Before you run a cross-tenant restore:
+
+- The destination owner exists in the destination tenant and holds the license for that workload.
+- The destination app registration has write permissions there: `Mail.ReadWrite` (Outlook), `Contacts.ReadWrite` (contacts), `Calendars.ReadWrite` (calendar), `Files.ReadWrite.All` (OneDrive), or `Sites.ReadWrite.All` (SharePoint).
+- `ATLAS_*` environment variables do not apply to the target profile. Set its credentials only in the profile.
+
+`--target-profile` applies to `outlook`, `contacts`, `calendar`, `onedrive`, and `sharepoint` restores. `restore-version` does not accept it and writes into the source tenant. See [Tenant profiles](/configuration#tenant-profiles) and [Security](/security#tenant-profiles-and-cross-tenant-restore).
+
 ## See also
 
 - [CLI commands](/reference/cli): full flag reference for every command
 - [OneDrive backup](/onedrive-backup): OneDrive restore, save, and verify
 - [SharePoint backup](/sharepoint-backup): SharePoint restore, save, and verify
 - [Replication](/operations/replication): the replication and rehydration process in operational detail
+- [Migrating to v7](/migration/v7): moving credentials into tenant profiles

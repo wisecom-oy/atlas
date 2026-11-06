@@ -6,7 +6,8 @@
  * Skips (with a warning where the user should know) when:
  * - `atlas` is already a shell alias in a known rc file
  * - another `atlas` executable is already on PATH and is not the Atlas CLI
- * - `atlas` resolves to another Atlas CLI install and this is not a global install
+ * - `atlas` resolves to another Atlas CLI install, this is not a global install,
+ *   and the run is an install hook rather than an explicit `link-cli`
  * - no writable bin directory exists
  * - running on Windows (npm creates .cmd shims for global installs)
  * - running inside the Atlas monorepo as a lifecycle hook (contributor installs)
@@ -14,6 +15,8 @@
  * A global install whose `atlas` resolves to a different, usually older Atlas
  * install takes the command over, so `atlas --version` reports the newly
  * installed version instead of silently running the old copy (issue #423).
+ * So does an explicit `pnpm run link-cli` (or `npm run link-cli`): someone who
+ * asks to link this build wants `atlas` to run it, wherever it is installed.
  *
  * Never fails the install: every exit path is code 0.
  * Opt out with ATLAS_SKIP_POSTINSTALL=1. Manual run: `node scripts/postinstall.mjs`.
@@ -134,14 +137,15 @@ function is_global_install() {
   if (process.env.npm_config_global === 'true') return true;
   const real = realpathSync(CLI_PATH);
   const bun_root = process.env.BUN_INSTALL ?? join(homedir(), '.bun');
-  const pnpm_root = process.env.PNPM_HOME ?? join(
-    process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'),
-    'pnpm',
-  );
+  const pnpm_root =
+    process.env.PNPM_HOME ??
+    join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'pnpm');
   const global_roots = [
     join(bun_root, 'install', 'global'),
     join(pnpm_root, 'global'),
-    ...(process.env.npm_config_prefix ? [join(process.env.npm_config_prefix, 'lib', 'node_modules')] : []),
+    ...(process.env.npm_config_prefix
+      ? [join(process.env.npm_config_prefix, 'lib', 'node_modules')]
+      : []),
   ];
   return global_roots.some((dir) => {
     // Both sides through realpath: the install path is already resolved, and
@@ -156,7 +160,10 @@ function is_global_install() {
 
 /** Installs the `atlas` symlink unless the name is taken or the environment opts out. */
 function main() {
-  if (process.env.ATLAS_SKIP_POSTINSTALL || process.env.CI) return;
+  const explicit_link = process.env.npm_lifecycle_event === 'link-cli';
+  if (process.env.ATLAS_SKIP_POSTINSTALL) return;
+  // CI only guards install hooks: an explicit link is a request, wherever it runs.
+  if (process.env.CI && !explicit_link) return;
   if (process.platform === 'win32') return; // npm creates atlas.cmd shims for global installs
   // Contributor `pnpm install` inside the monorepo must not touch the system.
   if (process.env.npm_lifecycle_event === 'postinstall' && existsSync(WORKSPACE_MARKER)) return;
@@ -178,9 +185,10 @@ function main() {
     if (is_atlas_cli(existing)) {
       // A different (typically older) Atlas install holds the command. This used to
       // return silently, which kept `atlas --version` reporting the old version after
-      // an upgrade (issue #423). Take the command over on a global install; a local
-      // install must not repoint a system-wide command into a project's node_modules.
-      if (!is_global_install()) {
+      // an upgrade (issue #423). Take the command over on a global install or an explicit
+      // link; an install hook in a project must not repoint a system-wide command into its
+      // node_modules.
+      if (!is_global_install() && !explicit_link) {
         warn(
           `skipped: \`atlas\` already resolves to another Atlas CLI install at ` +
             `${realpathSync(existing)}, not this one at ${CLI_PATH}. Upgrade that ` +

@@ -27,16 +27,41 @@ Then click **Grant admin consent for [your tenant]**. The permissions do not tak
 
 `atlas outlook mailboxes` shows mailbox sizes when `Reports.Read.All` is granted. Without it, the Size column is omitted. The permission reads every usage report in the tenant, not only mailbox sizes, so grant it only for capacity planning.
 
-## OneDrive and SharePoint permissions
+## OneDrive, SharePoint, Contacts, and Calendar permissions
 
-OneDrive and SharePoint backups use their own permission sets, granted on the same app registration:
+OneDrive, SharePoint, Contacts, and Calendar backups use their own permission sets, granted on the same app registration:
 
 | Workload                 | Permissions                                                       | Notes                                              |
 | ------------------------ | ----------------------------------------------------------------- | -------------------------------------------------- |
 | OneDrive                 | `Files.Read.All`, `User.Read.All`                                 | `Files.ReadWrite.All` is needed for restore only   |
+| Contacts                 | `Contacts.Read`                                                   | `Contacts.ReadWrite` is needed for restore only    |
+| Calendar                 | `Calendars.Read`                                                  | `Calendars.ReadWrite` is needed for restore only   |
 | SharePoint               | `Sites.Read.All`, `Files.Read.All`                                | `Sites.ReadWrite.All` is needed for restore only   |
 
-See [OneDrive backup](./onedrive-backup.md) and [SharePoint backup](./sharepoint-backup.md) for the commands that use them.
+See [OneDrive backup](./onedrive-backup.md), [SharePoint backup](./sharepoint-backup.md), [Contacts backup](./contacts-backup.md), and [Calendar backup](./calendar-backup.md) for the commands that use them.
+
+## Teams application permissions
+
+Teams backup reads team structure, membership, and channel messages with these **Application** permissions. Grant all eight on the same app registration.
+
+| Permission                | Used for                                                    |
+| ------------------------- | ----------------------------------------------------------- |
+| `Team.ReadBasic.All`      | List teams and read team settings                           |
+| `TeamSettings.Read.All`   | Read team settings                                          |
+| `TeamMember.Read.All`     | List team members                                           |
+| `Channel.ReadBasic.All`   | List channels                                               |
+| `ChannelMember.Read.All`  | List channel members                                        |
+| `ChannelMessage.Read.All` | Read channel messages and replies. Protected API, see below |
+| `TeamsTab.Read.All`       | Read channel tabs                                           |
+| `Files.Read.All`          | Find each channel's files folder                            |
+
+`Sites.Read.All` also satisfies the files folder call. Without either permission, Graph returns `403` for that call, and Atlas records the channel's files folder as unavailable.
+
+::: warning ChannelMessage.Read.All may need Microsoft approval
+`ChannelMessage.Read.All` is a protected Microsoft Graph API. Microsoft may require approval of the app before Graph returns channel messages, even after admin consent. Request access at [https://aka.ms/teamsgraph/requestaccess](https://aka.ms/teamsgraph/requestaccess) before you schedule Teams backups.
+:::
+
+This permission exposes the text of every channel message in the tenant, including private channels. Treat it as the most sensitive permission on the app. See [Teams backup](./teams-backup.md) for what is stored.
 
 ## Security implications
 
@@ -54,8 +79,8 @@ Rotate the client secret at least every 90 days in production.
 
 1. In **Certificates & secrets**, add a new client secret.
 2. Copy the secret **Value** immediately. The portal shows it once. The **Secret ID** is not the secret.
-3. Update Atlas: set `ATLAS_CLIENT_SECRET`, or pipe the value to `atlas config set client.secret -`, which reads from stdin and keeps it out of shell history. See [Configuration](/configuration).
-4. Run `atlas config validate` to confirm authentication works, then delete the old secret in **Certificates & secrets**.
+3. Update Atlas: set `ATLAS_CLIENT_SECRET`, or re-register the profile with the new value piped from stdin, which keeps it out of shell history: `pbpaste | atlas tenants add <name> --tenant-id <tenant-id> --client-id <client-id> --client-secret - --replace`. See [Configuration](/configuration#tenant-profiles).
+4. Run `atlas tenants validate <name>` to confirm authentication works, then delete the old secret in **Certificates & secrets**.
 
 An expired or mistyped secret fails with `AADSTS7000215`. See [troubleshooting](/troubleshooting#aadsts-error-codes).
 

@@ -19,6 +19,7 @@
     "perf:backup": "node tools/perf/dist/cli.js profile -- backup",
     "perf:restore": "node tools/perf/dist/cli.js profile -- restore",
     "perf:analyze": "node tools/perf/dist/cli.js analyze",
+    "rig:teams": "node tools/teams-scale-rig/src/cli.mjs",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs --port 4178",

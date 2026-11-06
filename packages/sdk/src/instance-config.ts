@@ -26,6 +26,7 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     throw new ConfigError('onStorageRequest must be a function.');
   }
   assert_throttle_coordinator(config.throttleCoordinator);
+  assert_teams_pacing_share(config.teamsPacingShare);
 
   return {
     tenant_id: config.tenantId,
@@ -37,6 +38,14 @@ export function normalize_config(config: AtlasInstanceConfig): AtlasConfig {
     s3_region: config.s3Region || 'us-east-1',
     encryption_passphrase: config.encryptionPassphrase,
   };
+}
+
+/** Rejects a Teams pacing share outside (0, 1]. */
+function assert_teams_pacing_share(share: unknown): void {
+  if (share === undefined) return;
+  if (typeof share !== 'number' || !Number.isFinite(share) || share <= 0 || share > 1) {
+    throw new ConfigError('teamsPacingShare must be a number above 0 and at most 1.');
+  }
 }
 
 /** Rejects a throttle coordinator that does not provide both `wait` and `raise`. */

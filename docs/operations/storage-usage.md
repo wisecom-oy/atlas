@@ -35,7 +35,7 @@ Atlas reports two sizes that answer different questions:
 
 Deduplication keeps physical size below logical size, because one stored object serves every snapshot that references it. Other factors push physical size up: base64 encoding in MIME adds about 33% to attachments, each object carries encryption overhead, noncurrent versions stay until they expire, and legacy index objects and staging leftovers take up space that the manifests do not reference.
 
-A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. Reading the manifests requires the tenant's data key. A bucket with no backups, or a replica without the key, returns the physical report only.
+A complete report includes `logical_bytes_referenced`, so you can compare the two figures in one place. `logical_bytes_by_workload` splits it across Outlook, OneDrive, SharePoint, and Teams. Reading the manifests requires the tenant's data key. A bucket with no backups, or a replica without the key, returns the physical report only.
 
 ## Categories
 
@@ -44,10 +44,10 @@ A complete report includes `logical_bytes_referenced`, so you can compare the tw
 | `current`            | The latest version of each live object.                                                                                                  |
 | `noncurrent`         | Older versions kept by versioning or Object Lock. Buckets created by Atlas expire noncurrent versions after 30 days. Retention can keep them longer. |
 | `delete_markers`     | Delete markers. They hold no bytes. Atlas's lifecycle rules remove them once nothing remains behind them.                              |
-| `staging`            | Objects under `onedrive/staging/` and `sharepoint/staging/`. Already included in `current` or `noncurrent`. A large value usually means abandoned large-file uploads. |
+| `staging`            | Objects under `onedrive/staging/`, `sharepoint/staging/`, and `teams/staging/`. Already included in `current` or `noncurrent`. A large value usually means abandoned large-file uploads. |
 | `incomplete_uploads` | Multipart uploads that were never completed or aborted, and the bytes their parts hold. Not in `current`, but most providers bill for them. |
 
-`stored_bytes` is `current` + `noncurrent` + `incomplete_uploads`. The workload breakdown follows the [storage layout](/operations/storage-layout): `outlook` (`data/`, `attachments/`, `manifests/`), `onedrive`, `sharepoint`, `meta` (`_meta/`), and `other` (any key outside the layout). The rows add up to the totals. With `--by owner`, each row is one mailbox, OneDrive owner, or SharePoint site, identified by the opaque ID in its key.
+`stored_bytes` is `current` + `noncurrent` + `incomplete_uploads`. The workload breakdown follows the [storage layout](/operations/storage-layout): `outlook` (`data/`, `attachments/`, `manifests/`), `onedrive`, `sharepoint`, `teams`, `meta` (`_meta/`), and `other` (any key outside the layout). The rows add up to the totals. With `--by owner`, each row is one mailbox, OneDrive owner, SharePoint site, or Teams team, identified by the opaque ID in its key.
 
 ## Request cost
 

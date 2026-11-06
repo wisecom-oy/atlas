@@ -41,7 +41,10 @@ function build_resolver(overrides: { registry_repo?: Partial<IdentityRegistryRep
     ...overrides.registry_repo,
   };
   const { factory, destroys } = make_counting_ctx_factory();
-  return { resolver: new CachingIdentityResolver(graph, registry_repo, factory), destroys };
+  const resolver = new CachingIdentityResolver(graph, registry_repo, factory, {
+    tenant_id: TENANT,
+  });
+  return { resolver, destroys };
 }
 
 describe('CachingIdentityResolver context lifecycle (issue #436)', () => {

@@ -4,7 +4,7 @@ description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with
 
 # Storage layout
 
-Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, calendars under `calendar/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
 
 ```
 atlas-{tenant_id}/
@@ -21,6 +21,16 @@ atlas-{tenant_id}/
 ├── data/{owner_id}/{content_name}               # Outlook messages
 ├── attachments/{owner_id}/{content_name}        # Outlook attachments (legacy JSON entries)
 ├── manifests/{owner_id}/{snapshot_id}.json      # Outlook manifests
+├── contacts/
+│   ├── data/{owner_id}/{content_name}          # contact records, keyed HMAC-SHA256 name
+│   ├── photos/{owner_id}/{content_name}        # contact photos, keyed HMAC-SHA256 name
+│   ├── manifests/{owner_id}/{snapshot_id}.json # contacts manifests
+│   └── _meta/{owner_id}/delta.json             # delta cursor
+├── calendar/
+│   ├── data/{owner_id}/{content_name}          # event records, keyed HMAC-SHA256 name
+│   ├── attachments/{owner_id}/{content_name}   # event file attachments, keyed HMAC-SHA256 name
+│   ├── manifests/{owner_id}/{snapshot_id}.json # calendar manifests
+│   └── _meta/{owner_id}/delta.json             # delta cursors, one per calendar
 ├── onedrive/
 │   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
@@ -28,29 +38,37 @@ atlas-{tenant_id}/
 │   ├── index/{owner_id}/files/{file_id}.json    # legacy per-file index
 │   ├── staging/{owner_id}/                      # temporary multipart uploads
 │   └── _meta/{owner_id}/delta.json              # delta cursors
-└── sharepoint/
-    ├── data/{site_id}/{content_name}
-    ├── manifests/{site_id}/{snapshot_id}.json
-    ├── index/{site_id}/runs/{snapshot_id}.json
-    ├── index/{site_id}/files/{file_id}.json
-    ├── staging/{site_id}/
-    └── _meta/{site_id}/delta.json
+├── sharepoint/
+│   ├── data/{site_id}/{content_name}
+│   ├── manifests/{site_id}/{snapshot_id}.json
+│   ├── index/{site_id}/runs/{snapshot_id}.json
+│   ├── index/{site_id}/files/{file_id}.json
+│   ├── staging/{site_id}/
+│   └── _meta/{site_id}/delta.json
+└── teams/
+    ├── data/{team_id}/{content_name}
+    ├── data/{team_id}/hosted/{content_name}
+    ├── manifests/{team_id}/{snapshot_id}.json
+    ├── shards/{team_id}/{channel_id}/{content_name}.json
+    └── _meta/{team_id}/channels/{channel_id}.json
 ```
 
 ## Bucket isolation
 
-Each tenant has a separate bucket with its own S3 credentials, its own `dek.enc`, and its own Object Lock and lifecycle settings. Credentials for one tenant's bucket do not grant access to another's. Managed service providers can give each customer access to its own bucket only.
+Each tenant has a separate bucket, `atlas-<tenant_id>`, with its own `dek.enc` and its own Object Lock and lifecycle settings. The bucket is named after the tenant ID of the profile or SDK instance that writes it, so switching profiles switches buckets.
+
+Bucket separation alone does not separate credentials. The CLI's [tenant profiles](/configuration#tenant-profiles) share one S3 access key and one passphrase, so that key can read every profile's bucket. Managed service providers that must give each customer access to its own bucket only should use one S3 key per tenant: a separate Atlas installation per customer, or one SDK instance per tenant with its own `s3AccessKey`, `s3SecretKey`, and `encryptionPassphrase`.
 
 ## Outlook
 
-| Prefix                                          | Contents                                                    | Notes                                                       |
-| ----------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
-| `_meta/dek.enc`                                 | Wrapped data encryption key, one per tenant                 | The most critical object. See [The DEK object](#the-dek-object). |
-| `_meta/outlook-manifests/owners/{owner_id}/`    | Pointer to the latest manifest for a mailbox                | Lets incremental backups read one manifest, not the full history. |
-| `_meta/outlook-manifests/snapshots/{snapshot}`  | Pointer from a snapshot ID to its manifest                  | Direct lookup by snapshot ID.                               |
-| `data/{owner_id}/`                              | Messages as RFC 5322 MIME, named by keyed hash              | Content encrypted; S3 metadata visible.                     |
-| `attachments/{owner_id}/`                       | Attachments from legacy JSON entries, named by keyed hash   | Content encrypted; S3 metadata visible.                     |
-| `manifests/{owner_id}/`                         | Snapshot manifests                                          | Include subjects, senders, folder names, and delta URLs, all encrypted. |
+| Prefix                                         | Contents                                                  | Notes                                                                   |
+| ---------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `_meta/dek.enc`                                | Wrapped data encryption key, one per tenant               | The most critical object. See [The DEK object](#the-dek-object).        |
+| `_meta/outlook-manifests/owners/{owner_id}/`   | Pointer to the latest manifest for a mailbox              | Lets incremental backups read one manifest, not the full history.       |
+| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from a snapshot ID to its manifest                | Direct lookup by snapshot ID.                                           |
+| `data/{owner_id}/`                             | Messages as RFC 5322 MIME, named by keyed hash            | Content encrypted; S3 metadata visible.                                 |
+| `attachments/{owner_id}/`                      | Attachments from legacy JSON entries, named by keyed hash | Content encrypted; S3 metadata visible.                                 |
+| `manifests/{owner_id}/`                        | Snapshot manifests                                        | Include subjects, senders, folder names, and delta URLs, all encrypted. |
 
 Pointers hold only an encrypted manifest key. Deleting a mailbox or snapshot removes its pointers.
 
@@ -69,14 +87,14 @@ Each Outlook manifest records `mailbox_purpose` (Graph's `mailboxSettings.userPu
 
 ## OneDrive and SharePoint
 
-| Prefix                                  | Contents                                          | Notes                                                                 |
-| --------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
-| `onedrive/data/{owner_id}/`             | File blobs, named by keyed hash                   | Owner is the Entra object ID.                                         |
-| `onedrive/manifests/{owner_id}/`        | Snapshot manifests                                | Include file paths, checksums, and change types.                      |
-| `onedrive/index/{owner_id}/runs/`       | One version index per backup run                  | Maps file IDs to the versions that run captured.                      |
-| `onedrive/index/{owner_id}/files/`      | Legacy per-file version indexes                   | Still readable. Removed only by purging the owner.                    |
-| `onedrive/_meta/{owner_id}/delta.json`  | Delta cursors                                     | Include delta links, file paths and names, ETags, and version watermarks. |
-| `sharepoint/...`                        | The same layout, keyed by Graph site ID           | Site ID replaces owner ID.                                            |
+| Prefix                                 | Contents                                | Notes                                                                     |
+| -------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------- |
+| `onedrive/data/{owner_id}/`            | File blobs, named by keyed hash         | Owner is the Entra object ID.                                             |
+| `onedrive/manifests/{owner_id}/`       | Snapshot manifests                      | Include file paths, checksums, and change types.                          |
+| `onedrive/index/{owner_id}/runs/`      | One version index per backup run        | Maps file IDs to the versions that run captured.                          |
+| `onedrive/index/{owner_id}/files/`     | Legacy per-file version indexes         | Still readable. Removed only by purging the owner.                        |
+| `onedrive/_meta/{owner_id}/delta.json` | Delta cursors                           | Include delta links, file paths and names, ETags, and version watermarks. |
+| `sharepoint/...`                       | The same layout, keyed by Graph site ID | Site ID replaces owner ID.                                                |
 
 ### Version indexes
 
@@ -89,6 +107,28 @@ The first backup after an upgrade is the exception. Existing cursors have no wat
 ### Subsites
 
 A subsite has its own Graph `site_id`, so `atlas sharepoint backup --include-subsites` writes a separate snapshot under the subsite's own prefix. Its blobs, indexes, and cursors follow the same split. Backup, restore, and retention for a subsite are independent of its parent.
+
+## Teams
+
+Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs live under `teams/data/{team_id}/`, inline images under `teams/data/{team_id}/hosted/`, and snapshot indexes under `teams/manifests/{team_id}/`. Channel shards sit under `teams/shards/{team_id}/{channel_id}/`, and per-channel delta cursors under `teams/_meta/{team_id}/channels/`. Teams writes no version index or staging objects.
+
+## Contacts
+
+| Prefix                                 | Contents                                            | Notes                                                                                    |
+| -------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `contacts/data/{owner_id}/`            | Contact records as JSON, named by keyed HMAC-SHA256 | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks. |
+| `contacts/photos/{owner_id}/`          | Contact photo bytes, named by keyed HMAC-SHA256     | Identical photos are stored once per mailbox.                                            |
+| `contacts/manifests/{owner_id}/`       | Snapshot manifests                                  | Each manifest is complete. Snapshots do not chain to older ones.                         |
+| `contacts/_meta/{owner_id}/delta.json` | Delta cursor                                        | Graph delta link used by the next backup.                                                |
+
+## Calendar
+
+| Prefix                                  | Contents                                             | Notes                                                                                       |
+| --------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `calendar/data/{owner_id}/`             | Event records as JSON, named by keyed HMAC-SHA256    | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks.    |
+| `calendar/attachments/{owner_id}/`      | File attachment bytes, named by keyed HMAC-SHA256    | Only file attachments are stored. Item and reference attachments are not captured.          |
+| `calendar/manifests/{owner_id}/`        | Snapshot manifests                                   | Each manifest is complete. Snapshots do not chain to older ones.                            |
+| `calendar/_meta/{owner_id}/delta.json`  | Delta cursors                                        | One Graph delta link per calendar, used by the next backup.                                 |
 
 ## The DEK object
 
@@ -112,10 +152,10 @@ MIME changes the deduplication boundary for messages. Two messages with the same
 
 Mailbox objects carry these headers:
 
-| Header                          | Value                                    | Encrypted                  |
-| ------------------------------- | ---------------------------------------- | -------------------------- |
-| `x-amz-meta-x-message-id`       | Microsoft Graph message ID               | No, visible to S3 readers  |
-| `Content-MD5`                   | MD5 of the ciphertext (transport check)  | Standard S3 header         |
+| Header                    | Value                                   | Encrypted                 |
+| ------------------------- | --------------------------------------- | ------------------------- |
+| `x-amz-meta-x-message-id` | Microsoft Graph message ID              | No, visible to S3 readers |
+| `Content-MD5`             | MD5 of the ciphertext (transport check) | Standard S3 header        |
 
 Objects written before keyed naming also carry `x-amz-meta-x-plaintext-sha256`, the SHA-256 of the plaintext. Atlas no longer writes or reads it.
 

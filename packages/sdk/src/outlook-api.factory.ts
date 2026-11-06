@@ -33,14 +33,15 @@ import { build_object_lock_policy } from '@wisecom/atlas-core/services/shared/ob
 import type {
   OutlookBackupOptions,
   OutlookRestoreOptions,
-} from '@wisecom/atlas-types/ports/atlas/outlook-api.port';
+} from '@wisecom/atlas-types/ports/outlook/api.port';
 import type { SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
+import type { RestoreOptions } from '@wisecom/atlas-types';
+import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {
   const backup = container.get<BackupUseCase>(BACKUP_USE_CASE_TOKEN);
   const verification = container.get<VerificationUseCase>(VERIFICATION_USE_CASE_TOKEN);
-  const restore = container.get<RestoreUseCase>(RESTORE_USE_CASE_TOKEN);
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
   const deletion = container.get<DeletionUseCase>(DELETION_USE_CASE_TOKEN);
   const save = container.get<SaveUseCase>(SAVE_USE_CASE_TOKEN);
@@ -50,15 +51,36 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
   const identity = container.get<UserIdentityResolver>(USER_IDENTITY_RESOLVER_TOKEN);
   const resolve_object_id = (mailbox: string) =>
     resolve_owner_object_id(identity, tenant_id, mailbox);
-  // An email target is resolved like the source mailbox, so the restore is throttled under the
-  // same owner id as that mailbox's backups and a shared coordinator keys both alike.
-  const adapt_restore_options = async (options: OutlookRestoreOptions | undefined) => {
+  // An email target is resolved to its object id, so the restore is throttled under the same
+  // owner id as that mailbox's backups. A cross-tenant target resolves in its own tenant.
+  const adapt_restore_options = async (
+    options: Omit<OutlookRestoreOptions, 'targetTenant'> | undefined,
+    target_identity: UserIdentityResolver,
+  ) => {
     const adapted = adapt_operation_options(options);
     // Already cancelled: the service returns its interrupted result without touching Graph.
     if (adapted?.target_mailbox === undefined || adapted.should_interrupt?.() === true) {
       return adapted;
     }
-    return { ...adapted, target_mailbox: await resolve_object_id(adapted.target_mailbox) };
+    const target_mailbox = await resolve_owner_object_id(
+      target_identity,
+      tenant_id,
+      adapted.target_mailbox,
+    );
+    return { ...adapted, target_mailbox };
+  };
+  const run_restore = <T>(
+    options: OutlookRestoreOptions | undefined,
+    method: string,
+    run: (use_case: RestoreUseCase, adapted: RestoreOptions | undefined) => Promise<T>,
+  ): Promise<T> => {
+    const [target_tenant, own] = split_target_tenant(options);
+    return with_restore_side(container, target_tenant, own?.targetMailbox, method, async (side) =>
+      run(
+        side.container.get<RestoreUseCase>(RESTORE_USE_CASE_TOKEN),
+        await adapt_restore_options(own, side.target_identity),
+      ),
+    );
   };
 
   return {
@@ -81,17 +103,17 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       );
     },
     async restore(snapshot_id, options) {
-      const [result, cost_result] = await run_with_cost_tracking(async () =>
-        restore.restore_snapshot(tenant_id, snapshot_id, await adapt_restore_options(options)),
+      const [result, cost_result] = await run_with_cost_tracking(() =>
+        run_restore(options, 'outlook.restore()', (use_case, adapted) =>
+          use_case.restore_snapshot(tenant_id, snapshot_id, adapted),
+        ),
       );
       return camelize({ ...result, graph_cost: cost_result });
     },
     async restoreMailbox(mailbox, options) {
-      const [result, cost_result] = await run_with_cost_tracking(async () =>
-        restore.restore_mailbox(
-          tenant_id,
-          await resolve_object_id(mailbox),
-          await adapt_restore_options(options),
+      const [result, cost_result] = await run_with_cost_tracking(() =>
+        run_restore(options, 'outlook.restoreMailbox()', async (use_case, adapted) =>
+          use_case.restore_mailbox(tenant_id, await resolve_object_id(mailbox), adapted),
         ),
       );
       return camelize({ ...result, graph_cost: cost_result });

@@ -1,4 +1,4 @@
-import type { AttachmentEntry, MailboxPurpose, Manifest } from '@/domain/manifest';
+import type { AttachmentEntry, MailboxPurpose, Manifest } from '@/domain/outlook/manifest';
 
 export interface MailboxSummary {
   readonly owner_id: string;

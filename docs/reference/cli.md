@@ -4,7 +4,7 @@ description: 'Flag-by-flag reference for the Atlas CLI (@wisecom/atlas-cli): bac
 
 # CLI commands
 
-The Atlas CLI (`@wisecom/atlas-cli`) runs backup, restore, verification, and storage operations from a shell. It suits cron jobs, operator workflows, and simple deployments. Credentials come from `.env`, environment variables, or the encrypted store that `atlas config` writes (see [Configuration](/configuration)).
+The Atlas CLI (`@wisecom/atlas-cli`) runs backup, restore, verification, and storage operations from a shell. It suits cron jobs, operator workflows, and simple deployments. Credentials come from `.env`, environment variables, or the encrypted store that `atlas config` and `atlas tenants` write (see [Configuration](/configuration)).
 
 For Node.js applications such as custom schedulers and multi-tenant services, use the [Programmatic SDK](/reference/sdk). The SDK takes explicit config at construction time, with no `.env` dependency, and exposes the same operations as typed methods.
 
@@ -14,7 +14,7 @@ For Node.js applications such as custom schedulers and multi-tenant services, us
 npm install -g @wisecom/atlas-cli
 ```
 
-A local install links `atlas` into `/usr/local/bin` or `~/.local/bin` through a postinstall hook. On a global install, the hook replaces an older Atlas command, so `atlas --version` reports the version you just installed. If `atlas` is already a shell alias or another command on your PATH, the hook skips with a warning and leaves it alone. Use `npx atlas` in that case. The hook never fails the install. Set `ATLAS_SKIP_POSTINSTALL=1` to opt out, and run `npm run link-cli --prefix node_modules/@wisecom/atlas-cli` to link manually.
+A local install links `atlas` into `/usr/local/bin` or `~/.local/bin` through a postinstall hook. On a global install, the hook replaces an older Atlas command, so `atlas --version` reports the version you just installed. If `atlas` is already a shell alias or another command on your PATH, the hook skips with a warning and leaves it alone. Use `npx atlas` in that case. The hook never fails the install. Set `ATLAS_SKIP_POSTINSTALL=1` to opt out, and run `npm run link-cli --prefix node_modules/@wisecom/atlas-cli` to link manually. An explicit `link-cli` run, including `pnpm run link-cli` in a source checkout, takes the `atlas` command over from any other Atlas install. Reinstall the other package to point it back.
 
 pnpm and Bun block dependency lifecycle scripts by default. With pnpm, run `pnpm approve-builds`. With Bun, run `bun pm -g trust @wisecom/atlas-cli`. On Windows, global installs use npm's `.cmd` shims.
 
@@ -56,7 +56,7 @@ exit "$status"
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                            | Correct the configuration or its storage access.                                                                                    |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                       | Check the selected resource and identifiers.                                                                                        |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                       | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                      |
-| `9`  | `ATLAS_CONTENT_UNREADABLE`                                                                                         | The stored bytes are intact but cannot be parsed back. Repeating the command will not help. Extract the raw content with `save`.    |
+| `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED` | The stored bytes are intact but cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. Otherwise extract the raw content with `save`. |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -75,6 +75,23 @@ An explicit Atlas category takes precedence over transport details. Network dete
 The CLI prints the Atlas code separately from the Graph code, HTTP status, response body, or AWS error name. Unwrapped HTTP `401`, `403`, `404`, and `429` responses also receive their Atlas category. Fatal diagnostics, including `DEBUG` stacks, go to stderr so redirected stdout stays clean.
 
 Diagnostics can contain tenant identifiers and sensitive content. Redact them before sharing logs.
+
+## Global options
+
+These flags apply to every command. Place them before or after the subcommand.
+
+| Option             | Environment     | Description                                                                                                                       |
+| ------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `--profile <name>` | `ATLAS_PROFILE` | Tenant profile whose Graph credentials the run uses. Without it, the active profile is used. See [Selecting a profile](/configuration#selecting-a-profile). |
+
+Shared settings (S3 and the encryption passphrase) are the same for every profile, so `--profile` changes only the Microsoft Graph identity:
+
+```bash
+atlas --profile contoso outlook backup -m john.doe@example.com
+atlas outlook backup -m john.doe@example.com --profile fabrikam
+```
+
+Restore commands also accept `--target-profile <name>` to write into a second tenant. See [Cross-tenant restore](/reference/cli-recovery#cross-tenant-restore).
 
 ## Short flags
 
@@ -207,7 +224,7 @@ Graph offers no way to write into Recoverable Items. Recovered items land in the
 :::
 
 ::: warning Exit codes for backup, restore, and save
-This applies to Outlook, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: a snapshot was saved, but per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. A partial backup is restorable but missing the listed items.
+This applies to Outlook, Contacts, Calendar, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. Do not read `2` as proof that a snapshot was saved: an interrupted Contacts or Calendar backup saves none, and a Contacts or Calendar run whose only changes failed has nothing new to save. Check the run output, `atlas contacts list`, or `atlas calendar list` for the snapshot.
 
 `restore` and `save` follow the same contract. A file they cannot decrypt or write is counted as skipped, and any skipped file exits `2`. An archive missing some files is not a success, and a cron job that only checks for `0` must be able to see the difference.
 
@@ -287,6 +304,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                        |
 | `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                       |
 | `-t, --tenant <id>`           | Override the tenant ID from config                                     |
+| `--target-profile <name>`     | Tenant profile for the writes. Requires `-T`                           |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default) |
 
 Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
@@ -517,20 +535,82 @@ atlas delete --purge -y     # skip the typed confirmation
 | `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                 |
 | `-t, --tenant <id>` | Override the tenant ID from config. The confirmation checks against this ID. |
 
-`atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
+`atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas contacts delete`, `atlas calendar delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
 
 Interactively, the purge asks you to type the tenant ID and aborts on any other input:
 
 ```
-[!] This will delete ALL data for tenant <tenant-id> across Outlook, OneDrive and SharePoint (data, manifests, encryption keys)
+[!] This will delete ALL data for tenant <tenant-id> across Outlook, Contacts, Calendar, OneDrive and SharePoint (data, manifests, encryption keys)
 Type the tenant ID to confirm:
 ```
 
 A single keypress is not enough here. A mistyped `y` is not the risk. The risk is a purge aimed at the wrong tenant, and typing the target ID is the only prompt that catches that. Scoped deletes keep a single-keypress `y/n` prompt on purpose. Making every delete laborious would train operators to pass `-y` everywhere, which would remove the guard that matters. `-y` bypasses the prompt for scheduled jobs and the end-to-end suite.
 
-The purge sweeps the whole bucket rather than a fixed list of prefixes. Outlook, OneDrive, SharePoint, the identity registry, and any tree a later release adds are all removed. The encrypted data key at `_meta/dek.enc` is deleted last, and only once nothing else survives. Removing the key while ciphertext remains would leave data that can be neither restored nor confirmed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
+The purge sweeps the whole bucket rather than a fixed list of prefixes. Outlook, Contacts, Calendar, OneDrive, SharePoint, the identity registry, and any tree a later release adds are all removed. The encrypted data key at `_meta/dek.enc` is deleted last, and only once nothing else survives. Removing the key while ciphertext remains would leave data that can be neither restored nor confirmed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
 
 Before v2.2.0 this was `atlas outlook delete --purge`. That flag no longer exists, so scripts must call `atlas delete --purge`.
+
+## atlas contacts
+
+Back up, restore, list, verify, and delete personal Outlook contacts per mailbox. Contacts are stored under the `contacts/` prefix of the tenant bucket (see [Contacts backup](/contacts-backup)).
+
+```bash
+atlas contacts backup -m user@company.com
+atlas contacts backup -m user@company.com --full
+atlas contacts restore -m user@company.com -s ct-snap-1735689600000-a1b2c3
+atlas contacts restore -m user@company.com -s ct-snap-123 --target other@company.com
+atlas contacts list -m user@company.com
+atlas contacts verify -m user@company.com -s ct-snap-123
+atlas contacts verify -m user@company.com -s ct-snap-123 --fast
+atlas contacts delete -m user@company.com
+atlas contacts delete -m user@company.com -s ct-snap-123
+```
+
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites: a contact that already exists in the target folder is skipped and counted in `contacts_skipped`. `verify` exits `1` when a check fails and `2` when interrupted.
+
+| Option | Commands | Description |
+| --- | --- | --- |
+| `-m, --mailbox <email or id>` | all | Mailbox by email or Entra object ID (required) |
+| `-s, --snapshot <id>` | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup |
+| `-T, --target <email or id>` | restore | Target mailbox, defaults to the source mailbox |
+| `--full` | backup | Ignore saved delta state and crawl every contact |
+| `--retention-days <n>`, `--lock-mode <mode>` | backup | Object Lock, as for `atlas outlook backup`. `--lock-mode` requires `--retention-days` |
+| `--fast` | verify | Existence-only checks, no download or decrypt |
+| `-y, --yes` | delete | Skip the confirmation prompt |
+| `-t, --tenant <id>` | all | Tenant identifier (defaults to config) |
+| `--target-profile <name>` | restore | Tenant profile for the writes. Requires `-T` |
+
+
+## atlas calendar
+
+Back up, restore, list, verify, and delete Outlook calendars per mailbox. Calendars are stored under the `calendar/` prefix of the tenant bucket (see [Calendar backup](/calendar-backup)).
+
+```bash
+atlas calendar backup -m user@company.com
+atlas calendar backup -m user@company.com --full
+atlas calendar restore -m user@company.com -s cal-snap-1735689600000-a1b2c3
+atlas calendar restore -m user@company.com -s cal-snap-123 --target other@company.com
+atlas calendar list -m user@company.com
+atlas calendar verify -m user@company.com -s cal-snap-123
+atlas calendar verify -m user@company.com -s cal-snap-123 --fast
+atlas calendar delete -m user@company.com
+atlas calendar delete -m user@company.com -s cal-snap-123
+```
+
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites or deletes: an event already in the target is skipped and counted in `events_skipped`. Restored events carry no attendees, so no invitations are sent; the attendee list is written into the event body instead. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited). `verify` exits `1` when a check fails and `2` when interrupted.
+
+| Option | Commands | Description |
+| --- | --- | --- |
+| `-m, --mailbox <email or id>` | all | Mailbox by email or Entra object ID (required) |
+| `-s, --snapshot <id>` | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup |
+| `-T, --target <email or id>` | restore | Target mailbox, defaults to the source mailbox |
+| `--full` | backup | Ignore saved delta state and re-read every calendar |
+| `--retention-days <n>`, `--lock-mode <mode>` | backup | Object Lock, as for `atlas outlook backup`. `--lock-mode` requires `--retention-days` |
+| `--fast` | verify | Existence-only checks, no download or decrypt |
+| `-y, --yes` | delete | Skip the confirmation prompt |
+| `-t, --tenant <id>` | all | Tenant identifier (defaults to config) |
+| `--target-profile <name>` | restore | Tenant profile for the writes. Requires `-T` |
+
 
 ## atlas onedrive
 
@@ -605,6 +685,7 @@ Every workload stamps retention on each object it writes, using `PutObject`, `Co
 | `--file-filter <paths...>` | Restore only specific files, by ID or path                                    |
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)      |
 | `-t, --tenant <id>`        | Override the tenant ID from config                                            |
+| `--target-profile <name>`  | Tenant profile for the writes. Requires `--target-owner`.                     |
 
 A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it. `--in-place` writes back over the original paths. It is never the default, because repeated in-place restores with `--conflict rename` create suffixed duplicates among live content. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
@@ -813,6 +894,7 @@ Semantics match [`atlas onedrive restore-version`](#atlas-onedrive), including c
 | `--file-filter <paths...>`  | Restore only specific files, by ID or path                                    |
 | `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)      |
 | `-t, --tenant <id>`         | Override the tenant ID from config                                            |
+| `--target-profile <name>`   | Tenant profile for the writes. Requires `--target-site`.                      |
 
 Restored files nest under `Restore-<timestamp>` in each destination library, with the original structure beneath it. `--in-place` writes over the original paths, as earlier releases did. See [Where restored files land](../sharepoint-backup.md#where-restored-files-land).
 
@@ -870,6 +952,106 @@ Deletes the site's SharePoint backups behind a confirmation prompt. Without `-s`
 
 ::: tip Permissions
 Backup and verification need the application permissions `Sites.Read.All` and `Files.Read.All`. Restore also needs `Sites.ReadWrite.All`.
+:::
+
+## atlas teams
+
+Back up Microsoft Teams channel messages, replies, membership, and tabs per team, using a Graph delta cursor for each channel. Blobs and manifests live under the `teams/` prefix of the tenant bucket. Teams backup targets a team by its Graph team ID. Restore is not yet available. `save` exports one snapshot as a zip archive. See [Teams backup](../teams-backup.md).
+
+```bash
+atlas teams list-teams
+atlas teams backup --team <team-id>
+atlas teams backup --team <team-id> --team <other-team-id>
+atlas teams backup --all
+atlas teams backup --team <team-id> --channel <channel-id>
+atlas teams backup --all --concurrency 8
+atlas teams list-snapshots --team <team-id>
+atlas teams verify --team <team-id> -s <snapshot-id>
+atlas teams save --team <team-id> -s <snapshot-id> --output <path>
+atlas teams status
+atlas teams delete --team <team-id> -s <snapshot-id>
+atlas teams delete --team <team-id> -y
+```
+
+| Subcommand       | Description                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| `list-teams`     | List the teams the application can read                                                  |
+| `backup`         | Incremental backup of one, several, or all teams. Exits `2` when any team is unhealthy   |
+| `list-snapshots` | List Teams snapshots for one team                                                        |
+| `verify`         | Check the snapshot's index, channel shards, and every blob it references                 |
+| `save`           | Export one snapshot, or one channel of it, as a zip archive                              |
+| `status`         | Show the newest snapshot for each team: creation time and ID                             |
+| `delete`         | Delete one team's Teams backups, or one snapshot                                         |
+
+**`atlas teams backup`**
+
+| Option                 | Description                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| `--team <id>`          | Team to back up. Repeat for several teams                                                                |
+| `--all`                | Back up every team the application can read                                                              |
+| `--channel <id>`       | Back up only this channel. Requires exactly one `--team`, not allowed with `--all`. Others carry forward |
+| `--full`               | Force a full read: ignores saved delta links and cached files folders                                    |
+| `--concurrency <n>`    | Channels backed up at once within a team, 1 to 16 (default 4). Requests stay paced, see [Pacing](../teams-backup.md#pacing) |
+| `--retention-days <n>` | Lock every object this run writes for `n` days (same semantics as OneDrive)                              |
+| `--lock-mode <mode>`   | Object Lock mode, `governance` or `compliance` (default `governance`). Requires `--retention-days`       |
+| `-t, --tenant <id>`    | Override the tenant ID from config                                                                       |
+
+Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a failed attempt, and messages already stored are kept. The interrupted channel keeps its previous delta link and its checkpoint, so the next run resumes its read. A second Ctrl+C exits at once with status `130`, before the run writes its index.
+
+**`atlas teams list-snapshots`**
+
+Snapshot indexes Atlas cannot read are skipped and named in a warning with their storage keys. Indexes written by a newer Atlas format are named the same way. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
+
+| Option              | Description                        |
+| ------------------- | ---------------------------------- |
+| `--team <id>`       | Team ID (required)                 |
+| `-t, --tenant <id>` | Override the tenant ID from config |
+
+**`atlas teams verify`**
+
+Checks the snapshot's index, channel shards, and every blob it references. Exits `1` when any object is missing, fails its check, or is a shard written by a newer format.
+
+| Option                | Description                        |
+| --------------------- | ---------------------------------- |
+| `--team <id>`         | Team ID (required)                 |
+| `-s, --snapshot <id>` | Snapshot to verify (required)      |
+| `-t, --tenant <id>`   | Override the tenant ID from config |
+
+**`atlas teams save`**
+
+Writes one snapshot as a zip archive that opens in a browser. It reads storage only and makes no Graph calls. See [Teams backup](../teams-backup.md#save) for the archive layout.
+
+| Option                | Description                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                                                           |
+| `-s, --snapshot <id>` | Snapshot to save (required)                                                                  |
+| `--channel <id>`      | Save only this channel. The archive then lists only that channel                             |
+| `--output <path>`     | Zip file to write. Default `teams-<snapshot-id>-<timestamp>.zip` in the current directory   |
+| `-t, --tenant <id>`   | Override the tenant ID from config                                                           |
+
+**`atlas teams status`**
+
+Prints one row per team, with the newest snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean.
+
+| Option              | Description                        |
+| ------------------- | ---------------------------------- |
+| `-t, --tenant <id>` | Override the tenant ID from config |
+
+**`atlas teams delete`**
+
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, indexes, channel shards, then blobs. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
+
+| Option                | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `--team <id>`         | Team ID (required)                                |
+| `-s, --snapshot <id>` | Delete only this snapshot instead of every backup |
+| `-y, --yes`           | Skip the confirmation prompt                      |
+| `-t, --tenant <id>`   | Override the tenant ID from config                |
+
+::: tip Permissions
+Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
+
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, an interrupted run, or an unreadable index newer than the latest readable one. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check
@@ -1010,39 +1192,72 @@ If `_meta/dek.enc` is under an Object Lock retention policy, the write is refuse
 
 ## atlas config
 
-Manage Atlas configuration in an encrypted local store. Values are written to `~/.atlas/config.enc` (AES-256-GCM). The store key lives in the OS keyring (macOS Keychain or libsecret), so credentials are never stored in plaintext on disk. See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
+Manage shared settings in an encrypted local store. Values are written to `~/.atlas/config.enc` (AES-256-GCM). The store key lives in the OS keyring (macOS Keychain or libsecret), so credentials are never stored in plaintext on disk. Tenant credentials are managed with [`atlas tenants`](#atlas-tenants). See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
 
 ```bash
-atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f   # set and validate
-pbpaste | atlas config set client.secret -                        # "-" reads from stdin, keeping it out of shell history
-atlas config get client.secret                                    # secrets are masked
-atlas config list                                                 # all keys, values, and sources
-atlas config unset client.secret                                  # remove from the store
-atlas config validate                                             # live Graph and S3 connectivity check
+atlas config set s3.endpoint https://s3.example.com   # set and validate
+atlas config set s3.access-key <access-key>
+pbpaste | atlas config set s3.secret-key -            # "-" reads from stdin, keeping it out of shell history
+atlas config get s3.secret-key                        # secrets are masked
+atlas config list                                     # all shared keys, values, and sources
+atlas config unset s3.access-key                      # remove from the store
+atlas config validate                                 # live S3 connectivity check
 ```
 
 | Subcommand                 | Description                                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `config set <key> <value>` | Validate and save a value to the encrypted store. `-` reads the value from stdin.                                  |
 | `config get <key>`         | Print the effective value. Secrets are masked.                                                                     |
-| `config list`              | Print every key with its value and source (`env`, `secure store`, or `config file`)                                |
+| `config list`              | Print every shared key with its value and source (`env`, `secure store`, or `config file`)                         |
 | `config unset <key>`       | Remove a key from the encrypted store                                                                              |
-| `config validate`          | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config. Exits non-zero on failure. |
+| `config validate`          | Probe S3 (`ListBuckets`) with the effective config. Exits non-zero on failure.                                     |
 
 Each verb is a subcommand, so `atlas config set --help` documents itself.
 
 | Key                     | Description                                                            |
 | ----------------------- | ---------------------------------------------------------------------- |
-| `tenant.id`             | Microsoft Entra tenant. A GUID or an `*.onmicrosoft.com` domain.       |
-| `client.id`             | Entra app registration (client) ID. Must be a GUID.                    |
-| `client.secret`         | Client secret. Masked.                                                 |
 | `s3.endpoint`           | S3 endpoint URL. Must use `http` or `https`.                           |
 | `s3.access-key`         | S3 access key                                                          |
 | `s3.secret-key`         | S3 secret key. Masked.                                                 |
 | `s3.region`             | S3 region. Lowercase letters, digits, and dashes. Default `us-east-1`. |
 | `encryption.passphrase` | Tenant encryption passphrase. Masked. At least 14 UTF-8 bytes.         |
 
-Each value is format-checked on save. When a credential group is complete, its live probe runs automatically. `ATLAS_*` environment variables still override stored values. The command warns when a saved value is shadowed by one.
+Each value is format-checked on save. When the S3 group is complete, its live probe runs automatically. `ATLAS_*` environment variables still override stored values, and the command warns when a saved value is shadowed by one.
+
+`atlas config set tenant.id`, `client.id`, and `client.secret` are refused with a message that points to `atlas tenants add`. `atlas config validate` checks S3 only. Use `atlas tenants validate` for Microsoft Graph.
+
+## atlas tenants
+
+Manage named tenant profiles. A profile holds one Microsoft Entra app registration (tenant ID, client ID, and client secret) in the encrypted store at `~/.atlas/config.enc`. Select a profile per run with the global [`--profile`](#global-options) flag or `ATLAS_PROFILE`. See [Tenant profiles](/configuration#tenant-profiles).
+
+```bash
+pbpaste | atlas tenants add contoso --tenant-id <tenant-id> --client-id <client-id> --client-secret -
+atlas tenants list
+atlas tenants use contoso                 # active profile for later runs
+atlas tenants validate                    # Graph token for the selected profile
+atlas tenants validate --all              # every profile
+atlas --profile fabrikam outlook backup -m john.doe@example.com
+atlas tenants remove fabrikam -y
+```
+
+| Subcommand                | Description                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants add <name>`      | Save a profile, then check its Graph credentials. `--replace` overwrites an existing profile's credentials. A failed check keeps the profile and exits with code 1. |
+| `tenants list`            | List the stored profiles with masked secrets. The selected profile is marked with `*`.                                                                              |
+| `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set.                                                                          |
+| `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward.                                                        |
+| `tenants validate [name]` | Check a profile's Graph credentials and the S3 settings. Without a name, checks the selected profile. Exits with code 1 if a check fails.                           |
+
+| Option                    | Command  | Description                                                                       |
+| ------------------------- | -------- | --------------------------------------------------------------------------------- |
+| `--tenant-id <id>`        | add      | Microsoft Entra tenant: a GUID, or a domain such as `contoso.onmicrosoft.com`     |
+| `--client-id <id>`        | add      | Application (client) ID of the app registration. Must be a GUID.                  |
+| `--client-secret <value>` | add      | Client secret. A single token with no whitespace. Pass `-` to read it from stdin. |
+| `--replace`               | add      | Overwrite an existing profile with the same name                                  |
+| `-y, --yes`               | remove   | Required to remove the active profile                                             |
+| `--all`                   | validate | Validate every profile instead of one                                             |
+
+Profile names are lowercase letters, digits, and dashes, up to 32 characters. Prefer `--client-secret -`: a value passed on the command line can appear in shell history and the process list.
 
 ## atlas replicate
 
@@ -1146,7 +1361,7 @@ atlas rehydrate --all \
   --source-secret-key - < source-secret.txt
 ```
 
-`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. The summary breaks the run down by workload, so a partial recovery is visible:
+`--all` recovers all three workloads: every Outlook mailbox (`manifests/`), every OneDrive owner (`onedrive/manifests/`), and every SharePoint site (`sharepoint/manifests/`) on the replica. Teams is not part of tenant recovery yet, so `--all` always prints `Tenant recovery does not cover teams yet. That data is not restored by this run.` The summary breaks the run down by workload, so a partial recovery is visible:
 
 ```
 Workload    Scope        Copied  Skipped  Failed  Size

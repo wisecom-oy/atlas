@@ -100,7 +100,7 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 ### What a ciphertext is bound to
 
-Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
+Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `calendar/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
 | Attack                                                        | Result                                                       |
 | ------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -109,17 +109,21 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
 | Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
-Objects written before the header existed have no magic bytes and decrypt without associated data. Existing backups stay readable with no migration step. Those objects have no scope to check, so they can be moved and still decrypt. An object gains the binding when its plaintext changes or when it is deleted and stored again. Restore still checks the manifest checksum before writing anything.
-
-## What is encrypted at rest
-
-| Data                                       | Encrypted | Notes                                                                                 |
-| ------------------------------------------ | --------- | ------------------------------------------------------------------------------------- |
-| Email messages                             | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`           |
-| Attachments                                | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
-| Manifests                                  | Yes       | Subjects, senders, folder names, delta URLs, checksums                                |
-| OneDrive file blobs                        | Yes       | `onedrive/data/{owner_id}/{content_name}`                                             |
+| Data                                           | Encrypted | Notes                                                                                     |
+| ---------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
+| Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`               |
+| Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
+| Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                    |
+| OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                 |
+| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                  |
+| Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
+| Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
+| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                |
+| Calendar events, attachments, and manifests    | Yes       | `calendar/data`, `calendar/attachments`, `calendar/manifests`, `calendar/_meta`           |
+| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                   |
+| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                |
 | OneDrive manifests, indexes, and delta state | Yes     | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                              |
+| Contacts data, photos, and manifests       | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                            |
 | Wrapped DEK                                | Yes       | `_meta/dek.enc`, encrypted with the KEK                                               |
 | S3 object metadata                         | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access            |
 
@@ -132,6 +136,17 @@ Each content object is named by an HMAC-SHA256 over its plaintext, keyed with a 
 Objects written before keyed naming are named by the plain SHA-256 of their plaintext, and mailbox objects from that time also carry an `x-plaintext-sha256` metadata header. A reader holding a copy of a file can compute that name and confirm the owner stored it. Those objects stay readable through their manifest entries, and Atlas does not rename or delete them. See [Migrating to v6](./migration/v6.md#all-workloads-keyed-content-object-names) for how to remove them.
 
 ## User identity in storage paths
+
+## Teams channel messages are personal data
+
+Channel messages hold personal data: what people wrote, who they addressed, and the files and images they shared. Atlas stores each message version as the Graph object it returned, with its reply list and `@odata` annotations removed, so the backup holds the same content a channel member can read.
+
+- **Encrypted at rest.** Message blobs, inline images, indexes, shards, and delta links are encrypted under the tenant DEK with AES-256-GCM. Object names are keyed as described under [What object names reveal](#what-object-names-reveal).
+- **App-only read access.** Atlas reads channel messages with the application permission `ChannelMessage.Read.All`. No user signs in, and the permission reaches every team and channel in the tenant, private channels included.
+- **Protected API.** Microsoft may require approval before the permission works. See [Azure AD setup](/azure-ad-setup#teams-application-permissions).
+- **A compromised client secret.** The passphrase protects stored backups only. Anyone holding the client secret can call Graph as the app and read live channel messages, replies, and member lists across the tenant. Rotate the secret on a schedule and limit who holds it.
+- **Deleted messages stay in older snapshots.** Atlas does not remove a message from snapshots taken before it was deleted in Teams, and later snapshots carry the deleted message forward. Its blobs stay until `atlas teams delete --team` removes the team's data, or `atlas delete --purge` removes the tenant's. Deleting one snapshot removes only its manifest.
+- **Reused blobs keep their first retention.** An unchanged thread or file is not uploaded again, so it keeps the Object Lock retention set when it was first written. A later run does not extend that retention.
 
 Storage prefixes use the Entra object ID, not the SMTP address. For OneDrive, `atlas onedrive` resolves a user principal name or email passed to `--owner` to an object ID before computing the prefix. Passing a UUID skips resolution and must match the user's directory object ID. Mailbox backups namespace `data/`, `attachments/`, and `manifests/` by the owner's object ID too. The SMTP address is recorded only as display metadata on snapshots.
 
@@ -302,6 +317,10 @@ Every delete removes each object and its noncurrent versions, addressed by versi
 
 `purge_tenant` enumerates the whole bucket instead of a fixed list of prefixes. A prefix list falls behind when a workload is added, and it then erases less than reported. The encrypted DEK is deleted last, and only after the sweep reports nothing remaining. Deleting the key first would leave ciphertext that can neither be restored nor reported as erased.
 
+### Per-user erasure is not available for Teams
+
+Atlas cannot erase one person's Teams messages. Each message version is its own blob, but Atlas has no operation that removes a single blob. Every snapshot that lists a message references its blob, and a deleted message stays in older snapshots through its `kept` version. `atlas teams delete -s` removes a manifest and leaves its blobs in place, because later snapshots can reference them. `atlas teams delete -y` removes the team's blobs, unless Object Lock retains them. An erasure request for one person therefore needs the whole team removed, or the data handled outside Atlas.
+
 ### Retained or failed
 
 A refused delete counts as **retained** only when the backend names Object Lock as the reason. AWS returns `AccessDenied: Access Denied because object protected by object lock`, and MinIO returns `InvalidRequest: Object is WORM protected and cannot be overwritten`. Retained objects become deletable when retention expires.
@@ -387,6 +406,10 @@ A restore does not rebuild per-item sharing or links. A restored library inherit
 
 Capturing permissions is expensive. Each permission operation costs 5 resource units from the tenant-wide SharePoint and OneDrive pool (see [Graph rate limits](./operations/graph-rate-limits.md#resource-unit-costs)). A 100,000-file drive would need 500,000 RU. At 1,250 RU per minute, that is about 6.7 hours of the tenant's quota, which would slow every other app. Graph's `shared` facet can flag only the items that are shared, which would reduce the cost, but restore-side reapplication is not implemented.
 
+## Calendar restore does not notify attendees
+
+A calendar restore writes events through Graph without their attendee lists. Atlas removes attendees and the organizer from each created event and writes them as text at the top of the body, so the restore sends no invitations, updates, or cancellations to anyone. The cost is that restored events carry no working invitations and no new Teams meeting. A restore skips events the target already holds (matching iCalUId, or an event Atlas restored earlier), so re-running it does not create duplicates. Treat the attendee text as a record of the original meeting, not as live invitations.
+
 ## Storage request events
 
 An SDK host can pass `onStorageRequest` to receive one event per S3 request. See [Storage request events](/reference/storage-request-events). Hosts often export these to metrics systems that are less protected than the backup bucket, so the event carries only values that identify nothing:
@@ -428,19 +451,21 @@ Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_R
 
 Atlas separates read and write storage access, so an operator who only browses never needs write credentials:
 
-| Command class                                                                                                                | Required S3 actions                                                                                                       | Provisioning |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `sharepoint list`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                         | None         |
-| Storage usage: `stats storage`                                                                                               | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`           | None         |
-| Write: `backup`, `restore`, `save`, `replicate`, `rehydrate`, `delete`                                                       | All of the above plus `s3:CreateBucket`, `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, and lifecycle or lock configuration | Yes          |
+| Command class                                                                                                                                                                                                     | Required S3 actions                                                                                                                       | Provisioning |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                           | None         |
+| Storage usage: `stats storage`                                                                                                                                                                                    | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                            | None         |
+| Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                            | Read-only actions. The writes go to Microsoft 365 or a local file, not to the bucket                                                      | None         |
+| Delete and replicate: `delete`, `replicate`, `keys rewrap`                                                                                                                                                        | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                                                        | None         |
+| Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                               | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                                               | Yes          |
 
-Read-only commands never create the bucket or write `_meta/dek.enc`, so a mistyped tenant ID fails with `No backups found for tenant <id>` instead of leaving behind a new bucket.
+Only the provisioning row creates a bucket or writes `_meta/dek.enc`. Every other command fails with `No backups found for tenant <id>` (exit `7`) when the tenant has no bucket, or, for commands that decrypt, no data key. A mistyped tenant ID or profile therefore leaves nothing behind.
 
 Give monitoring and audit principals the read-only row only. If a principal holds `s3:CreateBucket`, that permission dates from Atlas versions before 2.1.0-beta and can be revoked.
 
 ## Configuration file security
 
-`atlas.config.json` can contain `encryption_passphrase` and `client_secret` in plaintext. On Unix, Atlas checks the file mode at load time and logs a warning when any group or world bits (`0o077`) are set:
+`atlas.config.json` can contain `encryption_passphrase`, the S3 secret key, and the `client_secret` of every profile under `tenants`, in plaintext. On Unix, Atlas checks the file mode at load time and logs a warning when any group or world bits (`0o077`) are set:
 
 ```
 WARN Config file /home/user/atlas.config.json has overly permissive permissions (mode 0644). Recommended: chmod 600 /home/user/atlas.config.json
@@ -449,7 +474,7 @@ WARN Config file /home/user/atlas.config.json has overly permissive permissions 
 The check is advisory so existing deployments do not break. It is skipped on Windows.
 
 ::: danger Restrict the config file to its owner
-Run `chmod 600` on any config file that contains a passphrase or client secret. Anyone who can read the file can read the passphrase, and with it the DEK in the bucket.
+Run `chmod 600` on any config file that contains a passphrase, an S3 secret key, or a client secret. Anyone who can read the file can read the passphrase, and with it the DEK in the bucket. They can also act as every profile listed under `tenants`.
 :::
 
 Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file, but they are still readable from the process environment and from plaintext dotfiles, which malware checks first.
@@ -464,6 +489,22 @@ Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file, but they
 
 A disk sweep finds only ciphertext. A modified store file fails authentication at load time and is not used.
 
+Every write replaces the store atomically: Atlas writes a temporary file beside it, flushes it, and renames it over `config.enc`, so a command that reads the store never sees a half-written file. Writes from `atlas config` and `atlas tenants` also take an exclusive lock, `~/.atlas/config.lock`, for the few milliseconds the update runs. Two commands run at once therefore keep both changes. A lock older than 30 seconds is treated as left behind by a killed process and removed.
+
 Threat model: the store defends against offline exfiltration of the file and against unprivileged malware that reads environment variables. It does not defend against malware running as the logged-in user, which can call the keyring the same way Atlas does, or against an attacker with root. On systems without a keyring, the fallback key file is protected only by file permissions. Config values are still never stored in plaintext.
 
-See also: [Configuration](/configuration), [Migrating to v6](/migration/v6), [CLI reference](/reference/cli).
+## Tenant profiles and cross-tenant restore
+
+Every profile's client secret sits in the same encrypted store, protected by one key. Anyone who can unlock the store as the logged-in user can read all of them, so keep a profile only for a tenant whose backups that operator is trusted to manage.
+
+A cross-tenant restore uses two identities. The source profile reads the backup and supplies the storage tenant, S3 credentials, and passphrase. The `--target-profile` app performs the writes in the destination tenant. Keep these consequences in mind:
+
+- The target app needs write permissions in the destination tenant, such as `Mail.ReadWrite` for Outlook or `Files.ReadWrite.All` for OneDrive. Grant them only to the app that restores, and remove them when the restore is finished.
+- The S3 credentials and the passphrase are shared by every profile. A run with `--target-profile` therefore has the same access to the bucket as a run with the source profile, so the destination tenant does not isolate the backup data.
+- Source credentials are never used for writes in the destination tenant. Target owners resolve through the destination tenant's Graph and are never written to the source registry.
+- `ATLAS_*` environment variables never apply to the target profile, so a stray `ATLAS_CLIENT_SECRET` in the shell cannot change where writes go.
+- An unknown name in `--profile` or `--target-profile` fails the run, but the name of another stored profile is accepted as written. Confirm both names with `atlas tenants list` and read the Tenant and Target tenant lines in the restore banner.
+
+The SDK's [`createTenant`](/reference/sdk#cross-tenant-restore) handle follows the same model. The host supplies the destination credentials, Atlas holds the secret in a private field so logging or serialising the handle never prints it, and the handle only takes effect on a restore that also names an explicit target. The instance's storage credentials and passphrase still read the backup.
+
+See also: [Configuration](/configuration), [Migrating to v7](/migration/v7), [Migrating to v6](/migration/v6), [CLI reference](/reference/cli).

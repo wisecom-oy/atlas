@@ -6,7 +6,10 @@ import { SaveService } from '@/services/save/save.service';
 
 describe('Outlook operation cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {
-    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const factory = {
+      create: vi.fn(),
+      create_readonly: vi.fn(),
+    } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 5 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
     const backup = new MailboxSyncService(factory, {} as never, {} as never, {} as never);
@@ -37,6 +40,7 @@ describe('Outlook operation cancellation', () => {
     ]);
 
     expect(factory.create).not.toHaveBeenCalled();
+    expect(factory.create_readonly).not.toHaveBeenCalled();
     expect(results.every((result) => result.interrupted)).toBe(true);
     for (const callback of callbacks) {
       // Pre-aborted runs never claim discovery: finalizing + terminal only.

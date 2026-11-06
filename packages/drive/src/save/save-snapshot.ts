@@ -72,7 +72,7 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
       await settle_empty_save_target(target, true);
       return empty_save_result(options.snapshot_id, options.output_path ?? '', true);
     }
-    const ctx = await deps.tenant_factory.create(tenant_id);
+    const ctx = await deps.tenant_factory.create_readonly(tenant_id);
     try {
       const chain = await load_drive_chain_entries(
         deps.manifests,

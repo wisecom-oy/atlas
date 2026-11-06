@@ -47,6 +47,9 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
   const incomplete =
     outcome.errors.length > 0 || integrity_failures.length > 0 || outcome.interrupted === true;
   if (!incomplete) return;
+  process.exitCode = EXIT_PARTIAL;
+  // An interrupt is already reported above. The summary is for item failures only.
+  if (outcome.errors.length === 0 && integrity_failures.length === 0) return;
 
   const suffix = outcome.interrupted === true ? ' (interrupted)' : '';
   const counts = [
@@ -54,7 +57,6 @@ export function report_run_outcome(outcome: RunOutcome, item_noun: string): void
     ...(integrity_failures.length > 0 ? [`${integrity_failures.length} integrity failure(s)`] : []),
   ].join(', ');
   logger.error(`Run incomplete: ${counts}${suffix} -- exit ${EXIT_PARTIAL}`);
-  process.exitCode = EXIT_PARTIAL;
 }
 
 /**

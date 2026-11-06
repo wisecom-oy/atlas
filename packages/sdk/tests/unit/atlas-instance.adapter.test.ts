@@ -9,6 +9,7 @@ import type {
   VerificationResult,
   StorageCheckResult,
   StorageTarget,
+  TeamsBackupResult,
 } from '@wisecom/atlas-types';
 
 const TENANT_ID = 'test-tenant-id';
@@ -89,6 +90,11 @@ const mock_discovery = { list_tenant_mailboxes: vi.fn() };
 const mock_identity_resolver = { resolve_user: vi.fn() };
 const mock_identity_registry = { load: vi.fn() };
 const mock_tenant_factory = { create: vi.fn() };
+const mock_teams_backup = { backup_team: vi.fn() };
+const mock_teams_verification = { verify_teams_snapshot: vi.fn() };
+const mock_teams_catalog = { list_teams: vi.fn(), list_teams_snapshots: vi.fn() };
+const mock_teams_status = { check_teams_status: vi.fn() };
+const mock_teams_deletion = { delete_team_data: vi.fn(), delete_snapshot: vi.fn() };
 
 vi.mock('@/container', () => ({
   create_container_from_config: vi.fn(() => ({
@@ -125,6 +131,11 @@ vi.mock('@/container', () => ({
         UserIdentityResolver: mock_identity_resolver,
         IdentityRegistryRepository: mock_identity_registry,
         TenantContextFactory: mock_tenant_factory,
+        TeamsBackupUseCase: mock_teams_backup,
+        TeamsVerificationUseCase: mock_teams_verification,
+        TeamsCatalogUseCase: mock_teams_catalog,
+        TeamsStatusUseCase: mock_teams_status,
+        TeamsDeletionUseCase: mock_teams_deletion,
       };
       return map[token.description!];
     }),
@@ -253,6 +264,21 @@ describe('createAtlasInstance', () => {
         SITE_ID,
         'sp-snap-1',
       );
+    });
+  });
+
+  describe('teams', () => {
+    it('backup returns graphCost alongside the team result', async () => {
+      vi.mocked(mock_teams_backup.backup_team).mockResolvedValue({
+        team_id: 'team-1',
+        interrupted: false,
+        summary: { healthy: true },
+      } as unknown as TeamsBackupResult);
+
+      const result = await atlas.teams.backup('team-1');
+
+      expect(result).toHaveProperty('graphCost');
+      expect(result).toMatchObject({ teamId: 'team-1', interrupted: false });
     });
   });
 

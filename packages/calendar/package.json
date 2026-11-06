@@ -1,0 +1,31 @@
+{
+  "name": "@wisecom/atlas-calendar",
+  "version": "6.2.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json && tsc-alias --project tsconfig.json -f",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "lint": "eslint src/ tests/",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-m365-graph": "workspace:*",
+    "@wisecom/atlas-types": "workspace:*",
+    "inversify": "^8.2.3",
+    "reflect-metadata": "^0.2.2"
+  }
+}

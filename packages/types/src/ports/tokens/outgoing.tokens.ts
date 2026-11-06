@@ -17,6 +17,12 @@ export const ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(
   'OneDriveFileVersionIndexRepository',
 );
 export const ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('OneDriveDeltaCursorRepository');
+export const CONTACTS_CONNECTOR_TOKEN = Symbol.for('ContactsConnector');
+export const CONTACTS_MANIFEST_REPOSITORY_TOKEN = Symbol.for('ContactsManifestRepository');
+export const CONTACTS_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('ContactsDeltaCursorRepository');
+export const CALENDAR_CONNECTOR_TOKEN = Symbol.for('CalendarConnector');
+export const CALENDAR_MANIFEST_REPOSITORY_TOKEN = Symbol.for('CalendarManifestRepository');
+export const CALENDAR_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for('CalendarDeltaCursorRepository');
 export const SHAREPOINT_CONNECTOR_TOKEN = Symbol.for('SharePointSiteConnector');
 export const SHAREPOINT_MANIFEST_REPOSITORY_TOKEN = Symbol.for('SharePointManifestRepository');
 export const SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN = Symbol.for(
@@ -27,3 +33,10 @@ export const SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN = Symbol.for(
 );
 export const STORAGE_DISPOSER_TOKEN = Symbol.for('StorageDisposer');
 export const THROTTLE_COORDINATOR_TOKEN = Symbol.for('ThrottleCoordinator');
+export const TEAMS_CONNECTOR_TOKEN = Symbol.for('TeamsConnector');
+export const TEAMS_INDEX_REPOSITORY_TOKEN = Symbol.for('TeamsIndexRepository');
+export const TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN = Symbol.for('TeamsChannelShardRepository');
+export const TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN = Symbol.for('TeamsChannelCursorRepository');
+export const TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN = Symbol.for(
+  'TeamsChannelCheckpointRepository',
+);

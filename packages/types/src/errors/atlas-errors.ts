@@ -11,6 +11,7 @@ export type AtlasErrorCode =
   | 'ATLAS_OBJECT_LOCK_RETAINED'
   | 'ATLAS_STORAGE_FAILURE'
   | 'ATLAS_CONTENT_UNREADABLE'
+  | 'ATLAS_FORMAT_UNSUPPORTED'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -115,5 +116,15 @@ export class ConfigError extends AtlasError {
 export class UnreadableContentError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_CONTENT_UNREADABLE', message, options);
+  }
+}
+
+/**
+ * Stored content was written by a newer Atlas format version than this build reads. It is intact,
+ * so it is not `UnreadableContentError`: the fix is an Atlas upgrade, not a restore.
+ */
+export class UnsupportedFormatVersionError extends AtlasError {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super('ATLAS_FORMAT_UNSUPPORTED', message, options);
   }
 }

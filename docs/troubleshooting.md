@@ -16,12 +16,14 @@ Authentication errors occur before any backup work starts. Atlas signs in to Mic
 
 ### AADSTS error codes
 
-| Error code      | Meaning                            | Fix                                                                                                                                                                                                                                                       |
-| --------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AADSTS50020`   | Wrong tenant ID                    | Set `ATLAS_TENANT_ID` to the **Directory (tenant) ID** shown in **Microsoft Entra ID → Overview**.                                                                                                                                                       |
-| `AADSTS700016`  | Wrong client ID or app not found   | Set `ATLAS_CLIENT_ID` to the **Application (client) ID** from **App registrations**. The app must exist in the tenant named by `ATLAS_TENANT_ID`.                                                                                                       |
-| `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date in **Certificates & secrets**. If the secret has expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If it has not, confirm you copied the secret **Value**, not the **Secret ID**.                   |
-| `AADSTS65001`   | Admin consent not granted          | Open **API permissions** for the app registration and select **Grant admin consent for \<tenant\>**.                                                                                                                                                    |
+| Error code      | Meaning                            | Fix                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AADSTS50020`   | Wrong tenant ID                    | Set the profile's tenant ID with `atlas tenants add <name> --tenant-id <id> --client-id <id> --client-secret - --replace`, using the **Directory (tenant) ID** shown in **Microsoft Entra ID → Overview**. `ATLAS_TENANT_ID`, if set, overrides the selected profile for that run.                                                                                                                       |
+| `AADSTS700016`  | Wrong client ID or app not found   | Set the profile's client ID with `atlas tenants add <name> --tenant-id <id> --client-id <id> --client-secret - --replace`, using the **Application (client) ID** from **App registrations**. The app must exist in the profile's tenant. `ATLAS_CLIENT_ID`, if set, overrides the selected profile for that run.                                                                                         |
+| `AADSTS7000215` | Expired or incorrect client secret | Check the expiry date in **Certificates & secrets**. If the secret has expired, follow the [rotation procedure](/azure-ad-setup#client-secret-rotation). If it has not, confirm you copied the secret **Value**, not the **Secret ID**. Store the new value with `atlas tenants add <name> ... --client-secret - --replace`. `ATLAS_CLIENT_SECRET`, if set, overrides the selected profile for that run. |
+| `AADSTS65001`   | Admin consent not granted          | Open **API permissions** for the app registration and select **Grant admin consent for \<tenant\>**.                                                                                                                                                                                                                                                                                                     |
+
+After a fix, run `atlas tenants validate` to re-check the profile's Graph credentials.
 
 For any other AADSTS code, look it up in Microsoft's AADSTS error reference, then check **Microsoft Entra ID → Sign-in logs → Service principal sign-ins** and filter by the application's client ID.
 
@@ -31,8 +33,8 @@ For any other AADSTS code, look it up in Microsoft's AADSTS error reference, the
 
 Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 504 under load. Atlas retries these automatically:
 
-- It honors the `Retry-After` header when Graph sends one. Without it, a 429 applies a 30-second cooldown.
-- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. The full retry budget is about 23 minutes.
+- It honors the `Retry-After` header when Graph sends one. A value under one second is raised to 1 to 2 seconds. Without the header, a 429 applies a 30-second cooldown.
+- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Backoff waits, `Retry-After` waits, and cooldowns share one 24-minute budget of waiting. Time spent inside each request does not count. A `Retry-After` longer than 5 minutes fails the call at once.
 - If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
 
 Occasional 429 and 5xx responses during a large first backup need no action.
@@ -111,6 +113,22 @@ NoSuchBucket: The specified bucket does not exist
 Atlas uses one bucket per tenant and creates it on first use when the credentials allow it. Atlas uses path-style URLs (`http://hostname:9000/bucket-name`), which MinIO and most S3-compatible services require.
 
 If the error persists on AWS S3, check that the region matches the bucket's region and that the credentials belong to the account that owns the bucket. If your credentials cannot create buckets, create the bucket in advance. See [Storage layout](/operations/storage-layout).
+
+### Bucket name is not valid
+
+```
+"atlas-Contoso.onmicrosoft.com" is not a valid S3 bucket name: it must be 3 to 63 lowercase letters, digits, dots or dashes.
+```
+
+Atlas names each tenant's bucket after its tenant ID, and S3 accepts only lowercase names up to 63 characters. The error is a `ConfigError` (`ATLAS_CONFIG_INVALID`, exit `6`) and appears before any bucket is created. Store the tenant ID in lowercase with `atlas tenants add <name> ... --replace`, or use the tenant GUID when the domain is longer than 57 characters.
+
+### Secure config store is locked
+
+```
+The secure config store is locked by another Atlas command (~/.atlas/config.lock).
+```
+
+Another `atlas config` or `atlas tenants` command held the store lock for more than 10 seconds. Updates normally hold it for milliseconds, so check for a hung command first. If none is running, delete the lock file. Atlas also removes a lock older than 30 seconds by itself.
 
 ### Signature mismatch
 
@@ -221,6 +239,15 @@ How the failure is reported depends on the command:
 
 In the SDK, the error is `UnreadableContentError` with code `ATLAS_CONTENT_UNREADABLE`. It is permanent: retrying reads the same bytes and fails the same way.
 
+### Teams: a snapshot index cannot be read
+
+`atlas teams list-snapshots` names every index it cannot read. Two causes:
+
+- **Newer format** (`ATLAS_FORMAT_UNSUPPORTED`, exit `9`): another Atlas version wrote the index. Upgrade Atlas. The team's backup stops before it writes anything.
+- **Damaged or unparseable**: the run exits `2` when the index is newer than the latest readable one. It names the key (`Snapshot <key> could not be read; its channels were not compared`) and warns that the baseline is an older snapshot.
+
+When no readable index exists at all, for example after a bucket wipe with Object Lock-retained legacy manifests, the backup warns `No readable snapshot exists; every channel is read in full`. Once a run writes a readable index, later runs stop at it and do not read the older keys, so they are healthy again. `atlas teams status` and `list-snapshots` still list the unreadable keys. See [Unreadable snapshots](/teams-backup#unreadable-snapshots).
+
 ## Backup state errors
 
 ### Delta cursor or identity registry cannot be read
@@ -249,6 +276,16 @@ The identity registry at identity-registry.json changed on every one of 8 write 
 ```
 
 Several runs for the same tenant were registering users at the same moment, and this run lost the compare-and-swap race on every attempt. Nothing was overwritten: each lost attempt re-reads the registry before trying again. The error is `StorageError` (`ATLAS_STORAGE_FAILURE`, exit `1`) and is safe to retry. If it recurs, start fewer runs at once for that tenant. See [Storage](/self-hosting/storage#the-identity-registry-under-concurrent-runs).
+
+### Graph credentials belong to another tenant
+
+```
+john.doe@example.com is not in the identity registry of tenant <source>, and the configured Graph credentials belong to tenant <destination>. Using that tenant's answer without recording it; pass the Entra object ID to name a user of the backed-up tenant.
+```
+
+`-t` names a tenant other than the one the Graph credentials sign in to, for example when the destination tenant's credentials were exported by hand to restore into it. Graph then describes the other tenant, so Atlas resolves addresses from the backed-up tenant's registry and never writes to it. Writing would record a same-address user in the other tenant as a recycled email and point the address at a user who has no backups. A restore with `--target-profile` keeps the two tenants apart and does not hit this case.
+
+The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 
 ## See also
 

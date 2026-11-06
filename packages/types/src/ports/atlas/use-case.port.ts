@@ -2,21 +2,24 @@ import type { LogSink } from '@/ports/atlas/log-sink.port';
 import type { StorageRequestObserver } from '@/ports/storage/storage-request-observer.port';
 import type { ThrottleCoordinator } from '@/ports/shared/throttle-coordinator.port';
 import type { StorageCheckRequest, StorageCheckResult } from '@/ports/storage-check/use-case.port';
-import type { BucketStats } from '@/domain/stats';
-import type { StorageUsage } from '@/domain/storage-usage';
+import type { BucketStats } from '@/domain/stats/stats';
+import type { StorageUsage } from '@/domain/stats/storage-usage';
 import type { StorageUsageOptions } from '@/ports/storage-usage/use-case.port';
 import type {
   ReplicationResult,
   ReplicationStatusRecord,
   TenantRehydrationResult,
-} from '@/domain/replication';
+} from '@/domain/replication/replication';
 import type { DekRewrapResult } from '@/ports/keys/dek-rewrap.port';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
-import type { OutlookApi } from '@/ports/atlas/outlook-api.port';
-import type { OneDriveApi } from '@/ports/atlas/onedrive-api.port';
-import type { SharePointApi } from '@/ports/atlas/sharepoint-api.port';
+import type { OutlookApi } from '@/ports/outlook/api.port';
+import type { OneDriveApi } from '@/ports/onedrive/api.port';
+import type { ContactsApi } from '@/ports/contacts/api.port';
+import type { CalendarApi } from '@/ports/calendar/api.port';
+import type { SharePointApi } from '@/ports/sharepoint/api.port';
+import type { TeamsApi } from '@/ports/teams/api.port';
 import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
-import type { IdentityRegistry } from '@/domain/identity-registry';
+import type { IdentityRegistry } from '@/domain/shared/identity-registry';
 import type { Camelize } from '@/public/case-convert';
 
 export interface AtlasInstanceConfig {
@@ -44,12 +47,20 @@ export interface AtlasInstanceConfig {
    * processes run operations for the same tenant.
    */
   readonly throttleCoordinator?: ThrottleCoordinator;
+  /**
+   * Share of the tenant-wide Teams pacing budget this instance uses, above 0 and at most 1.
+   * Defaults to 1. Set it to `1 / n` when `n` processes back up teams of the same tenant.
+   */
+  readonly teamsPacingShare?: number;
 }
 
 export interface AtlasInstance extends AsyncDisposable {
   readonly outlook: OutlookApi;
   readonly onedrive: OneDriveApi;
   readonly sharepoint: SharePointApi;
+  readonly teams: TeamsApi;
+  readonly contacts: ContactsApi;
+  readonly calendar: CalendarApi;
 
   /**
    * Checks tenant-bucket access, the existing wrapped key when present, and Graph token issuance.

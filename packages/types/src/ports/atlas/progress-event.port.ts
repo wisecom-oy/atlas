@@ -1,10 +1,12 @@
 interface OperationProgressBase {
   readonly operation: 'backup' | 'restore' | 'save' | 'verify';
-  readonly workload: 'outlook' | 'onedrive' | 'sharepoint';
+  readonly workload: 'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'calendar';
   readonly processed: number;
   readonly total?: number;
   readonly current?: string;
   readonly rate?: number;
+  /** Estimated milliseconds left, from the pace so far. Omitted until one unit has finished. */
+  readonly eta_ms?: number;
 }
 
 /** A typed lifecycle event emitted by long-running SDK operations. */

@@ -1,9 +1,21 @@
 import { execFileSync } from 'node:child_process';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
-import type { AtlasConfig } from '@/utils/config';
+import type { StoredConfig } from '@/utils/tenant-profiles';
+import { with_store_lock } from '@/utils/secure-config-lock';
 import { logger } from '@/utils/logger';
 
 const CONFIG_FILE = 'config.enc';
@@ -32,7 +44,7 @@ export function secure_config_dir(options: SecureStoreOptions = {}): string {
  * Returns an empty object when no store exists (never touches the keyring
  * in that case, so read-only CLI runs stay exec-free).
  */
-export function read_secure_config(options: SecureStoreOptions = {}): Partial<AtlasConfig> {
+export function read_secure_config(options: SecureStoreOptions = {}): StoredConfig {
   const file_path = join(secure_config_dir(options), CONFIG_FILE);
   if (!existsSync(file_path)) return {};
 
@@ -45,31 +57,64 @@ export function read_secure_config(options: SecureStoreOptions = {}): Partial<At
   }
 
   const plaintext = decrypt_store(readFileSync(file_path), key, file_path);
-  return JSON.parse(plaintext.toString('utf-8')) as Partial<AtlasConfig>;
+  return JSON.parse(plaintext.toString('utf-8')) as StoredConfig;
 }
 
-/** Encrypts and persists the full set of stored config values. */
-export function write_secure_config(
-  values: Partial<AtlasConfig>,
+/**
+ * Applies `mutate` to the stored values and persists the result while holding the store lock,
+ * so concurrent `atlas config` and `atlas tenants` commands neither tear the file nor lose each
+ * other's update (issue #597). `mutate` may throw to abort without writing. Returns what was saved.
+ */
+export function update_secure_config(
+  mutate: (current: StoredConfig) => StoredConfig,
   options: SecureStoreOptions = {},
-): void {
+): StoredConfig {
   const dir = secure_config_dir(options);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return with_store_lock(dir, () => {
+    const next = mutate(read_secure_config(options));
+    write_store(next, options);
+    return next;
+  });
+}
 
+/** Encrypts and replaces the store; the caller holds the store lock. */
+function write_store(values: StoredConfig, options: SecureStoreOptions): void {
   const key = load_store_key(options, true);
   if (key === undefined) {
     throw new Error('Failed to obtain an encryption key for the secure config store.');
   }
 
-  const file_path = join(dir, CONFIG_FILE);
+  const file_path = join(secure_config_dir(options), CONFIG_FILE);
   if (Object.keys(values).length === 0) {
-    if (existsSync(file_path)) unlinkSync(file_path);
+    rmSync(file_path, { force: true });
     return;
   }
+  write_file_atomically(
+    file_path,
+    encrypt_store(Buffer.from(JSON.stringify(values), 'utf-8'), key),
+  );
+}
 
-  const ciphertext = encrypt_store(Buffer.from(JSON.stringify(values), 'utf-8'), key);
-  writeFileSync(file_path, ciphertext, { mode: 0o600 });
-  chmodSync(file_path, 0o600); // mode above only applies on create; enforce on rewrite
+/**
+ * Writes a sibling temporary file, flushes it, then renames it over `file_path`. A reader sees
+ * the old store or the new one, never a truncated mix. Created with mode 0600 in one step.
+ */
+function write_file_atomically(file_path: string, data: Buffer): void {
+  const temp_path = `${file_path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    const fd = openSync(temp_path, 'wx', 0o600);
+    try {
+      writeSync(fd, data);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(temp_path, file_path);
+  } catch (err) {
+    rmSync(temp_path, { force: true });
+    throw err;
+  }
 }
 
 /** Detects which key backend this platform supports. */

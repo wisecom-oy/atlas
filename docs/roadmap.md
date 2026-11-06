@@ -13,15 +13,15 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
     <h3>v6: stable storage keys</h3>
     <p>Outlook keyed by Entra object ID and SharePoint by hostname-free site ID, so renames no longer orphan backups. Breaking; see <a href="/migration/v6">Migrating to v6</a>.</p>
   </li>
-  <li data-status="planned">
-    <span class="wc-roadmap-status">Planned</span>
-    <h3>Calendars and contacts</h3>
-    <p>Exchange backup today covers mail only. Calendar events, including recurrences and attachments, and contacts become first-class items with their own restore.</p>
+  <li data-status="progress">
+    <span class="wc-roadmap-status">In progress</span>
+    <h3>Calendars</h3>
+    <p>Exchange backup covers mail and contacts today. Calendar backup, restore, listing, and verification are in progress (issue #134), with recurring series, exceptions, and file attachments. Replication and rehydrate do not cover calendars yet. See <a href="/calendar-backup">Calendar backup</a>.</p>
   </li>
-  <li data-status="planned">
-    <span class="wc-roadmap-status">Planned</span>
+  <li data-status="progress">
+    <span class="wc-roadmap-status">In progress</span>
     <h3>Microsoft Teams</h3>
-    <p>Channel messages with replies and reactions, membership, and channel settings. Team files are already covered by SharePoint backup.</p>
+    <p>Channel messages with replies, reactions, and edits, membership, channel settings, and tabs. Backup and verification are available; restore is pending. Team files are covered by SharePoint backup.</p>
   </li>
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>
@@ -31,7 +31,7 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>
     <h3>Recovery into a clean tenant</h3>
-    <p>Restore a compromised or lost tenant's data into a different tenant, with a mapping from old identities to new ones. Builds on the Entra ID export.</p>
+    <p>Restore a compromised or lost tenant's data into a different tenant, with a mapping from old identities to new ones. Builds on the Entra ID export. Restoring one owner or site into another tenant already works with <a href="/reference/cli-recovery#cross-tenant-restore"><code>--target-profile</code></a> and the SDK's <a href="/reference/sdk#cross-tenant-restore"><code>createTenant</code></a>.</p>
   </li>
   <li data-status="exploring">
     <span class="wc-roadmap-status">Exploring</span>
@@ -47,11 +47,11 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
 
 ## Constraints that shape the plan
 
-**Teams.** Graph has no delta query for channel messages. Bulk export uses protected `getAllMessages` endpoints that Microsoft approves per application and bills per message, so incremental backup will rely on change notifications. Chats hold personal data with different retention expectations and will be opt-in.
+**Teams.** Scope is channel content: messages with replies and reactions, team and channel membership, tabs, and channel configuration. Each channel is read through its own `messages/delta` cursor, and a channel that cannot run delta falls back to a full read without failing the run. Reading channel messages app-only may require Microsoft's protected API approval for `ChannelMessage.Read.All`. Restore is export-only, because Graph cannot repost a message with its original author and timestamp. 1:1, group, and meeting chats are out of scope: they hold personal conversations with separate legal and retention obligations, bulk access goes through the metered `getAllMessages` export API, and every user's chats would need their own enumeration.
 
 **Entra ID.** Restore is reapplication, not byte recovery: a recreated policy or app gets a new object ID, and client secrets cannot be read back. Atlas will never overwrite a live directory silently. Graph keeps deleted directory objects for only 30 days and has no history for Conditional Access changes, which is the gap Atlas fills.
 
-**Clean-tenant recovery.** Object IDs differ between tenants, so every owner, mailbox and site needs an explicit mapping before anything is written. Unmapped identities are reported, never guessed.
+**Clean-tenant recovery.** Object IDs differ between tenants, so every owner, mailbox and site needs an explicit mapping before anything is written. Unmapped identities are reported, never guessed. A single cross-tenant restore already takes its target explicitly; what is missing is the tenant-wide mapping that drives every owner at once.
 
 **Planner.** Graph has no delta query for Planner, so each run re-reads plans and compares ETags. Recreated tasks get new IDs, completion history cannot be written back, and task comments live in the group's conversations rather than in Planner. Premium plans (Planner Plan 1 and up) use a different API and are out of scope.
 

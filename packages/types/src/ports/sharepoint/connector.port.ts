@@ -1,4 +1,4 @@
-import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive-item-metadata';
+import type { DriveFileSystemInfo, DriveItemIdentity } from '@/domain/drive/item-metadata';
 import type { LargeFileContent } from '@/ports/drive/large-file-content.port';
 export interface SharePointSite {
   readonly site_id: string;

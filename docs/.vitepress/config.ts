@@ -46,7 +46,7 @@ export default defineConfig({
       {
         name: 'keywords',
         content:
-          'atlas, wisecom, microsoft 365 backup, exchange online, onedrive, sharepoint, s3, object lock, encryption',
+          'atlas, wisecom, microsoft 365 backup, exchange online, onedrive, sharepoint, microsoft teams, s3, object lock, encryption',
       },
     ],
   ],
@@ -90,7 +90,7 @@ export default defineConfig({
         text: 'Guide',
         link: '/getting-started',
         activeMatch:
-          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|self-hosting|operations)',
+          '^/(getting-started|concepts|configuration|azure-ad-setup|security|how-it-works|troubleshooting|onedrive|sharepoint|teams|contacts-backup|calendar-backup|self-hosting|operations)',
       },
       { text: 'Reference', link: '/reference/cli', activeMatch: '^/(reference|migration)/' },
       {
@@ -126,6 +126,9 @@ export default defineConfig({
         items: [
           { text: 'OneDrive', link: '/onedrive-backup' },
           { text: 'SharePoint', link: '/sharepoint-backup' },
+          { text: 'Microsoft Teams', link: '/teams-backup' },
+          { text: 'Contacts', link: '/contacts-backup' },
+          { text: 'Calendar', link: '/calendar-backup' },
         ],
       },
       {
@@ -169,7 +172,10 @@ export default defineConfig({
       },
       {
         text: 'Migration',
-        items: [{ text: 'Upgrading to v6', link: '/migration/v6' }],
+        items: [
+          { text: 'Upgrading to v7', link: '/migration/v7' },
+          { text: 'Upgrading to v6', link: '/migration/v6' },
+        ],
       },
       {
         text: 'Development',
@@ -179,6 +185,7 @@ export default defineConfig({
           { text: 'Test coverage', link: '/development/test-coverage' },
           { text: 'Performance profiling', link: '/development/performance-profiling' },
           { text: 'Graph request tracing', link: '/development/graph-tap' },
+          { text: 'Teams scale rig', link: '/development/teams-scale-rig' },
           { text: 'Microsoft Graph skill', link: '/development/msgraph-skill' },
         ],
       },

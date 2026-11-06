@@ -2,7 +2,7 @@
 
 Command-line tool for [Atlas](https://github.com/wisecom-oy/atlas). Secure Microsoft 365 backup and restore to S3-compatible object storage.
 
-Protects Outlook mailboxes, OneDrive files, and SharePoint document libraries with per-tenant envelope encryption (AES-256-GCM), content-addressed deduplication, and incremental delta sync via Microsoft Graph.
+Protects Outlook mailboxes, personal Outlook contacts, Outlook calendars, OneDrive files, SharePoint document libraries, and Teams channel messages with per-tenant envelope encryption (AES-256-GCM), content-addressed deduplication, and incremental delta sync via Microsoft Graph.
 
 ## Requirements
 
@@ -24,11 +24,15 @@ Bun blocks install scripts for untrusted packages, which skips the postinstall h
 
 ## Quick start
 
-Configure credentials in a `.env` file (see [Configuration](https://wisecom-oy.github.io/atlas/configuration)):
+Configure storage in a `.env` file (see [Configuration](https://wisecom-oy.github.io/atlas/configuration)), then store each Microsoft 365 tenant's app registration as a tenant profile:
 
 ```bash
 cp .env.example .env
+atlas tenants add contoso --tenant-id <tenant-id> --client-id <client-id> --client-secret -
+atlas tenants validate
 ```
+
+The secret is read from stdin with `-`. `ATLAS_TENANT_ID`, `ATLAS_CLIENT_ID`, and `ATLAS_CLIENT_SECRET` in `.env` still work for a single tenant and override the selected profile.
 
 Run your first backup:
 
@@ -39,31 +43,44 @@ atlas outlook backup --mailbox user@company.com
 # OneDrive
 atlas onedrive backup -o user@company.com
 
+# Contacts
+atlas contacts backup -m user@company.com
+
+# Calendar
+atlas calendar backup -m user@company.com
+
 # SharePoint
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
+
+# Teams
+atlas teams backup --team <team-id>
 ```
 
 ## Common commands
 
-| Command | Description |
-| ------- | ----------- |
-| `atlas outlook backup` | Back up mailboxes to object storage |
-| `atlas outlook restore` | Restore from a snapshot |
-| `atlas outlook verify` | Verify snapshot integrity |
-| `atlas onedrive backup` | Back up a user's OneDrive |
-| `atlas sharepoint backup` | Back up a SharePoint site |
-| `atlas stats` | Storage statistics |
-| `atlas stats storage` | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
-| `atlas storage-check` | Validate S3 Object Lock readiness |
-| `atlas replicate` | Replicate snapshots to a secondary target |
+| Command                   | Description                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `atlas tenants add`       | Store a tenant profile; select one per run with `--profile`                      |
+| `atlas outlook backup`    | Back up mailboxes to object storage                                              |
+| `atlas outlook restore`   | Restore from a snapshot                                                          |
+| `atlas outlook verify`    | Verify snapshot integrity                                                        |
+| `atlas onedrive backup`   | Back up a user's OneDrive                                                        |
+| `atlas contacts backup`   | Back up a mailbox's personal contacts                                            |
+| `atlas calendar backup`   | Back up a mailbox's Outlook calendars                                            |
+| `atlas sharepoint backup` | Back up a SharePoint site                                                        |
+| `atlas teams backup`      | Back up Teams channel messages to object storage                                 |
+| `atlas stats`             | Storage statistics                                                               |
+| `atlas stats storage`     | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
+| `atlas storage-check`     | Validate S3 Object Lock readiness                                                |
+| `atlas replicate`         | Replicate snapshots to a secondary target                                        |
 
 Run `atlas --help` or `atlas <command> --help` for full flag reference.
 
 ## Exit codes
 
-Atlas uses `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource and `8` for retention.
+Atlas uses `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource, `8` for retention and `9` for stored content that cannot be read back.
 
-Treat every nonzero code as a failure or incomplete run. Fatal diagnostics go to stderr and include both the Atlas category and the underlying provider details. See the [exit-code reference](https://wisecom-oy.github.io/atlas/reference/cli#exit-codes) before updating scheduled jobs, and the [v6 migration guide](https://wisecom-oy.github.io/atlas/migration/v6) before upgrading.
+Treat every nonzero code as a failure or incomplete run. Fatal diagnostics go to stderr and include both the Atlas category and the underlying provider details. See the [exit-code reference](https://wisecom-oy.github.io/atlas/reference/cli#exit-codes) before updating scheduled jobs, and the [v7 migration guide](https://wisecom-oy.github.io/atlas/migration/v7) before upgrading.
 
 ## Programmatic use
 

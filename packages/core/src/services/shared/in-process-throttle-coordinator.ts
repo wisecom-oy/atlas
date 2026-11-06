@@ -9,9 +9,9 @@ import { ThrottleFence } from './throttle-fence';
  * Per pool because Graph meters the pools separately. A SharePoint 429 says nothing about the
  * Outlook budget, so it must not pause a mailbox backup running beside the drive backup.
  *
- * Outlook is narrower still: Graph meters it per mailbox, so a cooldown raised for one owner
- * (`outlook:<ownerId>`) leaves every other mailbox running. A request without an owner uses the
- * pool-wide `outlook` fence, and every owner-scoped wait honours that fence too.
+ * Outlook and Teams are narrower still: Graph meters them per mailbox or team, so a cooldown raised for
+ * one owner (`outlook:<ownerId>`, `teams:<teamId>`) leaves every other mailbox or team running. A
+ * request without an owner uses the pool-wide fence, and every owner-scoped wait honours that fence too.
  */
 export class InProcessThrottleCoordinator implements ThrottleCoordinator {
   private readonly _fences = new Map<string, ThrottleFence>();
@@ -46,11 +46,11 @@ export class InProcessThrottleCoordinator implements ThrottleCoordinator {
   }
 
   /**
-   * The key of the per-mailbox fence an Outlook request is scoped to, or undefined when it has no
+   * The key of the per-owner fence an Outlook or Teams request is scoped to, or undefined when it has no
    * owner. Pool names hold no colon, so an owner key can never collide with a pool key.
    */
   private owner_key(pool: GraphServicePool, scope?: ThrottleScope): string | undefined {
-    return pool === 'outlook' && scope?.ownerId !== undefined
+    return (pool === 'outlook' || pool === 'teams') && scope?.ownerId !== undefined
       ? `${pool}:${scope.ownerId}`
       : undefined;
   }

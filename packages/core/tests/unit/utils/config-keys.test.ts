@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG_KEYS, find_config_key, mask_secret } from '@/utils/config-keys';
+import { CONFIG_KEYS, TENANT_KEYS, find_config_key, mask_secret } from '@/utils/config-keys';
 
 function validate(key: string, value: string): string | null {
-  const spec = find_config_key(key);
+  const spec = find_config_key(key) ?? TENANT_KEYS.find((k) => k.key === key);
   if (!spec) throw new Error(`missing spec ${key}`);
   return spec.validate(value);
 }
 
 describe('config-keys', () => {
-  it('covers every AtlasConfig field exactly once', () => {
-    const fields = CONFIG_KEYS.map((k) => k.field).sort();
+  it('covers every AtlasConfig field exactly once across shared and tenant keys', () => {
+    const fields = [...CONFIG_KEYS, ...TENANT_KEYS].map((k) => k.field).sort();
     expect(fields).toEqual(
       [
         'tenant_id',
@@ -24,20 +24,20 @@ describe('config-keys', () => {
     );
   });
 
-  it('accepts a GUID or tenant domain for tenant.id', () => {
-    expect(validate('tenant.id', '4fa2a706-b26a-4bbe-9b1c-1e671b586b8f')).toBeNull();
-    expect(validate('tenant.id', 'contoso.onmicrosoft.com')).toBeNull();
-    expect(validate('tenant.id', 'not a tenant')).toMatch(/GUID/);
+  it('accepts a GUID or tenant domain for tenant-id', () => {
+    expect(validate('tenant-id', '4fa2a706-b26a-4bbe-9b1c-1e671b586b8f')).toBeNull();
+    expect(validate('tenant-id', 'contoso.onmicrosoft.com')).toBeNull();
+    expect(validate('tenant-id', 'not a tenant')).toMatch(/GUID/);
   });
 
-  it('requires a GUID for client.id', () => {
-    expect(validate('client.id', '4fa2a706-b26a-4bbe-9b1c-1e671b586b8f')).toBeNull();
-    expect(validate('client.id', 'contoso.onmicrosoft.com')).toMatch(/GUID/);
+  it('requires a GUID for client-id', () => {
+    expect(validate('client-id', '4fa2a706-b26a-4bbe-9b1c-1e671b586b8f')).toBeNull();
+    expect(validate('client-id', 'contoso.onmicrosoft.com')).toMatch(/GUID/);
   });
 
   it('rejects whitespace and empty secrets', () => {
-    expect(validate('client.secret', 'abc~DEF123')).toBeNull();
-    expect(validate('client.secret', '')).not.toBeNull();
+    expect(validate('client-secret', 'abc~DEF123')).toBeNull();
+    expect(validate('client-secret', '')).not.toBeNull();
     expect(validate('s3.access-key', 'two words')).not.toBeNull();
   });
 

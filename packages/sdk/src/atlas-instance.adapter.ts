@@ -23,23 +23,30 @@ import {
   DEK_REWRAP_USE_CASE_TOKEN,
   STORAGE_USAGE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import type { TenantContextFactory } from '@wisecom/atlas-types';
+import { NotFoundError, type TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
+import { create_contacts_api } from '@/contacts-api.factory';
+import { create_calendar_api } from '@/calendar-api.factory';
 import { create_sharepoint_api } from '@/sharepoint-api.factory';
+import { create_teams_api } from '@/teams-api.factory';
 import { create_disposer } from '@/instance-disposal';
 import { resolve_log_sink, scope_api_logging } from '@/log-scope';
 import { normalize_config } from '@/instance-config';
 import { validate_instance } from '@/instance-validation';
 import { resolve_owner_object_id } from '@/owner-resolution';
+import { STORAGE_OBSERVER_TOKEN } from '@/target-tenant';
 
 /** Creates a tenant-bound Atlas SDK instance from explicit configuration values. */
 export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance {
   const atlas_config = normalize_config(config);
-  const container = create_container_from_config(atlas_config, config.throttleCoordinator);
+  const container = create_container_from_config(atlas_config, config.throttleCoordinator, {
+    tenant_pacing_share: config.teamsPacingShare,
+  });
   if (config.onStorageRequest) {
     const s3_client = container.get<S3Client>(S3_CLIENT_TOKEN);
     observe_storage_requests(s3_client, config.onStorageRequest, 'primary');
+    container.bind(STORAGE_OBSERVER_TOKEN).toConstantValue(config.onStorageRequest);
   }
   const tenant_id = atlas_config.tenant_id;
 
@@ -63,6 +70,9 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
     outlook: scoped(create_outlook_api(tenant_id, container)),
     onedrive: scoped(create_onedrive_api(tenant_id, container)),
     sharepoint: scoped(create_sharepoint_api(tenant_id, container)),
+    teams: scoped(create_teams_api(tenant_id, container)),
+    contacts: scoped(create_contacts_api(tenant_id, container)),
+    calendar: scoped(create_calendar_api(tenant_id, container)),
 
     async validate() {
       await validate_instance(container, tenant_id);
@@ -88,7 +98,14 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
       return camelize(await identity_resolver.resolve_user(tenant_id, email));
     },
     async listUsers() {
-      const ctx = await tenant_factory.create(tenant_id);
+      let ctx;
+      try {
+        ctx = await tenant_factory.create_readonly(tenant_id);
+      } catch (err) {
+        // No bucket or data key yet: nothing is registered, and nothing is provisioned to say so.
+        if (err instanceof NotFoundError) return undefined;
+        throw err;
+      }
       try {
         return camelize(await identity_registry.load(ctx));
       } finally {

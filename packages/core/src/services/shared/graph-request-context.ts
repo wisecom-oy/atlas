@@ -23,6 +23,7 @@ import type {
 const _storage = new AsyncLocalStorage<GraphRequestCounter>();
 const _operation = new AsyncLocalStorage<GraphOperation>();
 const _throttle = new AsyncLocalStorage<ActiveThrottle>();
+const _abort = new AsyncLocalStorage<AbortSignal | undefined>();
 
 /** The coordinator guarding a call, the pool its requests are charged to by default, and the mailbox they target. */
 export interface ActiveThrottle {
@@ -155,9 +156,48 @@ export function get_active_throttle_pool(): GraphServicePool | undefined {
 }
 
 /**
- * The scope a request in this context is throttled under. Only `outlook` requests carry one: Graph
- * meters the other pools per tenant, so a mailbox scope on them would split a shared budget.
+ * The scope a request in this context is throttled under. `outlook` requests carry a mailbox scope
+ * and `teams` requests a team scope, so one hot team or mailbox cannot cool the rest of the tenant.
+ * Other pools are metered per tenant by Graph, so a narrower scope would split a shared budget.
  */
 export function get_active_throttle_scope(): ThrottleScope | undefined {
-  return get_active_throttle_pool() === 'outlook' ? _throttle.getStore()?.scope : undefined;
+  const pool = get_active_throttle_pool();
+  return pool === 'outlook' || pool === 'teams' ? _throttle.getStore()?.scope : undefined;
+}
+
+/**
+ * Hook a caller installs to pace the Graph attempts issued inside its context. `before_attempt`
+ * runs before every attempt (including retries) and may wait; `on_throttled` runs on each 429.
+ */
+export interface RequestPacing {
+  before_attempt(signal: AbortSignal | undefined): Promise<void>;
+  on_throttled(): void;
+}
+
+const _pacing = new AsyncLocalStorage<RequestPacing>();
+
+/** Publishes the pacing hook for the Graph requests issued inside `fn`. */
+export function run_with_request_pacing<T>(pacing: RequestPacing, fn: () => T): T {
+  return _pacing.run(pacing, fn);
+}
+
+/** The pacing hook the current async context runs under, if any. */
+export function get_active_request_pacing(): RequestPacing | undefined {
+  return _pacing.getStore();
+}
+
+/**
+ * Publishes the abort signal of the run that issues the Graph calls inside `fn`, so a retry wait or
+ * an in-flight request deep inside it can stop as soon as the run is cancelled.
+ *
+ * Undefined clears the signal for `fn`, so a nested run without one never inherits its caller's
+ * signal. Callers without a signal need no branch.
+ */
+export function run_with_abort_signal<T>(signal: AbortSignal | undefined, fn: () => T): T {
+  return _abort.run(signal, fn);
+}
+
+/** The abort signal of the run the current async context belongs to, if any. */
+export function get_active_abort_signal(): AbortSignal | undefined {
+  return _abort.getStore();
 }

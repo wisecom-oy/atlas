@@ -1,7 +1,7 @@
 import type {
   OneDriveFileVersionIndex,
   OneDriveVersionWatermark,
-} from '../../domain/onedrive-manifest';
+} from '../../domain/onedrive/manifest';
 import type { TenantContext } from '../tenant/context.port';
 
 /**

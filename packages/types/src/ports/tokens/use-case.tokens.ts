@@ -34,3 +34,19 @@ export const ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN = Symbol.for('OneDriveVersi
 export const SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN = Symbol.for(
   'SharePointVersionRestoreUseCase',
 );
+export const TEAMS_BACKUP_USE_CASE_TOKEN = Symbol.for('TeamsBackupUseCase');
+export const TEAMS_VERIFICATION_USE_CASE_TOKEN = Symbol.for('TeamsVerificationUseCase');
+export const TEAMS_CATALOG_USE_CASE_TOKEN = Symbol.for('TeamsCatalogUseCase');
+export const TEAMS_STATUS_USE_CASE_TOKEN = Symbol.for('TeamsStatusUseCase');
+export const TEAMS_DELETION_USE_CASE_TOKEN = Symbol.for('TeamsDeletionUseCase');
+export const TEAMS_SAVE_USE_CASE_TOKEN = Symbol.for('TeamsSaveUseCase');
+export const CONTACTS_BACKUP_USE_CASE_TOKEN = Symbol.for('ContactsBackupUseCase');
+export const CONTACTS_RESTORE_USE_CASE_TOKEN = Symbol.for('ContactsRestoreUseCase');
+export const CONTACTS_CATALOG_USE_CASE_TOKEN = Symbol.for('ContactsCatalogUseCase');
+export const CONTACTS_VERIFICATION_USE_CASE_TOKEN = Symbol.for('ContactsVerificationUseCase');
+export const CONTACTS_DELETION_USE_CASE_TOKEN = Symbol.for('ContactsDeletionUseCase');
+export const CALENDAR_BACKUP_USE_CASE_TOKEN = Symbol.for('CalendarBackupUseCase');
+export const CALENDAR_RESTORE_USE_CASE_TOKEN = Symbol.for('CalendarRestoreUseCase');
+export const CALENDAR_CATALOG_USE_CASE_TOKEN = Symbol.for('CalendarCatalogUseCase');
+export const CALENDAR_VERIFICATION_USE_CASE_TOKEN = Symbol.for('CalendarVerificationUseCase');
+export const CALENDAR_DELETION_USE_CASE_TOKEN = Symbol.for('CalendarDeletionUseCase');

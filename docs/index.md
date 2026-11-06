@@ -1,12 +1,12 @@
 ---
 layout: home
 title: Atlas
-description: Atlas is an open-source Microsoft 365 backup engine that encrypts and deduplicates Exchange Online, OneDrive, and SharePoint backups to S3-compatible storage.
+description: Atlas is an open-source Microsoft 365 backup engine that encrypts and deduplicates Exchange Online, OneDrive, SharePoint, and Teams backups to S3-compatible storage.
 titleTemplate: Microsoft 365 backup engine by Wisecom
 hero:
   name: Atlas
   text: Microsoft 365 backup<br>you can read.
-  tagline: The open-source engine behind Wisecom Continuity. Encrypted, deduplicated backups of Exchange Online, OneDrive and SharePoint to S3‑compatible storage, as a CLI or a Node.js SDK.
+  tagline: The open-source engine behind Wisecom Continuity. Encrypted, deduplicated backups of Exchange Online, OneDrive, SharePoint and Teams to S3‑compatible storage, as a CLI or a Node.js SDK.
   actions:
     - theme: brand
       text: Get started
@@ -31,8 +31,8 @@ features:
   - title: Incremental by default
     details: Microsoft Graph delta queries fetch only what changed. An interrupted run resumes from its saved delta links, and Atlas enumerates a folder in full only in specific cases, such as an invalid delta token.
     link: /operations/delta-sync
-  - title: Three workloads
-    details: Outlook mail, OneDrive files and SharePoint document libraries under one encryption and storage model.
+  - title: Four workloads
+    details: Outlook mail, OneDrive files, SharePoint document libraries, and Teams channel messages under one encryption and storage model.
     link: /onedrive-backup
   - title: CLI and SDK
     details: 'The CLI fits scripts and cron jobs. The SDK embeds the same engine in Node.js with a typed API.'

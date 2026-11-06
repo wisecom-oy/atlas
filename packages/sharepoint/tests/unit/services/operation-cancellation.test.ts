@@ -36,7 +36,10 @@ function make_entry(file_id: string): SharePointManifestEntry {
 
 describe('SharePoint restore cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {
-    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const factory = {
+      create: vi.fn(),
+      create_readonly: vi.fn(),
+    } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 4 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
     const backup = new SharePointBackupService(
@@ -72,6 +75,7 @@ describe('SharePoint restore cancellation', () => {
     ]);
 
     expect(factory.create).not.toHaveBeenCalled();
+    expect(factory.create_readonly).not.toHaveBeenCalled();
     expect(results.every((result) => result.interrupted)).toBe(true);
     for (const callback of callbacks) {
       // Pre-aborted runs never claim discovery: finalizing + terminal only.

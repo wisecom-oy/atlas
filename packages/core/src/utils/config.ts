@@ -4,6 +4,15 @@ import { homedir, platform } from 'node:os';
 import { config as load_dotenv } from 'dotenv';
 import { logger } from '@/utils/logger';
 import { read_secure_config } from '@/utils/secure-config-store';
+import {
+  find_profile,
+  profile_names,
+  select_profile_name,
+  shared_settings,
+  unknown_profile_message,
+  DEFAULT_PROFILE,
+  type StoredConfig,
+} from '@/utils/tenant-profiles';
 
 export interface GraphConfig {
   readonly tenant_id: string;
@@ -39,23 +48,62 @@ const ENV_MAP: Record<string, keyof AtlasConfig> = {
   ATLAS_ENCRYPTION_PASSPHRASE: 'encryption_passphrase',
 };
 
+/** Options for {@link load_config}. */
+export interface LoadConfigOptions {
+  /** Tenant profile to use, from the `--profile` flag; falls back to `ATLAS_PROFILE`. */
+  readonly profile?: string | undefined;
+}
+
 /**
  * Loads Atlas configuration by merging sources in this order
  * (later sources override earlier ones):
  *   1. atlas.config.json file
- *   2. Encrypted secure store (~/.atlas/config.enc, managed via "atlas config")
+ *   2. Encrypted secure store (~/.atlas/config.enc, managed via "atlas config" and "atlas tenants")
  *   3. .env file (loaded into process.env via dotenv, does NOT overwrite existing vars)
  *   4. Real environment variables (always win)
- * Throws if any required field is missing after merging.
+ * Graph credentials come from the selected tenant profile, and ATLAS_* Graph variables override
+ * that profile only. Throws if the profile is unknown or any required field is missing.
  */
-export function load_config(): AtlasConfig {
+export function load_config(options: LoadConfigOptions = {}): AtlasConfig {
   // quiet: dotenv's load banner goes to stdout, which corrupts pipeable output
   // such as `atlas outlook read --raw > message.eml`.
   load_dotenv({ quiet: true });
   const file_config = try_load_config_file();
   const secure_config = read_secure_config();
-  const env_overrides = read_env_overrides();
-  return merge_and_validate({ ...file_config, ...secure_config, ...env_overrides });
+  const name = select_profile_name(options.profile, file_config, secure_config);
+  const profile = find_profile(name, file_config, secure_config);
+  if (profile === undefined && name !== DEFAULT_PROFILE) {
+    throw new Error(unknown_profile_message(name, profile_names(file_config, secure_config)));
+  }
+  return merge_and_validate({
+    ...shared_settings(file_config),
+    ...shared_settings(secure_config),
+    ...profile,
+    ...read_env_overrides(),
+  });
+}
+
+/**
+ * Loads one profile's Graph credentials from the file and the store. Environment variables are
+ * deliberately ignored: they override the selected profile, and applying them here as well would
+ * quietly turn a second profile into the first.
+ */
+export function load_tenant_profile(name: string): GraphConfig {
+  const file_config = try_load_config_file();
+  const secure_config = read_secure_config();
+  const profile = find_profile(name, file_config, secure_config);
+  if (profile === undefined) {
+    throw new Error(unknown_profile_message(name, profile_names(file_config, secure_config)));
+  }
+  const missing = (['tenant_id', 'client_id', 'client_secret'] as const).filter((f) => !profile[f]);
+  if (missing.length > 0) {
+    throw new Error(`Tenant profile "${name}" is missing ${missing.join(', ')}.`);
+  }
+  return {
+    tenant_id: profile.tenant_id!,
+    client_id: profile.client_id!,
+    client_secret: profile.client_secret!,
+  };
 }
 
 /**
@@ -63,7 +111,7 @@ export function load_config(): AtlasConfig {
  * home directory. Returns the parsed contents, or an empty object if
  * no file is found.
  */
-export function try_load_config_file(): Partial<AtlasConfig> {
+export function try_load_config_file(): StoredConfig {
   const search_dirs = [process.cwd(), homedir()];
 
   for (const dir of search_dirs) {
@@ -79,7 +127,7 @@ export function try_load_config_file(): Partial<AtlasConfig> {
 }
 
 /** Reads and JSON-parses a single config file. */
-function parse_config_file(file_path: string): Partial<AtlasConfig> {
+function parse_config_file(file_path: string): StoredConfig {
   warn_if_world_readable(file_path);
   const raw = readFileSync(file_path, 'utf-8');
   const parsed: unknown = JSON.parse(raw);
@@ -146,7 +194,8 @@ export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
   if (missing.length > 0) {
     throw new Error(
       `Missing required config fields: ${missing.join(', ')}. ` +
-        'Set them via "atlas config set <key> <value>", atlas.config.json, or ATLAS_* environment variables.',
+        'Add tenant credentials with "atlas tenants add", and set storage and encryption via ' +
+        '"atlas config set <key> <value>", atlas.config.json, or ATLAS_* environment variables.',
     );
   }
 

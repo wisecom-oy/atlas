@@ -72,8 +72,8 @@ Steps:
    Tell me the passphrase lives in that file and that losing it makes every
    backup permanently unreadable (docs/security.md). Do not show it.
    Run every atlas command from the repository root, where .env is loaded.
-6. Run `atlas config validate`. It must report a working Graph token and
-   S3 connection.
+6. Run `atlas config validate`, which checks the S3 connection. Then run
+   `atlas tenants validate`, which requests a Graph token. Both must pass.
 7. Ask me which test mailbox to back up. Then run
    `atlas outlook backup -m <mailbox>`. The first run creates the bucket
    atlas-<tenant-id> with Object Lock support.

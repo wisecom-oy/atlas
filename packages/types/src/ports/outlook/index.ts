@@ -1,0 +1,36 @@
+export type {
+  MailboxConnector,
+  MailMessage,
+  MailFolder,
+  WellKnownMailFolder,
+  MailFolderListOptions,
+  ExcludedFolder,
+  FolderExclusionReason,
+  DeltaSyncResult,
+  DeltaPageCallback,
+  MessageAttachment,
+} from './connector.port';
+export type {
+  TenantMailbox,
+  MailboxDiscoveryOptions,
+  MailboxDiscoveryService,
+} from './discovery.port';
+export type {
+  OutlookApi,
+  OutlookBackupOptions,
+  OutlookBackupResult,
+  OutlookVerificationOptions,
+  OutlookVerificationResult,
+  OutlookRestoreOptions,
+  OutlookRestoreResult,
+  OutlookSaveOptions,
+  OutlookSaveResult,
+  OutlookMailboxSummary,
+  OutlookSnapshotManifest,
+  OutlookReadMessageResult,
+  OutlookDeletionResult,
+  OutlookMailboxStats,
+  OutlookMailboxStatus,
+  OutlookTenantMailbox,
+  OutlookMailboxDiscoveryOptions,
+} from './api.port';

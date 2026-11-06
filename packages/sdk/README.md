@@ -2,7 +2,7 @@
 
 Programmatic API for embedding [Atlas](https://github.com/wisecom-oy/atlas) in Node.js applications. Atlas backs up and restores Microsoft 365 data.
 
-Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, OneDrive, and SharePoint workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
+Use this package for custom schedulers, multi-tenant SaaS, backup portals, and automation that needs typed control over Outlook, contacts, calendars, OneDrive, SharePoint, and Teams workloads. All internal modules are bundled; install this package alone with no peer `@wisecom/atlas-*` dependencies.
 
 ## Requirements
 
@@ -43,15 +43,24 @@ await atlas.outlook.backup('user@example.com');
 // OneDrive backup
 await atlas.onedrive.backup('user@example.com');
 
+// Contacts backup
+await atlas.contacts.backup('user@example.com');
+
+// Calendar backup
+await atlas.calendar.backup('user@example.com');
+
 // SharePoint backup: pass a site URL or Graph site id, add subsites when needed
 await atlas.sharepoint.backup('https://contoso.sharepoint.com/sites/Engineering', {
   includeSubsites: true,
 });
+
+// Teams backup: one team per call, identified by its Graph team ID
+await atlas.teams.backup('<team-id>');
 ```
 
 Construction validates required fields, a minimum passphrase length of 14 UTF-8 bytes, and an absolute HTTP(S) S3 endpoint without embedded credentials, query or fragment. Invalid values throw `ConfigError` synchronously, without network requests.
 
-After provisioning the tenant bucket, call `await atlas.validate()` for an optional read-only check of S3 access, the existing wrapped tenant key and Graph token issuance. A wrong passphrase for an existing backup throws `WrongPassphraseError`; a fresh tenant with no wrapped key still passes. S3 failures throw `StorageError`, and Graph-token failures throw `AuthError`. The probe never creates key material, writes objects, tests write permissions or checks workload-specific Graph consent. See the [SDK reference](https://wisecom-oy.github.io/atlas/reference/sdk#validation). Upgrading from v5? See the [v6 migration guide](https://wisecom-oy.github.io/atlas/migration/v6).
+After provisioning the tenant bucket, call `await atlas.validate()` for an optional read-only check of S3 access, the existing wrapped tenant key and Graph token issuance. A wrong passphrase for an existing backup throws `WrongPassphraseError`; a fresh tenant with no wrapped key still passes. S3 failures throw `StorageError`, and Graph-token failures throw `AuthError`. The probe never creates key material, writes objects, tests write permissions or checks workload-specific Graph consent. See the [SDK reference](https://wisecom-oy.github.io/atlas/reference/sdk#validation). Upgrading from v6? See the [v7 migration guide](https://wisecom-oy.github.io/atlas/migration/v7). From v5, start with the [v6 migration guide](https://wisecom-oy.github.io/atlas/migration/v6).
 
 Exports can stream instead of writing a file: `atlas.outlook.save(snapshotId, { output: res })` pipes the archive to any Node `Writable`, so an HTTP download never stages on local disk. See [streaming exports](https://wisecom-oy.github.io/atlas/reference/sdk#streaming-exports).
 
@@ -65,13 +74,17 @@ Run one operation at a time per tenant unless your scheduler guarantees that no 
 | --------------------------- | -------------------------------------------------------------------------------- |
 | `atlas.outlook`             | Mailbox backup, restore, verify, catalog                                         |
 | `atlas.onedrive`            | OneDrive backup and verification                                                 |
+| `atlas.contacts`            | Contacts backup, restore, verification, and deletion                             |
+| `atlas.calendar`            | Calendar backup, restore, verification, and deletion                             |
 | `atlas.sharepoint`          | SharePoint site backup and restore                                               |
+| `atlas.teams`               | Teams channel backup, verification, and snapshot catalog                         |
 | `atlas.getBucketStats()`    | Storage statistics                                                               |
 | `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
 | `atlas.checkStorage()`      | S3 Object Lock readiness                                                         |
 | `atlas.validate()`          | S3 access, existing key and Graph token validation                               |
 | `atlas.replicateSnapshot()` | Cross-region replication                                                         |
 | `createStorageTarget()`     | Configure secondary S3 targets                                                   |
+| `createTenant()`            | A second tenant to pass as a restore's `targetTenant` (cross-tenant restore)     |
 
 The SDK exports named public option/result types, error classes and `GRAPH_SERVICE_LIMITS`. Internal ports, DI tokens and container factories are not public API.
 

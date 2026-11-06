@@ -293,6 +293,37 @@ async function backup_all_tenants(
 Process tenants and mailboxes one at a time, not with `Promise.all`. Each mailbox backup makes many Microsoft Graph API calls. Running them in parallel triggers HTTP 429 throttling and exponential backoff, which makes the total runtime longer.
 :::
 
+### Restore into another tenant
+
+Restore a mailbox snapshot from one tenant's backup into a mailbox of another tenant. The instance belongs to the source tenant and reads the backup. The `createTenant` handle belongs to the destination and performs the writes. Validate the handle first, so a revoked secret fails before the restore starts.
+
+```typescript
+import { createAtlasInstance, createTenant, AuthError } from '@wisecom/atlas-sdk';
+
+await using atlas = createAtlasInstance(await loadTenantConfig('contoso'));
+
+const destination = createTenant({
+  tenantId: 'fabrikam.onmicrosoft.com',
+  clientId: process.env.FABRIKAM_CLIENT_ID!,
+  clientSecret: process.env.FABRIKAM_CLIENT_SECRET!,
+});
+
+try {
+  await destination.validate();
+} catch (err) {
+  if (err instanceof AuthError) throw new Error('Destination app credentials were refused');
+  throw err;
+}
+
+const result = await atlas.outlook.restore('snapshot-id', {
+  targetMailbox: 'john.doe@fabrikam.example.com',
+  targetTenant: destination,
+});
+console.log(`${result.restoredCount} restored, ${result.errorCount} failed`);
+```
+
+The target must exist and hold an Exchange Online license in the destination tenant, and the destination app needs `Mail.ReadWrite`. See [Cross-tenant restore](/reference/sdk#cross-tenant-restore).
+
 ## Discovery and pre-flight checks
 
 ### Pre-flight storage validation

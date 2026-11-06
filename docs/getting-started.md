@@ -60,7 +60,7 @@ Required variables:
 
 The first three values come from a Microsoft Entra app registration, described in [Microsoft Entra ID setup](./azure-ad-setup.md). For every other option, and for how `.env`, environment variables, and flags interact, see [Configuration](./configuration.md).
 
-You can also store values in the CLI's encrypted local store with `atlas config set <key> <value>`, for example `atlas config set tenant.id <tenant-id>`. Run `atlas config list` to see the keys.
+You can also store values in the CLI's encrypted local store. Shared settings use `atlas config set <key> <value>`, for example `atlas config set s3.endpoint <endpoint>`. Each Microsoft Entra app registration is a named tenant profile, added with `atlas tenants add <name> --tenant-id <tenant-id> --client-id <client-id> --client-secret -`. Run `atlas config list` and `atlas tenants list` to see what is stored.
 
 ::: danger Protect your passphrase
 The encryption passphrase cannot be recovered. Atlas has no reset mechanism and no recovery key. If the passphrase is lost, the backup data stays encrypted and cannot be read. Store it in a password manager or secrets vault, and confirm you can retrieve it before you rely on the backups. See [Security](./security.md) for the full encryption model.

@@ -16,6 +16,7 @@ export {
 export {
   no_onedrive_message,
   rethrow_if_access_denied,
+  rethrow_if_teams_access_denied,
   rethrow_if_mailbox_not_licensed,
   rethrow_if_no_onedrive,
 } from './graph-permission-errors';

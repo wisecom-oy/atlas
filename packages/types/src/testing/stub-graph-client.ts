@@ -14,15 +14,29 @@ export interface GraphCall {
   readonly body?: unknown;
   /** The `$select` passed through `.select()`, when the adapter used it. */
   readonly select?: string;
+  /** The API version passed to `.version()`, when the adapter asked for one (e.g. `beta`). */
+  readonly version?: string;
+  /** Headers set through `.header()`, recorded only when `record_headers` is on. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /** Answers one call: return the response body, or throw to fail it. */
 export type GraphRoute = (call: GraphCall) => unknown;
 
+export interface GraphClientOptions {
+  /**
+   * Record headers set on each request. Off by default so call-shape assertions in suites that
+   * never look at headers keep comparing exactly the method, url, body and select they expect.
+   */
+  readonly record_headers?: boolean;
+}
+
 export interface GraphRequestStub {
   select(fields: string | string[]): GraphRequestStub;
+  version(name: string): GraphRequestStub;
   header(name: string, value: string): GraphRequestStub;
   headers(values: Record<string, string>): GraphRequestStub;
+  responseType(type: string): GraphRequestStub;
   get(): Promise<unknown>;
   post(body?: unknown): Promise<unknown>;
   put(body?: unknown): Promise<unknown>;
@@ -38,17 +52,26 @@ export interface StubGraphClient {
 }
 
 /** Builds a Graph client whose every call is answered by `route` and recorded. */
-export function stub_graph_client(route: GraphRoute): StubGraphClient {
+export function stub_graph_client(
+  route: GraphRoute,
+  options: GraphClientOptions = {},
+): StubGraphClient {
   const calls: GraphCall[] = [];
 
   const api = (url: string): GraphRequestStub => {
     let select: string | undefined;
+    let version: string | undefined;
+    const headers: Record<string, string> = {};
     const send = async (method: GraphMethod, body?: unknown): Promise<unknown> => {
       const call: GraphCall = {
         method,
         url,
         ...(body !== undefined ? { body } : {}),
         ...(select !== undefined ? { select } : {}),
+        ...(version !== undefined ? { version } : {}),
+        ...(options.record_headers === true && Object.keys(headers).length > 0
+          ? { headers: { ...headers } }
+          : {}),
       };
       calls.push(call);
       return route(call);
@@ -58,8 +81,19 @@ export function stub_graph_client(route: GraphRoute): StubGraphClient {
         select = Array.isArray(fields) ? fields.join(',') : fields;
         return request;
       },
-      header: () => request,
-      headers: () => request,
+      version: (name) => {
+        version = name;
+        return request;
+      },
+      header: (name, value) => {
+        headers[name] = value;
+        return request;
+      },
+      headers: (values) => {
+        Object.assign(headers, values);
+        return request;
+      },
+      responseType: () => request,
       get: () => send('get'),
       post: (body) => send('post', body),
       put: (body) => send('put', body),

@@ -242,14 +242,12 @@ describe('DeletionService', () => {
       expect(result.failed_manifests).toBe(0);
     });
 
-    it('uses create instead of create_storage_only', async () => {
-      vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
-        make_manifest({ owner_id: 'u@t.com', snapshot_id: 'snap-42' }),
-      );
+    it('fails with NotFoundError and provisions nothing for a tenant without storage (#601)', async () => {
+      vi.mocked(mock_factory.create_readonly).mockRejectedValue(new NotFoundError('no backups'));
 
-      await service.delete_snapshot('t', 'snap-42');
+      await expect(service.delete_snapshot('t', 'snap-42')).rejects.toBeInstanceOf(NotFoundError);
 
-      expect(mock_factory.create).toHaveBeenCalledWith('t');
+      expect(mock_factory.create).not.toHaveBeenCalled();
       expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
     });
   });
