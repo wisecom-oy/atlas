@@ -14,7 +14,7 @@ For Node.js applications such as custom schedulers and multi-tenant services, us
 npm install -g @wisecom/atlas-cli
 ```
 
-A local install links `atlas` into `/usr/local/bin` or `~/.local/bin` through a postinstall hook. On a global install, the hook replaces an older Atlas command, so `atlas --version` reports the version you just installed. If `atlas` is already a shell alias or another command on your PATH, the hook skips with a warning and leaves it alone. Use `npx atlas` in that case. The hook never fails the install. Set `ATLAS_SKIP_POSTINSTALL=1` to opt out, and run `npm run link-cli --prefix node_modules/@wisecom/atlas-cli` to link manually.
+A local install links `atlas` into `/usr/local/bin` or `~/.local/bin` through a postinstall hook. On a global install, the hook replaces an older Atlas command, so `atlas --version` reports the version you just installed. If `atlas` is already a shell alias or another command on your PATH, the hook skips with a warning and leaves it alone. Use `npx atlas` in that case. The hook never fails the install. Set `ATLAS_SKIP_POSTINSTALL=1` to opt out, and run `npm run link-cli --prefix node_modules/@wisecom/atlas-cli` to link manually. An explicit `link-cli` run, including `pnpm run link-cli` in a source checkout, takes the `atlas` command over from any other Atlas install. Reinstall the other package to point it back.
 
 pnpm and Bun block dependency lifecycle scripts by default. With pnpm, run `pnpm approve-builds`. With Bun, run `bun pm -g trust @wisecom/atlas-cli`. On Windows, global installs use npm's `.cmd` shims.
 
