@@ -11,7 +11,7 @@
  * key outside the documented layout.
  */
 export type StorageUsageWorkload =
-  'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'meta' | 'other';
+  'outlook' | 'onedrive' | 'sharepoint' | 'teams' | 'contacts' | 'calendar' | 'meta' | 'other';
 
 /** Workloads whose manifests reference logical bytes. */
 export type LogicalWorkload = 'outlook' | 'onedrive' | 'sharepoint' | 'teams';

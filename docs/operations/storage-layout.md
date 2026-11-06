@@ -4,7 +4,7 @@ description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with
 
 # Storage layout
 
-Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, calendars under `calendar/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
 
 ```
 atlas-{tenant_id}/
@@ -26,6 +26,11 @@ atlas-{tenant_id}/
 │   ├── photos/{owner_id}/{content_name}        # contact photos, keyed HMAC-SHA256 name
 │   ├── manifests/{owner_id}/{snapshot_id}.json # contacts manifests
 │   └── _meta/{owner_id}/delta.json             # delta cursor
+├── calendar/
+│   ├── data/{owner_id}/{content_name}          # event records, keyed HMAC-SHA256 name
+│   ├── attachments/{owner_id}/{content_name}   # event file attachments, keyed HMAC-SHA256 name
+│   ├── manifests/{owner_id}/{snapshot_id}.json # calendar manifests
+│   └── _meta/{owner_id}/delta.json             # delta cursors, one per calendar
 ├── onedrive/
 │   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
@@ -115,6 +120,15 @@ Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs 
 | `contacts/photos/{owner_id}/`          | Contact photo bytes, named by keyed HMAC-SHA256     | Identical photos are stored once per mailbox.                                            |
 | `contacts/manifests/{owner_id}/`       | Snapshot manifests                                  | Each manifest is complete. Snapshots do not chain to older ones.                         |
 | `contacts/_meta/{owner_id}/delta.json` | Delta cursor                                        | Graph delta link used by the next backup.                                                |
+
+## Calendar
+
+| Prefix                                  | Contents                                             | Notes                                                                                       |
+| --------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `calendar/data/{owner_id}/`             | Event records as JSON, named by keyed HMAC-SHA256    | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks.    |
+| `calendar/attachments/{owner_id}/`      | File attachment bytes, named by keyed HMAC-SHA256    | Only file attachments are stored. Item and reference attachments are not captured.          |
+| `calendar/manifests/{owner_id}/`        | Snapshot manifests                                   | Each manifest is complete. Snapshots do not chain to older ones.                            |
+| `calendar/_meta/{owner_id}/delta.json`  | Delta cursors                                        | One Graph delta link per calendar, used by the next backup.                                 |
 
 ## The DEK object
 

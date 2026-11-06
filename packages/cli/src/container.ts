@@ -16,6 +16,7 @@ import { bind_s3_storage } from '@wisecom/atlas-s3';
 import { bind_outlook } from '@wisecom/atlas-outlook';
 import { bind_onedrive } from '@wisecom/atlas-onedrive';
 import { bind_contacts } from '@wisecom/atlas-contacts';
+import { bind_calendar } from '@wisecom/atlas-calendar';
 import { bind_sharepoint } from '@wisecom/atlas-sharepoint';
 import { bind_teams } from '@wisecom/atlas-teams';
 
@@ -56,6 +57,7 @@ export function compose_container_from_config(config: AtlasConfig): Container {
   bind_outlook(container);
   bind_onedrive(container);
   bind_contacts(container);
+  bind_calendar(container);
   bind_sharepoint(container);
   bind_teams(container);
   return container;

@@ -10,7 +10,7 @@
 
 **An open-source backup and recovery engine for Microsoft 365.**
 
-Atlas backs up Outlook mailboxes, personal Outlook contacts, OneDrive files, SharePoint document libraries, and Teams channel messages into S3-compatible object storage that you control. Data is encrypted per tenant before it leaves the process, stored content-addressed and deduplicated, and synchronised incrementally through Microsoft Graph delta queries.
+Atlas backs up Outlook mailboxes, personal Outlook contacts, Outlook calendars, OneDrive files, SharePoint document libraries, and Teams channel messages into S3-compatible object storage that you control. Data is encrypted per tenant before it leaves the process, stored content-addressed and deduplicated, and synchronised incrementally through Microsoft Graph delta queries.
 
 It is infrastructure rather than a desktop backup app: a CLI and a typed SDK, built to be automated, inspected, and operated by the people responsible for recovery. Atlas is free and open source under Apache-2.0, maintained by [Wisecom Oy](https://wisecom.fi). You can run it yourself, indefinitely, with no licence key and no feature gating.
 
@@ -46,6 +46,9 @@ atlas onedrive backup -o user@example.com
 # Contacts
 atlas contacts backup -m user@example.com
 
+# Calendar
+atlas calendar backup -m user@example.com
+
 # SharePoint
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering
 
@@ -63,6 +66,7 @@ Atlas currently protects:
 
 - **Exchange Online**: mailboxes, folder hierarchy, attachments
 - **Contacts**: personal Outlook contacts, with photos
+- **Calendar**: Outlook calendar events, with recurring series and file attachments
 - **OneDrive**: files with version history
 - **SharePoint**: document libraries, including subsites
 - **Microsoft Teams**: channel messages and replies, with channel members and tabs
@@ -82,6 +86,7 @@ Teams coverage is channel messages, replies, members, and tabs for each team. On
 | Self-Hosting      | [docs](https://wisecom-oy.github.io/atlas/self-hosting)              |
 | OneDrive Backup   | [docs](https://wisecom-oy.github.io/atlas/onedrive-backup)           |
 | Contacts Backup   | [docs](https://wisecom-oy.github.io/atlas/contacts-backup)           |
+| Calendar Backup   | [docs](https://wisecom-oy.github.io/atlas/calendar-backup)           |
 | SharePoint Backup | [docs](https://wisecom-oy.github.io/atlas/sharepoint-backup)         |
 | Teams Backup      | [docs](https://wisecom-oy.github.io/atlas/teams-backup)              |
 | Storage Layout    | [docs](https://wisecom-oy.github.io/atlas/operations/storage-layout) |

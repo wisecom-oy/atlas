@@ -19,6 +19,7 @@ import {
 const ONEDRIVE_SNAPSHOT_ID_PREFIX = 'od-snap-';
 const SHAREPOINT_SNAPSHOT_ID_PREFIX = 'sp-snap-';
 const CONTACTS_SNAPSHOT_ID_PREFIX = 'ct-snap-';
+const CALENDAR_SNAPSHOT_ID_PREFIX = 'cal-snap-';
 
 interface DriveSnapshotLocation {
   readonly workload: 'onedrive' | 'sharepoint';
@@ -39,6 +40,14 @@ export function refuse_contacts_snapshot(snapshot_id: string): void {
   if (!snapshot_id.startsWith(CONTACTS_SNAPSHOT_ID_PREFIX)) return;
   throw new ConfigError(
     `Snapshot ${snapshot_id} is a contacts snapshot; contacts cannot be replicated or rehydrated yet.`,
+  );
+}
+
+/** Refuses calendar snapshots; they have no replication path. */
+export function refuse_calendar_snapshot(snapshot_id: string): void {
+  if (!snapshot_id.startsWith(CALENDAR_SNAPSHOT_ID_PREFIX)) return;
+  throw new ConfigError(
+    `Snapshot ${snapshot_id} is a calendar snapshot; calendars cannot be replicated or rehydrated yet.`,
   );
 }
 
@@ -90,6 +99,7 @@ export async function replicate_drive_snapshot(
   deps: DriveReplicationDeps,
 ): Promise<ReplicationResult[] | undefined> {
   refuse_contacts_snapshot(snapshot_id);
+  refuse_calendar_snapshot(snapshot_id);
   const location = await locate_drive_snapshot(ctx, snapshot_id);
   if (location === undefined) return undefined;
 
@@ -121,6 +131,7 @@ export async function rehydrate_drive_snapshot(
   deps: DriveReplicationDeps,
 ): Promise<ReplicationResult | undefined> {
   refuse_contacts_snapshot(snapshot_id);
+  refuse_calendar_snapshot(snapshot_id);
   const location = await locate_drive_snapshot(source_ctx, snapshot_id);
   if (location === undefined) return undefined;
 

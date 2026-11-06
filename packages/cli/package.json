@@ -60,6 +60,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.18",
+    "@wisecom/atlas-calendar": "workspace:*",
     "@wisecom/atlas-core": "workspace:*",
     "@wisecom/atlas-contacts": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",

@@ -29,12 +29,32 @@ const CONTACTS_CLASSES: Record<string, StorageKeyClass> = {
   _meta: '_meta',
 };
 
+/** Prefixes under `calendar/`; attachment bytes are their own class. */
+const CALENDAR_CLASSES: Record<string, StorageKeyClass> = {
+  data: 'data',
+  attachments: 'attachments',
+  manifests: 'manifests',
+  _meta: '_meta',
+};
+
 /** Prefixes under `teams/`; channel shards count as index. */
 const TEAMS_CLASSES: Record<string, StorageKeyClass> = {
   data: 'data',
   manifests: 'manifests',
   shards: 'index',
   _meta: '_meta',
+};
+
+/** Workloads that live under their own top-level prefix, with the classes of their second segment. */
+const PREFIXED_WORKLOADS: Record<
+  string,
+  readonly [StorageRequestWorkload, Record<string, StorageKeyClass>]
+> = {
+  onedrive: ['onedrive', DRIVE_CLASSES],
+  sharepoint: ['sharepoint', DRIVE_CLASSES],
+  teams: ['teams', TEAMS_CLASSES],
+  contacts: ['contacts', CONTACTS_CLASSES],
+  calendar: ['calendar', CALENDAR_CLASSES],
 };
 
 const BUCKET_LEVEL: StorageKeyClassification = { workload: 'bucket', key_class: 'other' };
@@ -50,19 +70,13 @@ export function classify_storage_key(key: string | undefined): StorageKeyClassif
   const [first = '', second = ''] = key.split('/', 2);
 
   // Own properties only, so a segment such as `constructor` cannot resolve to a prototype member.
-  if (first === 'onedrive' || first === 'sharepoint') {
-    const drive_class = Object.hasOwn(DRIVE_CLASSES, second) ? DRIVE_CLASSES[second] : undefined;
-    return { workload: first, key_class: drive_class ?? 'other' };
-  }
-  if (first === 'teams') {
-    const teams_class = Object.hasOwn(TEAMS_CLASSES, second) ? TEAMS_CLASSES[second] : undefined;
-    return { workload: 'teams', key_class: teams_class ?? 'other' };
-  }
-  if (first === 'contacts') {
-    const contacts_class = Object.hasOwn(CONTACTS_CLASSES, second)
-      ? CONTACTS_CLASSES[second]
-      : undefined;
-    return { workload: 'contacts', key_class: contacts_class ?? 'other' };
+  const prefixed = Object.hasOwn(PREFIXED_WORKLOADS, first) ? PREFIXED_WORKLOADS[first] : undefined;
+  if (prefixed !== undefined) {
+    const [workload, classes] = prefixed;
+    return {
+      workload,
+      key_class: (Object.hasOwn(classes, second) ? classes[second] : undefined) ?? 'other',
+    };
   }
   if (first === '_meta') return { workload: 'shared', key_class: '_meta' };
 

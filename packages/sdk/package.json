@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@wisecom/atlas-core": "workspace:*",
+    "@wisecom/atlas-calendar": "workspace:*",
     "@wisecom/atlas-contacts": "workspace:*",
     "@wisecom/atlas-m365-graph": "workspace:*",
     "@wisecom/atlas-onedrive": "workspace:*",

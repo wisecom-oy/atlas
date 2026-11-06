@@ -15,6 +15,7 @@ import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { OutlookApi } from '@/ports/outlook/api.port';
 import type { OneDriveApi } from '@/ports/onedrive/api.port';
 import type { ContactsApi } from '@/ports/contacts/api.port';
+import type { CalendarApi } from '@/ports/calendar/api.port';
 import type { SharePointApi } from '@/ports/sharepoint/api.port';
 import type { TeamsApi } from '@/ports/teams/api.port';
 import type { ResolvedUserIdentity } from '@/ports/identity/user-identity-resolver.port';
@@ -59,6 +60,7 @@ export interface AtlasInstance extends AsyncDisposable {
   readonly sharepoint: SharePointApi;
   readonly teams: TeamsApi;
   readonly contacts: ContactsApi;
+  readonly calendar: CalendarApi;
 
   /**
    * Checks tenant-bucket access, the existing wrapped key when present, and Graph token issuance.

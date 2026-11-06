@@ -224,7 +224,7 @@ Graph offers no way to write into Recoverable Items. Recovered items land in the
 :::
 
 ::: warning Exit codes for backup, restore, and save
-This applies to Outlook, Contacts, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. Do not read `2` as proof that a snapshot was saved: an interrupted Contacts backup saves none, and a Contacts run whose only changes failed has nothing new to save. Check the run output or `atlas contacts list` for the snapshot.
+This applies to Outlook, Contacts, Calendar, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. Do not read `2` as proof that a snapshot was saved: an interrupted Contacts or Calendar backup saves none, and a Contacts or Calendar run whose only changes failed has nothing new to save. Check the run output, `atlas contacts list`, or `atlas calendar list` for the snapshot.
 
 `restore` and `save` follow the same contract. A file they cannot decrypt or write is counted as skipped, and any skipped file exits `2`. An archive missing some files is not a success, and a cron job that only checks for `0` must be able to see the difference.
 
@@ -535,18 +535,18 @@ atlas delete --purge -y     # skip the typed confirmation
 | `-y, --yes`         | Skip the typed confirmation, for scheduled and scripted runs                 |
 | `-t, --tenant <id>` | Override the tenant ID from config. The confirmation checks against this ID. |
 
-`atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas contacts delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
+`atlas delete` without `--purge` exits non-zero and deletes nothing. For scoped deletes, use `atlas outlook delete`, `atlas contacts delete`, `atlas calendar delete`, `atlas onedrive delete`, or `atlas sharepoint delete`.
 
 Interactively, the purge asks you to type the tenant ID and aborts on any other input:
 
 ```
-[!] This will delete ALL data for tenant <tenant-id> across Outlook, Contacts, OneDrive and SharePoint (data, manifests, encryption keys)
+[!] This will delete ALL data for tenant <tenant-id> across Outlook, Contacts, Calendar, OneDrive and SharePoint (data, manifests, encryption keys)
 Type the tenant ID to confirm:
 ```
 
 A single keypress is not enough here. A mistyped `y` is not the risk. The risk is a purge aimed at the wrong tenant, and typing the target ID is the only prompt that catches that. Scoped deletes keep a single-keypress `y/n` prompt on purpose. Making every delete laborious would train operators to pass `-y` everywhere, which would remove the guard that matters. `-y` bypasses the prompt for scheduled jobs and the end-to-end suite.
 
-The purge sweeps the whole bucket rather than a fixed list of prefixes. Outlook, Contacts, OneDrive, SharePoint, the identity registry, and any tree a later release adds are all removed. The encrypted data key at `_meta/dek.enc` is deleted last, and only once nothing else survives. Removing the key while ciphertext remains would leave data that can be neither restored nor confirmed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
+The purge sweeps the whole bucket rather than a fixed list of prefixes. Outlook, Contacts, Calendar, OneDrive, SharePoint, the identity registry, and any tree a later release adds are all removed. The encrypted data key at `_meta/dek.enc` is deleted last, and only once nothing else survives. Removing the key while ciphertext remains would leave data that can be neither restored nor confirmed erased. This is irreversible. All data for the tenant becomes permanently inaccessible.
 
 Before v2.2.0 this was `atlas outlook delete --purge`. That flag no longer exists, so scripts must call `atlas delete --purge`.
 
@@ -574,6 +574,37 @@ Each snapshot manifest is complete, so `restore` and `verify` read one manifest 
 | `-s, --snapshot <id>` | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup |
 | `-T, --target <email or id>` | restore | Target mailbox, defaults to the source mailbox |
 | `--full` | backup | Ignore saved delta state and crawl every contact |
+| `--retention-days <n>`, `--lock-mode <mode>` | backup | Object Lock, as for `atlas outlook backup`. `--lock-mode` requires `--retention-days` |
+| `--fast` | verify | Existence-only checks, no download or decrypt |
+| `-y, --yes` | delete | Skip the confirmation prompt |
+| `-t, --tenant <id>` | all | Tenant identifier (defaults to config) |
+| `--target-profile <name>` | restore | Tenant profile for the writes. Requires `-T` |
+
+
+## atlas calendar
+
+Back up, restore, list, verify, and delete Outlook calendars per mailbox. Calendars are stored under the `calendar/` prefix of the tenant bucket (see [Calendar backup](/calendar-backup)).
+
+```bash
+atlas calendar backup -m user@company.com
+atlas calendar backup -m user@company.com --full
+atlas calendar restore -m user@company.com -s cal-snap-1735689600000-a1b2c3
+atlas calendar restore -m user@company.com -s cal-snap-123 --target other@company.com
+atlas calendar list -m user@company.com
+atlas calendar verify -m user@company.com -s cal-snap-123
+atlas calendar verify -m user@company.com -s cal-snap-123 --fast
+atlas calendar delete -m user@company.com
+atlas calendar delete -m user@company.com -s cal-snap-123
+```
+
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites or deletes: an event already in the target is skipped and counted in `events_skipped`. Restored events carry no attendees, so no invitations are sent; the attendee list is written into the event body instead. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited). `verify` exits `1` when a check fails and `2` when interrupted.
+
+| Option | Commands | Description |
+| --- | --- | --- |
+| `-m, --mailbox <email or id>` | all | Mailbox by email or Entra object ID (required) |
+| `-s, --snapshot <id>` | restore, verify (required); delete (optional) | Snapshot identifier. On `delete` it removes one snapshot instead of every backup |
+| `-T, --target <email or id>` | restore | Target mailbox, defaults to the source mailbox |
+| `--full` | backup | Ignore saved delta state and re-read every calendar |
 | `--retention-days <n>`, `--lock-mode <mode>` | backup | Object Lock, as for `atlas outlook backup`. `--lock-mode` requires `--retention-days` |
 | `--fast` | verify | Existence-only checks, no download or decrypt |
 | `-y, --yes` | delete | Skip the confirmation prompt |

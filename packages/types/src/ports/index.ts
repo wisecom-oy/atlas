@@ -17,6 +17,7 @@ export type * from './replication';
 export type * from './atlas';
 export type * from './onedrive';
 export type * from './contacts';
+export type * from './calendar';
 export type * from './sharepoint';
 export type * from './teams';
 export type * from './identity';

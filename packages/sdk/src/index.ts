@@ -75,6 +75,18 @@ export type {
 } from '@wisecom/atlas-types';
 
 export type {
+  CalendarApi,
+  CalendarSdkBackupOptions,
+  CalendarSdkBackupResult,
+  CalendarSdkVerificationOptions,
+  CalendarSdkVerificationResult,
+  CalendarSdkRestoreOptions,
+  CalendarSdkRestoreResult,
+  CalendarSdkSnapshotManifest,
+  CalendarSdkDeletionResult,
+} from '@wisecom/atlas-types';
+
+export type {
   SharePointApi,
   SharePointSdkBackupOptions,
   SharePointSdkBackupResult,
