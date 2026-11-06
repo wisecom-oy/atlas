@@ -23,6 +23,7 @@ import { report_run_outcome } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import {
   resolve_owner,
+  resolve_restore_target,
   resolve_tenant_id,
   type ResolvedOwner,
 } from '@/commands/onedrive/command.handlers';
@@ -134,7 +135,7 @@ export async function execute_contacts_restore(
   const tenant_id = resolve_tenant_id(container, options);
   const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
   const target = options.target
-    ? await resolve_owner(container, tenant_id, options.target)
+    ? await resolve_restore_target(container, tenant_id, options.target)
     : undefined;
   const restore = container.get<ContactsRestoreUseCase>(CONTACTS_RESTORE_USE_CASE_TOKEN);
 

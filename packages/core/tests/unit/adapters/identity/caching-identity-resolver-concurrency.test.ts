@@ -38,7 +38,9 @@ function ctx_factory(): TenantContextFactory {
 }
 
 function resolver_on(repo: InMemoryIdentityRegistryRepository): CachingIdentityResolver {
-  return new CachingIdentityResolver(graph_for(JOHN, JANE), repo, ctx_factory());
+  return new CachingIdentityResolver(graph_for(JOHN, JANE), repo, ctx_factory(), {
+    tenant_id: TENANT,
+  });
 }
 
 function stored_ids(repo: InMemoryIdentityRegistryRepository): string[] {
