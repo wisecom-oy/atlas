@@ -4,6 +4,7 @@ import type {
   IdentityRegistryEntry,
   IdentityRegistryRepository,
   ResolvedUserIdentity,
+  TenantContext,
   TenantContextFactory,
   UserIdentityResolver,
 } from '@wisecom/atlas-types';
@@ -172,8 +173,19 @@ export class CachingIdentityResolver implements UserIdentityResolver {
     log_registration(identity, outcome);
   }
 
+  /**
+   * Reads the stored registry without provisioning: a tenant with no bucket or data key yet reads
+   * as empty. Opening it writable would create both before Graph is even asked, so a mistyped
+   * tenant would leave a bucket behind (issue #599). Registering an identity still provisions.
+   */
   private async load_registry(tenant_id: string): Promise<IdentityRegistry | undefined> {
-    const ctx = await this._ctx_factory.create(tenant_id);
+    let ctx: TenantContext;
+    try {
+      ctx = await this._ctx_factory.create_readonly(tenant_id);
+    } catch (err) {
+      if (err instanceof NotFoundError) return undefined;
+      throw err;
+    }
     try {
       return await this._registry_repo.load(ctx);
     } finally {
