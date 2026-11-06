@@ -31,7 +31,7 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
   <li data-status="planned">
     <span class="wc-roadmap-status">Planned</span>
     <h3>Recovery into a clean tenant</h3>
-    <p>Restore a compromised or lost tenant's data into a different tenant, with a mapping from old identities to new ones. Builds on the Entra ID export.</p>
+    <p>Restore a compromised or lost tenant's data into a different tenant, with a mapping from old identities to new ones. Builds on the Entra ID export. Restoring one owner or site into another tenant already works with <a href="/reference/cli-recovery#cross-tenant-restore"><code>--target-profile</code></a> and the SDK's <a href="/reference/sdk#cross-tenant-restore"><code>createTenant</code></a>.</p>
   </li>
   <li data-status="exploring">
     <span class="wc-roadmap-status">Exploring</span>
@@ -51,7 +51,7 @@ What is planned for Atlas next. Order reflects priority, not dates. Shipped chan
 
 **Entra ID.** Restore is reapplication, not byte recovery: a recreated policy or app gets a new object ID, and client secrets cannot be read back. Atlas will never overwrite a live directory silently. Graph keeps deleted directory objects for only 30 days and has no history for Conditional Access changes, which is the gap Atlas fills.
 
-**Clean-tenant recovery.** Object IDs differ between tenants, so every owner, mailbox and site needs an explicit mapping before anything is written. Unmapped identities are reported, never guessed.
+**Clean-tenant recovery.** Object IDs differ between tenants, so every owner, mailbox and site needs an explicit mapping before anything is written. Unmapped identities are reported, never guessed. A single cross-tenant restore already takes its target explicitly; what is missing is the tenant-wide mapping that drives every owner at once.
 
 **Planner.** Graph has no delta query for Planner, so each run re-reads plans and compares ETags. Recreated tasks get new IDs, completion history cannot be written back, and task comments live in the group's conversations rather than in Planner. Premium plans (Planner Plan 1 and up) use a different API and are out of scope.
 

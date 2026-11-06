@@ -267,7 +267,7 @@ Several runs for the same tenant were registering users at the same moment, and 
 john.doe@example.com is not in the identity registry of tenant <source>, and the configured Graph credentials belong to tenant <destination>. Using that tenant's answer without recording it; pass the Entra object ID to name a user of the backed-up tenant.
 ```
 
-`-t` names a tenant other than the one the Graph credentials sign in to, as in a cross-tenant restore. Graph then describes the other tenant, so Atlas resolves addresses from the backed-up tenant's registry and never writes to it. Writing would record a same-address user in the other tenant as a recycled email and point the address at a user who has no backups.
+`-t` names a tenant other than the one the Graph credentials sign in to, for example when the destination tenant's credentials were exported by hand to restore into it. Graph then describes the other tenant, so Atlas resolves addresses from the backed-up tenant's registry and never writes to it. Writing would record a same-address user in the other tenant as a recycled email and point the address at a user who has no backups. A restore with `--target-profile` keeps the two tenants apart and does not hit this case.
 
 The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 

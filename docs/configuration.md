@@ -52,7 +52,9 @@ atlas tenants validate contoso
 
 Profile names are lowercase letters, digits, and dashes, up to 32 characters. The name `default` holds the legacy top-level fields described in [Selecting a profile](#selecting-a-profile).
 
-Shared settings, including the passphrase, are the same for every profile. The secrets are each profile's client secret, `s3.secret-key`, and `encryption.passphrase`. `atlas config list` and `atlas config get` mask the shared secrets.
+A profile's tenant ID also names the bucket that commands read and write, `atlas-<tenant-id>`, unless `-t` overrides it. Switching profiles therefore switches both the Graph tenant and the backup bucket.
+
+Shared settings, including the passphrase, are the same for every profile. One S3 key and one passphrase therefore reach every profile's bucket. To isolate tenants from each other at the storage layer, see [Bucket isolation](/operations/storage-layout#bucket-isolation). The secrets are each profile's client secret, `s3.secret-key`, and `encryption.passphrase`. `atlas config list` and `atlas config get` mask the shared secrets.
 
 ::: warning Environment variables override the selected profile
 `ATLAS_TENANT_ID`, `ATLAS_CLIENT_ID`, and `ATLAS_CLIENT_SECRET` replace the selected profile's values. Do not export them while you use several profiles, or one command can mix credentials from two tenants. They never apply to the `--target-profile` of a cross-tenant restore.

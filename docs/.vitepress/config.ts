@@ -171,7 +171,10 @@ export default defineConfig({
       },
       {
         text: 'Migration',
-        items: [{ text: 'Upgrading to v6', link: '/migration/v6' }],
+        items: [
+          { text: 'Upgrading to v7', link: '/migration/v7' },
+          { text: 'Upgrading to v6', link: '/migration/v6' },
+        ],
       },
       {
         text: 'Development',

@@ -496,4 +496,6 @@ A cross-tenant restore uses two identities. The source profile reads the backup 
 - `ATLAS_*` environment variables never apply to the target profile, so a stray `ATLAS_CLIENT_SECRET` in the shell cannot change where writes go.
 - An unknown name in `--profile` or `--target-profile` fails the run, but the name of another stored profile is accepted as written. Confirm both names with `atlas tenants list` and read the Tenant and Target tenant lines in the restore banner.
 
-See also: [Configuration](/configuration), [Migrating to v6](/migration/v6), [CLI reference](/reference/cli).
+The SDK's [`createTenant`](/reference/sdk#cross-tenant-restore) handle follows the same model. The host supplies the destination credentials, Atlas holds the secret in a private field so logging or serialising the handle never prints it, and the handle only takes effect on a restore that also names an explicit target. The instance's storage credentials and passphrase still read the backup.
+
+See also: [Configuration](/configuration), [Migrating to v7](/migration/v7), [Migrating to v6](/migration/v6), [CLI reference](/reference/cli).

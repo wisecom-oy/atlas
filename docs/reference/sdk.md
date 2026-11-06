@@ -1255,4 +1255,5 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - [SDK examples](/reference/examples)
 - [Storage request events](/reference/storage-request-events)
 - [Security](/security)
+- [Migrating to v7](/migration/v7)
 - [Migrating to v6](/migration/v6)
