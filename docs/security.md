@@ -482,6 +482,8 @@ Environment variables (`ATLAS_*`) and `.env` files avoid the JSON file, but they
 
 A disk sweep finds only ciphertext. A modified store file fails authentication at load time and is not used.
 
+Every write replaces the store atomically: Atlas writes a temporary file beside it, flushes it, and renames it over `config.enc`, so a command that reads the store never sees a half-written file. Writes from `atlas config` and `atlas tenants` also take an exclusive lock, `~/.atlas/config.lock`, for the few milliseconds the update runs. Two commands run at once therefore keep both changes. A lock older than 30 seconds is treated as left behind by a killed process and removed.
+
 Threat model: the store defends against offline exfiltration of the file and against unprivileged malware that reads environment variables. It does not defend against malware running as the logged-in user, which can call the keyring the same way Atlas does, or against an attacker with root. On systems without a keyring, the fallback key file is protected only by file permissions. Config values are still never stored in plaintext.
 
 ## Tenant profiles and cross-tenant restore

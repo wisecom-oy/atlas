@@ -20,13 +20,23 @@ vi.mock('@azure/identity', () => ({
   },
 }));
 
-const mocks = vi.hoisted(() => ({
-  read_secure_config: vi.fn(),
-  write_secure_config: vi.fn(),
-  read_env_overrides: vi.fn(),
-  try_load_config_file: vi.fn(),
-  secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
-}));
+const mocks = vi.hoisted(() => {
+  const read_secure_config = vi.fn();
+  // Records what each locked update persisted; the store itself is never written.
+  const write_secure_config = vi.fn();
+  return {
+    read_secure_config,
+    write_secure_config,
+    update_secure_config: vi.fn((mutate: (current: object) => object) => {
+      const next = mutate(read_secure_config() ?? {});
+      write_secure_config(next);
+      return next;
+    }),
+    read_env_overrides: vi.fn(),
+    try_load_config_file: vi.fn(),
+    secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
+  };
+});
 vi.mock('@wisecom/atlas-core', async (import_original) => ({
   ...(await import_original<Record<string, unknown>>()),
   ...mocks,
@@ -168,6 +178,25 @@ describe('atlas tenants add', () => {
     ).rejects.toThrow(/Invalid --tenant-id/);
 
     expect(mocks.write_secure_config).not.toHaveBeenCalled();
+  });
+
+  it('stores the tenant ID in lowercase, the only form a bucket name accepts', async () => {
+    await run([
+      'add',
+      'work',
+      '--tenant-id',
+      'Contoso.OnMicrosoft.com',
+      '--client-id',
+      CLIENT,
+      '--client-secret',
+      SECRET,
+    ]);
+
+    expect(mocks.write_secure_config).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenants: { work: { ...WORK, tenant_id: 'contoso.onmicrosoft.com' } },
+      }),
+    );
   });
 
   it('reads the client secret from stdin when given "-"', async () => {

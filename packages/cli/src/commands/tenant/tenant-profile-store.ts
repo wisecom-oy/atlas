@@ -4,6 +4,7 @@ import {
   normalize_stored_config,
   read_env_overrides,
   read_secure_config,
+  update_secure_config,
 } from '@wisecom/atlas-core';
 
 const GRAPH_ENV_VARS = ['ATLAS_TENANT_ID', 'ATLAS_CLIENT_ID', 'ATLAS_CLIENT_SECRET'];
@@ -11,6 +12,11 @@ const GRAPH_ENV_VARS = ['ATLAS_TENANT_ID', 'ATLAS_CLIENT_ID', 'ATLAS_CLIENT_SECR
 /** Reads the encrypted store with legacy top-level Graph fields moved into `tenants.default`. */
 export function read_store(): StoredConfig {
   return normalize_stored_config(read_secure_config());
+}
+
+/** Rewrites the store under its lock; `mutate` sees it normalized and may throw to abort. */
+export function update_store(mutate: (stored: StoredConfig) => StoredConfig): StoredConfig {
+  return update_secure_config((current) => mutate(normalize_stored_config(current)));
 }
 
 /**

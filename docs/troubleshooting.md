@@ -114,6 +114,22 @@ Atlas uses one bucket per tenant and creates it on first use when the credential
 
 If the error persists on AWS S3, check that the region matches the bucket's region and that the credentials belong to the account that owns the bucket. If your credentials cannot create buckets, create the bucket in advance. See [Storage layout](/operations/storage-layout).
 
+### Bucket name is not valid
+
+```
+"atlas-Contoso.onmicrosoft.com" is not a valid S3 bucket name: it must be 3 to 63 lowercase letters, digits, dots or dashes.
+```
+
+Atlas names each tenant's bucket after its tenant ID, and S3 accepts only lowercase names up to 63 characters. The error is a `ConfigError` (`ATLAS_CONFIG_INVALID`, exit `6`) and appears before any bucket is created. Store the tenant ID in lowercase with `atlas tenants add <name> ... --replace`, or use the tenant GUID when the domain is longer than 57 characters.
+
+### Secure config store is locked
+
+```
+The secure config store is locked by another Atlas command (~/.atlas/config.lock).
+```
+
+Another `atlas config` or `atlas tenants` command held the store lock for more than 10 seconds. Updates normally hold it for milliseconds, so check for a hung command first. If none is running, delete the lock file. Atlas also removes a lock older than 30 seconds by itself.
+
 ### Signature mismatch
 
 ```

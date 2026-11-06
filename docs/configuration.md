@@ -163,7 +163,9 @@ If a required value is missing or malformed, Atlas exits with an error that list
 
 Atlas always addresses buckets in path style (`https://host/bucket-name`) by setting `forcePathStyle: true`. MinIO and most self-hosted S3-compatible services require this form. AWS S3 accepts it as well.
 
-Each tenant's data lives in a bucket named `atlas-<tenant-id>`. Atlas creates it on first backup, and it needs `s3:CreateBucket` for that. See [S3 permissions by command class](/security#s3-permissions-by-command-class).
+Each tenant's data lives in a bucket named `atlas-<tenant-id>`. Atlas creates it, with the tenant's data key, the first time a backup, restore, or save opens the tenant, and it needs `s3:CreateBucket` for that. Looking up a user by email does not create it, so an email lookup through a profile with the wrong tenant ID fails on Graph and leaves no bucket behind. See [S3 permissions by command class](/security#s3-permissions-by-command-class).
+
+S3 bucket names are 3 to 63 lowercase letters, digits, dots, or dashes, so the tenant ID must fit in the 57 characters after `atlas-`. `atlas tenants add` stores the tenant ID in lowercase. Prefer the tenant GUID: a domain and the GUID of the same tenant name two different buckets, and a long domain does not fit. Before creating a bucket whose name S3 would reject, Atlas stops with a `ConfigError` that names the rule. An existing bucket is used as it is, whatever its name.
 
 ## Replication target config
 

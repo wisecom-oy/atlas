@@ -11,7 +11,7 @@ import {
   read_secure_config,
   secure_config_dir,
   try_load_config_file,
-  write_secure_config,
+  update_secure_config,
 } from '@wisecom/atlas-core';
 import { probe_s3 } from '@/commands/tenant/config-probes';
 
@@ -136,8 +136,7 @@ async function execute_set(spec: ConfigKeySpec, value: string): Promise<void> {
   }
 
   // Spread keeps tenants and active_tenant exactly as they are in the store.
-  const stored = read_secure_config();
-  write_secure_config({ ...stored, [spec.field]: value });
+  update_secure_config((stored) => ({ ...stored, [spec.field]: value }));
   logger.success(`Saved ${spec.key} to the encrypted store`);
 
   const sources = read_sources();
@@ -154,14 +153,15 @@ async function execute_set(spec: ConfigKeySpec, value: string): Promise<void> {
 function execute_unset(key: string): void {
   const spec = require_config_key(key);
 
-  const stored = read_secure_config();
-  if (stored[spec.field] === undefined) {
+  if (read_secure_config()[spec.field] === undefined) {
     logger.warn(`${spec.key} is not set in the secure store`);
     return;
   }
-  const rest = { ...stored };
-  delete rest[spec.field];
-  write_secure_config(rest);
+  update_secure_config((stored) => {
+    const rest = { ...stored };
+    delete rest[spec.field];
+    return rest;
+  });
   logger.success(`Removed ${spec.key} from the encrypted store`);
 }
 

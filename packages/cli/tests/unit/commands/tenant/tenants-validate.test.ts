@@ -33,13 +33,23 @@ vi.mock('@wisecom/atlas-s3', () => ({
 }));
 vi.mock('@aws-sdk/client-s3', () => ({ ListBucketsCommand: vi.fn() }));
 
-const mocks = vi.hoisted(() => ({
-  read_secure_config: vi.fn(),
-  write_secure_config: vi.fn(),
-  read_env_overrides: vi.fn(),
-  try_load_config_file: vi.fn(),
-  secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
-}));
+const mocks = vi.hoisted(() => {
+  const read_secure_config = vi.fn();
+  // Records what each locked update persisted; the store itself is never written.
+  const write_secure_config = vi.fn();
+  return {
+    read_secure_config,
+    write_secure_config,
+    update_secure_config: vi.fn((mutate: (current: object) => object) => {
+      const next = mutate(read_secure_config() ?? {});
+      write_secure_config(next);
+      return next;
+    }),
+    read_env_overrides: vi.fn(),
+    try_load_config_file: vi.fn(),
+    secure_config_dir: vi.fn(() => '/tmp/fake-atlas'),
+  };
+});
 vi.mock('@wisecom/atlas-core', async (import_original) => ({
   ...(await import_original<Record<string, unknown>>()),
   ...mocks,

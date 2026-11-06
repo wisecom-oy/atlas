@@ -1,3 +1,4 @@
+import { ConfigError } from '@wisecom/atlas-types';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ensure_bucket_exists, probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
@@ -130,9 +131,48 @@ describe('s3-bucket-manager', () => {
   it('rethrows unexpected errors from HeadBucket', async () => {
     mock_s3.send.mockRejectedValueOnce(new Error('AccessDenied'));
 
-    await expect(ensure_bucket_exists(mock_s3 as never, 'x', buckets)).rejects.toThrow(
+    await expect(ensure_bucket_exists(mock_s3 as never, 'atlas-tenant', buckets)).rejects.toThrow(
       'AccessDenied',
     );
+  });
+
+  describe('bucket names S3 rejects (issue #598)', () => {
+    const long_domain = `${'a'.repeat(50)}.onmicrosoft.com`;
+
+    it.each([
+      ['an uppercase tenant ID', 'atlas-Contoso.onmicrosoft.com'],
+      ['a tenant domain over 57 characters', `atlas-${long_domain}`],
+    ])('refuses to create a bucket for %s with ConfigError', async (_case, bucket) => {
+      mock_s3.send.mockRejectedValueOnce(Object.assign(new Error(), { name: 'NotFound' }));
+
+      await expect(ensure_bucket_exists(mock_s3 as never, bucket, buckets)).rejects.toBeInstanceOf(
+        ConfigError,
+      );
+      expect(mock_s3.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('names the bucket rule when S3 refuses to even look the name up', async () => {
+      const rejected = Object.assign(new Error('Bad Request'), { name: 'InvalidBucketName' });
+      mock_s3.send.mockRejectedValueOnce(rejected);
+
+      const error = await ensure_bucket_exists(
+        mock_s3 as never,
+        'atlas-Contoso.onmicrosoft.com',
+        buckets,
+      ).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as Error).message).toMatch(/lowercase/);
+      expect((error as Error).cause).toBe(rejected);
+    });
+
+    it('keeps using an existing bucket a lenient backend accepted under such a name', async () => {
+      mock_s3.send.mockResolvedValueOnce({});
+
+      await ensure_bucket_exists(mock_s3 as never, 'atlas-Contoso.onmicrosoft.com', buckets);
+
+      expect(mock_s3.send).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('probes versioning and object lock state', async () => {
