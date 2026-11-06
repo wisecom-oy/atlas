@@ -111,7 +111,7 @@ function is_lock_flag_rejection(err: unknown): boolean {
 }
 
 /** Probes whether a bucket already exists and is accessible. */
-async function bucket_exists(client: S3Client, bucket: string): Promise<boolean> {
+export async function bucket_exists(client: S3Client, bucket: string): Promise<boolean> {
   try {
     await client.send(new HeadBucketCommand({ Bucket: bucket }));
     return true;

@@ -140,3 +140,28 @@ describe('read-only tenant context (issue #93)', () => {
     await expect(factory.create_readonly(TENANT_ID)).rejects.toThrow('signature');
   });
 });
+
+describe('storage-only tenant context (issue #601)', () => {
+  const command_names = (send: ReturnType<typeof vi.fn>): string[] =>
+    send.mock.calls.map(([cmd]) => (cmd as object).constructor.name);
+
+  it('opens an existing bucket with one HeadBucket and creates nothing', async () => {
+    const send = vi.fn(async () => ({}));
+    const factory = new DefaultTenantContextFactory({ send } as never, CONFIG, new BucketCache());
+
+    const ctx = await factory.create_storage_only(TENANT_ID);
+
+    expect(ctx.tenant_id).toBe(TENANT_ID);
+    expect(command_names(send)).toEqual(['HeadBucketCommand']);
+  });
+
+  it('reports that no backups exist instead of creating a missing bucket', async () => {
+    const send = vi.fn(async () => {
+      throw Object.assign(new Error('NotFound'), { name: 'NotFound' });
+    });
+    const factory = new DefaultTenantContextFactory({ send } as never, CONFIG, new BucketCache());
+
+    await expect(factory.create_storage_only(TENANT_ID)).rejects.toBeInstanceOf(NotFoundError);
+    expect(command_names(send)).toEqual(['HeadBucketCommand']);
+  });
+});

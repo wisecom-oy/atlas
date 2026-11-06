@@ -58,7 +58,7 @@ export class SaveService implements SaveUseCase {
       if (begin_operation_progress(options, 'save', 'outlook')) {
         return await this.finish_empty_result(snapshot_id, options, target);
       }
-      const ctx = await this._tenant_factory.create(tenant_id);
+      const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
         const { owner_id, entries } = await resolve_snapshot_entries(
           ctx,
@@ -103,7 +103,7 @@ export class SaveService implements SaveUseCase {
       if (begin_operation_progress(options, 'save', 'outlook')) {
         return await this.finish_empty_result('mailbox', options, target);
       }
-      const ctx = await this._tenant_factory.create(tenant_id);
+      const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
         const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
 

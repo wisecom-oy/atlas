@@ -73,7 +73,9 @@ describe('drive replication target context lifecycle', () => {
 
   beforeEach(() => {
     source = make_source_context();
-    tenant_factory = { create: vi.fn(async () => source.ctx) } as unknown as TenantContextFactory;
+    tenant_factory = {
+      create_readonly: vi.fn(async () => source.ctx),
+    } as unknown as TenantContextFactory;
     target_factory = {} as unknown as StorageTargetFactory;
   });
 
@@ -215,7 +217,9 @@ describe('drive replication context reuse', () => {
 
   beforeEach(() => {
     source = make_source_context();
-    tenant_factory = { create: vi.fn(async () => source.ctx) } as unknown as TenantContextFactory;
+    tenant_factory = {
+      create_readonly: vi.fn(async () => source.ctx),
+    } as unknown as TenantContextFactory;
     target_factory = {} as unknown as StorageTargetFactory;
   });
 

@@ -23,7 +23,7 @@ import {
   DEK_REWRAP_USE_CASE_TOKEN,
   STORAGE_USAGE_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
-import type { TenantContextFactory } from '@wisecom/atlas-types';
+import { NotFoundError, type TenantContextFactory } from '@wisecom/atlas-types';
 import { create_outlook_api } from '@/outlook-api.factory';
 import { create_onedrive_api } from '@/onedrive-api.factory';
 import { create_contacts_api } from '@/contacts-api.factory';
@@ -96,7 +96,14 @@ export function createAtlasInstance(config: AtlasInstanceConfig): AtlasInstance 
       return camelize(await identity_resolver.resolve_user(tenant_id, email));
     },
     async listUsers() {
-      const ctx = await tenant_factory.create(tenant_id);
+      let ctx;
+      try {
+        ctx = await tenant_factory.create_readonly(tenant_id);
+      } catch (err) {
+        // No bucket or data key yet: nothing is registered, and nothing is provisioned to say so.
+        if (err instanceof NotFoundError) return undefined;
+        throw err;
+      }
       try {
         return camelize(await identity_registry.load(ctx));
       } finally {

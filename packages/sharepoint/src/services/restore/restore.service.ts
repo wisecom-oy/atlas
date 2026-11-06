@@ -76,7 +76,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       finish_operation_progress(options, 'restore', 'sharepoint', 0, 0);
       return empty_restore_result(options.snapshot_id);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const chain = await load_drive_chain_entries(
         sharepoint_manifest_lookup(this._manifests),

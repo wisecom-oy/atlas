@@ -68,7 +68,10 @@ function make_manifest_repository(manifest: OneDriveSnapshotManifest): OneDriveM
 
 describe('OneDrive operation cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {
-    const factory = { create: vi.fn() } as unknown as TenantContextFactory;
+    const factory = {
+      create: vi.fn(),
+      create_readonly: vi.fn(),
+    } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 4 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
     const backup = new OneDriveBackupService(
@@ -104,6 +107,7 @@ describe('OneDrive operation cancellation', () => {
     ]);
 
     expect(factory.create).not.toHaveBeenCalled();
+    expect(factory.create_readonly).not.toHaveBeenCalled();
     expect(results.every((result) => result.interrupted)).toBe(true);
     for (const callback of callbacks) {
       // Pre-aborted runs never claim discovery: finalizing + terminal only.

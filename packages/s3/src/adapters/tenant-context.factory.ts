@@ -3,7 +3,7 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
 import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import { PreconditionFailedError } from '@/adapters/object-lock.errors';
-import { ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
+import { bucket_exists, ensure_bucket_exists } from '@/adapters/s3-bucket-manager';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
 import { EnvelopeKeyService, ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
@@ -26,10 +26,16 @@ export class DefaultTenantContextFactory implements TenantContextFactory {
     @inject(BucketCache) private readonly _buckets: BucketCache,
   ) {}
 
-  /** Ensures the tenant bucket exists and returns raw storage (no DEK). */
+  /**
+   * Opens the tenant bucket as raw storage (no DEK) without creating it. Its callers delete,
+   * list, or re-wrap what is already stored, so a missing bucket means there is nothing to act
+   * on, and creating one would leave a bucket behind for a mistyped tenant (issue #601).
+   */
   async create_storage_only(tenant_id: string): Promise<TenantStorageContext> {
     const bucket = tenant_bucket_name(tenant_id);
-    await ensure_bucket_exists(this._s3, bucket, this._buckets);
+    if (!this._buckets.is_bucket_checked(bucket) && !(await bucket_exists(this._s3, bucket))) {
+      throw new NotFoundError(`No backups found for tenant ${tenant_id}`);
+    }
     return { tenant_id, storage: new S3ObjectStorage(this._s3, bucket, this._buckets) };
   }
 
