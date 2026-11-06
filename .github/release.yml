@@ -4,6 +4,9 @@
 changelog:
   exclude:
     authors: [dependabot, github-actions]
+    # Merged normally but kept out of the notes, e.g. a preview branch merge PR or
+    # internal fixes to features that have not shipped yet.
+    labels: [skip-release-notes]
   categories:
     - title: Security
       labels: [security]
