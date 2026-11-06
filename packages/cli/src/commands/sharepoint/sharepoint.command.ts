@@ -33,6 +33,7 @@ import {
   with_output,
   with_required_snapshot,
   with_snapshot,
+  with_target_profile,
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
@@ -124,6 +125,7 @@ function register_sharepoint_restore(group: Command, get_container: ContainerFac
   with_required_snapshot(command, 'snapshot identifier');
   with_file_filter(command, 'restore');
   with_conflict(command);
+  with_target_profile(command);
   with_tenant(command).action((options: SharePointRestoreCommandOptions) =>
     execute_sharepoint_restore(get_container(), options),
   );

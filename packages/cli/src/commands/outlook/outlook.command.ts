@@ -36,6 +36,7 @@ import {
   with_repeatable_folder,
   with_required_snapshot,
   with_snapshot,
+  with_target_profile,
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
@@ -112,6 +113,7 @@ function register_outlook_restore(group: Command, get_container: ContainerFactor
     );
   with_snapshot(command, 'restore from a specific snapshot');
   with_folder(command, 'restore only messages from this folder');
+  with_target_profile(command);
   with_tenant(command).action((options: OutlookRestoreOptions) =>
     execute_outlook_restore(get_container(), options),
   );

@@ -15,12 +15,18 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { create_transfer_progress } from '@/ui/dashboards/transfer-progress-factory';
 import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import {
+  require_target_for_profile,
+  resolve_restore_container,
+  target_profile_items,
+} from '@/commands/shared/restore-target-container';
 
 export interface OutlookRestoreOptions {
   snapshot?: string;
   tenant?: string;
   mailbox?: string;
   target?: string;
+  targetProfile?: string;
   folder?: string;
   message?: string;
   startDate?: string;
@@ -66,14 +72,21 @@ export async function execute_outlook_restore(
   options: OutlookRestoreOptions,
 ): Promise<void> {
   validate_restore_options(options);
+  require_target_for_profile(options.targetProfile, options.target, '-T/--target');
+  const restore_container = resolve_restore_container(container, options.targetProfile);
 
   const tenant_id = options.tenant ?? container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
-  const restore_service = container.get<RestoreUseCase>(RESTORE_USE_CASE_TOKEN);
+  const restore_service = restore_container.get<RestoreUseCase>(RESTORE_USE_CASE_TOKEN);
 
   await render_static_view(
     <Box flexDirection="column">
       <Banner title={banner_title('outlook', 'Restore')} />
-      <KeyValueList items={[{ label: 'Tenant', value: tenant_id }]} />
+      <KeyValueList
+        items={[
+          { label: 'Tenant', value: tenant_id },
+          ...target_profile_items(options.targetProfile, restore_container),
+        ]}
+      />
     </Box>,
   );
 
