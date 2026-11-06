@@ -71,7 +71,7 @@ export class DeletionService implements DeletionUseCase {
    * all objects for a mailbox, or `purge_tenant` for everything.
    */
   async delete_snapshot(tenant_id: string, snapshot_id: string): Promise<DeletionResult> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifest = await this._manifests.find_by_snapshot(ctx, snapshot_id);
 

@@ -101,7 +101,7 @@ export async function restore_drive_version(
     };
   }
 
-  const ctx = await deps.tenant_factory.create(tenant_id);
+  const ctx = await deps.tenant_factory.create_readonly(tenant_id);
   try {
     const indexes = await deps.list_indexes(ctx, owner_id);
     const selection = select_versions_to_restore(indexes, options);

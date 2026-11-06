@@ -60,7 +60,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     owner_id = normalize_owner_id(owner_id);
-    const source_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifest = await this.require_manifest(source_ctx, owner_id, snapshot_id);
       const ancillary = await collect_drive_ancillary_keys(
@@ -99,7 +99,7 @@ export class OneDriveReplicationService implements OneDriveReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     owner_id = normalize_owner_id(owner_id);
-    const source_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifests = await this._onedrive_manifests.list_snapshots_by_owner(
         source_ctx,

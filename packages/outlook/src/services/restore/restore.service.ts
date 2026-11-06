@@ -57,7 +57,7 @@ export class RestoreService implements RestoreUseCase {
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result(snapshot_id, options);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const { owner_id: source_mailbox, entries } = await resolve_snapshot_entries(
         ctx,
@@ -137,7 +137,7 @@ export class RestoreService implements RestoreUseCase {
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const target = options.target_mailbox?.toLowerCase() ?? owner_id;
 

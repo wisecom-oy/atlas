@@ -64,7 +64,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     site_id = normalize_owner_id(site_id);
-    const source_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifest = await this.require_sharepoint_manifest(source_ctx, site_id, snapshot_id);
       const ancillary = await collect_drive_ancillary_keys(
@@ -103,7 +103,7 @@ export class SharePointReplicationService implements SharePointReplicationUseCas
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     site_id = normalize_owner_id(site_id);
-    const source_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifests = await this._sharepoint_manifests.list_snapshots_by_site(
         source_ctx,

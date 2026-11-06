@@ -63,7 +63,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       finish_operation_progress(options, 'restore', 'onedrive', 0, 0);
       return empty_restore_result(options.snapshot_id);
     }
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const chain = await load_drive_chain_entries(
         onedrive_manifest_lookup(this._manifests),

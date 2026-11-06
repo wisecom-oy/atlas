@@ -89,6 +89,8 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
     storage = make_storage(STORED_KEYS);
     const ctx = make_context(storage);
     const tenant_factory: TenantContextFactory = {
+      // Replication reads the source read-only; rehydration writes into primary and provisions.
+      create_readonly: vi.fn().mockResolvedValue(ctx),
       create: vi.fn().mockResolvedValue(ctx),
     } as unknown as TenantContextFactory;
 
@@ -205,7 +207,7 @@ describe('ReplicationService drive snapshot routing (issue #91)', () => {
     const empty = make_storage([]);
     const ctx = make_context(empty);
     const service_without_data = new ReplicationService(
-      { create: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
+      { create_readonly: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
       manifests,
       {
         tenant_id: 'tenant-1',

@@ -56,7 +56,7 @@ export class ContactsRestoreService implements ContactsRestoreUseCase {
       };
     }
 
-    const tenant_ctx = await this._tenant_factory.create(tenant_id);
+    const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       return await this.run_restore(tenant_ctx, tenant_id, source_id, target_id, options);
     } finally {

@@ -51,7 +51,7 @@ describe('OneDrive save to a stream target', () => {
       entries: [make_entry()],
     };
     const service = new OneDriveSaveService(
-      { create: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
+      { create_readonly: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
       {
         find_by_snapshot: vi.fn().mockResolvedValue(manifest),
         list_snapshots_by_owner: vi.fn().mockResolvedValue([manifest]),
@@ -74,7 +74,7 @@ describe('OneDrive save to a stream target', () => {
     const sink = new PassThrough();
     const service = new OneDriveSaveService(
       {
-        create: vi.fn().mockRejectedValue(new Error('tenant unavailable')),
+        create_readonly: vi.fn().mockRejectedValue(new Error('tenant unavailable')),
       } as unknown as TenantContextFactory,
       {} as OneDriveManifestRepository,
     );
@@ -94,7 +94,7 @@ describe('OneDrive save to a stream target', () => {
     const sink = new PassThrough();
     const ctx = { destroy: vi.fn() } as unknown as TenantContext;
     const service = new OneDriveSaveService(
-      { create: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
+      { create_readonly: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
       {
         find_by_snapshot: vi.fn().mockRejectedValue(new Error('manifest unavailable')),
       } as unknown as OneDriveManifestRepository,

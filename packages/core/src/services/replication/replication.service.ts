@@ -77,7 +77,7 @@ export class ReplicationService implements ReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     reject_teams_snapshot(snapshot_id);
-    const source_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const drive = await replicate_drive_snapshot(source_ctx, tenant_id, snapshot_id, targets, {
         onedrive: this._onedrive,
@@ -106,7 +106,7 @@ export class ReplicationService implements ReplicationUseCase {
     targets: StorageTarget[],
   ): Promise<ReplicationResult[]> {
     owner_id = normalize_owner_id(owner_id);
-    const source_ctx = await this._tenant_factory.create(tenant_id);
+    const source_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const manifests = await list_mailbox_manifests(this._manifests, source_ctx, owner_id);
       const results: ReplicationResult[] = [];
@@ -262,7 +262,7 @@ export class ReplicationService implements ReplicationUseCase {
     tenant_id: string,
     snapshot_id?: string,
   ): Promise<ReplicationStatusRecord[]> {
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       if (snapshot_id) return await list_replication_status_by_snapshot(ctx, snapshot_id);
       return await list_all_replication_status(ctx);
@@ -276,7 +276,7 @@ export class ReplicationService implements ReplicationUseCase {
     owner_id: string,
   ): Promise<ReplicationStatusRecord[]> {
     owner_id = normalize_owner_id(owner_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       return await list_replication_status_by_owner(ctx, owner_id);
     } finally {
