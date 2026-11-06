@@ -4,7 +4,7 @@ description: 'Flag-by-flag reference for the Atlas CLI (@wisecom/atlas-cli): bac
 
 # CLI commands
 
-The Atlas CLI (`@wisecom/atlas-cli`) runs backup, restore, verification, and storage operations from a shell. It suits cron jobs, operator workflows, and simple deployments. Credentials come from `.env`, environment variables, or the encrypted store that `atlas config` writes (see [Configuration](/configuration)).
+The Atlas CLI (`@wisecom/atlas-cli`) runs backup, restore, verification, and storage operations from a shell. It suits cron jobs, operator workflows, and simple deployments. Credentials come from `.env`, environment variables, or the encrypted store that `atlas config` and `atlas tenants` write (see [Configuration](/configuration)).
 
 For Node.js applications such as custom schedulers and multi-tenant services, use the [Programmatic SDK](/reference/sdk). The SDK takes explicit config at construction time, with no `.env` dependency, and exposes the same operations as typed methods.
 
@@ -75,6 +75,23 @@ An explicit Atlas category takes precedence over transport details. Network dete
 The CLI prints the Atlas code separately from the Graph code, HTTP status, response body, or AWS error name. Unwrapped HTTP `401`, `403`, `404`, and `429` responses also receive their Atlas category. Fatal diagnostics, including `DEBUG` stacks, go to stderr so redirected stdout stays clean.
 
 Diagnostics can contain tenant identifiers and sensitive content. Redact them before sharing logs.
+
+## Global options
+
+These flags apply to every command. Place them before or after the subcommand.
+
+| Option             | Environment     | Description                                                                                                                       |
+| ------------------ | --------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `--profile <name>` | `ATLAS_PROFILE` | Tenant profile whose Graph credentials the run uses. Without it, the active profile is used. See [Selecting a profile](/configuration#selecting-a-profile). |
+
+Shared settings (S3 and the encryption passphrase) are the same for every profile, so `--profile` changes only the Microsoft Graph identity:
+
+```bash
+atlas --profile contoso outlook backup -m john.doe@example.com
+atlas outlook backup -m john.doe@example.com --profile fabrikam
+```
+
+Restore commands also accept `--target-profile <name>` to write into a second tenant. See [Cross-tenant restore](/reference/cli-recovery#cross-tenant-restore).
 
 ## Short flags
 
@@ -287,6 +304,7 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                        |
 | `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                       |
 | `-t, --tenant <id>`           | Override the tenant ID from config                                     |
+| `--target-profile <name>`     | Tenant profile for the writes. Requires `-T`                           |
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default) |
 
 Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
@@ -560,6 +578,7 @@ Each snapshot manifest is complete, so `restore` and `verify` read one manifest 
 | `--fast` | verify | Existence-only checks, no download or decrypt |
 | `-y, --yes` | delete | Skip the confirmation prompt |
 | `-t, --tenant <id>` | all | Tenant identifier (defaults to config) |
+| `--target-profile <name>` | restore | Tenant profile for the writes. Requires `-T` |
 
 
 ## atlas onedrive
@@ -635,6 +654,7 @@ Every workload stamps retention on each object it writes, using `PutObject`, `Co
 | `--file-filter <paths...>` | Restore only specific files, by ID or path                                    |
 | `-c, --conflict <mode>`    | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)      |
 | `-t, --tenant <id>`        | Override the tenant ID from config                                            |
+| `--target-profile <name>`  | Tenant profile for the writes. Requires `--target-owner`.                     |
 
 A drive restore nests under `/Restore-<timestamp>` at the target drive root and recreates the original folder structure beneath it. `--in-place` writes back over the original paths. It is never the default, because repeated in-place restores with `--conflict rename` create suffixed duplicates among live content. See [Where restored files land](/onedrive-backup#where-restored-files-land).
 
@@ -843,6 +863,7 @@ Semantics match [`atlas onedrive restore-version`](#atlas-onedrive), including c
 | `--file-filter <paths...>`  | Restore only specific files, by ID or path                                    |
 | `-c, --conflict <mode>`     | File conflict policy: `replace`, `rename`, or `fail` (default: `rename`)      |
 | `-t, --tenant <id>`         | Override the tenant ID from config                                            |
+| `--target-profile <name>`   | Tenant profile for the writes. Requires `--target-site`.                      |
 
 Restored files nest under `Restore-<timestamp>` in each destination library, with the original structure beneath it. `--in-place` writes over the original paths, as earlier releases did. See [Where restored files land](../sharepoint-backup.md#where-restored-files-land).
 
@@ -1140,39 +1161,72 @@ If `_meta/dek.enc` is under an Object Lock retention policy, the write is refuse
 
 ## atlas config
 
-Manage Atlas configuration in an encrypted local store. Values are written to `~/.atlas/config.enc` (AES-256-GCM). The store key lives in the OS keyring (macOS Keychain or libsecret), so credentials are never stored in plaintext on disk. See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
+Manage shared settings in an encrypted local store. Values are written to `~/.atlas/config.enc` (AES-256-GCM). The store key lives in the OS keyring (macOS Keychain or libsecret), so credentials are never stored in plaintext on disk. Tenant credentials are managed with [`atlas tenants`](#atlas-tenants). See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.
 
 ```bash
-atlas config set tenant.id 4fa2a706-b26a-4bbe-9b1c-1e671b586b8f   # set and validate
-pbpaste | atlas config set client.secret -                        # "-" reads from stdin, keeping it out of shell history
-atlas config get client.secret                                    # secrets are masked
-atlas config list                                                 # all keys, values, and sources
-atlas config unset client.secret                                  # remove from the store
-atlas config validate                                             # live Graph and S3 connectivity check
+atlas config set s3.endpoint https://s3.example.com   # set and validate
+atlas config set s3.access-key <access-key>
+pbpaste | atlas config set s3.secret-key -            # "-" reads from stdin, keeping it out of shell history
+atlas config get s3.secret-key                        # secrets are masked
+atlas config list                                     # all shared keys, values, and sources
+atlas config unset s3.access-key                      # remove from the store
+atlas config validate                                 # live S3 connectivity check
 ```
 
 | Subcommand                 | Description                                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `config set <key> <value>` | Validate and save a value to the encrypted store. `-` reads the value from stdin.                                  |
 | `config get <key>`         | Print the effective value. Secrets are masked.                                                                     |
-| `config list`              | Print every key with its value and source (`env`, `secure store`, or `config file`)                                |
+| `config list`              | Print every shared key with its value and source (`env`, `secure store`, or `config file`)                         |
 | `config unset <key>`       | Remove a key from the encrypted store                                                                              |
-| `config validate`          | Probe Microsoft Graph (token request) and S3 (`ListBuckets`) with the effective config. Exits non-zero on failure. |
+| `config validate`          | Probe S3 (`ListBuckets`) with the effective config. Exits non-zero on failure.                                     |
 
 Each verb is a subcommand, so `atlas config set --help` documents itself.
 
 | Key                     | Description                                                            |
 | ----------------------- | ---------------------------------------------------------------------- |
-| `tenant.id`             | Microsoft Entra tenant. A GUID or an `*.onmicrosoft.com` domain.       |
-| `client.id`             | Entra app registration (client) ID. Must be a GUID.                    |
-| `client.secret`         | Client secret. Masked.                                                 |
 | `s3.endpoint`           | S3 endpoint URL. Must use `http` or `https`.                           |
 | `s3.access-key`         | S3 access key                                                          |
 | `s3.secret-key`         | S3 secret key. Masked.                                                 |
 | `s3.region`             | S3 region. Lowercase letters, digits, and dashes. Default `us-east-1`. |
 | `encryption.passphrase` | Tenant encryption passphrase. Masked. At least 14 UTF-8 bytes.         |
 
-Each value is format-checked on save. When a credential group is complete, its live probe runs automatically. `ATLAS_*` environment variables still override stored values. The command warns when a saved value is shadowed by one.
+Each value is format-checked on save. When the S3 group is complete, its live probe runs automatically. `ATLAS_*` environment variables still override stored values, and the command warns when a saved value is shadowed by one.
+
+`atlas config set tenant.id`, `client.id`, and `client.secret` are refused with a message that points to `atlas tenants add`. `atlas config validate` checks S3 only. Use `atlas tenants validate` for Microsoft Graph.
+
+## atlas tenants
+
+Manage named tenant profiles. A profile holds one Microsoft Entra app registration (tenant ID, client ID, and client secret) in the encrypted store at `~/.atlas/config.enc`. Select a profile per run with the global [`--profile`](#global-options) flag or `ATLAS_PROFILE`. See [Tenant profiles](/configuration#tenant-profiles).
+
+```bash
+pbpaste | atlas tenants add contoso --tenant-id <tenant-id> --client-id <client-id> --client-secret -
+atlas tenants list
+atlas tenants use contoso                 # active profile for later runs
+atlas tenants validate                    # Graph token for the selected profile
+atlas tenants validate --all              # every profile
+atlas --profile fabrikam outlook backup -m john.doe@example.com
+atlas tenants remove fabrikam -y
+```
+
+| Subcommand                | Description                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tenants add <name>`      | Save a profile, then check its Graph credentials. `--replace` overwrites an existing profile's credentials. A failed check keeps the profile and exits with code 1. |
+| `tenants list`            | List the stored profiles with masked secrets. The selected profile is marked with `*`.                                                                              |
+| `tenants use <name>`      | Set the active profile for later runs when neither `--profile` nor `ATLAS_PROFILE` is set.                                                                          |
+| `tenants remove <name>`   | Delete a profile from the store. Removing the active profile needs `-y`, and no profile is active afterward.                                                        |
+| `tenants validate [name]` | Check a profile's Graph credentials and the S3 settings. Without a name, checks the selected profile. Exits with code 1 if a check fails.                           |
+
+| Option                    | Command  | Description                                                                       |
+| ------------------------- | -------- | --------------------------------------------------------------------------------- |
+| `--tenant-id <id>`        | add      | Microsoft Entra tenant: a GUID, or a domain such as `contoso.onmicrosoft.com`     |
+| `--client-id <id>`        | add      | Application (client) ID of the app registration. Must be a GUID.                  |
+| `--client-secret <value>` | add      | Client secret. A single token with no whitespace. Pass `-` to read it from stdin. |
+| `--replace`               | add      | Overwrite an existing profile with the same name                                  |
+| `-y, --yes`               | remove   | Required to remove the active profile                                             |
+| `--all`                   | validate | Validate every profile instead of one                                             |
+
+Profile names are lowercase letters, digits, and dashes, up to 32 characters. Prefer `--client-secret -`: a value passed on the command line can appear in shell history and the process list.
 
 ## atlas replicate
 
