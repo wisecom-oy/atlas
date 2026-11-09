@@ -22,8 +22,9 @@ export async function graph_call<T>(permission: string, call: () => Promise<T>):
   try {
     return await with_graph_retry(call);
   } catch (err) {
-    rethrow_if_access_denied(err, [permission]);
+    // Graph answers an unlicensed mailbox with 403 too, so the licence code must be checked first.
     rethrow_if_mailbox_not_licensed(err);
+    rethrow_if_access_denied(err, [permission]);
     throw err;
   }
 }

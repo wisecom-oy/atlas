@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { describe, expect, it } from 'vitest';
+import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import {
   graph_error,
   stub_graph_client,
@@ -87,13 +88,26 @@ describe('GraphContactsConnector delta reads', () => {
     expect(calls.map((c) => c.url)).toEqual([stored]);
   });
 
-  it('maps a 403 on delta to an error naming Contacts.Read', async () => {
+  it('maps a 403 on delta to an AuthError naming Contacts.Read', async () => {
     const { connector } = connector_with(() => {
       throw graph_error(403, 'ErrorAccessDenied');
     });
 
-    await expect(connector.fetch_contact_delta('tenant-1', MAILBOX, FOLDER)).rejects.toThrow(
-      /Contacts\.Read/,
+    const error = await connector
+      .fetch_contact_delta('tenant-1', MAILBOX, FOLDER)
+      .catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(AuthError);
+    expect((error as Error).message).toMatch(/Contacts\.Read/);
+  });
+
+  it('reports an unlicensed mailbox as MailboxNotLicensedError, not as a missing grant', async () => {
+    const { connector } = connector_with(() => {
+      throw graph_error(403, 'MailboxNotEnabledForRESTAPI', 'Mailbox not enabled for REST API.');
+    });
+
+    await expect(connector.fetch_contact_delta('tenant-1', MAILBOX, FOLDER)).rejects.toBeInstanceOf(
+      MailboxNotLicensedError,
     );
   });
 
