@@ -205,7 +205,7 @@ export async function probe_bucket_immutability(
       cache.set_immutability_probe(bucket, request.mode, result);
       return result;
     }
-    throw err;
+    throw invalid_bucket_name_error(bucket, err) ?? err;
   }
 
   const versioning = await client.send(new GetBucketVersioningCommand({ Bucket: bucket }));

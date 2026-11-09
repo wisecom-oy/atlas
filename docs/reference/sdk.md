@@ -92,7 +92,7 @@ try {
 | Unwrap of `_meta/dek.enc`, if it exists | `WrongPassphraseError`, `ATLAS_WRONG_PASSPHRASE` | Use the passphrase that created this tenant's backups. In a multi-tenant service, confirm each tenant has its own matching passphrase |
 | Microsoft Graph token                   | `AuthError`, `ATLAS_AUTH_DENIED`                 | Check the tenant ID, client ID, client secret, and connectivity to Microsoft Entra ID                                                 |
 
-These codes name the failed stage, not always bad credentials. DNS, TLS, and transport failures also cause rejection. Each error keeps the original failure as `cause`.
+These codes name the failed stage, not always bad credentials. DNS, TLS, and transport failures also cause rejection. Each error keeps the original failure as `cause`. When S3 refuses `atlas-{tenantId}` because it is not a valid bucket name, the S3 stage throws `ConfigError` (`ATLAS_CONFIG_INVALID`) instead, naming the rule. See [Bucket name is not valid](/troubleshooting#bucket-name-is-not-valid).
 
 The key stage makes at most one storage `GET` and opens the key locally with AES-256-GCM. It never creates a missing key, writes an object, or logs key material. A fresh tenant with no key passes this stage, and the first backup creates the key.
 

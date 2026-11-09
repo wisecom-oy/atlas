@@ -2,7 +2,7 @@ import { HeadBucketCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
 import type { Container } from 'inversify';
 import { GRAPH_AUTH_PROVIDER_TOKEN } from '@wisecom/atlas-m365-graph';
-import { S3_CLIENT_TOKEN, tenant_bucket_name } from '@wisecom/atlas-s3';
+import { invalid_bucket_name_error, S3_CLIENT_TOKEN, tenant_bucket_name } from '@wisecom/atlas-s3';
 import {
   AtlasError,
   AuthError,
@@ -20,14 +20,18 @@ export async function validate_instance(container: Container, tenant_id: string)
 }
 
 async function validate_bucket_access(container: Container, tenant_id: string): Promise<void> {
+  const bucket = tenant_bucket_name(tenant_id);
   try {
     const client = container.get<S3Client>(S3_CLIENT_TOKEN);
-    await client.send(new HeadBucketCommand({ Bucket: tenant_bucket_name(tenant_id) }));
+    await client.send(new HeadBucketCommand({ Bucket: bucket }));
   } catch (cause) {
-    throw new StorageError(
-      'S3 validation failed. Check the endpoint, region, credentials and tenant-bucket access. ' +
-        'If the tenant bucket does not exist, provision it before validating.',
-      { cause },
+    throw (
+      invalid_bucket_name_error(bucket, cause) ??
+      new StorageError(
+        'S3 validation failed. Check the endpoint, region, credentials and tenant-bucket access. ' +
+          'If the tenant bucket does not exist, provision it before validating.',
+        { cause },
+      )
     );
   }
 }

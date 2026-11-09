@@ -2,7 +2,7 @@ export { S3ObjectStorage } from './s3-object-storage.adapter';
 export { create_s3_client, S3_CLIENT_TOKEN } from './s3-client.factory';
 export { S3ManifestRepository } from './s3-manifest-repository.adapter';
 export { ensure_bucket_exists, probe_bucket_immutability } from './s3-bucket-manager';
-export { tenant_bucket_name } from './tenant-bucket-name';
+export { invalid_bucket_name_error, tenant_bucket_name } from './tenant-bucket-name';
 export {
   ObjectLockVersioningDisabledError,
   ObjectLockUnsupportedError,
