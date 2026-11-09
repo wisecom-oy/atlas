@@ -35,6 +35,13 @@ Dependency `preinstall`, `install`, and `postinstall` scripts never run. `pnpm-w
 
 When that happens, read the package's script before deciding. Add it as `false` with a one-line reason unless the package cannot work without the script, such as a native addon compiled on install. Only then set it to `true`, and say why in the PR.
 
+pnpm 10 remembers skipped scripts in `node_modules/.modules.yaml` and keeps failing on them after they are listed as `false`. This also hits the first install after pulling this setting into a checkout that already has `node_modules`. `pnpm install --force` does not clear it. Delete `node_modules` and install again:
+
+```bash
+rm -rf node_modules
+pnpm install
+```
+
 ## Development workflow
 
 `dev` is the integration branch and accumulates work until there is enough for a
