@@ -4,8 +4,8 @@ This guide covers setup, code conventions, the architecture, and what a pull req
 
 ## Prerequisites
 
-- **Node.js** 20 or later
-- **pnpm** (never npm or yarn)
+- **Node.js** 22.22.2 or later
+- **pnpm** 11, the version pinned in `packageManager` (never npm or yarn)
 - **Docker** (optional, for running MinIO locally)
 
 ## Getting started
@@ -34,13 +34,6 @@ pnpm run test
 Dependency `preinstall`, `install`, and `postinstall` scripts never run. `pnpm-workspace.yaml` lists every dependency that ships one under `allowBuilds`, and `strictDepBuilds: true` makes `pnpm install` fail with `ERR_PNPM_IGNORED_BUILDS` when a new one appears.
 
 When that happens, read the package's script before deciding. Add it as `false` with a one-line reason unless the package cannot work without the script, such as a native addon compiled on install. Only then set it to `true`, and say why in the PR.
-
-pnpm 10 remembers skipped scripts in `node_modules/.modules.yaml` and keeps failing on them after they are listed as `false`. This also hits the first install after pulling this setting into a checkout that already has `node_modules`. `pnpm install --force` does not clear it. Delete `node_modules` and install again:
-
-```bash
-rm -rf node_modules
-pnpm install
-```
 
 ## Development workflow
 

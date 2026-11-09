@@ -4,9 +4,7 @@ packages:
 
 # Dependency install scripts run arbitrary code at install time, so none run
 # unless listed here as true. strictDepBuilds fails the install when a
-# dependency with an unlisted script appears, which forces a review. If it
-# still fails after listing one, see "Dependency install scripts" in
-# CONTRIBUTING.md for clearing pnpm's stale ignored-build state.
+# dependency with an unlisted script appears, which forces a review.
 strictDepBuilds: true
 allowBuilds:
   # Only verifies or downloads the platform binary and swaps in a faster CLI
