@@ -128,7 +128,7 @@ Atlas names each tenant's bucket after its tenant ID, and S3 accepts only lowerc
 The secure config store is locked by another Atlas command (~/.atlas/config.lock).
 ```
 
-Another `atlas config` or `atlas tenants` command held the store lock for more than 10 seconds. Updates normally hold it for milliseconds, so check for a hung command first. If none is running, delete the lock file. Atlas also removes a lock older than 30 seconds by itself.
+Another `atlas config` or `atlas tenants` command held the store lock for more than 10 seconds. Updates normally hold it for milliseconds, so check for a hung command first. If none is running, delete the lock file. Atlas removes a lock by itself only when the process ID recorded in it has exited on the same host, so a lock written from another host, or an empty one, needs deleting by hand.
 
 ### Signature mismatch
 

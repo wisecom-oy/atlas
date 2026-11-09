@@ -5,7 +5,6 @@ import {
   readdirSync,
   rmSync,
   statSync,
-  utimesSync,
   writeFileSync,
   existsSync,
 } from 'node:fs';
@@ -81,17 +80,6 @@ describe('secure-config-store (file keyring)', () => {
     expect(existsSync(join(base_dir, 'config.lock'))).toBe(false);
     save({ tenant_id: 'b' });
     expect(read_secure_config(options)).toEqual({ tenant_id: 'b' });
-  });
-
-  it('clears a lock left behind by a killed process', () => {
-    const lock_path = join(base_dir, 'config.lock');
-    writeFileSync(lock_path, '');
-    const an_hour_ago = new Date(Date.now() - 3_600_000);
-    utimesSync(lock_path, an_hour_ago, an_hour_ago);
-
-    save({ tenant_id: 'a' });
-
-    expect(read_secure_config(options)).toEqual({ tenant_id: 'a' });
   });
 
   it('leaves only the store, key and nothing half-written behind', () => {
