@@ -25,7 +25,7 @@ import { KeyValueList } from '@/ui/components/key-value-list';
 import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary';
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
-import { report_run_outcome, report_skipped_items } from '@/command-run-outcome';
+import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
 import {
@@ -160,6 +160,8 @@ export async function execute_sharepoint_backup(
   }
 
   logger.error('Status: UNHEALTHY');
+  // A ledger-only run has no error entry, so the verdict sets the exit code itself (#583).
+  process.exitCode = EXIT_PARTIAL;
 }
 
 /** Renders the per-site section of a backup run. */
