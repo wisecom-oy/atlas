@@ -120,7 +120,9 @@ If the error persists on AWS S3, check that the region matches the bucket's regi
 "atlas-Contoso.onmicrosoft.com" is not a valid S3 bucket name: it must be 3 to 63 lowercase letters, digits, dots or dashes.
 ```
 
-Atlas names each tenant's bucket after its tenant ID, and S3 accepts only lowercase names up to 63 characters. The error is a `ConfigError` (`ATLAS_CONFIG_INVALID`, exit `6`) and appears before any bucket is created. Store the tenant ID in lowercase with `atlas tenants add <name> ... --replace`, or use the tenant GUID when the domain is longer than 57 characters.
+Atlas names each tenant's bucket after its tenant ID, and S3 accepts only lowercase names up to 63 characters. The error is a `ConfigError` (`ATLAS_CONFIG_INVALID`, exit `6`). A backup raises it before any bucket is created, and `atlas storage-check` and the SDK's `validate()` raise it when S3 refuses to look the bucket up. Store the tenant ID in lowercase with `atlas tenants add <name> ... --replace`, or use the tenant GUID when the domain is longer than 57 characters.
+
+An existing bucket keeps working under its name even if S3 naming rules would reject it, so a backend with relaxed naming still serves backups made by an older Atlas.
 
 ### Secure config store is locked
 

@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AuthError, NotFoundError, StorageError, WrongPassphraseError } from '@wisecom/atlas-types';
+import {
+  AuthError,
+  ConfigError,
+  NotFoundError,
+  StorageError,
+  WrongPassphraseError,
+} from '@wisecom/atlas-types';
 import { createAtlasInstance } from '@/atlas-instance.adapter';
 
 const mocks = vi.hoisted(() => ({
@@ -33,9 +39,9 @@ vi.mock('@/container', () => ({
   }),
 }));
 
-function create_instance() {
+function create_instance(tenant_id = 'tenant-example') {
   return createAtlasInstance({
-    tenantId: 'tenant-example',
+    tenantId: tenant_id,
     clientId: 'client-example',
     clientSecret: '<redacted>',
     s3Endpoint: 'https://storage.example.com',
@@ -129,6 +135,20 @@ describe('atlas.validate', () => {
     expect(mocks.get_access_token).not.toHaveBeenCalled();
     expect(mocks.create_context).not.toHaveBeenCalled();
     expect(mocks.log).not.toHaveBeenCalled();
+  });
+
+  it('names the bucket rule when S3 refuses a tenant ID that cannot name a bucket', async () => {
+    const cause = Object.assign(new Error('Bad Request'), { name: 'InvalidBucketName' });
+    mocks.send.mockRejectedValue(cause);
+
+    const error = await create_instance('Contoso.onmicrosoft.com')
+      .validate()
+      .catch((error: unknown) => error);
+
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error).toMatchObject({ cause });
+    expect((error as Error).message).toMatch(/lowercase/);
+    expect(mocks.get_access_token).not.toHaveBeenCalled();
   });
 
   it('does not provision a missing bucket', async () => {

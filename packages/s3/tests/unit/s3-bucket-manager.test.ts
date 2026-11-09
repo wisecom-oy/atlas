@@ -166,6 +166,20 @@ describe('s3-bucket-manager', () => {
       expect((error as Error).cause).toBe(rejected);
     });
 
+    it('names the bucket rule when S3 refuses the immutability probe for that name', async () => {
+      const rejected = Object.assign(new Error('Bad Request'), { name: 'InvalidBucketName' });
+      mock_s3.send.mockRejectedValueOnce(rejected);
+
+      const error = await probe_bucket_immutability(
+        mock_s3 as never,
+        'atlas-Contoso.onmicrosoft.com',
+        buckets,
+      ).catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as Error).cause).toBe(rejected);
+    });
+
     it('keeps using an existing bucket a lenient backend accepted under such a name', async () => {
       mock_s3.send.mockResolvedValueOnce({});
 
