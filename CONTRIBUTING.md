@@ -4,8 +4,8 @@ This guide covers setup, code conventions, the architecture, and what a pull req
 
 ## Prerequisites
 
-- **Node.js** 20 or later
-- **pnpm** (never npm or yarn)
+- **Node.js** 22.22.2 or later
+- **pnpm** 11, the version pinned in `packageManager` (never npm or yarn)
 - **Docker** (optional, for running MinIO locally)
 
 ## Getting started
@@ -28,6 +28,12 @@ pnpm run build
 pnpm run lint
 pnpm run test
 ```
+
+### Dependency install scripts
+
+Dependency `preinstall`, `install`, and `postinstall` scripts never run. `pnpm-workspace.yaml` lists every dependency that ships one under `allowBuilds`, and `strictDepBuilds: true` makes `pnpm install` fail with `ERR_PNPM_IGNORED_BUILDS` when a new one appears.
+
+When that happens, read the package's script before deciding. Add it as `false` with a one-line reason unless the package cannot work without the script, such as a native addon compiled on install. Only then set it to `true`, and say why in the PR.
 
 ## Development workflow
 
@@ -113,7 +119,7 @@ Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint
 | Max 80 effective lines per function (warning)        | `max-lines-per-function` ESLint rule   |
 | Single quotes, trailing commas, 100-char print width | Prettier                               |
 | `@/` path aliases, no relative imports (warning)     | `no-restricted-imports` ESLint rule    |
-| Type-aware: promises, unsafe `any`, assertions      | `typescript-eslint` type-checked       |
+| Type-aware: promises, unsafe `any`, assertions       | `typescript-eslint` type-checked       |
 | JSDoc on all exported functions                      | Convention                             |
 
 Two rules are staged as warnings because the codebase still has existing hits:
