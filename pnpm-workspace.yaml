@@ -2,6 +2,17 @@ packages:
   - 'packages/*'
   - 'tools/*'
 
+# Dependency install scripts run arbitrary code at install time, so none run
+# unless listed here as true. strictDepBuilds fails the install when a
+# dependency with an unlisted script appears, which forces a review.
+strictDepBuilds: true
+allowBuilds:
+  # Only verifies or downloads the platform binary and swaps in a faster CLI
+  # shim. The JS API resolves the optional @esbuild/<platform> package itself.
+  esbuild: false
+  # Prints a funding banner.
+  core-js-pure: false
+
 minimumReleaseAge: 1440
 
 # @azure/identity 4.14.1 is the first release on @azure/msal-node ^7.1.0, which
