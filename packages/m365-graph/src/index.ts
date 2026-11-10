@@ -13,6 +13,7 @@ export {
   is_content_gone_error,
   with_graph_retry,
 } from './graph-request-error-handler';
+export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   no_onedrive_message,
   rethrow_if_access_denied,

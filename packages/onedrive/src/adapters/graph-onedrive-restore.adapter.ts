@@ -90,14 +90,19 @@ export async function graph_onedrive_upload_small_file(
   const encoded_name = encodeURIComponent(file_name);
   // Encoded: an unescaped value could append a second conflictBehavior to the query.
   const conflict_qs = `@microsoft.graph.conflictBehavior=${encodeURIComponent(conflict_behavior)}`;
+  // Only `replace` makes a repeated PUT land on the same item. Under `rename` a PUT that Graph
+  // committed before answering 5xx or timing out comes back as "name (1).ext", and under `fail` as a
+  // 409 for the file this call wrote, so those are sent once (issue #624).
   const uploaded = await with_graph_retry(
-    () =>
+    (signal) =>
       client
         .api(
           `/users/${owner_id}/drives/${drive_id}/${parent_ref}:/${encoded_name}:/content?${conflict_qs}`,
         )
         .header('Content-Type', 'application/octet-stream')
+        .option('signal', signal)
         .put(content) as Promise<{ id?: string } | undefined>,
+    { idempotent: conflict_behavior === 'replace' },
   );
 
   await stamp_file_system_info(client, owner_id, drive_id, uploaded?.id, file_system_info);

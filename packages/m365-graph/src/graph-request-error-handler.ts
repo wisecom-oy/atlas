@@ -7,6 +7,7 @@ import {
   get_active_throttle_scope,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { extract_retry_after_ms } from '@/graph-retry-after';
+import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import { ThrottledError } from '@wisecom/atlas-types';
 
 /**
@@ -15,11 +16,9 @@ import { ThrottledError } from '@wisecom/atlas-types';
  * gateway gave up on one. 501 and every 4xx stay out -- repeating those
  * returns the same answer.
  *
- * ponytail: one set for reads and writes. A 500 on a create POST can retry a
- * request the backend already committed, which restore surfaces as a duplicate
- * item -- the same exposure 504 already carried. Thread an idempotency flag
- * through GraphRetryOptions and opt the restore writers out if duplicates ever
- * show up in practice.
+ * These apply to idempotent calls only. A 5xx or a timeout after a create POST
+ * can arrive after the backend committed it, so a call marked `idempotent: false`
+ * retries only on a throttle response (see `is_throttle_response`, issue #624).
  */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const NETWORK_ERROR_CODES = new Set([
@@ -62,6 +61,30 @@ export interface GraphRetryOptions {
    * converged on 1h default / 48h for large files against production tenants.
    */
   readonly timeout_ms?: number;
+  /**
+   * False for a write that would land twice if sent twice: a create POST, or a drive PUT whose
+   * conflict behaviour renames. Graph can commit such a request and still answer 500, 502 or 504,
+   * or answer too late for the timeout, so repeating it creates a duplicate. A non-idempotent call
+   * is retried only on a throttle response, which Graph sends instead of processing the request;
+   * any other failure is thrown on the first attempt. Defaults to true.
+   */
+  readonly idempotent?: boolean;
+}
+
+/**
+ * Whether a failure is Graph refusing the request before processing it: a 429, or a 503 carrying
+ * Retry-After, the form SharePoint and OneDrive throttling also takes. Only these are safe to
+ * repeat for a write that is not idempotent.
+ */
+export function is_throttle_response(err: unknown): boolean {
+  const status = status_code_of(err);
+  if (status === 429) return true;
+  return status === 503 && extract_retry_after_ms(err) !== undefined;
+}
+
+/** Whether a failed attempt may be sent again, given whether the call is idempotent. */
+function is_retry_safe(err: unknown, idempotent: boolean): boolean {
+  return idempotent ? is_retryable_error(err) : is_throttle_response(err);
 }
 
 const INVALID_DELTA_CODES = ['syncstatenotfound', 'resyncrequired', 'syncstateinvalid'];
@@ -131,14 +154,20 @@ export function is_retryable_error(err: unknown): boolean {
  * Respects Retry-After on 429 exactly, and fails with ThrottledError when Retry-After exceeds the
  * 5-minute cap. Each retry is logged for observability.
  *
+ * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
+ * that passes it to fetch (`.option('signal', signal)` on a Graph request) is torn down rather than
+ * left running beside the next attempt. A call marked `idempotent: false` is retried only on a
+ * throttle response.
+ *
  * This function is designed to be reusable across backup, restore, save, and
  * any other operation that communicates over the network.
  */
 export async function with_graph_retry<T>(
-  fn: () => Promise<T>,
+  fn: (attempt_signal: AbortSignal) => Promise<T>,
   options: GraphRetryOptions = {},
 ): Promise<T> {
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
+  const idempotent = options.idempotent ?? true;
   const abort_signal = get_active_abort_signal();
   let waited_ms = 0;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -154,10 +183,10 @@ export async function with_graph_retry<T>(
       waited_ms += await wait_out_throttle(RETRY_BUDGET_MS - waited_ms, abort_signal);
     }
     try {
-      return await race_timeout(race_abort(fn(), abort_signal), timeout_ms);
+      return await run_attempt(fn, timeout_ms, abort_signal);
     } catch (err) {
       throw_if_cancelled(abort_signal);
-      if (!is_retryable_error(err)) throw err;
+      if (!is_retry_safe(err, idempotent)) throw err;
 
       const retry_after = floor_retry_after_ms(extract_retry_after_ms(err));
       // Raise on the response that carried the 429, not after the budget is
@@ -313,58 +342,4 @@ export function is_content_gone_error(err: unknown): boolean {
   if (status === 404 || status === 410) return true;
   const message = err instanceof Error ? err.message : String(err);
   return message.includes('404') || message.includes('Not Found') || message.includes('410');
-}
-
-/**
- * Waits `ms`, or rejects as soon as `signal` fires. The timer is cleared on abort, so a cancelled
- * run does not hold the process open for the rest of a backoff or Retry-After.
- */
-async function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  const on_abort = (): void => {
-    clearTimeout(timer);
-    reject(cancelled_error(signal?.reason));
-  };
-  const timer = setTimeout(() => {
-    signal?.removeEventListener('abort', on_abort);
-    resolve();
-  }, ms);
-  signal?.addEventListener('abort', on_abort, { once: true });
-  await promise;
-}
-
-/** The error a cancelled run rejects with: the signal's reason when it is an Error. */
-function cancelled_error(reason: unknown): Error {
-  return reason instanceof Error ? reason : new Error('The run was cancelled');
-}
-
-/** Throws the run's cancellation error when `signal` has already fired. */
-function throw_if_cancelled(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw cancelled_error(signal.reason);
-}
-
-/**
- * Settles like `promise`, but rejects as soon as `signal` fires. The underlying promise keeps
- * running; Graph gives no way to cancel a request already in flight through this wrapper.
- */
-function race_abort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return promise;
-  const { promise: aborted, reject } = Promise.withResolvers<never>();
-  const on_abort = (): void => reject(cancelled_error(signal.reason));
-  signal.addEventListener('abort', on_abort, { once: true });
-  return Promise.race([promise, aborted]).finally(() =>
-    signal.removeEventListener('abort', on_abort),
-  );
-}
-
-/** Races a promise against a timeout; rejects with ETIMEDOUT on expiry. */
-function race_timeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(Object.assign(new Error('Request timed out'), { code: 'ETIMEDOUT' })),
-      ms,
-    );
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
