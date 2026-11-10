@@ -46,7 +46,7 @@ async function walk_children(
     CONTACTS_READ,
   );
   for (const child of children) {
-    // ponytail: sibling folders sharing a display name share a path key; restore maps both onto the first.
+    // Exchange rejects a sibling whose name differs only in case, so a path names one folder.
     const path = [...parent_path, child.displayName];
     out.push({ id: child.id, display_name: child.displayName, path });
     await walk_children(client, base, child.id, path, out);

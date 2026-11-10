@@ -1,9 +1,13 @@
 import type { ContactManifestEntry, ContactsConnector, TenantContext } from '@wisecom/atlas-types';
 
-import { collision_key } from '@/services/restore/collision-key';
+import {
+  is_already_present,
+  type TargetFolderContacts,
+} from '@/services/restore/target-folder-contacts';
 import { assert_checksum, read_content } from '@/services/shared/content-objects';
 import { is_record } from '@/services/shared/json-record';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
+import { source_tag_property } from '@/services/shared/source-tag';
 
 /** Graph-owned fields that Graph rejects or regenerates on create. */
 const READ_ONLY_FIELDS: Readonly<Record<string, true>> = {
@@ -52,9 +56,24 @@ async function read_photo(deps: RestoreWriteDeps, entry: ContactManifestEntry): 
   }
 }
 
+/** The create payload: the stored contact without Graph-owned fields, tagged with its source id. */
+function restore_payload(
+  contact: Readonly<Record<string, unknown>>,
+  source_contact_id: string,
+): Record<string, unknown> {
+  const payload = Object.fromEntries(
+    Object.entries(contact).filter(
+      ([field]) => !field.startsWith('@') && READ_ONLY_FIELDS[field] !== true,
+    ),
+  );
+  payload['singleValueExtendedProperties'] = [source_tag_property(source_contact_id)];
+  return payload;
+}
+
 /**
- * Restores one manifest entry into a target folder. A contact whose collision key is already
- * present is skipped, so restore never overwrites existing data. The photo is verified before
+ * Restores one manifest entry into a target folder. An entry already present (see
+ * `is_already_present`) is skipped, so restore never overwrites existing data. The created
+ * contact is tagged with its source contact id so a rerun skips it. The photo is verified before
  * the contact is created; a bad stored photo or a failed upload still restores the contact and
  * is returned as `photo_error`, because a rerun would skip the contact and never retry the photo.
  */
@@ -62,18 +81,13 @@ export async function restore_entry(
   deps: RestoreWriteDeps,
   entry: ContactManifestEntry,
   folder_id: string,
-  existing_keys: ReadonlySet<string>,
+  existing: TargetFolderContacts,
 ): Promise<EntryOutcome> {
   const contact = await read_contact(deps.ctx, entry);
-  const key = collision_key(contact);
-  if (key !== undefined && existing_keys.has(key)) return { status: 'skipped' };
+  if (is_already_present(existing, entry.contact_id, contact)) return { status: 'skipped' };
   const photo = await read_photo(deps, entry);
 
-  const payload = Object.fromEntries(
-    Object.entries(contact).filter(
-      ([field]) => !field.startsWith('@') && READ_ONLY_FIELDS[field] !== true,
-    ),
-  );
+  const payload = restore_payload(contact, entry.contact_id);
   const contact_id = await deps.connector.create_contact(
     deps.tenant_id,
     deps.target_mailbox_id,

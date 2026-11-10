@@ -1,4 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
+import { extended_properties_expand } from '@wisecom/atlas-core/services/shared/atlas-extended-property';
 import type { GraphEventPayload } from '@wisecom/atlas-types';
 import {
   CALENDARS_READ,
@@ -48,12 +49,9 @@ export async function list_calendar_events(
   mailbox_id: string,
   calendar_id: string,
 ): Promise<GraphEventPayload[]> {
-  const filter = encodeURIComponent(
-    RESTORE_TAG_PROPERTY_IDS.map((property_id) => `id eq '${property_id}'`).join(' or '),
-  );
   const url =
     `${mailbox_url(mailbox_id)}/calendars/${encodeURIComponent(calendar_id)}/events` +
-    `?$select=iCalUId&$top=100&$expand=singleValueExtendedProperties($filter=${filter})`;
+    `?$select=iCalUId&$top=100&$expand=${extended_properties_expand(RESTORE_TAG_PROPERTY_IDS)}`;
   return collect_pages<GraphEventPayload>(client, url, CALENDARS_READ);
 }
 

@@ -37,7 +37,12 @@ Contacts in a folder are stored four at a time, matching the Exchange limit of f
 
 ## Restore
 
-Restore recreates missing folders by their display-name path, then creates each contact and its photo. It never overwrites. A contact whose display name and email addresses (trimmed, lowercased, sorted) match a contact already in the target folder is skipped and counted as skipped. Restoring a snapshot twice therefore creates nothing the second time, and a different person who shares an email address is left alone.
+Restore only adds. It never overwrites or deletes a contact.
+
+- **Folders.** A source folder maps onto the target folder at the same display-name path, and a missing folder is created parent first. Names are compared without case, as Exchange does: a target folder `team` receives the contacts of a source folder `Team`. Exchange rejects two sibling folders whose names differ only in case, so a path always names one folder.
+- **Source tag.** Each restored contact carries a single-value extended property, `AtlasSourceContactId`, holding the id of the contact it was restored from.
+- **Duplicates.** An entry is skipped and counted in `contacts_skipped` when the target folder already holds the original contact under the id the backup recorded, or a contact tagged with that id by this or an earlier restore. Two different people who share a display name are therefore both restored, and restoring a snapshot twice creates nothing the second time, including contacts with no name or email.
+- **Contacts Atlas did not create.** A contact that has no tag and is not in the snapshot, such as the same person entered by hand or imported by another tool, matches an entry with the same display name, email addresses, phone numbers, and company (trimmed, lowercased, sorted). A contact with none of these fields never matches by content.
 
 Every object is checked against its recorded SHA-256 before it is written. A mismatch is reported as an error naming the contact, and the restore continues. A contact whose photo upload fails still counts as restored, and the photo failure is reported separately. Missing consent ends the restore. A partial restore exits `2`.
 

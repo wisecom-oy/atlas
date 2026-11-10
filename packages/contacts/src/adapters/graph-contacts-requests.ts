@@ -66,6 +66,7 @@ export async function collect_pages<T>(
   client: Client,
   first_url: string,
   permission: string,
+  prefer?: string,
 ): Promise<T[]> {
   const items: T[] = [];
   const seen = new Set<string>();
@@ -77,6 +78,7 @@ export async function collect_pages<T>(
       client,
       next,
       permission,
+      prefer,
     );
     items.push(...(page.value ?? []));
     next = page['@odata.nextLink'];

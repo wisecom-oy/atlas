@@ -1,24 +1,25 @@
-import { is_record } from '@/services/shared/json-record';
-
-const PROPERTY_SET = 'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name';
+import {
+  atlas_property_id,
+  extended_property_value,
+} from '@wisecom/atlas-core/services/shared/atlas-extended-property';
 
 /**
  * Single-value extended property that tags an event Atlas restored completely with the id of the
  * event it was restored from, so a repeated restore recognises its own earlier output.
  */
-export const SOURCE_EVENT_PROPERTY_ID = `${PROPERTY_SET} AtlasSourceEventId`;
+export const SOURCE_EVENT_PROPERTY_ID = atlas_property_id('AtlasSourceEventId');
 
 /**
  * Tags a restored event whose attachments or recurrence changes are still being written. It stays
  * without the complete tag when one of those steps fails, so a repeated restore replaces it.
  */
-export const PENDING_SOURCE_EVENT_PROPERTY_ID = `${PROPERTY_SET} AtlasPendingSourceEventId`;
+export const PENDING_SOURCE_EVENT_PROPERTY_ID = atlas_property_id('AtlasPendingSourceEventId');
 
 /**
  * The iCalUId of the event a restored event was created from. Graph gives the created event a new
  * iCalUId, so this is how a repeated restore matches another entry that shares the original one.
  */
-export const SOURCE_ICAL_UID_PROPERTY_ID = `${PROPERTY_SET} AtlasSourceICalUId`;
+export const SOURCE_ICAL_UID_PROPERTY_ID = atlas_property_id('AtlasSourceICalUId');
 
 /** Every restore tag, as `list_calendar_events` expands them. */
 export const RESTORE_TAG_PROPERTY_IDS: readonly string[] = [
@@ -29,21 +30,6 @@ export const RESTORE_TAG_PROPERTY_IDS: readonly string[] = [
 
 /** Whether the created event is complete, or still waits for attachments or series changes. */
 export type RestoreState = 'complete' | 'pending';
-
-/** The string value of one single-value extended property, or undefined when the event lacks it. */
-function extended_property_value(
-  event: Readonly<Record<string, unknown>>,
-  property_id: string,
-): string | undefined {
-  const props = event['singleValueExtendedProperties'];
-  if (!Array.isArray(props)) return undefined;
-  for (const prop of props) {
-    if (is_record(prop) && prop['id'] === property_id) {
-      return typeof prop['value'] === 'string' ? prop['value'] : undefined;
-    }
-  }
-  return undefined;
-}
 
 /** The source event id an event was completely restored from, or undefined when it is not. */
 export function source_tag_of(event: Readonly<Record<string, unknown>>): string | undefined {

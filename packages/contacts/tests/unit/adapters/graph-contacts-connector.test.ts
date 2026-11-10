@@ -150,3 +150,20 @@ describe('GraphContactsConnector photos', () => {
     expect(Array.from(photo ?? [])).toEqual([1, 2, 3]);
   });
 });
+
+describe('GraphContactsConnector folder listing for restore', () => {
+  it('lists contacts under their immutable ids with the Atlas source tag expanded', async () => {
+    const graph = stub_graph_client(() => ({ value: [{ id: 'c1' }] }), { record_headers: true });
+    const connector = new GraphContactsConnector(graph.client as unknown as Client);
+
+    const contacts = await connector.list_folder_contacts('tenant-1', MAILBOX, FOLDER);
+
+    expect(contacts).toEqual([{ id: 'c1' }]);
+    const call = graph.calls[0];
+    expect(call?.headers?.['Prefer']).toBe('IdType="ImmutableId"');
+    expect(decodeURIComponent(call?.url ?? '')).toContain(
+      "$expand=singleValueExtendedProperties($filter=id eq 'String " +
+        "{6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasSourceContactId')",
+    );
+  });
+});
