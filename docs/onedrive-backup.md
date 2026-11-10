@@ -118,7 +118,7 @@ Restores earlier versions of a file, or of every file as of a point in time. See
 
 ### save
 
-Writes a zip archive instead of uploading to Graph. The archive keeps the folder hierarchy, and files larger than 4 MiB are decrypted as a stream.
+Writes a zip archive instead of uploading to Graph. The archive keeps the folder hierarchy. Files larger than 4 MiB are verified in a first pass and then decrypted as a stream into the archive, so memory does not grow with file size.
 
 | Flag | Description | Default |
 | --- | --- | --- |

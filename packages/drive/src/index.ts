@@ -33,12 +33,7 @@ export {
   stream_whole_file_in_chunks,
   type WholeFileStreamOptions,
 } from '@/backup/whole-file-stream';
-export {
-  should_stream_restore,
-  verify_streaming_checksum,
-  stream_decrypt_from_storage,
-  type StreamDecryptResult,
-} from '@/restore/streaming-restore';
+export { should_stream_restore, verify_streaming_checksum } from '@/restore/streaming-restore';
 export { filter_drive_entries } from '@/shared/entry-filter';
 export { join_drive_path } from '@/shared/logical-path';
 export {

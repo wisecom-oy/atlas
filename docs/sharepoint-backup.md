@@ -134,7 +134,7 @@ Versions return to the library they were captured from, so a site with several l
 
 ### save
 
-Writes a zip archive instead of uploading to Graph. The archive keeps the library folder hierarchy, and files larger than 4 MiB are decrypted as a stream.
+Writes a zip archive instead of uploading to Graph. The archive keeps the library folder hierarchy. Files larger than 4 MiB are verified in a first pass and then decrypted as a stream into the archive, so memory does not grow with file size.
 
 | Flag | Description | Default |
 | --- | --- | --- |

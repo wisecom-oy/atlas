@@ -12,6 +12,7 @@ import {
   create_file_archive,
   finalize_file_archive,
 } from '@wisecom/atlas-core/services/shared/file-save-zip-writer';
+import { ArchiveEntryAbortedError } from '@wisecom/atlas-core/services/shared/archive-stream-entry';
 import {
   resolve_save_target,
   settle_empty_save_target,
@@ -32,11 +33,8 @@ import {
   type DriveChainManifest,
   type DriveManifestLookup,
 } from '@/shared/manifest-chain';
-import {
-  should_stream_restore,
-  stream_decrypt_from_storage,
-  verify_streaming_checksum,
-} from '@/restore/streaming-restore';
+import { should_stream_restore } from '@/restore/streaming-restore';
+import { save_streamed_entry } from '@/save/streamed-entry-save';
 
 /** What a provider supplies to the shared save flow: its workload name and its manifest lookup. */
 export interface DriveSaveDeps<TManifest extends DriveChainManifest> {
@@ -216,19 +214,27 @@ async function save_entries_to_archive(
   for (const entry of entries) {
     if (options.should_interrupt?.() === true) break;
     try {
-      const content = await download_and_decrypt(ctx, entry, skip_integrity, integrity_failures);
-      if (!content) {
-        files_skipped++;
-      } else {
-        await add_file_to_archive(file_archive, entry.parent_path, entry.file_name, content);
+      const saved = await save_entry_to_archive(
+        ctx,
+        file_archive,
+        entry,
+        skip_integrity,
+        integrity_failures,
+      );
+      if (saved) {
         files_saved++;
         logger.info(`Saved: ${entry.parent_path}/${entry.file_name}`);
+      } else {
+        files_skipped++;
       }
     } catch (err) {
       // A destination that is gone is not a bad file: every entry left would be downloaded,
       // decrypted and dropped on the floor, so the run stops here and the caller reports the
-      // failure (issue #344).
-      if (err instanceof ArchiveDestinationError) throw err;
+      // failure (issue #344). An entry abandoned half written leaves an archive that cannot be
+      // finished, so it stops the run the same way (issue #617).
+      if (err instanceof ArchiveDestinationError || err instanceof ArchiveEntryAbortedError) {
+        throw err;
+      }
       // A read or decrypt that threw is a damaged file, not a deliberate skip. It counts in both
       // places: `errors` so the run cannot exit clean, and `integrity_failures` so it is not
       // confused with an entry that had nothing to save (issue #341).
@@ -249,24 +255,22 @@ async function save_entries_to_archive(
   return { files_saved, files_skipped, errors };
 }
 
-async function download_and_decrypt(
+/** Writes one entry into the archive, streaming the large ones, and returns whether it was saved. */
+async function save_entry_to_archive(
   ctx: TenantContext,
+  file_archive: Parameters<typeof add_file_to_archive>[0],
   entry: DriveManifestEntry,
   skip_integrity: boolean,
   integrity_failures: string[],
-): Promise<Buffer | undefined> {
-  if (!entry.storage_key) return undefined;
-
+): Promise<boolean> {
+  if (!entry.storage_key) return false;
   if (should_stream_restore(entry)) {
-    const { content, sha256_hex } = await stream_decrypt_from_storage(ctx, entry.storage_key);
-    if (!skip_integrity && !verify_streaming_checksum(entry, sha256_hex)) {
-      integrity_failures.push(entry.file_id);
-      return undefined;
-    }
-    return content;
+    return save_streamed_entry(ctx, file_archive, entry, skip_integrity, integrity_failures);
   }
-
-  return buffered_decrypt(ctx, entry, skip_integrity, integrity_failures);
+  const content = await buffered_decrypt(ctx, entry, skip_integrity, integrity_failures);
+  if (!content) return false;
+  await add_file_to_archive(file_archive, entry.parent_path, entry.file_name, content);
+  return true;
 }
 
 async function buffered_decrypt(

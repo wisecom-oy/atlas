@@ -22,7 +22,8 @@ export interface StreamDecryptResult {
  * AES-256-GCM, and computes the plaintext SHA-256 incrementally.
  *
  * Retains the whole plaintext, so callers that only need the digest should use
- * {@link stream_sha256_from_storage} instead.
+ * {@link stream_sha256_from_storage} instead, and callers that write the plaintext somewhere
+ * should use {@link stream_verified_plaintext}.
  */
 export async function stream_decrypt_from_storage(
   ctx: TenantContext,
@@ -65,8 +66,9 @@ export async function stream_sha256_from_storage(
  * `final()`, and the manifest checksum is only comparable once every byte has passed through. A
  * consumer therefore MUST NOT make the bytes visible to anyone until the iteration has completed
  * normally. A Graph upload session satisfies that by holding its last chunk back, so the item is
- * only created after this generator returns; a caller that cannot delay its side effect that way
- * wants {@link stream_decrypt_from_storage} and its buffered verification instead (issue #343).
+ * only created after this generator returns (issue #343). A zip entry cannot be held back, so a save
+ * verifies the object with {@link stream_sha256_from_storage} first and passes that digest here,
+ * where a mismatch then means the object changed between the reads (issue #617).
  *
  * The generator must be drained or its `return()` called, which a `for await` loop does either way.
  *

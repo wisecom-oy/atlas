@@ -748,7 +748,7 @@ Any Node.js `Writable` works: an HTTP response, an upload stream, or a compresso
 
 A destroyed stream is intentional. Ending it would give the consumer a short archive that opens like a complete one. Over HTTP, the client sees the transfer break, so treat a body that arrived without a completed request as a failed export. Headers are already sent, so the status code cannot report the failure. Check the result, or the absence of one, on the server.
 
-Memory use stays bounded to one message or file. Each entry is fetched, decrypted, compressed, and flushed before the next starts. A slow consumer applies backpressure instead of growing the archive in memory.
+Memory use stays bounded to one message or file. Each entry is fetched, decrypted, compressed, and flushed before the next starts. A slow consumer applies backpressure instead of growing the archive in memory. Drive files larger than 4 MiB are not held at all: they are verified in a first pass and then decrypted straight into the entry, so memory stays at the stream buffers whatever the file size. If such an object changes between the two reads, the export rejects with `ArchiveEntryAbortedError` and the stream is destroyed. See [Nothing is released before it authenticates](/security#nothing-is-released-before-it-authenticates).
 
 ### When the consumer disconnects
 
