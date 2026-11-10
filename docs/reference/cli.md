@@ -572,7 +572,7 @@ atlas contacts delete -m user@company.com
 atlas contacts delete -m user@company.com -s ct-snap-123
 ```
 
-Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites: a contact that already exists in the target folder is skipped and counted in `contacts_skipped`. `verify` exits `1` when a check fails and `2` when interrupted.
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites: a contact that already exists in the target folder is skipped and counted in `contacts_skipped`. `verify` exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one: a key the bucket reports as absent, ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 
 | Option | Commands | Description |
 | --- | --- | --- |
@@ -603,7 +603,7 @@ atlas calendar delete -m user@company.com
 atlas calendar delete -m user@company.com -s cal-snap-123
 ```
 
-Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites or deletes: an event already in the target is skipped and counted in `events_skipped`. Restored events carry no attendees, so no invitations are sent; the attendee list is written into the event body instead. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited). `verify` exits `1` when a check fails and `2` when interrupted.
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites or deletes: an event already in the target is skipped and counted in `events_skipped`. Restored events carry no attendees, so no invitations are sent; the attendee list is written into the event body instead. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited). `verify` exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one: a key the bucket reports as absent, ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 
 | Option | Commands | Description |
 | --- | --- | --- |
