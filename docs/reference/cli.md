@@ -52,7 +52,7 @@ exit "$status"
 | `2`  | Partial backup, restore, or save: item errors, skipped files, integrity failures, or a soft interrupt              | Inspect the partial result before relying on it.                                                                                    |
 | `3`  | Throttling retry budget exhausted, a recognized network error, or transient HTTP `429`, `500`, `502`, `503`, `504` | Schedule a later attempt. A timeout does not prove a write was never committed, so inspect partial work before repeating a restore. |
 | `4`  | `ATLAS_AUTH_DENIED`, `ATLAS_MAILBOX_NOT_LICENSED`, or an unwrapped HTTP `401` or `403`                             | Correct credentials, permissions, admin consent, or licensing before retrying.                                                      |
-| `5`  | `ATLAS_WRONG_PASSPHRASE`                                                                                           | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption.   |
+| `5`  | `ATLAS_WRONG_PASSPHRASE`: the data key would not unwrap, or a drive restore read an object that failed AES-GCM authentication | Supply the original tenant passphrase. Never pad it or delete the wrapped key. If it is correct, investigate possible corruption.   |
 | `6`  | `ATLAS_CONFIG_INVALID`, including failure to load the CLI configuration                                            | Correct the configuration or its storage access.                                                                                    |
 | `7`  | `ATLAS_NOT_FOUND` or an unwrapped HTTP `404`                                                                       | Check the selected resource and identifiers.                                                                                        |
 | `8`  | `ATLAS_OBJECT_LOCK_RETAINED`                                                                                       | Respect retention or legal hold. Repeating the same deletion cannot bypass it.                                                      |
@@ -229,6 +229,8 @@ This applies to Outlook, Contacts, Calendar, OneDrive, and SharePoint. `0` means
 A backup that prints `Status: UNHEALTHY` always exits `2`. For OneDrive, SharePoint, and Teams this includes a run with no new errors where a file is still in the failed-item ledger, either waiting for a retry or permanently skipped after 5 attempts. Those files are listed as warnings, and the run is not complete until the ledger is empty.
 
 `restore` and `save` follow the same contract. A file they cannot decrypt or write is counted as skipped, and any skipped file exits `2`. An archive missing some files is not a success, and a cron job that only checks for `0` must be able to see the difference.
+
+OneDrive and SharePoint `restore` and `restore-version` stop instead at the first stored object that fails AES-GCM authentication, and exit `5`. A failed tag means the tenant key does not match the object or the object was altered in storage. A wrong key fails every object, so continuing would only produce a partial restore that hides the cause. Files restored before the stop stay in the target. See [Authentication failure on an object](../troubleshooting.md#authentication-failure-on-an-object).
 
 An **integrity failure** also exits `2`. A message whose decrypted bytes do not match its manifest checksum is still written, but it can no longer be confirmed as the backed-up content. The ciphertext decrypted correctly and the stored checksum disagrees, which points at the manifest or at an object that was replaced. Run [`atlas outlook verify`](#atlas-outlook-verify) to find the scope before trusting the archive.
 :::
@@ -736,7 +738,7 @@ Restored files keep the modification time the version had, not the time of the r
 
 A file with no version at or before the cutoff is **reported, not skipped silently**, and counts toward the skipped total. Treat that list as the outstanding work, since those files have no pre-incident copy in the backup.
 
-The exit code follows the same contract as snapshot `restore`: `0` when every file was rolled back, `2` when files were skipped, and `1` when any restore errored.
+The exit code follows the same contract as snapshot `restore`: `0` when every file was rolled back, `2` when files were skipped, `5` when a stored version failed AES-GCM authentication and the rollback stopped, and `1` when any restore errored.
 
 Microsoft Graph can promote an earlier version in place with `restoreVersion`, but Atlas does not use it. That call works only on versions the service still holds, so it fails when a backup is needed most: after a retention policy trims history, after a file is deleted, or after a library is removed. Atlas also cannot check that result against the manifest checksum. Atlas uploads the bytes it stored and verified, which guarantees the content matches what the backup recorded.
 

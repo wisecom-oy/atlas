@@ -186,6 +186,8 @@ The authentication tag on an encrypted object does not match its contents. There
 
 The affected items cannot be decrypted in any of these cases. The other items in the snapshot are unaffected.
 
+A OneDrive or SharePoint restore stops at the first such object with `Atlas code: ATLAS_WRONG_PASSPHRASE` and exit code `5`, rather than skipping it and moving on. With a wrong key every object fails, and a run of skipped files would read as a partial restore instead of a key problem. Files restored before the stop stay in the target. Once verify has confirmed that only a few objects are damaged, restore the rest with `--file-filter`.
+
 ## Object Lock errors
 
 Object Lock must be enabled when a bucket is created. Most backends cannot add it to an existing bucket, so a bucket created without it cannot be used for immutable backups.

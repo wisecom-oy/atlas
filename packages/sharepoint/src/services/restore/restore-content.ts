@@ -5,9 +5,10 @@
  * are decrypted in chunks, everything else is buffered. Both verify the
  * plaintext SHA-256 against the manifest before the content is handed back, so
  * a corrupted or truncated blob is skipped rather than uploaded over a good
- * file. A failed authentication tag is raised as `SharePointDecryptAuthError`
- * because it means the wrong key or tampered ciphertext -- an operator-visible
- * condition, not a per-file hiccup to log and move past.
+ * file. A failed authentication tag is raised as `DriveDecryptAuthError`
+ * because it means the wrong key or tampered ciphertext. That is an
+ * operator-visible condition which aborts the restore, not a per-file hiccup
+ * to log and move past (issue #633).
  */
 
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -21,14 +22,7 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 import { is_gcm_auth_failure } from '@wisecom/atlas-core/utils/gcm-auth';
 import { stream_verified_plaintext } from '@wisecom/atlas-core/services/shared/stream-decrypt';
 import { should_stream_restore } from '@wisecom/atlas-drive/restore/streaming-restore';
-
-/** Thrown when ciphertext decrypts with AES-GCM but fails the authentication tag check. */
-export class SharePointDecryptAuthError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
-    this.name = 'SharePointDecryptAuthError';
-  }
-}
+import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
 
 /**
  * Returns the entry's content for restore, or undefined when it cannot be restored.
@@ -81,9 +75,7 @@ async function* authenticated_chunks(
     yield* stream_verified_plaintext(ctx, storage_key, expected_checksum, file_name);
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
-      throw new SharePointDecryptAuthError(`AES-GCM authentication failed for ${file_name}`, {
-        cause: err,
-      });
+      throw new DriveDecryptAuthError(file_name, { cause: err });
     }
     throw err;
   }
@@ -117,9 +109,7 @@ async function buffered_download_and_decrypt(
     return content;
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
-      throw new SharePointDecryptAuthError(`AES-GCM authentication failed for ${entry.file_name}`, {
-        cause: err,
-      });
+      throw new DriveDecryptAuthError(entry.file_name, { cause: err });
     }
     logger.warn(
       `Failed to decrypt ${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`,

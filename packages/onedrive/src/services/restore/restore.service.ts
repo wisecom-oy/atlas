@@ -26,7 +26,7 @@ import {
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
-import { OneDriveDecryptAuthError } from '@/services/restore/restore-integrity';
+import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
 import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
 import { onedrive_manifest_lookup } from '@/services/shared/manifest-lookup';
 import { build_drive_router } from '@/services/restore/drive-router';
@@ -235,11 +235,9 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       logger.info(`Restored: ${target_path}/${placement.file_name}`);
       return { restored: true };
     } catch (err) {
-      if (err instanceof OneDriveDecryptAuthError) {
-        const msg = `${entry.file_name}: ${err.message}`;
-        logger.warn(`Skipped ${entry.file_name}: ${msg}`);
-        return { restored: false, error: msg };
-      }
+      // A failed tag means the key does not fit the snapshot, which fails every remaining file
+      // too. Aborting surfaces that as a key error instead of N skipped files (issue #633).
+      if (err instanceof DriveDecryptAuthError) throw err;
       const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return { restored: false, error: msg };

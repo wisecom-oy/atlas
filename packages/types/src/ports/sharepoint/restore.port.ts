@@ -30,7 +30,12 @@ export interface SharePointRestoreResult {
 }
 
 export interface SharePointRestoreUseCase {
-  /** Restores files from a SharePoint snapshot back to the site's document libraries. */
+  /**
+   * Restores files from a SharePoint snapshot back to the site's document libraries.
+   *
+   * Rejects with WrongPassphraseError on the first object that fails AES-GCM authentication,
+   * since a key that does not fit one object fails every other one too.
+   */
   restore_sharepoint(
     tenant_id: string,
     site_id: string,
