@@ -9,6 +9,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { LARGE_FILE_THRESHOLD } from '@/services/backup/large-file-pipeline';
 import { sync_file_versions } from '@/services/versioning/version-sync';
+import { stub_drive_version_download } from '@wisecom/atlas-types/testing/stub-drive-version-download';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 const KEY = randomBytes(32);
@@ -81,10 +82,12 @@ describe('historical version content storage', () => {
   function make_connector(version: SharePointFileVersion, overrides = {}): SharePointSiteConnector {
     return {
       list_file_versions: vi.fn().mockResolvedValue([version]),
-      download_file_version: vi.fn().mockResolvedValue(Buffer.alloc(1024, 7)),
+      download_file_version: vi.fn().mockImplementation(stub_drive_version_download()),
       stream_file_version: vi
         .fn()
-        .mockResolvedValue(Readable.from([Buffer.alloc(1024, 7)]) as AsyncIterable<Buffer>),
+        .mockImplementation(
+          async () => await Promise.resolve(Readable.from([Buffer.alloc(version.size_bytes, 7)])),
+        ),
       ...overrides,
     } as unknown as SharePointSiteConnector;
   }
@@ -115,6 +118,36 @@ describe('historical version content storage', () => {
     expect(ctx.storage.begin_multipart_upload).toHaveBeenCalledTimes(1);
     expect(ctx.storage.copy).toHaveBeenCalledTimes(1);
     expect(outcome.new_versions_stored).toBe(1);
+  });
+
+  it('fails a buffered version shorter than its listed size, so the run retries it', async () => {
+    const version = make_version(4096);
+    const connector = make_connector(version, {
+      download_file_version: vi.fn().mockResolvedValue(Buffer.alloc(1024, 7)),
+    });
+
+    const outcome = await sync_file_versions(connector, item, 'site-1', 'snap-1', ctx, undefined);
+
+    // The listed size also reaches the connector, which scales its drain timeout with it.
+    expect(connector.download_file_version).toHaveBeenCalledWith('drive-1', 'item-1', 'v1', 4096);
+    expect(outcome.versions_failed).toBe(1);
+    expect(outcome.records).toEqual([]);
+    expect(outcome.next_watermark).toBeUndefined();
+    expect(ctx.storage.put).not.toHaveBeenCalled();
+  });
+
+  it('fails a streamed version that ends before its listed size, without promoting it', async () => {
+    const version = make_version(LARGE_FILE_THRESHOLD);
+    const connector = make_connector(version, {
+      stream_file_version: vi.fn().mockResolvedValue(Readable.from([Buffer.alloc(1024, 7)])),
+    });
+
+    const outcome = await sync_file_versions(connector, item, 'site-1', 'snap-1', ctx, undefined);
+
+    expect(outcome.versions_failed).toBe(1);
+    expect(outcome.records).toEqual([]);
+    expect(outcome.next_watermark).toBeUndefined();
+    expect(ctx.storage.copy).not.toHaveBeenCalled();
   });
 
   it('records an expired streamed version as unavailable, not failed', async () => {

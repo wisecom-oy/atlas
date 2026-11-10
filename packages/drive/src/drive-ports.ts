@@ -45,7 +45,12 @@ export type DriveWorkload = 'onedrive' | 'sharepoint';
 export interface DriveContentConnector {
   download_file_content(item: DriveDeltaItem): Promise<Buffer>;
   list_file_versions(drive_id: string, item_id: string): Promise<DriveFileVersion[]>;
-  download_file_version(drive_id: string, item_id: string, version_id: string): Promise<Buffer>;
+  download_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+    size_bytes?: number,
+  ): Promise<Buffer>;
   stream_file_version(
     drive_id: string,
     item_id: string,
