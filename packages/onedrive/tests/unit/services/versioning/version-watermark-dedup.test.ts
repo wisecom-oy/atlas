@@ -5,6 +5,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { stub_drive_version_download } from '@wisecom/atlas-types/testing/stub-drive-version-download';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 
@@ -77,7 +78,7 @@ function make_harness(
       if (item_id === 'f2') throw new Error('graph failed mid-drive');
       return VERSIONS;
     }),
-    download_file_version: vi.fn().mockResolvedValue(Buffer.from('old-content')),
+    download_file_version: vi.fn().mockImplementation(stub_drive_version_download('old-content')),
   };
   const file_indexes = {
     load_version_watermarks: vi.fn().mockResolvedValue({}),

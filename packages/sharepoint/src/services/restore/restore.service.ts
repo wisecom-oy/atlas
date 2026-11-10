@@ -25,10 +25,8 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
-import {
-  download_and_decrypt,
-  SharePointDecryptAuthError,
-} from '@/services/restore/restore-content';
+import { download_and_decrypt } from '@/services/restore/restore-content';
+import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
 import {
   describe_unresolved_destination,
   resolve_destination_library,
@@ -292,10 +290,10 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       );
       return 'restored';
     } catch (err) {
-      const msg =
-        err instanceof SharePointDecryptAuthError
-          ? `${entry.file_name}: ${err.message}`
-          : `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
+      // A failed tag means the key does not fit the snapshot, which fails every remaining file
+      // too. Aborting surfaces that as a key error instead of N skipped files (issue #633).
+      if (err instanceof DriveDecryptAuthError) throw err;
+      const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
       errors.push(msg);
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return 'skipped';

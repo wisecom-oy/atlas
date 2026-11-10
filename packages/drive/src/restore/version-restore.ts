@@ -22,6 +22,7 @@ import type {
 } from '@/drive-ports';
 import { select_versions_to_restore, type SelectedVersion } from '@/versioning/version-selection';
 import { build_restored_file_name, split_parent_path } from '@/versioning/version-placement';
+import { DriveDecryptAuthError } from '@/restore/decrypt-auth-error';
 
 /** The upload surface of a drive connector; both provider connectors satisfy it structurally. */
 export interface DriveUploadConnector {
@@ -253,6 +254,8 @@ async function restore_one_version(
       },
     };
   } catch (err) {
+    // Same policy as snapshot restore: a failed tag is a key error, not a per-version skip (#633).
+    if (err instanceof DriveDecryptAuthError) throw err;
     const msg = `${original_path}: ${err instanceof Error ? err.message : String(err)}`;
     logger.warn(`Skipped ${msg}`);
     return { error: msg };

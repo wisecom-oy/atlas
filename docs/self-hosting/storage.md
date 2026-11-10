@@ -208,7 +208,7 @@ Check a bucket's class with `atlas storage-check -t <id>`. It reports one of:
 - `versioned-only (legacy)`: created before v2.1.0 with versioning but without Object Lock.
 - `unversioned (legacy)`: created before versioning was enabled.
 
-Backends that reject `ObjectLockEnabledForBucket` create a plain bucket and log a warning. Immutability does not work on those backends.
+Backends that do not implement `ObjectLockEnabledForBucket` (`NotImplemented`), or that reject it with an error naming Object Lock, get a plain bucket and a warning. Immutability does not work on those backends: `storage-check` reports the bucket as `unversioned (legacy)`, and a backup with `--retention-days` fails before writing anything because the bucket has neither versioning nor Object Lock. Any other creation error, such as `InvalidArgument` without Object Lock wording, aborts bucket creation rather than leaving an unlocked bucket behind.
 
 ### Removing a bucket default retention
 

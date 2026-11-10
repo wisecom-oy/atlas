@@ -8,10 +8,8 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { should_stream_restore } from '@wisecom/atlas-drive/restore/streaming-restore';
-import {
-  OneDriveDecryptAuthError,
-  plaintext_sha256_equals_expected,
-} from '@/services/restore/restore-integrity';
+import { plaintext_sha256_equals_expected } from '@/services/restore/restore-integrity';
+import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
 
 /**
  * Fetches one stored blob for restore, or undefined when it cannot be trusted.
@@ -69,9 +67,7 @@ async function* authenticated_chunks(
     yield* stream_verified_plaintext(ctx, storage_key, expected_checksum, file_name);
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
-      throw new OneDriveDecryptAuthError(`AES-GCM authentication failed for ${file_name}`, {
-        cause: err,
-      });
+      throw new DriveDecryptAuthError(file_name, { cause: err });
     }
     throw err;
   }
@@ -104,9 +100,7 @@ async function buffered_download_and_decrypt(
     return content;
   } catch (err) {
     if (is_gcm_auth_failure(err)) {
-      throw new OneDriveDecryptAuthError(`AES-GCM authentication failed for ${ref.file_name}`, {
-        cause: err,
-      });
+      throw new DriveDecryptAuthError(ref.file_name, { cause: err });
     }
     logger.warn(
       `Failed to decrypt ${ref.file_name}: ${err instanceof Error ? err.message : String(err)}`,

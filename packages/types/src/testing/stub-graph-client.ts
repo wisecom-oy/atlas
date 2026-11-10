@@ -37,6 +37,8 @@ export interface GraphRequestStub {
   header(name: string, value: string): GraphRequestStub;
   headers(values: Record<string, string>): GraphRequestStub;
   responseType(type: string): GraphRequestStub;
+  /** Accepts fetch options such as the attempt's abort `signal`; nothing is recorded. */
+  option(key: string, value: unknown): GraphRequestStub;
   get(): Promise<unknown>;
   post(body?: unknown): Promise<unknown>;
   put(body?: unknown): Promise<unknown>;
@@ -94,6 +96,7 @@ export function stub_graph_client(
         return request;
       },
       responseType: () => request,
+      option: () => request,
       get: () => send('get'),
       post: (body) => send('post', body),
       put: (body) => send('put', body),

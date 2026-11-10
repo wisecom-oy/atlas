@@ -35,19 +35,28 @@ Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 
 
 - It honors the `Retry-After` header when Graph sends one. A value under one second is raised to 1 to 2 seconds. Without the header, a 429 applies a 30-second cooldown.
 - It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Backoff waits, `Retry-After` waits, and cooldowns share one 24-minute budget of waiting. Time spent inside each request does not count. A `Retry-After` longer than 5 minutes fails the call at once.
+- Each attempt times out after 60 seconds, and Atlas aborts the timed-out request before it sends the next one.
 - If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
 
 Occasional 429 and 5xx responses during a large first backup need no action.
 
+### Restore writes are sent once
+
+A request that creates something during a restore is not repeated after a 500, 502, 504, a 503 without `Retry-After`, a dropped connection, or a timeout. Graph can commit a create and still lose the response, so repeating it would leave two copies. This covers messages, message and event attachments, events, contacts, mail, contact and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
+
+Such a failure is recorded against the item in the run summary and the restore continues. The item may or may not exist in the target. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts whose name and email already match, so re-running the restore fills the gap without duplicating anything. For Outlook, check the reported message in the restore folder before restoring it again.
+
+A 429, or a 503 with `Retry-After`, is still retried: Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, upload sessions, and upload chunks are safe to repeat and keep the full retry policy.
+
 ### When to act
 
-| What you see                                       | What it means                                                                    | What to do                                                                                                                           |
-| -------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Occasional 429s during a large initial backup      | Normal. Graph throttles per application and per mailbox, and Atlas waits it out. | Nothing.                                                                                                                             |
-| Repeated 429s that cause folder failures           | Several backups run at the same time and exceed the tenant's Graph capacity.     | Run one `atlas outlook backup -m` per mailbox and stagger the schedules.                                                              |
-| 429s on every request from the start               | Another application in the tenant may be using most of the Graph quota.          | Review tenant-wide Graph usage. Contact Microsoft support if the limits look lower than expected.                                    |
-| Occasional 500 or 502 responses                    | Normal under load. Retried automatically.                                        | Nothing, if the run completes.                                                                                                       |
-| Persistent 500 or 502 on the same item             | Retries are exhausted against a server-side fault, not throttling.               | Re-run the backup later. If the failure repeats, open a Microsoft support case with the time of the failure and the affected item. |
+| What you see                                  | What it means                                                                    | What to do                                                                                                                         |
+| --------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Occasional 429s during a large initial backup | Normal. Graph throttles per application and per mailbox, and Atlas waits it out. | Nothing.                                                                                                                           |
+| Repeated 429s that cause folder failures      | Several backups run at the same time and exceed the tenant's Graph capacity.     | Run one `atlas outlook backup -m` per mailbox and stagger the schedules.                                                           |
+| 429s on every request from the start          | Another application in the tenant may be using most of the Graph quota.          | Review tenant-wide Graph usage. Contact Microsoft support if the limits look lower than expected.                                  |
+| Occasional 500 or 502 responses               | Normal under load. Retried automatically.                                        | Nothing, if the run completes.                                                                                                     |
+| Persistent 500 or 502 on the same item        | Retries are exhausted against a server-side fault, not throttling.               | Re-run the backup later. If the failure repeats, open a Microsoft support case with the time of the failure and the affected item. |
 
 ### Throughput ceiling
 
@@ -185,6 +194,8 @@ The authentication tag on an encrypted object does not match its contents. There
 3. **Tampering:** the object was modified deliberately.
 
 The affected items cannot be decrypted in any of these cases. The other items in the snapshot are unaffected.
+
+A OneDrive or SharePoint restore stops at the first such object with `Atlas code: ATLAS_WRONG_PASSPHRASE` and exit code `5`, rather than skipping it and moving on. With a wrong key every object fails, and a run of skipped files would read as a partial restore instead of a key problem. Files restored before the stop stay in the target. Once verify has confirmed that only a few objects are damaged, restore the rest with `--file-filter`.
 
 ## Object Lock errors
 

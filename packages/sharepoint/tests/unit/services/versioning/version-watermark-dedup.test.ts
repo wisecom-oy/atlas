@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { SharePointDeltaCursor } from '@wisecom/atlas-types';
+import { stub_drive_version_download } from '@wisecom/atlas-types/testing/stub-drive-version-download';
 import {
   make_connector,
   make_cursors,
@@ -76,7 +77,7 @@ function make_harness(
       Promise.resolve(make_file_item(item_id)),
     ),
     list_file_versions: vi.fn().mockResolvedValue(VERSIONS),
-    download_file_version: vi.fn().mockResolvedValue(Buffer.from('old-content')),
+    download_file_version: vi.fn().mockImplementation(stub_drive_version_download('old-content')),
   } as never);
   const file_indexes = make_file_indexes();
   const cursors = make_cursors(

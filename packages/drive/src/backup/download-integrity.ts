@@ -69,6 +69,28 @@ export function assert_transferred_size(
   );
 }
 
+/**
+ * Passes chunks straight through, then fails the transfer if they did not add up to the expected
+ * size.
+ *
+ * The last point where a truncated, duplicated or restarted stream can still be caught: past it the
+ * bytes have a checksum and an auth tag of their own, and nothing downstream knows how many there
+ * should have been (issue #338). Throwing here aborts a staged multipart upload, so no canonical
+ * object is promoted and no manifest entry is written.
+ */
+export async function* size_checked_chunks(
+  chunks: AsyncIterable<Buffer>,
+  item_id: string,
+  expected_bytes: number,
+): AsyncGenerator<Buffer> {
+  let transferred = 0;
+  for await (const chunk of chunks) {
+    transferred += chunk.length;
+    yield chunk;
+  }
+  assert_transferred_size(item_id, transferred, expected_bytes);
+}
+
 /** Parses the `bytes <start>-<end>/<size>` form; anything else, including `*`, is unusable. */
 function parse_content_range(header: string | null): { start: number; end: number } | undefined {
   const match = /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/.exec(header?.trim() ?? '');

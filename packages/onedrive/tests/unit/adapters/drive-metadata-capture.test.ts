@@ -35,6 +35,7 @@ function make_client(put_result: unknown = { id: 'new-item' }): {
   const api = vi.fn((url: string) => {
     const chain = {
       header: vi.fn(() => chain),
+      option: vi.fn(() => chain),
       select: vi.fn(() => chain),
       put: vi.fn(async () => {
         calls.push({ url, method: 'put' });
@@ -172,6 +173,7 @@ describe('restoring original timestamps (issue #54)', () => {
     const api = vi.fn(() => {
       const chain = {
         header: vi.fn(() => chain),
+        option: vi.fn(() => chain),
         put: vi.fn(async () => {
           calls.push('put');
           return { id: 'new-item' };

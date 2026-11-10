@@ -3,6 +3,7 @@ import type { GraphContactPayload } from '@wisecom/atlas-types';
 import {
   CONTACTS_READ,
   CONTACTS_READ_WRITE,
+  CREATE_ONCE,
   collect_pages,
   graph_call,
   is_not_found,
@@ -57,8 +58,11 @@ export async function create_contact(
   folder_id: string,
   payload: Readonly<Record<string, unknown>>,
 ): Promise<string> {
-  const created: unknown = await graph_call(CONTACTS_READ_WRITE, () =>
-    client.api(folder_contacts_url(mailbox_id, folder_id)).post(payload),
+  const created: unknown = await graph_call(
+    CONTACTS_READ_WRITE,
+    (signal) =>
+      client.api(folder_contacts_url(mailbox_id, folder_id)).option('signal', signal).post(payload),
+    CREATE_ONCE,
   );
   return string_field(created, 'id');
 }

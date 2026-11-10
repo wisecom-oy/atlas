@@ -3,6 +3,7 @@ import {
   rethrow_if_access_denied,
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
+  type GraphRetryOptions,
 } from '@wisecom/atlas-m365-graph';
 import { is_record } from '@/services/shared/json-record';
 
@@ -17,10 +18,20 @@ export function mailbox_url(mailbox_id: string): string {
   return `/users/${encodeURIComponent(mailbox_id)}`;
 }
 
+/**
+ * Retry policy for a POST that creates an item, folder or attachment. Sending one again after a
+ * 5xx or a timeout can create a second copy, so only a throttle response is retried (issue #624).
+ */
+export const CREATE_ONCE: GraphRetryOptions = { idempotent: false };
+
 /** Runs one Graph call with throttling retries, mapping permission and licence faults to their errors. */
-export async function graph_call<T>(permission: string, call: () => Promise<T>): Promise<T> {
+export async function graph_call<T>(
+  permission: string,
+  call: (attempt_signal: AbortSignal) => Promise<T>,
+  retry: GraphRetryOptions = {},
+): Promise<T> {
   try {
-    return await with_graph_retry(call);
+    return await with_graph_retry(call, retry);
   } catch (err) {
     // Graph answers an unlicensed mailbox with 403 too, so the licence code must be checked first.
     rethrow_if_mailbox_not_licensed(err);

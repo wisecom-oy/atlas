@@ -3,6 +3,7 @@ import type { GraphEventPayload } from '@wisecom/atlas-types';
 import {
   CALENDARS_READ,
   CALENDARS_READ_WRITE,
+  CREATE_ONCE,
   collect_pages,
   get_json,
   graph_call,
@@ -64,8 +65,11 @@ export async function create_event(
   payload: Readonly<Record<string, unknown>>,
 ): Promise<string> {
   const url = `${mailbox_url(mailbox_id)}/calendars/${encodeURIComponent(calendar_id)}/events`;
-  const created: unknown = await graph_call(CALENDARS_READ_WRITE, () =>
-    client.api(url).header('Prefer', prefer_header()).post(payload),
+  const created: unknown = await graph_call(
+    CALENDARS_READ_WRITE,
+    (signal) =>
+      client.api(url).header('Prefer', prefer_header()).option('signal', signal).post(payload),
+    CREATE_ONCE,
   );
   return string_field(created, 'id');
 }

@@ -23,8 +23,6 @@ import {
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 
-import { read_content } from '@/services/shared/content-objects';
-
 interface ObjectCheck {
   readonly key: string;
   readonly checksum: string;
@@ -44,9 +42,36 @@ function objects_of(entry: ContactManifestEntry): ObjectCheck[] {
   return checks;
 }
 
+/** The stored ciphertext, or undefined when the bucket reports the key absent. Other storage errors propagate. */
+async function read_stored_object(ctx: TenantContext, key: string): Promise<Buffer | undefined> {
+  try {
+    return await ctx.storage.get(key);
+  } catch (err) {
+    if (is_absent_object_error(err)) return undefined;
+    throw err;
+  }
+}
+
+/**
+ * Whether the ciphertext decrypts and hashes to the recorded checksum. A failed GCM tag or a
+ * truncated payload is a damaged object, not a run error: decryption is local, so its failure
+ * describes this object alone. A wrong passphrase never reaches here, it fails the DEK unwrap
+ * when the tenant context is created.
+ */
+function decrypts_to_checksum(ctx: TenantContext, ciphertext: Buffer, check: ObjectCheck): boolean {
+  let plaintext: Buffer;
+  try {
+    plaintext = ctx.decrypt(ciphertext, check.key);
+  } catch {
+    return false;
+  }
+  return compute_content_digests(ctx, plaintext).checksum === check.checksum;
+}
+
 /**
  * Fast mode confirms the object exists. Full mode decrypts it and recomputes the plaintext
- * SHA-256. An absent object is a failed check; other storage errors propagate.
+ * SHA-256. An absent, undecryptable, or mismatched object is a failed check; other storage
+ * errors propagate.
  */
 async function object_intact(
   ctx: TenantContext,
@@ -54,13 +79,9 @@ async function object_intact(
   fast: boolean,
 ): Promise<boolean> {
   if (fast) return ctx.storage.exists(check.key);
-  try {
-    const bytes = await read_content(ctx, check.key);
-    return compute_content_digests(ctx, bytes).checksum === check.checksum;
-  } catch (err) {
-    if (is_absent_object_error(err)) return false;
-    throw err;
-  }
+  const ciphertext = await read_stored_object(ctx, check.key);
+  if (ciphertext === undefined) return false;
+  return decrypts_to_checksum(ctx, ciphertext, check);
 }
 
 /** Checks every object referenced by a contacts snapshot manifest. */
