@@ -18,7 +18,7 @@ import { create_calendar, list_calendars } from '@/adapters/graph-calendar-calen
 import { fetch_calendar_delta } from '@/adapters/graph-calendar-delta';
 import {
   create_event,
-  delete_occurrence,
+  delete_event,
   fetch_series_master,
   list_calendar_events,
   list_series_instances,
@@ -128,7 +128,12 @@ export class GraphCalendarConnector implements CalendarConnector {
     mailbox_id: string,
     occurrence_id: string,
   ): Promise<void> {
-    return delete_occurrence(this._client, mailbox_id, occurrence_id);
+    return delete_event(this._client, mailbox_id, occurrence_id);
+  }
+
+  /** Deletes an event or whole series an earlier restore created but never completed. */
+  async delete_event(_tenant_id: string, mailbox_id: string, event_id: string): Promise<void> {
+    return delete_event(this._client, mailbox_id, event_id);
   }
 
   /** Adds a file attachment to an event. */

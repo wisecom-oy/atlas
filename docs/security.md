@@ -408,7 +408,7 @@ Capturing permissions is expensive. Each permission operation costs 5 resource u
 
 ## Calendar restore does not notify attendees
 
-A calendar restore writes events through Graph without their attendee lists. Atlas removes attendees and the organizer from each created event and writes them as text at the top of the body, so the restore sends no invitations, updates, or cancellations to anyone. The cost is that restored events carry no working invitations and no new Teams meeting. A restore skips events the target already holds (matching iCalUId, or an event Atlas restored earlier), so re-running it does not create duplicates. Treat the attendee text as a record of the original meeting, not as live invitations.
+A calendar restore writes events through Graph without their attendee lists. Atlas removes attendees and the organizer from each created event and writes them as text at the top of the body, so the restore sends no invitations, updates, or cancellations to anyone. The cost is that restored events carry no working invitations and no new Teams meeting. A restore skips events the target already holds (matching iCalUId, or an event Atlas restored completely earlier), so re-running it does not create duplicates. The only event a restore deletes is one an earlier restore created and left incomplete, identified by its pending tag, which it then recreates in full. Treat the attendee text as a record of the original meeting, not as live invitations.
 
 ## Storage request events
 

@@ -117,6 +117,9 @@ export interface CalendarConnector {
   /** Removes one occurrence of a series that this restore created, to replay a cancelled occurrence. */
   delete_occurrence(tenant_id: string, mailbox_id: string, occurrence_id: string): Promise<void>;
 
+  /** Deletes an event or whole series an earlier restore created but left incomplete, to recreate it. */
+  delete_event(tenant_id: string, mailbox_id: string, event_id: string): Promise<void>;
+
   /** Adds a file attachment to an event, using an upload session for large files. */
   upload_event_attachment(
     tenant_id: string,

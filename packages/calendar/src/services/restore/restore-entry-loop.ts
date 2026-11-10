@@ -9,7 +9,7 @@ import {
 } from '@/services/restore/restore-event-writer';
 import { error_message } from '@/services/shared/error-message';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
-import { source_tag_of } from '@/services/shared/source-tag';
+import { pending_tag_of, source_ical_uid_of, source_tag_of } from '@/services/shared/source-tag';
 
 function describe_entry(entry: CalendarEventEntry): string {
   return entry.subject ? `"${entry.subject}" (${entry.event_id})` : entry.event_id;
@@ -36,11 +36,19 @@ async function existing_events_for(
     deps.target_mailbox_id,
     calendar_id,
   );
-  const existing: ExistingEvents = { ical_uids: new Set(), source_ids: new Set() };
+  const existing: ExistingEvents = {
+    ical_uids: new Set(),
+    source_ids: new Set(),
+    incomplete: new Map(),
+  };
   for (const event of events) {
     if (typeof event['iCalUId'] === 'string') existing.ical_uids.add(event['iCalUId']);
     const source = source_tag_of(event);
     if (source !== undefined) existing.source_ids.add(source);
+    const restored_uid = source_ical_uid_of(event);
+    if (restored_uid !== undefined) existing.ical_uids.add(restored_uid);
+    const pending = pending_tag_of(event);
+    if (pending !== undefined) existing.incomplete.set(pending, event.id);
   }
   cache.set(calendar_id, existing);
   return existing;

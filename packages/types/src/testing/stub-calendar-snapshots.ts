@@ -11,9 +11,15 @@ import type { MemoryCalendarManifests } from '@/testing/stub-calendar-ports';
 export const TENANT = 'tenant-1';
 export const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
 export const SNAPSHOT = 'cal-snap-1-abc';
-/** Extended property that stamps each restored event with its source event id. */
+/** Extended property that stamps each completely restored event with its source event id. */
 export const SOURCE_TAG_ID =
   'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasSourceEventId';
+/** Extended property that stamps a restored event until its attachments and series changes land. */
+export const PENDING_TAG_ID =
+  'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasPendingSourceEventId';
+/** Extended property that records the original iCalUId on each restored event. */
+export const SOURCE_ICAL_UID_TAG_ID =
+  'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasSourceICalUId';
 
 /** Source calendars of a snapshot: a default calendar and a writable `Work` calendar. */
 export const SOURCE_CALENDARS: CalendarRecord[] = [

@@ -28,6 +28,7 @@ export interface CalendarHooks {
     patch: Readonly<Record<string, unknown>>,
   ) => Error | undefined;
   readonly delete_occurrence?: (occurrence_id: string) => Error | undefined;
+  readonly delete_event?: (event_id: string) => Error | undefined;
   readonly upload_attachment?: (attachment: EventAttachmentUpload) => Error | undefined;
 }
 
@@ -72,6 +73,7 @@ export interface CalendarCalls {
   }[];
   readonly instance_queries: { readonly series_id: string; readonly window: InstanceWindow }[];
   readonly deleted_occurrences: string[];
+  readonly deleted_events: string[];
   readonly uploads: { readonly event_id: string; readonly attachment: EventAttachmentUpload }[];
 }
 
@@ -158,6 +160,7 @@ export function fake_calendar_connector(): FakeCalendarConnector {
     patches: [],
     instance_queries: [],
     deleted_occurrences: [],
+    deleted_events: [],
     uploads: [],
   };
   const hook = <A extends unknown[]>(
@@ -216,6 +219,10 @@ export function fake_calendar_connector(): FakeCalendarConnector {
     delete_occurrence: async (_tenant, _mailbox, occurrence_id) => {
       hook(script.hooks.delete_occurrence, occurrence_id);
       calls.deleted_occurrences.push(occurrence_id);
+    },
+    delete_event: async (_tenant, _mailbox, event_id) => {
+      hook(script.hooks.delete_event, event_id);
+      calls.deleted_events.push(event_id);
     },
     upload_event_attachment: async (_tenant, _mailbox, event_id, attachment) => {
       hook(script.hooks.upload_attachment, attachment);

@@ -11,7 +11,7 @@ import {
   prefer_header,
   string_field,
 } from '@/adapters/graph-calendar-requests';
-import { SOURCE_EVENT_PROPERTY_ID } from '@/services/shared/source-tag';
+import { RESTORE_TAG_PROPERTY_IDS } from '@/services/shared/source-tag';
 
 function event_url(mailbox_id: string, event_id: string): string {
   return `${mailbox_url(mailbox_id)}/events/${encodeURIComponent(event_id)}`;
@@ -48,7 +48,9 @@ export async function list_calendar_events(
   mailbox_id: string,
   calendar_id: string,
 ): Promise<GraphEventPayload[]> {
-  const filter = encodeURIComponent(`id eq '${SOURCE_EVENT_PROPERTY_ID}'`);
+  const filter = encodeURIComponent(
+    RESTORE_TAG_PROPERTY_IDS.map((property_id) => `id eq '${property_id}'`).join(' or '),
+  );
   const url =
     `${mailbox_url(mailbox_id)}/calendars/${encodeURIComponent(calendar_id)}/events` +
     `?$select=iCalUId&$top=100&$expand=singleValueExtendedProperties($filter=${filter})`;
@@ -102,13 +104,13 @@ export async function update_event(
   );
 }
 
-/** Removes one occurrence of a series created by this restore. */
-export async function delete_occurrence(
+/** Deletes an event, a whole series, or one occurrence by id. */
+export async function delete_event(
   client: Client,
   mailbox_id: string,
-  occurrence_id: string,
+  event_id: string,
 ): Promise<void> {
   await graph_call(CALENDARS_READ_WRITE, () =>
-    client.api(event_url(mailbox_id, occurrence_id)).delete(),
+    client.api(event_url(mailbox_id, event_id)).delete(),
   );
 }
