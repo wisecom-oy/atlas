@@ -79,10 +79,22 @@ async function decrypt_entry_attachments(
   const decrypted: DecryptedAttachment[] = [];
 
   for (const att of entry.attachments) {
-    if (!att.storage_key) continue;
+    if (!att.storage_key) {
+      // A zero-byte attachment has no stored blob; any other one lost its content.
+      if (att.size_bytes > 0) {
+        record_attachment_failure(result, entry.object_id, att, 'no stored content');
+      }
+      continue;
+    }
 
     try {
-      const content = await decrypt_and_verify_attachment(ctx, att, skip_integrity, result);
+      const content = await decrypt_and_verify_attachment(
+        ctx,
+        entry.object_id,
+        att,
+        skip_integrity,
+        result,
+      );
       decrypted.push({
         name: att.name,
         content_type: att.content_type,
@@ -91,8 +103,11 @@ async function decrypt_entry_attachments(
         ...(att.content_id ? { content_id: att.content_id } : {}),
       });
     } catch (err) {
-      logger.warn(
-        `Failed to decrypt attachment "${att.name}": ${err instanceof Error ? err.message : String(err)}`,
+      record_attachment_failure(
+        result,
+        entry.object_id,
+        att,
+        err instanceof Error ? err.message : String(err),
       );
     }
   }
@@ -102,6 +117,7 @@ async function decrypt_entry_attachments(
 
 async function decrypt_and_verify_attachment(
   ctx: TenantContext,
+  message_id: string,
   att: AttachmentEntry,
   skip_integrity: boolean,
   result: EntryResult,
@@ -111,13 +127,23 @@ async function decrypt_and_verify_attachment(
 
   if (!skip_integrity && att.checksum) {
     if (!verify_checksum(plaintext, att.checksum)) {
-      result.integrity_fail++;
-      result.integrity_failures.push(`attachment:${att.attachment_id}`);
-      logger.warn(`Integrity check failed for attachment "${att.name}"`);
+      record_attachment_failure(result, message_id, att, 'checksum mismatch');
     } else {
       result.integrity_ok++;
     }
   }
 
   return plaintext;
+}
+
+/** Records an attachment that save could not write intact, so the run reports a partial result. */
+function record_attachment_failure(
+  result: EntryResult,
+  message_id: string,
+  att: AttachmentEntry,
+  reason: string,
+): void {
+  result.integrity_fail++;
+  result.integrity_failures.push(`message:${message_id} attachment:${att.attachment_id}`);
+  logger.warn(`Attachment "${att.name}" of message ${message_id} not saved intact: ${reason}`);
 }

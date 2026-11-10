@@ -376,6 +376,8 @@ The formatted view is the same for both formats: subject, from, to, cc, date, a 
 
 Export backed-up mail as standard `.eml` files (RFC 5322) in a zip archive. MIME messages are written **byte for byte** from the stored object, so the exported file is the message Exchange received. Legacy JSON entries are rebuilt into `.eml` at export time. Attachments are embedded as MIME parts in both cases. Every message and attachment is SHA-256 verified after decryption unless `--skip-verify` is set.
 
+A legacy attachment that cannot be fetched or decrypted, or that has a size but no stored content, is left out of its `.eml`. Each one is listed as an integrity failure naming the message and attachment, for example `message:<message-id> attachment:<attachment-id>`, and the run exits `2`.
+
 ::: warning Exported files on Windows are marked as internet-sourced
 On Windows, Atlas stamps the archive with Mark-of-the-Web: a `Zone.Identifier` stream carrying `ZoneId=3`. The content came from a tenant over the network, and Atlas does not vet it, so the export must not remove a protection the file would have had from a browser or mail attachment. Office opens recovered documents in Protected View with macros blocked.
 

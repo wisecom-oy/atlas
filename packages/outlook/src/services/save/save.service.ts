@@ -73,7 +73,7 @@ export class SaveService implements SaveUseCase {
           return await this.finish_empty_result(snapshot_id, options, target);
         }
 
-        return this.save_batch(
+        return await this.save_batch(
           ctx,
           tenant_id,
           owner_id,
@@ -128,7 +128,7 @@ export class SaveService implements SaveUseCase {
           `Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`,
         );
 
-        return this.save_batch(
+        return await this.save_batch(
           ctx,
           tenant_id,
           owner_id,
