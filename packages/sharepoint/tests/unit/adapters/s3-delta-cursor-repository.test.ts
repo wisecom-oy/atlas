@@ -107,6 +107,13 @@ describe('S3SharePointDeltaCursorRepository', () => {
     await expect(repo.load(ctx, SITE)).rejects.toBeInstanceOf(UnreadableContentError);
   });
 
+  it('rejects another site cursor stored under this site key', async () => {
+    const { ctx } = make_ctx({ [CURSOR_KEY]: make_cursor({ site_id: 'site-2' }) });
+
+    // Resuming one site from another site's delta links would skip its changes (issue #622).
+    await expect(repo.load(ctx, SITE)).rejects.toBeInstanceOf(UnreadableContentError);
+  });
+
   it('encrypts the cursor before it is stored', async () => {
     const encrypt = vi.fn((data: Buffer) => data);
     const { ctx } = make_ctx();
