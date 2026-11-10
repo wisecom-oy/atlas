@@ -5,6 +5,7 @@ import {
   delete_scopes,
   delete_snapshot_manifest,
 } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { TeamsDeletionService } from '@/services/deletion/deletion.service';
 import {
   teams_meta_prefix_for,
@@ -12,7 +13,10 @@ import {
   TEAMS_KEYS,
 } from '@/services/shared/storage-keys';
 
-vi.mock('@wisecom/atlas-core/services/deletion/shared/prefix-deleter', () => ({
+vi.mock('@wisecom/atlas-core/services/deletion/shared/prefix-deleter', async () => ({
+  ...(await vi.importActual<Record<string, unknown>>(
+    '@wisecom/atlas-core/services/deletion/shared/prefix-deleter',
+  )),
   delete_scopes: vi.fn(async () => ({
     deleted_objects: 0,
     deleted_manifests: 0,
@@ -30,6 +34,8 @@ vi.mock('@wisecom/atlas-core/services/deletion/shared/prefix-deleter', () => ({
     failed_manifests: 0,
   })),
 }));
+
+const log_error = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
 
 const TENANT = 'tenant-1';
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
@@ -82,6 +88,33 @@ describe('TeamsDeletionService.delete_team_data', () => {
     await expect(service.delete_team_data(TENANT, 'not-a-guid')).rejects.toThrow(ConfigError);
     expect(create_storage_only).not.toHaveBeenCalled();
     expect(delete_scopes).not.toHaveBeenCalled();
+  });
+
+  it('returns retained and failed counts and logs them when objects survive the sweep', async () => {
+    vi.mocked(delete_scopes).mockResolvedValueOnce({
+      deleted_objects: 5,
+      deleted_manifests: 1,
+      retained_objects: 2,
+      retained_manifests: 1,
+      failed_objects: 1,
+      failed_manifests: 0,
+    });
+    const { service } = setup();
+
+    const result = await service.delete_team_data(TENANT, TEAM);
+
+    expect(result).toMatchObject({ retained_objects: 2, retained_manifests: 1, failed_objects: 1 });
+    expect(log_error).toHaveBeenCalledWith(
+      'Teams backup deletion left 3 object(s) retained by Object Lock and 1 failed.',
+    );
+  });
+
+  it('logs nothing when every object is deleted', async () => {
+    const { service } = setup();
+
+    await service.delete_team_data(TENANT, TEAM);
+
+    expect(log_error).not.toHaveBeenCalled();
   });
 });
 
