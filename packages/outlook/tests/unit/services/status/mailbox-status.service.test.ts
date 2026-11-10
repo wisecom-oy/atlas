@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
 import { MailboxStatusService } from '@/services/status/mailbox-status.service';
+import { STATUS_PEEK_PAGE_SIZE } from '@/services/status/folder-delta-peek';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
@@ -261,18 +262,16 @@ describe('MailboxStatusService', () => {
     expect(result.folders[0]!.is_up_to_date).toBe(true);
     expect(result.folders[1]!.has_backup).toBe(true);
     expect(result.folders[1]!.is_up_to_date).toBe(false);
+    expect(result.folders[1]!.peek_error).toBe('Error: Network timeout');
+    // A failed folder reports zero pending; the roll-up must still not call it current (#630).
+    expect(result.total_pending_changes).toBe(0);
+    expect(result.is_up_to_date).toBe(false);
   });
 
-  it('passes page_size=1 and stops after first page via on_page returning false', async () => {
+  it('reads the delta at the status page size from the saved link', async () => {
     const manifest = make_manifest('user@test.com', { f1: 'https://delta/saved' });
     vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue(manifest);
     vi.mocked(mock_connector.list_mail_folders).mockResolvedValue([make_folder('Inbox', 'f1')]);
-
-    vi.mocked(mock_connector.fetch_delta).mockImplementation(async (_t, _m, _f, _link, on_page) => {
-      const should_continue = on_page?.(1, 0, []);
-      expect(should_continue).toBe(false);
-      return make_empty_delta();
-    });
 
     await service.check_mailbox_status('t', 'user@test.com');
 
@@ -282,7 +281,7 @@ describe('MailboxStatusService', () => {
       'f1',
       'https://delta/saved',
       expect.any(Function),
-      1,
+      STATUS_PEEK_PAGE_SIZE,
     );
   });
 });

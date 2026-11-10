@@ -11,7 +11,20 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
+import { peek_folder_or_record_error } from '@/services/status/folder-delta-peek';
+
+/** The status row for a folder with no saved delta link. */
+function never_backed_up_folder(folder: MailFolder): FolderStatus {
+  return {
+    folder_id: folder.folder_id,
+    folder_name: folder.folder_path,
+    has_backup: false,
+    pending_new: 0,
+    pending_removed: 0,
+    pending_capped: false,
+    is_up_to_date: false,
+  };
+}
 
 @injectable()
 export class MailboxStatusService implements StatusUseCase {
@@ -23,7 +36,10 @@ export class MailboxStatusService implements StatusUseCase {
     private readonly _cursors: MailboxDeltaCursorRepository,
   ) {}
 
-  /** Peeks at Graph delta state to report whether a mailbox backup is current. */
+  /**
+   * Peeks at Graph delta state to report whether a mailbox backup is current. Rejects with
+   * `AuthError` or `MailboxNotLicensedError` when Graph refuses the peek.
+   */
   async check_mailbox_status(tenant_id: string, owner_id: string): Promise<MailboxStatusResult> {
     owner_id = normalize_owner_id(owner_id);
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
@@ -60,8 +76,11 @@ export class MailboxStatusService implements StatusUseCase {
         last_snapshot_id: previous?.snapshot_id,
         total_folders: all_folders.length,
         folders: folder_statuses,
-        is_up_to_date: total_pending === 0 && folder_statuses.every((f) => f.has_backup),
+        // Every folder's own flag, not the pending total: a folder whose peek failed reports no
+        // pending changes and would otherwise read as up to date (issues #298, #630).
+        is_up_to_date: folder_statuses.every((f) => f.is_up_to_date),
         total_pending_changes: total_pending,
+        pending_capped: folder_statuses.some((f) => f.pending_capped),
       };
     } finally {
       ctx.destroy();
@@ -75,73 +94,20 @@ export class MailboxStatusService implements StatusUseCase {
     saved_links: Record<string, string>,
   ): Promise<FolderStatus[]> {
     const results: FolderStatus[] = [];
-
     for (const folder of folders) {
       const delta_link = saved_links[folder.folder_id];
-      if (!delta_link) {
-        results.push({
-          folder_id: folder.folder_id,
-          folder_name: folder.folder_path,
-          has_backup: false,
-          pending_new: 0,
-          pending_removed: 0,
-          is_up_to_date: false,
-        });
-        continue;
-      }
-
-      try {
-        const peek = await this.peek_folder_delta(tenant_id, owner_id, folder, delta_link);
-        results.push(peek);
-      } catch (err) {
-        logger.debug(
-          `Status peek failed for folder ${folder.folder_path}: ${err instanceof Error ? err.message : err}`,
-        );
-        results.push({
-          folder_id: folder.folder_id,
-          folder_name: folder.folder_path,
-          has_backup: true,
-          pending_new: 0,
-          pending_removed: 0,
-          is_up_to_date: false,
-        });
-      }
+      results.push(
+        delta_link
+          ? await peek_folder_or_record_error(
+              this._connector,
+              tenant_id,
+              owner_id,
+              folder,
+              delta_link,
+            )
+          : never_backed_up_folder(folder),
+      );
     }
-
     return results;
-  }
-
-  /** Fetches a single delta page to count pending changes without advancing state. */
-  private async peek_folder_delta(
-    tenant_id: string,
-    owner_id: string,
-    folder: MailFolder,
-    delta_link: string,
-  ): Promise<FolderStatus> {
-    let pending_new = 0;
-    let pending_removed = 0;
-
-    const result = await this._connector.fetch_delta(
-      tenant_id,
-      owner_id,
-      folder.folder_id,
-      delta_link,
-      (_page, _total, page_messages) => {
-        pending_new += page_messages.length;
-        return false;
-      },
-      1,
-    );
-
-    pending_removed = result.removed_ids.length;
-
-    return {
-      folder_id: folder.folder_id,
-      folder_name: folder.folder_path,
-      has_backup: true,
-      pending_new,
-      pending_removed,
-      is_up_to_date: pending_new === 0 && pending_removed === 0,
-    };
   }
 }

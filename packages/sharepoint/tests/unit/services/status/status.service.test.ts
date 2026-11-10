@@ -13,6 +13,9 @@ const SITE_ID =
   'contoso.sharepoint.com,00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002';
 const DELTA_LINK = 'https://graph.microsoft.com/v1.0/delta?token=abc';
 
+/** A changed file as delta reports it; status counts only files, as backup does. */
+const file = (n: number) => ({ item_id: `file-${n}`, kind: 'file', deleted: false });
+
 function make_mocks() {
   const ctx = { storage: {}, destroy: vi.fn() } as unknown as TenantContext;
 
@@ -104,8 +107,8 @@ describe('SharePointStatusService', () => {
     ]);
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1', 'library-2') as never);
     vi.mocked(mocks.connector.fetch_delta)
-      .mockResolvedValueOnce({ items: [{}, {}], delta_link: 'a' } as never)
-      .mockResolvedValueOnce({ items: [{}, {}, {}], delta_link: 'b' } as never);
+      .mockResolvedValueOnce({ items: [file(1), file(2)], delta_link: 'a' } as never)
+      .mockResolvedValueOnce({ items: [file(3), file(4), file(5)], delta_link: 'b' } as never);
 
     const result = await check();
 
@@ -122,7 +125,7 @@ describe('SharePointStatusService', () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1', 'library-2') as never);
     vi.mocked(mocks.connector.fetch_delta)
       .mockResolvedValueOnce({ items: [], delta_link: 'a' } as never)
-      .mockResolvedValueOnce({ items: [{}], delta_link: 'b' } as never);
+      .mockResolvedValueOnce({ items: [file(1)], delta_link: 'b' } as never);
 
     const result = await check();
 
@@ -133,7 +136,7 @@ describe('SharePointStatusService', () => {
   it('never writes the saved cursor while peeking', async () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1') as never);
     vi.mocked(mocks.connector.fetch_delta).mockResolvedValue({
-      items: [{}, {}],
+      items: [file(1), file(2)],
       delta_link: 'advanced-link',
     } as never);
 
@@ -213,7 +216,7 @@ describe('SharePointStatusService', () => {
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1', 'library-2') as never);
     vi.mocked(mocks.connector.fetch_delta)
       .mockRejectedValueOnce(new Error('throttled'))
-      .mockResolvedValueOnce({ items: [{}], delta_link: 'b' } as never);
+      .mockResolvedValueOnce({ items: [file(1)], delta_link: 'b' } as never);
 
     const result = await check();
 

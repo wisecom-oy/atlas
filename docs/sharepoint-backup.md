@@ -190,7 +190,7 @@ atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engin
 atlas sharepoint status --site https://contoso.sharepoint.com/sites/Engineering
 ```
 
-Reports whether each library is up to date, using a Graph delta peek. The peek reads saved delta state without advancing it.
+Reports pending file changes and failed-item ledger entries per library, using a Graph delta peek. The peek reads saved delta state without advancing it. A library is up to date only when it has no pending file and no ledger entry, so a site whose files are still waiting for a retry is not reported as current. A Graph `401` or `403` exits with code `4`. See the [status columns](/reference/cli#drive-status-columns).
 
 ### delete
 

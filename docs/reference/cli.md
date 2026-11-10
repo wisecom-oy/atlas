@@ -494,10 +494,15 @@ Folder      Status           Pending
 ----------  ---------------  -------
 Inbox       up-to-date             0
 Sent Items  3 change(s)            3
+Projects    250+ change(s)      250+
 Archive     never backed up        -
 
-[*] Overall: 3 pending change(s), 1 folder(s) never backed up across 3 folder(s)
+[*] Overall: 253+ pending change(s), 1 folder(s) never backed up across 4 folder(s)
 ```
+
+The pending count is exact up to 5 delta pages of 50 messages per folder. Delta pages carry message bodies, so counting further would download what the next backup downloads anyway. A folder with more changes shows the count it reached followed by `+`, and the SDK sets `pendingCapped`.
+
+A Graph permission or authentication failure (`401`, `403`, or an unlicensed mailbox) stops the command with exit code `4` and the Atlas code `ATLAS_AUTH_DENIED` or `ATLAS_MAILBOX_NOT_LICENSED`, the same as `backup`. Any other failure, such as a throttle that outlasted the retries, marks that folder `peek failed` with the error class and message, and the mailbox is reported as not up to date.
 
 ### atlas outlook mailboxes
 
@@ -785,7 +790,7 @@ Failed objects and storage errors are classified as in [`atlas outlook verify`](
 
 **`atlas onedrive status`**
 
-Reports pending Graph changes per drive by replaying the saved delta links from the latest manifest chain. It is read-only: no backup runs and nothing is written.
+Reports pending file changes and failed items per drive by replaying the saved delta links from the delta cursor. It is read-only: no backup runs and nothing is written. The columns are described under [`atlas sharepoint status`](#drive-status-columns).
 
 | Option              | Description                              |
 | ------------------- | ---------------------------------------- |
@@ -938,12 +943,23 @@ Failed objects and storage errors are classified as in [`atlas outlook verify`](
 
 **`atlas sharepoint status`**
 
-Reports pending Graph changes per document library from the saved delta links. Read-only.
+Reports pending file changes and failed items per document library from the saved delta links. Read-only.
 
 | Option               | Description                                     |
 | -------------------- | ----------------------------------------------- |
 | `--site <url-or-id>` | SharePoint site URL or Graph site ID (required) |
 | `-t, --tenant <id>`  | Override the tenant ID from config              |
+
+<a id="drive-status-columns"></a>OneDrive and SharePoint status report the same columns:
+
+| Column | Meaning |
+| --- | --- |
+| `Pending` | Files the next backup would store or mark deleted. Folders and the drive root are not counted, because backup skips them. The whole delta is walked, so the count is exact |
+| `Failed` | Files of this drive in the failed-item ledger, either waiting for a retry or permanently skipped after 5 attempts |
+
+A drive is up to date only when both columns are `0`. A file in the ledger is missing from the backup even when delta reports nothing new, because delta never re-presents an unchanged item. A ledger entry for a drive that no longer exists still counts toward the overall verdict.
+
+A Graph `401` or `403` stops the command with exit code `4` (`ATLAS_AUTH_DENIED`). Any other failure marks the drive `peek failed` with the error class and message, and the owner or site is reported as not up to date.
 
 **`atlas sharepoint delete`**
 

@@ -29,6 +29,7 @@ const ONEDRIVE_STATUS = {
       drive_name: 'OneDrive',
       has_backup: true,
       pending_changes: 4,
+      failed_items: 0,
       is_up_to_date: false,
     },
     {
@@ -36,11 +37,13 @@ const ONEDRIVE_STATUS = {
       drive_name: 'Archive',
       has_backup: false,
       pending_changes: 0,
+      failed_items: 0,
       is_up_to_date: false,
     },
   ],
   is_up_to_date: false,
   total_pending_changes: 4,
+  total_failed_items: 0,
 };
 
 const SHAREPOINT_STATUS = {
@@ -54,11 +57,13 @@ const SHAREPOINT_STATUS = {
       drive_name: 'Documents',
       has_backup: false,
       pending_changes: 0,
+      failed_items: 0,
       is_up_to_date: false,
     },
   ],
   is_up_to_date: false,
   total_pending_changes: 0,
+  total_failed_items: 0,
 };
 
 interface Harness {
@@ -139,5 +144,41 @@ describe('drive status commands (issue #163)', () => {
 
     expect(h.resolve_site).not.toHaveBeenCalled();
     expect(output.join('\n')).toContain('No previous backup found for this site.');
+  });
+
+  it('reports failed-item ledger entries and peek failures rather than "up to date" (#630)', async () => {
+    h.check_sharepoint_status.mockResolvedValue({
+      ...SHAREPOINT_STATUS,
+      last_backup_at: new Date('2026-08-01T10:00:00Z'),
+      last_snapshot_id: 'sp-snap-1',
+      libraries: [
+        {
+          drive_id: 'l1',
+          drive_name: 'Documents',
+          has_backup: true,
+          pending_changes: 0,
+          failed_items: 2,
+          is_up_to_date: false,
+        },
+        {
+          drive_id: 'l2',
+          drive_name: 'Archive',
+          has_backup: true,
+          pending_changes: 0,
+          failed_items: 0,
+          is_up_to_date: false,
+          peek_error: 'ThrottledError: retry budget exhausted',
+        },
+      ],
+      total_failed_items: 2,
+    });
+
+    await h.program.parseAsync(['sharepoint', 'status', '--site', SITE_ID], { from: 'user' });
+
+    const text = output.join('\n');
+    expect(text).toContain('2 failed item(s) awaiting retry or skipped');
+    expect(text).toContain('1 library(s) could not be checked');
+    expect(text).toContain('Archive: ThrottledError: retry budget exhausted');
+    expect(text).not.toContain('is up to date');
   });
 });

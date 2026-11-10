@@ -1,6 +1,7 @@
 import type {
   OneDriveChangeType,
   OneDriveDeltaItem,
+  OneDriveDriveStatus,
   OneDriveFileVersion,
   OneDriveFileVersionIndex,
   OneDriveFileVersionRecord,
@@ -18,6 +19,7 @@ import type {
  */
 export type DriveChangeType = OneDriveChangeType;
 export type DriveDeltaItem = OneDriveDeltaItem;
+export type DriveStatus = OneDriveDriveStatus;
 export type DriveFileVersion = OneDriveFileVersion;
 export type DriveFileVersionRecord = OneDriveFileVersionRecord;
 export type DriveFileVersionIndex = OneDriveFileVersionIndex;

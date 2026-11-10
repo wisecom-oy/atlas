@@ -11,6 +11,7 @@ import {
 } from '@/services/backup/backup-builders';
 import { process_backup_file } from '@/services/backup/backup-file-processor';
 import { is_download_refused } from '@wisecom/atlas-m365-graph';
+import { resolve_backed_up_kind } from '@wisecom/atlas-drive';
 import { classify_change_type } from '@/services/backup/change-classifier';
 import {
   collect_run_versions,
@@ -82,10 +83,7 @@ export async function process_delta_item(
   versions: RunVersionCollector,
   abort_signal?: AbortSignal,
 ): Promise<DeltaItemOutcome> {
-  const effective_kind =
-    item.deleted && item.kind === 'file' && state.previous_kind_by_file_id[item.item_id]
-      ? state.previous_kind_by_file_id[item.item_id]
-      : item.kind;
+  const effective_kind = resolve_backed_up_kind(item, state.previous_kind_by_file_id);
 
   if (effective_kind !== 'file') {
     if (!item.deleted) state.previous_kind_by_file_id[item.item_id] = item.kind;

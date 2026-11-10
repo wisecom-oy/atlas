@@ -103,7 +103,10 @@ export interface DeltaSyncResult {
   readonly messages: MailMessage[];
   /** IDs of messages deleted or moved out of this folder since the last sync. */
   readonly removed_ids: string[];
-  /** Full @odata.deltaLink URL to pass to the next sync call. */
+  /**
+   * Full @odata.deltaLink URL to pass to the next sync call. Empty when `on_page` stopped paging
+   * before the final page, which is the only page that carries one.
+   */
   readonly delta_link: string;
   /** True when the previous delta link was invalid and a full re-enumeration occurred. */
   readonly delta_reset: boolean;

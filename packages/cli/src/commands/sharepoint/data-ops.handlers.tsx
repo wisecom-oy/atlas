@@ -83,6 +83,7 @@ export async function execute_sharepoint_status(
     last_snapshot_id: result.last_snapshot_id,
     is_up_to_date: result.is_up_to_date,
     total_pending_changes: result.total_pending_changes,
+    total_failed_items: result.total_failed_items,
     items: result.libraries,
   });
 }

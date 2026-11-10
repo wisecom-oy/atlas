@@ -7,8 +7,6 @@ import type {
   VerificationUseCase,
   VerificationResult,
   StatusUseCase,
-  MailboxStatusResult,
-  FolderStatus,
   MailboxDiscoveryService,
   TenantMailbox,
 } from '@wisecom/atlas-types';
@@ -28,6 +26,7 @@ import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { KeyValueList } from '@/ui/components/key-value-list';
 import { render_static_view } from '@/ui/render';
 import { resolve_owner } from '@/commands/onedrive/command.handlers';
+import { print_mailbox_status } from '@/commands/outlook/status-presenter';
 
 /** Archive-enabled mailboxes named individually before the warning summarises. */
 const ARCHIVE_WARNING_LIMIT = 10;
@@ -122,7 +121,7 @@ export async function execute_outlook_status(
 
   const owner = await resolve_owner(container, tenant_id, options.mailbox);
   const result = await status_use_case.check_mailbox_status(tenant_id, owner.object_id);
-  await print_status_result(result);
+  await print_mailbox_status(result);
 }
 
 /** Lists tenant mailboxes from Microsoft Graph. */
@@ -191,64 +190,6 @@ function report_verification_result(result: VerificationResult): void {
     );
   }
   process.exitCode = 1;
-}
-
-interface FolderStatusRow {
-  folder: string;
-  status: string;
-  status_color: string;
-  pending: string;
-  pending_color: string;
-}
-
-/** Derives the status/pending cells and their colors for one folder. */
-function build_folder_status_row(f: FolderStatus): FolderStatusRow {
-  const total = f.pending_new + f.pending_removed;
-  if (!f.has_backup) {
-    return {
-      folder: f.folder_name,
-      status: 'never backed up',
-      status_color: 'yellow',
-      pending: '-',
-      pending_color: 'gray',
-    };
-  }
-  return {
-    folder: f.folder_name,
-    status: f.is_up_to_date ? 'up-to-date' : `${total} change(s)`,
-    status_color: f.is_up_to_date ? 'green' : 'red',
-    pending: String(total),
-    pending_color: total === 0 ? 'green' : 'red',
-  };
-}
-
-async function print_status_result(result: MailboxStatusResult): Promise<void> {
-  if (result.last_backup_at) {
-    const ts = result.last_backup_at.toISOString().replace('T', ' ').slice(0, 16);
-    logger.info(`Last backup: ${ts} (${result.last_snapshot_id ?? 'unknown'})\n`);
-  } else {
-    logger.warn('No previous backup found for this mailbox.\n');
-  }
-
-  const columns: TableColumn<FolderStatusRow>[] = [
-    { key: 'folder', header: 'Folder', max_width: 26 },
-    { key: 'status', header: 'Status', color: (row) => row.status_color },
-    { key: 'pending', header: 'Pending', color: (row) => row.pending_color },
-  ];
-  await render_static_view(
-    <DataTable columns={columns} rows={result.folders.map(build_folder_status_row)} />,
-  );
-
-  if (result.is_up_to_date) {
-    logger.success('Mailbox is up to date -- no pending changes.');
-  } else {
-    const changes = result.total_pending_changes;
-    const not_backed_up = result.folders.filter((f) => !f.has_backup).length;
-    const parts: string[] = [];
-    if (changes > 0) parts.push(`${changes} pending change(s)`);
-    if (not_backed_up > 0) parts.push(`${not_backed_up} folder(s) never backed up`);
-    logger.info(`Overall: ${parts.join(', ')} across ${result.total_folders} folder(s)`);
-  }
 }
 
 async function print_mailbox_table(mailboxes: TenantMailbox[]): Promise<void> {

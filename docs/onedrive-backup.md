@@ -168,11 +168,11 @@ atlas onedrive list-versions -o user@example.com -f "/Documents/report.docx"
 
 ### status
 
-Reports whether the owner's backup is up to date, using a Graph delta peek. The peek reads the saved delta state without advancing it, so the next backup is unaffected.
-
 ```bash
 atlas onedrive status -o user@example.com
 ```
+
+Reports pending file changes and failed-item ledger entries per drive, using a Graph delta peek. The peek reads the saved delta state without advancing it, so the next backup is unaffected. A drive is up to date only when it has no pending file and no ledger entry. A Graph `401` or `403` exits with code `4`. See the [status columns](/reference/cli#drive-status-columns).
 
 ### delete
 
