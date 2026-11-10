@@ -82,7 +82,9 @@ export interface PendingAttachment {
  * trigger it, and Graph answers `ErrorItemNotFound` for that (issue #366).
  *
  * A permission or licensing failure still propagates: those are the operator's to fix, and
- * degrading the whole run quietly is the failure #372 describes.
+ * degrading the whole run quietly is the failure #372 describes. Any other failure is recorded in
+ * `message_errors`, which leaves the folder incomplete so the next run fetches the message again
+ * instead of a delta link moving past it for good (issue #615).
  *
  * Returns false when an interrupt left attachments unfetched. Those messages are already in
  * `entries` without attachments, so the folder must not count as complete or its delta link
@@ -96,7 +98,7 @@ export async function flush_pending_attachments(
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending: PendingAttachment[],
-  attachment_errors: string[],
+  message_errors: string[],
   is_interrupted: () => boolean,
   object_lock_policy?: ObjectLockPolicy,
   concurrency = DEFAULT_ATTACHMENT_CONCURRENCY,
@@ -127,7 +129,7 @@ export async function flush_pending_attachments(
         if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
         const reason = err instanceof Error ? err.message : String(err);
         logger.warn(`Attachments for message ${p.message_id} could not be fetched: ${reason}`);
-        attachment_errors.push(`message ${p.message_id}: attachments not backed up (${reason})`);
+        message_errors.push(`message ${p.message_id}: attachments not backed up (${reason})`);
       }
     });
 

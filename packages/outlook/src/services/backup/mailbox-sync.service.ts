@@ -144,18 +144,19 @@ export class MailboxSyncService implements BackupUseCase {
           continue;
         }
 
-        // Per-message attachment failures, not folder failures: the folder's entries are kept
-        // and the run reports itself incomplete rather than losing the folder (issue #366).
+        // Per-message MIME and attachment failures, not folder failures: the folder's entries are
+        // kept and the run reports itself incomplete rather than losing the folder (issue #366).
         folder_errors.push(
-          ...outcome.attachment_errors.map((line) => `${folder.folder_path}: ${line}`),
+          ...outcome.message_errors.map((line) => `${folder.folder_path}: ${line}`),
         );
         warnings.push(...outcome.warnings.map((line) => `${folder.folder_path}: ${line}`));
 
         all_entries.push(...outcome.entries);
         removed_ids.push(...outcome.removed_ids);
         removal_counts[folder.folder_id] = outcome.removed_ids.length;
-        // Persist a folder's delta link only when every page was fully processed;
-        // an interrupted folder keeps its previous link and is re-enumerated next run (issue #23).
+        // Persist a folder's delta link only when every page and message was fully processed; an
+        // interrupted or partly failed folder keeps its previous link and is re-enumerated next
+        // run (issues #23, #614, #615).
         if (outcome.delta_link && outcome.complete) {
           new_delta_links[folder.folder_id] = outcome.delta_link;
         }
@@ -306,7 +307,7 @@ export class MailboxSyncService implements BackupUseCase {
         stored: 0,
         deduplicated: 0,
         attachments_stored: 0,
-        attachment_errors: [],
+        message_errors: [],
         folder_processed: 0,
         warnings: [],
         reactions_not_captured: 0,

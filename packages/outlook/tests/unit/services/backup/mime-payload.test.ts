@@ -155,6 +155,8 @@ describe('store_single_message payload selection', () => {
 interface SyncOutcome {
   readonly fetch_attachments: ReturnType<typeof vi.fn>;
   readonly entries: ManifestEntry[];
+  readonly complete: boolean;
+  readonly message_errors: string[];
 }
 
 async function run_folder_sync(fetch_mime: MailboxConnector['fetch_mime']): Promise<SyncOutcome> {
@@ -200,7 +202,12 @@ async function run_folder_sync(fetch_mime: MailboxConnector['fetch_mime']): Prom
     operation_control: {},
   });
 
-  return { fetch_attachments, entries: result.entries };
+  return {
+    fetch_attachments,
+    entries: result.entries,
+    complete: result.complete,
+    message_errors: result.message_errors,
+  };
 }
 
 describe('MIME capture in the folder sync path', () => {
@@ -212,21 +219,27 @@ describe('MIME capture in the folder sync path', () => {
   });
 
   it('still fetches attachments separately for a JSON fallback entry', async () => {
-    const { fetch_attachments, entries } = await run_folder_sync(
+    const { fetch_attachments, entries, complete } = await run_folder_sync(
       vi.fn().mockResolvedValue(undefined),
     );
 
     expect(fetch_attachments).toHaveBeenCalled();
     expect(entries[0]?.payload_format).toBeUndefined();
+    // Graph has no MIME for the item: the JSON payload is its backup, nothing to retry.
+    expect(complete).toBe(true);
   });
 
-  it('degrades one message to JSON when MIME capture throws', async () => {
-    const { fetch_attachments, entries } = await run_folder_sync(
-      vi.fn().mockRejectedValue(new Error('boom')),
+  it('keeps the JSON payload but leaves the folder incomplete when MIME capture throws', async () => {
+    const outage = Object.assign(new Error('Service Unavailable'), { statusCode: 503 });
+    const { fetch_attachments, entries, complete, message_errors } = await run_folder_sync(
+      vi.fn().mockRejectedValue(outage),
     );
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.payload_format).toBeUndefined();
     expect(fetch_attachments).toHaveBeenCalled();
+    // Issue #614: a saved link would never present the message again, so its MIME stayed lost.
+    expect(complete).toBe(false);
+    expect(message_errors).toEqual([expect.stringContaining('msg-1')]);
   });
 });
