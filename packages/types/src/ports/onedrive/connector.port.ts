@@ -79,8 +79,16 @@ export interface OneDriveConnector {
   /** Lists version history for a file. */
   list_file_versions(drive_id: string, item_id: string): Promise<OneDriveFileVersion[]>;
 
-  /** Downloads a specific historical version of a file. */
-  download_file_version(drive_id: string, item_id: string, version_id: string): Promise<Buffer>;
+  /**
+   * Downloads a specific historical version of a file. `size_bytes` is the size Graph listed for
+   * the version and scales the drain timeout.
+   */
+  download_file_version(
+    drive_id: string,
+    item_id: string,
+    version_id: string,
+    size_bytes?: number,
+  ): Promise<Buffer>;
 
   /**
    * Opens a specific historical version as a stream, for versions too large to

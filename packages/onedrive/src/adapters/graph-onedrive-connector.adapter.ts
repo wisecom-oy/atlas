@@ -36,6 +36,9 @@ import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-oned
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
+/** Floor for draining one buffered version, whatever its listed size. */
+const VERSION_DRAIN_TIMEOUT_MS = 120_000;
+
 interface GraphCollectionResponse<T> {
   value?: T[];
   '@odata.nextLink'?: string;
@@ -136,7 +139,11 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     size_bytes?: number,
   ): Promise<Buffer> {
     const stream = await this.open_version_stream(drive_id, item_id, version_id);
-    const timeout_ms = size_bytes ? compute_chunk_timeout_ms(size_bytes) : 120_000;
+    // Never below the 120 s floor: the size only ever lengthens the drain timeout.
+    const timeout_ms = Math.max(
+      VERSION_DRAIN_TIMEOUT_MS,
+      compute_chunk_timeout_ms(size_bytes ?? 0),
+    );
     return await stream_to_buffer(stream, timeout_ms);
   }
 

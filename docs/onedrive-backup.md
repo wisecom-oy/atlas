@@ -247,6 +247,8 @@ After 5 attempts the file is no longer retried, but it is reported on every run 
 
 A version that fails to download for an unexpected reason (throttling, `403 accessDenied`, or a transient fault) is an error and makes the run UNHEALTHY. A version that Graph reports as gone (`404` or `410`, purged by retention policy) is counted as `unavailable` and does not affect health.
 
+A version download is held to the size Graph lists for that version. A transfer that delivers fewer or more bytes fails with `DownloadIntegrityError` before anything is stored, because the checksum and the AES-256-GCM tag are computed over whatever arrived and would vouch for a truncated body just as readily. The failure counts as an unexpected version failure: the run is UNHEALTHY, and the file's version watermark stops before that version, so the next backup that picks up a change to the file downloads it again.
+
 ## No snapshot is created
 
 A run creates a snapshot only when something changed. Two outcomes end without one, and they mean different things:

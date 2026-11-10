@@ -40,6 +40,7 @@ import {
   open_version_content_stream,
   stream_to_buffer,
 } from '@/adapters/graph-sharepoint-stream-utils';
+import { compute_chunk_timeout_ms } from '@/adapters/graph-sharepoint-chunked-download';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 import { canonical_site_id } from '@/services/shared/site-id';
 
@@ -218,14 +219,17 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     return await list_drive_item_versions(this._client, drive_id, item_id);
   }
 
-  /** Downloads a specific version's content with a timeout guard. */
+  /** Downloads a specific version's content with a timeout scaled to its size. */
   async download_file_version(
     drive_id: string,
     item_id: string,
     version_id: string,
+    size_bytes?: number,
   ): Promise<Buffer> {
     const stream = await open_version_content_stream(this._client, drive_id, item_id, version_id);
-    return await stream_to_buffer(stream, STREAM_TIMEOUT_MS);
+    // Never below the 120 s floor: the size only ever lengthens the drain timeout.
+    const timeout_ms = Math.max(STREAM_TIMEOUT_MS, compute_chunk_timeout_ms(size_bytes ?? 0));
+    return await stream_to_buffer(stream, timeout_ms);
   }
 
   /** Opens a version's content as a stream, for sizes not safe to buffer. */
