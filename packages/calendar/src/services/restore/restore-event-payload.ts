@@ -1,5 +1,4 @@
 import { is_record } from '@/services/shared/json-record';
-import { source_tag_property } from '@/services/shared/source-tag';
 
 /**
  * Fields Graph owns or regenerates on create, plus the ones restore must not send:
@@ -128,15 +127,15 @@ function writable_fields(event: Readonly<Record<string, unknown>>): Record<strin
   );
 }
 
-/** The POST body that recreates a stored event, tagged with the id it was restored from. */
+/** The POST body that recreates a stored event, carrying the restore tags it is created with. */
 export function build_create_payload(
   event: Readonly<Record<string, unknown>>,
-  source_event_id: string,
+  tags: readonly Readonly<Record<string, string>>[],
 ): Record<string, unknown> {
   return {
     ...writable_fields(event),
     body: body_with_summary(event['body'], attendee_summary_lines(event)),
-    singleValueExtendedProperties: [source_tag_property(source_event_id)],
+    singleValueExtendedProperties: tags,
   };
 }
 

@@ -7,6 +7,7 @@ import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import {
   MAILBOX,
   SNAPSHOT,
+  SOURCE_TAG_ID,
   TENANT,
   save_snapshot,
   stored_event,
@@ -88,6 +89,10 @@ describe('restore recurrence replay', () => {
           start: { dateTime: '2030-01-20T11:00:00', timeZone: 'Europe/Berlin' },
           end: { dateTime: '2030-01-20T11:15:00', timeZone: 'Europe/Berlin' },
         },
+      },
+      {
+        event_id: SERIES_ID,
+        patch: { singleValueExtendedProperties: [{ id: SOURCE_TAG_ID, value: 'e-series' }] },
       },
     ]);
   });

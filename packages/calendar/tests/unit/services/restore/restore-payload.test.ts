@@ -6,6 +6,7 @@ import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import {
   MAILBOX,
   SNAPSHOT,
+  SOURCE_ICAL_UID_TAG_ID,
   SOURCE_TAG_ID,
   TENANT,
   save_snapshot,
@@ -100,7 +101,10 @@ describe('restore event payload', () => {
     expect(payload['subject']).toBe('Design review');
     expect(payload['location']).toEqual({ displayName: 'Room 4' });
     expect(payload['showAs']).toBe('busy');
-    expect(payload['singleValueExtendedProperties']).toEqual([{ id: SOURCE_TAG_ID, value: 'e-1' }]);
+    expect(payload['singleValueExtendedProperties']).toEqual([
+      { id: SOURCE_TAG_ID, value: 'e-1' },
+      { id: SOURCE_ICAL_UID_TAG_ID, value: 'uid-e-1' },
+    ]);
   });
 
   it('prefixes a text body with the attendee summary', async () => {

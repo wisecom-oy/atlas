@@ -11,7 +11,7 @@ import {
 
 import {
   create_event,
-  delete_occurrence,
+  delete_event,
   fetch_series_master,
   list_calendar_events,
   list_series_instances,
@@ -70,7 +70,7 @@ describe('fetch_series_master', () => {
 });
 
 describe('list_calendar_events', () => {
-  it('pages through the calendar and asks for the source-id tag on every event', async () => {
+  it('pages through the calendar and asks for both restore tags on every event', async () => {
     const { client, calls } = client_for((call) => {
       if (call.url === NEXT_PAGE) return { value: [{ id: 'e2' }] };
       return { value: [{ id: 'e1' }], '@odata.nextLink': NEXT_PAGE };
@@ -80,7 +80,9 @@ describe('list_calendar_events', () => {
 
     expect(events.map((e) => e.id)).toEqual(['e1', 'e2']);
     expect(decodeURIComponent(calls[0]!.url)).toContain(
-      "id eq 'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasSourceEventId'",
+      "id eq 'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasSourceEventId' or " +
+        "id eq 'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasPendingSourceEventId' or " +
+        "id eq 'String {6f1d5a7e-3c2b-4f8e-9a41-0b7c2d9e5f13} Name AtlasSourceICalUId'",
     );
   });
 });
@@ -121,7 +123,7 @@ describe('create_event', () => {
   });
 });
 
-describe('update_event and delete_occurrence', () => {
+describe('update_event and delete_event', () => {
   it('sends the patch as a PATCH to the event itself', async () => {
     const { client, calls } = client_for(() => ({}));
 
@@ -137,7 +139,7 @@ describe('update_event and delete_occurrence', () => {
   it('deletes the occurrence addressed by its own event id', async () => {
     const { client, calls } = client_for(() => ({}));
 
-    await delete_occurrence(client, MAILBOX, 'occ-3');
+    await delete_event(client, MAILBOX, 'occ-3');
 
     expect(calls[0]).toMatchObject({ method: 'delete', url: `/users/${MAILBOX}/events/occ-3` });
   });

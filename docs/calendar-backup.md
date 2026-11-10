@@ -80,10 +80,11 @@ atlas calendar restore -m user@company.com -s cal-snap-1735689600000-a1b2c3 -T o
 
 Without `-T`, events go back to the source mailbox. With `-T`, they go to another mailbox in the same tenant.
 
-Restore only adds. It never overwrites or deletes an existing event.
+Restore only adds. It never overwrites or deletes an event it did not create.
 
 - **Calendars.** A calendar that does not exist in the target is created with the source display name. The default calendar maps to the target's default calendar.
-- **Duplicates.** An event is skipped and counted in `events_skipped` when the target calendar already holds an event with the same iCalUId, or an event Atlas restored earlier from the same source event. Atlas tags each restored event with a single-value extended property to recognise the second case, so re-running a restore does not create copies.
+- **Duplicates.** An event is skipped and counted in `events_skipped` when the target calendar already holds an event with the same iCalUId, or an event Atlas restored completely earlier from the same source event. Atlas tags each restored event with a single-value extended property to recognise the second case, so re-running a restore does not create copies. Graph gives every created event a new iCalUId, so Atlas also records the original iCalUId in a second extended property. Two snapshot entries with the same iCalUId therefore produce one event, in the same run and on every rerun.
+- **Incomplete events.** An event with attachments or recurrence changes is created with a pending tag and receives its complete tag only after every attachment upload and exception or cancellation has succeeded. When one of those writes fails, the error is reported and the event keeps only the pending tag. The next restore deletes that incomplete event and creates it again in full, so a failed attachment is not lost to the skip rule.
 - **Recurrence.** The series master is created first. Each exception occurrence is replayed by patching the matching occurrence, and each cancelled occurrence is removed from the restored series. Series keep their time zone, so their local times survive a daylight saving change.
 - **Attendees are not re-invited.** Attendees and the organizer are removed from the created event. A text summary of both is written at the top of the event body. Restoring an event does not send invitations, cancellations, or responses to anyone.
 - **No new Teams meetings.** Online meeting flags are not sent, so restore never provisions a new Teams meeting. When the original body contains the meeting's join link, Exchange may still show the restored event as an online meeting that points at that original link.
