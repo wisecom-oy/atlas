@@ -173,6 +173,21 @@ Before each replication or rehydration, Atlas checks that the source and target 
 
 The check runs once per target per run, before the first snapshot is copied. It unwraps both DEKs, which costs two scrypt derivations. A target that fails the check receives no writes.
 
+### Installing the source key without a race
+
+Rehydration copies the replica's wrapped key to primary, and replication copies the primary's key to a new target. Every such write is conditional, so a key another process stores after Atlas checks the bucket is never replaced:
+
+| Primary holds                                  | Rehydration does                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| No `_meta/dek.enc`                             | Writes the source key create-only, with `If-None-Match: *`                      |
+| The source key                                 | Nothing                                                                         |
+| A different key and nothing else               | Replaces it with `If-Match` on the ETag read before the bucket was found empty  |
+| A different key and any other object           | Nothing, aborts with `DekOverwriteRefusedError`                                 |
+
+A different key with nothing else beside it is one Atlas generated on a bucket that never received data, for example by a backup that failed before its first upload. Replication writes a target's key only when the target has none, create-only.
+
+When a conditional write is refused with `412 Precondition Failed`, Atlas reads the stored key. If it is byte-identical to the source key, another run installed the same key and the copy continues. Otherwise the run stops with `DekWriteConflictError` and leaves the stored key as it is. The threat is a backup that bootstraps its own key on an empty primary while rehydration runs: without the condition, rehydration replaced that key and every object the backup had written became unreadable. A refused run wrote nothing, so stop every other operation on the tenant and rerun it. This is defence in depth, not a lock. A backup that opens the generated key after the emptiness check and before the replacement changes nothing Atlas can compare, so it is not detected. Rehydration must still run alone, and on a backend that ignores conditional headers the guarantee does not hold (see [Storage](/self-hosting/storage#protecting-the-tenant-data-key)).
+
 ## Integrity validation
 
 Atlas checks integrity at three independent layers:

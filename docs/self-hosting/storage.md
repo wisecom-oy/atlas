@@ -241,6 +241,8 @@ Until a tenant is migrated, its legacy bucket keeps working for backups. Only `-
 
 Each tenant bucket stores its wrapped data-encryption key at `_meta/dek.enc`. Atlas writes this object once, with a create-only conditional write (`If-None-Match: *`). If two processes bootstrap the same tenant at the same time, the second write fails with `412 Precondition Failed`, and that process uses the key already stored. Overwriting a live key would make every object encrypted with it permanently unreadable.
 
+Rehydration and replication copy the source key the same way. Rehydration replaces a freshly generated key on an otherwise empty primary only with `If-Match` on the ETag it read first. If a different key wins either race, the run stops with `DekWriteConflictError` and the stored key is unchanged.
+
 Add a bucket policy that blocks overwrites of the key object, so a buggy or outdated client cannot replace it. This example is for AWS S3, using the [`s3:if-none-match` condition key](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html):
 
 ```json

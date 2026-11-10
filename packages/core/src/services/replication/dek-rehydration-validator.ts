@@ -1,7 +1,10 @@
-import type { StorageTarget } from '@wisecom/atlas-types';
+import type { ObjectStorage, StorageTarget } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
-
-const DEK_META_KEY = '_meta/dek.enc';
+import {
+  DEK_META_KEY,
+  create_dek_if_absent,
+  replace_dek_if_unchanged,
+} from '@/services/replication/conditional-dek-write';
 
 /** Thrown when replacing the primary's DEK could destroy existing ciphertext. */
 export class DekOverwriteRefusedError extends Error {
@@ -29,6 +32,10 @@ export class DekOverwriteRefusedError extends Error {
  * and SharePoint added their own layouts, silently misclassifying data-bearing
  * primaries as empty (issue #26). A whole-bucket check is immune to new
  * domains by construction.
+ *
+ * Both writes are conditional, so a key another run stores between the checks
+ * and the write is never replaced: the write is refused and surfaces as
+ * DekWriteConflictError (issue #639).
  */
 export async function ensure_source_dek_on_primary(
   primary: StorageTarget,
@@ -40,27 +47,44 @@ export async function ensure_source_dek_on_primary(
 
   const primary_ctx = await primary.create_context(tenant_id);
   try {
-    const primary_has_dek = await primary_ctx.storage.exists(DEK_META_KEY);
-
-    if (!primary_has_dek) {
-      await primary_ctx.storage.put(DEK_META_KEY, source_dek_blob);
-      return;
-    }
-
-    const primary_dek_blob = await primary_ctx.storage.get(DEK_META_KEY);
-    if (primary_dek_blob.equals(source_dek_blob)) return;
-
-    const keys = await primary_ctx.storage.list('', 2);
-    const only_the_dek = keys.length === 1 && keys[0] === DEK_META_KEY;
-    if (!only_the_dek) throw new DekOverwriteRefusedError(tenant_id);
-
-    logger.info(
-      `Tenant ${tenant_id}: replacing the auto-generated key on the empty primary with the source key`,
-    );
-    await primary_ctx.storage.put(DEK_META_KEY, source_dek_blob);
+    await install_source_dek(primary_ctx.storage, source_dek_blob, tenant_id);
   } finally {
     primary_ctx.destroy();
   }
+}
+
+/** Creates, keeps, or replaces the primary DEK so it matches the source blob. */
+async function install_source_dek(
+  storage: ObjectStorage,
+  source_dek_blob: Buffer,
+  tenant_id: string,
+): Promise<void> {
+  if (!(await storage.exists(DEK_META_KEY))) {
+    await create_dek_if_absent(storage, source_dek_blob, tenant_id);
+    return;
+  }
+
+  // The ETag is read before the emptiness check, so the replacement below is
+  // refused if the key changes at any point after the bucket was judged empty.
+  const primary_dek = await storage.get_with_etag(DEK_META_KEY);
+  if (primary_dek.data.equals(source_dek_blob)) return;
+
+  await assert_bucket_holds_only_the_dek(storage, tenant_id);
+
+  logger.info(
+    `Tenant ${tenant_id}: replacing the auto-generated key on the empty primary with the source key`,
+  );
+  await replace_dek_if_unchanged(storage, source_dek_blob, primary_dek.etag, tenant_id);
+}
+
+/** Throws DekOverwriteRefusedError unless the DEK is the bucket's only object. */
+async function assert_bucket_holds_only_the_dek(
+  storage: ObjectStorage,
+  tenant_id: string,
+): Promise<void> {
+  const keys = await storage.list('', 2);
+  const only_the_dek = keys.length === 1 && keys[0] === DEK_META_KEY;
+  if (!only_the_dek) throw new DekOverwriteRefusedError(tenant_id);
 }
 
 /**

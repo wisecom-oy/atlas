@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { ReplicationObjectResult } from '@wisecom/atlas-types';
+import {
+  ensure_dek_on_target,
+  ensure_replica_marker,
+} from '@/services/replication/replica-target-bootstrap';
 
 /** The only part of a drive manifest the copy path reads. */
 export interface DriveObjectManifest {
@@ -78,9 +82,6 @@ export async function replicate_drive_snapshot_objects(
   };
 }
 
-const DEK_META_KEY = '_meta/dek.enc';
-const REPLICA_MARKER_KEY = '_meta/replica.marker';
-
 async function copy_keys_with_tally(
   source_ctx: TenantContext,
   target_ctx: TenantContext,
@@ -131,21 +132,6 @@ async function copy_object(
       error: err instanceof Error ? err.message : String(err),
     };
   }
-}
-
-async function ensure_dek_on_target(
-  source_ctx: TenantContext,
-  target_ctx: TenantContext,
-): Promise<void> {
-  if (await target_ctx.storage.exists(DEK_META_KEY)) return;
-  const dek_blob = await source_ctx.storage.get(DEK_META_KEY);
-  await target_ctx.storage.put(DEK_META_KEY, dek_blob);
-}
-
-async function ensure_replica_marker(ctx: TenantContext, source_tenant_id: string): Promise<void> {
-  if (await ctx.storage.exists(REPLICA_MARKER_KEY)) return;
-  const marker = { replicated_from_tenant: source_tenant_id, created_at: new Date().toISOString() };
-  await ctx.storage.put(REPLICA_MARKER_KEY, Buffer.from(JSON.stringify(marker), 'utf-8'));
 }
 
 function sha256_hex(data: Buffer): string {
