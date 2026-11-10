@@ -3,6 +3,7 @@ import type { EventAttachmentUpload, GraphEventAttachment } from '@wisecom/atlas
 import {
   CALENDARS_READ,
   CALENDARS_READ_WRITE,
+  CREATE_ONCE,
   collect_pages,
   get_json,
   graph_call,
@@ -80,15 +81,21 @@ export async function upload_event_attachment(
   const content = Buffer.from(attachment.content);
   const url = attachments_url(mailbox_id, event_id);
   if (content.length < LARGE_ATTACHMENT_THRESHOLD) {
-    await graph_call(CALENDARS_READ_WRITE, () =>
-      client.api(url).post({
-        '@odata.type': '#microsoft.graph.fileAttachment',
-        name: attachment.name,
-        contentType: attachment.content_type,
-        isInline: attachment.is_inline,
-        ...(attachment.content_id === undefined ? {} : { contentId: attachment.content_id }),
-        contentBytes: content.toString('base64'),
-      }),
+    await graph_call(
+      CALENDARS_READ_WRITE,
+      (signal) =>
+        client
+          .api(url)
+          .option('signal', signal)
+          .post({
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: attachment.name,
+            contentType: attachment.content_type,
+            isInline: attachment.is_inline,
+            ...(attachment.content_id === undefined ? {} : { contentId: attachment.content_id }),
+            contentBytes: content.toString('base64'),
+          }),
+      CREATE_ONCE,
     );
     return;
   }

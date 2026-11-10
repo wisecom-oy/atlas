@@ -13,6 +13,13 @@ import { logger } from '@wisecom/atlas-core/utils/logger';
 const LARGE_ATTACHMENT_THRESHOLD = 3 * 1024 * 1024;
 const UPLOAD_CHUNK_SIZE = 13 * 320 * 1024; // ~4 MiB; Graph API requires multiples of 320 KiB
 
+/**
+ * Retry policy for a POST that creates a folder, message or attachment. Sending one again after a
+ * 5xx or a timeout can create a second copy, so only a throttle response is retried (issue #624).
+ * An upload session is not covered: a spare session creates nothing and expires on its own.
+ */
+const CREATE_ONCE = { idempotent: false } as const;
+
 interface GraphFolderResponse {
   id?: string;
   displayName?: string;
@@ -45,8 +52,10 @@ export class GraphRestoreConnector implements RestoreConnector {
       : `/users/${owner_id}/mailFolders`;
 
     try {
-      const response = (await with_graph_retry(() =>
-        this._client.api(url).post({ displayName: display_name }),
+      const response = (await with_graph_retry(
+        (signal) =>
+          this._client.api(url).option('signal', signal).post({ displayName: display_name }),
+        CREATE_ONCE,
       )) as GraphFolderResponse;
 
       const created_name = response.displayName ?? display_name;
@@ -76,8 +85,9 @@ export class GraphRestoreConnector implements RestoreConnector {
     const url = `/users/${owner_id}/mailFolders/${folder_id}/messages`;
 
     try {
-      const response = (await with_graph_retry(() =>
-        this._client.api(url).post(message_body),
+      const response = (await with_graph_retry(
+        (signal) => this._client.api(url).option('signal', signal).post(message_body),
+        CREATE_ONCE,
       )) as GraphMessageResponse;
 
       if (!response.id) throw new Error('Graph returned no message ID after create');
@@ -115,7 +125,10 @@ export class GraphRestoreConnector implements RestoreConnector {
     }
 
     try {
-      await with_graph_retry(() => this._client.api(url).post(payload));
+      await with_graph_retry(
+        (signal) => this._client.api(url).option('signal', signal).post(payload),
+        CREATE_ONCE,
+      );
     } catch (err) {
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);

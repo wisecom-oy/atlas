@@ -3,6 +3,7 @@ import type { GraphCalendar } from '@wisecom/atlas-types';
 import {
   CALENDARS_READ,
   CALENDARS_READ_WRITE,
+  CREATE_ONCE,
   collect_pages,
   graph_call,
   mailbox_url,
@@ -42,8 +43,14 @@ export async function create_calendar(
   mailbox_id: string,
   name: string,
 ): Promise<GraphCalendar> {
-  const created: unknown = await graph_call(CALENDARS_READ_WRITE, () =>
-    client.api(`${mailbox_url(mailbox_id)}/calendars`).post({ name }),
+  const created: unknown = await graph_call(
+    CALENDARS_READ_WRITE,
+    (signal) =>
+      client
+        .api(`${mailbox_url(mailbox_id)}/calendars`)
+        .option('signal', signal)
+        .post({ name }),
+    CREATE_ONCE,
   );
   return { id: string_field(created, 'id'), display_name: name, is_default: false, can_edit: true };
 }
