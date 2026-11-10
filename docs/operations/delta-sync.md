@@ -165,6 +165,8 @@ MIME is the only format for new snapshots. There is no `--fidelity` option.
 
 If Graph cannot produce MIME for one item, Atlas stores that item in the legacy JSON form and records the format in its manifest entry. Entries with `payload_format: "mime"` hold original bytes. Entries without the field hold legacy Graph JSON. Snapshots can mix both formats. `save`, `read`, `restore`, and `verify` handle both.
 
+A MIME request that fails is a different case from Graph having no MIME, for example a `503` still failing after the [retries](#retry-and-error-handling). Atlas stores the JSON form so the run keeps the message, reports the message as an error of its folder, and keeps the folder's previous delta link. The run exits 2. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one in the snapshot chain. A JSON entry whose attachments could not be fetched or stored is handled the same way: the next run fetches the message and its attachments again. A message that fails on every run holds its folder's link back until it succeeds, and the changes refetched each time deduplicate against the stored objects.
+
 ### Reactions
 
 Outlook reactions (like, heart, celebrate and so on) live in MAPI named properties, not in the MIME and not in the delta payload. Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:

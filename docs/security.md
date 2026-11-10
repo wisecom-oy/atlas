@@ -252,7 +252,7 @@ There is no `--fidelity` flag. MIME is the only format for new snapshots, so the
 
 Attachments are stored inside the MIME message. Two effects follow. Attachment content is no longer deduplicated across messages, so a file sent to a list is stored once per message. Base64 inside MIME adds about one third more bytes.
 
-If Graph cannot return MIME for an item, that single message is stored as legacy JSON instead of being skipped. Each manifest entry records its format. Entries with `payload_format: "mime"` hold original bytes, and entries without the field hold legacy JSON. `save`, `read`, `restore`, and `verify` handle both formats in one snapshot.
+If Graph cannot return MIME for an item, that single message is stored as legacy JSON instead of being skipped. A MIME request that fails transiently, such as a throttle or `5xx` that outlasts the retries, also stores the JSON form, but the run exits 2 and the next run fetches the message again for its MIME. See [Original MIME retrieval](/operations/delta-sync#original-mime-retrieval). Each manifest entry records its format. Entries with `payload_format: "mime"` hold original bytes, and entries without the field hold legacy JSON. `save`, `read`, `restore`, and `verify` handle both formats in one snapshot.
 
 On the JSON path, attachments are separate objects, and all three Graph types are captured:
 

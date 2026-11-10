@@ -28,31 +28,48 @@ export interface StoredMessage {
   readonly was_new: boolean;
 }
 
+/** The result of one MIME capture. */
+export interface MimeCapture {
+  /** The original MIME, or undefined when the JSON payload stands in for it. */
+  readonly mime: Buffer | undefined;
+  /** Why a capture that could succeed on a later run failed; absent when Graph has no MIME. */
+  readonly failure?: string;
+}
+
 /**
- * Captures the message's original MIME, falling back to the JSON payload when
- * Graph has no MIME for the item. Access and licensing failures are rethrown by
- * the connector and propagate; anything else degrades this one message to JSON
- * rather than failing the folder (issue #50).
+ * Captures the message's original MIME (issue #50). The connector resolves undefined when Graph
+ * will never produce MIME for the item, and the JSON payload is then the message's backup. A
+ * rejection is a capture that failed for now, such as a 503 that outlasted the retries: the JSON
+ * payload is still stored so the run keeps the message, and `failure` tells the caller to withhold
+ * the folder's delta link so the next run captures the MIME (issue #614). Access and licensing
+ * failures propagate (issue #372).
  */
 export async function capture_mime_payload(
   connector: MailboxConnector,
   tenant_id: string,
   owner_id: string,
   message: MailMessage,
-): Promise<Buffer | undefined> {
-  if (!connector.fetch_mime) return undefined;
+): Promise<MimeCapture> {
+  if (!connector.fetch_mime) return { mime: undefined };
   try {
-    return await connector.fetch_mime(tenant_id, owner_id, message.message_id);
+    return { mime: await connector.fetch_mime(tenant_id, owner_id, message.message_id) };
   } catch (err) {
-    // The fallback is for per-message faults such as ErrorItemNotFound. A revoked permission or
-    // an unlicensed mailbox is neither: swallowing those degraded every message in the run to
-    // the JSON payload, lost the original MIME, and still exited 0. `fetch_message_mime` already
-    // raises them as typed errors; this is the catch that used to eat them (issue #372).
     if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
-    const reason = err instanceof Error ? err.message : String(err);
+    const reason = describe_capture_failure(err);
     logger.warn(`MIME capture failed for message ${message.message_id}: ${reason}`);
-    return undefined;
+    return { mime: undefined, failure: reason };
   }
+}
+
+/**
+ * The error message, or its HTTP status when it has none. Graph errors for binary responses such
+ * as `$value` carry no message, and an empty reason would leave the operator nothing to act on.
+ */
+function describe_capture_failure(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message) return message;
+  const status = (err as { statusCode?: unknown } | null)?.statusCode;
+  return typeof status === 'number' ? `HTTP ${status}` : 'unknown error';
 }
 
 export interface PageReactions {

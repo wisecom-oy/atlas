@@ -53,7 +53,7 @@ function make_progress(): BackupProgressReporter {
   } as unknown as BackupProgressReporter;
 }
 
-/** MIME capture off, so every message with attachments goes through the pending flush. */
+/** Graph has no MIME for these messages, so every one with attachments goes through the flush. */
 function make_connector(
   fail_for: (message_id: string) => Error | undefined,
   on_mime: (message_id: string) => void = () => {},
@@ -65,7 +65,7 @@ function make_connector(
     }),
     fetch_mime: vi.fn(async (_t: string, _o: string, message_id: string) => {
       on_mime(message_id);
-      throw new Error('not available');
+      return undefined;
     }),
     fetch_attachments: vi.fn(async (_t: string, _o: string, message_id: string) => {
       const failure = fail_for(message_id);
@@ -113,10 +113,12 @@ describe('one attachment fetch failing during a folder flush', () => {
     const result = await run((id) => (id === 'msg-2' ? new Error('ErrorItemNotFound') : undefined));
 
     expect(result.entries).toHaveLength(3);
-    expect(result.attachment_errors).toHaveLength(1);
-    expect(result.attachment_errors[0]).toContain('msg-2');
+    expect(result.message_errors).toHaveLength(1);
+    expect(result.message_errors[0]).toContain('msg-2');
     // The other two still carry their attachments.
     expect(result.attachments_stored).toBe(2);
+    // A link past msg-2 would never present it again, so its attachments would stay lost (#615).
+    expect(result.complete).toBe(false);
   });
 
   it('still stops the run for a permission failure', async () => {
@@ -128,8 +130,9 @@ describe('one attachment fetch failing during a folder flush', () => {
   it('records nothing when every fetch succeeds', async () => {
     const result = await run(() => undefined);
 
-    expect(result.attachment_errors).toEqual([]);
+    expect(result.message_errors).toEqual([]);
     expect(result.attachments_stored).toBe(3);
+    expect(result.complete).toBe(true);
   });
 
   it('stops scheduling attachment fetches once the run is interrupted', async () => {
