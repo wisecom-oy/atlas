@@ -1,10 +1,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { SharePointManifestEntry, TenantContext } from '@wisecom/atlas-types';
-import {
-  download_and_decrypt,
-  SharePointDecryptAuthError,
-} from '@/services/restore/restore-content';
+import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
+import { download_and_decrypt } from '@/services/restore/restore-content';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -54,7 +52,7 @@ describe('SharePoint restore error classification', () => {
         make_ctx(async () => blob),
         ENTRY,
       ),
-    ).rejects.toThrow(SharePointDecryptAuthError);
+    ).rejects.toThrow(DriveDecryptAuthError);
   });
 
   it('reports a storage authorization failure as a storage error, not tampering', async () => {

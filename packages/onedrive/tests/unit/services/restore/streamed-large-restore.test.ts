@@ -8,7 +8,7 @@ import {
   upload_content_to_session,
 } from '@wisecom/atlas-drive/restore/upload-session';
 import { download_and_decrypt_blob } from '@/services/restore/blob-restore';
-import { OneDriveDecryptAuthError } from '@/services/restore/restore-integrity';
+import { DriveDecryptAuthError } from '@wisecom/atlas-drive/restore/decrypt-auth-error';
 
 /**
  * Issue #343: restore decrypted the whole object into memory before the first byte went to Graph,
@@ -189,7 +189,7 @@ describe('streamed large restore (issue #343)', { timeout: LARGE_OBJECT_TIMEOUT_
 
     await expect(
       upload_content_to_session(UPLOAD_URL, content!, harness.ref.file_name),
-    ).rejects.toBeInstanceOf(OneDriveDecryptAuthError);
+    ).rejects.toBeInstanceOf(DriveDecryptAuthError);
     expect(session.deletes()).toBe(1);
   });
 
