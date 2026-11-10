@@ -23,12 +23,17 @@ export class TeamsDeletionService implements TeamsDeletionUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
   ) {}
 
-  /** Deletes every blob, index, shard, and channel cursor of a team. */
+  /**
+   * Deletes every blob, index, shard, and channel cursor of a team. Objects that Object Lock
+   * retains or that fail to delete are counted in the result; callers report them, as for every
+   * other workload.
+   */
   async delete_team_data(tenant_id: string, team_id: string): Promise<DeletionResult> {
     const normalized_team_id = normalize_team_id(team_id);
     const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    // Cursors go first so no incremental run follows a partial delete; indexes and shards go before
-    // data so no surviving index or shard points at deleted blobs.
+    // Cursors go first so no incremental run follows a partial delete. Manifests and shards go
+    // before data blobs, so an interrupted run leaves orphaned blobs rather than manifests that
+    // point at nothing.
     return delete_scopes(storage, [
       teams_meta_prefix_for(normalized_team_id),
       TEAMS_KEYS.manifest_prefix_for(normalized_team_id),
