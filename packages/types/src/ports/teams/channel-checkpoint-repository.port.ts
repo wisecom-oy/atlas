@@ -1,12 +1,14 @@
 import type {
   TeamsChannelCheckpointHead,
+  TeamsChannelCheckpointHostedEntry,
   TeamsChannelCheckpointSegment,
 } from '@/domain/teams/checkpoint';
 import type { TenantContext } from '@/ports/tenant/context.port';
 
 /**
- * Resume state of channel reads that were interrupted. One object per channel head plus one
- * object per segment, so a checkpoint write never rewrites accumulated state.
+ * Resume state of channel reads that were interrupted. One object per channel head, one object per
+ * segment, and one object per hosted-journal entry, so a checkpoint write never rewrites
+ * accumulated state.
  */
 export interface TeamsChannelCheckpointRepository {
   /**
@@ -41,6 +43,26 @@ export interface TeamsChannelCheckpointRepository {
   /** Writes the channel's head. */
   save_head(ctx: TenantContext, head: TeamsChannelCheckpointHead): Promise<void>;
 
-  /** Deletes every object of one channel's checkpoint (head and segments). */
+  /** Writes one hosted-journal entry as its own object. The head is not rewritten. */
+  save_hosted_entry(
+    ctx: TenantContext,
+    team_id: string,
+    channel_id: string,
+    name: string,
+    entry: TeamsChannelCheckpointHostedEntry,
+  ): Promise<void>;
+
+  /**
+   * Loads every hosted-journal entry of one channel's checkpoint, in no particular order.
+   *
+   * @throws UnreadableContentError when an entry is damaged.
+   */
+  load_hosted_entries(
+    ctx: TenantContext,
+    team_id: string,
+    channel_id: string,
+  ): Promise<TeamsChannelCheckpointHostedEntry[]>;
+
+  /** Deletes every object of one channel's checkpoint (head, segments, and hosted entries). */
   delete_channel(ctx: TenantContext, team_id: string, channel_id: string): Promise<void>;
 }

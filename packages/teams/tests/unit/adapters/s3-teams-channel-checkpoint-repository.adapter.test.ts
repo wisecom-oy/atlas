@@ -6,11 +6,18 @@ import {
   type StubEncryptedObjectStore,
 } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { S3TeamsChannelCheckpointRepository } from '@/adapters/s3-teams-channel-checkpoint-repository.adapter';
-import { teams_checkpoint_head_key } from '@/services/shared/storage-keys';
+import {
+  teams_checkpoint_head_key,
+  teams_checkpoint_hosted_key,
+} from '@/services/shared/storage-keys';
 
 const TEAM = '00000000-0000-0000-0000-000000000001';
 const CHANNEL = 'channel-1';
 const SEGMENT = { threads: { 'msg-1': null }, seen: ['msg-1'] };
+const HOSTED_ENTRY = {
+  key: 'root-1//h1',
+  ref: { storage_key: 'teams/data/hosted/name', checksum: 'sum', size_bytes: 3 },
+};
 
 function head(overrides: Partial<TeamsChannelCheckpointHead> = {}): TeamsChannelCheckpointHead {
   return {
@@ -100,6 +107,45 @@ describe('S3TeamsChannelCheckpointRepository', () => {
     await expect(repository.load_segment(ctx, TEAM, CHANNEL, 'seg-gone-0')).rejects.toBeInstanceOf(
       UnreadableContentError,
     );
+  });
+
+  it('loads back every hosted entry it saved, without touching the head', async () => {
+    const bucket = new Map<string, Buffer>();
+    const ctx = make_ctx(stub_encrypted_object_store(), bucket);
+    const repository = new S3TeamsChannelCheckpointRepository();
+
+    await repository.save_hosted_entry(ctx, TEAM, CHANNEL, 'abc-0', HOSTED_ENTRY);
+    await repository.save_hosted_entry(ctx, TEAM, CHANNEL, 'abc-1', {
+      ...HOSTED_ENTRY,
+      key: 'root-1//h2',
+    });
+
+    const loaded = await repository.load_hosted_entries(ctx, TEAM, CHANNEL);
+    expect(loaded.map((entry) => entry.key).sort()).toEqual(['root-1//h1', 'root-1//h2']);
+    expect(bucket.has(teams_checkpoint_head_key(TEAM, CHANNEL))).toBe(false);
+  });
+
+  it('raises UnreadableContentError when a hosted entry is damaged', async () => {
+    const bucket = new Map<string, Buffer>();
+    const store = stub_encrypted_object_store();
+    const ctx = make_ctx(store, bucket);
+    const repository = new S3TeamsChannelCheckpointRepository();
+    const key = teams_checkpoint_hosted_key(TEAM, CHANNEL, 'abc-0');
+    bucket.set(key, store.encrypt(Buffer.from(JSON.stringify({ key: 'root-1//h1' }))));
+
+    await expect(repository.load_hosted_entries(ctx, TEAM, CHANNEL)).rejects.toBeInstanceOf(
+      UnreadableContentError,
+    );
+  });
+
+  it('deletes hosted entries with the rest of the channel checkpoint', async () => {
+    const ctx = make_ctx(stub_encrypted_object_store(), new Map());
+    const repository = new S3TeamsChannelCheckpointRepository();
+    await repository.save_hosted_entry(ctx, TEAM, CHANNEL, 'abc-0', HOSTED_ENTRY);
+
+    await repository.delete_channel(ctx, TEAM, CHANNEL);
+
+    await expect(repository.load_hosted_entries(ctx, TEAM, CHANNEL)).resolves.toEqual([]);
   });
 
   it('deletes only the named channel checkpoint, not one whose ID it prefixes', async () => {

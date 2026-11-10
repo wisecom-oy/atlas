@@ -20,4 +20,5 @@ export type {
   TeamsCheckpointPhase,
   TeamsChannelCheckpointHead,
   TeamsChannelCheckpointSegment,
+  TeamsChannelCheckpointHostedEntry,
 } from './checkpoint';
