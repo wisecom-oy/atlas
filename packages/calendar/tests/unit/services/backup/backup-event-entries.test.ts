@@ -20,6 +20,10 @@ const RECURRING = {
   recurrence: { range: { recurrenceTimeZone: 'Europe/Berlin' } },
 };
 
+/** What Graph answers for a `Prefer: outlook.timezone` value Exchange cannot use. */
+const ZONE_REJECTED = () =>
+  graph_error(400, 'TimeZoneNotSupportedException', 'A valid TimeZone value must be specified.');
+
 describe('CalendarBackupService series masters', () => {
   it('re-reads a series master in its recurrence zone and stores the master payload', async () => {
     const h = backup_harness();
@@ -58,13 +62,12 @@ describe('CalendarBackupService series masters', () => {
     expect(h.calls.series_master).toEqual([{ event_id: 's-1', time_zone: zone }]);
   });
 
-  it('retries once in UTC when Graph rejects a non-UTC zone with 400', async () => {
+  it('retries once in UTC when Graph rejects a non-UTC zone as TimeZoneNotSupportedException', async () => {
     const h = backup_harness();
     h.script.deltas['cal-work'] = delta_of('work-1', [calendar_event('s-1', RECURRING)]);
     h.script.series_masters['s-1'] = calendar_event('s-1', { type: 'seriesMaster' });
     h.script.hooks = {
-      series_master: (_id, zone) =>
-        zone === 'UTC' ? undefined : graph_error(400, 'ErrorInvalidTimeZone', 'bad zone'),
+      series_master: (_id, zone) => (zone === 'UTC' ? undefined : ZONE_REJECTED()),
     };
 
     const result = await h.service.backup_calendar('tenant-1', MAILBOX);
@@ -77,15 +80,30 @@ describe('CalendarBackupService series masters', () => {
   it('does not retry past the single UTC attempt when Graph still rejects it', async () => {
     const h = backup_harness();
     h.script.deltas['cal-work'] = delta_of('work-1', [calendar_event('s-1', RECURRING)]);
-    h.script.hooks = {
-      series_master: () => graph_error(400, 'ErrorInvalidTimeZone', 'bad zone'),
-    };
+    h.script.hooks = { series_master: ZONE_REJECTED };
 
     const result = await h.service.backup_calendar('tenant-1', MAILBOX);
 
     expect(h.calls.series_master.map((c) => c.time_zone)).toEqual(['Europe/Berlin', 'UTC']);
     expect(result.summary.errors).toHaveLength(1);
     expect(result.snapshot?.entries.map((e) => e.event_id) ?? []).not.toContain('s-1');
+  });
+
+  it('fails the event with Graph message on a 400 that is not about the zone, without a UTC read', async () => {
+    const h = backup_harness();
+    h.script.deltas['cal-work'] = delta_of('work-1', [calendar_event('s-1', RECURRING)]);
+    h.script.series_masters['s-1'] = calendar_event('s-1', { type: 'seriesMaster' });
+    h.script.hooks = {
+      series_master: () => graph_error(400, 'BadRequest', 'Parsing OData Select and Expand failed'),
+    };
+
+    const result = await h.service.backup_calendar('tenant-1', MAILBOX);
+
+    expect(h.calls.series_master.map((c) => c.time_zone)).toEqual(['Europe/Berlin']);
+    expect(result.summary.errors).toEqual([
+      'Event "Event s-1" (s-1) in Work failed: Parsing OData Select and Expand failed',
+    ]);
+    expect(result.summary.healthy).toBe(false);
   });
 });
 

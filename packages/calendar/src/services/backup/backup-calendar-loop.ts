@@ -5,7 +5,11 @@ import type {
   OperationControlOptions,
 } from '@wisecom/atlas-types';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { type CalendarSyncDeps, sync_calendar } from '@/services/backup/backup-calendar-sync';
+import {
+  type CalendarSyncDeps,
+  type CalendarSyncResult,
+  sync_calendar,
+} from '@/services/backup/backup-calendar-sync';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
 import { error_message } from '@/services/shared/error-message';
 
@@ -14,6 +18,7 @@ export interface CalendarLoopOutcome {
   readonly entries: readonly CalendarEventEntry[];
   readonly delta_link_by_calendar: Record<string, string>;
   readonly objects_stored: number;
+  readonly attachments_skipped: number;
   readonly errors: string[];
   readonly warnings: string[];
   readonly interrupted: boolean;
@@ -46,6 +51,22 @@ interface RunTotals {
   readonly errors: string[];
   readonly warnings: string[];
   objects_stored: number;
+  attachments_skipped: number;
+}
+
+/** Marks a synced calendar's progress row done, or failed when events failed or attachments were left out. */
+function report_calendar_outcome(
+  reporter: BackupProgressReporter,
+  index: number,
+  result: Extract<CalendarSyncResult, { complete: true }>,
+): void {
+  if (result.errors.length > 0) {
+    reporter.mark_error(index, `${result.errors.length} event(s) failed`);
+  } else if (result.attachments_skipped > 0) {
+    reporter.mark_error(index, `${result.attachments_skipped} attachment(s) not captured`);
+  } else {
+    reporter.mark_done(index, result.objects_stored, 0, 0);
+  }
 }
 
 /**
@@ -66,10 +87,10 @@ async function sync_one_calendar(
     const result = await sync_calendar(deps, calendar, previous.entries, read_link);
     totals.objects_stored += result.objects_stored;
     if (!result.complete) return { state: previous, interrupted: true };
+    totals.attachments_skipped += result.attachments_skipped;
     totals.errors.push(...result.errors);
     totals.warnings.push(...result.warnings);
-    if (result.errors.length === 0) reporter.mark_done(index, result.objects_stored, 0, 0);
-    else reporter.mark_error(index, `${result.errors.length} event(s) failed`);
+    report_calendar_outcome(reporter, index, result);
     return {
       state: { entries: result.entries, delta_link: result.delta_link, fresh: true },
       interrupted: false,
@@ -96,7 +117,7 @@ export async function sync_all_calendars(
   reporter: BackupProgressReporter,
 ): Promise<CalendarLoopOutcome> {
   const states: CalendarState[] = [];
-  const totals: RunTotals = { errors: [], warnings: [], objects_stored: 0 };
+  const totals: RunTotals = { errors: [], warnings: [], objects_stored: 0, attachments_skipped: 0 };
   let interrupted = false;
   for (const [index, calendar] of calendars.entries()) {
     const previous = previous_state_for(calendar, state);

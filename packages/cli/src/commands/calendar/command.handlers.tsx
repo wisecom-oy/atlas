@@ -19,7 +19,7 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
-import { report_run_outcome } from '@/command-run-outcome';
+import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import {
   resolve_owner,
@@ -134,6 +134,14 @@ export async function execute_calendar_backup(
     { errors: summary.errors, warnings: summary.warnings, interrupted: result.interrupted },
     'event',
   );
+  report_skipped_attachments(summary.attachments_skipped);
+}
+
+/** Exits partial when the backup left attachments out, so a scheduler sees the gap. */
+function report_skipped_attachments(count: number): void {
+  if (count === 0) return;
+  logger.error(`${count} attachment(s) not captured, listed above -- exit ${EXIT_PARTIAL}`);
+  process.exitCode = EXIT_PARTIAL;
 }
 
 /** Restores a calendar snapshot into the source or a target mailbox, skipping events already present. */

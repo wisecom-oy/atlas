@@ -187,8 +187,9 @@ export class CalendarBackupService implements CalendarBackupUseCase {
         ...skipped.map((calendar) => `Calendar ${calendar.display_name} skipped: read-only`),
         ...loop.warnings,
       ],
+      attachments_skipped: loop.attachments_skipped,
       errors: loop.errors,
-      healthy: loop.errors.length === 0,
+      healthy: loop.errors.length === 0 && loop.attachments_skipped === 0,
     };
     return { mailbox_id, snapshot, interrupted, summary };
   }
@@ -231,6 +232,7 @@ function empty_summary(): CalendarBackupSummary {
     objects_stored: 0,
     snapshot_created: false,
     warnings: [],
+    attachments_skipped: 0,
     errors: [],
     healthy: true,
   };

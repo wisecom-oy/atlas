@@ -21,6 +21,8 @@ export type CalendarSyncResult =
       readonly entries: readonly CalendarEventEntry[];
       readonly delta_link: string | undefined;
       readonly objects_stored: number;
+      /** Attachments this calendar's stored events left out; they do not hold the link back. */
+      readonly attachments_skipped: number;
       readonly errors: readonly string[];
       readonly warnings: readonly string[];
     }
@@ -38,6 +40,7 @@ interface CalendarMerge {
   readonly errors: string[];
   readonly warnings: string[];
   objects_stored: number;
+  attachments_skipped: number;
 }
 
 /**
@@ -53,6 +56,7 @@ async function apply_event(
   try {
     const stored = await store_event_entry(deps, calendar.id, event);
     merge.objects_stored += stored.objects_stored;
+    merge.attachments_skipped += stored.attachments_skipped;
     merge.by_id.set(event.id, stored.entry);
     for (const warning of stored.warnings) {
       merge.warnings.push(`Event ${describe_event(event)} in ${calendar.display_name}: ${warning}`);
@@ -96,6 +100,7 @@ export async function sync_calendar(
     errors: [],
     warnings: [],
     objects_stored: 0,
+    attachments_skipped: 0,
   };
   for (const removed_id of delta.removed_ids) merge.by_id.delete(removed_id);
 
@@ -128,6 +133,7 @@ export async function sync_calendar(
     entries: [...merge.by_id.values()],
     delta_link: merge.errors.length === 0 ? delta.delta_link : retry_link,
     objects_stored: merge.objects_stored,
+    attachments_skipped: merge.attachments_skipped,
     errors: merge.errors,
     warnings: merge.warnings,
   };
