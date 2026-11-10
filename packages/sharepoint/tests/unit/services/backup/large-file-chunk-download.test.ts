@@ -74,21 +74,24 @@ describe('fetch_file_chunks', () => {
     ]);
   });
 
-  it.each([429, 503, 504])('retries a chunk the CDN refused with HTTP %i', async (status) => {
-    vi.useFakeTimers();
-    const payload = Buffer.from('chunk-payload');
-    const fetch_mock = vi
-      .fn()
-      .mockResolvedValueOnce(range_response(status))
-      .mockResolvedValueOnce(range_response(206, payload));
-    vi.stubGlobal('fetch', fetch_mock);
+  it.each([429, 500, 502, 503, 504])(
+    'retries a chunk the CDN refused with HTTP %i',
+    async (status) => {
+      vi.useFakeTimers();
+      const payload = Buffer.from('chunk-payload');
+      const fetch_mock = vi
+        .fn()
+        .mockResolvedValueOnce(range_response(status))
+        .mockResolvedValueOnce(range_response(206, payload));
+      vi.stubGlobal('fetch', fetch_mock);
 
-    const promise = collect('https://cdn.test/file', payload.length);
-    await vi.advanceTimersByTimeAsync(5_000);
+      const promise = collect('https://cdn.test/file', payload.length);
+      await vi.advanceTimersByTimeAsync(5_000);
 
-    expect(await promise).toEqual(payload);
-    expect(fetch_mock).toHaveBeenCalledTimes(2);
-  });
+      expect(await promise).toEqual(payload);
+      expect(fetch_mock).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it('fails a chunk that returned HTTP 404 without retrying', async () => {
     const fetch_mock = vi.fn().mockResolvedValue(range_response(404));
@@ -98,6 +101,35 @@ describe('fetch_file_chunks', () => {
     // budget that a genuinely transient chunk needs.
     await expect(collect('https://cdn.test/file', 10)).rejects.toThrow(/HTTP 404/);
     expect(fetch_mock).toHaveBeenCalledTimes(1);
+  });
+
+  it('classifies on the status, not on digits in the item id or byte range (issue #618)', async () => {
+    const fetch_mock = vi.fn().mockResolvedValue(range_response(404));
+    vi.stubGlobal('fetch', fetch_mock);
+
+    // The error text reads "HTTP 404 for chunk bytes=0-9 of item-503-429", which a substring
+    // test took for a 503 and retried.
+    await expect(collect('https://cdn.test/file', 10, 'item-503-429')).rejects.toThrow(/HTTP 404/);
+    expect(fetch_mock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries a chunk whose connection failed before any response', async () => {
+    vi.useFakeTimers();
+    const payload = Buffer.from('chunk-payload');
+    const reset = Object.assign(new TypeError('fetch failed'), {
+      cause: Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }),
+    });
+    const fetch_mock = vi
+      .fn()
+      .mockRejectedValueOnce(reset)
+      .mockResolvedValueOnce(range_response(206, payload));
+    vi.stubGlobal('fetch', fetch_mock);
+
+    const promise = collect('https://cdn.test/file', payload.length);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await promise).toEqual(payload);
+    expect(fetch_mock).toHaveBeenCalledTimes(2);
   });
 
   it('gives up after the retry budget is spent', async () => {

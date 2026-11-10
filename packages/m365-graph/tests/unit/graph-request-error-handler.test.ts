@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   is_invalid_delta_error,
   is_transient_error,
-  is_network_error,
   is_retryable_error,
   with_graph_retry,
 } from '@/graph-request-error-handler';
@@ -50,47 +49,6 @@ describe('is_transient_error', () => {
 
   it('returns false for 501, which Graph does not recover from by itself', () => {
     expect(is_transient_error({ statusCode: 501 })).toBe(false);
-  });
-});
-
-describe('is_network_error', () => {
-  it.each(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EPIPE', 'EAI_AGAIN'])(
-    'returns true for error code %s',
-    (code) => {
-      expect(is_network_error({ code })).toBe(true);
-    },
-  );
-
-  it('returns true for "socket hang up" message', () => {
-    expect(is_network_error(new Error('socket hang up'))).toBe(true);
-  });
-
-  it('returns true for "fetch failed" message', () => {
-    expect(is_network_error(new Error('fetch failed'))).toBe(true);
-  });
-
-  it('returns true for ECONNRESET in error message', () => {
-    expect(is_network_error(new Error('read ECONNRESET'))).toBe(true);
-  });
-
-  it('returns true for "terminated" message', () => {
-    expect(is_network_error(new Error('terminated'))).toBe(true);
-  });
-
-  it('returns true for "aborted" message', () => {
-    expect(is_network_error(new Error('The operation was aborted'))).toBe(true);
-  });
-
-  it('returns true for "client network socket disconnected" message', () => {
-    expect(is_network_error(new Error('Client network socket disconnected'))).toBe(true);
-  });
-
-  it('returns false for a 404 HTTP error', () => {
-    expect(is_network_error({ statusCode: 404 })).toBe(false);
-  });
-
-  it('returns false for a business logic error', () => {
-    expect(is_network_error(new Error('Mailbox not found'))).toBe(false);
   });
 });
 
@@ -215,11 +173,12 @@ describe('with_graph_retry', () => {
     expect(await promise).toBe(err);
   });
 
-  it('retries on "terminated" error and succeeds', async () => {
+  it('retries a body undici terminated, from the socket code on its cause', async () => {
     let calls = 0;
+    const socket = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' });
     const fn = (): Promise<string> => {
       calls++;
-      if (calls <= 3) return Promise.reject(new Error('terminated'));
+      if (calls <= 3) return Promise.reject(new TypeError('terminated', { cause: socket }));
       return Promise.resolve('recovered');
     };
 

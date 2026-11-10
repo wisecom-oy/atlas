@@ -136,6 +136,23 @@ describe('historical version content storage', () => {
     expect(ctx.storage.put).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['a transfer of exactly 404 bytes', vi.fn().mockResolvedValue(Buffer.alloc(404, 7))],
+    [
+      'a 500 whose message mentions 404',
+      vi.fn().mockRejectedValue(Object.assign(new Error('Not Found: 404'), { statusCode: 500 })),
+    ],
+  ])('records %s as failed, never as an expired version (issue #618)', async (_label, download) => {
+    const version = make_version(4096);
+    const connector = make_connector(version, { download_file_version: download });
+
+    const outcome = await sync_file_versions(connector, item, 'owner-1', 'snap-1', ctx, undefined);
+
+    expect(outcome.versions_failed).toBe(1);
+    expect(outcome.versions_unavailable).toBe(0);
+    expect(outcome.next_watermark).toBeUndefined();
+  });
+
   it('fails a streamed version that ends before its listed size, without promoting it', async () => {
     const version = make_version(LARGE_FILE_THRESHOLD);
     const connector = make_connector(version, {
