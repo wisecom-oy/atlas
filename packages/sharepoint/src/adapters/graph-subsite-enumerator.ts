@@ -14,6 +14,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { SharePointSite, SharePointSubsiteTree } from '@wisecom/atlas-types';
 import { canonical_site_id } from '@/services/shared/site-id';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 interface GraphSiteRecord {
   id?: string;
@@ -113,7 +114,7 @@ async function collect_direct_subsites(
 
   for (const parent_site_id of parent_site_ids) {
     try {
-      children.push(...(await fetch_direct_subsites(parent_site_id)));
+      append_all(children, await fetch_direct_subsites(parent_site_id));
     } catch (err) {
       warnings.push(
         `Could not enumerate subsites of ${parent_site_id}: ` +

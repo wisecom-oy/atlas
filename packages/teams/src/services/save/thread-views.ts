@@ -11,6 +11,7 @@ import { escape_html } from '@/services/save/html/escape-html';
 import { sanitize_message_html } from '@/services/save/html/sanitize-message-html';
 import { inline_hosted_images } from '@/services/save/html/hosted-image-inliner';
 import { read_message_content, read_verified_blob } from '@/services/save/message-blob-reader';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Running totals and non-fatal problems for one export. */
 export interface ExportTally {
@@ -129,7 +130,7 @@ async function render_body(
     },
   );
   tally.images_inlined += inlined.inlined;
-  tally.errors.push(...inlined.errors);
+  append_all(tally.errors, inlined.errors);
   return inlined.html;
 }
 

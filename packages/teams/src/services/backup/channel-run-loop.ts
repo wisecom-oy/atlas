@@ -19,6 +19,7 @@ import {
 } from '@/services/backup/channel-backup-processor';
 import type { TeamsBaseline } from '@/services/backup/team-baseline-loader';
 import { error_message } from '@/services/shared/error-message';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** How one started channel ended. Channels the run never started have no record. */
 export interface ChannelRunRecord {
@@ -187,8 +188,8 @@ function assemble_run_state(selected: TeamsGraphResource[], state: ChannelRunSta
     const record = state.records.get(channel.id);
     if (record === undefined) continue;
     if (record.output !== undefined) state.results.set(channel.id, record.output);
-    state.errors.push(...record.errors);
-    state.warnings.push(...record.warnings);
+    append_all(state.errors, record.errors);
+    append_all(state.warnings, record.warnings);
   }
 }
 

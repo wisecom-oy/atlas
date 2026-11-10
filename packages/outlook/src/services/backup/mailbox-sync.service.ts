@@ -43,6 +43,7 @@ import {
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 const always_false = (): boolean => false;
 
@@ -146,13 +147,17 @@ export class MailboxSyncService implements BackupUseCase {
 
         // Per-message MIME and attachment failures, not folder failures: the folder's entries are
         // kept and the run reports itself incomplete rather than losing the folder (issue #366).
-        folder_errors.push(
-          ...outcome.message_errors.map((line) => `${folder.folder_path}: ${line}`),
+        append_all(
+          folder_errors,
+          outcome.message_errors.map((line) => `${folder.folder_path}: ${line}`),
         );
-        warnings.push(...outcome.warnings.map((line) => `${folder.folder_path}: ${line}`));
+        append_all(
+          warnings,
+          outcome.warnings.map((line) => `${folder.folder_path}: ${line}`),
+        );
 
-        all_entries.push(...outcome.entries);
-        removed_ids.push(...outcome.removed_ids);
+        append_all(all_entries, outcome.entries);
+        append_all(removed_ids, outcome.removed_ids);
         removal_counts[folder.folder_id] = outcome.removed_ids.length;
         // Persist a folder's delta link only when every page and message was fully processed; an
         // interrupted or partly failed folder keeps its previous link and is re-enumerated next

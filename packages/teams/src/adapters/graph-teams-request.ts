@@ -1,5 +1,6 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { rethrow_if_teams_access_denied, with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** One Graph collection page: its items and the links that continue or finish the read. */
 export interface GraphCollectionResponse<T> {
@@ -56,7 +57,7 @@ export async function read_all_pages<T>(
       next,
       extra_headers,
     );
-    items.push(...(page.value ?? []));
+    append_all(items, page.value ?? []);
     delta_link = page['@odata.deltaLink'] ?? delta_link;
     next = page['@odata.nextLink'];
   }

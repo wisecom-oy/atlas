@@ -55,6 +55,7 @@ import {
   TeamsRequestStats,
 } from '@/services/backup/teams-request-stats';
 import { normalize_team_id } from '@/services/shared/team-id';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Per-run settings the team backup threads through its steps. */
 interface RunSettings {
@@ -164,7 +165,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     });
     state.interrupted = state.interrupted || scope.should_interrupt();
     apply_baseline_findings(state, baseline);
-    state.errors.push(...missing_channel_errors(options.channel_id, all_channels, team_id));
+    append_all(state.errors, missing_channel_errors(options.channel_id, all_channels, team_id));
     const saves = await save_channel_shards(ctx, this._shards, state.results);
     const channels = merge_channel_entries({
       channels: all_channels,
@@ -240,8 +241,8 @@ function emit_backup_progress(
 
 /** Adds the baseline's load errors and warnings to the run state. */
 function apply_baseline_findings(state: ChannelRunState, baseline: TeamsBaseline): void {
-  state.errors.push(...baseline.errors);
-  state.warnings.push(...baseline.warnings);
+  append_all(state.errors, baseline.errors);
+  append_all(state.warnings, baseline.warnings);
 }
 
 /**

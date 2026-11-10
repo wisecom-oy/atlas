@@ -15,6 +15,7 @@ import { channel_hosted_journal } from '@/services/backup/hosted-journal';
 import type { HostedRecheck } from '@/services/backup/hosted-recheck';
 import { shard_fingerprint } from '@/services/backup/shard-fingerprint';
 import { error_message } from '@/services/shared/error-message';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** What a channel starts from: its previous index entry and shard, and its stored cursor state. */
 export interface ChannelStartState {
@@ -97,7 +98,7 @@ export async function backup_channel(
     run,
   );
   if (run.mode === 'full') scope.counters.channels_full_read++;
-  warnings.push(...run.state.warnings);
+  append_all(warnings, run.state.warnings);
   const complete = !interrupted && retryable_items(run.state.failed_roots, channel.id).length === 0;
   const shard: TeamsChannelShard = {
     format_version: TEAMS_FORMAT_VERSION,

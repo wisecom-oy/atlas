@@ -3,6 +3,7 @@ import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import {
   emit_operation_progress,
   finish_operation_progress,
@@ -147,13 +148,4 @@ export async function execute_restore_loop(
   } finally {
     process.removeListener('SIGINT', on_sigint);
   }
-}
-
-/**
- * Appends without spreading. `push(...items)` passes every element as a call argument, so a folder
- * with more messages than the engine's argument limit would throw after its restore already ran,
- * and the caller would get no result for messages that are in the mailbox.
- */
-function append_all<T>(target: T[], items: readonly T[]): void {
-  for (const item of items) target.push(item);
 }

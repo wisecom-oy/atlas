@@ -8,6 +8,7 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 import { type FolderSyncDeps, sync_folder } from '@/services/backup/backup-folder-sync';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
 import { error_message } from '@/services/shared/error-message';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Final entries and delta links for every listed folder, plus run-level counts. */
 export interface FolderLoopOutcome {
@@ -80,7 +81,7 @@ export async function sync_all_folders(
       objects_stored += result.objects_stored;
       if (result.complete) {
         states.push({ entries: result.entries, delta_link: result.delta_link, fresh: true });
-        errors.push(...result.errors);
+        append_all(errors, result.errors);
         report_folder_row(reporter, index, result.objects_stored, result.errors.length);
       } else {
         interrupted = true;

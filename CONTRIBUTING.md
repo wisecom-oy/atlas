@@ -120,12 +120,19 @@ Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint
 | Single quotes, trailing commas, 100-char print width | Prettier                               |
 | `@/` path aliases, no relative imports (warning)     | `no-restricted-imports` ESLint rule    |
 | Type-aware: promises, unsafe `any`, assertions       | `typescript-eslint` type-checked       |
+| No spread into `push`/`unshift`, use `append_all`    | `no-restricted-syntax` ESLint rule     |
 | JSDoc on all exported functions                      | Convention                             |
 
 Two rules are staged as warnings because the codebase still has existing hits:
 190 relative imports and 19 oversized functions. They move to errors once those
 are cleared, so a new violation shows up in the lint output of the PR that
 introduces it rather than being silently accepted.
+
+`target.push(...items)` passes every element as a separate call argument, and V8
+throws `RangeError: Maximum call stack size exceeded` once an array passes
+roughly 125k elements on Node 22. Manifest entry arrays from large folders and
+libraries reach that size, so `src/` code appends with `append_all` from
+`@wisecom/atlas-core/utils/append-all` instead.
 
 **SDK exception:** Files under `src/sdk.ts`, `src/ports/atlas/`, and `src/adapters/sdk/` use standard ES6 `camelCase` naming to provide a familiar interface for external consumers. This is configured as an ESLint override.
 

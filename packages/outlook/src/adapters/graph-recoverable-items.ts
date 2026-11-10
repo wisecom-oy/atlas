@@ -20,6 +20,7 @@ import type { ExcludedFolder, MailFolder, MailFolderListOptions } from '@wisecom
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
 import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Path prefix given to every folder in the subtree, so manifests stay readable. */
 export const RECOVERABLE_ITEMS_PATH_PREFIX = 'Recoverable Items';
@@ -114,7 +115,10 @@ export async function enumerate_recoverable_items(
       options,
       { root_path: [RECOVERABLE_ITEMS_PATH_PREFIX, display_name] },
     );
-    captured.push(...subtree.map((folder) => ({ ...folder, is_recoverable_items: true })));
+    append_all(
+      captured,
+      subtree.map((folder) => ({ ...folder, is_recoverable_items: true })),
+    );
   }
 
   return captured;

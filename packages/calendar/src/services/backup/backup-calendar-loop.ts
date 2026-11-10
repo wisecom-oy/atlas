@@ -8,6 +8,7 @@ import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/ope
 import { type CalendarSyncDeps, sync_calendar } from '@/services/backup/backup-calendar-sync';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
 import { error_message } from '@/services/shared/error-message';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Final entries and delta links for every synced calendar, plus run-level counts. */
 export interface CalendarLoopOutcome {
@@ -66,8 +67,8 @@ async function sync_one_calendar(
     const result = await sync_calendar(deps, calendar, previous.entries, read_link);
     totals.objects_stored += result.objects_stored;
     if (!result.complete) return { state: previous, interrupted: true };
-    totals.errors.push(...result.errors);
-    totals.warnings.push(...result.warnings);
+    append_all(totals.errors, result.errors);
+    append_all(totals.warnings, result.warnings);
     if (result.errors.length === 0) reporter.mark_done(index, result.objects_stored, 0, 0);
     else reporter.mark_error(index, `${result.errors.length} event(s) failed`);
     return {

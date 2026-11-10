@@ -3,6 +3,7 @@ import type { StorageTarget, DekValidationFn } from '@wisecom/atlas-types';
 import type { ReplicationResult } from '@wisecom/atlas-types';
 import { build_replication_result } from '@/services/replication/replication-result-builder';
 import type { DriveReplicationTally } from '@/services/replication/drive-snapshot-replicator';
+import { append_all } from '@/utils/append-all';
 
 /**
  * What a workload contributes to rehydration: where its manifest lives on the primary, and how to
@@ -56,7 +57,7 @@ export async function rehydrate_manifests<TManifest extends { snapshot_id: strin
     total_skipped += rep.objects_skipped;
     total_failed += rep.objects_failed;
     total_bytes += rep.bytes_copied;
-    all_errors.push(...rep.errors);
+    append_all(all_errors, rep.errors);
     snapshot_count++;
   }
 

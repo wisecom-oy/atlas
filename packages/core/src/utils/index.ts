@@ -28,6 +28,7 @@ export type { SecureStoreOptions, KeyringBackend } from './secure-config-store';
 export { CONFIG_KEYS, TENANT_KEYS, find_config_key, mask_secret } from './config-keys';
 export type { ConfigKeySpec } from './config-keys';
 export { html_to_text } from './html-to-text';
+export { append_all } from './append-all';
 export { is_gcm_auth_failure } from './gcm-auth';
 export {
   run_with_log_scope,

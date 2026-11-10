@@ -3,6 +3,7 @@ import {
   summarize_package_items,
   type PackageReport,
 } from '@wisecom/atlas-core/services/shared/package-item-reporter';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Package accounting summed across every drive in one run. */
 export interface PackageReportTotals {
@@ -18,7 +19,7 @@ export function accumulate_package_report(
 ): void {
   totals.notebooks_detected += report.notebooks_detected;
   totals.section_files_backed_up += report.section_files_backed_up;
-  totals.warnings.push(...report.warnings);
+  append_all(totals.warnings, report.warnings);
 }
 
 /** Marks unprocessed delta items incomplete when a drive is interrupted. */

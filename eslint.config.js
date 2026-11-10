@@ -50,6 +50,16 @@ const structural_convention_rules = {
     },
   ],
   'check-file/folder-naming-convention': ['error', { '**/': 'KEBAB_CASE' }],
+  // A spread passes every element as a call argument, and V8 throws a RangeError past its
+  // argument limit (about 125k), which entry arrays from large folders and libraries reach.
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: 'CallExpression[callee.property.name=/^(push|unshift)$/] > SpreadElement',
+      message:
+        'Spreading into push/unshift throws RangeError on large arrays. Use append_all from @wisecom/atlas-core/utils/append-all.',
+    },
+  ],
   'max-lines-per-function': [
     'warn',
     { max: 80, skipBlankLines: true, skipComments: true, IIFEs: true },

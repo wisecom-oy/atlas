@@ -2,6 +2,7 @@ import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-
 import { ReplicationStatus, ReplicationVerificationStatus } from '@wisecom/atlas-types';
 import type { StorageTarget } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
+import { append_all } from '@/utils/append-all';
 
 /** Raw counts returned by the snapshot replicator. */
 export interface RawCopyResult {
@@ -91,7 +92,7 @@ export function merge_replication_results(
     objects_failed += r.objects_failed;
     bytes_copied += r.bytes_copied;
     elapsed_ms += r.elapsed_ms;
-    errors.push(...r.errors);
+    append_all(errors, r.errors);
   }
 
   return build_replication_result(

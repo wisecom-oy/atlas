@@ -37,6 +37,7 @@ import {
   extract_page_messages,
   graph_message_to_mail_message,
 } from '@/adapters/graph-delta-message-mapper';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 // Graph's default message/folder IDs change on every folder move; immutable
 // IDs do not. Must be sent on EVERY request that produces or consumes an ID —
@@ -355,7 +356,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     messages: MailMessage[],
   ): Promise<{ should_continue: boolean | void; new_total_streamed: number }> {
     if (!on_page) {
-      messages.push(...page_messages);
+      append_all(messages, page_messages);
       return { should_continue: true, new_total_streamed: total_streamed };
     }
 
@@ -384,7 +385,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     while (current_url) {
       const page = await this.fetch_continuation_page(current_url, 100);
       if (page.value) {
-        all_items.push(...(page.value as T[]));
+        append_all(all_items, page.value as T[]);
       }
       current_url = page['@odata.nextLink'];
     }

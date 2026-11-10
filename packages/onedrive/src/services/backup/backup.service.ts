@@ -50,6 +50,7 @@ import {
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 @injectable()
 export class OneDriveBackupService implements OneDriveBackupUseCase {
@@ -206,10 +207,10 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
             `-- see the per-version reasons above; those versions are not in this snapshot`,
         );
       }
-      warnings.push(...build_package_warnings(scan_result.package_report));
+      append_all(warnings, build_package_warnings(scan_result.package_report));
       // Files left un-backed-up are the run's headline problem: warn per item and
       // hold the run unhealthy until the ledger is empty.
-      warnings.push(...describe_failed_items(scan_result.failed_items));
+      append_all(warnings, describe_failed_items(scan_result.failed_items));
       const healthy =
         !scan_result.interrupted &&
         errors.length === 0 &&

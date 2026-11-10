@@ -6,6 +6,7 @@ import {
   type GraphRetryOptions,
 } from '@wisecom/atlas-m365-graph';
 import { is_record } from '@/services/shared/json-record';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 export const CONTACTS_READ = 'Contacts.Read';
 export const CONTACTS_READ_WRITE = 'Contacts.ReadWrite';
@@ -78,7 +79,7 @@ export async function collect_pages<T>(
       next,
       permission,
     );
-    items.push(...(page.value ?? []));
+    append_all(items, page.value ?? []);
     next = page['@odata.nextLink'];
   }
   return items;
