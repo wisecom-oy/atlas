@@ -48,9 +48,12 @@ export async function sleep(ms: number, signal: AbortSignal | undefined): Promis
   await promise;
 }
 
-/** The error a cancelled run rejects with: the signal's reason when it is an Error. */
+/**
+ * The error a cancelled run rejects with: the signal's reason when it is an Error, otherwise an
+ * Error carrying the reason as its `cause`, so the cancellation stays recognisable by identity.
+ */
 function cancelled_error(reason: unknown): Error {
-  return reason instanceof Error ? reason : new Error('The run was cancelled');
+  return reason instanceof Error ? reason : new Error('The run was cancelled', { cause: reason });
 }
 
 /** Throws the run's cancellation error when `signal` has already fired. */
