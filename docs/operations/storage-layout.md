@@ -10,6 +10,7 @@ Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits 
 atlas-{tenant_id}/
 ├── _meta/
 │   ├── dek.enc                                  # wrapped data encryption key
+│   ├── outlook-cursors/{owner_id}.json          # Outlook delta links, one per folder
 │   ├── outlook-manifests/
 │   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
 │   │   └── snapshots/{snapshot_id}.json         # manifest key per snapshot
@@ -18,6 +19,7 @@ atlas-{tenant_id}/
 │   │   ├── onedrive/{owner_id}/                 # OneDrive
 │   │   └── sharepoint/{site_id}/                # SharePoint
 │   └── replica.marker                           # present only on replica buckets
+├── identity-registry.json                       # resolved users, one per tenant
 ├── data/{owner_id}/{content_name}               # Outlook messages
 ├── attachments/{owner_id}/{content_name}        # Outlook attachments (legacy JSON entries)
 ├── manifests/{owner_id}/{snapshot_id}.json      # Outlook manifests
@@ -50,7 +52,8 @@ atlas-{tenant_id}/
     ├── data/{team_id}/hosted/{content_name}
     ├── manifests/{team_id}/{snapshot_id}.json
     ├── shards/{team_id}/{channel_id}/{content_name}.json
-    └── _meta/{team_id}/channels/{channel_id}.json
+    ├── _meta/{team_id}/channels/{channel_id}.json
+    └── _meta/{team_id}/checkpoints/{channel_id}/
 ```
 
 ## Bucket isolation
@@ -64,6 +67,7 @@ Bucket separation alone does not separate credentials. The CLI's [tenant profile
 | Prefix                                         | Contents                                                  | Notes                                                                   |
 | ---------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `_meta/dek.enc`                                | Wrapped data encryption key, one per tenant               | The most critical object. See [The DEK object](#the-dek-object).        |
+| `_meta/outlook-cursors/{owner_id}.json`        | Delta cursor: one Graph delta link per mail folder        | Encrypted, bound to its owner. Overwritten by every run.                |
 | `_meta/outlook-manifests/owners/{owner_id}/`   | Pointer to the latest manifest for a mailbox              | Lets incremental backups read one manifest, not the full history.       |
 | `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from a snapshot ID to its manifest                | Direct lookup by snapshot ID.                                           |
 | `data/{owner_id}/`                             | Messages as RFC 5322 MIME, named by keyed hash            | Content encrypted; S3 metadata visible.                                 |
@@ -110,7 +114,7 @@ A subsite has its own Graph `site_id`, so `atlas sharepoint backup --include-sub
 
 ## Teams
 
-Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs live under `teams/data/{team_id}/`, inline images under `teams/data/{team_id}/hosted/`, and snapshot indexes under `teams/manifests/{team_id}/`. Channel shards sit under `teams/shards/{team_id}/{channel_id}/`, and per-channel delta cursors under `teams/_meta/{team_id}/channels/`. Teams writes no version index or staging objects.
+Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs live under `teams/data/{team_id}/`, inline images under `teams/data/{team_id}/hosted/`, and snapshot indexes under `teams/manifests/{team_id}/`. Channel shards sit under `teams/shards/{team_id}/{channel_id}/`, per-channel delta cursors under `teams/_meta/{team_id}/channels/`, and the checkpoints of an unfinished channel read under `teams/_meta/{team_id}/checkpoints/{channel_id}/`. Teams writes no version index or staging objects.
 
 ## Contacts
 
@@ -123,12 +127,12 @@ Teams data sits under `teams/`, keyed by Graph team ID. Message and reply blobs 
 
 ## Calendar
 
-| Prefix                                  | Contents                                             | Notes                                                                                       |
-| --------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `calendar/data/{owner_id}/`             | Event records as JSON, named by keyed HMAC-SHA256    | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks.    |
-| `calendar/attachments/{owner_id}/`      | File attachment bytes, named by keyed HMAC-SHA256    | Only file attachments are stored. Item and reference attachments are not captured.          |
-| `calendar/manifests/{owner_id}/`        | Snapshot manifests                                   | Each manifest is complete. Snapshots do not chain to older ones.                            |
-| `calendar/_meta/{owner_id}/delta.json`  | Delta cursors                                        | One Graph delta link per calendar, used by the next backup.                                 |
+| Prefix                                 | Contents                                          | Notes                                                                                    |
+| -------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `calendar/data/{owner_id}/`            | Event records as JSON, named by keyed HMAC-SHA256 | Owner is the Entra object ID. The manifest keeps the plain SHA-256 for integrity checks. |
+| `calendar/attachments/{owner_id}/`     | File attachment bytes, named by keyed HMAC-SHA256 | Only file attachments are stored. Item and reference attachments are not captured.       |
+| `calendar/manifests/{owner_id}/`       | Snapshot manifests                                | Each manifest is complete. Snapshots do not chain to older ones.                         |
+| `calendar/_meta/{owner_id}/delta.json` | Delta cursors                                     | One Graph delta link per calendar, used by the next backup.                              |
 
 ## The DEK object
 
