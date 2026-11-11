@@ -1,5 +1,5 @@
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder, MailFolderListOptions } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
@@ -10,14 +10,18 @@ const UNKNOWN_FOLDER_NAME = 'Unknown';
 /**
  * Builds a mapping from Graph folder_id to the folder's root-relative path
  * (e.g. `Inbox/Projects/2026`), so nested folders stay distinguishable in
- * restore targets, save archives, and folder filters.
+ * restore targets, save archives, and folder filters. `listing` widens the
+ * live listing, e.g. to the Recoverable Items subtree (issue #700).
  */
 export async function build_folder_map(
   connector: MailboxConnector,
   tenant_id: string,
   owner_id: string,
+  listing?: MailFolderListOptions,
 ): Promise<Map<string, string>> {
-  const folders = await connector.list_mail_folders(tenant_id, owner_id);
+  const folders = listing
+    ? await connector.list_mail_folders(tenant_id, owner_id, listing)
+    : await connector.list_mail_folders(tenant_id, owner_id);
   const map = new Map<string, string>();
   for (const f of folders) {
     map.set(f.folder_id, f.folder_path);

@@ -16,7 +16,10 @@ import {
   filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
+import {
+  apply_recoverable_items_policy,
+  folder_listing_for,
+} from '@/services/restore/recoverable-items-filter';
 import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import {
@@ -234,19 +237,20 @@ export class RestoreService implements RestoreUseCase {
     return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
   }
 
-  /** Applies folder filter to a set of entries. */
+  /** Applies the folder filter, then the Recoverable Items policy to what it selected (#701). */
   private async apply_entry_filters(
     entries: ManifestEntry[],
     owner_id: string,
     tenant_id: string,
     options: RestoreOptions,
   ): Promise<ManifestEntry[]> {
-    const allowed = apply_recoverable_items_policy(entries, options.include_recoverable_items);
+    let selected = entries;
     if (options.folder_name) {
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
+      const listing = folder_listing_for(entries);
+      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, listing);
+      selected = filter_entries_by_folder_name(entries, options.folder_name, folder_map);
     }
-    return allowed;
+    return apply_recoverable_items_policy(selected, options.include_recoverable_items);
   }
 
   /** Restores a batch of messages with dashboard progress. */
@@ -259,7 +263,8 @@ export class RestoreService implements RestoreUseCase {
     entries: ManifestEntry[],
     options: RestoreOptions,
   ): Promise<RestoreResult> {
-    const folder_map = await build_folder_map(this._connector, tenant_id, source_mailbox);
+    const listing = folder_listing_for(entries);
+    const folder_map = await build_folder_map(this._connector, tenant_id, source_mailbox, listing);
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);

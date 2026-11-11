@@ -17,7 +17,10 @@ import {
   filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
+import {
+  apply_recoverable_items_policy,
+  folder_listing_for,
+} from '@/services/restore/recoverable-items-filter';
 import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
@@ -192,12 +195,14 @@ export class SaveService implements SaveUseCase {
     tenant_id: string,
     options: SaveOptions,
   ): Promise<ManifestEntry[]> {
-    const allowed = apply_recoverable_items_policy(entries, options.include_recoverable_items);
+    // The policy runs on the selection, so its skip count names only what was asked for (#701).
+    let selected = entries;
     if (options.folder_name) {
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
-      return filter_entries_by_folder_name(allowed, options.folder_name, folder_map);
+      const listing = folder_listing_for(entries);
+      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, listing);
+      selected = filter_entries_by_folder_name(entries, options.folder_name, folder_map);
     }
-    return allowed;
+    return apply_recoverable_items_policy(selected, options.include_recoverable_items);
   }
 
   private async save_batch(
@@ -210,7 +215,8 @@ export class SaveService implements SaveUseCase {
     target: ArchiveTarget,
     output_path: string,
   ): Promise<SaveResult> {
-    const folder_map = await build_folder_map(this._connector, tenant_id, owner_id);
+    const listing = folder_listing_for(entries);
+    const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, listing);
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);

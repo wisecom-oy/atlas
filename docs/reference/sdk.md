@@ -568,6 +568,8 @@ const restorable = manifest.entries.filter((entry) => entry.recoverableItems !==
 await atlas.outlook.restore('snapshot-id', { includeRecoverableItems: true });
 ```
 
+Restored items go under `Recoverable Items/<subfolder>` in the restore folder, and `save()` uses the same path in the archive.
+
 With the option off, the request volume matches earlier runs. Storing purged mail has compliance consequences. See [Recoverable Items and legal hold](/security#recoverable-items-and-legal-hold).
 
 ### Snapshot folders

@@ -1,9 +1,23 @@
-import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { MailFolderListOptions, ManifestEntry } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
 /** Whether a stored entry came from the Exchange Recoverable Items subtree. */
 export function is_recoverable_items_entry(entry: ManifestEntry): boolean {
   return entry.recoverable_items === true;
+}
+
+/**
+ * The folder listing that can name the folder of every given entry.
+ *
+ * The live listing reaches the Recoverable Items subtree only on request, so a
+ * Recoverable Items entry's folder is missing from it otherwise and restores
+ * into `Unknown` (issue #700). Undefined when no entry needs it, so a run
+ * without such entries spends not one extra request.
+ */
+export function folder_listing_for(
+  entries: readonly ManifestEntry[],
+): MailFolderListOptions | undefined {
+  return entries.some(is_recoverable_items_entry) ? { include_recoverable_items: true } : undefined;
 }
 
 /**
@@ -16,7 +30,8 @@ export function is_recoverable_items_entry(entry: ManifestEntry): boolean {
  *
  * The rule has no exceptions, including a single named message: an operator who
  * means to recover purged mail says so with the flag, and the count logged here
- * is how they find out the flag is what they need.
+ * is how they find out the flag is what they need. Pass only the entries the
+ * operator selected, so the count names what they asked for (issue #701).
  */
 export function apply_recoverable_items_policy(
   entries: ManifestEntry[],
