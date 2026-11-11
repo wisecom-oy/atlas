@@ -236,7 +236,9 @@ Restoring a large file streams plaintext into a Graph upload session as it decry
 
 Atlas also refuses any chunk that would reach the declared end while the source still has data. An object longer than its recorded size would otherwise commit early. The file fails and the recorded and stored sizes are reported as disagreeing.
 
-The rule to preserve: an unverified byte may travel, but nothing may make it visible. A destination that publishes data as it arrives, such as a filesystem path or a stream handed to a caller, must use the buffered path with up-front verification.
+The rule to preserve: an unverified byte may travel, but nothing may make it visible. A destination that publishes data as it arrives, such as a filesystem path or a stream handed to a caller, must verify before it writes.
+
+A drive export does that in two passes for files larger than 4 MiB. The first pass decrypts the object and checks the GCM tag and the manifest SHA-256 without keeping any plaintext, so a bad object is skipped and reported exactly as a small one is, with no entry in the archive. The second pass decrypts again straight into the zip entry and checks the plaintext against the first pass digest. If the object changed between the reads, the entry cannot be withdrawn, so the whole export fails: a path target is never published and a stream target is destroyed. Memory stays at the stream buffers regardless of file size, and the cost is reading each large object from storage twice.
 
 ## Backup fidelity
 

@@ -776,7 +776,7 @@ onedrive-od-snap-123-2026-05-24T14-30-00.zip
     vacation.jpg
 ```
 
-Files larger than 4 MiB are decrypted as a stream, so the full ciphertext is never held in memory.
+Files larger than 4 MiB are decrypted as a stream straight into the archive entry, so neither the ciphertext nor the plaintext is ever held whole and memory does not grow with file size. Each such file is read from storage twice: once to verify it, once to write it. See [Nothing is released before it authenticates](../security.md#nothing-is-released-before-it-authenticates).
 
 **`atlas onedrive verify`**
 
