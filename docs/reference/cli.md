@@ -1212,6 +1212,8 @@ After the command succeeds, update `ATLAS_ENCRYPTION_PASSPHRASE` or run `atlas c
 
 If `_meta/dek.enc` is under an Object Lock retention policy, the write is refused until retention expires. The command reports that the stored key is unchanged, rather than returning a bare access denial that looks like a credentials fault.
 
+Atlas classifies a failed write by the response's HTTP status and S3 error code, never by its message text. An HTTP `412` or the `PreconditionFailed` code means another run changed `_meta/dek.enc` during the re-wrap, and the command stops without overwriting it. An HTTP `403` or the `AccessDenied` code gets the retention explanation above. Any other failure, such as a `500`, is reported as the storage error it is.
+
 ## atlas config
 
 Manage shared settings in an encrypted local store. Values are written to `~/.atlas/config.enc` (AES-256-GCM). The store key lives in the OS keyring (macOS Keychain or libsecret), so credentials are never stored in plaintext on disk. Tenant credentials are managed with [`atlas tenants`](#atlas-tenants). See [Configuration](../configuration.md) for precedence and [Security](../security.md) for the threat model.

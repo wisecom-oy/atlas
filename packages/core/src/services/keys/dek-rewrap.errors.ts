@@ -1,5 +1,6 @@
 import { ConfigError, StorageError } from '@wisecom/atlas-types';
 import { is_precondition_failure } from '@/services/shared/precondition-failure';
+import { is_storage_access_denied } from '@/services/shared/storage-access-denied';
 
 /** Thrown when a tenant has no wrapped key to re-wrap. */
 export class DekWrapperMissingError extends ConfigError {
@@ -72,13 +73,15 @@ export class DekWrapperChangedError extends StorageError {
  * something else changed the wrapper. A bucket that retains `_meta/dek.enc` under a
  * governance-mode policy refuses the overwrite with a bare access denial, which reads like a
  * credentials problem and is not one (issue #374).
+ *
+ * Both are recognised by HTTP status, error name, or S3 code, never by message text, so a 500
+ * whose message mentions 412 stays a storage failure (issue #658).
  */
 export function describe_rewrap_write_failure(key: string, err: unknown): Error {
-  const message = err instanceof Error ? err.message : String(err);
-
   if (is_precondition_failure(err)) return new DekWrapperChangedError(key, err);
 
-  if (!/access denied|forbidden|403|object lock|retention|WORM/i.test(message)) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!is_storage_access_denied(err)) {
     return err instanceof Error ? err : new Error(message);
   }
 
