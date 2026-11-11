@@ -1,12 +1,8 @@
-// Deliberately not shared with the OneDrive copy (#306): 71 differing lines of 247. Both peek
-// at delta state, but over libraries against drives, with different discovery calls and
-// different result shapes exposed through the ports.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { peek_drive_statuses, summarize_drive_statuses } from '@wisecom/atlas-drive';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDeltaCursorRepository,
-  SharePointDocumentLibrary,
-  SharePointLibraryStatus,
   SharePointManifestRepository,
   SharePointSiteConnector,
   SharePointStatusResult,
@@ -19,8 +15,8 @@ import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 
+/** Binds the shared drive status peek to the SharePoint connector, cursor and manifest lookup. */
 @injectable()
 export class SharePointStatusService implements SharePointStatusUseCase {
   constructor(
@@ -32,7 +28,10 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     private readonly _cursors: SharePointDeltaCursorRepository,
   ) {}
 
-  /** Peeks at Graph delta state to report whether a SharePoint backup is current. */
+  /**
+   * Peeks at Graph delta state and the failed-item ledger to report whether a SharePoint backup is
+   * current. Rejects with `AuthError` when Graph refuses the peek.
+   */
   async check_sharepoint_status(
     tenant_id: string,
     site_id: string,
@@ -41,18 +40,19 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const previous_cursor = await this._cursors.load(ctx, site_id);
-      const saved_links = previous_cursor?.delta_link_by_drive ?? {};
-
+      const failed_items = previous_cursor?.failed_items ?? {};
       const previous_manifest = await this._manifests.find_latest_by_site(ctx, site_id);
       const all_libraries = await this._connector.list_document_libraries(tenant_id, site_id);
-      const library_statuses = await this.peek_all_libraries(
-        tenant_id,
-        site_id,
-        all_libraries,
-        saved_links,
-      );
 
-      const total_pending = library_statuses.reduce((sum, lib) => sum + lib.pending_changes, 0);
+      const library_statuses = await peek_drive_statuses({
+        drives: all_libraries,
+        delta_link_by_drive: previous_cursor?.delta_link_by_drive ?? {},
+        previous_kind_by_file_id: previous_cursor?.previous_kind_by_file_id ?? {},
+        failed_items,
+        fetch_delta: (drive_id, delta_link) =>
+          this._connector.fetch_delta(tenant_id, site_id, drive_id, delta_link),
+        item_label: 'library',
+      });
 
       return {
         site_id,
@@ -62,79 +62,10 @@ export class SharePointStatusService implements SharePointStatusUseCase {
         last_snapshot_id: previous_manifest?.snapshot_id,
         total_libraries: all_libraries.length,
         libraries: library_statuses,
-        // Every library's own flag, not the pending total: a library with no saved delta link and
-        // a library whose peek threw both report `pending_changes: 0`, and the second also reports
-        // `has_backup: true`, so a Graph error used to read as a clean "up to date" (issue #298).
-        is_up_to_date: library_statuses.every((lib) => lib.is_up_to_date),
-        total_pending_changes: total_pending,
+        ...summarize_drive_statuses(library_statuses, failed_items),
       };
     } finally {
       ctx.destroy();
     }
-  }
-
-  private async peek_all_libraries(
-    tenant_id: string,
-    site_id: string,
-    libraries: SharePointDocumentLibrary[],
-    saved_links: Record<string, string>,
-  ): Promise<SharePointLibraryStatus[]> {
-    const results: SharePointLibraryStatus[] = [];
-
-    for (const library of libraries) {
-      const delta_link = saved_links[library.drive_id];
-      if (!delta_link) {
-        results.push({
-          drive_id: library.drive_id,
-          drive_name: library.drive_name,
-          has_backup: false,
-          pending_changes: 0,
-          is_up_to_date: false,
-        });
-        continue;
-      }
-
-      try {
-        const peek = await this.peek_library_delta(tenant_id, site_id, library, delta_link);
-        results.push(peek);
-      } catch (err) {
-        logger.debug(
-          `Status peek failed for library ${library.drive_name}: ${err instanceof Error ? err.message : err}`,
-        );
-        results.push({
-          drive_id: library.drive_id,
-          drive_name: library.drive_name,
-          has_backup: true,
-          pending_changes: 0,
-          is_up_to_date: false,
-        });
-      }
-    }
-
-    return results;
-  }
-
-  /** Fetches delta changes to count pending items without advancing persisted cursor state. */
-  private async peek_library_delta(
-    tenant_id: string,
-    site_id: string,
-    library: SharePointDocumentLibrary,
-    delta_link: string,
-  ): Promise<SharePointLibraryStatus> {
-    const result = await this._connector.fetch_delta(
-      tenant_id,
-      site_id,
-      library.drive_id,
-      delta_link,
-    );
-    const pending_changes = result.items.length;
-
-    return {
-      drive_id: library.drive_id,
-      drive_name: library.drive_name,
-      has_backup: true,
-      pending_changes,
-      is_up_to_date: pending_changes === 0,
-    };
   }
 }

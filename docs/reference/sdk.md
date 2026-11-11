@@ -243,7 +243,7 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 | `listSnapshots(mailboxId)`            | `atlas outlook list -m`    | List snapshots for a mailbox                                                                                   |
 | `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest, including folders and entries                                                      |
 | `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one message                                                                                               |
-| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Fast delta peek for pending changes. Does not advance the stored cursor                                        |
+| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results) |
 | `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                            |
 | `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                  |
 | `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete one snapshot manifest                                                                                   |
@@ -257,6 +257,19 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 ### OneDrive and SharePoint
 
 `atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listFileVersions`, `replicateSnapshot`, `replicateAll`, `rehydrateSnapshot`, `checkStatus`, `getStats`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()`, `resolveSite(urlOrId)`, and `rehydrateSite`. OneDrive provides `rehydrateOwner`.
+
+### Status results
+
+`checkMailboxStatus`, `onedrive.checkStatus`, and `sharepoint.checkStatus` reject with `AuthError` (`ATLAS_AUTH_DENIED`) when Graph answers the delta peek with `401` or `403`. `checkMailboxStatus` rejects with `MailboxNotLicensedError` for an unlicensed mailbox. A permission problem is never reported as pending changes.
+
+| Field | On | Meaning |
+| --- | --- | --- |
+| `peekError` | Each folder, drive, or library | `<ErrorClass>: <message>` when the peek failed for another reason. The row and the result are not up to date |
+| `pendingCapped` | Each folder, and the mailbox result | The peek stopped at 5 pages of 50 messages, so the pending counts are a lower bound |
+| `failedItems` | Each drive or library | Files of that drive in the failed-item ledger |
+| `totalFailedItems` | OneDrive and SharePoint results | Every ledger entry. Any entry makes `isUpToDate` false |
+
+Drive `pendingChanges` counts files only, as backup does, and is exact.
 
 The snapshot lookup differs by workload. Outlook has `getSnapshotDetail(snapshotId)`. OneDrive and SharePoint do not. Find a drive snapshot with `listSnapshots(ownerId)` and filter by `snapshotId`:
 

@@ -2,8 +2,13 @@ export interface OneDriveDriveStatus {
   readonly drive_id: string;
   readonly drive_name: string;
   readonly has_backup: boolean;
+  /** File changes the next backup would process. Folders are not counted, as backup skips them. */
   readonly pending_changes: number;
+  /** Files of this drive in the failed-item ledger, awaiting retry or permanently skipped. */
+  readonly failed_items: number;
   readonly is_up_to_date: boolean;
+  /** `<ErrorClass>: <message>` when the delta peek failed; the drive then reports not up to date. */
+  readonly peek_error?: string | undefined;
 }
 
 export interface OneDriveStatusResult {
@@ -14,9 +19,14 @@ export interface OneDriveStatusResult {
   readonly drives: OneDriveDriveStatus[];
   readonly is_up_to_date: boolean;
   readonly total_pending_changes: number;
+  /** Every entry in the failed-item ledger. Any entry means the backup is not up to date. */
+  readonly total_failed_items: number;
 }
 
 export interface OneDriveStatusUseCase {
-  /** Peeks at Graph delta state to report whether a OneDrive backup is current. */
+  /**
+   * Peeks at Graph delta state and the failed-item ledger to report whether a OneDrive backup is
+   * current. Rejects with `AuthError` when Graph refuses the peek.
+   */
   check_onedrive_status(tenant_id: string, owner_id: string): Promise<OneDriveStatusResult>;
 }

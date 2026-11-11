@@ -1,17 +1,13 @@
-// Deliberately not shared with the SharePoint copy (#306): 71 differing lines of 247. Both
-// peek at delta state, but over drives against libraries, with different discovery calls and
-// different result shapes exposed through the ports.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { peek_drive_statuses, summarize_drive_statuses } from '@wisecom/atlas-drive';
 import { inject, injectable } from 'inversify';
 import type {
   TenantContextFactory,
   OneDriveConnector,
-  OneDriveDrive,
   OneDriveManifestRepository,
   OneDriveDeltaCursorRepository,
   OneDriveStatusUseCase,
   OneDriveStatusResult,
-  OneDriveDriveStatus,
 } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
@@ -19,8 +15,8 @@ import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { logger } from '@wisecom/atlas-core/utils/logger';
 
+/** Binds the shared drive status peek to the OneDrive connector, cursor and manifest lookup. */
 @injectable()
 export class OneDriveStatusService implements OneDriveStatusUseCase {
   constructor(
@@ -32,26 +28,29 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
     private readonly _cursors: OneDriveDeltaCursorRepository,
   ) {}
 
-  /** Peeks at Graph delta state to report whether a OneDrive backup is current. */
+  /**
+   * Peeks at Graph delta state and the failed-item ledger to report whether a OneDrive backup is
+   * current. Rejects with `AuthError` when Graph refuses the peek.
+   */
   async check_onedrive_status(tenant_id: string, owner_id: string): Promise<OneDriveStatusResult> {
     owner_id = normalize_owner_id(owner_id);
 
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const saved_cursor = await this._cursors.load(ctx, owner_id);
-      const saved_links = saved_cursor?.delta_link_by_drive ?? {};
-
+      const failed_items = saved_cursor?.failed_items ?? {};
       const all_drives = await this._connector.list_drives(tenant_id, owner_id);
       const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
 
-      const drive_statuses = await this.peek_all_drives(
-        tenant_id,
-        owner_id,
-        all_drives,
-        saved_links,
-      );
-
-      const total_pending = drive_statuses.reduce((sum, d) => sum + d.pending_changes, 0);
+      const drive_statuses = await peek_drive_statuses({
+        drives: all_drives,
+        delta_link_by_drive: saved_cursor?.delta_link_by_drive ?? {},
+        previous_kind_by_file_id: saved_cursor?.previous_kind_by_file_id ?? {},
+        failed_items,
+        fetch_delta: (drive_id, delta_link) =>
+          this._connector.fetch_delta(tenant_id, owner_id, drive_id, delta_link),
+        item_label: 'drive',
+      });
 
       return {
         owner_id,
@@ -59,80 +58,10 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
         last_snapshot_id: previous?.snapshot_id,
         total_drives: all_drives.length,
         drives: drive_statuses,
-        // Every drive's own flag, not the pending total: a drive with no saved delta link and a
-        // drive whose peek threw both report `pending_changes: 0`, and the second also reports
-        // `has_backup: true`, so a Graph error used to read as a clean "up to date" (issue #298).
-        is_up_to_date: drive_statuses.every((d) => d.is_up_to_date),
-        total_pending_changes: total_pending,
+        ...summarize_drive_statuses(drive_statuses, failed_items),
       };
     } finally {
       ctx.destroy();
     }
-  }
-
-  private async peek_all_drives(
-    tenant_id: string,
-    owner_id: string,
-    drives: OneDriveDrive[],
-    saved_links: Record<string, string>,
-  ): Promise<OneDriveDriveStatus[]> {
-    const results: OneDriveDriveStatus[] = [];
-
-    for (const drive of drives) {
-      const delta_link = saved_links[drive.drive_id];
-      if (!delta_link) {
-        results.push({
-          drive_id: drive.drive_id,
-          drive_name: drive.drive_name,
-          has_backup: false,
-          pending_changes: 0,
-          is_up_to_date: false,
-        });
-        continue;
-      }
-
-      try {
-        const peek = await this.peek_drive_delta(tenant_id, owner_id, drive, delta_link);
-        results.push(peek);
-      } catch (err) {
-        logger.debug(
-          `Status peek failed for drive ${drive.drive_name}: ${err instanceof Error ? err.message : err}`,
-        );
-        results.push({
-          drive_id: drive.drive_id,
-          drive_name: drive.drive_name,
-          has_backup: true,
-          pending_changes: 0,
-          is_up_to_date: false,
-        });
-      }
-    }
-
-    return results;
-  }
-
-  /** Fetches delta changes to count pending items without advancing persisted cursor state. */
-  private async peek_drive_delta(
-    tenant_id: string,
-    owner_id: string,
-    drive: OneDriveDrive,
-    delta_link: string,
-  ): Promise<OneDriveDriveStatus> {
-    const result = await this._connector.fetch_delta(
-      tenant_id,
-      owner_id,
-      drive.drive_id,
-      delta_link,
-    );
-
-    const pending_changes = result.items.length;
-
-    return {
-      drive_id: drive.drive_id,
-      drive_name: drive.drive_name,
-      has_backup: true,
-      pending_changes,
-      is_up_to_date: pending_changes === 0,
-    };
   }
 }
