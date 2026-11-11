@@ -8,6 +8,7 @@ import {
 import { CdnHttpError } from '@/backup/cdn-chunk-errors';
 import { compute_chunk_timeout_ms } from '@/backup/cdn-chunk-request';
 import { assert_transferred_size } from '@/backup/download-integrity';
+import { discard_response_body } from '@/backup/response-body';
 
 /** Retries of a 429 from the download URL before the failure is handed to the caller. */
 export const MAX_URL_RETRIES = 3;
@@ -81,6 +82,8 @@ async function attempt_url_download(
   try {
     const response = await fetch(download_url, { signal: controller.signal });
     report_transfer_throttle(response);
+    // A refused response's body is never read, so it is cancelled to free the connection.
+    if (!response.ok) await discard_response_body(response);
     if (response.status === 429) {
       const retry_after_ms = parse_retry_after_ms(response.headers.get('Retry-After'));
       return { kind: 'throttled', retry_after_ms };

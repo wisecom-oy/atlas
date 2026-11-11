@@ -98,6 +98,23 @@ describe('download_from_url', () => {
     expect(fetch_mock).toHaveBeenCalledOnce();
   });
 
+  // CodeRabbit on #677: undici holds the connection until an unread body is cancelled.
+  it('cancels the unread body of a 429 and of a refused response', async () => {
+    const cancels: Mock[] = [];
+    const with_body = (response: Response): Response => {
+      const cancel = vi.fn(() => Promise.reject(new Error('already closed')));
+      cancels.push(cancel);
+      return { ...response, body: { cancel } } as unknown as Response;
+    };
+    fetch_mock
+      .mockResolvedValueOnce(with_body(respond(429, CONTENT, '0')))
+      .mockResolvedValueOnce(with_body(respond(403)));
+
+    await expect(download()).rejects.toBeInstanceOf(CdnHttpError);
+    expect(cancels).toHaveLength(2);
+    for (const cancel of cancels) expect(cancel).toHaveBeenCalledOnce();
+  });
+
   // Issue #368: a well-framed 200 with the wrong body must never be stored.
   it('refuses a well-framed body that is not the recorded length', async () => {
     fetch_mock.mockResolvedValue(respond(200, Buffer.from('<html>error page</html>')));

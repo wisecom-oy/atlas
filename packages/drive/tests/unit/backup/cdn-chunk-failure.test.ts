@@ -61,6 +61,18 @@ describe('chunk failure typing', () => {
     expect((error as ChunkDownloadError).status_code).toBe(404);
     expect(classify_download_failure(error)).toBe('unclassified');
   });
+
+  // Undici holds the connection until an unread body is cancelled (CodeRabbit on #677).
+  it('cancels the unread body of a refused chunk, even when the cancel rejects', async () => {
+    const refused = range_response(404);
+    const cancel = vi.fn(() => Promise.reject(new Error('already closed')));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ...refused, body: { cancel } }));
+
+    const error = await failure_of(download_file_chunked(URL, 10, 'item-1'));
+
+    expect((error as ChunkDownloadError).status_code).toBe(404);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });
 
 describe('chunk Retry-After (issue #628)', () => {
