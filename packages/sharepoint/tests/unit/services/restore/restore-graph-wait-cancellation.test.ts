@@ -14,6 +14,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { SharePointRestoreService } from '@/services/restore/restore.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn(), success: vi.fn() },
@@ -74,7 +75,7 @@ function make_harness() {
       total_files: entries.length,
       entries,
     }),
-    list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as SharePointManifestRepository;
   return { connector, service: new SharePointRestoreService(factory, connector, manifests) };
 }

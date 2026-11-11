@@ -41,8 +41,8 @@ describe('report_drive_restore unreadable keys', () => {
   it('names a damaged manifest the restore skipped and exits 9', async () => {
     await report_drive_restore('Restore', summary({ unreadable_keys: [DAMAGED_KEY] }), []);
 
-    const lines = error_spy.mock.calls.map((call) => String(call[0]));
-    expect(lines.some((line) => line.includes(DAMAGED_KEY))).toBe(true);
+    const lines = error_spy.mock.calls.map((call: unknown[]) => String(call[0]));
+    expect(lines.some((line: string) => line.includes(DAMAGED_KEY))).toBe(true);
     expect(process.exitCode).toBe(EXIT_CONTENT_UNREADABLE);
   });
 

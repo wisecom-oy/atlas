@@ -20,7 +20,7 @@ export interface DriveRestoreSummary {
   readonly errors: string[];
   readonly interrupted: boolean;
   /** Damaged manifests the restore skipped because they are newer than the snapshot (issue #631). */
-  readonly unreadable_keys?: readonly string[];
+  readonly unreadable_keys?: readonly string[] | undefined;
 }
 
 /**
