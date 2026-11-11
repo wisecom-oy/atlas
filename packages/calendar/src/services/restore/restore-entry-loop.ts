@@ -1,4 +1,6 @@
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type { CalendarEventEntry, OperationControlOptions } from '@wisecom/atlas-types';
 
 import {
@@ -68,6 +70,14 @@ async function restore_mapped_entry(
   return restore_entry(deps, entry, calendar_id, existing);
 }
 
+/** The parts a restored event left out, one line each; a skipped event has none. */
+function partial_error_lines(entry: CalendarEventEntry, outcome: EntryOutcome): string[] {
+  if (outcome.status === 'skipped') return [];
+  return outcome.partial_errors.map(
+    (partial) => `Event ${describe_entry(entry)} restored, but ${partial}`,
+  );
+}
+
 /**
  * Restores every manifest entry in order. A failed entry is recorded and the run continues;
  * auth and licence failures end the run. Interruption is checked before each entry.
@@ -93,16 +103,17 @@ export async function restore_all_entries(
     processed += 1;
     try {
       const outcome = await restore_mapped_entry(deps, entry, target_by_source, cache);
-      if (outcome.status === 'skipped') {
-        skipped += 1;
-      } else {
-        restored += 1;
-        for (const partial of outcome.partial_errors) {
-          errors.push(`Event ${describe_entry(entry)} restored, but ${partial}`);
-        }
-      }
+      if (outcome.status === 'skipped') skipped += 1;
+      else restored += 1;
+      append_all(errors, partial_error_lines(entry, outcome));
     } catch (err) {
       if (is_run_fatal(err)) throw err;
+      // A write cut short by cancellation is the run stopping. A write that landed anyway is
+      // found by its source tag on the next restore (issue #673).
+      if (is_active_run_cancelled()) {
+        interrupted = true;
+        break;
+      }
       errors.push(`Event ${describe_entry(entry)} failed to restore: ${error_message(err)}`);
     }
     emit_operation_progress(control, {

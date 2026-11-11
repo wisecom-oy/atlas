@@ -5,7 +5,11 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { ExcludedFolder } from '@wisecom/atlas-types';
 import type { BackupUseCase, SyncOptions } from '@wisecom/atlas-types/ports/backup/use-case.port';
 import { BACKUP_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import { run_backup_with_cli_adapter } from '@/adapters/backup-operation.adapter';
+import {
+  OUTLOOK_INTERRUPT_MESSAGE,
+  run_backup_with_cli_adapter,
+} from '@/adapters/backup-operation.adapter';
+import { run_interruptible } from '@/adapters/interruptible-run';
 import { build_object_lock_policy, build_object_lock_request } from '@/command-object-lock';
 import { format_bytes } from '@/command-formatters';
 import { report_run_outcome } from '@/command-run-outcome';
@@ -87,12 +91,10 @@ async function backup_single_mailbox(
   sync_options: SyncOptions,
 ): Promise<void> {
   const backup_use_case = container.get<BackupUseCase>(BACKUP_USE_CASE_TOKEN);
-  const result = await run_backup_with_cli_adapter(
-    backup_use_case,
-    tenant_id,
-    mailbox_id,
-    sync_options,
+  const result = await run_interruptible(container, OUTLOOK_INTERRUPT_MESSAGE, (gate) =>
+    run_backup_with_cli_adapter(backup_use_case, tenant_id, mailbox_id, sync_options, gate),
   );
+  if (result === undefined) return;
   logger.success(
     `Snapshot ${result.snapshot.id} -- ` +
       `${result.manifest.total_objects} objects, ` +

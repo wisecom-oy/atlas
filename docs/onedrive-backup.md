@@ -26,13 +26,13 @@ atlas onedrive restore -o user@example.com -s od-snap-1735689600000-a1b2c3
 
 ## What is backed up
 
-| Item | Coverage |
-| --- | --- |
-| Files | Current content of every drive the user owns, deduplicated by content |
-| Version history | Earlier versions Graph returns for each file |
-| Folder structure | Paths recorded in the snapshot manifest |
-| OneNote notebooks | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
-| Moves, renames, deletions | Recorded as changes on the next run |
+| Item                      | Coverage                                                                                      |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| Files                     | Current content of every drive the user owns, deduplicated by content                         |
+| Version history           | Earlier versions Graph returns for each file                                                  |
+| Folder structure          | Paths recorded in the snapshot manifest                                                       |
+| OneNote notebooks         | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
+| Moves, renames, deletions | Recorded as changes on the next run                                                           |
 
 Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
@@ -42,11 +42,11 @@ To back up one folder tree instead of the whole drive, pass `--folder /Projects`
 
 Add these application permissions to the Atlas app registration in Microsoft Entra ID, and grant admin consent:
 
-| Permission | Used for |
-| --- | --- |
-| `Files.Read.All` | Backup, verify, and save |
-| `User.Read.All` | Resolving user email addresses to object IDs |
-| `Files.ReadWrite.All` | Restore only |
+| Permission            | Used for                                     |
+| --------------------- | -------------------------------------------- |
+| `Files.Read.All`      | Backup, verify, and save                     |
+| `User.Read.All`       | Resolving user email addresses to object IDs |
+| `Files.ReadWrite.All` | Restore only                                 |
 
 If a permission is missing, the run stops before it touches any files and names the missing scope, for example `Missing Microsoft Graph application permissions for OneDrive: Files.Read.All.`
 
@@ -54,14 +54,14 @@ If a permission is missing, the run stops before it touches any files and names 
 
 ### backup
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | User email or Entra object ID | Required |
-| `--full` | Ignore saved delta state and crawl the whole drive | `false` |
-| `--folder <path>` | Back up only this folder and its subfolders | Whole drive |
-| `--retention-days <n>` | Apply Object Lock retention to stored objects | Off |
-| `--lock-mode <mode>` | `governance` or `compliance`; requires `--retention-days` | Not set |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                   | Description                                               | Default        |
+| ---------------------- | --------------------------------------------------------- | -------------- |
+| `-o, --owner <id>`     | User email or Entra object ID                             | Required       |
+| `--full`               | Ignore saved delta state and crawl the whole drive        | `false`        |
+| `--folder <path>`      | Back up only this folder and its subfolders               | Whole drive    |
+| `--retention-days <n>` | Apply Object Lock retention to stored objects             | Off            |
+| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days` | Not set        |
+| `-t, --tenant <id>`    | Tenant identifier                                         | Config default |
 
 ```bash
 atlas onedrive backup -o user@example.com --folder /Projects --full
@@ -71,17 +71,17 @@ Object Lock makes stored objects undeletable until the retention period ends. Us
 
 ### restore
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | Source user | Required |
-| `-s, --snapshot <id>` | Snapshot to restore | Required |
-| `--target-owner <id>` | Restore into another user's drive. Refused for snapshots that span several drives; restore those to the original owner, or one drive at a time with `--file-filter` | Source user |
-| `--destination <path>` | Folder to restore under; created when missing | `/Restore-<timestamp>` |
-| `--in-place` | Restore to the original paths | `false` |
-| `--name <filename>` | Rename the restored file; single-file restores only | Original name |
-| `--file-filter <paths...>` | Restore only the given files, by ID or path | All files |
-| `-c, --conflict <mode>` | `rename`, `replace`, or `fail` | `rename` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                       | Description                                                                                                                                                         | Default                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `-o, --owner <id>`         | Source user                                                                                                                                                         | Required               |
+| `-s, --snapshot <id>`      | Snapshot to restore                                                                                                                                                 | Required               |
+| `--target-owner <id>`      | Restore into another user's drive. Refused for snapshots that span several drives; restore those to the original owner, or one drive at a time with `--file-filter` | Source user            |
+| `--destination <path>`     | Folder to restore under; created when missing                                                                                                                       | `/Restore-<timestamp>` |
+| `--in-place`               | Restore to the original paths                                                                                                                                       | `false`                |
+| `--name <filename>`        | Rename the restored file; single-file restores only                                                                                                                 | Original name          |
+| `--file-filter <paths...>` | Restore only the given files, by ID or path                                                                                                                         | All files              |
+| `-c, --conflict <mode>`    | `rename`, `replace`, or `fail`                                                                                                                                      | `rename`               |
+| `-t, --tenant <id>`        | Tenant identifier                                                                                                                                                   | Config default         |
 
 ```bash
 # Restore everything into a fresh Restore-<timestamp> folder
@@ -94,11 +94,11 @@ atlas onedrive restore -o user@example.com -s od-snap-123 \
 
 #### Conflict modes
 
-| Mode | Behavior |
-| --- | --- |
+| Mode               | Behavior                                                       |
+| ------------------ | -------------------------------------------------------------- |
 | `rename` (default) | Adds a numeric suffix, so existing files are never overwritten |
-| `replace` | Overwrites the existing file |
-| `fail` | Skips the file and logs an error |
+| `replace`          | Overwrites the existing file                                   |
+| `fail`             | Skips the file and logs an error                               |
 
 Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored bytes do not match the manifest is reported as a restore error, is not created, and makes the run exit non-zero.
 
@@ -106,28 +106,28 @@ Restored files keep their original created and modified timestamps. Each file is
 
 Restores earlier versions of a file, or of every file as of a point in time. See [rolling a file back to an earlier version](#rolling-a-file-back-to-an-earlier-version).
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | Owner | Required |
-| `-f, --file <ref>` | File ID or path; required with `--version` | Optional |
-| `--version <id>` | Exact stored version to restore | Optional |
-| `--before <iso>` | Newest version at or before this instant, per file | Optional |
-| `--path <prefix>` | Limit a `--before` rollback to one folder | Whole drive |
-| `--in-place` | Upload over the original file | `false`, writes a copy |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                | Description                                        | Default                |
+| ------------------- | -------------------------------------------------- | ---------------------- |
+| `-o, --owner <id>`  | Owner                                              | Required               |
+| `-f, --file <ref>`  | File ID or path; required with `--version`         | Optional               |
+| `--version <id>`    | Exact stored version to restore                    | Optional               |
+| `--before <iso>`    | Newest version at or before this instant, per file | Optional               |
+| `--path <prefix>`   | Limit a `--before` rollback to one folder          | Whole drive            |
+| `--in-place`        | Upload over the original file                      | `false`, writes a copy |
+| `-t, --tenant <id>` | Tenant identifier                                  | Config default         |
 
 ### save
 
 Writes a zip archive instead of uploading to Graph. The archive keeps the folder hierarchy. Files larger than 4 MiB are verified in a first pass and then decrypted as a stream into the archive, so memory does not grow with file size.
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | Owner | Required |
-| `-s, --snapshot <id>` | Snapshot to save from | Required |
-| `--file-filter <paths...>` | Save only the given files, by ID or path | All files |
-| `--output <path>` | Output zip file path | Auto-generated |
-| `--skip-verify` | Skip SHA-256 checks while saving | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                       | Description                              | Default        |
+| -------------------------- | ---------------------------------------- | -------------- |
+| `-o, --owner <id>`         | Owner                                    | Required       |
+| `-s, --snapshot <id>`      | Snapshot to save from                    | Required       |
+| `--file-filter <paths...>` | Save only the given files, by ID or path | All files      |
+| `--output <path>`          | Output zip file path                     | Auto-generated |
+| `--skip-verify`            | Skip SHA-256 checks while saving         | `false`        |
+| `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
 ```bash
 atlas onedrive save -o user@example.com -s od-snap-123 --output ~/Downloads/backup.zip
@@ -147,11 +147,11 @@ Nothing is written on macOS or Linux. See [exported archives](./reference/cli.md
 
 Checks a snapshot's integrity without restoring anything. For each entry, Atlas decrypts the stored blob, recomputes its SHA-256 over the plaintext, and compares the digest with the manifest using a constant-time comparison. It also confirms the per-file index has a record for the snapshot. Content is streamed, so verification memory does not grow with file size.
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | Owner | Required |
-| `-s, --snapshot <id>` | Snapshot to verify | Required |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                  | Description        | Default        |
+| --------------------- | ------------------ | -------------- |
+| `-o, --owner <id>`    | Owner              | Required       |
+| `-s, --snapshot <id>` | Snapshot to verify | Required       |
+| `-t, --tenant <id>`   | Tenant identifier  | Config default |
 
 ```bash
 atlas onedrive verify -o user@example.com -s od-snap-1735689600000-a1b2c3
@@ -176,12 +176,12 @@ Reports pending file changes and failed-item ledger entries per drive, using a G
 
 ### delete
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `-o, --owner <id>` | Owner | Required |
-| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the owner | All data |
-| `-y, --yes` | Skip the confirmation prompt | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                  | Description                                           | Default        |
+| --------------------- | ----------------------------------------------------- | -------------- |
+| `-o, --owner <id>`    | Owner                                                 | Required       |
+| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the owner | All data       |
+| `-y, --yes`           | Skip the confirmation prompt                          | `false`        |
+| `-t, --tenant <id>`   | Tenant identifier                                     | Config default |
 
 ```bash
 atlas onedrive delete -o user@example.com -s od-snap-123
@@ -253,10 +253,10 @@ A version download is held to the size Graph lists for that version. A transfer 
 
 A run creates a snapshot only when something changed. Two outcomes end without one, and they mean different things:
 
-| `summary.noSnapshotReason` | Meaning | Recovery point |
-| --- | --- | --- |
-| `no_changes` | The drive has content, and nothing changed since the last run | An earlier snapshot covers it |
-| `no_content` | The drive holds nothing to protect | None |
+| `summary.noSnapshotReason` | Meaning                                                       | Recovery point                |
+| -------------------------- | ------------------------------------------------------------- | ----------------------------- |
+| `no_changes`               | The drive has content, and nothing changed since the last run | An earlier snapshot covers it |
+| `no_content`               | The drive holds nothing to protect                            | None                          |
 
 The field is absent when a snapshot was created, and absent when the run was interrupted or ended UNHEALTHY. In those cases, check `errors` and `healthy` instead. The CLI prints `No OneDrive changes detected. Snapshot skipped.` for `no_changes`.
 
@@ -270,7 +270,7 @@ Restored sections are ordinary files. Dropping them back into a drive does not r
 
 - **Uploads.** Files up to 4 MiB are uploaded in one request. Larger files use a resumable upload session in 10 MiB chunks.
 - **Throttling.** Graph `429` and transient `5xx` responses are retried with backoff.
-- **Ctrl+C.** A backup stops in the middle of a file it is reading from its download URL, including during a retry wait. That file is not recorded as a failed item, so it keeps its 5 retry attempts for the next run. A Graph call in flight, such as delta listing or the `/content` fallback, finishes or times out first ([#673](https://github.com/wisecom-oy/atlas/issues/673)).
+- **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Path length.** Restores under a root add path depth. Files over OneDrive's path length limit are skipped and reported.
 - **Scope.** Permissions and authors are not restored.
 
@@ -342,7 +342,7 @@ atlas rehydrate -o user@example.com -s od-snap-123 --source-config ./offsite.jso
 ```
 
 ```ts
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 
 await atlas.onedrive.replicateAll('user@example.com', [offsite]);
 await atlas.onedrive.rehydrateOwner('user@example.com', offsite);

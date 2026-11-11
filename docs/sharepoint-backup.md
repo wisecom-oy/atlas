@@ -26,24 +26,24 @@ atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering 
 
 ## What is backed up
 
-| Item | Coverage |
-| --- | --- |
-| Files in every document library | Current content, deduplicated by content within the site |
-| Version history | Earlier versions Graph returns for each file |
-| Library and folder paths | Recorded in the snapshot manifest |
-| OneNote notebooks | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
-| Subsites | Only with `--include-subsites`, one snapshot per subsite |
-| Moves, renames, deletions | Recorded as changes on the next run |
+| Item                            | Coverage                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------------- |
+| Files in every document library | Current content, deduplicated by content within the site                                      |
+| Version history                 | Earlier versions Graph returns for each file                                                  |
+| Library and folder paths        | Recorded in the snapshot manifest                                                             |
+| OneNote notebooks               | Section files and table of contents, stored as ordinary files ([details](#onenote-notebooks)) |
+| Subsites                        | Only with `--include-subsites`, one snapshot per subsite                                      |
+| Moves, renames, deletions       | Recorded as changes on the next run                                                           |
 
 ## Permissions
 
 Add these application permissions to the Atlas app registration in Microsoft Entra ID, and grant admin consent:
 
-| Permission | Used for |
-| --- | --- |
-| `Sites.Read.All` | Listing sites and reading library metadata |
-| `Files.Read.All` | Reading file content for backup, verify, and save |
-| `Sites.ReadWrite.All` | Restore only |
+| Permission            | Used for                                          |
+| --------------------- | ------------------------------------------------- |
+| `Sites.Read.All`      | Listing sites and reading library metadata        |
+| `Files.Read.All`      | Reading file content for backup, verify, and save |
+| `Sites.ReadWrite.All` | Restore only                                      |
 
 If a permission is missing, the run stops before touching files and names the missing scope, for example `Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.`
 
@@ -61,14 +61,14 @@ Lists the sites in the tenant that Atlas can back up. Takes only `-t, --tenant <
 
 ### backup
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | Site URL or Graph site ID | Required |
-| `--full` | Ignore saved delta state and crawl every library | `false` |
-| `--include-subsites` | Also back up every subsite beneath the site, one snapshot each | `false` |
-| `--retention-days <n>` | Apply Object Lock retention to stored objects | Off |
-| `--lock-mode <mode>` | `governance` or `compliance`; requires `--retention-days` | Not set |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                   | Description                                                    | Default        |
+| ---------------------- | -------------------------------------------------------------- | -------------- |
+| `--site <url-or-id>`   | Site URL or Graph site ID                                      | Required       |
+| `--full`               | Ignore saved delta state and crawl every library               | `false`        |
+| `--include-subsites`   | Also back up every subsite beneath the site, one snapshot each | `false`        |
+| `--retention-days <n>` | Apply Object Lock retention to stored objects                  | Off            |
+| `--lock-mode <mode>`   | `governance` or `compliance`; requires `--retention-days`      | Not set        |
+| `-t, --tenant <id>`    | Tenant identifier                                              | Config default |
 
 ```bash
 atlas sharepoint backup --site https://contoso.sharepoint.com/sites/Engineering --include-subsites
@@ -78,17 +78,17 @@ Each library keeps its own delta cursor.
 
 ### restore
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | Source site | Required |
-| `-s, --snapshot <id>` | Snapshot to restore | Required |
-| `--target-site <url-or-id>` | Restore into a different site | Source site |
-| `--destination <path>` | Folder to restore under; created when missing | `/Restore-<timestamp>` |
-| `--in-place` | Restore to the original paths | `false` |
-| `--name <filename>` | Rename the restored file; single-file restores only | Original name |
-| `--file-filter <paths...>` | Restore only the given files, by ID or path | All files |
-| `-c, --conflict <mode>` | `rename`, `replace`, or `fail` | `rename` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                        | Description                                         | Default                |
+| --------------------------- | --------------------------------------------------- | ---------------------- |
+| `--site <url-or-id>`        | Source site                                         | Required               |
+| `-s, --snapshot <id>`       | Snapshot to restore                                 | Required               |
+| `--target-site <url-or-id>` | Restore into a different site                       | Source site            |
+| `--destination <path>`      | Folder to restore under; created when missing       | `/Restore-<timestamp>` |
+| `--in-place`                | Restore to the original paths                       | `false`                |
+| `--name <filename>`         | Rename the restored file; single-file restores only | Original name          |
+| `--file-filter <paths...>`  | Restore only the given files, by ID or path         | All files              |
+| `-c, --conflict <mode>`     | `rename`, `replace`, or `fail`                      | `rename`               |
+| `-t, --tenant <id>`         | Tenant identifier                                   | Config default         |
 
 ```bash
 # Restore everything into a fresh Restore-<timestamp> folder in each library
@@ -109,15 +109,15 @@ Restored files keep their original created and modified timestamps. Each file is
 
 Brings back earlier versions of a file, or of every file as of a point in time. See [rolling a file back to an earlier version](./onedrive-backup.md#rolling-a-file-back-to-an-earlier-version) for the behavior, which is the same for both workloads.
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | Site | Required |
-| `-f, --file <ref>` | File ID or path; required with `--version` | Optional |
-| `--version <id>` | Exact stored version to restore | Optional |
-| `--before <iso>` | Newest version at or before this instant, per file | Optional |
-| `--path <prefix>` | Limit a `--before` rollback to one folder | Whole site |
-| `--in-place` | Upload over the original file | `false`, writes a copy |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                 | Description                                        | Default                |
+| -------------------- | -------------------------------------------------- | ---------------------- |
+| `--site <url-or-id>` | Site                                               | Required               |
+| `-f, --file <ref>`   | File ID or path; required with `--version`         | Optional               |
+| `--version <id>`     | Exact stored version to restore                    | Optional               |
+| `--before <iso>`     | Newest version at or before this instant, per file | Optional               |
+| `--path <prefix>`    | Limit a `--before` rollback to one folder          | Whole site             |
+| `--in-place`         | Upload over the original file                      | `false`, writes a copy |
+| `-t, --tenant <id>`  | Tenant identifier                                  | Config default         |
 
 ```bash
 atlas sharepoint list-versions --site https://contoso.sharepoint.com/sites/Engineering \
@@ -136,14 +136,14 @@ Versions return to the library they were captured from, so a site with several l
 
 Writes a zip archive instead of uploading to Graph. The archive keeps the library folder hierarchy. Files larger than 4 MiB are verified in a first pass and then decrypted as a stream into the archive, so memory does not grow with file size.
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | Site | Required |
-| `-s, --snapshot <id>` | Snapshot to save from | Required |
-| `--file-filter <paths...>` | Save only the given files, by ID or path | All files |
-| `--output <path>` | Output zip file path | Auto-generated |
-| `--skip-verify` | Skip SHA-256 checks while saving | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                       | Description                              | Default        |
+| -------------------------- | ---------------------------------------- | -------------- |
+| `--site <url-or-id>`       | Site                                     | Required       |
+| `-s, --snapshot <id>`      | Snapshot to save from                    | Required       |
+| `--file-filter <paths...>` | Save only the given files, by ID or path | All files      |
+| `--output <path>`          | Output zip file path                     | Auto-generated |
+| `--skip-verify`            | Skip SHA-256 checks while saving         | `false`        |
+| `-t, --tenant <id>`        | Tenant identifier                        | Config default |
 
 ```bash
 atlas sharepoint save --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-123 \
@@ -164,11 +164,11 @@ Nothing is written on macOS or Linux. See the [CLI reference](./reference/cli.md
 
 Checks a snapshot without restoring anything. For each entry, Atlas confirms the per-file index has a record for the snapshot, decrypts the stored blob, recomputes SHA-256 over the plaintext, and compares the digest with the manifest using a constant-time comparison. Content is streamed, so verification memory does not grow with file size.
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | Site | Required |
-| `-s, --snapshot <id>` | Snapshot to verify | Required |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                  | Description        | Default        |
+| --------------------- | ------------------ | -------------- |
+| `--site <url-or-id>`  | Site               | Required       |
+| `-s, --snapshot <id>` | Snapshot to verify | Required       |
+| `-t, --tenant <id>`   | Tenant identifier  | Config default |
 
 ```bash
 atlas sharepoint verify --site https://contoso.sharepoint.com/sites/Engineering -s sp-snap-1735689600000-a1b2c3
@@ -194,12 +194,12 @@ Reports pending file changes and failed-item ledger entries per library, using a
 
 ### delete
 
-| Flag | Description | Default |
-| --- | --- | --- |
-| `--site <url-or-id>` | Site | Required |
-| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the site | All data |
-| `-y, --yes` | Skip the confirmation prompt | `false` |
-| `-t, --tenant <id>` | Tenant identifier | Config default |
+| Flag                  | Description                                          | Default        |
+| --------------------- | ---------------------------------------------------- | -------------- |
+| `--site <url-or-id>`  | Site                                                 | Required       |
+| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the site | All data       |
+| `-y, --yes`           | Skip the confirmation prompt                         | `false`        |
+| `-t, --tenant <id>`   | Tenant identifier                                    | Config default |
 
 Deletion erases every version of each object. Objects still protected by Object Lock are reported as retained, separately from failures. See [erasure](/security#erasure). To remove all data for a tenant across every workload, use `atlas delete --purge`.
 
@@ -271,10 +271,10 @@ A version download is held to the size Graph lists for that version. A transfer 
 
 A run creates a snapshot only when something changed. Two outcomes end without one, and they mean opposite things:
 
-| `summary.noSnapshotReason` | Meaning | Recovery point |
-| --- | --- | --- |
-| `no_changes` | The site has content, and nothing changed since the last run | An earlier snapshot covers it |
-| `no_content` | The site holds nothing to protect | None |
+| `summary.noSnapshotReason` | Meaning                                                      | Recovery point                |
+| -------------------------- | ------------------------------------------------------------ | ----------------------------- |
+| `no_changes`               | The site has content, and nothing changed since the last run | An earlier snapshot covers it |
+| `no_content`               | The site holds nothing to protect                            | None                          |
 
 The field is absent when a snapshot was created, and absent when the run was interrupted or ended UNHEALTHY. In those cases, check `errors` and `healthy`. The CLI prints `No SharePoint changes detected. Snapshot skipped.` for `no_changes`, and warns that nothing was backed up for `no_content`.
 
@@ -289,7 +289,7 @@ Restored sections arrive as ordinary files. Treat notebook restore as recovering
 - **Downloads.** Files up to 4 MiB are read in one request. Files from 4 to 64 MiB are read in 4 MiB ranges. Files of 64 MiB and larger are streamed into multipart uploads on staging, then copied to their content key.
 - **Uploads on restore.** Files up to 4 MiB use a single PUT. Larger files use a resumable session in 10 MiB chunks.
 - **Throttling and CDN faults.** Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads. A `Retry-After` on a download is honoured in either form, seconds or an HTTP date, and capped at one hour. A `401` or `403` from the download URL means it expired: Atlas resolves a fresh URL once and downloads the file again.
-- **Ctrl+C.** A backup stops in the middle of a file it is reading from its download URL, including during a retry wait. That file is not recorded as a failed item, so it keeps its 5 retry attempts for the next run. A Graph call in flight, such as delta listing or the `/content` fallback, finishes or times out first ([#673](https://github.com/wisecom-oy/atlas/issues/673)).
+- **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Scope.** Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 ## SDK usage
@@ -375,7 +375,7 @@ atlas rehydrate --site contoso.sharepoint.com,<site-guid>,<web-guid> -s sp-snap-
 ```
 
 ```ts
-const offsite = createStorageTarget({ /* ... */ });
+const offsite = createStorageTarget({/* ... */});
 
 await atlas.sharepoint.replicateAll(site, [offsite]);
 await atlas.sharepoint.rehydrateSite(site, offsite);

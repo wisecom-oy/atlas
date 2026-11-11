@@ -23,6 +23,9 @@ import type {
 } from '@wisecom/atlas-types';
 import { SHAREPOINT_BACKUP_USE_CASE_TOKEN, SHAREPOINT_CONNECTOR_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 
 @injectable()
 export class SharePointSiteTreeBackupService implements SharePointSiteTreeBackupUseCase {
@@ -31,10 +34,23 @@ export class SharePointSiteTreeBackupService implements SharePointSiteTreeBackup
     @inject(SHAREPOINT_BACKUP_USE_CASE_TOKEN) private readonly _backup: SharePointBackupUseCase,
   ) {}
 
+  /** Backs up the site, then its subsites when asked; cancelling also ends the subsite listing. */
   async backup_site_tree(
     tenant_id: string,
     root_site_id: string,
     options: SharePointBackupOptions = {},
+  ): Promise<SharePointBackupResult[]> {
+    return run_cancellable(
+      options,
+      () => this.run_site_tree(tenant_id, root_site_id, options),
+      () => [interrupted_before_scan(normalize_owner_id(root_site_id), options)],
+    );
+  }
+
+  private async run_site_tree(
+    tenant_id: string,
+    root_site_id: string,
+    options: SharePointBackupOptions,
   ): Promise<SharePointBackupResult[]> {
     const tree = await this._connector.list_subsites(tenant_id, root_site_id);
     const include_subsites = options.include_subsites === true;

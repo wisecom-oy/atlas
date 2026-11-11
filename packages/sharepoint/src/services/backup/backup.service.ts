@@ -4,11 +4,11 @@
 // branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
   emit_operation_progress,
-  finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
@@ -54,6 +54,7 @@ import {
   type SharePointLibraryScanResult,
 } from '@/services/backup/backup-library-scan';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
+import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 
 @injectable()
 export class SharePointBackupService implements SharePointBackupUseCase {
@@ -68,17 +69,28 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     private readonly _cursors: SharePointDeltaCursorRepository,
   ) {}
 
-  /** Backs up changed SharePoint files and creates a snapshot only when data changed. */
+  /**
+   * Backs up changed SharePoint files and creates a snapshot only when data changed.
+   *
+   * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
+   * Graph retry or throttle wait rather than only the next file (issue #673).
+   */
   async backup_site(
     tenant_id: string,
     site_id: string,
     options: SharePointBackupOptions = {},
   ): Promise<SharePointBackupResult> {
     site_id = normalize_owner_id(site_id);
-    if (begin_operation_progress(options, 'backup', 'sharepoint')) {
-      finish_operation_progress(options, 'backup', 'sharepoint', 0, 0);
-      return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true);
-    }
+    const cancelled = (): SharePointBackupResult => interrupted_before_scan(site_id, options);
+    if (begin_operation_progress(options, 'backup', 'sharepoint')) return cancelled();
+    return run_cancellable(options, () => this.run_backup(tenant_id, site_id, options), cancelled);
+  }
+
+  private async run_backup(
+    tenant_id: string,
+    site_id: string,
+    options: SharePointBackupOptions,
+  ): Promise<SharePointBackupResult> {
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
       // Per-object retention carried by this run's context, not the bucket default: concurrent

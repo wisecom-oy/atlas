@@ -1,5 +1,5 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
+import { is_unrecordable_failure } from '@/services/backup/message-payload-store';
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { MailboxConnector, ManifestEntry, MessageAttachment } from '@wisecom/atlas-types';
@@ -126,7 +126,7 @@ export async function flush_pending_attachments(
           entries[p.entry_index] = { ...entries[p.entry_index]!, attachments: att };
         }
       } catch (err) {
-        if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
+        if (is_unrecordable_failure(err)) throw err;
         const reason = err instanceof Error ? err.message : String(err);
         logger.warn(`Attachments for message ${p.message_id} could not be fetched: ${reason}`);
         message_errors.push(`message ${p.message_id}: attachments not backed up (${reason})`);

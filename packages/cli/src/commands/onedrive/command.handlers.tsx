@@ -30,8 +30,7 @@ import {
   resolve_restore_container,
   target_profile_items,
 } from '@/commands/shared/restore-target-container';
-import { install_interrupt_gate } from '@/adapters/interrupt-gate';
-import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
+import { run_interruptible } from '@/adapters/interruptible-run';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -147,27 +146,26 @@ export async function execute_onedrive_backup(
     </Box>,
   );
 
-  const gate = install_interrupt_gate(
+  const result = await run_interruptible(
+    container,
     'Stopping the current transfer; the delta cursor is not advanced for an interrupted run',
+    (gate) =>
+      backup.backup_onedrive(tenant_id, owner.object_id, {
+        force_full: options.full ?? false,
+        ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
+        owner_email: owner.email,
+        owner_display_name: owner.display_name,
+        object_lock_request,
+        create_progress: create_backup_progress({
+          rate: 'files/s',
+          extra: 'ver',
+          row_noun: 'drive',
+        }),
+        should_interrupt: gate.should_interrupt,
+        abort_signal: gate.abort_signal,
+      }),
   );
-  let result;
-  try {
-    result = await backup.backup_onedrive(tenant_id, owner.object_id, {
-      force_full: options.full ?? false,
-      ...(options.folder !== undefined ? { folder_scope: options.folder } : {}),
-      owner_email: owner.email,
-      owner_display_name: owner.display_name,
-      object_lock_request,
-      create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
-      should_interrupt: gate.should_interrupt,
-      abort_signal: gate.abort_signal,
-    });
-  } finally {
-    gate.dispose();
-    // In `finally`, so a run that throws after Ctrl+C still drops the cooldown timer that would
-    // otherwise keep the process alive.
-    await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
-  }
+  if (result === undefined) return;
 
   if (result.snapshot) {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);
