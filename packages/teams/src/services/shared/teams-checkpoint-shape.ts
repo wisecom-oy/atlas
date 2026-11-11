@@ -1,6 +1,7 @@
 import {
   UnreadableContentError,
   type TeamsChannelCheckpointHead,
+  type TeamsChannelCheckpointHostedEntry,
   type TeamsChannelCheckpointSegment,
 } from '@wisecom/atlas-types';
 import {
@@ -74,4 +75,19 @@ export function assert_checkpoint_segment_shape(
     throw new UnreadableContentError(`The ${label} at ${key} has a bad seen ID`);
   }
   assert_record_entries(key, `${label} hosted content`, segment.hosted, HOSTED_REF_SHAPE);
+}
+
+const CHECKPOINT_HOSTED_ENTRY_SHAPE: Shape = {
+  key: 'string',
+  ref: 'record',
+};
+
+/** Checks a hosted-journal entry: its journal key and the hosted ref it records. */
+export function assert_checkpoint_hosted_entry_shape(
+  key: string,
+  body: unknown,
+): asserts body is TeamsChannelCheckpointHostedEntry {
+  const label = 'Teams channel checkpoint hosted entry';
+  const entry = assert_fields(key, label, body, CHECKPOINT_HOSTED_ENTRY_SHAPE);
+  assert_fields(key, `${label} ref`, entry.ref, HOSTED_REF_SHAPE);
 }

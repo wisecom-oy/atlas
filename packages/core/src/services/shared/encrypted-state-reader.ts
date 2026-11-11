@@ -23,6 +23,35 @@ export async function load_encrypted_json<T>(
   return payload === undefined ? undefined : decrypt_state<T>(ctx, key, payload);
 }
 
+/**
+ * Same contract as {@link load_encrypted_json}, and rejects a body that names a different key.
+ *
+ * The envelope binds ciphertext to its directory, not its file name, so one owner's state object
+ * copied over another's in a shared directory still decrypts. `key_of` rebuilds the key from the
+ * body's own owner fields; a body it does not reproduce `key` from raises `UnreadableContentError`
+ * instead of resuming one owner's backup from another's state (issue #622).
+ */
+export async function load_encrypted_json_bound_to_key<T>(
+  ctx: TenantContext,
+  key: string,
+  key_of: (value: T) => string,
+): Promise<T | undefined> {
+  const value = await load_encrypted_json<T>(ctx, key);
+  if (value === undefined || body_names_key(value, key, key_of)) return value;
+  throw new UnreadableContentError(
+    `The state object at ${key} belongs to a different owner than its key names`,
+  );
+}
+
+/** Whether `key_of` rebuilds `key` from the body; a body it cannot read names no key. */
+function body_names_key<T>(value: T, key: string, key_of: (value: T) => string): boolean {
+  try {
+    return key_of(value) === key;
+  } catch {
+    return false;
+  }
+}
+
 /** Same contract as {@link load_encrypted_json}, also returning the ETag the object was read at. */
 export async function load_encrypted_json_with_etag<T>(
   ctx: TenantContext,

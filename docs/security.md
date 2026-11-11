@@ -107,6 +107,7 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Move an object over another owner's or purpose's key          | Decryption fails: the scope no longer matches                |
 | Strip or lower the version header                             | Decryption fails: the header is authenticated                |
 | Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
+| Copy one owner's delta cursor over another's                  | Rejected: the cursor names its owner, and load checks it     |
 | Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
 | Data                                           | Encrypted | Notes                                                                                     |
@@ -172,6 +173,21 @@ A marker file, `_meta/replica.marker`, is written to each target on first replic
 Before each replication or rehydration, Atlas checks that the source and target share a DEK. If the primary was purged and re-initialized with a new DEK, replication to a target that still holds the old DEK is refused with an explicit error. Without this check, objects encrypted under two keys would coexist on one target, and the older ones would become permanently unreadable.
 
 The check runs once per target per run, before the first snapshot is copied. It unwraps both DEKs, which costs two scrypt derivations. A target that fails the check receives no writes.
+
+### Installing the source key without a race
+
+Rehydration copies the replica's wrapped key to primary, and replication copies the primary's key to a new target. Every such write is conditional, so a key another process stores after Atlas checks the bucket is never replaced:
+
+| Primary holds                                  | Rehydration does                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| No `_meta/dek.enc`                             | Writes the source key create-only, with `If-None-Match: *`                      |
+| The source key                                 | Nothing                                                                         |
+| A different key and nothing else               | Replaces it with `If-Match` on the ETag read before the bucket was found empty  |
+| A different key and any other object           | Nothing, aborts with `DekOverwriteRefusedError`                                 |
+
+A different key with nothing else beside it is one Atlas generated on a bucket that never received data, for example by a backup that failed before its first upload. Replication writes a target's key only when the target has none, create-only.
+
+When a conditional write is refused with `412 Precondition Failed`, Atlas reads the stored key. If it is byte-identical to the source key, another run installed the same key and the copy continues. Otherwise the run stops with `DekWriteConflictError` and leaves the stored key as it is. The threat is a backup that bootstraps its own key on an empty primary while rehydration runs: without the condition, rehydration replaced that key and every object the backup had written became unreadable. A refused run wrote nothing, so stop every other operation on the tenant and rerun it. This is defence in depth, not a lock. A backup that opens the generated key after the emptiness check and before the replacement changes nothing Atlas can compare, so it is not detected. Rehydration must still run alone, and on a backend that ignores conditional headers the guarantee does not hold (see [Storage](/self-hosting/storage#protecting-the-tenant-data-key)).
 
 ## Integrity validation
 
@@ -409,6 +425,10 @@ Capturing permissions is expensive. Each permission operation costs 5 resource u
 ## Calendar restore does not notify attendees
 
 A calendar restore writes events through Graph without their attendee lists. Atlas removes attendees and the organizer from each created event and writes them as text at the top of the body, so the restore sends no invitations, updates, or cancellations to anyone. The cost is that restored events carry no working invitations and no new Teams meeting. A restore skips events the target already holds (matching iCalUId, or an event Atlas restored completely earlier), so re-running it does not create duplicates. The only event a restore deletes is one an earlier restore created and left incomplete, identified by its pending tag, which it then recreates in full. Treat the attendee text as a record of the original meeting, not as live invitations.
+
+## Contacts restore tags what it creates
+
+A contacts restore only creates contacts and folders. It never overwrites or deletes a contact. Each contact it creates carries a single-value extended property, `AtlasSourceContactId`, holding the Exchange id of the source contact, and a rerun skips any entry whose original or tagged copy is already in the target folder. The tag holds an item id, not contact content, but anyone who can read the mailbox through Graph or MAPI can see that a contact was restored and which source item it came from. That includes the target mailbox owner in a restore with `-T`. Removing or changing the tag only makes the next restore create that contact again.
 
 ## Storage request events
 

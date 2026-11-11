@@ -15,6 +15,7 @@ import {
 const DEK_KEY = '_meta/dek.enc';
 const SOURCE_DEK = Buffer.from('wrapped-source-dek');
 const PRIMARY_DEK = Buffer.from('wrapped-primary-dek');
+const PRIMARY_ETAG = '"etag-1"';
 
 interface FakeBucket {
   storage: ObjectStorage;
@@ -31,6 +32,11 @@ function make_spy_storage(objects: Record<string, Buffer>): ObjectStorage {
       const blob = objects[key];
       if (!blob) throw new Error(`missing ${key}`);
       return blob;
+    }),
+    get_with_etag: vi.fn(async (key: string) => {
+      const blob = objects[key];
+      if (!blob) throw new Error(`missing ${key}`);
+      return { data: blob, etag: PRIMARY_ETAG };
     }),
     put: vi.fn(async (key: string, data: Buffer) => {
       objects[key] = data;
@@ -69,7 +75,14 @@ describe('ensure_source_dek_on_primary (issue #26)', () => {
 
     await ensure_source_dek_on_primary(primary.target, source.target, 't');
 
-    expect(primary.storage.put).toHaveBeenCalledWith(DEK_KEY, SOURCE_DEK);
+    expect(primary.storage.put).toHaveBeenCalledWith(
+      DEK_KEY,
+      SOURCE_DEK,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
   });
 
   it('leaves an identical DEK untouched', async () => {
@@ -85,7 +98,13 @@ describe('ensure_source_dek_on_primary (issue #26)', () => {
 
     await ensure_source_dek_on_primary(primary.target, source.target, 't');
 
-    expect(primary.storage.put).toHaveBeenCalledWith(DEK_KEY, SOURCE_DEK);
+    expect(primary.storage.put).toHaveBeenCalledWith(
+      DEK_KEY,
+      SOURCE_DEK,
+      undefined,
+      undefined,
+      PRIMARY_ETAG,
+    );
     expect(primary.storage.list).toHaveBeenCalledWith('', 2);
   });
 

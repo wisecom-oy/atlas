@@ -1,12 +1,15 @@
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
 import type { ContactManifestEntry, OperationControlOptions } from '@wisecom/atlas-types';
 
-import { collision_key } from '@/services/restore/collision-key';
 import {
   type EntryOutcome,
   restore_entry,
   type RestoreWriteDeps,
 } from '@/services/restore/restore-contact-writer';
+import {
+  index_target_contacts,
+  type TargetFolderContacts,
+} from '@/services/restore/target-folder-contacts';
 import { error_message } from '@/services/shared/error-message';
 import { is_run_fatal } from '@/services/shared/run-fatal-error';
 
@@ -22,39 +25,48 @@ export interface RestoreLoopOutcome {
   readonly interrupted: boolean;
 }
 
-/** Loads the collision keys of a target folder once, reused for every entry that targets it. */
-async function existing_keys_for(
+/** Run-wide lookups shared by every entry. */
+interface RestoreScope {
+  readonly target_by_source: ReadonlyMap<string, string>;
+  /** Every contact id in the snapshot. */
+  readonly snapshot_ids: ReadonlySet<string>;
+  /** What each target folder holds, loaded once per folder. */
+  readonly cache: Map<string, TargetFolderContacts>;
+}
+
+/** Loads what a target folder already holds once, reused for every entry that targets it. */
+async function existing_contacts_for(
   deps: RestoreWriteDeps,
   folder_id: string,
-  cache: Map<string, Set<string>>,
-): Promise<Set<string>> {
-  const cached = cache.get(folder_id);
+  scope: RestoreScope,
+): Promise<TargetFolderContacts> {
+  const cached = scope.cache.get(folder_id);
   if (cached !== undefined) return cached;
   const contacts = await deps.connector.list_folder_contacts(
     deps.tenant_id,
     deps.target_mailbox_id,
     folder_id,
   );
-  const keys = new Set<string>();
-  for (const contact of contacts) {
-    const key = collision_key(contact);
-    if (key !== undefined) keys.add(key);
-  }
-  cache.set(folder_id, keys);
-  return keys;
+  const existing = index_target_contacts(contacts, scope.snapshot_ids);
+  scope.cache.set(folder_id, existing);
+  return existing;
 }
 
-/** Restores one entry into the target folder its source folder was mapped to. */
+/**
+ * Restores one entry into the target folder its source folder was mapped to, and records a
+ * created contact's source id so a later entry with the same id in this run is skipped.
+ */
 async function restore_mapped_entry(
   deps: RestoreWriteDeps,
   entry: ContactManifestEntry,
-  target_by_source: ReadonlyMap<string, string>,
-  keys_by_folder: Map<string, Set<string>>,
+  scope: RestoreScope,
 ): Promise<EntryOutcome> {
-  const folder_id = target_by_source.get(entry.folder_id);
+  const folder_id = scope.target_by_source.get(entry.folder_id);
   if (folder_id === undefined) throw new Error('source folder was not mapped to a target folder');
-  const keys = await existing_keys_for(deps, folder_id, keys_by_folder);
-  return restore_entry(deps, entry, folder_id, keys);
+  const existing = await existing_contacts_for(deps, folder_id, scope);
+  const outcome = await restore_entry(deps, entry, folder_id, existing);
+  if (outcome.status === 'restored') existing.source_ids.add(entry.contact_id);
+  return outcome;
 }
 
 /**
@@ -67,7 +79,11 @@ export async function restore_all_entries(
   target_by_source: ReadonlyMap<string, string>,
   control: OperationControlOptions,
 ): Promise<RestoreLoopOutcome> {
-  const keys_by_folder = new Map<string, Set<string>>();
+  const scope: RestoreScope = {
+    target_by_source,
+    snapshot_ids: new Set(entries.map((entry) => entry.contact_id)),
+    cache: new Map(),
+  };
   const errors: string[] = [];
   let processed = 0;
   let restored = 0;
@@ -81,7 +97,7 @@ export async function restore_all_entries(
     }
     processed += 1;
     try {
-      const outcome = await restore_mapped_entry(deps, entry, target_by_source, keys_by_folder);
+      const outcome = await restore_mapped_entry(deps, entry, scope);
       if (outcome.status === 'skipped') skipped += 1;
       else restored += 1;
       if (outcome.status === 'restored' && outcome.photo_error !== undefined) {

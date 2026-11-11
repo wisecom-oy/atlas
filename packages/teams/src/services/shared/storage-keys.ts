@@ -59,6 +59,21 @@ export function teams_checkpoint_segment_key(
   return `${teams_checkpoint_prefix(team_id, channel_id)}${segment_name}.json`;
 }
 
+/** Prefix of one channel checkpoint's hosted-journal entries. */
+export function teams_checkpoint_hosted_prefix(team_id: string, channel_id: string): string {
+  return `${teams_checkpoint_prefix(team_id, channel_id)}hosted/`;
+}
+
+/** Key of one hosted-journal entry, named by the run and its position, e.g. `<run>-<n>`. */
+export function teams_checkpoint_hosted_key(
+  team_id: string,
+  channel_id: string,
+  entry_name: string,
+): string {
+  TEAMS_KEYS.validate_key_segment(entry_name);
+  return `${teams_checkpoint_hosted_prefix(team_id, channel_id)}${entry_name}.json`;
+}
+
 /** Prefix of everything a team keeps under `_meta`, which deletion removes with the team. */
 export function teams_meta_prefix_for(team_id: string): string {
   return `${TEAMS_KEYS.meta_prefix}/${team_key_segment(team_id)}/`;

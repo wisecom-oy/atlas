@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { ReplicationObjectResult } from '@wisecom/atlas-types';
-
-const DEK_META_KEY = '_meta/dek.enc';
-const REPLICA_MARKER_KEY = '_meta/replica.marker';
+import {
+  ensure_dek_on_target,
+  ensure_replica_marker,
+} from '@/services/replication/replica-target-bootstrap';
 
 export interface SnapshotReplicationResult {
   readonly object_results: ReplicationObjectResult[];
@@ -125,29 +126,6 @@ async function copy_object(
     const message = err instanceof Error ? err.message : String(err);
     return { storage_key: key, outcome: 'failed', error: message };
   }
-}
-
-async function ensure_dek_on_target(
-  source_ctx: TenantContext,
-  target_ctx: TenantContext,
-): Promise<void> {
-  const target_has_dek = await target_ctx.storage.exists(DEK_META_KEY);
-  if (target_has_dek) return;
-
-  const dek_blob = await source_ctx.storage.get(DEK_META_KEY);
-  await target_ctx.storage.put(DEK_META_KEY, dek_blob);
-}
-
-async function ensure_replica_marker(ctx: TenantContext, source_tenant_id: string): Promise<void> {
-  const has_marker = await ctx.storage.exists(REPLICA_MARKER_KEY);
-  if (has_marker) return;
-
-  const marker = {
-    replicated_from_tenant: source_tenant_id,
-    created_at: new Date().toISOString(),
-  };
-  const data = Buffer.from(JSON.stringify(marker), 'utf-8');
-  await ctx.storage.put(REPLICA_MARKER_KEY, data);
 }
 
 function sha256_hex(data: Buffer): string {

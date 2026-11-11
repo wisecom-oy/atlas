@@ -25,7 +25,8 @@ import { map_source_folders } from '@/services/restore/restore-folder-mapper';
 
 /**
  * Restores a contacts snapshot into the source mailbox or a target mailbox. Existing contacts
- * are never overwritten: a contact whose name and email match one already in the folder is skipped.
+ * are never overwritten: an entry the target folder already holds, as the original contact or as
+ * an earlier restore's tagged copy, is skipped.
  */
 @injectable()
 export class ContactsRestoreService implements ContactsRestoreUseCase {

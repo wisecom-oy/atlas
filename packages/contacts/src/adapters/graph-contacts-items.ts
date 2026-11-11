@@ -1,15 +1,23 @@
 import { ResponseType, type Client } from '@microsoft/microsoft-graph-client';
+import { extended_properties_expand } from '@wisecom/atlas-core/services/shared/atlas-extended-property';
 import type { GraphContactPayload } from '@wisecom/atlas-types';
 import {
   CONTACTS_READ,
   CONTACTS_READ_WRITE,
   CREATE_ONCE,
+  IMMUTABLE_ID_PREFER,
   collect_pages,
   graph_call,
   is_not_found,
   mailbox_url,
   string_field,
 } from '@/adapters/graph-contacts-requests';
+import { SOURCE_CONTACT_PROPERTY_ID } from '@/services/shared/source-tag';
+
+/** The fields restore matches on: identity fields plus the Atlas source tag. */
+const MATCH_QUERY =
+  '$select=displayName,emailAddresses,businessPhones,homePhones,mobilePhone,companyName' +
+  `&$top=100&$expand=${extended_properties_expand([SOURCE_CONTACT_PROPERTY_ID])}`;
 
 function folder_contacts_url(mailbox_id: string, folder_id: string): string {
   return `${mailbox_url(mailbox_id)}/contactFolders/${encodeURIComponent(folder_id)}/contacts`;
@@ -19,7 +27,10 @@ function contact_url(mailbox_id: string, folder_id: string, contact_id: string):
   return `${folder_contacts_url(mailbox_id, folder_id)}/${encodeURIComponent(contact_id)}`;
 }
 
-/** Lists every contact currently in a folder. */
+/**
+ * Lists every contact currently in a folder under its immutable id, which is the id a backup
+ * records, with the fields restore matches on and the Atlas source tag.
+ */
 export async function list_folder_contacts(
   client: Client,
   mailbox_id: string,
@@ -27,8 +38,9 @@ export async function list_folder_contacts(
 ): Promise<GraphContactPayload[]> {
   return collect_pages<GraphContactPayload>(
     client,
-    folder_contacts_url(mailbox_id, folder_id),
+    `${folder_contacts_url(mailbox_id, folder_id)}?${MATCH_QUERY}`,
     CONTACTS_READ,
+    IMMUTABLE_ID_PREFER,
   );
 }
 

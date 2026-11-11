@@ -62,6 +62,8 @@ Atlas reads each series master from the Graph beta endpoint with `$expand=except
 
 Start and end times are requested in the series' own recurrence time zone, sent as a `Prefer: outlook.timezone` header. Without that, Graph returns times in the caller's zone, and a series that crosses a daylight saving change would restore at the wrong local time.
 
+Exchange rejects some zones, for example a custom zone an older client defined, with HTTP 400 and the error code `TimeZoneNotSupportedException`. Only that code makes Atlas read the series again in UTC. Any other error, including a 400 with a different code, fails the event with Graph's message, so a malformed request is not hidden behind a UTC copy.
+
 ::: warning Beta endpoint
 The `$expand=exceptionOccurrences` read depends on the Graph beta endpoint, which Microsoft may change without the notice a v1.0 API gets. A change there shows up as a backup error on series events, not as silent data loss.
 :::
@@ -70,7 +72,9 @@ The `$expand=exceptionOccurrences` read depends on the Graph beta endpoint, whic
 
 Only file attachments are captured. Each file is stored as its own encrypted object, and the manifest records its name, content type, inline flag, content ID, checksum, and size. The content ID is what a rich-text description uses to reference an inline image (`cid:`), so restore sends it back and embedded images keep rendering.
 
-Item attachments (an attached message or invite) and reference attachments (a link) are not captured. Each one is listed in `warnings` in the run summary, so the gap is visible.
+Item attachments (an attached message or invite) and reference attachments (a link) are not captured, and neither are attachments on a single exception of a series. Each gap is listed in `warnings` and counted in `attachments_skipped`: one per item or reference attachment, and one per exception that carries attachments. A nonzero count makes the run `UNHEALTHY` and exits `2`. The event is still stored and its calendar's delta link still advances, because a rerun cannot capture these attachments either. The next run reports them again only when the event changes or with `--full`.
+
+A file attachment that fails to download or store is different: it fails its event. The event keeps its previous entry, the calendar keeps its old delta link, and the next run fetches the event and its attachments again.
 
 ## Restore
 
@@ -123,8 +127,8 @@ Object Lock retention, when the bucket uses it, applies to calendar objects writ
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Attendee and organizer lists on restore | Restored events show them as text only. They are not live invitations.                                                       |
 | Teams meeting links as live meetings    | No new meeting is created. The original join link survives in the body; create a new meeting if the old one has expired.     |
-| Item and reference attachments          | Reported as warnings. Not recoverable from the backup.                                                                       |
-| Attachments on single exceptions        | Attachments added to one occurrence of a series are reported as a warning and not stored.                                    |
+| Item and reference attachments          | Reported as warnings and counted in `attachments_skipped`; the run exits `2`. Not recoverable from the backup.               |
+| Attachments on single exceptions        | Attachments added to one occurrence of a series are not stored. Reported and counted the same way.                           |
 | Read-only calendars                     | Birthdays and read-only shares are skipped. Back them up from their owner if needed.                                         |
 | Calendars in replicas                   | Replication and rehydrate refuse calendar snapshots, as they do for contacts. See [Replication](/reference/sdk#replication). |
 

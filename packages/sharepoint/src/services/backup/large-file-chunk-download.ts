@@ -1,7 +1,13 @@
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { stream_whole_file_in_chunks } from '@wisecom/atlas-drive/backup/whole-file-stream';
 import { assert_range_chunk } from '@wisecom/atlas-drive/backup/download-integrity';
-import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
+import {
+  is_retryable_error,
+  is_transient_error,
+  report_transfer_throttle,
+  wait_for_transfer_slot,
+} from '@wisecom/atlas-m365-graph';
+import { CdnHttpError } from '@/adapters/graph-sharepoint-chunked-download';
 
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
@@ -172,15 +178,10 @@ async function download_single_chunk(
     });
     report_transfer_throttle(response);
 
-    if (response.status === 429 || response.status === 503 || response.status === 504) {
-      throw new Error(
-        `HTTP ${response.status} for chunk bytes=${range_start}-${range_end} of ${item_id}`,
-      );
-    }
-
     if (response.status !== 206 && response.status !== 200) {
-      throw new Error(
+      throw new CdnHttpError(
         `HTTP ${response.status} for chunk bytes=${range_start}-${range_end} of ${item_id}`,
+        response.status,
       );
     }
 
@@ -217,9 +218,14 @@ async function download_single_chunk(
   }
 }
 
+/**
+ * Classifies on the status the chunk response carried, through the same rule as every Graph call,
+ * so a 500 or 502 is retried and a 404 is not. The message is never read: its byte range and item
+ * id can contain any status code's digits (issue #618).
+ */
 function is_cdn_retryable(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('429') || message.includes('503') || message.includes('504');
+  if (err instanceof CdnHttpError) return is_transient_error({ statusCode: err.status_code });
+  return is_retryable_error(err);
 }
 
 function compute_retry_delay(attempt: number): number {

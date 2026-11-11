@@ -177,8 +177,23 @@ describe('replicate_snapshot_to_target', () => {
 
     await replicate_snapshot_to_target(source_ctx, target_ctx, manifest);
 
-    expect(target_storage.put).toHaveBeenCalledWith('_meta/dek.enc', dek_blob);
-    expect(target_storage.put).toHaveBeenCalledWith('_meta/replica.marker', expect.any(Buffer));
+    // Both are create-only (If-None-Match: *), so a concurrent writer is never overwritten.
+    expect(target_storage.put).toHaveBeenCalledWith(
+      '_meta/dek.enc',
+      dek_blob,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(target_storage.put).toHaveBeenCalledWith(
+      '_meta/replica.marker',
+      expect.any(Buffer),
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
   });
 
   it('records failure for objects that throw during copy', async () => {

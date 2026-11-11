@@ -36,6 +36,7 @@ Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 
 - It honors the `Retry-After` header when Graph sends one. A value under one second is raised to 1 to 2 seconds. Without the header, a 429 applies a 30-second cooldown.
 - It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Backoff waits, `Retry-After` waits, and cooldowns share one 24-minute budget of waiting. Time spent inside each request does not count. A `Retry-After` longer than 5 minutes fails the call at once.
 - Each attempt times out after 60 seconds, and Atlas aborts the timed-out request before it sends the next one.
+- Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message. Message text carries request IDs and item IDs, whose digits could otherwise pass for a status code.
 - If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.
 
 Occasional 429 and 5xx responses during a large first backup need no action.
@@ -44,7 +45,7 @@ Occasional 429 and 5xx responses during a large first backup need no action.
 
 A request that creates something during a restore is not repeated after a 500, 502, 504, a 503 without `Retry-After`, a dropped connection, or a timeout. Graph can commit a create and still lose the response, so repeating it would leave two copies. This covers messages, message and event attachments, events, contacts, mail, contact and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
 
-Such a failure is recorded against the item in the run summary and the restore continues. The item may or may not exist in the target. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts whose name and email already match, so re-running the restore fills the gap without duplicating anything. For Outlook, check the reported message in the restore folder before restoring it again.
+Such a failure is recorded against the item in the run summary and the restore continues. The item may or may not exist in the target. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts it restored earlier, so re-running the restore fills the gap without duplicating anything. For Outlook, check the reported message in the restore folder before restoring it again.
 
 A 429, or a 503 with `Retry-After`, is still retried: Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, upload sessions, and upload chunks are safe to repeat and keep the full retry policy.
 
@@ -273,12 +274,17 @@ Could not read the state object at identity-registry.json
 The state object at onedrive/_meta/<owner>/delta.json is corrupt or tampered
 ```
 
-OneDrive and SharePoint keep a delta cursor per owner or site, and the tenant keeps one identity registry. If one of these exists but cannot be read, the run stops before it writes anything. Treating the object as missing would re-download the whole drive, lose deletion tracking, and overwrite the stored state. For the registry, that would erase the cached identities of departed users.
+```
+The state object at _meta/outlook-cursors/<owner>.json belongs to a different owner than its key names
+```
 
-The two messages mean different things:
+Outlook, contacts, calendar, OneDrive, and SharePoint keep a delta cursor per mailbox, owner, or site, and the tenant keeps one identity registry. If one of these exists but cannot be read, the run stops before it writes anything. Only an absent object means "no saved state". Treating a damaged one as missing would re-enumerate the whole mailbox or drive, lose deletion tracking, and overwrite the stored state. For Outlook it would also replace the delta links a previous run withheld after a failed message with older ones from the manifest. For the registry, it would erase the cached identities of departed users.
+
+The messages mean different things:
 
 - **`Could not read the state object`** is a storage failure (`ATLAS_STORAGE_FAILURE`, exit `1`). Retry once the bucket responds.
 - **`is corrupt or tampered`** means the object failed AES-256-GCM authentication or JSON parsing (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Retrying does not help. Treat it as possible tampering first.
+- **`belongs to a different owner`** means the cursor decrypted but names another mailbox, owner, or site than its key (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Every Outlook cursor shares the `_meta/outlook-cursors/` directory, so the encryption scope alone does not stop one mailbox's cursor from being copied over another's. Resuming from it would skip changes and record another mailbox's state. Treat it as tampering or an operator copy mistake.
 
 To recover a damaged delta cursor, restore an earlier version from bucket versioning, or delete the cursor to force a full enumeration on the next run. For a damaged `identity-registry.json`, restore an earlier version and do not delete the object. The registry is the only record of departed users that Graph no longer resolves, so deleting it makes their backups impossible to find by address.
 

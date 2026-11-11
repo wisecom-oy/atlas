@@ -118,6 +118,24 @@ describe('open_channel_run checkpoint resume', () => {
     expect(await scope.checkpoints.load_head(scope.ctx, scope.team_id, CHANNEL.id)).toBeUndefined();
   });
 
+  it('still reads hosted entries an older version journaled inside segments', async () => {
+    const scope = scope_over();
+    const first = await open(scope, BASELINE);
+    await flush_channel_run(scope, first, { threads: [], seen: ['a'] });
+    const ref = { storage_key: 'blob', checksum: 'sum', size_bytes: 1, content_type: undefined };
+    await scope.checkpoints.save_segment(scope.ctx, scope.team_id, CHANNEL.id, 'seg-old-0', {
+      threads: {},
+      seen: [],
+      hosted: { 'a//h1': ref },
+    });
+    first.segments.push('seg-old-0');
+    await flush_channel_run(scope, first, { threads: [], seen: [] });
+
+    const next = await open(scope, BASELINE);
+
+    expect(next.hosted.get('a//h1')).toEqual(ref);
+  });
+
   it('resumes a done checkpoint at its retry step without discarding its stored roots', async () => {
     const scope = scope_over();
     const first = await open(scope, BASELINE);

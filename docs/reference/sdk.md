@@ -327,7 +327,7 @@ Calendar snapshots are not replicated or rehydrated yet. `replicateSnapshot` rej
 | `deleteMailboxData(mailbox)`          | `atlas calendar delete -m`    | Delete all calendar data for a mailbox                                      |
 | `deleteSnapshot(mailbox, snapshotId)` | `atlas calendar delete -m -s` | Delete one snapshot manifest                                                |
 
-The backup result's `summary` reports the run's counters, camelCased: `calendarsScanned`, `calendarsSkipped` (read-only calendars such as Birthdays), `eventsChanged`, `eventsRemoved`, `objectsStored`, `snapshotCreated`, `noSnapshotReason` when no snapshot was written, `warnings` (for example item and reference attachments that are not captured), `errors`, and `healthy`. The restore result reports `snapshotId`, `eventsRestored`, `eventsSkipped`, `calendarsCreated`, `errors`, and `interrupted`. An event is skipped when the target already holds it. Restore never sends meeting invitations: restored events carry no attendees, and the attendee list is written into the event body. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited).
+The backup result's `summary` reports the run's counters, camelCased: `calendarsScanned`, `calendarsSkipped` (read-only calendars such as Birthdays), `eventsChanged`, `eventsRemoved`, `objectsStored`, `snapshotCreated`, `noSnapshotReason` when no snapshot was written, `warnings` (for example item and reference attachments that are not captured), `attachmentsSkipped` (attachments the stored events carry but the backup does not capture), `errors`, and `healthy`. `healthy` is `false` when any event failed or `attachmentsSkipped` is above zero. The restore result reports `snapshotId`, `eventsRestored`, `eventsSkipped`, `calendarsCreated`, `errors`, and `interrupted`. An event is skipped when the target already holds it. Restore never sends meeting invitations: restored events carry no attendees, and the attendee list is written into the event body. See [why attendees are not re-invited](/calendar-backup#why-attendees-are-not-re-invited).
 
 See [Calendar backup](/calendar-backup) for the storage layout and restore behaviour.
 
@@ -905,7 +905,7 @@ The sequential loop above is the recommended default. Atlas has no scheduler and
 
 | Object                   | How concurrent writers are handled                                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key                                           |
+| `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key. Rehydrate and replicate write it conditionally and reject with `DekWriteConflictError` (`ATLAS_STORAGE_FAILURE`) when a different key won the race |
 | `identity-registry.json` | Every write is a compare-and-swap on the ETag. A losing writer re-reads and re-applies its change, up to 8 attempts |
 | The tenant bucket        | A run that loses the `CreateBucket` race uses the bucket the other run created                                      |
 | Object Lock retention    | Applied to each object a run writes. No run changes the bucket's own lock configuration                             |

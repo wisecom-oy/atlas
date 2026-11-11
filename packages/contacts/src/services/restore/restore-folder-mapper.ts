@@ -11,9 +11,13 @@ export interface FolderMapping {
   readonly errors: string[];
 }
 
-/** Keys folders by their display-name chain, which is how source and target trees line up. */
+/**
+ * Keys folders by their display-name chain, which is how source and target trees line up.
+ * Exchange compares folder names without case and rejects a sibling that differs only in case,
+ * so the key does too: a target folder named `sub` receives a source folder named `Sub`.
+ */
 function path_key(path: readonly string[]): string {
-  return JSON.stringify(path);
+  return JSON.stringify(path.map((name) => name.toLowerCase()));
 }
 
 /**

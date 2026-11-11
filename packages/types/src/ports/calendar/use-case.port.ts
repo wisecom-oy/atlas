@@ -27,9 +27,15 @@ export interface CalendarBackupSummary {
   readonly snapshot_created: boolean;
   /** Set only when a clean run created no snapshot. */
   readonly no_snapshot_reason?: NoSnapshotReason | undefined;
-  /** Data the run knowingly left out, such as attachments that are not files. Does not affect `healthy`. */
+  /** Data the run knowingly left out, such as attachments that are not files, one line each. */
   readonly warnings: string[];
+  /**
+   * Attachments the stored events carry but the backup does not capture: each item or reference
+   * attachment, and each recurrence exception that has attachments of its own. Clears `healthy`.
+   */
+  readonly attachments_skipped: number;
   readonly errors: string[];
+  /** False when any event failed or any attachment was skipped. */
   readonly healthy: boolean;
 }
 

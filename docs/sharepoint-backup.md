@@ -263,7 +263,7 @@ Each backup ends with a health status:
 - **HEALTHY.** Every file's primary content was backed up in every library.
 - **UNHEALTHY.** At least one file failed, a library crashed, or an encryption error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`.
 
-A version that fails to download for an unexpected reason (throttling, `403 accessDenied`, a transient fault) makes the run UNHEALTHY. A version Graph reports as gone (`404` or `410`, purged by the site's retention policy) is counted as `unavailable` and does not affect health.
+A version that fails to download for an unexpected reason (throttling, `403 accessDenied`, a transient fault) makes the run UNHEALTHY. A version Graph reports as gone (`404` or `410`, purged by the site's retention policy) is counted as `unavailable` and does not affect health. Only the HTTP status of the response decides this. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure, and the version is downloaded again by the next backup that picks up a change to the file.
 
 A version download is held to the size Graph lists for that version. A transfer that delivers fewer or more bytes fails with `DownloadIntegrityError` before anything is stored, because the checksum and the AES-256-GCM tag are computed over whatever arrived and would vouch for a truncated body just as readily. The failure counts as an unexpected version failure: the run is UNHEALTHY, and the file's version watermark stops before that version, so the next backup that picks up a change to the file downloads it again.
 
@@ -288,7 +288,7 @@ Restored sections arrive as ordinary files. Treat notebook restore as recovering
 
 - **Downloads.** Files up to 4 MiB are read in one request. Files from 4 to 64 MiB are read in 4 MiB ranges. Files of 64 MiB and larger are streamed into multipart uploads on staging, then copied to their content key.
 - **Uploads on restore.** Files up to 4 MiB use a single PUT. Larger files use a resumable session in 10 MiB chunks.
-- **Throttling and CDN faults.** Graph `429` and transient `5xx` responses are retried with backoff, per range for chunked downloads.
+- **Throttling and CDN faults.** Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads.
 - **Scope.** Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 ## SDK usage

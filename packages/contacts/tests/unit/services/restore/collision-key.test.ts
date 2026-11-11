@@ -28,7 +28,25 @@ describe('collision_key', () => {
     expect(a).not.toBe(b);
   });
 
-  it('returns undefined when a contact has neither a name nor an email', () => {
-    expect(collision_key({ displayName: '  ' })).toBeUndefined();
+  it('separates contacts that share a name and have no email but different phones', () => {
+    const a = collision_key({ displayName: 'Sam', businessPhones: ['+1 555 0101'] });
+    const b = collision_key({ displayName: 'Sam', mobilePhone: '+1 555 0102' });
+    expect(a).not.toBe(b);
+  });
+
+  it('separates contacts that share a name but work for different companies', () => {
+    expect(collision_key({ displayName: 'Sam', companyName: 'Example Ltd' })).not.toBe(
+      collision_key({ displayName: 'Sam', companyName: 'Contoso' }),
+    );
+  });
+
+  it('ignores whitespace in phone numbers', () => {
+    expect(collision_key({ homePhones: ['+1 555 0101'] })).toBe(
+      collision_key({ homePhones: ['+15550101'] }),
+    );
+  });
+
+  it('returns undefined when a contact has no name, email, phone or company', () => {
+    expect(collision_key({ displayName: '  ', businessPhones: [''] })).toBeUndefined();
   });
 });

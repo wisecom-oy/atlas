@@ -8,6 +8,7 @@ import {
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { extract_retry_after_ms } from '@/graph-retry-after';
 import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
+import { is_network_error } from '@/graph-network-error';
 import { ThrottledError } from '@wisecom/atlas-types';
 
 /**
@@ -21,17 +22,6 @@ import { ThrottledError } from '@wisecom/atlas-types';
  * retries only on a throttle response (see `is_throttle_response`, issue #624).
  */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
-const NETWORK_ERROR_CODES = new Set([
-  'ETIMEDOUT',
-  'ECONNRESET',
-  'ECONNREFUSED',
-  'ENOTFOUND',
-  'EPIPE',
-  'EAI_AGAIN',
-  'EHOSTUNREACH',
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_SOCKET',
-]);
 const MAX_RETRIES = 12;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 300_000;
@@ -114,29 +104,6 @@ export function is_transient_error(err: unknown): boolean {
   if (err instanceof ThrottledError) return true;
   const status = (err as Record<string, unknown>).statusCode;
   return typeof status === 'number' && RETRYABLE_STATUS_CODES.has(status);
-}
-
-/**
- * Returns true for network-level errors (socket timeout, DNS failure,
- * connection reset) that are worth retrying.
- */
-export function is_network_error(err: unknown): boolean {
-  const code = (err as Record<string, unknown>).code;
-  if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code)) return true;
-
-  const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
-  return (
-    lower.includes('socket hang up') ||
-    lower.includes('network request failed') ||
-    lower.includes('econnreset') ||
-    lower.includes('etimedout') ||
-    lower.includes('fetch failed') ||
-    lower.includes('terminated') ||
-    lower.includes('aborted') ||
-    lower.includes('network error') ||
-    lower.includes('client network socket disconnected')
-  );
 }
 
 /** Returns true when an error is retryable (transient HTTP or network error). */
@@ -334,12 +301,16 @@ export function describe_graph_error(err: unknown): string {
  * HTTP 404/410: the content is gone for good (version purged by retention,
  * item hard-deleted). Distinct from a transient failure -- callers count these
  * as expected, not as backup errors.
+ *
+ * Only the numeric status decides. A caller records a match as permanently
+ * skipped, and the message text of any other failure (request ids, item ids,
+ * byte counts) can contain "404" or "Not Found" by chance (issue #618). A
+ * binary download's error carries the status and an empty message, which is
+ * enough.
  */
 export function is_content_gone_error(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
   const graph_err = err as Record<string, unknown>;
   const status = graph_err.statusCode ?? graph_err.status;
-  if (status === 404 || status === 410) return true;
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes('404') || message.includes('Not Found') || message.includes('410');
+  return status === 404 || status === 410;
 }

@@ -226,7 +226,7 @@ Graph offers no way to write into Recoverable Items. Recovered items land in the
 ::: warning Exit codes for backup, restore, and save
 This applies to Outlook, Contacts, Calendar, OneDrive, and SharePoint. `0` means complete with no errors. `2` means **partial**: per-folder or per-file errors or a soft interrupt (Ctrl+C) left the run incomplete. Failed items are listed on stderr. Do not read `2` as proof that a snapshot was saved: an interrupted Contacts or Calendar backup saves none, and a Contacts or Calendar run whose only changes failed has nothing new to save. Check the run output, `atlas contacts list`, or `atlas calendar list` for the snapshot.
 
-A backup that prints `Status: UNHEALTHY` always exits `2`. For OneDrive, SharePoint, and Teams this includes a run with no new errors where a file is still in the failed-item ledger, either waiting for a retry or permanently skipped after 5 attempts. Those files are listed as warnings, and the run is not complete until the ledger is empty.
+A backup that prints `Status: UNHEALTHY` always exits `2`. For Calendar this includes a run with no event errors that left attachments out (item and reference attachments, or attachments on a single exception of a series); see [Attachments](/calendar-backup#attachments). For OneDrive, SharePoint, and Teams this includes a run with no new errors where a file is still in the failed-item ledger, either waiting for a retry or permanently skipped after 5 attempts. Those files are listed as warnings, and the run is not complete until the ledger is empty.
 
 `restore` and `save` follow the same contract. A file they cannot decrypt or write is counted as skipped, and any skipped file exits `2`. An archive missing some files is not a success, and a cron job that only checks for `0` must be able to see the difference.
 
@@ -572,7 +572,7 @@ atlas contacts delete -m user@company.com
 atlas contacts delete -m user@company.com -s ct-snap-123
 ```
 
-Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites: a contact that already exists in the target folder is skipped and counted in `contacts_skipped`. `verify` exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one: a key the bucket reports as absent, ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites or deletes: it tags each contact it creates with its source contact id, and skips an entry the target folder already holds as the original contact or as a tagged copy, counting it in `contacts_skipped`. Same-name contacts are restored separately, and a rerun creates nothing. Folders map by display-name path, compared without case. See [Contacts backup](/contacts-backup#restore). `verify` exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one: a key the bucket reports as absent, ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 
 | Option | Commands | Description |
 | --- | --- | --- |
@@ -1384,4 +1384,6 @@ Rehydration copies the data you select from a designated replica to primary. It 
 
 ::: warning Encryption key safety
 Rehydration needs the replica's encryption key (`_meta/dek.enc`) on primary. Atlas copies it when primary has no key. It replaces an existing key only when that key is provably the only object in primary (a freshly initialized bucket). If primary holds **any** other object, such as Outlook, OneDrive, or SharePoint data or replication records, and its key differs from the source, rehydration aborts with `DekOverwriteRefusedError`. Overwriting would make that data permanently unreadable. If primary's content is disposable, run `atlas delete --purge` first, then rehydrate into the empty bucket.
+
+The key write is conditional. If another run stores a different key on primary between the check and the write, for example a backup started against the empty bucket, rehydration aborts with `DekWriteConflictError` and leaves that key untouched. Stop the other run, then rehydrate again. See [Installing the source key without a race](/security#installing-the-source-key-without-a-race).
 :::
