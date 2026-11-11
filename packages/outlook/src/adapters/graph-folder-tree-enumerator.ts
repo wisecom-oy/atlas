@@ -105,9 +105,9 @@ async function walk_folder_level(
 
     const descendants =
       (record.childFolderCount ?? 0) > 0
-        ? await walk_child_level(fetch_children, options, record.id, path, depth + 1)
+        ? await enumerate_folder_subtree(fetch_children, options, record.id, path, depth + 1)
         : [];
-    if (descendants === FOLDER_VANISHED) continue;
+    if (!descendants) continue;
 
     folders.push({
       folder_id: record.id,
@@ -123,22 +123,21 @@ async function walk_folder_level(
   return folders;
 }
 
-/** Marks a folder whose child listing answered 404: it no longer exists. */
-const FOLDER_VANISHED = Symbol('folder-vanished');
-
 /**
- * Walks the level beneath one listed folder. A 404 there means the folder was deleted after its
- * parent listed it, so the folder and its subtree are reported and skipped rather than failing
- * the whole listing (issue #690). The root listing is not walked here: a 404 on it means the
- * mailbox is gone, which still fails.
+ * Lists every folder beneath one listed folder, or returns undefined when that folder is gone.
+ *
+ * A 404 on its child listing means the folder was deleted after its parent listed it, so the
+ * folder and its subtree are reported and skipped rather than failing the whole listing (issue
+ * #690). The mailbox root is never listed through here: a 404 on it means the mailbox is gone,
+ * which still fails. `path` is the folder's own path, and `depth` the level of its children.
  */
-async function walk_child_level(
+export async function enumerate_folder_subtree(
   fetch_children: FolderChildrenFetcher,
   options: MailFolderListOptions,
   folder_id: string,
   path: readonly string[],
-  depth: number,
-): Promise<MailFolder[] | typeof FOLDER_VANISHED> {
+  depth = 1,
+): Promise<MailFolder[] | undefined> {
   try {
     return await walk_folder_level(fetch_children, options, folder_id, path, depth);
   } catch (err) {
@@ -146,7 +145,7 @@ async function walk_child_level(
     const folder_path = path.join(FOLDER_PATH_SEPARATOR);
     logger.warn(`Mail folder "${folder_path}" was deleted while folders were listed; skipped.`);
     options.on_excluded?.({ folder_path, reason: 'deleted-during-listing' });
-    return FOLDER_VANISHED;
+    return undefined;
   }
 }
 
