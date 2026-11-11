@@ -13,7 +13,9 @@ vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
-const { download_with_fallback } = await import('@/adapters/graph-sharepoint-download-executor');
+const { SHAREPOINT_DOWNLOAD_EXECUTOR } =
+  await import('@/adapters/graph-sharepoint-download-executor');
+const { download_with_fallback } = SHAREPOINT_DOWNLOAD_EXECUTOR;
 
 const URL = 'https://cdn.example.invalid/file';
 const BODY = Buffer.from('url-download');

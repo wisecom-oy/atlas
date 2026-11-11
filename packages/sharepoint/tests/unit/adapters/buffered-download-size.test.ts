@@ -2,7 +2,9 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { Readable } from 'node:stream';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
-import { download_with_fallback } from '@/adapters/graph-sharepoint-download-executor';
+import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
+
+const { download_with_fallback } = SHAREPOINT_DOWNLOAD_EXECUTOR;
 
 /**
  * Issue #368, the SharePoint twin. Both buffered paths, the pre-authenticated URL and the Graph

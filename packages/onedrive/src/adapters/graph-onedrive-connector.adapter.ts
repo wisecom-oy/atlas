@@ -21,17 +21,14 @@ import type {
 } from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
 import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
-import { stream_to_buffer } from '@/adapters/graph-onedrive-connector-stream';
+import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
+import { resolve_download_url } from '@wisecom/atlas-drive/backup/graph-item-content';
 import {
   graph_onedrive_create_folder,
   graph_onedrive_upload_large_file,
   graph_onedrive_upload_small_file,
 } from '@/adapters/graph-onedrive-restore.adapter';
-import {
-  download_with_fallback,
-  resolve_download_url,
-  rethrow_if_access_denied,
-} from '@/adapters/graph-onedrive-download-executor';
+import { ONEDRIVE_DOWNLOAD_EXECUTOR } from '@/adapters/graph-onedrive-download-executor';
 import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -81,7 +78,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       if (drives.length > 0) return drives;
       return await this.fallback_default_drive(owner_id);
     } catch (err) {
-      rethrow_if_access_denied(err);
+      ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
       rethrow_if_no_onedrive(err, owner_id);
       throw err;
     }
@@ -97,7 +94,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     try {
       return await this.execute_delta(owner_id, drive_id, prev_delta_link, false);
     } catch (err) {
-      rethrow_if_access_denied(err);
+      ONEDRIVE_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
       if (is_invalid_delta_error(err)) {
         return await this.execute_delta(owner_id, drive_id, undefined, true);
       }
@@ -120,7 +117,7 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     item: OneDriveDeltaItem,
     abort_signal?: AbortSignal,
   ): Promise<Buffer> {
-    return download_with_fallback(this._client, item, abort_signal);
+    return ONEDRIVE_DOWNLOAD_EXECUTOR.download_with_fallback(this._client, item, abort_signal);
   }
 
   /** Resolves the temporary pre-authenticated download URL for a file. */

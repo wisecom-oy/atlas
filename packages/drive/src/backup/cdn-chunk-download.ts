@@ -5,6 +5,7 @@ import {
   is_transient_error,
 } from '@wisecom/atlas-m365-graph';
 import type { DriveWorkload } from '@/drive-ports';
+import { DRIVE_WORKLOAD_LABEL } from '@/backup/drive-workload-label';
 import { stream_whole_file_in_chunks } from '@/backup/whole-file-stream';
 import { size_checked_chunks } from '@/backup/download-integrity';
 import { CdnHttpError, ChunkDownloadError, RangeIgnoredError } from '@/backup/cdn-chunk-errors';
@@ -21,11 +22,6 @@ export const CHUNK_DOWNLOAD_THRESHOLD = 4 * 1024 * 1024;
 const MAX_CHUNK_RETRIES = 5;
 const CHUNK_BASE_DELAY_MS = 1_000;
 const CHUNK_MAX_DELAY_MS = 30_000;
-
-const WORKLOAD_LABEL: Record<DriveWorkload, string> = {
-  onedrive: 'OneDrive',
-  sharepoint: 'SharePoint',
-};
 
 /** Range-based download of one file from its pre-authenticated URL, bound to a workload. */
 export interface CdnChunkDownloader {
@@ -54,7 +50,7 @@ export interface CdnChunkDownloader {
  * (issue #632).
  */
 export function create_cdn_chunk_downloader(workload: DriveWorkload): CdnChunkDownloader {
-  const label = WORKLOAD_LABEL[workload];
+  const label = DRIVE_WORKLOAD_LABEL[workload];
   return {
     fetch_file_chunks: (download_url, total_bytes, item_id, abort_signal) =>
       fetch_file_chunks(label, download_url, total_bytes, item_id, abort_signal),

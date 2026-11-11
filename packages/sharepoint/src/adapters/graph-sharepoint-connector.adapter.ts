@@ -25,11 +25,7 @@ import {
   type GraphCollectionResponse,
 } from '@/adapters/graph-sharepoint-delta-fetch';
 import { map_delta_item, type GraphDeltaDriveItem } from '@/adapters/graph-sharepoint-delta-mapper';
-import {
-  download_with_fallback,
-  resolve_download_url as resolve_download_url_helper,
-  rethrow_if_access_denied,
-} from '@/adapters/graph-sharepoint-download-executor';
+import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 import {
   graph_sharepoint_create_folder,
   graph_sharepoint_upload_small_file,
@@ -38,9 +34,10 @@ import {
 import {
   as_buffer_iterable,
   open_version_content_stream,
-  stream_to_buffer,
 } from '@/adapters/graph-sharepoint-stream-utils';
 import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
+import { resolve_download_url as resolve_download_url_helper } from '@wisecom/atlas-drive/backup/graph-item-content';
+import { stream_to_buffer } from '@wisecom/atlas-drive/backup/stream-drain';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 import { canonical_site_id } from '@/services/shared/site-id';
 
@@ -150,7 +147,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
         next_url = page['@odata.nextLink'];
       }
     } catch (err) {
-      rethrow_if_access_denied(err);
+      SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
       throw err;
     }
 
@@ -167,7 +164,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     try {
       return await this.execute_delta(drive_id, prev_delta_link, false);
     } catch (err) {
-      rethrow_if_access_denied(err);
+      SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
       if (is_invalid_delta_error(err)) {
         return await this.execute_delta(drive_id, undefined, true);
       }
@@ -187,7 +184,7 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
       if (!raw?.id) return undefined;
       return map_delta_item(raw, drive_id);
     } catch (err) {
-      rethrow_if_access_denied(err);
+      SHAREPOINT_DOWNLOAD_EXECUTOR.rethrow_if_access_denied(err);
       throw err;
     }
   }
@@ -197,7 +194,11 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
     item: SharePointDeltaItem,
     abort_signal?: AbortSignal,
   ): Promise<Buffer> {
-    return await download_with_fallback(this._client, item, abort_signal);
+    return await SHAREPOINT_DOWNLOAD_EXECUTOR.download_with_fallback(
+      this._client,
+      item,
+      abort_signal,
+    );
   }
 
   /** Resolves the temporary pre-authenticated download URL for a file. */
