@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { Readable } from 'node:stream';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
@@ -63,10 +63,10 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
         ? { '@microsoft.graph.downloadUrl': overrides.download_url }
         : { '@microsoft.graph.downloadUrl': FRESH_URL },
     );
-  const get_stream = vi.fn().mockResolvedValue(Readable.from([CONTENT_BODY]));
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, getStream: get_stream }));
-  // The real Client has a large surface; these helpers touch only api/select/get/getStream.
+  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  // The real Client has a large surface; these helpers touch only api/select/get/responseType.
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream };
 }

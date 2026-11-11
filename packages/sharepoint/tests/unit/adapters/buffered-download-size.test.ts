@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { Readable } from 'node:stream';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
@@ -33,9 +33,11 @@ function make_item(overrides: Partial<SharePointDeltaItem> = {}): SharePointDelt
 /** Serves the wrong body on `/content`, so the fallback path can be exercised too. */
 function make_client(): Client {
   const get = vi.fn().mockResolvedValue({ '@microsoft.graph.downloadUrl': URL_ADDRESS });
-  const get_stream = vi.fn().mockImplementation(() => Readable.from([WRONG_BODY]));
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(WRONG_BODY)));
   const select = vi.fn(() => ({ get }));
-  return { api: vi.fn(() => ({ select, get, getStream: get_stream })) } as unknown as Client;
+  return {
+    api: vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) })),
+  } as unknown as Client;
 }
 
 describe('SharePoint buffered downloads that do not match the recorded size', () => {

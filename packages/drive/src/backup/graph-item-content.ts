@@ -1,4 +1,4 @@
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { get_graph_content_stream, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { DriveDeltaItem } from '@/drive-ports';
 import { compute_chunk_timeout_ms } from '@/backup/cdn-chunk-request';
 import { assert_transferred_size } from '@/backup/download-integrity';
@@ -13,16 +13,13 @@ export type DriveDownloadItem = Pick<
   'drive_id' | 'item_id' | 'file_name' | 'size_bytes' | 'download_url'
 >;
 
-/** The fluent request calls the download path makes on a Graph SDK request. */
-export interface DriveGraphRequest {
-  select(properties: string): DriveGraphRequest;
-  get(): Promise<unknown>;
-  getStream(): Promise<unknown>;
-}
+/** The request the download path builds: the Graph SDK's own `GraphRequest`. */
+export type DriveGraphRequest = Parameters<typeof get_graph_content_stream>[0];
 
 /**
- * The slice of the Graph SDK `Client` the download path calls. The SDK's `Client` satisfies it
- * structurally, so the providers pass theirs unchanged and this package needs no SDK dependency.
+ * The slice of the Graph SDK `Client` the download path calls. The request type comes from
+ * m365-graph's `get_graph_content_stream`, so this package names the SDK's `GraphRequest` without
+ * depending on the SDK itself, and the providers pass their `Client` unchanged.
  */
 export interface DriveGraphClient {
   api(path: string): DriveGraphRequest;
@@ -50,27 +47,26 @@ export async function resolve_download_url(
 /**
  * Downloads via the Graph /content endpoint with stream drain.
  *
- * The drained byte count is checked against the recorded size for the same reason the chunked
- * path checks it: a complete-looking body of the wrong length would otherwise be stored with a
- * checksum computed over those wrong bytes (issue #368).
+ * The request goes through `get_graph_content_stream`, so a throttled `/content` keeps its
+ * Retry-After and `with_graph_retry` waits as long as Graph asked (issue #674). The drained byte
+ * count is checked against the recorded size for the same reason the chunked path checks it: a
+ * complete-looking body of the wrong length would otherwise be stored with a checksum computed
+ * over those wrong bytes (issue #368).
  */
 export async function download_via_graph_content(
   client: DriveGraphClient,
   item: DriveDownloadItem,
 ): Promise<Buffer> {
+  const content_path = `/drives/${item.drive_id}/items/${item.item_id}/content`;
   const stream_timeout_ms = compute_chunk_timeout_ms(item.size_bytes);
   const stream = await with_timeout(
-    with_graph_retry(
-      () =>
-        client
-          .api(`/drives/${item.drive_id}/items/${item.item_id}/content`)
-          .getStream() as Promise<NodeJS.ReadableStream>,
-    ),
+    with_graph_retry(() => get_graph_content_stream(client.api(content_path))),
     stream_timeout_ms,
     `Graph content request timed out for file ${item.item_id}`,
   );
   const drain_timeout_ms = stream_timeout_ms * 2;
-  const body = await stream_to_buffer(stream, drain_timeout_ms);
+  // A web stream on Node's fetch; the drain reads it through a reader.
+  const body = await stream_to_buffer(stream as unknown as NodeJS.ReadableStream, drain_timeout_ms);
   assert_transferred_size(item.item_id, body.length, item.size_bytes);
   return body;
 }

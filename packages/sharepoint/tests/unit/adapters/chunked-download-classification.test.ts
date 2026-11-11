@@ -1,8 +1,8 @@
 import { DownloadRefusedError, MissingGraphPermissionsError } from '@wisecom/atlas-m365-graph';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
-import { Readable } from 'node:stream';
 
 /**
  * Issue #632: the chunked path rethrew a failed chunk as a plain `Error`, so the download executor
@@ -37,9 +37,9 @@ interface GraphClientMock {
 
 function make_client(): GraphClientMock {
   const get = vi.fn().mockResolvedValue({ '@microsoft.graph.downloadUrl': FRESH_URL });
-  const get_stream = vi.fn().mockResolvedValue(Readable.from([Buffer.alloc(SIZE, 2)]));
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(Buffer.alloc(SIZE, 2))));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, getStream: get_stream }));
+  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
   return { client: { api } as unknown as Client, get, get_stream };
 }
 

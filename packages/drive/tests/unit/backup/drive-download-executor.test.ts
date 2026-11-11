@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { classify_download_failure } from '@wisecom/atlas-m365-graph';
 import type { CdnChunkDownloader } from '@/backup/cdn-chunk-download';
@@ -57,13 +57,21 @@ function respond(status: number): Response {
   } as unknown as Response;
 }
 
-function make_client(content: NodeJS.ReadableStream = Readable.from([BODY])): {
+function make_client(
+  content: () => Response = () => binary_graph_response(BODY),
+  graph_item: () => Promise<unknown> = () =>
+    Promise.resolve({ '@microsoft.graph.downloadUrl': FRESH_URL }),
+): {
   client: DriveGraphClient;
   get_stream: Mock;
 } {
-  const get = vi.fn().mockResolvedValue({ '@microsoft.graph.downloadUrl': FRESH_URL });
-  const get_stream = vi.fn().mockResolvedValue(content);
-  const api = vi.fn(() => ({ select: () => ({ get }), get, getStream: get_stream }));
+  const get = vi.fn(graph_item);
+  const get_stream = vi.fn(() => Promise.resolve(content()));
+  const api = vi.fn(() => ({
+    select: () => ({ get }),
+    get,
+    responseType: () => ({ get: get_stream }),
+  }));
   return { client: { api } as unknown as DriveGraphClient, get_stream };
 }
 
@@ -109,11 +117,12 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
     vi.useFakeTimers();
     fetch_mock.mockResolvedValue(respond(500));
     // Errors on the first read, so the failure lands inside the drain.
-    const content = new Readable({
-      read(): void {
-        this.destroy(new Error('stream reset'));
-      },
-    });
+    const content = (): Response =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull: (controller) => controller.error(new Error('stream reset')),
+        }),
+      );
 
     const outcome = await executor
       .download_with_fallback(make_client(content).client, ITEM)
@@ -121,6 +130,41 @@ describe.each(BINDINGS)('shared download executor bound to %s', (label, binding)
 
     expect(outcome).toEqual(new Error('stream reset'));
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // CodeRabbit on #677: a cancellation during the refreshed download, or during its 429 wait, was
+  // logged as a failed retry and the run went on to start the /content transfer.
+  it('stops instead of falling back when cancelled during the refreshed 429 wait', async () => {
+    const cancel = new AbortController();
+    const throttled = { ...respond(429), headers: new Headers({ 'Retry-After': '3600' }) };
+    fetch_mock.mockResolvedValueOnce(respond(403)).mockResolvedValueOnce(throttled);
+    const mock = make_client();
+
+    const outcome = executor
+      .download_with_fallback(mock.client, ITEM, cancel.signal)
+      .catch((err: unknown) => err);
+    await vi.waitFor(() => expect(fetch_mock).toHaveBeenCalledTimes(2));
+    cancel.abort(new Error('cancelled'));
+
+    expect(await outcome).toEqual(new Error('cancelled'));
+    expect(mock.get_stream).not.toHaveBeenCalled();
+  });
+
+  it('stops instead of falling back when cancelled while the URL is re-resolved', async () => {
+    const cancel = new AbortController();
+    fetch_mock.mockResolvedValueOnce(respond(403));
+    // The re-resolve returns no URL, after the run was cancelled under it.
+    const mock = make_client(undefined, () => {
+      cancel.abort(new Error('cancelled'));
+      return Promise.resolve({});
+    });
+
+    const outcome = await executor
+      .download_with_fallback(mock.client, ITEM, cancel.signal)
+      .catch((err: unknown) => err);
+
+    expect(outcome).toEqual(new Error('cancelled'));
+    expect(mock.get_stream).not.toHaveBeenCalled();
   });
 });
 

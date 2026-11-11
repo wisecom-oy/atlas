@@ -79,6 +79,7 @@ export function is_expired_url_error(err: unknown): boolean {
   return classify_download_failure(err) === 'expired_url';
 }
 
+/** Picks the chunked or single-request URL download by size, or `/content` when no URL resolves. */
 async function download_with_fallback(context: DownloadAttemptContext): Promise<Buffer> {
   const { binding, client, item, abort_signal } = context;
   const download_url = item.download_url ?? (await resolve_download_url(client, item));
@@ -126,18 +127,36 @@ async function attempt_download_with_refresh(
     rethrow_if_unrecoverable(context, kind, err);
 
     if (kind === 'expired_url') {
-      const refreshed_url = await resolve_download_url(client, item);
-      if (refreshed_url) {
-        try {
-          return await download_fn(refreshed_url);
-        } catch (retry_err) {
-          logger.warn(`${strategy_label} retry failed for ${item.item_id}: ${retry_err}`);
-        }
-      }
+      const body = await retry_with_refreshed_url(context, download_fn, strategy_label);
+      if (body !== undefined) return body;
     } else {
       logger.warn(`${strategy_label} failed for ${item.item_id}, falling back: ${err}`);
     }
+    // Checked again here: the refresh above can be where the run was cancelled.
+    abort_signal?.throwIfAborted();
     return await download_via_graph_content(client, item);
+  }
+}
+
+/**
+ * Re-resolves the download URL once and retries on it. Undefined when no fresh URL resolves or
+ * the retry fails, so the caller falls back; a cancellation during the retry or its 429 wait is
+ * rethrown, so a cancelled run never starts the `/content` transfer.
+ */
+async function retry_with_refreshed_url(
+  context: DownloadAttemptContext,
+  download_fn: (url: string) => Promise<Buffer>,
+  strategy_label: string,
+): Promise<Buffer | undefined> {
+  const { client, item, abort_signal } = context;
+  const refreshed_url = await resolve_download_url(client, item);
+  if (!refreshed_url) return undefined;
+  try {
+    return await download_fn(refreshed_url);
+  } catch (retry_err) {
+    abort_signal?.throwIfAborted();
+    logger.warn(`${strategy_label} retry failed for ${item.item_id}: ${retry_err}`);
+    return undefined;
   }
 }
 
@@ -167,12 +186,14 @@ function rethrow_if_unrecoverable(
   }
 }
 
+/** Rethrows a Graph 403 from an enumeration call as the binding's missing-grant error. */
 function rethrow_if_access_denied(binding: DriveDownloadBinding, err: unknown): void {
   if (err === null || typeof err !== 'object') return;
   if ((err as { statusCode?: unknown }).statusCode !== 403) return;
   throw missing_permissions_error(binding);
 }
 
+/** The missing-grant error naming the workload and the permissions to grant. */
 function missing_permissions_error(binding: DriveDownloadBinding): MissingGraphPermissionsError {
   const label = DRIVE_WORKLOAD_LABEL[binding.workload];
   return new MissingGraphPermissionsError(

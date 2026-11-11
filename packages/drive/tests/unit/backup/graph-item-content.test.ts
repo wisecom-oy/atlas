@@ -1,5 +1,5 @@
-import { Readable } from 'node:stream';
 import { describe, expect, it, vi, type Mock } from 'vitest';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import {
   download_via_graph_content,
   resolve_download_url,
@@ -24,9 +24,9 @@ interface GraphClientMock {
 
 function make_client(graph_item: Record<string, unknown>, body = CONTENT_BODY): GraphClientMock {
   const get = vi.fn().mockResolvedValue(graph_item);
-  const get_stream = vi.fn().mockResolvedValue(Readable.from([body]));
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(body)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, getStream: get_stream }));
+  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
   return { client: { api } as unknown as DriveGraphClient, api, select };
 }
 
