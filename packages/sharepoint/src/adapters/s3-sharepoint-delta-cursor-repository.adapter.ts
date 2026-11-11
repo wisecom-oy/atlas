@@ -4,15 +4,19 @@ import type {
   SharePointDeltaCursorRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { load_encrypted_json } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
+import { load_encrypted_json_bound_to_key } from '@wisecom/atlas-core/services/shared/encrypted-state-reader';
 import { sharepoint_delta_cursor_key } from '@/services/shared/storage-keys';
 
 /** Persists the delta sync cursor (delta links + change tracking state) in S3. */
 @injectable()
 export class S3SharePointDeltaCursorRepository implements SharePointDeltaCursorRepository {
-  /** Loads the cursor; undefined only if none exists, throws if one exists and cannot be read. */
+  /** Loads the cursor; undefined only if none exists, throws if it is unreadable or another site's. */
   async load(ctx: TenantContext, site_id: string): Promise<SharePointDeltaCursor | undefined> {
-    return load_encrypted_json<SharePointDeltaCursor>(ctx, sharepoint_delta_cursor_key(site_id));
+    return load_encrypted_json_bound_to_key<SharePointDeltaCursor>(
+      ctx,
+      sharepoint_delta_cursor_key(site_id),
+      (cursor) => sharepoint_delta_cursor_key(cursor.site_id),
+    );
   }
 
   /** Encrypts and stores the cursor state. */

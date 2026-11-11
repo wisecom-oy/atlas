@@ -107,6 +107,7 @@ Because one DEK encrypts the whole tenant, the GCM tag alone proves only that by
 | Move an object over another owner's or purpose's key          | Decryption fails: the scope no longer matches                |
 | Strip or lower the version header                             | Decryption fails: the header is authenticated                |
 | Move an object within its own directory                       | Not prevented. The manifest checksum comparison detects it   |
+| Copy one owner's delta cursor over another's                  | Rejected: the cursor names its owner, and load checks it     |
 | Replay an older ciphertext of the same object                 | Not prevented. Object Lock and versioning handle this        |
 
 | Data                                           | Encrypted | Notes                                                                                     |

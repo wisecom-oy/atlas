@@ -273,12 +273,17 @@ Could not read the state object at identity-registry.json
 The state object at onedrive/_meta/<owner>/delta.json is corrupt or tampered
 ```
 
-OneDrive and SharePoint keep a delta cursor per owner or site, and the tenant keeps one identity registry. If one of these exists but cannot be read, the run stops before it writes anything. Treating the object as missing would re-download the whole drive, lose deletion tracking, and overwrite the stored state. For the registry, that would erase the cached identities of departed users.
+```
+The state object at _meta/outlook-cursors/<owner>.json belongs to a different owner than its key names
+```
 
-The two messages mean different things:
+Outlook, contacts, calendar, OneDrive, and SharePoint keep a delta cursor per mailbox, owner, or site, and the tenant keeps one identity registry. If one of these exists but cannot be read, the run stops before it writes anything. Only an absent object means "no saved state". Treating a damaged one as missing would re-enumerate the whole mailbox or drive, lose deletion tracking, and overwrite the stored state. For Outlook it would also replace the delta links a previous run withheld after a failed message with older ones from the manifest. For the registry, it would erase the cached identities of departed users.
+
+The messages mean different things:
 
 - **`Could not read the state object`** is a storage failure (`ATLAS_STORAGE_FAILURE`, exit `1`). Retry once the bucket responds.
 - **`is corrupt or tampered`** means the object failed AES-256-GCM authentication or JSON parsing (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Retrying does not help. Treat it as possible tampering first.
+- **`belongs to a different owner`** means the cursor decrypted but names another mailbox, owner, or site than its key (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Every Outlook cursor shares the `_meta/outlook-cursors/` directory, so the encryption scope alone does not stop one mailbox's cursor from being copied over another's. Resuming from it would skip changes and record another mailbox's state. Treat it as tampering or an operator copy mistake.
 
 To recover a damaged delta cursor, restore an earlier version from bucket versioning, or delete the cursor to force a full enumeration on the next run. For a damaged `identity-registry.json`, restore an earlier version and do not delete the object. The registry is the only record of departed users that Graph no longer resolves, so deleting it makes their backups impossible to find by address.
 
