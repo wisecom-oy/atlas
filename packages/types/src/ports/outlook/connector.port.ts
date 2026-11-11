@@ -60,7 +60,12 @@ export type FolderExclusionReason =
   /** A Recoverable Items subfolder whose items are not mail: Versions, Calendar Logging, Audits. */
   | 'recoverable-items-not-mail'
   /** A Recoverable Items subfolder Atlas does not know, reported rather than guessed at. */
-  | 'recoverable-items-unrecognised';
+  | 'recoverable-items-unrecognised'
+  /**
+   * Graph answered 404 for the folder's child listing: it was deleted while the folder tree was
+   * read, so neither it nor anything beneath it was captured (issue #690).
+   */
+  | 'deleted-during-listing';
 
 export interface ExcludedFolder {
   /** Root-relative path, matching {@link MailFolder.folder_path}. */

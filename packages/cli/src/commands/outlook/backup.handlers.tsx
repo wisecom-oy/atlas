@@ -142,4 +142,5 @@ const EXCLUSION_REASONS: Record<ExcludedFolder['reason'], string> = {
   'recoverable-items-not-mail': 'Recoverable Items subfolder holding non-mail items',
   'recoverable-items-unrecognised': 'unrecognised Recoverable Items subfolder, not captured',
   'hidden-system-folder': 'hidden Exchange system folder, holds no mail',
+  'deleted-during-listing': 'deleted while the folder list was read, not captured',
 };

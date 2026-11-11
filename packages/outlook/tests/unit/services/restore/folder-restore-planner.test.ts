@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { MailboxConnector, RestoreConnector } from '@wisecom/atlas-types';
+import type { MailboxConnector, Manifest, RestoreConnector } from '@wisecom/atlas-types';
 import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
 
 function make_restore_connector(): RestoreConnector {
@@ -125,6 +125,34 @@ describe('build_folder_map', () => {
 
     expect(map.get('f-drafts')).toBe('Drafts');
     expect(map.get('f-outbox')).toBe('Outbox');
+  });
+
+  it('names folders from the newest manifest recording them, then from the live listing', async () => {
+    // A folder deleted or moved since the backup keeps its recorded path (issue #690).
+    const connector = {
+      list_mail_folders: vi.fn().mockResolvedValue([
+        { folder_id: 'f-moved', display_name: 'Moved', folder_path: 'Deleted Items/Moved' },
+        { folder_id: 'f-live', display_name: 'Live', folder_path: 'Live' },
+      ]),
+    } as unknown as MailboxConnector;
+    const recorded = (folders: Array<[string, string]>) =>
+      ({
+        folders: folders.map(([folder_id, folder_path]) => ({ folder_id, folder_path })),
+      }) as unknown as Manifest;
+
+    const map = await build_folder_map(connector, 't', 'user@test.com', [
+      recorded([['f-moved', 'Projects/Moved']]),
+      recorded([
+        ['f-moved', 'Old Name'],
+        ['f-gone', 'Gone'],
+      ]),
+    ]);
+
+    expect(Object.fromEntries(map)).toEqual({
+      'f-moved': 'Projects/Moved',
+      'f-gone': 'Gone',
+      'f-live': 'Live',
+    });
   });
 
   it('recreates a Drafts folder under the restore root', async () => {

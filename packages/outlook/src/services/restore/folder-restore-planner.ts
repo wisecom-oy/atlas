@@ -1,6 +1,6 @@
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
-import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
 import { folder_matches_selector } from '@/services/shared/folder-selector';
@@ -11,16 +11,32 @@ const UNKNOWN_FOLDER_NAME = 'Unknown';
  * Builds a mapping from Graph folder_id to the folder's root-relative path
  * (e.g. `Inbox/Projects/2026`), so nested folders stay distinguishable in
  * restore targets, save archives, and folder filters.
+ *
+ * The path a manifest recorded wins, newest manifest first, so a folder deleted
+ * or moved since the backup keeps its original path. The live listing names
+ * folders no manifest records, such as those of manifests written before
+ * `folders` existed (issue #690).
  */
 export async function build_folder_map(
   connector: MailboxConnector,
   tenant_id: string,
   owner_id: string,
+  recorded: readonly Manifest[] = [],
 ): Promise<Map<string, string>> {
-  const folders = await connector.list_mail_folders(tenant_id, owner_id);
+  const map = collect_recorded_folder_paths(recorded);
+  for (const f of await connector.list_mail_folders(tenant_id, owner_id)) {
+    if (!map.has(f.folder_id)) map.set(f.folder_id, f.folder_path);
+  }
+  return map;
+}
+
+/** Maps each folder the manifests record to its path, the first manifest naming a folder winning. */
+function collect_recorded_folder_paths(manifests: readonly Manifest[]): Map<string, string> {
   const map = new Map<string, string>();
-  for (const f of folders) {
-    map.set(f.folder_id, f.folder_path);
+  for (const manifest of manifests) {
+    for (const folder of manifest.folders ?? []) {
+      if (!map.has(folder.folder_id)) map.set(folder.folder_id, folder.folder_path);
+    }
   }
   return map;
 }

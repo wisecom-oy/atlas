@@ -550,7 +550,7 @@ for (const folder of result.summary.excludedFolders) {
 }
 ```
 
-`reason` is `'junk-excluded'`, `'hidden-system-folder'`, `'recoverable-items-not-mail'`, or `'recoverable-items-unrecognised'`. The manifest stores the same list as `excludedFolders`, so you can check a stored snapshot to see whether a folder was captured. `MailFolder.isHidden` marks folders Exchange hides.
+`reason` is `'junk-excluded'`, `'hidden-system-folder'`, `'recoverable-items-not-mail'`, `'recoverable-items-unrecognised'`, or `'deleted-during-listing'` (Graph answered 404 for the folder's child listing because it was deleted while the run listed folders). The manifest stores the same list as `excludedFolders`, so you can check a stored snapshot to see whether a folder was captured. `MailFolder.isHidden` marks folders Exchange hides.
 
 #### Recoverable Items
 

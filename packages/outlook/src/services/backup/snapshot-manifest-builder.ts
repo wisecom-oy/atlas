@@ -114,6 +114,7 @@ const EXCLUSION_CAN_RECEIVE_MAIL: Record<FolderExclusionReason, boolean> = {
   'recoverable-items-unrecognised': true,
   'hidden-system-folder': false,
   'recoverable-items-not-mail': false,
+  'deleted-during-listing': true,
 };
 
 /**
@@ -152,6 +153,21 @@ export function withhold_links_of_unrecorded_removals(
   if (Object.keys(new_links).length === selected_folder_count) return new_links;
   return Object.fromEntries(
     Object.entries(new_links).filter(([folder_id]) => !removal_counts[folder_id]),
+  );
+}
+
+/**
+ * Counts the folders a run had to finish to record its removals: the folders it walked plus any
+ * deleted while the tree was listed. A vanished folder is never walked, so a run that met one
+ * holds back the links of folders with removals, as a failed folder does, and the next run reads
+ * those removals again once the listing is stable (issue #690).
+ */
+export function count_folders_to_finish(
+  walked: readonly MailFolder[],
+  excluded: readonly ExcludedFolder[],
+): number {
+  return (
+    walked.length + excluded.filter((folder) => folder.reason === 'deleted-during-listing').length
   );
 }
 
