@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Manifest } from '@wisecom/atlas-types';
-import { UnreadableObjectsError } from '@wisecom/atlas-types';
+import { StorageError, UnreadableObjectsError } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter';
 
@@ -90,5 +90,21 @@ describe('S3ManifestRepository with a damaged manifest (issue #631)', () => {
     const latest = await repo.find_latest_readable(harness.ctx, OWNER);
 
     expect(latest).toMatchObject({ manifest: { snapshot_id: 'snap-new' }, unreadable_keys: [] });
+  });
+
+  it('fails the latest read on a transient pointer error instead of scanning for damage', async () => {
+    const { harness, repo } = await newest_damaged();
+    const get = harness.ctx.storage.get;
+    const list = vi.fn(harness.ctx.storage.list);
+    harness.ctx.storage.list = list;
+    harness.ctx.storage.get = async (key) => {
+      if (key.endsWith('/latest.json')) throw new Error('connection reset');
+      return get(key);
+    };
+
+    await expect(repo.find_latest_readable(harness.ctx, OWNER)).rejects.toBeInstanceOf(
+      StorageError,
+    );
+    expect(list).not.toHaveBeenCalled();
   });
 });

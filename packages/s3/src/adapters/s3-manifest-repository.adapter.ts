@@ -7,7 +7,8 @@ import type {
   ReadableManifestListing,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
-import { UnreadableContentError } from '@wisecom/atlas-types';
+import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
+import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 import {
   read_each_readable,
   require_every_object_readable,
@@ -86,7 +87,7 @@ export class S3ManifestRepository implements ManifestRepository {
     owner_id: string,
   ): Promise<LatestReadableManifest<Manifest>> {
     const prefix = `${OUTLOOK_MANIFEST_PREFIX}/${owner_id}/`;
-    const indexed_key = await this.download_pointer(ctx, latest_pointer_key(owner_id));
+    const indexed_key = await read_latest_pointer(ctx, latest_pointer_key(owner_id));
     if (indexed_key?.startsWith(prefix)) {
       const indexed = await read_if_readable(ctx, indexed_key);
       if (indexed?.owner_id === owner_id) return { manifest: indexed, unreadable_keys: [] };
@@ -158,6 +159,29 @@ export class S3ManifestRepository implements ManifestRepository {
     } catch {
       return undefined;
     }
+  }
+}
+
+/**
+ * Reads the latest pointer for a status or backup. An absent or unreadable pointer resolves
+ * `undefined`, so the caller scans the owner's manifests. A failed fetch raises `StorageError`:
+ * a transient error must fail the read, not turn into a damage scan that reports exit 9.
+ */
+async function read_latest_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
+  let encrypted: Buffer;
+  try {
+    encrypted = await ctx.storage.get(key);
+  } catch (err) {
+    if (is_absent_object_error(err)) return undefined;
+    throw new StorageError(`Could not read the Outlook manifest pointer at ${key}`, { cause: err });
+  }
+  try {
+    const parsed = JSON.parse(
+      ctx.decrypt(encrypted, key).toString('utf-8'),
+    ) as Partial<ManifestPointer>;
+    return typeof parsed.manifest_key === 'string' ? parsed.manifest_key : undefined;
+  } catch {
+    return undefined;
   }
 }
 

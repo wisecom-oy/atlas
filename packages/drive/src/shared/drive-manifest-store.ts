@@ -139,7 +139,7 @@ export function require_readable_drive_manifests<T>(
   layout: DriveManifestLayout,
   read: ReadableObjects<T>,
 ): T[] {
-  return require_every_object_readable(read, ` manifest(s)`);
+  return require_every_object_readable(read, `${layout.label} manifest(s)`);
 }
 
 function newest_first<T extends DriveStoredManifest>(manifests: T[]): T[] {

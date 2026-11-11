@@ -98,6 +98,7 @@ describe('drive manifest store with a damaged manifest (issue #631)', () => {
     })();
 
     expect(error?.unreadable_keys).toEqual([damaged_key, second]);
+    expect(error?.message).toMatch(/^2 OneDrive manifest\(s\) could not be read: /);
   });
 
   it.each([

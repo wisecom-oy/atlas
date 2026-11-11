@@ -197,7 +197,7 @@ describe('S3ManifestRepository', () => {
       const enc_new = encrypted_json(newer);
 
       vi.mocked(ctx.storage.get)
-        .mockRejectedValueOnce(new Error('latest pointer not found'))
+        .mockRejectedValueOnce(absent('latest pointer not found'))
         .mockResolvedValueOnce(enc_old)
         .mockResolvedValueOnce(enc_new);
       vi.mocked(ctx.storage.list).mockResolvedValue([
@@ -211,7 +211,7 @@ describe('S3ManifestRepository', () => {
     });
 
     it('returns undefined for empty mailbox', async () => {
-      vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('latest pointer not found'));
+      vi.mocked(ctx.storage.get).mockRejectedValueOnce(absent('latest pointer not found'));
       vi.mocked(ctx.storage.list).mockResolvedValue([]);
 
       const result = await repo.find_latest_readable(ctx, 'user@test.com');
@@ -330,3 +330,8 @@ describe('S3ManifestRepository', () => {
     });
   });
 });
+
+/** A storage error shaped the way S3 reports a missing key. */
+function absent(message: string): Error {
+  return Object.assign(new Error(message), { name: 'NoSuchKey' });
+}
