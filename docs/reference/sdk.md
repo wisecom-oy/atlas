@@ -633,8 +633,15 @@ const unknown = mailboxes.filter((mb) => mb.hasInPlaceArchive === undefined);
 | `messageRef`    | `string`      | Restore one message by index or ID                                                                                 |
 | `targetMailbox` | `string`      | Target mailbox for a cross-mailbox restore. An email address is resolved to its Entra object ID first              |
 | `targetTenant`  | `AtlasTenant` | Write the restore into another tenant. Requires `targetMailbox`. See [Cross-tenant restore](#cross-tenant-restore) |
+| `destination`   | `string`      | Folder path to restore under, created if missing. Default: a generated `Restore-<timestamp>` folder                |
 | `startDate`     | `Date`        | Include snapshots on or after this date                                                                            |
 | `endDate`       | `Date`        | Include snapshots on or before this date                                                                           |
+
+```typescript
+await atlas.outlook.restore('snapshot-id', { destination: 'Recovered/2026-03 incident' });
+```
+
+`destination` is relative to the top of the target mailbox and uses `/` between levels, the same name the drive restore methods take. Each level, and each source folder beneath it, is reused when it exists, matched case-insensitively. The promise rejects before any message is written when the path is empty, `/`, has an empty level, or lies inside a well-known folder such as Inbox. Restore does not deduplicate, so restoring the same snapshot twice into one destination creates every message twice. `restoreFolderName` reports the destination path. See [atlas outlook restore](/reference/cli#atlas-outlook-restore).
 
 Both return a `RestoreResult`:
 

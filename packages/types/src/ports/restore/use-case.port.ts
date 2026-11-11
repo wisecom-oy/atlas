@@ -50,6 +50,12 @@ export interface RestoreOptions extends OperationControlOptions {
   readonly message_ref?: string;
   readonly target_mailbox?: string;
   /**
+   * Folder path under the top of the target mailbox to restore into, `/` between levels, e.g.
+   * `Recovered/2026-03 incident`. Each level is reused when it exists and created when it does
+   * not. Absent means a generated `Restore-{timestamp}` folder at the top of the mailbox.
+   */
+  readonly destination?: string;
+  /**
    * Also restore items captured from Recoverable Items. Off by default: an
    * ordinary restore must not resurrect mail somebody deleted, or mail kept
    * only because a hold retained it (issue #141).
