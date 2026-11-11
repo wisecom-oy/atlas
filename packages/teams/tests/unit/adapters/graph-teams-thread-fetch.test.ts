@@ -91,13 +91,11 @@ describe('download_hosted_content', () => {
 
   /** A client whose `$value` request answers with the given bytes and response headers. */
   function client_answering(bytes: number[], headers: Record<string, string>, status = 200) {
-    const get = vi.fn(async () => ({
-      ok: status >= 200 && status < 300,
-      status,
-      headers: { get: (name: string) => headers[name] ?? null },
-      arrayBuffer: async () => new Uint8Array(bytes).buffer,
-      json: async () => ({ error: { code: 'NotFound', message: 'not found' } }),
-    }));
+    const body =
+      status >= 200 && status < 300
+        ? new Uint8Array(bytes)
+        : JSON.stringify({ error: { code: 'NotFound', message: 'not found' } });
+    const get = vi.fn(async () => new Response(body, { status, headers }));
     const response_type = vi.fn(() => ({ get }));
     const api = vi.fn((_url: string) => ({ responseType: response_type }));
     return { client: { api } as unknown as Client, api, response_type };
