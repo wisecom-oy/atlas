@@ -288,6 +288,7 @@ atlas outlook restore -s <snapshot-id>
 atlas outlook restore -s <snapshot-id> -f Inbox
 atlas outlook restore -s <snapshot-id> --message 42
 atlas outlook restore -s <snapshot-id> -T target@company.com
+atlas outlook restore -s <snapshot-id> --destination "Recovered/2026-03 incident"
 ```
 
 **Mailbox mode** combines every snapshot for a mailbox, deduplicates them, and restores the result:
@@ -301,20 +302,30 @@ atlas outlook restore -m user@company.com -T other@company.com
 atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 ```
 
-| Option                        | Description                                                            |
-| ----------------------------- | ---------------------------------------------------------------------- |
-| `-s, --snapshot <id>`         | Restore from a specific snapshot                                       |
-| `-m, --mailbox <email-or-id>` | Restore from all snapshots for this mailbox                            |
-| `-T, --target <email>`        | Target mailbox for a cross-mailbox restore (defaults to the source)    |
-| `-f, --folder <name>`         | Restore only messages from this folder or its subfolders               |
-| `--message <ref>`             | Restore one message by its `#` index from `atlas outlook list`         |
-| `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                        |
-| `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                       |
-| `-t, --tenant <id>`           | Override the tenant ID from config                                     |
-| `--target-profile <name>`     | Tenant profile for the writes. Requires `-T`                           |
-| `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default) |
+| Option                        | Description                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `-s, --snapshot <id>`         | Restore from a specific snapshot                                             |
+| `-m, --mailbox <email-or-id>` | Restore from all snapshots for this mailbox                                  |
+| `-T, --target <email>`        | Target mailbox for a cross-mailbox restore (defaults to the source)          |
+| `-f, --folder <name>`         | Restore only messages from this folder or its subfolders                     |
+| `--message <ref>`             | Restore one message by its `#` index from `atlas outlook list`               |
+| `--destination <path>`        | Folder to restore under, created if missing (default: `Restore-<timestamp>`) |
+| `--start-date <YYYY-MM-DD>`   | Include snapshots created on or after this date                              |
+| `--end-date <YYYY-MM-DD>`     | Include snapshots created on or before this date                             |
+| `-t, --tenant <id>`           | Override the tenant ID from config                                           |
+| `--target-profile <name>`     | Tenant profile for the writes. Requires `-T`                                 |
+| `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default)       |
 
 Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
+
+`--destination` replaces the generated root with a folder path relative to the top of the mailbox, with `/` between levels. `Inbox/Projects/2026` then restores to `<destination>/Inbox/Projects/2026`, and the summary names the destination. Folder names are matched case-insensitively, as Exchange compares them:
+
+- Each level of the destination, and each source folder beneath it, is reused when it already exists and created when it does not. Hidden folders are never reused.
+- A destination inside a well-known folder such as Inbox, Sent Items, or Deleted Items is refused with exit `1` before anything is created. Restored mail would otherwise mix into live mail with no single folder to delete. Well-known folders are recognised by ID, so localized names are covered.
+- An empty path, `/`, or a path with an empty level such as `Recovered//2026` is refused with exit `1` before any Graph call. Outlook has no in-place restore, so `/` cannot mean the original folders.
+- A folder whose name contains `/` cannot be addressed. Restore it under the default root.
+
+Restore does not deduplicate against what the target folder already holds. Restoring the same snapshot twice into one destination creates every message twice. The default root avoids this, because each run gets a new folder.
 
 Snapshot mode reads the snapshot's whole chain: the target plus every older snapshot of the same mailbox, with the newest version of each message winning. Snapshots taken after the target and snapshots of other mailboxes are excluded. This is the set that `atlas outlook verify -s` checks, so a snapshot that verifies restores the same messages. A `--message` index counts the target snapshot's own messages, as `atlas outlook list -s` prints them. A full message ID matches anywhere in the chain.
 

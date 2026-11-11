@@ -6,8 +6,11 @@ import type { MailboxConnector } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import {
+  open_restore_root,
+  parse_restore_destination,
+} from '@/services/restore/restore-destination';
+import {
   build_folder_map,
-  create_restore_root,
   group_entries_by_folder,
   filter_entries_by_folder_name,
   count_unique_folders,
@@ -54,6 +57,8 @@ export class RestoreService implements RestoreUseCase {
     snapshot_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    // A malformed destination is refused before any storage or Graph call.
+    parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result(snapshot_id, options);
     }
@@ -96,15 +101,22 @@ export class RestoreService implements RestoreUseCase {
           total: 1,
           current: entries[0]!.subject ?? entries[0]!.object_id,
         });
+        const root = await open_restore_root(
+          this._restore_connector,
+          tenant_id,
+          target_mailbox,
+          options.destination,
+        );
         const result = await restore_single_message(
           ctx,
           this._connector,
-          this._restore_connector,
+          root.connector,
           tenant_id,
           source_mailbox,
           target_mailbox,
           snapshot_id,
           entries[0]!,
+          root.folder,
         );
         const interrupted = finish_operation_progress(options, 'restore', 'outlook', 1, 1);
         return { ...result, interrupted };
@@ -134,6 +146,7 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
     owner_id = normalize_owner_id(owner_id);
+    parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);
     }
@@ -212,12 +225,17 @@ export class RestoreService implements RestoreUseCase {
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);
-    const root = await create_restore_root(this._restore_connector, tenant_id, target_mailbox);
+    const root = await open_restore_root(
+      this._restore_connector,
+      tenant_id,
+      target_mailbox,
+      options.destination,
+    );
     const created_folders = new Map<string, string>();
 
     logger.info(
       `Restoring ${entries.length} messages across ` +
-        `${count_unique_folders(entries)} folders into ${root.display_name}`,
+        `${count_unique_folders(entries)} folders into ${root.folder.display_name}`,
     );
 
     const folder_summaries = [...groups.entries()].map(([fid, items]) => ({
@@ -229,11 +247,11 @@ export class RestoreService implements RestoreUseCase {
 
     return execute_restore_loop(
       ctx,
-      this._restore_connector,
+      root.connector,
       tenant_id,
       target_mailbox,
       snapshot_id,
-      root,
+      root.folder,
       groups,
       folder_map,
       created_folders,

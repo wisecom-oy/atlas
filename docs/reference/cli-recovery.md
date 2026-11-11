@@ -14,6 +14,14 @@ For a compliance export or legal hold, use [`atlas outlook save`](/reference/cli
 
 [`atlas outlook restore`](/reference/cli#atlas-outlook-restore) has two modes. Snapshot mode restores one snapshot. Mailbox mode combines every snapshot for a mailbox, deduplicates them, and restores the result. Passing both `--snapshot` and `--mailbox` is refused. To choose a different destination mailbox, pass `--target`, so a cross-mailbox restore is always a deliberate choice.
 
+By default each restore writes into a new `Restore-<timestamp>` folder at the top of the mailbox, so deleting that one folder undoes it. To put the mail where the user expects it, pass `--destination`:
+
+```bash
+atlas outlook restore -s <snapshot-id> -T john.doe@example.com --destination "Recovered/2026-03 incident"
+```
+
+Existing folders on that path are reused, so a second restore into the same destination does not fail. It does create every message again, because restore does not deduplicate against the target. Rerun into a fresh destination, or delete the earlier copy first. A destination inside Inbox, Sent Items, or another well-known folder is refused, so restored mail never mixes into live mail.
+
 ## Deleting data safely
 
 [`atlas outlook delete`](/reference/cli#atlas-outlook-delete) removes manifests first, then data objects. If a delete is interrupted, you are left with harmless orphan blobs rather than manifests that point at missing data. Plan around three consequences:
