@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { TenantContext } from '@wisecom/atlas-types';
-import type { ReplicationObjectResult } from '@wisecom/atlas-types';
 import {
   ensure_dek_on_target,
   ensure_replica_marker,
 } from '@/services/replication/replica-target-bootstrap';
+import { copy_objects_to_target } from '@/services/replication/replication-object-copy';
 
 /** The only part of a drive manifest the copy path reads. */
 export interface DriveObjectManifest {
@@ -59,7 +59,12 @@ export async function replicate_drive_snapshot_objects(
 
   const storage_keys = collect_drive_storage_keys(manifest);
   const all_keys = [...storage_keys, ...(options.ancillary_keys ?? [])];
-  const tally = await copy_keys_with_tally(source_ctx, target_ctx, all_keys);
+  // Drive results carry counts only, so the per-object list is dropped here.
+  const { object_results: _per_object, ...tally } = await copy_objects_to_target(
+    source_ctx,
+    target_ctx,
+    all_keys,
+  );
 
   // A manifest is what makes a snapshot reachable, so a partial copy must leave none behind.
   // diff_drive_manifests decides "already replicated" from manifest presence alone, so writing one
@@ -80,58 +85,6 @@ export async function replicate_drive_snapshot_objects(
     source_manifest_checksum,
     replicated_manifest_checksum,
   };
-}
-
-async function copy_keys_with_tally(
-  source_ctx: TenantContext,
-  target_ctx: TenantContext,
-  keys: string[],
-): Promise<{
-  objects_copied: number;
-  objects_skipped: number;
-  objects_failed: number;
-  bytes_copied: number;
-  errors: string[];
-}> {
-  let objects_copied = 0;
-  let objects_skipped = 0;
-  let objects_failed = 0;
-  let bytes_copied = 0;
-  const errors: string[] = [];
-
-  for (const key of keys) {
-    const result = await copy_object(source_ctx, target_ctx, key);
-    if (result.outcome === 'copied') {
-      objects_copied++;
-      bytes_copied += (await source_ctx.storage.get(key)).length;
-    } else if (result.outcome === 'skipped') {
-      objects_skipped++;
-    } else {
-      objects_failed++;
-      if (result.error) errors.push(`${key}: ${result.error}`);
-    }
-  }
-
-  return { objects_copied, objects_skipped, objects_failed, bytes_copied, errors };
-}
-
-async function copy_object(
-  source_ctx: TenantContext,
-  target_ctx: TenantContext,
-  key: string,
-): Promise<ReplicationObjectResult> {
-  try {
-    if (await target_ctx.storage.exists(key)) return { storage_key: key, outcome: 'skipped' };
-    const data = await source_ctx.storage.get(key);
-    await target_ctx.storage.put(key, data);
-    return { storage_key: key, outcome: 'copied' };
-  } catch (err) {
-    return {
-      storage_key: key,
-      outcome: 'failed',
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
 }
 
 function sha256_hex(data: Buffer): string {

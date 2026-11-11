@@ -14,6 +14,7 @@ import type {
   SharePointSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stream_from_get } from '@wisecom/atlas-types/testing/stub-object-stream';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
@@ -34,16 +35,17 @@ function make_storage(
   objects: Map<string, Buffer>,
   reject_put: readonly string[] = [],
 ): ObjectStorage {
+  const get = async (key: string): Promise<Buffer> => {
+    const value = objects.get(key);
+    if (!value) throw new Error(`NoSuchKey: ${key}`);
+    return value;
+  };
   return {
     put: vi.fn(async (key: string, data: Buffer) => {
       if (reject_put.includes(key)) throw new Error('AccessDenied');
       objects.set(key, data);
     }),
-    get: vi.fn(async (key: string) => {
-      const value = objects.get(key);
-      if (!value) throw new Error(`NoSuchKey: ${key}`);
-      return value;
-    }),
+    get: vi.fn(get),
     exists: vi.fn(async (key: string) => objects.has(key)),
     list_stale: vi.fn(async () => []),
     list: vi.fn(async (prefix: string) =>
@@ -55,7 +57,7 @@ function make_storage(
     begin_multipart_upload: vi.fn(),
     copy: vi.fn(),
     get_with_etag: vi.fn(),
-    get_stream: vi.fn(),
+    get_stream: vi.fn(stream_from_get(get)),
     validate_object_lock_policy: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
