@@ -73,7 +73,12 @@ describe('scope_connector_throttling', () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     await expect(result).resolves.toBe('private');
-    expect(coordinator.waits).toEqual(['sharepoint_onedrive', 'sharepoint_onedrive']);
+    // Before the first attempt, the wait handed to the coordinator after the 429, and before the retry.
+    expect(coordinator.waits).toEqual([
+      'sharepoint_onedrive',
+      'sharepoint_onedrive',
+      'sharepoint_onedrive',
+    ]);
     expect(coordinator.raises).toEqual([['sharepoint_onedrive', 20_000]]);
   });
 

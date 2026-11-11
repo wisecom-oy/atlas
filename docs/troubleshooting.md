@@ -33,8 +33,9 @@ For any other AADSTS code, look it up in Microsoft's AADSTS error reference, the
 
 Microsoft Graph returns HTTP 429 (throttled) and occasionally 500, 502, 503, or 504 under load. Atlas retries these automatically:
 
-- It honors the `Retry-After` header when Graph sends one. A value under one second is raised to 1 to 2 seconds. Without the header, a 429 applies a 30-second cooldown.
-- It retries up to 12 times with exponential backoff and jitter, capping each delay at 5 minutes. Backoff waits, `Retry-After` waits, and cooldowns share one 24-minute budget of waiting. Time spent inside each request does not count. A `Retry-After` longer than 5 minutes fails the call at once.
+- It honors the `Retry-After` header when Graph sends one, up to one hour, and then waits a short random delay before retrying: up to a tenth of the `Retry-After`, between 1 and 5 seconds. The delay is always added, so no request goes out before Graph asked. A value under one second is raised to one second. Without the header, a 429 applies a 30-second cooldown.
+- A `Retry-After` longer than one hour fails the call at once with a `ThrottledError` that names the value Graph sent.
+- It retries up to 12 times with exponential backoff and jitter, capping each backoff delay at 5 minutes. Once a call has spent 24 minutes waiting, counting backoff, `Retry-After` waits, and cooldowns, it starts no new wait. A wait it has started runs in full, so one call waits at most about 24 minutes plus one cooldown. Time spent inside each request does not count.
 - Each attempt times out after 60 seconds, and Atlas aborts the timed-out request before it sends the next one.
 - Atlas decides whether to retry from the HTTP status and from Node and undici error codes such as `ECONNRESET` or `UND_ERR_SOCKET`, never from the error message. Message text carries request IDs and item IDs, whose digits could otherwise pass for a status code.
 - If retries run out, the failure is recorded in the run summary and the backup continues with the remaining items.

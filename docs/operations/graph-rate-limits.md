@@ -78,8 +78,12 @@ A `429` response includes `Retry-After`, the number of seconds to wait. Throttle
 
 Atlas handles a throttled response in two steps:
 
-1. The call that was throttled retries with exponential backoff, honouring `Retry-After`, for up to 12 retries. Backoff and `Retry-After` waits share one 24-minute budget. Time spent inside each request does not count.
-2. The instance's throttle coordinator starts a cooldown for the pool the request was charged to, for the `Retry-After` window, or 30 seconds when Graph sends none. Every request to that pool waits for the cooldown before it sends, including each retry attempt.
+1. The instance's throttle coordinator starts a cooldown for the pool the request was charged to, for the `Retry-After` window, or 30 seconds when Graph sends none. Every request to that pool waits for the cooldown before it sends, including each retry attempt.
+2. The call that was throttled waits out the cooldown and retries, for up to 12 retries. Without a `Retry-After`, it backs off exponentially, up to 5 minutes per wait. Once a call has spent 24 minutes waiting it starts no new wait, but a wait already started runs in full. Time spent inside each request does not count.
+
+Atlas waits out a `Retry-After` of up to one hour. A longer value fails the call with a `ThrottledError` naming the value, and the pool still cools down for the hour.
+
+When a cooldown ends, each request parked on it resumes after its own random delay rather than all at once. The delay is up to a tenth of the cooldown, between 1 and 5 seconds, so a 6-minute cooldown releases its requests over 5 seconds. Releasing them together would send the whole pool back to Graph in one burst and draw the next 429. The delay is only ever added, so nothing is sent before the `Retry-After` Graph asked for. Microsoft's Graph JavaScript SDK adds up to one second of jitter to its own retries; Atlas allows more because one cooldown can hold every worker of the instance, or of every process sharing a coordinator.
 
 The coordinator keeps one cooldown per Outlook mailbox, and one per pool for `sharepoint_onedrive` and `identity`. A 429 on one mailbox pauses only that mailbox's requests, because Outlook limits are counted per mailbox. Other mailboxes keep sending. A 429 on a drive or site pauses the instance's other drive and site requests, which share one per-tenant budget. The cooldown does not cross pools. The cooldown starts on the first throttled response, so calls already in a retry loop see it between attempts.
 

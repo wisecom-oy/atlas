@@ -194,7 +194,7 @@ Atlas retries transient Graph errors with exponential backoff:
 
 `500` and `502` are retried because Graph returns them for load and gateway faults that clear on their own. Without a retry, one such error would fail the whole folder (Outlook) or drive batch (OneDrive and SharePoint).
 
-`Retry-After` accepts both forms in RFC 9110: a number of seconds, or an HTTP date. A header that is missing, unreadable, or already in the past falls back to exponential backoff. After 12 retries, or once the 24-minute budget of waiting runs out, Atlas marks the folder as failed and continues with the remaining folders.
+`Retry-After` accepts both forms in RFC 9110: a number of seconds, or an HTTP date. A header that is missing, unreadable, or already in the past falls back to exponential backoff. After 12 retries, or once 24 minutes of waiting have passed, Atlas marks the folder as failed and continues with the remaining folders.
 
 ## Interruption
 

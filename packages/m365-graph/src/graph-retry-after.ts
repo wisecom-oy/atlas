@@ -9,17 +9,17 @@
  */
 
 /**
- * Anything longer than this is treated as a misparse rather than an instruction.
+ * The longest Retry-After Atlas waits out. Anything longer is clamped by `parse_retry_after_ms`, and
+ * `with_graph_retry` fails the call naming the value rather than waiting it.
  *
- * Two reasons, and the second is the load-bearing one. `with_graph_retry` already clamps its own
- * sleep to 5 minutes, so a silly value could not stall a single attempt. The throttle fence has no
- * such clamp, and since its timer stopped being `unref`'d it holds the event loop open, so a header
- * that parsed to a date a year out would park the whole Outlook path for a year.
+ * The throttle fence's timer is not `unref`'d, so it holds the event loop open: without a ceiling, a
+ * header that parsed to a date a year out would park the whole Outlook path for a year.
  */
-const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
+export const MAX_RETRY_AFTER_MS = 60 * 60 * 1000;
 
 /**
- * Parses a `Retry-After` value into milliseconds, or undefined when it carries no usable wait.
+ * Parses a `Retry-After` value into milliseconds, clamped to `MAX_RETRY_AFTER_MS`, or undefined when
+ * it carries no usable wait.
  *
  * Undefined means "no instruction", which leaves the caller's exponential backoff in charge. A
  * past-dated header resolves to a non-positive wait and is reported that way rather than as zero,
@@ -30,6 +30,15 @@ export function parse_retry_after_ms(
   value: string | null | undefined,
   now: number = Date.now(),
 ): number | undefined {
+  const requested = parse_requested_retry_after_ms(value, now);
+  return requested === undefined ? undefined : Math.min(requested, MAX_RETRY_AFTER_MS);
+}
+
+/** Parses a `Retry-After` value into the wait it asks for in milliseconds, without the clamp. */
+function parse_requested_retry_after_ms(
+  value: string | null | undefined,
+  now: number,
+): number | undefined {
   if (value === null || value === undefined) return undefined;
   const trimmed = value.trim();
   if (trimmed === '') return undefined;
@@ -38,18 +47,14 @@ export function parse_retry_after_ms(
   // and Date.parse('-5') is a real date in 2001, so letting a numeric value reach it turns a
   // two-minute wait into a nonsense one.
   if (/^\d+$/.test(trimmed)) {
-    return clamp(Number(trimmed) * 1000);
+    return Number(trimmed) * 1000;
   }
 
   const when = Date.parse(trimmed);
   if (Number.isNaN(when)) return undefined;
 
   const wait = when - now;
-  return wait > 0 ? clamp(wait) : undefined;
-}
-
-function clamp(ms: number): number {
-  return Math.min(ms, MAX_RETRY_AFTER_MS);
+  return wait > 0 ? wait : undefined;
 }
 
 /**
@@ -62,6 +67,15 @@ function clamp(ms: number): number {
 export function extract_retry_after_ms(err: unknown): number | undefined {
   if (typeof err !== 'object' || err === null || !('headers' in err)) return undefined;
   return parse_retry_after_ms(read_header(err.headers, 'retry-after'));
+}
+
+/**
+ * Reads the wait `Retry-After` asks for from a Graph or network error, without clamping it to
+ * `MAX_RETRY_AFTER_MS`, so a value past the cap can be reported as sent.
+ */
+export function extract_requested_retry_after_ms(err: unknown): number | undefined {
+  if (typeof err !== 'object' || err === null || !('headers' in err)) return undefined;
+  return parse_requested_retry_after_ms(read_header(err.headers, 'retry-after'), Date.now());
 }
 
 function has_get(headers: object): headers is { get(name: string): unknown } {
