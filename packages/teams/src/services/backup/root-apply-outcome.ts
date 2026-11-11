@@ -9,8 +9,11 @@ import {
   next_hosted_recheck,
 } from '@/services/backup/hosted-recheck';
 
-/** Why a root is applied: it changed in the read, it is in the failed-root ledger, or it awaits a hosted-content recheck. */
-export type RootReason = 'changed' | 'retry' | 'recheck';
+/**
+ * Why a root is applied: it changed in the read, it is in the failed-root ledger, it awaits a
+ * hosted-content recheck, or a full read did not list it and its removal needs confirming by id.
+ */
+export type RootReason = 'changed' | 'retry' | 'recheck' | 'confirm';
 
 /** One root to apply: its id, why it is applied, and how to load its current state from Graph. */
 export interface RootTask {

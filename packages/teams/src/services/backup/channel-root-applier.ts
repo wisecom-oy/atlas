@@ -53,21 +53,17 @@ export async function apply_root_tasks(
 }
 
 /**
- * Marks removed every live root a full read never listed, and drops the ledger and recheck entries
- * of roots it did not list. Returns the IDs of the roots it marked.
+ * Drops the ledger and recheck entries of roots a full read did not list. The live roots it did not
+ * list are not marked here: the retry step confirms each one by id first (see `pending_retry_roots`).
  */
-export function apply_full_read_sweep(
-  scope: BackupRunScope,
+export function drop_unlisted_root_tracking(
   state: RootApplyState,
   seen: ReadonlySet<string>,
-): string[] {
-  const removed = removed_unseen_roots(scope, state.threads, seen);
-  Object.assign(state.threads, removed);
+): void {
   state.failed_roots = clear_unseen_failures(state.failed_roots, seen);
   state.hosted_recheck = Object.fromEntries(
     Object.entries(state.hosted_recheck).filter(([root_id]) => seen.has(root_id)),
   );
-  return Object.keys(removed);
 }
 
 /**
@@ -83,7 +79,7 @@ async function apply_task(
 ): Promise<RootTaskOutcome> {
   try {
     const fetched = await task.load();
-    if (fetched.status === 'not_found') return { kind: 'missing' };
+    if (fetched.status === 'not_found') return not_found_outcome(scope, task, previous);
     const thread = await apply_one_root(scope, channel_id, fetched.change, previous, warnings);
     return { kind: 'applied', thread };
   } catch (err) {
@@ -96,19 +92,30 @@ async function apply_task(
   }
 }
 
-/** On a full read, the previously live roots the read did not return, each marked removed. */
-function removed_unseen_roots(
+/**
+ * What a 404 for a root means. For a `confirm` root, which a full read did not list either, it is
+ * the second observation and the root is marked removed. For any other root it is only a miss.
+ */
+function not_found_outcome(
   scope: BackupRunScope,
-  previous_threads: Record<string, TeamsThread>,
+  task: RootTask,
+  previous: TeamsThread | undefined,
+): RootTaskOutcome {
+  if (task.reason !== 'confirm' || previous === undefined) return { kind: 'missing' };
+  return {
+    kind: 'applied',
+    thread: count_deletion(scope, previous, mark_root_removed(scope, previous)),
+  };
+}
+
+/** The live roots a full read did not list, in stored order. Each is confirmed by id. */
+function unlisted_live_roots(
+  threads: Record<string, TeamsThread>,
   seen: ReadonlySet<string>,
-): Record<string, TeamsThread> {
-  const removed: Record<string, TeamsThread> = {};
-  for (const [root_id, previous] of Object.entries(previous_threads)) {
-    if (!seen.has(root_id) && previous.deleted_at === undefined) {
-      removed[root_id] = count_deletion(scope, previous, mark_root_removed(scope, previous));
-    }
-  }
-  return removed;
+): string[] {
+  return Object.entries(threads)
+    .filter(([root_id, thread]) => !seen.has(root_id) && thread.deleted_at === undefined)
+    .map(([root_id]) => root_id);
 }
 
 /** Drops the ledger entries of roots that a full read did not return. */
@@ -139,18 +146,26 @@ export interface RetryRoot {
 }
 
 /**
- * The roots a retry pass still owes the channel: retryable ledger roots first, then recheck roots
- * under the limit that have no failure record. Roots the read already applied are left out.
+ * The roots a retry pass still owes the channel: retryable ledger roots first, then on a full read
+ * the live roots it did not list, then recheck roots under the limit that have no failure record.
+ * Roots the read already applied are left out.
  */
 export function pending_retry_roots(
   state: RootApplyState,
   channel_id: string,
   seen: ReadonlySet<string>,
+  full_read: boolean,
 ): RetryRoot[] {
   const retry = retryable_items(state.failed_roots, channel_id)
     .map((record) => record.item_id)
     .filter((root_id) => !seen.has(root_id))
     .map((root_id): RetryRoot => ({ root_id, reason: 'retry' }));
+  const confirm = full_read
+    ? unlisted_live_roots(state.threads, seen).map((root_id): RetryRoot => ({
+        root_id,
+        reason: 'confirm',
+      }))
+    : [];
   const recheck = Object.entries(state.hosted_recheck)
     .filter(
       ([root_id, attempts]) =>
@@ -159,10 +174,10 @@ export function pending_retry_roots(
         !(root_id in state.failed_roots),
     )
     .map(([root_id]): RetryRoot => ({ root_id, reason: 'recheck' }));
-  return [...retry, ...recheck];
+  return [...retry, ...confirm, ...recheck];
 }
 
-/** A root re-read by id for a retry or recheck; the applier classifies its Graph refusals. */
+/** A root re-read by id for a retry, recheck, or confirmation; the applier classifies its refusals. */
 export function fetched_task(
   scope: BackupRunScope,
   channel_id: string,

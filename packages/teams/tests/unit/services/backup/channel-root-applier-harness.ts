@@ -1,9 +1,9 @@
 import type { FailedItemLedger, TeamsRootChange, TeamsThread } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
-  apply_full_read_sweep,
   apply_root_tasks,
   changed_tasks,
+  drop_unlisted_root_tracking,
   fetched_task,
   pending_retry_roots,
 } from '@/services/backup/channel-root-applier';
@@ -28,8 +28,8 @@ export interface RootApplyOutput {
 }
 
 /**
- * Applies one channel read through the same phases the reader runs: the returned roots, then on a
- * delta read the retry and recheck roots it did not return, or on a full read the sweep of roots it
+ * Applies one channel read through the same phases the reader runs: the returned roots, then the
+ * retry and recheck roots it did not return, and on a full read the confirmation of live roots it
  * did not list.
  */
 export async function apply_root_changes(
@@ -50,11 +50,8 @@ export async function apply_root_changes(
   const applied = await apply_root_tasks(scope, channel_id, changed_tasks(read.changes), state);
   if (applied.interrupted) return { ...state, interrupted: true };
   const seen = new Set(applied.processed);
-  if (read.is_full) {
-    apply_full_read_sweep(scope, state, seen);
-    return { ...state, interrupted: false };
-  }
-  const retry = pending_retry_roots(state, channel_id, seen).map((root) =>
+  if (read.is_full) drop_unlisted_root_tracking(state, seen);
+  const retry = pending_retry_roots(state, channel_id, seen, read.is_full).map((root) =>
     fetched_task(scope, channel_id, root.root_id, root.reason),
   );
   const retried = await apply_root_tasks(scope, channel_id, retry, state);

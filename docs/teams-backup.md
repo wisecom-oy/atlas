@@ -178,7 +178,9 @@ When nothing changed, Atlas writes no index. A healthy run prints `No Teams chan
 
 A channel is read in full, with no delta link, when it has no channel email address, when no link is stored (a first run, or `--full`), or when Graph rejects the saved link with `400`. A `400` logs a warning and falls back to a full read. The channel is recorded with `read_mode: full` in the manifest. A saved link is used only when its cursor's `baseline_shard_key` equals the shard the latest readable index lists for that channel. Otherwise only that channel is read in full, with a warning. An unreadable cursor is read in full with a warning too.
 
-Deleted messages and channels are carried forward, not dropped. A root or reply that Graph reports as deleted, or a root that a full read no longer returns, is recorded with `deleted_at` set, and its last live version is kept in `kept`. No blob is removed. A channel the team no longer lists keeps `deleted_at` in later indexes.
+Deleted messages and channels are carried forward, not dropped. A root or reply that Graph reports as deleted, or a root confirmed gone as described below, is recorded with `deleted_at` set, and its last live version is kept in `kept`. No blob is removed. A channel the team no longer lists keeps `deleted_at` in later indexes.
+
+A root that a full read does not list is not marked removed on that evidence alone. The `/messages` listing is paged newest first, so a root posted or deleted while Atlas pages it shifts the later pages, and a live root can land on no page. After the listing, Atlas reads each live stored root it did not list by ID. Only a `404` marks the root removed. A root Graph still returns is stored as it comes back: live, or deleted with Graph's `deletedDateTime`. Any other error keeps the root live and adds a ledger entry (see [Failed channels](#failed-channels)). This costs one request per unlisted root, plus a reply listing for a root that turns out to be live. A full read that lists every stored root makes no extra requests.
 
 Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph has no cancel, so that request still completes on Graph's side and its result is dropped. The root it belonged to is not recorded as a failure, so no ledger entry is added for it. Threads already stored are kept. The interrupted channel keeps its previous delta link and its checkpoint, so the next run resumes its read (see [Resuming an interrupted backup](#resuming-an-interrupted-backup)), and channels not reached carry forward unchanged. Ctrl+C during the team and channel lookups stops the wait. The run then ends at the start of the channel loop, prints `Status: UNHEALTHY`, and exits `2`. A second Ctrl+C exits at once with status `130`. Nothing from that run is referenced: the index is not written, so no cursor moves, and blobs already uploaded stay in storage unreferenced.
 
@@ -256,7 +258,7 @@ Retries stop after the fifth failure, but the entry stays in the ledger and keep
 atlas teams backup --team <team-id> --channel <channel-id> --full
 ```
 
-A full read processes every root Graph returns for the channel, so a root that now succeeds clears its entry. A root that Graph no longer lists is marked removed, and its entry is cleared.
+A full read processes every root Graph returns for the channel, so a root that now succeeds clears its entry. A root that Graph no longer lists has its entry cleared and is read by ID: a `404` marks it removed.
 
 ### Unreadable snapshots
 
