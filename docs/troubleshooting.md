@@ -341,7 +341,7 @@ If an object is damaged, move it aside so later runs stop reporting it:
   atlas onedrive quarantine --key onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json
 ```
 
-A snapshot manifest or a OneDrive or SharePoint version index exists but does not decrypt, does not parse, lacks the fields every manifest has, or names another owner or snapshot than its key. The command skipped it, finished what it could do correctly without it, named the key, and exited `9` (`ATLAS_CONTENT_UNREADABLE`). A storage outage is never reported this way: it stops the command with `ATLAS_STORAGE_FAILURE` instead, because it says nothing about the object.
+A snapshot manifest or a OneDrive or SharePoint version index exists but does not decrypt, does not parse, lacks the fields every manifest has, or names another owner or snapshot than its key. The command skipped it, finished what it could do correctly without it, named the key, and exited `9` (`ATLAS_CONTENT_UNREADABLE`). A storage outage is never reported this way: it stops the command with `ATLAS_STORAGE_FAILURE` instead, because it says nothing about the object. Neither is an object a newer Atlas release wrote: it is intact, so every command that reads it stops with `ATLAS_FORMAT_UNSUPPORTED` (exit `9`) and `quarantine` refuses it. Upgrade Atlas instead.
 
 Earlier releases failed every command for the owner on one such object, and dropped a damaged version index from every listing without a word.
 

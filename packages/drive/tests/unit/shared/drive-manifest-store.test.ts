@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { OneDriveSnapshotManifest } from '@wisecom/atlas-types';
-import { StorageError, UnreadableObjectsError } from '@wisecom/atlas-types';
+import {
+  StorageError,
+  UnreadableObjectsError,
+  UnsupportedFormatVersionError,
+} from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import {
   as_manifest_listing,
@@ -120,6 +124,20 @@ describe('drive manifest store with a damaged manifest (issue #631)', () => {
 
     await expect(read_owner_drive_manifests(harness.ctx, LAYOUT, OWNER)).rejects.toBeInstanceOf(
       StorageError,
+    );
+  });
+
+  it('fails the listing on an object a newer Atlas wrote instead of skipping it', async () => {
+    const { harness } = await middle_damaged();
+    const newer = LAYOUT.keys.manifest_key(OWNER, 'od-snap-3000-abc');
+    const decrypt = harness.ctx.decrypt;
+    harness.ctx.decrypt = (data, key) => {
+      if (key === newer) throw new UnsupportedFormatVersionError('Unsupported content envelope');
+      return decrypt(data, key);
+    };
+
+    await expect(read_owner_drive_manifests(harness.ctx, LAYOUT, OWNER)).rejects.toBeInstanceOf(
+      UnsupportedFormatVersionError,
     );
   });
 });

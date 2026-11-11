@@ -1,5 +1,5 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import { UnreadableObjectsError } from '@wisecom/atlas-types';
+import { UnreadableObjectsError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { read_each_readable } from '@wisecom/atlas-core/services/shared/readable-object-listing';
 import { is_json_record } from '@wisecom/atlas-core/services/shared/stored-json-reader';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
@@ -63,6 +63,8 @@ export async function read_version_index_object(
   try {
     parsed = JSON.parse(ctx.decrypt(payload, key).toString('utf-8')) as unknown;
   } catch (err) {
+    // Written by a newer Atlas: intact, so it must fail the read, never be skipped as damage.
+    if (err instanceof UnsupportedFormatVersionError) throw err;
     throw new UnreadableObjectsError(`The version index does not decrypt or parse`, [key], {
       cause: err,
     });

@@ -1,5 +1,9 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import { StorageError, UnreadableObjectsError } from '@wisecom/atlas-types';
+import {
+  StorageError,
+  UnreadableObjectsError,
+  UnsupportedFormatVersionError,
+} from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@/services/shared/absent-object';
 
 /**
@@ -25,6 +29,8 @@ export async function read_encrypted_json(
   try {
     return JSON.parse(ctx.decrypt(payload, key).toString('utf-8')) as unknown;
   } catch (err) {
+    // Written by a newer Atlas: intact, so it must fail the read, never be skipped as damage.
+    if (err instanceof UnsupportedFormatVersionError) throw err;
     throw new UnreadableObjectsError(`The ${label} does not decrypt or parse`, [key], {
       cause: err,
     });

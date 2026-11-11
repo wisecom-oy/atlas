@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
-import { UnreadableObjectsError } from '@wisecom/atlas-types';
+import { UnreadableObjectsError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { list_drive_file_versions } from '@/catalog/catalog-queries';
@@ -93,5 +93,18 @@ describe('version index damage is reported, not swallowed (issue #631)', () => {
     // would roll the file back to older bytes than the operator asked for.
     await expect(restore).rejects.toMatchObject({ unreadable_keys: [DAMAGED_KEY] });
     expect(download_blob).not.toHaveBeenCalled();
+  });
+
+  it('fails on an index object a newer Atlas wrote instead of skipping it', async () => {
+    const harness = bucket_with_damaged_index();
+    const decrypt = harness.ctx.decrypt;
+    harness.ctx.decrypt = (data, key) => {
+      if (key === GOOD_KEY) throw new UnsupportedFormatVersionError('Unsupported content envelope');
+      return decrypt(data, key);
+    };
+
+    await expect(read_merged_version_indexes(harness.ctx, [GOOD_KEY])).rejects.toBeInstanceOf(
+      UnsupportedFormatVersionError,
+    );
   });
 });

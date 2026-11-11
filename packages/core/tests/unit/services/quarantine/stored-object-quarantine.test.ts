@@ -4,7 +4,9 @@ import {
   NotFoundError,
   ObjectLockRetainedError,
   UnreadableObjectsError,
+  UnsupportedFormatVersionError,
 } from '@wisecom/atlas-types';
+import { read_encrypted_json } from '@/services/shared/stored-json-reader';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import {
   quarantine_unreadable_object,
@@ -139,5 +141,23 @@ describe('quarantine_unreadable_object (issue #631)', () => {
     await quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
 
     expect(harness.destroyed()).toBe(1);
+  });
+
+  it('refuses an object a newer Atlas wrote, which is intact, and leaves it in place', async () => {
+    const harness = in_memory_tenant_context();
+    const bytes = stored(harness, false);
+    const target: QuarantineTarget = {
+      ...json_target(),
+      read: (ctx, key) => read_encrypted_json(ctx, key, 'OneDrive manifest'),
+    };
+    harness.ctx.decrypt = () => {
+      throw new UnsupportedFormatVersionError('Unsupported content envelope version 2');
+    };
+
+    const move = quarantine_unreadable_object(factory_for(harness.ctx), target, 't', KEY);
+
+    await expect(move).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
+    expect(harness.raw(KEY)).toEqual(bytes);
+    expect(harness.keys()).toEqual([KEY]);
   });
 });

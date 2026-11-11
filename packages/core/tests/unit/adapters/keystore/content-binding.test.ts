@@ -1,5 +1,6 @@
 import { createCipheriv, randomBytes } from 'node:crypto';
 import { describe, it, expect } from 'vitest';
+import { UnsupportedFormatVersionError } from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { CONTENT_HEADER_LENGTH, CONTENT_MAGIC } from '@/adapters/keystore/content-envelope';
 
@@ -54,6 +55,8 @@ describe('content scope binding (issue #350)', () => {
     stored[CONTENT_MAGIC.length] = 99;
 
     expect(() => svc.decrypt(stored, dek, OWNER_A)).toThrow(/Unsupported content envelope version/);
+    // Typed, so readers fail on it rather than skip or quarantine it as damage (issue #631).
+    expect(() => svc.decrypt(stored, dek, OWNER_A)).toThrow(UnsupportedFormatVersionError);
   });
 
   it('binds a key with no directory to the whole key', () => {
