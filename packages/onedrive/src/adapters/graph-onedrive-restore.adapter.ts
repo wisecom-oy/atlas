@@ -102,7 +102,8 @@ export async function graph_onedrive_upload_small_file(
         .header('Content-Type', 'application/octet-stream')
         .option('signal', signal)
         .put(content) as Promise<{ id?: string } | undefined>,
-    { idempotent: conflict_behavior === 'replace' },
+    // Sent means finished: a PUT cut off mid-flight may still have written the file (#682).
+    { idempotent: conflict_behavior === 'replace', complete_in_flight: true },
   );
 
   await stamp_file_system_info(client, owner_id, drive_id, uploaded?.id, file_system_info);

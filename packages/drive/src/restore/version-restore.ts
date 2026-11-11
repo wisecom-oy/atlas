@@ -4,6 +4,8 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type {
   DriveFileSystemInfo,
@@ -86,20 +88,43 @@ export async function restore_drive_version(
   owner_id: string,
   options: DriveVersionRestoreOptions,
 ): Promise<DriveVersionRestoreResult> {
+  // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+  // A run cancelled before it could build its own result restored nothing.
+  return run_cancellable(
+    options,
+    () => restore_selected_versions(deps, tenant_id, normalize_owner_id(owner_id), options),
+    () => {
+      finish_operation_progress(options, 'restore', deps.workload, 0, 0, true);
+      return nothing_restored(options);
+    },
+  );
+}
+
+/** The result of a run that stopped before restoring anything. */
+function nothing_restored(options: DriveVersionRestoreOptions): DriveVersionRestoreResult {
+  return {
+    files_restored: 0,
+    files_skipped: 0,
+    restored: [],
+    errors: [],
+    interrupted: true,
+    placement: options.placement ?? 'copy',
+  };
+}
+
+/** Selects the versions the options ask for and uploads each, stopping at an interrupt. */
+async function restore_selected_versions(
+  deps: DriveVersionRestoreDeps,
+  tenant_id: string,
+  owner_id: string,
+  options: DriveVersionRestoreOptions,
+): Promise<DriveVersionRestoreResult> {
   const { workload } = deps;
-  owner_id = normalize_owner_id(owner_id);
   const placement: DriveVersionPlacement = options.placement ?? 'copy';
 
   if (begin_operation_progress(options, 'restore', workload)) {
     finish_operation_progress(options, 'restore', workload, 0, 0);
-    return {
-      files_restored: 0,
-      files_skipped: 0,
-      restored: [],
-      errors: [],
-      interrupted: true,
-      placement,
-    };
+    return nothing_restored(options);
   }
 
   const ctx = await deps.tenant_factory.create_readonly(tenant_id);
@@ -125,7 +150,7 @@ export async function restore_drive_version(
     });
 
     for (const [index, candidate] of selection.selected.entries()) {
-      if (options.should_interrupt?.() === true) break;
+      if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
       const outcome = await restore_one_version(
         deps,
         tenant_id,
@@ -135,6 +160,8 @@ export async function restore_drive_version(
         candidate,
         placement,
       );
+      // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
+      if (outcome.cancelled === true) break;
       if (outcome.restored) restored.push(outcome.restored);
       else {
         files_skipped++;
@@ -183,7 +210,7 @@ async function restore_one_version(
   folder_ids: Map<string, string>,
   candidate: SelectedVersion,
   placement: DriveVersionPlacement,
-): Promise<{ restored?: DriveRestoredVersion; error?: string }> {
+): Promise<{ restored?: DriveRestoredVersion; error?: string; cancelled?: true }> {
   const { version, original_path } = candidate;
   const drive_id = version.drive_id;
   try {
@@ -256,6 +283,8 @@ async function restore_one_version(
   } catch (err) {
     // Same policy as snapshot restore: a failed tag is a key error, not a per-version skip (#633).
     if (err instanceof DriveDecryptAuthError) throw err;
+    // An upload cut short by Ctrl+C is the run stopping, not a failed version (issue #682).
+    if (is_active_run_cancelled()) return { cancelled: true };
     const msg = `${original_path}: ${err instanceof Error ? err.message : String(err)}`;
     logger.warn(`Skipped ${msg}`);
     return { error: msg };

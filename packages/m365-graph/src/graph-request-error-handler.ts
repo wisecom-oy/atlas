@@ -70,6 +70,13 @@ export interface GraphRetryOptions {
    * any other failure is thrown on the first attempt. Defaults to true.
    */
   readonly idempotent?: boolean;
+  /**
+   * True for a write whose outcome must not become unknowable: once the request is sent, a
+   * cancelled run lets it finish (up to `timeout_ms`) instead of aborting it. Graph may already
+   * have committed an aborted write, so the caller would report as not written a file or message
+   * that exists. Waits before a send stay cancellable. Defaults to false (issue #682).
+   */
+  readonly complete_in_flight?: boolean;
 }
 
 /**
@@ -147,6 +154,8 @@ export async function with_graph_retry<T>(
   const timeout_ms = options.timeout_ms ?? REQUEST_TIMEOUT_MS;
   const idempotent = options.idempotent ?? true;
   const abort_signal = get_active_abort_signal();
+  // What may cut off a request already sent; waits before a send always honour `abort_signal`.
+  const in_flight_signal = options.complete_in_flight === true ? undefined : abort_signal;
   let waited_ms = 0;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     throw_if_cancelled(abort_signal);
@@ -161,7 +170,7 @@ export async function with_graph_retry<T>(
       waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
     }
     try {
-      return await run_attempt(fn, timeout_ms, abort_signal);
+      return await run_attempt(fn, timeout_ms, in_flight_signal);
     } catch (err) {
       throw_if_cancelled(abort_signal);
       if (!is_retry_safe(err, idempotent)) throw err;

@@ -7,6 +7,8 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { inject, injectable } from 'inversify';
 import type {
   SharePointDocumentLibrary,
@@ -69,7 +71,24 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     site_id: string,
     options: SharePointRestoreOptions,
   ): Promise<SharePointRestoreResult> {
-    site_id = normalize_owner_id(site_id);
+    // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+    // A run cancelled before it could build its own result restored nothing.
+    return run_cancellable(
+      options,
+      () => this.restore_snapshot_entries(tenant_id, normalize_owner_id(site_id), options),
+      () => {
+        finish_operation_progress(options, 'restore', 'sharepoint', 0, 0, true);
+        return empty_restore_result(options.snapshot_id);
+      },
+    );
+  }
+
+  /** Restores every selected snapshot entry, stopping at an interrupt. */
+  private async restore_snapshot_entries(
+    tenant_id: string,
+    site_id: string,
+    options: SharePointRestoreOptions,
+  ): Promise<SharePointRestoreResult> {
     if (begin_operation_progress(options, 'restore', 'sharepoint')) {
       finish_operation_progress(options, 'restore', 'sharepoint', 0, 0);
       return empty_restore_result(options.snapshot_id);
@@ -129,25 +148,25 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       });
 
       for (const entry of restorable) {
-        if (options.should_interrupt?.() === true) break;
+        if (is_run_interrupted(options)) break;
         const destination_drive_id = this.resolve_entry_destination(entry, routing, errors);
-        if (!destination_drive_id) {
-          files_skipped++;
-        } else {
-          const outcome = await this.restore_single_entry(
-            tenant_id,
-            target_site,
-            destination_drive_id,
-            conflict,
-            ctx,
-            entry,
-            folder_ids,
-            errors,
-            { root: restore_root, file_name: options.rename_to ?? entry.file_name },
-          );
-          if (outcome === 'restored') files_restored++;
-          else files_skipped++;
-        }
+        const outcome = destination_drive_id
+          ? await this.restore_single_entry(
+              tenant_id,
+              target_site,
+              destination_drive_id,
+              conflict,
+              ctx,
+              entry,
+              folder_ids,
+              errors,
+              { root: restore_root, file_name: options.rename_to ?? entry.file_name },
+            )
+          : 'skipped';
+        // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
+        if (outcome === 'cancelled') break;
+        if (outcome === 'restored') files_restored++;
+        else files_skipped++;
         emit_operation_progress(options, {
           operation: 'restore',
           workload: 'sharepoint',
@@ -232,7 +251,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     folder_ids: Map<string, string>,
     errors: string[],
     placement: { readonly root: string; readonly file_name: string },
-  ): Promise<'restored' | 'skipped'> {
+  ): Promise<'restored' | 'skipped' | 'cancelled'> {
     const target_path = restore_parent_path(placement.root, entry.parent_path);
     try {
       const parent_id = await ensure_sharepoint_folder_path(
@@ -293,12 +312,19 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       // A failed tag means the key does not fit the snapshot, which fails every remaining file
       // too. Aborting surfaces that as a key error instead of N skipped files (issue #633).
       if (err instanceof DriveDecryptAuthError) throw err;
+      // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
+      if (is_active_run_cancelled()) return 'cancelled';
       const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
       errors.push(msg);
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return 'skipped';
     }
   }
+}
+
+/** True once the caller asked the run to stop, by flag or by abort signal. */
+function is_run_interrupted(options: SharePointRestoreOptions): boolean {
+  return options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
 }
 
 function empty_restore_result(snapshot_id: string): SharePointRestoreResult {

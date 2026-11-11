@@ -21,6 +21,7 @@ import {
 } from '@/services/restore/restored-message-report';
 import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
@@ -199,6 +200,8 @@ export async function restore_folder_entries(
       const shortfall = attachment_shortfall_warning(outcome.report);
       if (shortfall) warnings.push(shortfall);
     } catch (err) {
+      // A create cut short by Ctrl+C is the run stopping, not a failed message (issue #682).
+      if (is_active_run_cancelled()) break;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(`${entry.object_id}: ${msg}`);
     }

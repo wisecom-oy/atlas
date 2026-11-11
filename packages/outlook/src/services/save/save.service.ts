@@ -1,4 +1,5 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -53,6 +54,20 @@ export class SaveService implements SaveUseCase {
     snapshot_id: string,
     options: SaveOptions = {},
   ): Promise<SaveResult> {
+    // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+    return run_cancellable(
+      options,
+      () => this.save_snapshot_entries(tenant_id, snapshot_id, options),
+      () => this.finish_interrupted_result(snapshot_id, options),
+    );
+  }
+
+  /** Saves one snapshot, or the single message `message_ref` names, into the archive. */
+  private async save_snapshot_entries(
+    tenant_id: string,
+    snapshot_id: string,
+    options: SaveOptions,
+  ): Promise<SaveResult> {
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
     try {
       if (begin_operation_progress(options, 'save', 'outlook')) {
@@ -96,6 +111,19 @@ export class SaveService implements SaveUseCase {
     tenant_id: string,
     owner_id: string,
     options: SaveOptions = {},
+  ): Promise<SaveResult> {
+    return run_cancellable(
+      options,
+      () => this.save_mailbox_entries(tenant_id, owner_id, options),
+      () => this.finish_interrupted_result('mailbox', options),
+    );
+  }
+
+  /** Saves the merged, filtered entries of every snapshot of a mailbox into the archive. */
+  private async save_mailbox_entries(
+    tenant_id: string,
+    owner_id: string,
+    options: SaveOptions,
   ): Promise<SaveResult> {
     owner_id = normalize_owner_id(owner_id);
     const { target, output_path } = resolve_save_target(options, build_default_output_path);
@@ -228,43 +256,36 @@ export class SaveService implements SaveUseCase {
     dashboard: TransferProgressReporter,
     options: SaveOptions,
   ): Promise<SaveResult> {
-    let sigint_interrupted = false;
-    const on_sigint = (): void => {
-      sigint_interrupted = true;
-    };
+    // Interruption arrives only through the options. A SIGINT listener of its own suppressed
+    // Node's default exit, so a second Ctrl+C did nothing (issue #682).
     const is_interrupted = (): boolean =>
-      sigint_interrupted || options.should_interrupt?.() === true;
-    process.on('SIGINT', on_sigint);
+      options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
 
-    try {
-      const result = await save_entries_to_archive(
-        ctx,
-        target,
-        output_path,
-        skip_integrity,
-        groups,
-        folder_map,
-        dashboard,
-        is_interrupted,
-        options,
-      );
+    const result = await save_entries_to_archive(
+      ctx,
+      target,
+      output_path,
+      skip_integrity,
+      groups,
+      folder_map,
+      dashboard,
+      is_interrupted,
+      options,
+    );
 
-      const { processed, ...save_result } = result;
-      const interrupted = result.interrupted || is_interrupted();
-      if (interrupted) dashboard.mark_all_pending_interrupted();
-      dashboard.finish();
-      emit_operation_progress(options, {
-        operation: 'save',
-        workload: 'outlook',
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed,
-        total: [...groups.values()].reduce((sum, entries) => sum + entries.length, 0),
-      });
+    const { processed, ...save_result } = result;
+    const interrupted = result.interrupted || is_interrupted();
+    if (interrupted) dashboard.mark_all_pending_interrupted();
+    dashboard.finish();
+    emit_operation_progress(options, {
+      operation: 'save',
+      workload: 'outlook',
+      phase: interrupted ? 'interrupted' : 'completed',
+      processed,
+      total: [...groups.values()].reduce((sum, entries) => sum + entries.length, 0),
+    });
 
-      return { ...save_result, snapshot_id, interrupted };
-    } finally {
-      process.removeListener('SIGINT', on_sigint);
-    }
+    return { ...save_result, snapshot_id, interrupted };
   }
 
   private async finish_empty_result(
@@ -276,6 +297,12 @@ export class SaveService implements SaveUseCase {
     await settle_empty_save_target(target, interrupted);
     // No archive landed anywhere, so there is no path to report even when one was requested.
     return this.empty_result(snapshot_id, options.output_path ?? '', interrupted);
+  }
+
+  /** A run cancelled before its loop: the archive target was already settled as failed. */
+  private finish_interrupted_result(snapshot_id: string, options: SaveOptions): SaveResult {
+    finish_operation_progress(options, 'save', 'outlook', 0, 0, true);
+    return this.empty_result(snapshot_id, '', true);
   }
 
   private empty_result(snapshot_id: string, output_path: string, interrupted = false): SaveResult {
