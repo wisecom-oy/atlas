@@ -426,6 +426,10 @@ Capturing permissions is expensive. Each permission operation costs 5 resource u
 
 A calendar restore writes events through Graph without their attendee lists. Atlas removes attendees and the organizer from each created event and writes them as text at the top of the body, so the restore sends no invitations, updates, or cancellations to anyone. The cost is that restored events carry no working invitations and no new Teams meeting. A restore skips events the target already holds (matching iCalUId, or an event Atlas restored completely earlier), so re-running it does not create duplicates. The only event a restore deletes is one an earlier restore created and left incomplete, identified by its pending tag, which it then recreates in full. Treat the attendee text as a record of the original meeting, not as live invitations.
 
+## Contacts restore tags what it creates
+
+A contacts restore only creates contacts and folders. It never overwrites or deletes a contact. Each contact it creates carries a single-value extended property, `AtlasSourceContactId`, holding the Exchange id of the source contact, and a rerun skips any entry whose original or tagged copy is already in the target folder. The tag holds an item id, not contact content, but anyone who can read the mailbox through Graph or MAPI can see that a contact was restored and which source item it came from. That includes the target mailbox owner in a restore with `-T`. Removing or changing the tag only makes the next restore create that contact again.
+
 ## Storage request events
 
 An SDK host can pass `onStorageRequest` to receive one event per S3 request. See [Storage request events](/reference/storage-request-events). Hosts often export these to metrics systems that are less protected than the backup bucket, so the event carries only values that identify nothing:

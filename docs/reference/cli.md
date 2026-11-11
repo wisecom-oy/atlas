@@ -572,7 +572,7 @@ atlas contacts delete -m user@company.com
 atlas contacts delete -m user@company.com -s ct-snap-123
 ```
 
-Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites: a contact that already exists in the target folder is skipped and counted in `contacts_skipped`. `verify` exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one: a key the bucket reports as absent, ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
+Each snapshot manifest is complete, so `restore` and `verify` read one manifest and no chain. `restore` never overwrites or deletes: it tags each contact it creates with its source contact id, and skips an entry the target folder already holds as the original contact or as a tagged copy, counting it in `contacts_skipped`. Same-name contacts are restored separately, and a rerun creates nothing. Folders map by display-name path, compared without case. See [Contacts backup](/contacts-backup#restore). `verify` exits `1` when a check fails and `2` when interrupted. A full `verify` checks every object and lists each damaged one: a key the bucket reports as absent, ciphertext that fails its GCM tag, or a checksum mismatch. Any other storage error stops the run, as for [`atlas outlook verify`](#atlas-outlook-verify).
 
 | Option | Commands | Description |
 | --- | --- | --- |

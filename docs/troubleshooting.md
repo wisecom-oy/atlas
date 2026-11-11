@@ -45,7 +45,7 @@ Occasional 429 and 5xx responses during a large first backup need no action.
 
 A request that creates something during a restore is not repeated after a 500, 502, 504, a 503 without `Retry-After`, a dropped connection, or a timeout. Graph can commit a create and still lose the response, so repeating it would leave two copies. This covers messages, message and event attachments, events, contacts, mail, contact and calendar folders, and OneDrive or SharePoint files restored with `--conflict rename` or `--conflict fail`.
 
-Such a failure is recorded against the item in the run summary and the restore continues. The item may or may not exist in the target. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts whose name and email already match, so re-running the restore fills the gap without duplicating anything. For Outlook, check the reported message in the restore folder before restoring it again.
+Such a failure is recorded against the item in the run summary and the restore continues. The item may or may not exist in the target. A Calendar restore skips events already in the target calendar, and a Contacts restore skips contacts it restored earlier, so re-running the restore fills the gap without duplicating anything. For Outlook, check the reported message in the restore folder before restoring it again.
 
 A 429, or a 503 with `Retry-After`, is still retried: Graph sends these instead of processing the request. Files restored with `--conflict replace`, folder creation on OneDrive and SharePoint, upload sessions, and upload chunks are safe to repeat and keep the full retry policy.
 
