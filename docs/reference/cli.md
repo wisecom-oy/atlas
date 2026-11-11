@@ -1384,4 +1384,6 @@ Rehydration copies the data you select from a designated replica to primary. It 
 
 ::: warning Encryption key safety
 Rehydration needs the replica's encryption key (`_meta/dek.enc`) on primary. Atlas copies it when primary has no key. It replaces an existing key only when that key is provably the only object in primary (a freshly initialized bucket). If primary holds **any** other object, such as Outlook, OneDrive, or SharePoint data or replication records, and its key differs from the source, rehydration aborts with `DekOverwriteRefusedError`. Overwriting would make that data permanently unreadable. If primary's content is disposable, run `atlas delete --purge` first, then rehydrate into the empty bucket.
+
+The key write is conditional. If another run stores a different key on primary between the check and the write, for example a backup started against the empty bucket, rehydration aborts with `DekWriteConflictError` and leaves that key untouched. Stop the other run, then rehydrate again. See [Installing the source key without a race](/security#installing-the-source-key-without-a-race).
 :::

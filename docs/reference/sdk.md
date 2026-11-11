@@ -905,7 +905,7 @@ The sequential loop above is the recommended default. Atlas has no scheduler and
 
 | Object                   | How concurrent writers are handled                                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key                                           |
+| `_meta/dek.enc`          | Created with `If-None-Match: *`. A losing bootstrap adopts the stored key. Rehydrate and replicate write it conditionally and reject with `DekWriteConflictError` (`ATLAS_STORAGE_FAILURE`) when a different key won the race |
 | `identity-registry.json` | Every write is a compare-and-swap on the ETag. A losing writer re-reads and re-applies its change, up to 8 attempts |
 | The tenant bucket        | A run that loses the `CreateBucket` race uses the bucket the other run created                                      |
 | Object Lock retention    | Applied to each object a run writes. No run changes the bucket's own lock configuration                             |

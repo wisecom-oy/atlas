@@ -1,4 +1,5 @@
 import { ConfigError, StorageError } from '@wisecom/atlas-types';
+import { is_precondition_failure } from '@/services/shared/precondition-failure';
 
 /** Thrown when a tenant has no wrapped key to re-wrap. */
 export class DekWrapperMissingError extends ConfigError {
@@ -74,11 +75,8 @@ export class DekWrapperChangedError extends StorageError {
  */
 export function describe_rewrap_write_failure(key: string, err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err);
-  const name = err instanceof Error ? err.name : '';
 
-  if (name === 'PreconditionFailedError' || /precondition|412/i.test(message)) {
-    return new DekWrapperChangedError(key, err);
-  }
+  if (is_precondition_failure(err)) return new DekWrapperChangedError(key, err);
 
   if (!/access denied|forbidden|403|object lock|retention|WORM/i.test(message)) {
     return err instanceof Error ? err : new Error(message);
