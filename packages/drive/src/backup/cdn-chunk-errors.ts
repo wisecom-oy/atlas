@@ -25,6 +25,7 @@ export class ChunkDownloadError extends Error {
   /** HTTP status of the failing attempt, or undefined when it failed before any response. */
   readonly status_code: number | undefined;
 
+  /** Takes the status from `cause` when it is a `CdnHttpError`. */
   constructor(message: string, cause: unknown) {
     super(message, { cause });
     this.name = 'ChunkDownloadError';

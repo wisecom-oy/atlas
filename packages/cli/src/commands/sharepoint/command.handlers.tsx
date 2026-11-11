@@ -143,8 +143,10 @@ export async function execute_sharepoint_backup(
     });
   } finally {
     gate.dispose();
+    // In `finally`, so a run that throws after Ctrl+C still drops the cooldown timer that would
+    // otherwise keep the process alive.
+    await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
   }
-  await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Backup')} />);
   if (results.length > 1) {

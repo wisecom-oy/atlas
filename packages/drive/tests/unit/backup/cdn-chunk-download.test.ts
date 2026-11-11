@@ -177,6 +177,27 @@ describe('create_cdn_chunk_downloader', () => {
     });
   });
 
+  it.each([
+    ['ends early', CHUNK_SIZE_BYTES + 10],
+    ['runs long', CHUNK_SIZE_BYTES + 2048],
+  ])(
+    'rejects a streamed fallback body that %s instead of returning it as the file',
+    async (_case, length) => {
+      const total = CHUNK_SIZE_BYTES + 1024;
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(range_response(200, Buffer.alloc(total, 1)))
+          .mockResolvedValueOnce(range_response(200, Buffer.alloc(length, 1))),
+      );
+
+      await expect(
+        downloader.download_file_chunked('https://cdn.test/file', total, 'item-1'),
+      ).rejects.toThrow(`produced ${length} bytes, expected ${total}`);
+    },
+  );
+
   it('accepts a 200 for a single-chunk item, where the whole file is the chunk', async () => {
     const whole = Buffer.alloc(1024, 7);
     const fetch_mock = vi.fn().mockResolvedValue(range_response(200, whole));

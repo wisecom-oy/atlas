@@ -6,6 +6,7 @@ import {
 } from '@wisecom/atlas-m365-graph';
 import type { DriveWorkload } from '@/drive-ports';
 import { stream_whole_file_in_chunks } from '@/backup/whole-file-stream';
+import { size_checked_chunks } from '@/backup/download-integrity';
 import { CdnHttpError, ChunkDownloadError, RangeIgnoredError } from '@/backup/cdn-chunk-errors';
 import {
   CHUNK_SIZE_BYTES,
@@ -69,6 +70,7 @@ async function collect_chunks(chunks: AsyncIterable<Buffer>): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
+/** Yields the file chunk by chunk, switching to one streamed download if the server ignores Range. */
 async function* fetch_file_chunks(
   label: string,
   download_url: string,
@@ -98,7 +100,7 @@ async function* fetch_file_chunks(
       chunk = await download_chunk_with_retry(label, request, i + 1, chunk_count, abort_signal);
     } catch (err) {
       if (!(err instanceof RangeIgnoredError)) throw err;
-      yield* stream_after_ignored_range(label, download_url, item_id, yielded_chunks, abort_signal);
+      yield* stream_after_ignored_range(label, request, yielded_chunks, abort_signal);
       return;
     }
     yielded_chunks++;
@@ -115,14 +117,18 @@ async function* fetch_file_chunks(
  * cipher, and appending a second copy of the file would produce a validly encrypted object holding
  * a prefix plus the whole file (issue #338). The item fails instead, and the next run takes the
  * streamed path from the first chunk.
+ *
+ * The streamed body is held to the item's size: a response that ends early or runs long would
+ * otherwise come back from `download_file_chunked` as a complete file with the wrong bytes. The
+ * buffered SharePoint copy this replaced rejected that, and the Range path checks every chunk.
  */
 async function* stream_after_ignored_range(
   label: string,
-  download_url: string,
-  item_id: string,
+  request: ChunkRequest,
   yielded_chunks: number,
   abort_signal?: AbortSignal,
 ): AsyncGenerator<Buffer> {
+  const { url: download_url, item_id, total_bytes } = request;
   if (yielded_chunks > 0) {
     throw new Error(
       `Range requests stopped being honoured for ${label} item ${item_id} after ` +
@@ -133,15 +139,17 @@ async function* stream_after_ignored_range(
     `Range requests are ignored for ${label} item ${item_id} (HTTP 200 with the full body); ` +
       `falling back to one streamed download`,
   );
-  yield* stream_whole_file_in_chunks(download_url, item_id, {
+  const streamed = stream_whole_file_in_chunks(download_url, item_id, {
     abort_signal,
     chunk_size_bytes: CHUNK_SIZE_BYTES,
     // Same per-chunk budget the Range path uses, applied between reads rather than to the whole
     // transfer, so a stalled body is cut off but a slow one is not (issue #198).
     stall_timeout_ms: compute_chunk_timeout_ms(CHUNK_SIZE_BYTES),
   });
+  yield* size_checked_chunks(streamed, item_id, total_bytes);
 }
 
+/** Fetches one chunk, retrying transient failures up to MAX_CHUNK_RETRIES times. */
 async function download_chunk_with_retry(
   label: string,
   request: ChunkRequest,
@@ -195,10 +203,12 @@ function compute_chunk_retry_delay(err: unknown, attempt: number): number {
   return retry_after_ms ?? compute_retry_delay(attempt);
 }
 
+/** The message of an Error, or the stringified value of anything else that was thrown. */
 function describe_error(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Exponential backoff from 1 second with up to 1 second of jitter, capped at 30 seconds. */
 function compute_retry_delay(attempt: number): number {
   const base = CHUNK_BASE_DELAY_MS * 2 ** attempt;
   const jitter = Math.random() * CHUNK_BASE_DELAY_MS;
