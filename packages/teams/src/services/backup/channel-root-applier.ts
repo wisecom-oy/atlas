@@ -22,6 +22,7 @@ import { as_root_refusal, RootRefusal } from '@/services/backup/root-refusal';
 import { mark_root_removed, store_thread } from '@/services/backup/thread-store';
 import { canonical_json } from '@/services/shared/canonical-json';
 import { error_message } from '@/services/shared/error-message';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** The outcome of one batch of root tasks: roots it recorded, and whether an interrupt stopped it. */
 export interface RootBatchResult {
@@ -209,7 +210,7 @@ async function apply_one_root(
   if (changed) scope.counters.threads_changed++;
   scope.counters.messages_stored += stored.stored;
   scope.counters.messages_deduplicated += stored.deduped;
-  warnings.push(...stored.warnings);
+  append_all(warnings, stored.warnings);
   return count_deletion(scope, previous, stored.thread);
 }
 

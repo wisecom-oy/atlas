@@ -7,6 +7,7 @@ import {
   get_json,
   mailbox_url,
 } from '@/adapters/graph-contacts-requests';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 type DeltaItem = GraphContactPayload & { readonly '@removed'?: unknown };
 
@@ -47,7 +48,7 @@ async function read_delta(
     if (seen.has(next)) throw new Error('Contacts delta paging did not advance');
     seen.add(next);
     const page: DeltaPage = await get_json(client, next, CONTACTS_READ, IMMUTABLE_ID_PREFER);
-    items.push(...(page.value ?? []));
+    append_all(items, page.value ?? []);
     next = page['@odata.nextLink'];
     delta_link = page['@odata.deltaLink'] ?? delta_link;
   }

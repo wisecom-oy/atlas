@@ -18,6 +18,7 @@ import type {
 } from '@/services/backup/library-item-processor';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import type { DriveRecrawl } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 export interface SharePointLibraryScanResult {
   entries: SharePointManifestEntry[];
@@ -128,7 +129,7 @@ export async function scan_all_libraries({
 
       result.failed_items = library_result.failed_items;
       result.package_reports.push(library_result.package_report);
-      result.entries.push(...library_result.entries);
+      append_all(result.entries, library_result.entries);
       result.files_stored += library_result.files_stored;
       result.files_deduplicated += library_result.files_deduplicated;
       result.deleted_items += library_result.deleted_items;

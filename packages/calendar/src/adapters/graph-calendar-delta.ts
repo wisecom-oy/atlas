@@ -2,6 +2,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import { is_invalid_delta_error } from '@wisecom/atlas-m365-graph';
 import type { CalendarEventDelta, GraphEventPayload } from '@wisecom/atlas-types';
 import { CALENDARS_READ, get_json, mailbox_url } from '@/adapters/graph-calendar-requests';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 type DeltaItem = GraphEventPayload & { readonly '@removed'?: unknown };
 
@@ -82,7 +83,7 @@ async function read_delta(
     if (seen.has(next)) throw new Error('Calendar delta paging did not advance');
     seen.add(next);
     const page: DeltaPage = await get_json(client, next, CALENDARS_READ);
-    items.push(...(page.value ?? []));
+    append_all(items, page.value ?? []);
     next = page['@odata.nextLink'];
     delta_link = page['@odata.deltaLink'] ?? delta_link;
   }

@@ -17,6 +17,7 @@ import type {
 } from '@wisecom/atlas-types';
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /**
  * Hidden folders that hold client state rather than mail.
@@ -112,8 +113,9 @@ async function walk_folder_level(
     });
 
     if ((record.childFolderCount ?? 0) > 0) {
-      folders.push(
-        ...(await walk_folder_level(fetch_children, options, record.id, path, depth + 1)),
+      append_all(
+        folders,
+        await walk_folder_level(fetch_children, options, record.id, path, depth + 1),
       );
     }
   }

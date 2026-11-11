@@ -1,4 +1,5 @@
 import { fold_drive_snapshot_chain } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** What a tombstone needs from a manifest entry; both providers' entries carry it. */
 interface TrackedEntry {
@@ -83,7 +84,7 @@ export async function append_recrawl_tombstones<Entry extends TrackedEntry>(
       );
     })
     .map((entry) => to_tombstone(entry, backup_at));
-  scan.entries.push(...tombstones);
+  append_all(scan.entries, tombstones);
   scan.deleted_items += tombstones.length;
 }
 

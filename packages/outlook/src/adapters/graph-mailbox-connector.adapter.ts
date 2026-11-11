@@ -39,6 +39,7 @@ import {
   fetch_mail_continuation_page,
   run_mail_delta_pass,
 } from '@/adapters/graph-mail-delta-sync';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 @injectable()
 export class GraphMailboxConnector implements MailboxConnector {
@@ -268,7 +269,7 @@ export class GraphMailboxConnector implements MailboxConnector {
     while (current_url) {
       const page = await fetch_mail_continuation_page(this._client, current_url, 100);
       if (page.value) {
-        all_items.push(...(page.value as T[]));
+        append_all(all_items, page.value as T[]);
       }
       current_url = page['@odata.nextLink'];
     }

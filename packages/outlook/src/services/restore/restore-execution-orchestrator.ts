@@ -28,6 +28,7 @@ import type { OperationControlOptions, TransferProgressReporter } from '@wisecom
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Creates one message via Graph from its stored payload, then uploads attachments. */
 export async function restore_one_entry(
@@ -194,7 +195,10 @@ export async function restore_folder_entries(
       attachments += outcome.att;
       // The message landed, so this is not an entry failure, but the mailbox is missing content
       // the snapshot holds. Reporting it keeps the run out of a clean exit (issue #341).
-      attachment_errors.push(...outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`));
+      append_all(
+        attachment_errors,
+        outcome.attachment_errors.map((e) => `${entry.object_id}: ${e}`),
+      );
       messages.push(outcome.report);
       const shortfall = attachment_shortfall_warning(outcome.report);
       if (shortfall) warnings.push(shortfall);

@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { ReplicationResult, ReplicationStatusRecord } from '@wisecom/atlas-types';
 import type { StorageTarget } from '@wisecom/atlas-types';
 import type { DriveReplicationDescriptor } from '@/services/replication/drive-replication-descriptor';
+import { append_all } from '@/utils/append-all';
 
 interface DriveManifestShape {
   readonly snapshot_id: string;
@@ -50,7 +51,7 @@ export async function collect_drive_ancillary_keys<TManifest>(
 ): Promise<string[]> {
   const keys: string[] = [];
   const index_keys = await ctx.storage.list(`${descriptor.index_prefix}/${owner_id}/`);
-  keys.push(...index_keys);
+  append_all(keys, index_keys);
   const cursor_key = `${descriptor.meta_prefix}/${owner_id}/delta.json`;
   if (await ctx.storage.exists(cursor_key)) keys.push(cursor_key);
   return keys;

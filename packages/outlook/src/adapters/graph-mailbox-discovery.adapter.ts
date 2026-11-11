@@ -25,6 +25,7 @@ import {
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 const USERS_SELECT = 'id,mail,displayName,createdDateTime,assignedPlans';
 const USERS_URL = `/users?$select=${USERS_SELECT}&$top=999`;
@@ -107,7 +108,7 @@ export class GraphMailboxDiscoveryAdapter implements MailboxDiscoveryService {
       );
 
       // ponytail: records are cast, not narrowed; the mappers already skip a user without id or mail
-      all.push(...(page.users as GraphUserRecord[]));
+      append_all(all, page.users as GraphUserRecord[]);
       url = page.next_link;
     }
 

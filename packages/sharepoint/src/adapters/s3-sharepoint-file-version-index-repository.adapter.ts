@@ -13,6 +13,7 @@ import {
   validate_key_segment,
 } from '@/services/shared/storage-keys';
 import { later_watermark } from '@wisecom/atlas-drive/versioning/version-watermark';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
 /** Payload of one run's version index object. */
 interface RunIndexPayload {
@@ -94,7 +95,7 @@ export class S3SharePointFileVersionIndexRepository implements SharePointFileVer
     const rows_by_file = new Map<string, SharePointFileVersionIndex['versions']>();
     await this.for_each_index(ctx, site_id, (idx) => {
       const rows = rows_by_file.get(idx.file_id);
-      if (rows) rows.push(...idx.versions);
+      if (rows) append_all(rows, idx.versions);
       else rows_by_file.set(idx.file_id, [...idx.versions]);
     });
     return [...rows_by_file].map(([file_id, versions]) => ({

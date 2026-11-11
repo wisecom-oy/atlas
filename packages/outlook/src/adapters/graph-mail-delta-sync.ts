@@ -1,4 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type { DeltaPageCallback, DeltaSyncResult, MailMessage } from '@wisecom/atlas-types';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { GraphPageResponse, GraphDeltaMessage } from '@/adapters/graph-delta-message-mapper';
@@ -140,7 +141,7 @@ async function hand_page_over(
   handed_over_ids: Set<string>,
 ): Promise<{ should_continue: boolean | void; new_total_streamed: number }> {
   if (!on_page) {
-    messages.push(...page_messages);
+    append_all(messages, page_messages);
     return { should_continue: true, new_total_streamed: total_streamed };
   }
 
