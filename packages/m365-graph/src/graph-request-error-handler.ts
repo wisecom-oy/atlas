@@ -6,7 +6,15 @@ import {
   get_active_throttle_pool,
   get_active_throttle_scope,
 } from '@wisecom/atlas-core/services/shared/graph-request-context';
-import { extract_retry_after_ms } from '@/graph-retry-after';
+import {
+  MAX_COOLDOWN_RELEASE_JITTER_MS,
+  cooldown_release_jitter_ms,
+} from '@wisecom/atlas-core/services/shared/cooldown-release-jitter';
+import {
+  MAX_RETRY_AFTER_MS,
+  extract_requested_retry_after_ms,
+  extract_retry_after_ms,
+} from '@/graph-retry-after';
 import { race_abort, run_attempt, sleep, throw_if_cancelled } from '@/graph-attempt-cancellation';
 import { is_network_error } from '@/graph-network-error';
 import { ThrottledError } from '@wisecom/atlas-types';
@@ -30,14 +38,17 @@ const REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_THROTTLE_SECONDS = 30;
 
 /**
- * Ceiling on the time one logical call spends waiting: backoff delays, Retry-After waits and
- * cooldown waits. Time spent inside an attempt does not count, so a slow download keeps its
- * retries. Sized just above the 12-retry exponential schedule (about 23.5 minutes at the 5-minute
- * cap, plus jitter), so backoff alone always keeps every retry; Retry-After and cooldown waits are
- * what it bounds.
+ * Waiting after which one logical call starts no new wait: backoff delays, Retry-After waits and
+ * cooldown waits. A wait it does start runs in full, so a Retry-After or cooldown up to the 1-hour
+ * cap is honoured rather than failed (issue #641), and one call waits at most this budget plus one
+ * such wait. Time spent inside an attempt does not count, so a slow download keeps its retries.
+ * Sized just above the 12-retry exponential schedule (about 23.5 minutes at the 5-minute cap, plus
+ * jitter), so backoff alone always keeps every retry.
  */
 const RETRY_BUDGET_MS = 24 * 60_000;
-/** Retry-After values below this are raised to it, with jitter, so a zero value cannot spin the loop. */
+/** The longest one cooldown wait may run: the Retry-After cap plus the release jitter. */
+const MAX_COOLDOWN_WAIT_MS = MAX_RETRY_AFTER_MS + MAX_COOLDOWN_RELEASE_JITTER_MS;
+/** Retry-After values below this are raised to it, so a zero value cannot spin the loop. */
 const MIN_RETRY_AFTER_MS = 1_000;
 
 export interface GraphRetryOptions {
@@ -116,10 +127,10 @@ export function is_retryable_error(err: unknown): boolean {
  * transient HTTP errors (429, 500, 502, 503, 504) and network-level errors (ETIMEDOUT,
  * ECONNRESET, socket hang up, etc.).
  *
- * Retries up to 12 times with delays capped at 5 minutes. A call stops retrying when its next
- * wait would pass a 24 minute budget, counting waits and cooldowns, so one call cannot outlast it.
- * Respects Retry-After on 429 exactly, and fails with ThrottledError when Retry-After exceeds the
- * 5-minute cap. Each retry is logged for observability.
+ * Retries up to 12 times with backoff delays capped at 5 minutes. A call starts no new wait once it
+ * has waited 24 minutes, counting waits and cooldowns. Honours Retry-After up to the 1-hour cap,
+ * plus a small positive jitter so callers throttled together do not retry together, and fails with
+ * ThrottledError naming the value when Retry-After exceeds that cap. Each retry is logged.
  *
  * `fn` receives a signal that fires when its attempt times out or the run is cancelled. A request
  * that passes it to fetch (`.option('signal', signal)` on a Graph request) is torn down rather than
@@ -141,13 +152,13 @@ export async function with_graph_retry<T>(
     throw_if_cancelled(abort_signal);
     // Per attempt, not per call. A retry loop that started before the cooldown
     // began would otherwise keep firing into Graph for the whole of it.
-    waited_ms += await wait_out_throttle(RETRY_BUDGET_MS - waited_ms, abort_signal);
+    waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
     // Pacing is charged to no budget: it spaces requests out, it is not a cooldown Graph imposed.
     // A cooldown raised while this request waited for its slot is honoured before it is sent.
     const pacing = get_active_request_pacing();
     if (pacing) {
       await pacing.before_attempt(abort_signal);
-      waited_ms += await wait_out_throttle(RETRY_BUDGET_MS - waited_ms, abort_signal);
+      waited_ms += await wait_out_throttle(cooldown_wait_bound_ms(waited_ms), abort_signal);
     }
     try {
       return await run_attempt(fn, timeout_ms, abort_signal);
@@ -160,18 +171,17 @@ export async function with_graph_retry<T>(
       // spent, so every other owner backs off during this cooldown too.
       raise_throttle_on_429(err, retry_after);
       if (status_code_of(err) === 429) get_active_request_pacing()?.on_throttled();
-      const delay = retry_delay_ms(attempt, retry_after);
-      if (attempt === MAX_RETRIES || delay === undefined || waited_ms + delay > RETRY_BUDGET_MS) {
+      throw_if_retry_after_above_cap(err);
+      if (attempt === MAX_RETRIES || waited_ms >= RETRY_BUDGET_MS) {
         throw as_exhausted_failure(err, attempt);
       }
 
+      const delay = retry_delay_ms(attempt, retry_after);
       const reason = describe_graph_error(err);
       logger.debug(
         `Retry ${attempt + 1}/${MAX_RETRIES} in ${(delay / 1000).toFixed(1)}s -- ${reason}`,
       );
-
-      waited_ms += delay;
-      await sleep(delay, abort_signal);
+      waited_ms += await wait_before_retry(delay, retry_after ?? delay, abort_signal);
     }
   }
   throw new Error('with_graph_retry: unreachable');
@@ -199,13 +209,34 @@ function status_code_of(err: unknown): unknown {
 }
 
 /**
+ * Fails the call with ThrottledError when Graph asked for a Retry-After longer than the 1-hour cap,
+ * naming the value it sent. Waiting it out would hold the run for longer than Atlas allows, and
+ * retrying early would ignore it. The cooldown is still raised for the capped hour.
+ */
+function throw_if_retry_after_above_cap(err: unknown): void {
+  const requested_ms = extract_requested_retry_after_ms(err);
+  if (requested_ms === undefined || requested_ms <= MAX_RETRY_AFTER_MS) return;
+  throw new ThrottledError(
+    `Microsoft Graph asked to wait ${Math.round(requested_ms / 1000)} s (Retry-After), longer ` +
+      `than the ${MAX_RETRY_AFTER_MS / 1000} s Atlas waits out: ${describe_graph_error(err)}`,
+    requested_ms,
+    { cause: err },
+  );
+}
+
+/** How long a cooldown wait may run: up to the cap while budget remains, otherwise not at all. */
+function cooldown_wait_bound_ms(waited_ms: number): number {
+  return waited_ms < RETRY_BUDGET_MS ? MAX_COOLDOWN_WAIT_MS : 0;
+}
+
+/**
  * Waits out any cooldown the ambient coordinator holds for this request's pool, but no longer than
- * the budget left. A cooldown another owner raised can outlast the budget; the call then fails
- * with the throttle instead of waiting past its own bound. Rejects as soon as the run is cancelled,
- * so a cancelled run does not sit out a cooldown of up to an hour. Resolves with the time waited.
+ * `bound_ms`. A cooldown that outlasts it fails the call with the throttle instead of waiting past
+ * its bound. Rejects as soon as the run is cancelled, so a cancelled run does not sit out a cooldown
+ * of up to an hour. Resolves with the time waited.
  */
 async function wait_out_throttle(
-  budget_ms: number,
+  bound_ms: number,
   abort_signal: AbortSignal | undefined,
 ): Promise<number> {
   const throttle = get_active_throttle();
@@ -214,41 +245,64 @@ async function wait_out_throttle(
   const started = Date.now();
   await race_budget(
     race_abort(throttle.coordinator.wait(pool, get_active_throttle_scope()), abort_signal),
-    budget_ms,
+    bound_ms,
   );
   return Date.now() - started;
 }
 
 /**
- * Raises a Retry-After below MIN_RETRY_AFTER_MS to a jittered floor, so a zero value still waits
- * a moment and raises a real cooldown. Other values, and an absent one, pass through unchanged.
+ * Waits before the next attempt and resolves with the time waited. The coordinator goes first: a
+ * 429 has just raised its cooldown, and it releases this call with the jitter it gives every other
+ * caller parked on it. A local sleep covers what it did not, so with no coordinator, or a host
+ * coordinator that failed open, the call still waits `delay_ms`. Never resumes before
+ * `min_wait_ms`, the Retry-After Graph asked for.
+ */
+async function wait_before_retry(
+  delay_ms: number,
+  min_wait_ms: number,
+  abort_signal: AbortSignal | undefined,
+): Promise<number> {
+  const started = Date.now();
+  const covered_ms = await wait_out_throttle(MAX_COOLDOWN_WAIT_MS, abort_signal);
+  if (covered_ms < min_wait_ms) await sleep(delay_ms - covered_ms, abort_signal);
+  return Date.now() - started;
+}
+
+/**
+ * Raises a Retry-After below MIN_RETRY_AFTER_MS to that floor, so a zero value still waits a moment
+ * and raises a real cooldown. Other values, and an absent one, pass through unchanged.
  */
 function floor_retry_after_ms(retry_after_ms: number | undefined): number | undefined {
   if (retry_after_ms === undefined || retry_after_ms >= MIN_RETRY_AFTER_MS) return retry_after_ms;
-  return MIN_RETRY_AFTER_MS + Math.random() * MIN_RETRY_AFTER_MS;
+  return MIN_RETRY_AFTER_MS;
 }
 
 /** Resolves with `promise`, or rejects with ThrottledError once `ms` elapses first. */
 function race_budget(promise: Promise<void>, ms: number): Promise<void> {
   const { promise: expired, reject } = Promise.withResolvers<never>();
   const timer = setTimeout(
-    () => reject(new ThrottledError('Microsoft Graph cooldown outlasted the retry budget')),
+    () =>
+      reject(
+        new ThrottledError(
+          `Microsoft Graph cooldown outlasted the ${Math.round(ms / 1000)} s Atlas waits out`,
+        ),
+      ),
     Math.max(ms, 0),
   );
   return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
 }
 
 /**
- * The wait before the next attempt. A Retry-After is honoured exactly: jitter would overrun it, and
- * the cooldown raised from the same value already holds every other request for that long. Without
- * one, jittered exponential backoff capped at MAX_DELAY_MS. Undefined when Retry-After exceeds that
- * cap: waiting it out would break the cap and retrying early would ignore it, so the call fails.
+ * The wait before the next attempt. A Retry-After, already capped at one hour, is honoured plus a
+ * small positive jitter (`cooldown_release_jitter_ms`), so calls throttled together do not retry in
+ * the same instant and never retry before Graph asked. Without one, jittered exponential backoff
+ * capped at MAX_DELAY_MS.
  */
-function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): number | undefined {
+function retry_delay_ms(attempt: number, retry_after_ms: number | undefined): number {
   if (retry_after_ms === undefined) {
     return Math.min(BASE_DELAY_MS * 2 ** attempt + Math.random() * BASE_DELAY_MS, MAX_DELAY_MS);
   }
-  return retry_after_ms <= MAX_DELAY_MS ? retry_after_ms : undefined;
+  return retry_after_ms + cooldown_release_jitter_ms(retry_after_ms);
 }
 
 /**

@@ -36,7 +36,7 @@ describe('with_graph_retry Retry-After from the SDK Headers object', () => {
     vi.useRealTimers();
   });
 
-  it('waits exactly the Retry-After value, without jitter, before the next attempt', async () => {
+  it('waits the Retry-After value plus at most one second of jitter before the next attempt', async () => {
     const fn = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(throttled('1'))
@@ -46,31 +46,37 @@ describe('with_graph_retry Retry-After from the SDK Headers object', () => {
     await vi.advanceTimersByTimeAsync(999);
     expect(fn).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(1_001);
     expect(fn).toHaveBeenCalledTimes(2);
     await expect(promise).resolves.toBe('ok');
   });
 
-  it('fails with ThrottledError without retrying when Retry-After exceeds the 5 minute cap', async () => {
-    const err = throttled('600');
+  it('fails with ThrottledError naming the value when Retry-After exceeds the 1 hour cap', async () => {
+    const err = throttled('7200');
     const fn = vi.fn().mockRejectedValue(err);
 
     const result = await with_graph_retry(fn).catch((e: unknown) => e);
 
     expect(result).toBeInstanceOf(ThrottledError);
-    expect(result).toMatchObject({ code: 'ATLAS_THROTTLED', retry_after_ms: 600_000, cause: err });
+    expect(result).toMatchObject({
+      code: 'ATLAS_THROTTLED',
+      retry_after_ms: 7_200_000,
+      cause: err,
+    });
+    expect((result as Error).message).toContain('7200 s');
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
-  it('stops retrying when the next wait would pass the 24 minute budget', async () => {
+  it('starts no new wait once 24 minutes have been waited', async () => {
     const fn = vi.fn().mockRejectedValue(throttled('300'));
 
     const promise = with_graph_retry(fn).catch((e: unknown) => e);
-    // Attempts land at 0, 5, 10, 15 and 20 minutes. A sixth would start at 25 minutes, past the 24 minute budget.
-    await vi.advanceTimersByTimeAsync(20 * MINUTE_MS);
+    // Attempts land at about 0, 5, 10, 15, 20 and 25 minutes. After the sixth, 25 minutes of
+    // waiting have passed the 24 minute budget, so no seventh wait starts.
+    await vi.advanceTimersByTimeAsync(26 * MINUTE_MS);
 
     expect(await promise).toBeInstanceOf(ThrottledError);
-    expect(fn).toHaveBeenCalledTimes(5);
+    expect(fn).toHaveBeenCalledTimes(6);
   });
 });
 
@@ -87,14 +93,27 @@ describe('with_graph_retry cooldown wait bounded by the retry budget', () => {
     vi.useRealTimers();
   });
 
-  it('fails with ThrottledError when another owner cooldown outlasts the budget, without calling Graph', async () => {
+  it('waits out a one hour cooldown another owner raised, then sends', async () => {
     coordinator.raise(POOL, 60 * MINUTE_MS);
+    const fn = vi.fn().mockResolvedValue('ok');
+
+    const promise = run_with_throttle_coordinator(coordinator, POOL, () => with_graph_retry(fn));
+    await vi.advanceTimersByTimeAsync(60 * MINUTE_MS - 1);
+    expect(fn).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5_001);
+    await expect(promise).resolves.toBe('ok');
+  });
+
+  it('fails with ThrottledError when a cooldown outlasts the 1 hour cap, without calling Graph', async () => {
+    // A host coordinator can hold a cooldown longer than Atlas ever raises; the in-process fence does not clamp.
+    coordinator.raise(POOL, 120 * MINUTE_MS);
     const fn = vi.fn().mockResolvedValue('ok');
 
     const promise = run_with_throttle_coordinator(coordinator, POOL, () =>
       with_graph_retry(fn),
     ).catch((e: unknown) => e);
-    await vi.advanceTimersByTimeAsync(24 * MINUTE_MS);
+    await vi.advanceTimersByTimeAsync(61 * MINUTE_MS);
 
     expect(await promise).toBeInstanceOf(ThrottledError);
     expect(fn).not.toHaveBeenCalled();
@@ -121,7 +140,8 @@ describe('with_graph_retry budget counts waits, not time inside attempts', () =>
       .mockResolvedValue('ok');
 
     const promise = with_graph_retry(fn, { timeout_ms: 30 * MINUTE_MS });
-    await vi.advanceTimersByTimeAsync(25 * MINUTE_MS + 1_000);
+    // The 1 second Retry-After plus at most 1 second of jitter.
+    await vi.advanceTimersByTimeAsync(25 * MINUTE_MS + 2_000);
 
     await expect(promise).resolves.toBe('ok');
     expect(fn).toHaveBeenCalledTimes(2);
