@@ -66,6 +66,28 @@ describe('Outlook backup cancelled during a Graph retry wait (issue #673)', () =
     expect(outcome.result.manifest.delta_links).not.toHaveProperty('folder-1');
   });
 
+  it('marks a run cut short in the mailbox check as storing nothing', async () => {
+    const h = create_mailbox_sync_harness();
+    vi.mocked(h.mock_connector.mailbox_exists).mockImplementation(graph_call_parked_in_retry_wait);
+
+    const outcome = await cancel_after_five_seconds(h);
+
+    expect(outcome.settled_within_a_second).toBe(true);
+    expect(outcome.result.interrupted).toBe(true);
+    expect(outcome.result.snapshot_stored).toBe(false);
+    expect(h.mock_manifests.save).not.toHaveBeenCalled();
+    expect(h.mock_cursors.save).not.toHaveBeenCalled();
+  });
+
+  it('marks a run that reached its folders as having a stored snapshot', async () => {
+    const h = create_mailbox_sync_harness();
+    vi.mocked(h.mock_connector.fetch_delta).mockImplementation(graph_call_parked_in_retry_wait);
+
+    const outcome = await cancel_after_five_seconds(h);
+
+    expect(outcome.result.snapshot_stored).toBe(true);
+  });
+
   it('ends a MIME read wait without recording the message as captured from JSON', async () => {
     const h = create_mailbox_sync_harness();
     const page: MailMessage[] = [make_message('m1', 'body')];

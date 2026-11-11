@@ -249,6 +249,7 @@ export class MailboxSyncService implements BackupUseCase {
         manifest,
         mode,
         interrupted,
+        snapshot_stored: true,
         summary: {
           stored,
           deduplicated,

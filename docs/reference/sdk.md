@@ -528,6 +528,10 @@ Teams `backup` stops waiting on the request in flight as soon as the signal fire
 
 ## Outlook options and results
 
+### Interrupted before any folder
+
+A backup cancelled before it read any folder resolves with `interrupted: true` and `snapshotStored: false`. Its `snapshot` and `manifest` are placeholders that were never stored, so do not record or look up that snapshot id. Every other result has `snapshotStored: true`.
+
 ### Folder coverage
 
 `backup()` walks every mail folder at any depth, including Drafts, Outbox, Junk Email, and folders Exchange marks hidden. Pass `excludeJunk` to skip Junk Email and its subfolders:
