@@ -276,7 +276,7 @@ A run creates a snapshot only when something changed. Two outcomes end without o
 | `no_changes`               | The site has content, and nothing changed since the last run | An earlier snapshot covers it |
 | `no_content`               | The site holds nothing to protect                            | None                          |
 
-The field is absent when a snapshot was created, and absent when the run was interrupted or ended UNHEALTHY. In those cases, check `errors` and `healthy`. The CLI prints `No SharePoint changes detected. Snapshot skipped.` for `no_changes`, and warns that nothing was backed up for `no_content`.
+The field is absent when a snapshot was created, and absent when the run was interrupted or ended UNHEALTHY. In those cases, check `errors` and `healthy`. The CLI prints `No SharePoint changes detected. Snapshot skipped.` for `no_changes` only, and warns that nothing was backed up for `no_content`. A run that stored nothing because it was interrupted, or because every changed file failed, prints `No snapshot created: the run was interrupted or every change failed.` and exits `2`.
 
 ## OneNote notebooks
 
