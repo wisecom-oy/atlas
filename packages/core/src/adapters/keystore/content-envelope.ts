@@ -1,3 +1,5 @@
+import { UnsupportedFormatVersionError } from '@wisecom/atlas-types';
+
 /**
  * The versioned header that binds a stored object to the place it belongs.
  *
@@ -40,13 +42,15 @@ export function has_content_header(blob: Buffer): boolean {
  * Reads and checks the header of a blob that carries one.
  *
  * A version this build does not know is refused rather than guessed at: the layout after the
- * header is what a future version would change.
+ * header is what a future version would change. It raises `UnsupportedFormatVersionError`, so a
+ * reader can tell an object a newer Atlas wrote from a damaged one and never skips or quarantines
+ * it as damage (issue #631).
  */
 export function read_content_header(blob: Buffer): Buffer {
   const header = blob.subarray(0, CONTENT_HEADER_LENGTH);
   const version = header[CONTENT_MAGIC.length];
   if (version !== CONTENT_FORMAT_VERSION) {
-    throw new Error(
+    throw new UnsupportedFormatVersionError(
       `Unsupported content envelope version ${String(version)}; this build writes and reads ` +
         `version ${CONTENT_FORMAT_VERSION}`,
     );

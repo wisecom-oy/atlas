@@ -4,6 +4,10 @@ import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import type { DriveManifestEntry, DriveSnapshotManifest } from '@wisecom/atlas-drive/drive-ports';
 import { verify_drive_snapshot } from '@wisecom/atlas-drive/verification/verify-snapshot';
+import {
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
 const CONTENT = Buffer.from('file-content');
@@ -41,9 +45,9 @@ function verify(entries: DriveManifestEntry[], storage: Record<string, unknown>)
       manifests: {
         workload: 'OneDrive',
         find_by_snapshot: async () => manifest,
-        list_snapshots: async () => [manifest],
+        list_readable_snapshots: async () => readable_manifests([manifest]),
       },
-      list_indexes: async () => [],
+      list_indexes: async () => readable_indexes(),
     },
     'tenant-1',
     OWNER_ID,

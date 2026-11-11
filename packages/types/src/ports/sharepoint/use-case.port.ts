@@ -29,6 +29,11 @@ export interface SharePointBackupSummary {
   readonly errors: string[];
   readonly warnings: string[];
   readonly healthy: boolean;
+  /**
+   * Earlier manifests a re-crawl could not read while placing tombstones, by key. The run still
+   * completed; only those manifests' files went uncompared (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SharePointBackupResult {
@@ -84,6 +89,8 @@ export interface SharePointVerificationResult {
   readonly failed_file_ids: string[];
   readonly interrupted: boolean;
   readonly index_issues: string[];
+  /** Damaged manifests outside the snapshot's chain, and damaged version indexes, by key (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SharePointVerificationUseCase {

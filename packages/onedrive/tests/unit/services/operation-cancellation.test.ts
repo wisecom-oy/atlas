@@ -14,6 +14,7 @@ import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
 import { OneDriveSaveService } from '@/services/save/save.service';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');
@@ -62,7 +63,7 @@ function make_context(storage: TenantContext['storage']): TenantContext {
 function make_manifest_repository(manifest: OneDriveSnapshotManifest): OneDriveManifestRepository {
   return {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 }
 
@@ -174,7 +175,9 @@ describe('OneDrive operation cancellation', () => {
       create: vi.fn().mockResolvedValue(context),
       create_readonly: vi.fn().mockResolvedValue(context),
     } as unknown as TenantContextFactory;
-    const indexes = { list_by_owner: vi.fn() } as unknown as OneDriveFileVersionIndexRepository;
+    const indexes = {
+      list_readable_by_owner: vi.fn(),
+    } as unknown as OneDriveFileVersionIndexRepository;
     const on_progress = vi.fn();
     const service = new OneDriveVerificationService(
       factory,
@@ -188,7 +191,7 @@ describe('OneDrive operation cancellation', () => {
     });
 
     expect(factory.create).not.toHaveBeenCalled();
-    expect(indexes.list_by_owner).not.toHaveBeenCalled();
+    expect(indexes.list_readable_by_owner).not.toHaveBeenCalled();
     expect(storage.exists).not.toHaveBeenCalled();
     expect(result.total_checked).toBe(0);
     expect(result.interrupted).toBe(true);

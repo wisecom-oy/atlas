@@ -1,4 +1,7 @@
 import type { Container } from 'inversify';
+import type { QuarantineUseCase } from '@wisecom/atlas-types';
+import { ONEDRIVE_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { with_camelized_partial_result } from '@/partial-listing';
 import type {
   OneDriveApi,
   OneDriveBackupUseCase,
@@ -33,6 +36,7 @@ import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the OneDriveApi sub-namespace from the DI container. */
 export function create_onedrive_api(tenant_id: string, container: Container): OneDriveApi {
+  const quarantine = container.get<QuarantineUseCase>(ONEDRIVE_QUARANTINE_USE_CASE_TOKEN);
   const backup = container.get<OneDriveBackupUseCase>(ONEDRIVE_BACKUP_USE_CASE_TOKEN);
   const verification = container.get<OneDriveVerificationUseCase>(
     ONEDRIVE_VERIFICATION_USE_CASE_TOKEN,
@@ -116,13 +120,20 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
       );
     },
     async listSnapshots(owner_input) {
+      const resolved_id = await resolve_owner_id(owner_input);
       return camelize(
-        await catalog.list_onedrive_snapshots(tenant_id, await resolve_owner_id(owner_input)),
+        await with_camelized_partial_result(() =>
+          catalog.list_onedrive_snapshots(tenant_id, resolved_id),
+        ),
       );
     },
     async listFileVersions(owner_input, file_ref) {
       const owner_id = await resolve_owner_id(owner_input);
-      return camelize(await catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref));
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_onedrive_file_versions(tenant_id, owner_id, file_ref),
+        ),
+      );
     },
     async deleteOwnerData(owner_input) {
       return camelize(
@@ -161,6 +172,9 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
     async getStats(owner_input) {
       const owner_id = owner_input === undefined ? undefined : await resolve_owner_id(owner_input);
       return camelize(await stats.get_onedrive_stats(tenant_id, owner_id));
+    },
+    async quarantine(storage_key) {
+      return camelize(await quarantine.quarantine_unreadable_object(tenant_id, storage_key));
     },
   };
 }

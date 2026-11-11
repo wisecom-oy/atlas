@@ -12,6 +12,7 @@ import {
 import { DriveDecryptAuthError } from '@/restore/decrypt-auth-error';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { restore_drive_version, type DriveVersionRestoreDeps } from '@/restore/version-restore';
+import { readable_indexes } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -61,7 +62,9 @@ function make_deps(): DriveVersionRestoreDeps & { connector: { upload_small_file
         .mockImplementation(graph_call_parked_in_retry_wait),
       upload_large_file: vi.fn().mockResolvedValue(undefined),
     },
-    list_indexes: vi.fn().mockResolvedValue([index('file-1'), index('file-2'), index('file-3')]),
+    list_indexes: vi
+      .fn()
+      .mockResolvedValue(readable_indexes([index('file-1'), index('file-2'), index('file-3')])),
     download_blob: vi.fn().mockResolvedValue(Buffer.from('content')),
     ensure_folder_path: vi.fn().mockResolvedValue('folder-1'),
   };

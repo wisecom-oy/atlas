@@ -1,5 +1,6 @@
 import { fold_drive_snapshot_chain } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import type { ReadableManifestListing } from '@wisecom/atlas-types';
 
 /** What a tombstone needs from a manifest entry; both providers' entries carry it. */
 interface TrackedEntry {
@@ -60,14 +61,29 @@ export interface RecrawlScan<Entry extends TrackedEntry> {
  * files (#199). The scan lists a drive there only when its enumeration and processing finished,
  * because absence proves nothing when the listing stopped early. `is_in_scope` narrows the
  * comparison to a `--folder` scope. No manifest is read when nothing was re-crawled.
+ *
+ * A damaged earlier manifest is left out of the comparison and its key returned (issue #631). For
+ * a whole-drive re-crawl that is safe: every file that exists is returned and written, so a
+ * tombstone only lands on a file that is gone. A file only the damaged manifest knew about gets
+ * none, but no readable manifest lists it either; a file it recorded as deleted gets one again,
+ * restating a real deletion.
+ *
+ * A `--folder` re-crawl returns only the files inside the scope. A file the damaged manifest
+ * recorded at a path outside the scope still exists, yet without that entry its older in-scope
+ * entry looks gone and would receive a permanent tombstone, a deletion that never happened. So a
+ * scoped re-crawl places no tombstones while an earlier manifest is unreadable. A file deleted in
+ * the meantime then keeps its older entry until a re-crawl after the manifest is quarantined.
  */
 export async function append_recrawl_tombstones<Entry extends TrackedEntry>(
   scan: RecrawlScan<Entry>,
-  list_previous_manifests: () => Promise<readonly ChainManifest<Entry>[]>,
+  list_previous_manifests: () => Promise<ReadableManifestListing<ChainManifest<Entry>>>,
   is_in_scope: (entry: Entry) => boolean = () => true,
-): Promise<void> {
-  if (scan.recrawls.length === 0) return;
-  const previous = fold_newest_entries(await list_previous_manifests());
+  scoped = false,
+): Promise<string[]> {
+  if (scan.recrawls.length === 0) return [];
+  const listing = await list_previous_manifests();
+  if (scoped && listing.unreadable_keys.length > 0) return listing.unreadable_keys;
+  const previous = fold_newest_entries(listing.manifests);
   const returned_by_drive = new Map(scan.recrawls.map((r) => [r.drive_id, r.returned_item_ids]));
   const written = new Set(scan.entries.map((entry) => entry.file_id));
   const backup_at = new Date().toISOString();
@@ -86,6 +102,7 @@ export async function append_recrawl_tombstones<Entry extends TrackedEntry>(
     .map((entry) => to_tombstone(entry, backup_at));
   append_all(scan.entries, tombstones);
   scan.deleted_items += tombstones.length;
+  return listing.unreadable_keys;
 }
 
 /** Folds every earlier manifest newest-first into the latest state of each file. */

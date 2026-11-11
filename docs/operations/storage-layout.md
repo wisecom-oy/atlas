@@ -19,6 +19,7 @@ atlas-{tenant_id}/
 │   │   ├── onedrive/{owner_id}/                 # OneDrive
 │   │   └── sharepoint/{site_id}/                # SharePoint
 │   └── replica.marker                           # present only on replica buckets
+├── _quarantine/{original_key}                    # damaged manifests and version indexes moved aside
 ├── identity-registry.json                       # resolved users, one per tenant
 ├── data/{owner_id}/{content_name}               # Outlook messages
 ├── attachments/{owner_id}/{content_name}        # Outlook attachments (legacy JSON entries)
@@ -55,6 +56,17 @@ atlas-{tenant_id}/
     ├── _meta/{team_id}/channels/{channel_id}.json
     └── _meta/{team_id}/checkpoints/{channel_id}/
 ```
+
+## Quarantined objects
+
+```
+_quarantine/onedrive/manifests/{owner_id}/{snapshot_id}.json
+_quarantine/manifests/{owner_id}/{snapshot_id}.json
+```
+
+`atlas <workload> quarantine --key <key>` moves a damaged snapshot manifest or version index to `_quarantine/` followed by its original key, so the workload prefixes no longer list it. The bytes are copied unchanged, so the object stays encrypted and bound to its original key: it does not decrypt at the quarantine key. A second quarantine of the same key adds a millisecond suffix rather than overwriting the first copy. See [Damaged manifests and version indexes](/reference/cli#damaged-manifests-and-version-indexes).
+
+No backup, restore, listing, or verification reads `_quarantine/`. Deleting an owner, mailbox, or site removes its quarantined copies too, and `atlas delete --purge` removes the whole prefix. `atlas stats storage` counts the prefix as `other`, not under a workload.
 
 ## Bucket isolation
 

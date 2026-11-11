@@ -7,6 +7,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { SharePointStatusService } from '@/services/status/status.service';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID =
@@ -33,7 +34,7 @@ function make_mocks() {
   } as unknown as SharePointSiteConnector;
 
   const manifests: SharePointManifestRepository = {
-    find_latest_by_site: vi.fn().mockResolvedValue(undefined),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
   } as unknown as SharePointManifestRepository;
 
   const cursors: SharePointDeltaCursorRepository = {
@@ -87,10 +88,12 @@ describe('SharePointStatusService', () => {
   });
 
   it('reports the previous backup from the newest manifest', async () => {
-    vi.mocked(mocks.manifests.find_latest_by_site).mockResolvedValue({
-      snapshot_id: 'snap-7',
-      created_at: new Date('2026-03-02T00:00:00Z'),
-    } as never);
+    vi.mocked(mocks.manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'snap-7',
+        created_at: new Date('2026-03-02T00:00:00Z'),
+      } as never),
+    );
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1') as never);
 
     const result = await check();
@@ -242,5 +245,18 @@ describe('SharePointStatusService', () => {
     expect(result.libraries).toEqual([]);
     // `every` on an empty list is true, so this is up to date by definition.
     expect(result.is_up_to_date).toBe(true);
+  });
+
+  it('reports the newest readable snapshot and names a damaged manifest (issue #631)', async () => {
+    vi.mocked(mocks.manifests.find_latest_readable).mockResolvedValue({
+      manifest: { snapshot_id: 'snap-6', created_at: new Date('2026-03-01T00:00:00Z') } as never,
+      unreadable_keys: ['sharepoint/manifests/site/sp-snap-9-abc.json'],
+    });
+    vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('library-1') as never);
+
+    const result = await check();
+
+    expect(result.last_snapshot_id).toBe('snap-6');
+    expect(result.unreadable_keys).toEqual(['sharepoint/manifests/site/sp-snap-9-abc.json']);
   });
 });

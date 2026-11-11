@@ -37,7 +37,7 @@ export class SharePointVersionRestoreService implements SharePointVersionRestore
         workload: 'sharepoint',
         tenant_factory: this._tenant_factory,
         connector: this._connector,
-        list_indexes: (ctx, id) => this._indexes.list_by_site(ctx, id),
+        list_indexes: (ctx, id) => this._indexes.list_readable_by_site(ctx, id),
         download_blob: download_and_decrypt,
         ensure_folder_path: (tenant, id, drive_id, parent_path, folder_ids) =>
           ensure_sharepoint_folder_path(

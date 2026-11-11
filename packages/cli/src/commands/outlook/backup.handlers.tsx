@@ -1,5 +1,6 @@
 import { Box } from 'ink';
 import type { Container } from 'inversify';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { ExcludedFolder } from '@wisecom/atlas-types';
@@ -112,6 +113,7 @@ async function backup_single_mailbox(
     },
     'folder',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 /**

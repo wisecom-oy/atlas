@@ -12,6 +12,11 @@ import type {
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
+import {
+  latest_readable,
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 // Issue #173: verification walks the manifest chain, and a carried-over file
 // has its index row under the snapshot that recorded it. Both rules are
@@ -106,12 +111,12 @@ function create_mocks() {
   const manifests: OneDriveManifestRepository = {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
-    find_latest_by_owner: vi.fn(),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 
   const indexes: OneDriveFileVersionIndexRepository = {
-    list_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as OneDriveFileVersionIndexRepository;
 
   return { ctx, tenant_factory, manifests, indexes, read_keys };
@@ -136,17 +141,18 @@ describe('OneDriveVerificationService chain rules (issue #173)', () => {
     const older = make_manifest(OLDER, '2026-03-01T00:00:00Z', [carried]);
     const target = make_manifest(TARGET, '2026-03-02T00:00:00Z', [fresh]);
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(target);
-    vi.mocked(mocks.manifests.list_snapshots_by_owner).mockResolvedValue([target, older]);
+    vi.mocked(mocks.manifests.list_readable_snapshots_by_owner).mockResolvedValue(
+      readable_manifests([target, older]),
+    );
   });
 
   const verify = (): ReturnType<OneDriveVerificationService['verify_onedrive_snapshot']> =>
     service.verify_onedrive_snapshot(TENANT_ID, OWNER_ID, TARGET);
 
   it('verifies a file inherited from an earlier snapshot in the chain', async () => {
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index('file-fresh', [TARGET]),
-      make_index('file-carried', [OLDER]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index('file-fresh', [TARGET]), make_index('file-carried', [OLDER])]),
+    );
 
     const result = await verify();
 
@@ -158,10 +164,9 @@ describe('OneDriveVerificationService chain rules (issue #173)', () => {
   });
 
   it('looks an index row up against the snapshot that recorded the entry', async () => {
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index('file-fresh', [TARGET]),
-      make_index('file-carried', [OLDER]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index('file-fresh', [TARGET]), make_index('file-carried', [OLDER])]),
+    );
 
     const result = await verify();
 
@@ -173,10 +178,9 @@ describe('OneDriveVerificationService chain rules (issue #173)', () => {
   it('flags a carried entry whose index row is filed under the verified snapshot', async () => {
     // The mirror image of the rule above, so the assertion cannot pass by
     // accepting any snapshot id at all.
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index('file-fresh', [TARGET]),
-      make_index('file-carried', [TARGET]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index('file-fresh', [TARGET]), make_index('file-carried', [TARGET])]),
+    );
 
     const result = await verify();
 
@@ -197,10 +201,9 @@ describe('OneDriveVerificationService chain rules (issue #173)', () => {
   });
 
   it('starts no further object read after an interrupt mid-chain', async () => {
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index('file-fresh', [TARGET]),
-      make_index('file-carried', [OLDER]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index('file-fresh', [TARGET]), make_index('file-carried', [OLDER])]),
+    );
     let interrupted = false;
     vi.mocked(mocks.ctx.storage.get_stream as ReturnType<typeof vi.fn>).mockImplementation(
       async (key: string) => {

@@ -22,6 +22,8 @@ import {
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
+import { CALENDAR_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { register_quarantine_command } from '@/commands/shared/quarantine.command';
 
 type ContainerFactory = () => Container;
 
@@ -38,6 +40,11 @@ export function register_calendar_command(program: Command, get_container: Conta
   register_calendar_list(group, get_container);
   register_calendar_verify(group, get_container);
   register_calendar_delete(group, get_container);
+  register_quarantine_command(group, get_container, {
+    workload: 'calendar',
+    object_noun: 'manifest',
+    token: CALENDAR_QUARANTINE_USE_CASE_TOKEN,
+  });
 }
 
 function register_calendar_backup(group: Command, get_container: ContainerFactory): void {

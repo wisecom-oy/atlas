@@ -84,7 +84,7 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
       },
     });
 
-    const indexes = await repo.list_by_owner(ctx, OWNER);
+    const indexes = (await repo.list_readable_by_owner(ctx, OWNER)).indexes;
 
     const file_a = indexes.find((idx) => idx.file_id === 'file-a');
     expect(indexes.map((idx) => idx.file_id).sort()).toEqual(['file-a', 'file-b']);
@@ -122,7 +122,7 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
       },
     });
 
-    const indexes = await repo.list_by_owner(ctx, OWNER);
+    const indexes = (await repo.list_readable_by_owner(ctx, OWNER)).indexes;
 
     expect(indexes[0]?.versions.map((version) => version.snapshot_id)).toEqual(['snap-1']);
   });
@@ -173,7 +173,7 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
     await expect(repo.load_version_watermarks(ctx, OWNER)).rejects.toThrow('connection reset');
   });
 
-  it('skips an unparseable object but still returns the readable ones', async () => {
+  it('names an unparseable object and still returns the readable ones (issue #631)', async () => {
     const { ctx } = make_ctx({
       'onedrive/index/owner-1/runs/corrupt.json': 'not json {',
       'onedrive/index/owner-1/runs/snap-1.json': {
@@ -183,8 +183,9 @@ describe('S3OneDriveFileVersionIndexRepository', () => {
       },
     });
 
-    const indexes = await repo.list_by_owner(ctx, OWNER);
+    const listing = await repo.list_readable_by_owner(ctx, OWNER);
 
-    expect(indexes.map((idx) => idx.file_id)).toEqual(['file-a']);
+    expect(listing.indexes.map((idx) => idx.file_id)).toEqual(['file-a']);
+    expect(listing.unreadable_keys).toEqual(['onedrive/index/owner-1/runs/corrupt.json']);
   });
 });

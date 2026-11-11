@@ -26,6 +26,8 @@ export interface FileSaveResult {
   readonly output_path: string;
   readonly total_bytes: number;
   readonly interrupted: boolean;
+  /** Damaged manifests outside the snapshot's chain, by key: reported, not needed (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface OneDriveSaveUseCase {

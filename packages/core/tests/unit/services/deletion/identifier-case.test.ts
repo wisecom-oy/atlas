@@ -60,6 +60,8 @@ describe('deletion prefixes ignore identifier case', () => {
       `onedrive/index/${LOWER}/`,
       `onedrive/_meta/${LOWER}/`,
       `onedrive/staging/${LOWER}/`,
+      `_quarantine/onedrive/manifests/${LOWER}/`,
+      `_quarantine/onedrive/index/${LOWER}/`,
     ]);
     expect(swept().some((scope) => scope.includes(UPPER))).toBe(false);
   });

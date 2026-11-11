@@ -48,5 +48,7 @@ export function contacts_mailbox_prefixes(mailbox_id: string): string[] {
     `contacts/photos/${segment}/`,
     `contacts/manifests/${segment}/`,
     `contacts/_meta/${segment}/`,
+    // A quarantined manifest still lists this mailbox's items (issue #631).
+    `_quarantine/contacts/manifests/${segment}/`,
   ];
 }

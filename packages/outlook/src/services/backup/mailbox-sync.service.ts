@@ -98,12 +98,13 @@ export class MailboxSyncService implements BackupUseCase {
         options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
-      const { previous, saved_links, previous_entry_count, mode } = await resolve_resume_state(
-        { manifests: this._manifests, cursors: this._cursors },
-        ctx,
-        owner_id,
-        options.force_full === true,
-      );
+      const { previous, saved_links, previous_entry_count, mode, unreadable_keys } =
+        await resolve_resume_state(
+          { manifests: this._manifests, cursors: this._cursors },
+          ctx,
+          owner_id,
+          options.force_full === true,
+        );
 
       const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
         folder_filter: options.folder_filter,
@@ -263,6 +264,7 @@ export class MailboxSyncService implements BackupUseCase {
           elapsed_ms: Date.now() - sync_start,
           excluded_folders,
           reactions_not_captured,
+          ...(unreadable_keys.length > 0 ? { unreadable_keys } : {}),
         },
       };
     } finally {

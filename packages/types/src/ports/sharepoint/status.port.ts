@@ -21,6 +21,11 @@ export interface SharePointStatusResult {
   readonly total_pending_changes: number;
   /** Every entry in the failed-item ledger. Any entry means the backup is not up to date. */
   readonly total_failed_items: number;
+  /**
+   * Snapshot manifests that could not be read, by storage key. `last_snapshot_id` is then the
+   * newest readable snapshot. Present only when a manifest was skipped (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SharePointStatusUseCase {

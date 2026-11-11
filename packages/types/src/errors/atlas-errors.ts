@@ -121,6 +121,30 @@ export class UnreadableContentError extends AtlasError {
 }
 
 /**
+ * One or more stored objects an operation needed could not be decrypted, parsed, or identified as
+ * the key they sit under, so the operation would give a wrong answer if it went on without them.
+ *
+ * Names every key so an operator can inspect it and move it aside with `quarantine`. A listing
+ * that could still read the rest carries what it read in `partial_result`, so one damaged object
+ * never hides the others (issue #631).
+ */
+export class UnreadableObjectsError<T = unknown> extends UnreadableContentError {
+  readonly unreadable_keys: readonly string[];
+  /** What the operation could read, for a listing that skipped the damaged objects. */
+  readonly partial_result: T | undefined;
+
+  constructor(
+    message: string,
+    unreadable_keys: readonly string[],
+    options?: { cause?: unknown; partial_result?: T | undefined },
+  ) {
+    super(`${message}: ${unreadable_keys.join(', ')}`, options);
+    this.unreadable_keys = unreadable_keys;
+    this.partial_result = options?.partial_result;
+  }
+}
+
+/**
  * Stored content was written by a newer Atlas format version than this build reads. It is intact,
  * so it is not `UnreadableContentError`: the fix is an Atlas upgrade, not a restore.
  */

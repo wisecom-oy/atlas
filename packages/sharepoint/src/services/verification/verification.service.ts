@@ -38,7 +38,7 @@ export class SharePointVerificationService implements SharePointVerificationUseC
         workload: 'sharepoint',
         tenant_factory: this._tenant_factory,
         manifests: sharepoint_manifest_lookup(this._manifests),
-        list_indexes: (ctx, manifest) => this._indexes.list_by_site(ctx, manifest.site_id),
+        list_indexes: (ctx, manifest) => this._indexes.list_readable_by_site(ctx, manifest.site_id),
       },
       tenant_id,
       site_id,

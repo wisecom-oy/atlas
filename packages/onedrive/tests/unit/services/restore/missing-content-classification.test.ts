@@ -14,6 +14,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');
@@ -73,7 +74,7 @@ function make_service(missing: ReadonlySet<string>): OneDriveRestoreService {
 
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 
   return new OneDriveRestoreService(factory, connector, manifests);

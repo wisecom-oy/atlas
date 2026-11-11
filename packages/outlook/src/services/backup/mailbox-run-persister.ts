@@ -18,6 +18,8 @@ export interface MailboxResumeState {
   readonly saved_links: Record<string, string>;
   readonly previous_entry_count: number;
   readonly mode: BackupSyncMode;
+  /** Manifests newer than `previous` that could not be read, reported with the run. */
+  readonly unreadable_keys: string[];
 }
 
 /**
@@ -26,6 +28,11 @@ export interface MailboxResumeState {
  * Delta links live in the cursor as of #370. A mailbox last backed up by an older release has
  * no cursor, so the head manifest's links are the fallback and the first run after the upgrade
  * resumes instead of re-enumerating the whole mailbox.
+ *
+ * A damaged head manifest no longer stops the mailbox's backups (issue #631). The newest readable
+ * manifest stands in for it, which is safe because an Outlook manifest holds only its own run's
+ * changes: nothing is built on the head's entries, the cursor still says where the delta stopped,
+ * and an older `total_objects` only makes the stale-delta safeguard more willing to re-read.
  */
 export async function resolve_resume_state(
   deps: MailboxRunPersistence,
@@ -39,10 +46,12 @@ export async function resolve_resume_state(
       saved_links: {},
       previous_entry_count: 0,
       mode: resolve_sync_mode(true, {}),
+      unreadable_keys: [],
     };
   }
 
-  const previous = await deps.manifests.find_latest_by_owner(ctx, owner_id);
+  const latest = await deps.manifests.find_latest_readable(ctx, owner_id);
+  const previous = latest.manifest;
   const cursor = await deps.cursors.load(ctx, owner_id);
   const saved_links = cursor?.delta_links ?? resolve_saved_delta_links(previous);
 
@@ -51,6 +60,7 @@ export async function resolve_resume_state(
     saved_links,
     previous_entry_count: previous?.total_objects ?? 0,
     mode: resolve_sync_mode(false, saved_links),
+    unreadable_keys: latest.unreadable_keys,
   };
 }
 

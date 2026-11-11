@@ -22,6 +22,7 @@ import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
+import type { SdkQuarantineResult } from '@/ports/storage/quarantine.port';
 
 export type OneDriveSdkBackupOptions = Camelize<
   Omit<OneDriveBackupOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
@@ -95,4 +96,9 @@ export interface OneDriveApi {
   checkStatus(ownerId: string): Promise<OneDriveSdkStatusResult>;
   /** Aggregates OneDrive backup statistics; without ownerId, tenant-wide across drives. */
   getStats(ownerId?: string): Promise<OneDriveSdkStats>;
+  /**
+   * Moves an unreadable manifest or version index to `_quarantine/{storageKey}` so listings, status
+   * and backups stop reporting it. Refuses an object that reads cleanly or does not exist.
+   */
+  quarantine(storageKey: string): Promise<SdkQuarantineResult>;
 }

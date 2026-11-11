@@ -26,6 +26,7 @@ import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
+import type { SdkQuarantineResult } from '@/ports/storage/quarantine.port';
 
 export type SharePointSdkBackupOptions = Camelize<
   Omit<SharePointBackupOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
@@ -113,4 +114,9 @@ export interface SharePointApi {
   checkStatus(siteId: string): Promise<SharePointSdkStatusResult>;
   /** Aggregates SharePoint backup statistics; without siteId, tenant-wide across sites. */
   getStats(siteId?: string): Promise<SharePointSdkStats>;
+  /**
+   * Moves an unreadable manifest or version index to `_quarantine/{storageKey}` so listings, status
+   * and backups stop reporting it. Refuses an object that reads cleanly or does not exist.
+   */
+  quarantine(storageKey: string): Promise<SdkQuarantineResult>;
 }

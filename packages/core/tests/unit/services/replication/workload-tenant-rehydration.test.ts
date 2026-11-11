@@ -18,6 +18,7 @@ import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-ten
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import type { AtlasConfig } from '@/utils/config';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@/services/replication/dek-rehydration-validator', () => ({
   ensure_source_dek_on_primary: vi.fn().mockResolvedValue(undefined),
@@ -148,8 +149,10 @@ describe('tenant-wide workload rehydration', () => {
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
-      find_latest_by_owner: vi.fn(),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
+      list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(),
       list_all_manifests: vi
         .fn()
         .mockResolvedValue([
@@ -191,8 +194,10 @@ describe('tenant-wide workload rehydration', () => {
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
-      find_latest_by_owner: vi.fn(),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
+      list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(),
       list_all_manifests: vi
         .fn()
         .mockResolvedValue([
@@ -231,8 +236,10 @@ describe('tenant-wide workload rehydration', () => {
     const manifests: OneDriveManifestRepository = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
-      find_latest_by_owner: vi.fn(),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_owner: vi.fn(),
+      list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
     };
     const service = new OneDriveReplicationService(
@@ -271,8 +278,10 @@ describe('tenant-wide workload rehydration', () => {
     const manifests: SharePointManifestRepository = {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
-      find_latest_by_site: vi.fn(),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
       list_snapshots_by_site: vi.fn(),
+      list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(),
       list_all_manifests: vi
         .fn()
         .mockResolvedValue([

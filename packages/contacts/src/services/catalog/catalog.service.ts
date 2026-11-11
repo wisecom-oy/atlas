@@ -1,4 +1,5 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { return_or_raise_partial } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import { inject, injectable } from 'inversify';
 import type {
   ContactsCatalogUseCase,
@@ -20,7 +21,12 @@ export class ContactsCatalogService implements ContactsCatalogUseCase {
     private readonly _manifests: ContactsManifestRepository,
   ) {}
 
-  /** Lists a mailbox's contacts snapshots, newest first. */
+  /**
+   * Lists a mailbox's contacts snapshots, newest first.
+   *
+   * @throws UnreadableObjectsError naming each damaged manifest, with the readable snapshots in
+   *   `partial_result` (issue #631).
+   */
   async list_contacts_snapshots(
     tenant_id: string,
     mailbox_id: string,
@@ -28,7 +34,8 @@ export class ContactsCatalogService implements ContactsCatalogUseCase {
     const mailbox = normalize_owner_id(mailbox_id);
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      return await this._manifests.list_snapshots_by_mailbox(tenant_ctx, mailbox);
+      const listing = await this._manifests.list_readable_snapshots_by_mailbox(tenant_ctx, mailbox);
+      return return_or_raise_partial(listing.unreadable_keys, listing.manifests);
     } finally {
       tenant_ctx.destroy();
     }

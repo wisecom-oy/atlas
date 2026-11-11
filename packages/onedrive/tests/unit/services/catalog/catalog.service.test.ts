@@ -9,6 +9,10 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveCatalogService } from '@/services/catalog/catalog.service';
+import {
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = 'owner-abc';
@@ -52,12 +56,12 @@ function create_mocks() {
   };
 
   const manifests = {
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 
   const indexes: OneDriveFileVersionIndexRepository = {
     write_run_index: vi.fn(),
-    list_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as OneDriveFileVersionIndexRepository;
 
   return { tenant_factory, manifests, indexes };
@@ -79,7 +83,7 @@ describe('OneDriveCatalogService', () => {
   describe('list_onedrive_file_versions bare filename fallback', () => {
     it('resolves a bare filename to a unique basename match', async () => {
       const idx = make_index('file-bare', [make_version()]);
-      vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_onedrive_file_versions(TENANT_ID, OWNER_ID, 'report.xlsx');
 
@@ -94,7 +98,9 @@ describe('OneDriveCatalogService', () => {
       const idx2 = make_index('file-two', [
         make_version({ parent_path: '/Archive', file_name: 'report.xlsx' }),
       ]);
-      vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([idx1, idx2]);
+      vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+        readable_indexes([idx1, idx2]),
+      );
 
       await expect(
         service.list_onedrive_file_versions(TENANT_ID, OWNER_ID, 'report.xlsx'),

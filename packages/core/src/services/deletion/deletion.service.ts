@@ -14,6 +14,7 @@ import {
   merge_deletion_results,
 } from '@/services/deletion/shared/prefix-deleter';
 import { logger } from '@/utils/logger';
+import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 
 /**
  * The wrapped DEK, deleted last so a blocked purge stays recoverable.
@@ -61,6 +62,7 @@ export class DeletionService implements DeletionUseCase {
       `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${owner_id}/`,
       `data/${owner_id}/`,
       `attachments/${owner_id}/`,
+      ...quarantined_copies_of([manifest_prefix]),
     ]);
   }
 

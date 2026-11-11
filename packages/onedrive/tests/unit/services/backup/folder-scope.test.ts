@@ -16,6 +16,7 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { is_within_folder_scope, normalize_folder_scope } from '@/services/backup/folder-scope';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const DRIVE_ID = 'd1';
 const OWNER_ID = 'owner-1';
@@ -124,7 +125,10 @@ function make_harness(options: {
   const service = new OneDriveBackupService(
     factory,
     connector as never,
-    { save: vi.fn(), list_snapshots_by_owner: async () => [] } as never,
+    {
+      save: vi.fn(),
+      list_readable_snapshots_by_owner: async () => readable_manifests([]),
+    } as never,
     { load_version_watermarks: vi.fn().mockResolvedValue({}), write_run_index: vi.fn() } as never,
     {
       load: vi.fn().mockResolvedValue(options.stored_cursor),

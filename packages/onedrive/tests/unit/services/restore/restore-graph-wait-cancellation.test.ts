@@ -16,6 +16,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn(), success: vi.fn() },
@@ -65,7 +66,7 @@ function make_service(entries: OneDriveManifestEntry[], connector: OneDriveConne
       created_at: new Date('2026-08-17T00:00:00.000Z'),
       entries,
     } as unknown as OneDriveSnapshotManifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
   return new OneDriveRestoreService(factory, connector, manifests);
 }

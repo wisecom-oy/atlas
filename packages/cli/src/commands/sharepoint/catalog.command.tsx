@@ -1,5 +1,6 @@
 import { format_bytes } from '@/command-formatters';
 import type { Command } from 'commander';
+import { read_listing, report_unreadable_keys } from '@/command-unreadable-objects';
 import type { Container } from 'inversify';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
@@ -102,7 +103,9 @@ async function execute_sharepoint_list_snapshots(
   const tenant_id = resolve_tenant_id(container, options);
   const site_id = await resolve_site_id(container, tenant_id, options.site);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
-  const snapshots = await catalog.list_sharepoint_snapshots(tenant_id, site_id);
+  const listing = await read_listing(() => catalog.list_sharepoint_snapshots(tenant_id, site_id));
+  const snapshots = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Snapshots')} />);
   if (snapshots.length === 0) {
@@ -124,7 +127,11 @@ async function execute_sharepoint_list_versions(
   const tenant_id = resolve_tenant_id(container, options);
   const site_id = await resolve_site_id(container, tenant_id, options.site);
   const catalog = container.get<SharePointCatalogUseCase>(SHAREPOINT_CATALOG_USE_CASE_TOKEN);
-  const versions = await catalog.list_sharepoint_file_versions(tenant_id, site_id, options.file);
+  const listing = await read_listing(() =>
+    catalog.list_sharepoint_file_versions(tenant_id, site_id, options.file),
+  );
+  const versions = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'File Versions')} />);
   if (versions.length === 0) {

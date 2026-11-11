@@ -1,5 +1,6 @@
 import { Box } from 'ink';
 import type { Container } from 'inversify';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { SharePointDeletionUseCase, SharePointStatusUseCase } from '@wisecom/atlas-types';
 import {
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
@@ -86,4 +87,5 @@ export async function execute_sharepoint_status(
     total_failed_items: result.total_failed_items,
     items: result.libraries,
   });
+  report_unreadable_keys(result.unreadable_keys);
 }

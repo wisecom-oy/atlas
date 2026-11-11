@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
@@ -220,6 +221,7 @@ async function report_site_backup(result: SharePointBackupResult): Promise<void>
     },
     'file',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 export async function execute_sharepoint_restore(
@@ -295,6 +297,7 @@ export async function execute_sharepoint_save(
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_unreadable_keys(result.unreadable_keys);
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {
@@ -319,6 +322,7 @@ export async function execute_sharepoint_verify(
   const result = await verifier.verify_sharepoint_snapshot(tenant_id, site_id, options.snapshot);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Verify')} />);
+  report_unreadable_keys(result.unreadable_keys);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;

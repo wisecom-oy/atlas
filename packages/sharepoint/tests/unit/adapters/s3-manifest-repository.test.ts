@@ -178,15 +178,18 @@ describe('S3SharePointManifestRepository', () => {
       ),
     });
 
-    const latest = await repo.find_latest_by_site(ctx, SITE);
+    const latest = await repo.find_latest_readable(ctx, SITE);
 
-    expect(latest?.snapshot_id).toBe('snap-new');
+    expect(latest.manifest?.snapshot_id).toBe('snap-new');
   });
 
   it('reports no latest manifest for a site that has never been backed up', async () => {
     const { ctx } = make_ctx();
 
-    await expect(repo.find_latest_by_site(ctx, SITE)).resolves.toBeUndefined();
+    await expect(repo.find_latest_readable(ctx, SITE)).resolves.toEqual({
+      manifest: undefined,
+      unreadable_keys: [],
+    });
   });
 
   it('lists every site\u2019s manifests from the root prefix, newest first', async () => {

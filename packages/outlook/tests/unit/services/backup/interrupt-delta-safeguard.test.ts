@@ -23,6 +23,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 // Regression tests for issue #23: a soft interrupt must never persist a delta
 // link that was advanced past unprocessed messages.
@@ -148,9 +149,12 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(PREVIOUS_MANIFEST),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(PREVIOUS_MANIFEST)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
+      list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(),
     };
     connector = {
       list_mailboxes: vi.fn().mockResolvedValue([]),

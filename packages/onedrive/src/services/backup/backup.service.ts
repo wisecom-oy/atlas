@@ -3,6 +3,7 @@
 // SharePoint walks a site tree, then libraries within it, and has no folder scope. Unifying
 // them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
@@ -49,6 +50,7 @@ import {
   normalize_folder_scope,
 } from '@/services/backup/folder-scope';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
@@ -183,12 +185,13 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         options,
         folder_scope,
       );
-      await append_recrawl_tombstones(
+      const skipped_manifests = await append_recrawl_tombstones(
         scan_result,
-        () => this._manifests.list_snapshots_by_owner(ctx, owner_id),
+        () => this._manifests.list_readable_snapshots_by_owner(ctx, owner_id),
         (entry) =>
           folder_scope === undefined ||
           is_path_within_folder_scope(entry.parent_path, folder_scope),
+        folder_scope !== undefined,
       );
       const processed = scan_result.items_processed;
       emit_operation_progress(options, {
@@ -212,13 +215,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       // Version downloads that failed for an unexpected reason leave history out
       // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
       // like every other incomplete backup (issue #92).
-      const errors = [...scan_result.errors];
-      if (total_versions_failed > 0) {
-        errors.push(
-          `${total_versions_failed} version download(s) failed unexpectedly ` +
-            `-- see the per-version reasons above; those versions are not in this snapshot`,
-        );
-      }
+      const errors = [...scan_result.errors, ...build_version_errors(total_versions_failed)];
       append_all(warnings, build_package_warnings(scan_result.package_report));
       // Files left un-backed-up are the run's headline problem: warn per item and
       // hold the run unhealthy until the ledger is empty.
@@ -260,7 +257,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking_state.previous_kind_by_file_id,
                 files_processed: scan_result.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_by_owner(ctx, owner_id),
+                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, owner_id),
               })
             : undefined,
         );
@@ -307,7 +304,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         phase: scan_result.interrupted ? 'interrupted' : 'completed',
         processed,
       });
-      return result;
+      return with_summary_unreadable_keys(result, skipped_manifests);
     } finally {
       progress?.finish();
       tenant_ctx.destroy();

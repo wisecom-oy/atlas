@@ -22,6 +22,7 @@ import { SnapshotStatus } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 function make_message(id: string, body: string, has_attachments = false): MailMessage {
   const raw = Buffer.from(body);
@@ -117,10 +118,11 @@ describe('MailboxSyncService', () => {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
-    };
+      // A backup reads only the newest readable manifest; the listings are not stubbed.
+    } as unknown as ManifestRepository;
 
     mock_factory = {
       create: vi.fn().mockResolvedValue(mock_context),

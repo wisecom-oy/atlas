@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { read_listing, report_unreadable_keys } from '@/command-unreadable-objects';
 import { logger } from '@wisecom/atlas-core';
 import type { CalendarCatalogUseCase, CalendarDeletionUseCase } from '@wisecom/atlas-types';
 import {
@@ -48,7 +49,11 @@ export async function execute_calendar_list(
   const tenant_id = resolve_tenant_id(container, options);
   const mailbox = await resolve_owner(container, tenant_id, options.mailbox);
   const catalog = container.get<CalendarCatalogUseCase>(CALENDAR_CATALOG_USE_CASE_TOKEN);
-  const snapshots = await catalog.list_calendar_snapshots(tenant_id, mailbox.object_id);
+  const listing = await read_listing(() =>
+    catalog.list_calendar_snapshots(tenant_id, mailbox.object_id),
+  );
+  const snapshots = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   await render_static_view(
     <Box flexDirection="column">

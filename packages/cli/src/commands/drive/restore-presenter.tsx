@@ -1,6 +1,7 @@
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
 import { EXIT_PARTIAL, report_skipped_items } from '@/command-run-outcome';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
 import { KeyValueList, type KeyValueItem } from '@/ui/components/key-value-list';
@@ -18,6 +19,8 @@ export interface DriveRestoreSummary {
   readonly files_skipped: number;
   readonly errors: string[];
   readonly interrupted: boolean;
+  /** Damaged manifests the restore skipped because they are newer than the snapshot (issue #631). */
+  readonly unreadable_keys?: readonly string[] | undefined;
 }
 
 /**
@@ -43,6 +46,7 @@ export async function report_drive_restore(
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_unreadable_keys(result.unreadable_keys);
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
     process.exitCode = 1;

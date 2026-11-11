@@ -3,6 +3,7 @@ import type {
   OneDriveVersionWatermark,
 } from '../../domain/onedrive/manifest';
 import type { TenantContext } from '../tenant/context.port';
+import type { ReadableVersionIndexListing } from '@/ports/storage/readable-listing.port';
 
 /**
  * Per-file version history for an owner, stored as one index object per backup
@@ -42,6 +43,23 @@ export interface OneDriveFileVersionIndexRepository {
    * objects. One scan answers every file: there is no per-file lookup,
    * because with a per-run layout that would rescan the whole prefix for a
    * single file.
+   *
+   * An index object that fails to decrypt or parse is left out and its key is
+   * returned in `unreadable_keys`, so a caller can tell a file with no history
+   * from one whose history could not be read (issue #631).
    */
-  list_by_owner(ctx: TenantContext, owner_id: string): Promise<OneDriveFileVersionIndex[]>;
+  list_readable_by_owner(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<ReadableVersionIndexListing<OneDriveFileVersionIndex>>;
+
+  /**
+   * Reads the index object stored at exactly this key, as a listing would. Undefined when absent.
+   *
+   * @throws UnreadableContentError when it fails to decrypt or parse.
+   */
+  read_index_object_at(
+    ctx: TenantContext,
+    storage_key: string,
+  ): Promise<OneDriveFileVersionIndex[] | undefined>;
 }

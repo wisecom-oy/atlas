@@ -1,5 +1,6 @@
 import { format_bytes } from '@/command-formatters';
 import type { Container } from 'inversify';
+import { read_listing, report_unreadable_keys } from '@/command-unreadable-objects';
 import { logger } from '@wisecom/atlas-core';
 import type { OneDriveCatalogUseCase } from '@wisecom/atlas-types';
 import { ONEDRIVE_CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
@@ -63,7 +64,11 @@ export async function execute_onedrive_list_snapshots(
   const tenant_id = resolve_tenant_id(container, options);
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
-  const snapshots = await catalog.list_onedrive_snapshots(tenant_id, owner.object_id);
+  const listing = await read_listing(() =>
+    catalog.list_onedrive_snapshots(tenant_id, owner.object_id),
+  );
+  const snapshots = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   await render_static_view(<Banner title={banner_title('onedrive', 'Snapshots')} />);
   if (snapshots.length === 0) {
@@ -85,11 +90,11 @@ export async function execute_onedrive_list_versions(
   const tenant_id = resolve_tenant_id(container, options);
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
-  const versions = await catalog.list_onedrive_file_versions(
-    tenant_id,
-    owner.object_id,
-    options.file,
+  const listing = await read_listing(() =>
+    catalog.list_onedrive_file_versions(tenant_id, owner.object_id, options.file),
   );
+  const versions = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   await render_static_view(<Banner title={banner_title('onedrive', 'File Versions')} />);
   if (versions.length === 0) {

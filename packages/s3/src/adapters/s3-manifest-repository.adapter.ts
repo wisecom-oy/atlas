@@ -2,25 +2,29 @@ import { injectable } from 'inversify';
 import type { Manifest } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantStorageContext } from '@wisecom/atlas-types';
-import type { StorageObjectLockPolicy } from '@wisecom/atlas-types';
-import { StorageError } from '@wisecom/atlas-types';
+import type {
+  LatestReadableManifest,
+  ReadableManifestListing,
+  StorageObjectLockPolicy,
+} from '@wisecom/atlas-types';
+import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
 import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
-import { InvalidManifestDateError, MismatchedManifestError } from '@/adapters/manifest.errors';
+import {
+  read_each_readable,
+  require_every_object_readable,
+  type ReadableObjects,
+} from '@wisecom/atlas-core/services/shared/readable-object-listing';
+import {
+  OUTLOOK_MANIFEST_PREFIX,
+  outlook_manifest_key,
+  read_outlook_manifest,
+} from '@/adapters/outlook-manifest-reader';
 
-const MANIFEST_PREFIX = 'manifests';
 const MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
 const MANIFEST_READ_CONCURRENCY = 8;
 
 interface ManifestPointer {
   readonly manifest_key: string;
-}
-
-/** A manifest as JSON stores it, before `created_at` is revived as a Date. */
-type StoredManifest = Omit<Manifest, 'created_at'> & { readonly created_at: string };
-
-/** Constructs the S3 key for a manifest. */
-function manifest_key(owner_id: string, snapshot_id: string): string {
-  return `${MANIFEST_PREFIX}/${owner_id}/${snapshot_id}.json`;
 }
 
 function latest_pointer_key(owner_id: string): string {
@@ -39,7 +43,7 @@ function snapshot_pointer_key(snapshot_id: string): string {
 export class S3ManifestRepository implements ManifestRepository {
   /** Serializes, encrypts, and uploads a manifest. */
   async save(ctx: TenantContext, manifest: Manifest): Promise<void> {
-    const key = manifest_key(manifest.owner_id, manifest.snapshot_id);
+    const key = outlook_manifest_key(manifest.owner_id, manifest.snapshot_id);
     const json = Buffer.from(JSON.stringify(manifest));
     const encrypted = ctx.encrypt(json, key);
     const object_lock_policy = to_storage_object_lock_policy(manifest);
@@ -63,53 +67,87 @@ export class S3ManifestRepository implements ManifestRepository {
     const target_suffix = `/${snapshot_id}.json`;
     const indexed_key = await this.download_pointer(ctx, snapshot_pointer_key(snapshot_id));
     if (indexed_key?.endsWith(target_suffix)) {
-      const indexed_manifest = await this.download_and_decrypt(ctx, indexed_key);
+      const indexed_manifest = await read_outlook_manifest(ctx, indexed_key);
       if (indexed_manifest?.snapshot_id === snapshot_id) return indexed_manifest;
     }
 
-    const all_keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
+    const all_keys = await ctx.storage.list(`${OUTLOOK_MANIFEST_PREFIX}/`);
     const match = all_keys.find((key) => key.endsWith(target_suffix));
     if (!match) return undefined;
-    return this.download_and_decrypt(ctx, match);
+    return read_outlook_manifest(ctx, match);
   }
 
-  /** Returns the indexed latest manifest, with a legacy layout fallback. */
-  async find_latest_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest | undefined> {
-    const prefix = `${MANIFEST_PREFIX}/${owner_id}/`;
-    const indexed_key = await this.download_pointer(ctx, latest_pointer_key(owner_id));
+  /**
+   * Returns the newest readable manifest of an owner. The latest pointer answers with one read;
+   * when the manifest it names is damaged, the owner's prefix is read in full and the newest
+   * readable manifest is returned with every damaged key it found (issue #631).
+   */
+  async find_latest_readable(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<LatestReadableManifest<Manifest>> {
+    const prefix = `${OUTLOOK_MANIFEST_PREFIX}/${owner_id}/`;
+    const indexed_key = await read_latest_pointer(ctx, latest_pointer_key(owner_id));
     if (indexed_key?.startsWith(prefix)) {
-      const indexed_manifest = await this.download_and_decrypt(ctx, indexed_key);
-      if (indexed_manifest?.owner_id === owner_id) return indexed_manifest;
+      const indexed = await read_if_readable(ctx, indexed_key);
+      if (indexed?.owner_id === owner_id) return { manifest: indexed, unreadable_keys: [] };
     }
 
-    const keys = await ctx.storage.list(prefix);
-    if (keys.length === 0) return undefined;
-
-    const manifests = await this.download_manifests(ctx, keys);
-    let latest: Manifest | undefined;
-    for (const manifest of manifests) {
-      const is_newer = !latest || manifest.created_at.getTime() > latest.created_at.getTime();
-      if (is_newer) latest = manifest;
-    }
-    return latest;
+    const listing = await this.read_keys(ctx, await ctx.storage.list(prefix));
+    return { manifest: newest(listing.items), unreadable_keys: listing.unreadable_keys };
   }
 
-  /** Downloads every manifest with bounded storage concurrency. */
-  async list_all_manifests(ctx: TenantContext): Promise<Manifest[]> {
-    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
-    return this.download_manifests(ctx, keys);
-  }
-
-  /** Downloads one owner's manifests, reading only that owner's key prefix. */
+  /** Downloads one owner's manifests, raising when any of them is damaged. */
   async list_by_owner(ctx: TenantContext, owner_id: string): Promise<Manifest[]> {
-    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/${owner_id}/`);
-    return this.download_manifests(ctx, keys);
+    const listing = await this.read_keys(ctx, await this.owner_keys(ctx, owner_id));
+    return require_every_object_readable(listing, 'Outlook manifest(s) of this mailbox');
+  }
+
+  /** Lists one owner's readable manifests and the keys of the damaged ones. */
+  async list_readable_by_owner(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<ReadableManifestListing<Manifest>> {
+    return as_listing(await this.read_keys(ctx, await this.owner_keys(ctx, owner_id)));
+  }
+
+  /** Downloads every manifest with bounded storage concurrency, raising when any is damaged. */
+  async list_all_manifests(ctx: TenantContext): Promise<Manifest[]> {
+    const listing = await this.read_keys(
+      ctx,
+      await ctx.storage.list(`${OUTLOOK_MANIFEST_PREFIX}/`),
+    );
+    return require_every_object_readable(listing, 'Outlook manifest(s)');
+  }
+
+  /** Lists every readable manifest in the tenant and the keys of the damaged ones. */
+  async list_all_readable(ctx: TenantContext): Promise<ReadableManifestListing<Manifest>> {
+    return as_listing(
+      await this.read_keys(ctx, await ctx.storage.list(`${OUTLOOK_MANIFEST_PREFIX}/`)),
+    );
+  }
+
+  /** Reads the manifest at exactly this key; raises when it is damaged. */
+  async read_manifest_at(ctx: TenantContext, storage_key: string): Promise<Manifest | undefined> {
+    return read_outlook_manifest(ctx, storage_key);
   }
 
   /** Lists owners from `manifests/{owner_id}/...` key names; one paginated LIST, nothing decrypted. */
   async list_owner_ids(ctx: TenantStorageContext): Promise<string[]> {
-    const keys = await ctx.storage.list(`${MANIFEST_PREFIX}/`);
+    const keys = await ctx.storage.list(`${OUTLOOK_MANIFEST_PREFIX}/`);
     return [...new Set(keys.map((key) => key.split('/')[1]).filter((id): id is string => !!id))];
+  }
+
+  private async owner_keys(ctx: TenantContext, owner_id: string): Promise<string[]> {
+    return ctx.storage.list(`${OUTLOOK_MANIFEST_PREFIX}/${owner_id}/`);
+  }
+
+  private async read_keys(ctx: TenantContext, keys: string[]): Promise<ReadableObjects<Manifest>> {
+    return read_each_readable(
+      keys,
+      (key) => read_outlook_manifest(ctx, key),
+      MANIFEST_READ_CONCURRENCY,
+    );
   }
 
   private async download_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
@@ -122,59 +160,52 @@ export class S3ManifestRepository implements ManifestRepository {
       return undefined;
     }
   }
+}
 
-  private async download_manifests(ctx: TenantContext, keys: string[]): Promise<Manifest[]> {
-    const results = new Array<Manifest | undefined>(keys.length);
-    let next_index = 0;
-
-    const run_worker = async (): Promise<void> => {
-      while (next_index < keys.length) {
-        const index = next_index;
-        next_index++;
-        results[index] = await this.download_and_decrypt(ctx, keys[index]!);
-      }
-    };
-
-    const worker_count = Math.min(MANIFEST_READ_CONCURRENCY, keys.length);
-    await Promise.all(Array.from({ length: worker_count }, run_worker));
-    return results.filter((manifest): manifest is Manifest => manifest !== undefined);
+/**
+ * Reads the latest pointer for a status or backup. An absent or unreadable pointer resolves
+ * `undefined`, so the caller scans the owner's manifests. A failed fetch raises `StorageError`:
+ * a transient error must fail the read, not turn into a damage scan that reports exit 9.
+ */
+async function read_latest_pointer(ctx: TenantContext, key: string): Promise<string | undefined> {
+  let encrypted: Buffer;
+  try {
+    encrypted = await ctx.storage.get(key);
+  } catch (err) {
+    if (is_absent_object_error(err)) return undefined;
+    throw new StorageError(`Could not read the Outlook manifest pointer at ${key}`, { cause: err });
   }
-
-  /**
-   * Downloads an encrypted manifest blob, decrypts it, revives `created_at` as a Date, and rejects
-   * a body the key does not name.
-   *
-   * A manifest is encrypted with the tenant key and nothing in the ciphertext says which manifest
-   * it is, so any manifest in the tenant authenticates at any other manifest's key. Rebuilding the
-   * key from the decrypted body is what distinguishes them, and doing it here covers the legacy
-   * scan and the listing paths as well as the pointer lookups (issue #340).
-   */
-  private async download_and_decrypt(
-    ctx: TenantContext,
-    key: string,
-  ): Promise<Manifest | undefined> {
-    try {
-      const encrypted = await ctx.storage.get(key);
-      const json = ctx.decrypt(encrypted, key);
-      const parsed = JSON.parse(json.toString('utf-8')) as StoredManifest;
-      if (manifest_key(parsed.owner_id, parsed.snapshot_id) !== key) {
-        throw new MismatchedManifestError(key, parsed.owner_id, parsed.snapshot_id);
-      }
-      const created_at = new Date(parsed.created_at);
-      if (Number.isNaN(created_at.getTime())) {
-        throw new InvalidManifestDateError(key);
-      }
-      return { ...parsed, created_at };
-    } catch (err) {
-      // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
-      // identify is damaged, and returning `undefined` for it reports a broken backup with the
-      // same value as a snapshot that was never taken (issues #340, #341).
-      if (is_absent_object_error(err)) return undefined;
-      if (err instanceof MismatchedManifestError) throw err;
-      if (err instanceof InvalidManifestDateError) throw err;
-      throw new StorageError(`Could not read the manifest at ${key}`, { cause: err });
-    }
+  try {
+    const parsed = JSON.parse(
+      ctx.decrypt(encrypted, key).toString('utf-8'),
+    ) as Partial<ManifestPointer>;
+    return typeof parsed.manifest_key === 'string' ? parsed.manifest_key : undefined;
+  } catch {
+    return undefined;
   }
+}
+
+/** Reads one manifest, treating damage as "not usable here" so the caller falls back to a scan. */
+async function read_if_readable(ctx: TenantContext, key: string): Promise<Manifest | undefined> {
+  try {
+    return await read_outlook_manifest(ctx, key);
+  } catch (err) {
+    if (err instanceof UnreadableContentError) return undefined;
+    throw err;
+  }
+}
+
+function newest(manifests: readonly Manifest[]): Manifest | undefined {
+  let latest: Manifest | undefined;
+  for (const manifest of manifests) {
+    const is_newer = !latest || manifest.created_at.getTime() > latest.created_at.getTime();
+    if (is_newer) latest = manifest;
+  }
+  return latest;
+}
+
+function as_listing(listing: ReadableObjects<Manifest>): ReadableManifestListing<Manifest> {
+  return { manifests: listing.items, unreadable_keys: listing.unreadable_keys };
 }
 
 function to_storage_object_lock_policy(manifest: Manifest): StorageObjectLockPolicy | undefined {

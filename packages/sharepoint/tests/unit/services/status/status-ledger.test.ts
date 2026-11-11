@@ -8,6 +8,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { SharePointStatusService } from '@/services/status/status.service';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID =
@@ -40,7 +41,7 @@ function build(fetch_delta: SharePointSiteConnector['fetch_delta']): SharePointS
       failed_items: { [FAILED.item_id]: FAILED },
     }),
   };
-  const manifests = { find_latest_by_site: vi.fn().mockResolvedValue(undefined) };
+  const manifests = { find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)) };
   return new SharePointStatusService(
     factory as unknown as TenantContextFactory,
     connector as unknown as SharePointSiteConnector,

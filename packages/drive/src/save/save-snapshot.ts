@@ -27,6 +27,7 @@ import type {
 } from '@wisecom/atlas-types';
 import type { DriveManifestEntry, DriveWorkload } from '@/drive-ports';
 import { filter_drive_entries } from '@/shared/entry-filter';
+import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import {
   load_drive_chain_entries,
   restorable_entries,
@@ -86,16 +87,22 @@ export async function save_drive_snapshot<TManifest extends DriveChainManifest>(
       if (restorable.length === 0) {
         const interrupted = finish_operation_progress(options, 'save', workload, 0, 0);
         await settle_empty_save_target(target, interrupted);
-        return empty_save_result(options.snapshot_id, options.output_path ?? '', interrupted);
+        return with_unreadable_keys(
+          empty_save_result(options.snapshot_id, options.output_path ?? '', interrupted),
+          chain.unreadable_keys,
+        );
       }
 
-      return await write_drive_snapshot_to_archive(
-        workload,
-        ctx,
-        target,
-        resolved_output_path,
-        restorable,
-        options,
+      return with_unreadable_keys(
+        await write_drive_snapshot_to_archive(
+          workload,
+          ctx,
+          target,
+          resolved_output_path,
+          restorable,
+          options,
+        ),
+        chain.unreadable_keys,
       );
     } finally {
       ctx.destroy();

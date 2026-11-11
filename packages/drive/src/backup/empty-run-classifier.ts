@@ -1,4 +1,4 @@
-import type { NoSnapshotReason } from '@wisecom/atlas-types';
+import type { LatestReadableManifest, NoSnapshotReason } from '@wisecom/atlas-types';
 
 /** What the run already knows, plus the lookup it should only need in the empty case. */
 export interface EmptyRunEvidence {
@@ -7,7 +7,7 @@ export interface EmptyRunEvidence {
   /** Files this run walked, stored or failed. Folders and the library root are not content, so they never count. */
   readonly files_processed: number;
   /** Reads the newest snapshot for the resource. Called only when nothing else proves content. */
-  readonly find_latest_snapshot: () => Promise<unknown | undefined>;
+  readonly find_latest_snapshot: () => Promise<LatestReadableManifest<unknown>>;
 }
 
 /**
@@ -21,11 +21,13 @@ export interface EmptyRunEvidence {
  * Content is proved for free by what the run walked or by what the cursor already knows. Only
  * when neither shows a file does it spend the lookup, because a cursor written before a field
  * existed, or a run whose every file failed, would otherwise report a covered resource as empty.
- * Reaching the lookup means the resource really does look empty, which is the rare path.
+ * Reaching the lookup means the resource really does look empty, which is the rare path. A
+ * damaged manifest still proves a snapshot was taken, so it counts as one (issue #631).
  */
 export async function classify_empty_run(evidence: EmptyRunEvidence): Promise<NoSnapshotReason> {
   const knows_a_file = Object.values(evidence.previous_kind_by_file_id).includes('file');
   if (evidence.files_processed > 0 || knows_a_file) return 'no_changes';
-  const existing = await evidence.find_latest_snapshot();
-  return existing === undefined ? 'no_content' : 'no_changes';
+  const latest = await evidence.find_latest_snapshot();
+  const has_snapshot = latest.manifest !== undefined || latest.unreadable_keys.length > 0;
+  return has_snapshot ? 'no_changes' : 'no_content';
 }

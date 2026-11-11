@@ -11,6 +11,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { SharePointVersionRestoreService } from '@/services/restore/version-restore.service';
+import { readable_indexes } from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID =
@@ -63,7 +64,7 @@ function make_mocks() {
   } as unknown as SharePointSiteConnector;
 
   const indexes: SharePointFileVersionIndexRepository = {
-    list_by_site: vi.fn().mockResolvedValue([]),
+    list_readable_by_site: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as SharePointFileVersionIndexRepository;
 
   return { ctx, tenant_factory, connector, indexes };
@@ -83,7 +84,7 @@ describe('SharePointVersionRestoreService', () => {
   });
 
   const given_versions = (...indexes: SharePointFileVersionIndex[]): void => {
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue(indexes);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes(indexes));
   };
 
   const restore = (options: Parameters<typeof service.restore_sharepoint_version>[2]) =>
@@ -237,7 +238,7 @@ describe('SharePointVersionRestoreService', () => {
     await restore({ file_ref: 'file-1', version_id: '1.0' });
     expect(mocks.ctx.destroy).toHaveBeenCalledTimes(1);
 
-    vi.mocked(mocks.indexes.list_by_site).mockRejectedValue(new Error('index unreadable'));
+    vi.mocked(mocks.indexes.list_readable_by_site).mockRejectedValue(new Error('index unreadable'));
     await expect(restore({ before: CUTOFF })).rejects.toThrow('index unreadable');
     expect(mocks.ctx.destroy).toHaveBeenCalledTimes(2);
   });
@@ -250,6 +251,6 @@ describe('SharePointVersionRestoreService', () => {
       version_id: '1.0',
     });
 
-    expect(mocks.indexes.list_by_site).toHaveBeenCalledWith(expect.anything(), SITE_ID);
+    expect(mocks.indexes.list_readable_by_site).toHaveBeenCalledWith(expect.anything(), SITE_ID);
   });
 });

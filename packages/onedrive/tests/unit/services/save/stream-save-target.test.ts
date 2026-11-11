@@ -8,6 +8,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveSaveService } from '@/services/save/save.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const CONTENT = Buffer.from('file-content');
 
@@ -54,7 +55,7 @@ describe('OneDrive save to a stream target', () => {
       { create_readonly: vi.fn().mockResolvedValue(ctx) } as unknown as TenantContextFactory,
       {
         find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-        list_snapshots_by_owner: vi.fn().mockResolvedValue([manifest]),
+        list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
       } as unknown as OneDriveManifestRepository,
     );
 

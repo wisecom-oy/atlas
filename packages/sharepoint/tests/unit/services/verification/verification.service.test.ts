@@ -13,6 +13,11 @@ import type {
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { SharePointVerificationService } from '@/services/verification/verification.service';
+import {
+  latest_readable,
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID = 'site-1';
@@ -103,12 +108,12 @@ function create_mocks() {
   const manifests: SharePointManifestRepository = {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
-    find_latest_by_site: vi.fn(),
-    list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as SharePointManifestRepository;
 
   const indexes: SharePointFileVersionIndexRepository = {
-    list_by_site: vi.fn().mockResolvedValue([]),
+    list_readable_by_site: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as SharePointFileVersionIndexRepository;
 
   return { ctx, tenant_factory, manifests, indexes, store };
@@ -145,7 +150,9 @@ describe('SharePointVerificationService', () => {
   it('returns all passed when blobs are intact and indexes are consistent', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, true)]),
+    );
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -158,7 +165,9 @@ describe('SharePointVerificationService', () => {
   it('reports blob mismatch when the stored content has a different checksum', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, true)]),
+    );
     serve_object(mocks.store.encrypt(Buffer.from('tampered-content')));
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
@@ -170,7 +179,9 @@ describe('SharePointVerificationService', () => {
   it('reports a blob absent from storage as corrupt', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, true)]),
+    );
     vi.mocked(mocks.ctx.storage.get_stream as ReturnType<typeof vi.fn>).mockRejectedValue(
       Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' }),
     );
@@ -193,7 +204,9 @@ describe('SharePointVerificationService', () => {
   it('reports index issue when index has no record for this snapshot', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, false)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, false)]),
+    );
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -207,7 +220,9 @@ describe('SharePointVerificationService', () => {
       checksum: undefined,
     });
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, true)]),
+    );
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -219,7 +234,9 @@ describe('SharePointVerificationService', () => {
   it('skips blob check for entries without storage key', async () => {
     const entry = make_entry({ storage_key: undefined, checksum: undefined });
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, true)]),
+    );
 
     const result = await service.verify_sharepoint_snapshot(TENANT_ID, SITE_ID, SNAPSHOT_ID);
 
@@ -230,7 +247,9 @@ describe('SharePointVerificationService', () => {
   it('reports blob corrupt when the stored ciphertext fails its auth tag', async () => {
     const entry = make_entry();
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(make_manifest([entry]));
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([make_index(entry.file_id, true)]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, true)]),
+    );
     const corrupted = mocks.store.encrypt(Buffer.from('file-content'));
     corrupted[corrupted.length - 1] ^= 0xff;
     serve_object(corrupted);
@@ -258,10 +277,9 @@ describe('SharePointVerificationService', () => {
       make_manifest([good_entry, bad_entry, deleted_entry]),
     );
 
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([
-      make_index('file-del', true),
-      make_index('file-good', true),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index('file-del', true), make_index('file-good', true)]),
+    );
 
     serve_object(mocks.store.encrypt(good_content));
 
@@ -275,10 +293,9 @@ describe('SharePointVerificationService', () => {
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(
       make_manifest([make_entry({ file_id: 'f1' }), make_entry({ file_id: 'f2' })]),
     );
-    vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([
-      make_index('f1', true),
-      make_index('f2', true),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+      readable_indexes([make_index('f1', true), make_index('f2', true)]),
+    );
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {
       if (event.phase === 'processing' && event.processed === 1) interrupted = true;
     });

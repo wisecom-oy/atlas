@@ -212,9 +212,11 @@ A valid tag proves the bytes were produced under the tenant DEK. It does not pro
 | Drive file restore         | The upload, buffered or streamed                              |
 | Snapshot manifests         | Atlas rebuilds the key from the manifest's own `owner_id` or `site_id` and `snapshot_id`, and compares it to the key it read |
 
-An entry with no recorded checksum is refused rather than restored unverified. A manifest planted under another snapshot's key is reported as corrupt, not skipped. Silently skipping it would make the snapshot look as if it was never taken.
+An entry with no recorded checksum is refused rather than restored unverified. A manifest planted under another snapshot's key is reported as unreadable, by key, never skipped in silence. Listings, status, and backups go on without it and exit `9`. A restore refuses when the snapshot it resolves may depend on it, because leaving it out would restore a drive or mailbox that never existed. See [Damaged manifests and version indexes](/troubleshooting#damaged-manifests-and-version-indexes).
 
 Two limits remain. Neither check stops replay of an older valid ciphertext for the same object, which Object Lock and versioning handle. A checksum recorded wrongly at backup time also goes undetected.
+
+An attacker with write access to the bucket can still make a manifest unreadable, and `quarantine` then removes its run from later points in time for OneDrive, SharePoint, and Outlook. That needs the same access as deleting the manifest outright, and the damage is reported by key on every run until an operator acts. Quarantine never deletes the bytes, and Object Lock keeps a retained version in place. Check bucket versioning for an intact earlier version before quarantining.
 
 ### Authentication failures are reported everywhere
 
@@ -224,7 +226,8 @@ A GCM failure must never look like a successful empty result. Each object type r
 | ----------------------- | ----------------------------------------------------------------- |
 | Outlook attachment      | An error on the restore result, counted in `attachment_error_count` |
 | Drive file in an export | An error and an integrity failure                                 |
-| Snapshot manifest       | A raised `StorageError`. Only a genuinely absent object reads as absent |
+| Snapshot manifest       | `UnreadableObjectsError` naming the key, raised by a read of that snapshot or of a chain that needs it, and reported by every listing that skips it. Only a genuinely absent object reads as absent. A storage outage stays a `StorageError` |
+| Version index           | The same, from `list-versions`, `restore-version`, and `verify`. A seeding scan of version watermarks logs it and captures those versions again |
 
 Verification counts an entry as soon as it claims a stored blob. An entry that names a blob without a checksum is a verification failure. Tombstones are the only entries without a blob, so they are not counted.
 

@@ -8,6 +8,7 @@ import type {
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { delete_scopes, delete_snapshot_manifest } from '@/services/deletion/shared/prefix-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
+import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 
 @injectable()
 export class OneDriveDeletionService implements OneDriveDeletionUseCase {
@@ -32,6 +33,7 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
       `onedrive/index/${owner_id}/`,
       `onedrive/_meta/${owner_id}/`,
       staging_prefix,
+      ...quarantined_copies_of([`onedrive/manifests/${owner_id}/`, `onedrive/index/${owner_id}/`]),
     ]);
     // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps an owner
     // nobody backs up any more (issue #345).

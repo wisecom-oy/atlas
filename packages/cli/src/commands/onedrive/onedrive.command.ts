@@ -37,6 +37,8 @@ import {
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
+import { ONEDRIVE_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { register_quarantine_command } from '@/commands/shared/quarantine.command';
 
 type ContainerFactory = () => Container;
 
@@ -57,6 +59,11 @@ export function register_onedrive_command(program: Command, get_container: Conta
   register_onedrive_verify(group, get_container);
   register_onedrive_status(group, get_container);
   register_onedrive_delete(group, get_container);
+  register_quarantine_command(group, get_container, {
+    workload: 'onedrive',
+    object_noun: 'manifest or version index',
+    token: ONEDRIVE_QUARANTINE_USE_CASE_TOKEN,
+  });
 }
 
 function register_onedrive_backup(group: Command, get_container: ContainerFactory): void {

@@ -55,8 +55,9 @@ export class SharePointCatalogService implements SharePointCatalogUseCase {
   private catalog_deps(): DriveCatalogDeps<SharePointSnapshotManifest> {
     return {
       tenant_factory: this._tenant_factory,
-      list_snapshots: (ctx, site_id) => this._manifests.list_snapshots_by_site(ctx, site_id),
-      list_indexes: (ctx, site_id) => this._indexes.list_by_site(ctx, site_id),
+      list_snapshots: (ctx, site_id) =>
+        this._manifests.list_readable_snapshots_by_site(ctx, site_id),
+      list_indexes: (ctx, site_id) => this._indexes.list_readable_by_site(ctx, site_id),
     };
   }
 }

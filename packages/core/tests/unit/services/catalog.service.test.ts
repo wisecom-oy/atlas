@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import type { CatalogService } from '@/services/catalog/catalog.service';
 import type { ManifestRepository, TenantContext } from '@wisecom/atlas-types';
 import { build_catalog_harness, make_manifest } from './catalog-service.fixtures';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 function entries(...object_ids: string[]) {
   return object_ids.map((object_id) => ({
@@ -33,29 +34,31 @@ describe('CatalogService', () => {
     });
 
     it('groups manifests by mailbox and picks latest for stats', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          owner_id: 'alice@test.com',
-          snapshot_id: 's1',
-          created_at: new Date('2026-03-01'),
-          entries: entries('a1', 'a2'),
-          total_size_bytes: 1000,
-        }),
-        make_manifest({
-          owner_id: 'alice@test.com',
-          snapshot_id: 's2',
-          created_at: new Date('2026-03-05'),
-          entries: entries('a2', 'a3'),
-          total_size_bytes: 2000,
-        }),
-        make_manifest({
-          owner_id: 'bob@test.com',
-          snapshot_id: 's3',
-          created_at: new Date('2026-03-03'),
-          entries: entries('b1'),
-          total_size_bytes: 500,
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
+        readable_manifests([
+          make_manifest({
+            owner_id: 'alice@test.com',
+            snapshot_id: 's1',
+            created_at: new Date('2026-03-01'),
+            entries: entries('a1', 'a2'),
+            total_size_bytes: 1000,
+          }),
+          make_manifest({
+            owner_id: 'alice@test.com',
+            snapshot_id: 's2',
+            created_at: new Date('2026-03-05'),
+            entries: entries('a2', 'a3'),
+            total_size_bytes: 2000,
+          }),
+          make_manifest({
+            owner_id: 'bob@test.com',
+            snapshot_id: 's3',
+            created_at: new Date('2026-03-03'),
+            entries: entries('b1'),
+            total_size_bytes: 500,
+          }),
+        ]),
+      );
 
       const result = await service.list_mailboxes('t');
 
@@ -73,21 +76,23 @@ describe('CatalogService', () => {
 
     // Issue #536: the count followed the high-water `total_objects` and never dropped.
     it('stops counting messages a run with no new entries recorded as removed', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          snapshot_id: 's1',
-          created_at: new Date('2026-03-01'),
-          total_objects: 3,
-          entries: entries('m1', 'm2', 'm3'),
-        }),
-        make_manifest({
-          snapshot_id: 's2',
-          created_at: new Date('2026-03-02'),
-          total_objects: 3,
-          entries: [],
-          removed_object_ids: ['m2'],
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
+        readable_manifests([
+          make_manifest({
+            snapshot_id: 's1',
+            created_at: new Date('2026-03-01'),
+            total_objects: 3,
+            entries: entries('m1', 'm2', 'm3'),
+          }),
+          make_manifest({
+            snapshot_id: 's2',
+            created_at: new Date('2026-03-02'),
+            total_objects: 3,
+            entries: [],
+            removed_object_ids: ['m2'],
+          }),
+        ]),
+      );
 
       const [summary] = await service.list_mailboxes('t');
 
@@ -95,21 +100,23 @@ describe('CatalogService', () => {
     });
 
     it('reports mailbox_purpose from the latest manifest after conversion', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          owner_id: 'converted@test.com',
-          snapshot_id: 's1',
-          created_at: new Date('2026-03-01'),
-          mailbox_purpose: 'user',
-        }),
-        make_manifest({
-          owner_id: 'converted@test.com',
-          snapshot_id: 's2',
-          created_at: new Date('2026-03-05'),
-          mailbox_purpose: 'shared',
-        }),
-        make_manifest({ owner_id: 'legacy@test.com', snapshot_id: 's3' }),
-      ]);
+      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
+        readable_manifests([
+          make_manifest({
+            owner_id: 'converted@test.com',
+            snapshot_id: 's1',
+            created_at: new Date('2026-03-01'),
+            mailbox_purpose: 'user',
+          }),
+          make_manifest({
+            owner_id: 'converted@test.com',
+            snapshot_id: 's2',
+            created_at: new Date('2026-03-05'),
+            mailbox_purpose: 'shared',
+          }),
+          make_manifest({ owner_id: 'legacy@test.com', snapshot_id: 's3' }),
+        ]),
+      );
 
       const result = await service.list_mailboxes('t');
 
@@ -121,20 +128,22 @@ describe('CatalogService', () => {
     });
 
     it('falls back to the newest manifest that recorded a purpose when the latest lacks one', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          owner_id: 'team@test.com',
-          snapshot_id: 's1',
-          created_at: new Date('2026-03-01'),
-          mailbox_purpose: 'shared',
-        }),
-        // Latest backup's purpose lookup failed -- field absent.
-        make_manifest({
-          owner_id: 'team@test.com',
-          snapshot_id: 's2',
-          created_at: new Date('2026-03-05'),
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
+        readable_manifests([
+          make_manifest({
+            owner_id: 'team@test.com',
+            snapshot_id: 's1',
+            created_at: new Date('2026-03-01'),
+            mailbox_purpose: 'shared',
+          }),
+          // Latest backup's purpose lookup failed -- field absent.
+          make_manifest({
+            owner_id: 'team@test.com',
+            snapshot_id: 's2',
+            created_at: new Date('2026-03-05'),
+          }),
+        ]),
+      );
 
       const result = await service.list_mailboxes('t');
 
@@ -142,20 +151,22 @@ describe('CatalogService', () => {
     });
 
     it('reports owner_email from the newest manifest that recorded one', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({
-          owner_id: '00000000-0000-0000-0000-000000000001',
-          snapshot_id: 's1',
-          created_at: new Date('2026-03-01'),
-          owner_email: 'alice@example.com',
-        }),
-        // Latest backup predates the address being recorded -- field absent.
-        make_manifest({
-          owner_id: '00000000-0000-0000-0000-000000000001',
-          snapshot_id: 's2',
-          created_at: new Date('2026-03-05'),
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
+        readable_manifests([
+          make_manifest({
+            owner_id: '00000000-0000-0000-0000-000000000001',
+            snapshot_id: 's1',
+            created_at: new Date('2026-03-01'),
+            owner_email: 'alice@example.com',
+          }),
+          // Latest backup predates the address being recorded -- field absent.
+          make_manifest({
+            owner_id: '00000000-0000-0000-0000-000000000001',
+            snapshot_id: 's2',
+            created_at: new Date('2026-03-05'),
+          }),
+        ]),
+      );
 
       const result = await service.list_mailboxes('t');
 
@@ -163,10 +174,12 @@ describe('CatalogService', () => {
     });
 
     it('returns summaries sorted alphabetically by owner_id', async () => {
-      vi.mocked(mock_manifests.list_all_manifests).mockResolvedValue([
-        make_manifest({ owner_id: 'zara@test.com', snapshot_id: 's1' }),
-        make_manifest({ owner_id: 'alice@test.com', snapshot_id: 's2' }),
-      ]);
+      vi.mocked(mock_manifests.list_all_readable).mockResolvedValue(
+        readable_manifests([
+          make_manifest({ owner_id: 'zara@test.com', snapshot_id: 's1' }),
+          make_manifest({ owner_id: 'alice@test.com', snapshot_id: 's2' }),
+        ]),
+      );
 
       const result = await service.list_mailboxes('t');
       expect(result[0]!.owner_id).toBe('alice@test.com');
@@ -182,26 +195,28 @@ describe('CatalogService', () => {
     it('reads only the requested mailbox, under its lowercased owner id', async () => {
       await service.list_snapshots('t', 'Alice@Test.com');
 
-      expect(mock_manifests.list_by_owner).toHaveBeenCalledWith(
+      expect(mock_manifests.list_readable_by_owner).toHaveBeenCalledWith(
         expect.anything(),
         'alice@test.com',
       );
-      expect(mock_manifests.list_all_manifests).not.toHaveBeenCalled();
+      expect(mock_manifests.list_all_readable).not.toHaveBeenCalled();
     });
 
     it('sorts snapshots newest-first', async () => {
-      vi.mocked(mock_manifests.list_by_owner).mockResolvedValue([
-        make_manifest({
-          owner_id: 'a@t.com',
-          snapshot_id: 'old',
-          created_at: new Date('2026-01-01'),
-        }),
-        make_manifest({
-          owner_id: 'a@t.com',
-          snapshot_id: 'new',
-          created_at: new Date('2026-03-01'),
-        }),
-      ]);
+      vi.mocked(mock_manifests.list_readable_by_owner).mockResolvedValue(
+        readable_manifests([
+          make_manifest({
+            owner_id: 'a@t.com',
+            snapshot_id: 'old',
+            created_at: new Date('2026-01-01'),
+          }),
+          make_manifest({
+            owner_id: 'a@t.com',
+            snapshot_id: 'new',
+            created_at: new Date('2026-03-01'),
+          }),
+        ]),
+      );
 
       const result = await service.list_snapshots('t', 'a@t.com');
 

@@ -9,6 +9,7 @@ import type { TenantContextFactory } from '@wisecom/atlas-types';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { DriveDecryptAuthError } from '@/restore/decrypt-auth-error';
 import { restore_drive_version, type DriveVersionRestoreDeps } from '@/restore/version-restore';
+import { readable_indexes } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -46,7 +47,7 @@ function make_deps(failing: readonly string[]) {
       create_readonly: vi.fn().mockResolvedValue(ctx),
     } as unknown as TenantContextFactory,
     connector,
-    list_indexes: vi.fn().mockResolvedValue([index('file-1'), index('file-2')]),
+    list_indexes: vi.fn().mockResolvedValue(readable_indexes([index('file-1'), index('file-2')])),
     download_blob: vi.fn(async (_ctx: TenantContext, version: DriveFileVersionRecord) => {
       if (failing.includes(version.file_name)) throw new DriveDecryptAuthError(version.file_name);
       return Buffer.from('content');

@@ -10,6 +10,7 @@ import type { VerificationOptions, VerificationResult } from '@/ports/verificati
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
+import type { SdkQuarantineResult } from '@/ports/storage/quarantine.port';
 
 export type CalendarSdkBackupOptions = Camelize<
   Omit<CalendarBackupOptions, 'on_progress' | 'should_interrupt'>
@@ -43,4 +44,9 @@ export interface CalendarApi {
   listSnapshots(mailbox: string): Promise<CalendarSdkSnapshotManifest[]>;
   deleteMailboxData(mailbox: string): Promise<CalendarSdkDeletionResult>;
   deleteSnapshot(mailbox: string, snapshotId: string): Promise<CalendarSdkDeletionResult>;
+  /**
+   * Moves an unreadable snapshot manifest to `_quarantine/{storageKey}` so listings, status and
+   * backups stop reporting it. Refuses an object that reads cleanly or does not exist.
+   */
+  quarantine(storageKey: string): Promise<SdkQuarantineResult>;
 }

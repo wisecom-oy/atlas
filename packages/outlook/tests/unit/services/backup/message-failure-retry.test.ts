@@ -3,6 +3,7 @@ import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import type { MailboxDeltaCursor, Manifest, ManifestEntry, SyncResult } from '@wisecom/atlas-types';
 import { create_mailbox_sync_harness, make_delta, make_message } from './mailbox-sync.fixtures';
 import type { MailboxSyncHarness } from './mailbox-sync.fixtures';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issues #614 and #615. A message stored without its MIME (a 503 that outlasted the retries) or
@@ -46,7 +47,9 @@ function persist_state_between_runs(harness: MailboxSyncHarness): void {
   vi.mocked(harness.mock_cursors.save).mockImplementation(async (_ctx, saved) => {
     cursor = saved;
   });
-  vi.mocked(harness.mock_manifests.find_latest_by_owner).mockImplementation(async () => head);
+  vi.mocked(harness.mock_manifests.find_latest_readable).mockImplementation(async () =>
+    latest_readable(head),
+  );
   vi.mocked(harness.mock_manifests.save).mockImplementation(async (_ctx, saved) => {
     head = saved;
   });

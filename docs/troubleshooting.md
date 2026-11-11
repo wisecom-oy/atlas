@@ -332,6 +332,57 @@ john.doe@example.com is not in the identity registry of tenant <source>, and the
 
 The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 
+## Damaged manifests and version indexes
+
+```
+  Unreadable stored object: onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json
+1 stored object(s) could not be decrypted or parsed and were skipped -- exit 9
+If an object is damaged, move it aside so later runs stop reporting it:
+  atlas onedrive quarantine --key onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json
+```
+
+A snapshot manifest or a OneDrive or SharePoint version index exists but does not decrypt, does not parse, lacks the fields every manifest has, or names another owner or snapshot than its key. The command skipped it, finished what it could do correctly without it, named the key, and exited `9` (`ATLAS_CONTENT_UNREADABLE`). A storage outage is never reported this way: it stops the command with `ATLAS_STORAGE_FAILURE` instead, because it says nothing about the object. Neither is an object a newer Atlas release wrote: it is intact, so every command that reads it stops with `ATLAS_FORMAT_UNSUPPORTED` (exit `9`) and `quarantine` refuses it. Upgrade Atlas instead.
+
+Earlier releases failed every command for the owner on one such object, and dropped a damaged version index from every listing without a word.
+
+### What each command does around a damaged object
+
+| Command                                             | Behaviour                                                                                                                                                                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `status`                                            | Reports the newest readable snapshot and the damaged key. Exit `9`.                                                                                                                                          |
+| `list`, `list-snapshots`, `mailboxes`               | Prints every readable snapshot, then the damaged key. Exit `9`.                                                                                                                                              |
+| `list-versions`                                     | Prints the rows of every readable index object, then the damaged key. Exit `9`. The listed history may be missing that run's versions.                                                                       |
+| `backup`                                            | Runs and writes its snapshot. Outlook, Contacts, and Calendar read the newest manifest, so they name a damaged one and exit `9`. An incremental OneDrive or SharePoint run reads no manifest, so it neither needs nor reports one. See below for why each workload stays correct. |
+| OneDrive and SharePoint `restore`, `save`, `verify` | Refused, naming the key, when the damaged manifest is at or before the target snapshot or carries no time in its key. A newer damaged manifest is outside the target's chain: the command runs and names it. |
+| Outlook `restore`, `save`, `verify`, `read`         | Refused for every snapshot of that mailbox while a damaged manifest remains, naming the key.                                                                                                                 |
+| Contacts and Calendar `restore`, `verify`           | Refused only for the damaged snapshot itself. Every snapshot is complete on its own.                                                                                                                         |
+| `restore-version`                                   | Refused while any index object of the owner or site is damaged, naming the key.                                                                                                                              |
+| `verify` (OneDrive, SharePoint)                     | Lists each damaged index object as an index issue and exits `1`.                                                                                                                                             |
+
+A refusal is deliberate. OneDrive, SharePoint, and Outlook snapshots are incremental: each manifest records only what changed in its run, and a restore folds the target with every older manifest. Leaving a damaged manifest out of that fold would restore a different drive or mailbox than the one backed up, missing every item first captured in that run and bringing back items that run recorded as deleted. An Outlook snapshot ID carries no timestamp, and the manifest's own `created_at` is inside the damaged ciphertext, so Atlas cannot tell whether a damaged Outlook manifest is older than the target. Drive snapshot IDs embed their time (`od-snap-<epoch-ms>-...`), so only drive restores can tell the two cases apart. A version rollback picks the newest version before a cutoff, and that version may be the one in the unreadable object.
+
+Backups keep working:
+
+- **Contacts and Calendar** build each snapshot on the previous one. When the newest manifest is damaged, the cursor's delta links describe a state nobody can read, so the run ignores them, reads every folder or calendar in full, and always writes a fresh snapshot. The next run resumes incrementally from that one.
+- **Outlook** builds nothing on the previous manifest's entries. The run resumes from the delta cursor and records its own changes as usual.
+- **OneDrive and SharePoint** read manifests only when a full enumeration places tombstones. A whole-drive enumeration leaves a damaged manifest out of that comparison, which can only add a tombstone for a file already deleted, never remove a file that exists. A `--folder` enumeration places no tombstones while a manifest is damaged: the damaged run may have moved a file outside the scope, and its older in-scope entry would otherwise be recorded as deleted. A file deleted meanwhile keeps its older entry until a later re-crawl.
+
+### Recovery
+
+```bash
+atlas onedrive quarantine --key onedrive/manifests/<owner-id>/od-snap-1767225600000-a1b2c3.json
+atlas onedrive backup -o user@example.com --full
+```
+
+1. **Rule out storage and key problems first.** A wrong passphrase fails the data key before any manifest is read, so it is never reported this way. If many objects across owners are damaged at once, suspect the bucket, a misconfigured replica, or tampering, and stop there.
+2. **Check bucket versioning.** If the bucket is versioned, an earlier version of the same key may be intact. Restoring that version with your S3 tooling recovers the snapshot completely, which quarantine cannot.
+3. **Quarantine the object.** `atlas <workload> quarantine --key <key>` moves it to `_quarantine/<key>` without changing its bytes. Later listings, status, and backups stop reporting it. See [`quarantine`](./reference/cli.md#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
+4. **Re-establish a full baseline for incremental workloads.** Contacts and Calendar need nothing: quarantine removes the mailbox's delta cursor, so the next backup reads in full. After quarantining an Outlook, OneDrive, or SharePoint manifest, snapshots taken after it no longer include the changes it recorded. Run one `backup --full` so the newest snapshot holds every current item again. Older points in time stay incomplete for items first captured in the quarantined run.
+
+A quarantined object is kept, not destroyed. Its ciphertext stays bound to its original key, so it does not decrypt at the quarantine key. To retry it after repairing storage, copy it back to the original key. Owner deletion (`atlas <workload> delete -o`, `-m`, or `--site`) removes the quarantined copies of that owner, and `atlas delete --purge` removes all of them.
+
+In the SDK, listings reject with `UnreadableObjectsError`, which names the keys in `unreadable_keys` and carries the readable rows, in camelCase, in `partial_result`. Status, backup, restore, save, and verify results carry `unreadableKeys` instead. See [SDK errors](./reference/sdk.md#errors).
+
 ## See also
 
 - [Getting started](/getting-started)
