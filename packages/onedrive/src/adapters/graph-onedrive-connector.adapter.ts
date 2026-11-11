@@ -4,6 +4,7 @@ import type { Client } from '@microsoft/microsoft-graph-client';
 import {
   list_drive_item_versions,
   GRAPH_CLIENT_TOKEN,
+  get_graph_content_stream,
   is_invalid_delta_error,
   no_onedrive_message,
   rethrow_if_no_onedrive,
@@ -165,12 +166,9 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     item_id: string,
     version_id: string,
   ): Promise<NodeJS.ReadableStream> {
-    return await with_graph_retry(
-      () =>
-        this._client
-          .api(`/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`)
-          .getStream() as Promise<NodeJS.ReadableStream>,
-    );
+    const url = `/drives/${drive_id}/items/${item_id}/versions/${version_id}/content`;
+    const stream = await with_graph_retry(() => get_graph_content_stream(this._client.api(url)));
+    return stream as unknown as NodeJS.ReadableStream;
   }
 
   async create_folder(

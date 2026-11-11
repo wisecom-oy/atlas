@@ -1,4 +1,5 @@
-import { ResponseType, type Client } from '@microsoft/microsoft-graph-client';
+import type { Client } from '@microsoft/microsoft-graph-client';
+import { get_graph_bytes } from '@wisecom/atlas-m365-graph';
 import { extended_properties_expand } from '@wisecom/atlas-core/services/shared/atlas-extended-property';
 import type { GraphContactPayload } from '@wisecom/atlas-types';
 import {
@@ -53,9 +54,7 @@ export async function fetch_contact_photo(
 ): Promise<Uint8Array | undefined> {
   const url = `${contact_url(mailbox_id, folder_id, contact_id)}/photo/$value`;
   try {
-    const body = await graph_call<ArrayBuffer>(CONTACTS_READ, () =>
-      client.api(url).responseType(ResponseType.ARRAYBUFFER).get(),
-    );
+    const body = await graph_call(CONTACTS_READ, () => get_graph_bytes(client.api(url)));
     return new Uint8Array(body);
   } catch (err) {
     if (is_not_found(err)) return undefined;

@@ -142,8 +142,7 @@ describe('GraphContactsConnector photos', () => {
   });
 
   it('returns the photo bytes when present', async () => {
-    const bytes = new Uint8Array([1, 2, 3]).buffer;
-    const { connector } = connector_with(() => bytes);
+    const { connector } = connector_with(() => new Response(new Uint8Array([1, 2, 3])));
 
     const photo = await connector.fetch_contact_photo('tenant-1', MAILBOX, FOLDER, 'c1');
 
