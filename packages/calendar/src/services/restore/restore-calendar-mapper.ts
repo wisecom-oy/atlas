@@ -11,19 +11,30 @@ export interface CalendarMapping {
   readonly errors: string[];
 }
 
-/** First writable target calendar id per display name; read-only calendars are never targets. */
+/**
+ * Keys calendars by display name. Every calendar in a mailbox is a folder in one namespace,
+ * whatever calendar group shows it, and Exchange compares the names without case: creating `Work`
+ * next to `work` fails with 409 `ErrorFolderExists`. The key ignores case too, so a target
+ * calendar `work` receives the events of a source calendar `Work`.
+ */
+function name_key(display_name: string): string {
+  return display_name.toLowerCase();
+}
+
+/** First writable target calendar id per name key; read-only calendars are never targets. */
 function writable_by_name(calendars: readonly GraphCalendar[]): Map<string, string> {
   const by_name = new Map<string, string>();
   for (const calendar of calendars.filter((c) => c.can_edit)) {
-    if (!by_name.has(calendar.display_name)) by_name.set(calendar.display_name, calendar.id);
+    const key = name_key(calendar.display_name);
+    if (!by_name.has(key)) by_name.set(key, calendar.id);
   }
   return by_name;
 }
 
 /**
  * Maps each source calendar onto the target mailbox: the default calendar to the target's
- * default, every other calendar to a writable target calendar of the same name, created when
- * missing. A read-only target calendar of that name is never written into.
+ * default, every other calendar to a writable target calendar of the same name (compared without
+ * case), created when missing. A read-only target calendar of that name is never written into.
  */
 export async function map_source_calendars(
   connector: CalendarConnector,
@@ -38,7 +49,7 @@ export async function map_source_calendars(
   let calendars_created = 0;
 
   for (const calendar of source_calendars) {
-    const found = calendar.is_default ? default_id : by_name.get(calendar.display_name);
+    const found = calendar.is_default ? default_id : by_name.get(name_key(calendar.display_name));
     if (found !== undefined) {
       target_by_source.set(calendar.calendar_id, found);
       continue;
@@ -53,7 +64,7 @@ export async function map_source_calendars(
         target.mailbox_id,
         calendar.display_name,
       );
-      by_name.set(calendar.display_name, created.id);
+      by_name.set(name_key(calendar.display_name), created.id);
       target_by_source.set(calendar.calendar_id, created.id);
       calendars_created += 1;
     } catch (err) {
