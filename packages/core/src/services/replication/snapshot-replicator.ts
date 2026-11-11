@@ -6,6 +6,7 @@ import {
   ensure_dek_on_target,
   ensure_replica_marker,
 } from '@/services/replication/replica-target-bootstrap';
+import { copy_objects_to_target } from '@/services/replication/replication-object-copy';
 
 export interface SnapshotReplicationResult {
   readonly object_results: ReplicationObjectResult[];
@@ -53,40 +54,14 @@ export async function replicate_snapshot_to_target(
     await ensure_replica_marker(target_ctx, source_ctx.tenant_id);
   }
 
-  const storage_keys = collect_storage_keys(manifest);
-  const object_results: ReplicationObjectResult[] = [];
-  let objects_copied = 0;
-  let objects_skipped = 0;
-  let objects_failed = 0;
-  let bytes_copied = 0;
-  const errors: string[] = [];
+  const tally = await copy_objects_to_target(
+    source_ctx,
+    target_ctx,
+    collect_storage_keys(manifest),
+  );
 
-  for (const key of storage_keys) {
-    const result = await copy_object(source_ctx, target_ctx, key);
-    object_results.push(result);
-    if (result.outcome === 'copied') {
-      objects_copied++;
-      const data = await source_ctx.storage.get(key);
-      bytes_copied += data.length;
-    } else if (result.outcome === 'skipped') {
-      objects_skipped++;
-    } else {
-      objects_failed++;
-      if (result.error) errors.push(`${key}: ${result.error}`);
-    }
-  }
-
-  if (objects_failed > 0) {
-    return {
-      object_results,
-      objects_copied,
-      objects_skipped,
-      objects_failed,
-      bytes_copied,
-      errors,
-      source_manifest_checksum: '',
-      replicated_manifest_checksum: '',
-    };
+  if (tally.objects_failed > 0) {
+    return { ...tally, source_manifest_checksum: '', replicated_manifest_checksum: '' };
   }
 
   const manifest_key = `manifests/${manifest.owner_id}/${manifest.snapshot_id}.json`;
@@ -98,34 +73,7 @@ export async function replicate_snapshot_to_target(
   const target_manifest_blob = await target_ctx.storage.get(manifest_key);
   const replicated_manifest_checksum = sha256_hex(target_manifest_blob);
 
-  return {
-    object_results,
-    objects_copied,
-    objects_skipped,
-    objects_failed,
-    bytes_copied,
-    errors,
-    source_manifest_checksum,
-    replicated_manifest_checksum,
-  };
-}
-
-async function copy_object(
-  source_ctx: TenantContext,
-  target_ctx: TenantContext,
-  key: string,
-): Promise<ReplicationObjectResult> {
-  try {
-    const exists = await target_ctx.storage.exists(key);
-    if (exists) return { storage_key: key, outcome: 'skipped' };
-
-    const data = await source_ctx.storage.get(key);
-    await target_ctx.storage.put(key, data);
-    return { storage_key: key, outcome: 'copied' };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { storage_key: key, outcome: 'failed', error: message };
-  }
+  return { ...tally, source_manifest_checksum, replicated_manifest_checksum };
 }
 
 function sha256_hex(data: Buffer): string {

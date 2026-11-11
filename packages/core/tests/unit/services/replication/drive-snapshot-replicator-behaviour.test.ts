@@ -4,6 +4,7 @@ import type {
   SharePointSnapshotManifest,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { stream_from_get } from '@wisecom/atlas-types/testing/stub-object-stream';
 import { replicate_drive_snapshot_objects } from '@/services/replication/drive-snapshot-replicator';
 
 /**
@@ -26,15 +27,17 @@ function make_ctx(
   side: 'source' | 'target',
   fail_put_on?: string,
 ): TenantContext {
+  const get = async (key: string): Promise<Buffer> => {
+    const blob = recorder.objects[key];
+    if (!blob) throw new Error(`missing ${key}`);
+    return blob;
+  };
   return {
     tenant_id: 'tenant-1',
     storage: {
       exists: async (key: string) => key in recorder.objects,
-      get: async (key: string) => {
-        const blob = recorder.objects[key];
-        if (!blob) throw new Error(`missing ${key}`);
-        return blob;
-      },
+      get,
+      get_stream: stream_from_get(get),
       put: async (key: string, data: Buffer) => {
         if (side === 'target') {
           if (key === fail_put_on) throw new Error('AccessDenied');

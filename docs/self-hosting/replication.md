@@ -77,6 +77,8 @@ Replication sends encrypted objects over the network. The first replication of a
 
 Estimate the first transfer from your upload speed. For example, 50 GB over a 10 Mbps upload link takes about 11 hours.
 
+Each object is downloaded from primary once and uploaded to the target once, so egress from primary equals the volume copied. Objects up to 16 MiB go to the target as a single `PutObject` with a Content-MD5 check. Larger objects are streamed as a multipart upload in 16 MiB parts, which keeps memory at roughly one part per object in flight and lifts the 5 GiB single-request limit. S3 allows 10,000 parts, so the largest object replication can copy is about 156 GiB, twice the largest object a backup writes. The reported byte count is what passed through the copy; Atlas does not read the object again to measure it.
+
 ## See also
 
 - [Replication](/operations/replication): ordering, safety rules, replica status, and rehydration

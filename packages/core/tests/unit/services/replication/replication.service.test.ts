@@ -15,6 +15,7 @@ import type {
   OneDriveReplicationUseCase,
   SharePointReplicationUseCase,
 } from '@wisecom/atlas-types';
+import { stream_from_get } from '@wisecom/atlas-types/testing/stub-object-stream';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
@@ -25,7 +26,7 @@ vi.mock('@/services/replication/dek-rehydration-validator', () => ({
 }));
 
 function make_storage(): ObjectStorage {
-  return {
+  const storage: ObjectStorage = {
     put: vi.fn(),
     get: vi.fn().mockResolvedValue(Buffer.from('encrypted-blob')),
     delete: vi.fn(),
@@ -41,11 +42,12 @@ function make_storage(): ObjectStorage {
     }),
     copy: vi.fn(),
     get_with_etag: vi.fn(),
-    get_stream: vi.fn(),
+    get_stream: vi.fn(stream_from_get((key) => storage.get(key))),
     validate_object_lock_policy: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
+  return storage;
 }
 
 function make_ctx(storage: ObjectStorage): TenantContext {

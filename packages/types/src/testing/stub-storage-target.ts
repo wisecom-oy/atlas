@@ -1,4 +1,5 @@
 import type { ObjectStorage, StorageTarget, TenantContext } from '@/index';
+import { Readable } from 'node:stream';
 
 /**
  * A StorageTarget stub that counts context lifecycle calls.
@@ -39,13 +40,15 @@ export function stub_storage_target(options: StubStorageTargetOptions = {}): Stu
   let created = 0;
   let destroyed = 0;
 
+  const get = async (key: string): Promise<Buffer> => {
+    const blob = objects[key];
+    if (!blob) throw Object.assign(new Error(`missing ${key}`), { name: 'NoSuchKey' });
+    return blob;
+  };
   const in_memory: ObjectStorage = {
     exists: async (key: string) => key in objects,
-    get: async (key: string) => {
-      const blob = objects[key];
-      if (!blob) throw Object.assign(new Error(`missing ${key}`), { name: 'NoSuchKey' });
-      return blob;
-    },
+    get,
+    get_stream: async (key: string) => Readable.from([await get(key)]),
     put: async (key: string, data: Buffer) => {
       objects[key] = data;
     },

@@ -10,12 +10,13 @@ import type {
   TenantContext,
   ObjectStorage,
 } from '@wisecom/atlas-types';
+import { stream_from_get } from '@wisecom/atlas-types/testing/stub-object-stream';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 
 function make_storage(): ObjectStorage {
-  return {
+  const storage: ObjectStorage = {
     put: vi.fn(),
     get: vi.fn(),
     delete: vi.fn(),
@@ -31,11 +32,12 @@ function make_storage(): ObjectStorage {
     }),
     copy: vi.fn(),
     get_with_etag: vi.fn(),
-    get_stream: vi.fn(),
+    get_stream: vi.fn(stream_from_get((key) => storage.get(key))),
     validate_object_lock_policy: vi.fn(),
     abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
     probe_immutability: vi.fn(),
   };
+  return storage;
 }
 
 function make_context(storage: ObjectStorage, tenant_id = 'tenant-1'): TenantContext {
@@ -138,6 +140,12 @@ describe('replicate_snapshot_to_target', () => {
     expect(result.objects_copied).toBe(1);
     expect(result.objects_skipped).toBe(0);
     expect(result.objects_failed).toBe(0);
+    expect(result.bytes_copied).toBe(data_blob.length);
+    // One read of the source per object: the byte count used to come from a second download (#627).
+    const data_reads = vi
+      .mocked(source_storage.get)
+      .mock.calls.filter(([key]) => key === 'data/mailbox-1/hash-1');
+    expect(data_reads).toHaveLength(1);
     expect(target_storage.put).toHaveBeenCalledWith('data/mailbox-1/hash-1', data_blob);
     expect(target_storage.put).toHaveBeenCalledWith(
       'manifests/mailbox-1/snapshot-1.json',

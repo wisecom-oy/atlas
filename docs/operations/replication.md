@@ -16,7 +16,7 @@ For each snapshot, Atlas:
 
 1. Reads the snapshot manifest from primary storage.
 2. Checks which of the manifest's objects (messages, attachments, and file data) the target already holds.
-3. Copies the missing objects as raw ciphertext. Nothing is decrypted or re-encrypted.
+3. Copies the missing objects as raw ciphertext. Nothing is decrypted or re-encrypted. Each object is read from primary once and streamed to the target, so memory stays bounded however large the object is (see [Bandwidth](/self-hosting/replication#bandwidth)).
 4. Copies the manifest **last**, so a target never holds a manifest that points at missing objects.
 5. Writes a status record to primary storage with the outcome.
 
