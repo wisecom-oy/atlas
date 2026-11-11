@@ -365,7 +365,7 @@ Backups keep working:
 
 - **Contacts and Calendar** build each snapshot on the previous one. When the newest manifest is damaged, the cursor's delta links describe a state nobody can read, so the run ignores them, reads every folder or calendar in full, and always writes a fresh snapshot. The next run resumes incrementally from that one.
 - **Outlook** builds nothing on the previous manifest's entries. The run resumes from the delta cursor and records its own changes as usual.
-- **OneDrive and SharePoint** read manifests only when a full enumeration places tombstones. A damaged manifest is left out of that comparison, which can only add a tombstone for a file already deleted, never remove a file that exists.
+- **OneDrive and SharePoint** read manifests only when a full enumeration places tombstones. A whole-drive enumeration leaves a damaged manifest out of that comparison, which can only add a tombstone for a file already deleted, never remove a file that exists. A `--folder` enumeration places no tombstones while a manifest is damaged: the damaged run may have moved a file outside the scope, and its older in-scope entry would otherwise be recorded as deleted. A file deleted meanwhile keeps its older entry until a later re-crawl.
 
 ### Recovery
 

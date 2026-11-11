@@ -85,6 +85,7 @@ interface RunOptions {
   readonly force_full?: boolean;
   readonly folder_scope?: string;
   readonly stop_after_first_download?: boolean;
+  readonly unreadable_keys?: string[];
 }
 
 interface Run {
@@ -122,7 +123,10 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
   const factory = { create: async () => ctx } as unknown as TenantContextFactory;
-  const list_readable_snapshots_by_owner = vi.fn(async () => readable_manifests([PREVIOUS]));
+  const list_readable_snapshots_by_owner = vi.fn(async () => ({
+    ...readable_manifests([PREVIOUS]),
+    unreadable_keys: options.unreadable_keys ?? [],
+  }));
   const service = new OneDriveBackupService(
     factory,
     connector as never,
@@ -190,5 +194,25 @@ describe('OneDrive re-crawl tombstones (issue #435)', () => {
     );
 
     expect(await tombstoned(run)).toEqual([]);
+  });
+
+  it('places no tombstone in a --folder re-crawl while an earlier manifest is unreadable (#631)', async () => {
+    const damaged = `onedrive/manifests/${OWNER_ID}/od-snap-2-abc.json`;
+    const run = run_backup(
+      { d1: { items: [make_item('report')] }, d2: { items: [make_item('photo', 'd2')] } },
+      { folder_scope: '/Docs', unreadable_keys: [damaged] },
+    );
+
+    expect(await tombstoned(run)).toEqual([]);
+    expect((await run.result).summary.unreadable_keys).toEqual([damaged]);
+  });
+
+  it('still tombstones a whole-drive re-crawl past an unreadable manifest (#631)', async () => {
+    const run = run_backup(
+      { d1: { items: [make_item('report')] }, d2: { items: [make_item('photo', 'd2')] } },
+      { force_full: true, unreadable_keys: [`onedrive/manifests/${OWNER_ID}/od-snap-2-abc.json`] },
+    );
+
+    expect(await tombstoned(run)).toEqual(['budget', 'archive']);
   });
 });

@@ -62,19 +62,27 @@ export interface RecrawlScan<Entry extends TrackedEntry> {
  * because absence proves nothing when the listing stopped early. `is_in_scope` narrows the
  * comparison to a `--folder` scope. No manifest is read when nothing was re-crawled.
  *
- * A damaged earlier manifest is left out of the comparison and its key returned (issue #631).
- * That is safe in both directions. A file only it knew about and that is gone now gets no
- * tombstone, but no readable manifest lists it either, so nothing resurrects it. A file it
- * recorded as deleted still looks live in the older state, so it gets a tombstone again, which
- * restates a real deletion. The re-crawl itself writes every file that exists, so nothing is lost.
+ * A damaged earlier manifest is left out of the comparison and its key returned (issue #631). For
+ * a whole-drive re-crawl that is safe: every file that exists is returned and written, so a
+ * tombstone only lands on a file that is gone. A file only the damaged manifest knew about gets
+ * none, but no readable manifest lists it either; a file it recorded as deleted gets one again,
+ * restating a real deletion.
+ *
+ * A `--folder` re-crawl returns only the files inside the scope. A file the damaged manifest
+ * recorded at a path outside the scope still exists, yet without that entry its older in-scope
+ * entry looks gone and would receive a permanent tombstone, a deletion that never happened. So a
+ * scoped re-crawl places no tombstones while an earlier manifest is unreadable. A file deleted in
+ * the meantime then keeps its older entry until a re-crawl after the manifest is quarantined.
  */
 export async function append_recrawl_tombstones<Entry extends TrackedEntry>(
   scan: RecrawlScan<Entry>,
   list_previous_manifests: () => Promise<ReadableManifestListing<ChainManifest<Entry>>>,
   is_in_scope: (entry: Entry) => boolean = () => true,
+  scoped = false,
 ): Promise<string[]> {
   if (scan.recrawls.length === 0) return [];
   const listing = await list_previous_manifests();
+  if (scoped && listing.unreadable_keys.length > 0) return listing.unreadable_keys;
   const previous = fold_newest_entries(listing.manifests);
   const returned_by_drive = new Map(scan.recrawls.map((r) => [r.drive_id, r.returned_item_ids]));
   const written = new Set(scan.entries.map((entry) => entry.file_id));

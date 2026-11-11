@@ -76,4 +76,31 @@ describe('append_recrawl_tombstones with a damaged earlier manifest (issue #631)
     expect(scan.entries.map((e) => [e.file_id, e.change_type])).toEqual([['f-0', 'deleted']]);
     expect(skipped).toEqual([damaged]);
   });
+
+  it('places no tombstones in a scoped re-crawl while an earlier manifest is unreadable', async () => {
+    const scan = {
+      entries: [] as Entry[],
+      deleted_items: 0,
+      recrawls: [{ drive_id: 'd1', returned_item_ids: new Set<string>() }],
+    };
+    const damaged = 'onedrive/manifests/owner-1/od-snap-2-abc.json';
+
+    // f-0 may have been moved outside the scope by the unreadable run: its older in-scope entry
+    // looks gone, and a tombstone would record a deletion that never happened.
+    const skipped = await append_recrawl_tombstones(
+      scan,
+      async () => ({
+        manifests: [
+          { snapshot_id: 'snap-1', created_at: new Date('2026-01-01'), entries: [stored_entry(0)] },
+        ],
+        unreadable_keys: [damaged],
+      }),
+      () => true,
+      true,
+    );
+
+    expect(scan.entries).toEqual([]);
+    expect(scan.deleted_items).toBe(0);
+    expect(skipped).toEqual([damaged]);
+  });
 });

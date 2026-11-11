@@ -191,6 +191,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         (entry) =>
           folder_scope === undefined ||
           is_path_within_folder_scope(entry.parent_path, folder_scope),
+        folder_scope !== undefined,
       );
       const processed = scan_result.items_processed;
       emit_operation_progress(options, {
