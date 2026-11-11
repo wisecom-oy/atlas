@@ -18,7 +18,8 @@ const UPLOAD_CHUNK_SIZE = 13 * 320 * 1024; // ~4 MiB; Graph API requires multipl
  * 5xx or a timeout can create a second copy, so only a throttle response is retried (issue #624).
  * An upload session is not covered: a spare session creates nothing and expires on its own.
  */
-const CREATE_ONCE = { idempotent: false } as const;
+// Sent once, and once sent finished: a create cut off mid-flight may still have landed (#682).
+const CREATE_ONCE = { idempotent: false, complete_in_flight: true } as const;
 
 interface GraphFolderResponse {
   id?: string;
@@ -177,12 +178,14 @@ export class GraphRestoreConnector implements RestoreConnector {
     const range_end = range_start + chunk.length - 1;
     const content_range = `bytes ${range_start}-${range_end}/${total_size}`;
 
-    await with_graph_retry(() =>
-      this._client
-        .api(upload_url)
-        .header('Content-Range', content_range)
-        .header('Content-Length', String(chunk.length))
-        .put(chunk),
+    await with_graph_retry(
+      () =>
+        this._client
+          .api(upload_url)
+          .header('Content-Range', content_range)
+          .header('Content-Length', String(chunk.length))
+          .put(chunk),
+      { complete_in_flight: true },
     );
   }
 

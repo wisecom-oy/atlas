@@ -8,7 +8,7 @@ import { render_static_view } from '@/ui/render';
 
 /** Shown on the first Ctrl+C of a OneDrive or SharePoint restore or version restore. */
 export const DRIVE_RESTORE_INTERRUPT_MESSAGE =
-  'Stopping the restore; the file in progress is not written and the restore will be partial';
+  'Stopping the restore; an upload already sent finishes first, and nothing after it is written';
 
 /** The counts both drive snapshot restores report. */
 export interface DriveRestoreSummary {
