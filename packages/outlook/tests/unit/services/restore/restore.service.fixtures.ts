@@ -148,6 +148,8 @@ export function make_restore_harness(): RestoreHarness {
       folder_path: 'Restore-2026-03-08',
       total_item_count: 0,
     }),
+    find_child_mail_folder: vi.fn().mockResolvedValue(undefined),
+    find_well_known_folder_role: vi.fn().mockResolvedValue(undefined),
     create_message: vi.fn().mockResolvedValue('new-msg-id'),
     add_attachment: vi.fn(),
     create_upload_session: vi.fn(),

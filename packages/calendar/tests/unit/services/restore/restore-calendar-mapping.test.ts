@@ -51,6 +51,47 @@ describe('restore calendar mapping', () => {
     expect(rig.calls.created_events.map((c) => c.calendar_id)).toEqual(['cal-work']);
   });
 
+  it('maps a source calendar onto a target calendar whose name differs only in case', async () => {
+    const rig = restore_harness();
+    rig.script.calendars = [
+      calendar('cal-default', 'Calendar', { is_default: true }),
+      calendar('cal-lower-work', 'work'),
+    ];
+    // Exchange rejects a calendar whose name differs from an existing one only in case.
+    rig.script.hooks = { create_calendar: (name) => new Error(`409 ErrorFolderExists: ${name}`) };
+    save_snapshot(rig.manifests, [stored_event(rig.objects, 'src-work', calendar_event('e-w'))]);
+
+    const result = await rig.service.restore_calendar(TENANT, MAILBOX, { snapshot_id: SNAPSHOT });
+
+    expect(result.errors).toEqual([]);
+    expect(rig.calls.created_calendars).toEqual([]);
+    expect(result.calendars_created).toBe(0);
+    expect(result.events_restored).toBe(1);
+    expect(rig.calls.created_events.map((c) => c.calendar_id)).toEqual(['cal-lower-work']);
+  });
+
+  it('maps a lower-case source calendar onto an upper-case target calendar', async () => {
+    const rig = restore_harness();
+    rig.script.calendars = [
+      calendar('cal-default', 'Calendar', { is_default: true }),
+      calendar('cal-upper-hol', 'HOLIDAYS'),
+    ];
+    const calendars = [
+      ...SOURCE_CALENDARS,
+      { calendar_id: 'src-hol', display_name: 'holidays', is_default: false },
+    ];
+    save_snapshot(
+      rig.manifests,
+      [stored_event(rig.objects, 'src-hol', calendar_event('e-h'))],
+      calendars,
+    );
+
+    await rig.service.restore_calendar(TENANT, MAILBOX, { snapshot_id: SNAPSHOT });
+
+    expect(rig.calls.created_calendars).toEqual(['Work']);
+    expect(rig.calls.created_events.map((c) => c.calendar_id)).toEqual(['cal-upper-hol']);
+  });
+
   it('does not write into a read-only target calendar of the same name', async () => {
     const rig = restore_harness();
     rig.script.calendars.push(calendar('cal-birthdays', 'Birthdays', { can_edit: false }));

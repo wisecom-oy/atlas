@@ -11,7 +11,7 @@ const FOLDER_PAGE_SIZE = 250;
  * Well-known names that can resolve to a folder in the visible tree. Graph
  * v1.0 has no `wellKnownName` property, so each is resolved with one GET.
  */
-const VISIBLE_WELL_KNOWN_FOLDERS = [
+export const VISIBLE_WELL_KNOWN_FOLDERS = [
   'inbox',
   'drafts',
   'sentitems',

@@ -12,7 +12,7 @@
  */
 
 import type { RestoreConnector, AttachmentUpload, UploadSession } from '@wisecom/atlas-types';
-import type { MailFolder } from '@wisecom/atlas-types';
+import type { MailFolder, WellKnownMailFolder } from '@wisecom/atlas-types';
 import { run_with_graph_operation } from '@wisecom/atlas-core/services/shared/graph-request-context';
 
 export class CostTrackingRestoreConnector implements RestoreConnector {
@@ -30,6 +30,28 @@ export class CostTrackingRestoreConnector implements RestoreConnector {
   ): Promise<MailFolder> {
     return run_with_graph_operation({ pool: 'outlook', request_type: 'create_folder' }, () =>
       this._inner.create_mail_folder(tenant_id, owner_id, display_name, parent_folder_id),
+    );
+  }
+
+  async find_child_mail_folder(
+    tenant_id: string,
+    owner_id: string,
+    display_name: string,
+    parent_folder_id?: string,
+  ): Promise<MailFolder | undefined> {
+    return run_with_graph_operation({ pool: 'outlook', request_type: 'find_child_folder' }, () =>
+      this._inner.find_child_mail_folder(tenant_id, owner_id, display_name, parent_folder_id),
+    );
+  }
+
+  async find_well_known_folder_role(
+    tenant_id: string,
+    owner_id: string,
+    folder_id: string,
+  ): Promise<WellKnownMailFolder | undefined> {
+    return run_with_graph_operation(
+      { pool: 'outlook', request_type: 'read_well_known_folder' },
+      () => this._inner.find_well_known_folder_role(tenant_id, owner_id, folder_id),
     );
   }
 

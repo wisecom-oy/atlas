@@ -1,5 +1,5 @@
 import type { TenantContext } from '@wisecom/atlas-types';
-import type { MailboxConnector } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
@@ -19,11 +19,7 @@ import {
   attachment_shortfall_warning,
   count_attachment_kinds,
 } from '@/services/restore/restored-message-report';
-import {
-  build_folder_map,
-  create_restore_root,
-  ensure_subfolder,
-} from '@/services/restore/folder-restore-planner';
+import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -231,7 +227,11 @@ export async function restore_folder_entries(
   return { restored, attachments, errors, attachment_errors, messages, warnings };
 }
 
-/** Restores a single message with its attachments. No dashboard needed. */
+/**
+ * Restores a single message with its attachments under an opened restore root. No dashboard
+ * needed. `restore_connector` is the root's connector, so a chosen destination also reuses the
+ * source folder levels beneath it.
+ */
 export async function restore_single_message(
   ctx: TenantContext,
   connector: MailboxConnector,
@@ -241,8 +241,8 @@ export async function restore_single_message(
   target_mailbox: string,
   snapshot_id: string,
   entry: ManifestEntry,
+  root: MailFolder,
 ): Promise<RestoreResult> {
-  const root = await create_restore_root(restore_connector, tenant_id, target_mailbox);
   const folder_id = await resolve_source_folder_id(ctx, entry);
 
   const folder_map = await build_folder_map(connector, tenant_id, source_mailbox);

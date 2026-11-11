@@ -65,14 +65,18 @@ export async function run_backup_with_cli_adapter(
   }
 }
 
+/**
+ * Logs the sync mode, warnings, counters, and interruption. A run cancelled before it read any
+ * folder stored nothing, so it gets neither the mode line nor counters, only the interruption.
+ */
 async function log_backup_result(result: SyncResult): Promise<void> {
-  if (result.mode === 'full') {
-    logger.info('Full sync forced – ignoring saved delta state');
-  } else if (result.mode === 'incremental') {
-    logger.info('Resuming incremental sync from saved delta state');
-  } else {
-    logger.info('No prior backup found – running initial full sync');
+  if (result.snapshot_stored === false) {
+    logger.warn(
+      'Interrupted before any folder was read. Nothing was backed up and no snapshot was saved.',
+    );
+    return;
   }
+  log_sync_mode(result);
 
   for (const warning of result.summary.warnings) {
     logger.warn(warning);
@@ -99,5 +103,15 @@ async function log_backup_result(result: SyncResult): Promise<void> {
       `Interrupted -- progress saved (${result.summary.completed_folder_count}/` +
         `${result.summary.total_folder_count} folders, ${result.summary.processed} items)`,
     );
+  }
+}
+
+function log_sync_mode(result: SyncResult): void {
+  if (result.mode === 'full') {
+    logger.info('Full sync forced – ignoring saved delta state');
+  } else if (result.mode === 'incremental') {
+    logger.info('Resuming incremental sync from saved delta state');
+  } else {
+    logger.info('No prior backup found – running initial full sync');
   }
 }
