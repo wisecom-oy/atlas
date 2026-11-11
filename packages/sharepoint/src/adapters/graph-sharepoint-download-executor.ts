@@ -7,16 +7,16 @@ import {
   read_graph_error_code,
   DownloadRefusedError,
   MissingGraphPermissionsError,
+  cancellable_sleep,
+  parse_retry_after_ms,
   report_transfer_throttle,
   wait_for_transfer_slot,
 } from '@wisecom/atlas-m365-graph';
-import {
-  CdnHttpError,
-  CHUNK_DOWNLOAD_THRESHOLD,
-  compute_chunk_timeout_ms,
-  download_file_chunked,
-} from '@/adapters/graph-sharepoint-chunked-download';
+import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
+import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
+import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { assert_transferred_size } from '@wisecom/atlas-drive/backup/download-integrity';
+import { SHAREPOINT_CHUNK_DOWNLOADER } from '@/adapters/graph-sharepoint-chunk-downloader';
 
 interface GraphDriveItemDownload {
   '@microsoft.graph.downloadUrl'?: string;
@@ -39,10 +39,14 @@ export async function resolve_download_url(
   return response['@microsoft.graph.downloadUrl'];
 }
 
-/** Downloads file content with chunked download, expired-URL refresh, and Graph fallback. */
+/**
+ * Downloads file content with chunked download, expired-URL refresh, and Graph fallback.
+ * `abort_signal` ends a transfer from the pre-authenticated URL and any backoff it is in.
+ */
 export async function download_with_fallback(
   client: Client,
   item: SharePointDeltaItem,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   const download_url = item.download_url ?? (await resolve_download_url(client, item));
 
@@ -51,8 +55,15 @@ export async function download_with_fallback(
       client,
       item,
       download_url,
-      (url) => download_file_chunked(url, item.size_bytes, item.item_id),
+      (url) =>
+        SHAREPOINT_CHUNK_DOWNLOADER.download_file_chunked(
+          url,
+          item.size_bytes,
+          item.item_id,
+          abort_signal,
+        ),
       'Chunked download',
+      abort_signal,
     );
   }
 
@@ -61,8 +72,9 @@ export async function download_with_fallback(
       client,
       item,
       download_url,
-      (url) => download_from_url(url, item.size_bytes, item.item_id),
+      (url) => download_from_url(url, item.size_bytes, item.item_id, abort_signal),
       'URL download',
+      abort_signal,
     );
   }
 
@@ -79,10 +91,13 @@ async function attempt_download_with_refresh(
   download_url: string,
   download_fn: (url: string) => Promise<Buffer>,
   failure_label: string,
+  abort_signal: AbortSignal | undefined,
 ): Promise<Buffer> {
   try {
     return await download_fn(download_url);
   } catch (err) {
+    // A cancelled run neither refreshes the URL nor falls back to /content: it stops (issue #632).
+    abort_signal?.throwIfAborted();
     const kind = classify_download_failure(err);
 
     // A missing grant answers 403 on every item, so re-resolving and then spending a
@@ -175,27 +190,39 @@ export function rethrow_if_access_denied(err: unknown): void {
   );
 }
 
+/**
+ * Downloads a pre-authenticated URL into a buffer, retrying a 429 up to MAX_URL_RETRIES times.
+ *
+ * The wait honours `Retry-After` through the shared parser, so an HTTP-date is understood and a
+ * huge value is clamped to an hour. The private `parseInt` copy it replaces overflowed `setTimeout`
+ * on a value above 2^31-1 ms and retried after about 1 ms (issue #628).
+ */
 async function download_from_url(
   download_url: string,
   size_bytes: number,
   item_id: string,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   const timeout_ms = compute_chunk_timeout_ms(size_bytes);
 
   for (let attempt = 0; attempt <= MAX_URL_RETRIES; attempt++) {
-    await wait_for_transfer_slot();
+    await wait_for_transfer_slot(abort_signal);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout_ms);
+    const cancel_request = (): void => controller.abort(abort_signal?.reason);
+    abort_signal?.addEventListener('abort', cancel_request, { once: true });
     try {
       const response = await fetch(download_url, { signal: controller.signal });
       report_transfer_throttle(response);
 
       if (response.status === 429) {
-        const retry_after = parse_retry_after(response.headers.get('Retry-After'));
+        const retry_after = parse_retry_after_ms(response.headers.get('Retry-After'));
         if (attempt < MAX_URL_RETRIES) {
           const delay = retry_after ?? 1_000 * 2 ** attempt;
           logger.debug(`HTTP 429 downloading ${item_id}, retry in ${delay}ms`);
-          await sleep_ms(delay);
+          // Released before the wait, so the abort listener does not outlive this attempt.
+          abort_signal?.removeEventListener('abort', cancel_request);
+          await cancellable_sleep(delay, abort_signal);
           continue;
         }
         throw new CdnHttpError(`HTTP 429 downloading ${item_id}`, 429, retry_after);
@@ -215,6 +242,7 @@ async function download_from_url(
       return body;
     } finally {
       clearTimeout(timer);
+      abort_signal?.removeEventListener('abort', cancel_request);
     }
   }
 
@@ -254,14 +282,4 @@ function stream_to_buffer(stream: NodeJS.ReadableStream, timeout_ms: number): Pr
       }, timeout_ms);
     }),
   ]);
-}
-
-function parse_retry_after(value: string | null): number | undefined {
-  if (!value) return undefined;
-  const seconds = parseInt(value, 10);
-  return isNaN(seconds) ? undefined : seconds * 1000;
-}
-
-function sleep_ms(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -29,8 +29,12 @@ export async function run_attempt<T>(
 /**
  * Waits `ms`, or rejects as soon as `signal` fires. The timer is cleared on abort, so a cancelled
  * run does not hold the process open for the rest of a backoff or Retry-After.
+ *
+ * A signal that has already fired rejects at once: an `abort` listener added after the event never
+ * runs, so without the check a run cancelled just before the wait would sit it out in full.
  */
 export async function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  throw_if_cancelled(signal);
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   const on_abort = (): void => {
     clearTimeout(timer);

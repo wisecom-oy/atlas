@@ -270,6 +270,7 @@ Restored sections are ordinary files. Dropping them back into a drive does not r
 
 - **Uploads.** Files up to 4 MiB are uploaded in one request. Larger files use a resumable upload session in 10 MiB chunks.
 - **Throttling.** Graph `429` and transient `5xx` responses are retried with backoff.
+- **Ctrl+C.** A backup stops in the middle of the file it is transferring, including during a retry wait. That file is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Path length.** Restores under a root add path depth. Files over OneDrive's path length limit are skipped and reported.
 - **Scope.** Permissions and authors are not restored.
 

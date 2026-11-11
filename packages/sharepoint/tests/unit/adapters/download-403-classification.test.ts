@@ -17,10 +17,12 @@ const mocks = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@/adapters/graph-sharepoint-chunked-download', async (import_original) => {
-  const actual = await import_original<Record<string, unknown>>();
-  return { ...actual, download_file_chunked: mocks.download_file_chunked };
-});
+vi.mock('@/adapters/graph-sharepoint-chunk-downloader', () => ({
+  SHAREPOINT_CHUNK_DOWNLOADER: {
+    download_file_chunked: mocks.download_file_chunked,
+    fetch_file_chunks: vi.fn(),
+  },
+}));
 
 vi.mock('@wisecom/atlas-m365-graph', async (import_original) => {
   const actual = await import_original<Record<string, unknown>>();

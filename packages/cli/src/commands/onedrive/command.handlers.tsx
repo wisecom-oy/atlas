@@ -31,6 +31,7 @@ import {
   target_profile_items,
 } from '@/commands/shared/restore-target-container';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -147,7 +148,7 @@ export async function execute_onedrive_backup(
   );
 
   const gate = install_interrupt_gate(
-    'Stopping after the current file; the delta cursor is not advanced for an interrupted run',
+    'Stopping the current transfer; the delta cursor is not advanced for an interrupted run',
   );
   let result;
   try {
@@ -159,10 +160,12 @@ export async function execute_onedrive_backup(
       object_lock_request,
       create_progress: create_backup_progress({ rate: 'files/s', extra: 'ver', row_noun: 'drive' }),
       should_interrupt: gate.should_interrupt,
+      abort_signal: gate.abort_signal,
     });
   } finally {
     gate.dispose();
   }
+  await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
 
   if (result.snapshot) {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);

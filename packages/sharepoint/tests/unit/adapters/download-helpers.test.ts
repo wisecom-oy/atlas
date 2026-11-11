@@ -3,10 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 import { Readable } from 'node:stream';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
-import {
-  CdnHttpError,
-  CHUNK_DOWNLOAD_THRESHOLD,
-} from '@/adapters/graph-sharepoint-chunked-download';
+import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
+import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
 import {
   resolve_download_url,
   download_with_fallback,
@@ -33,12 +31,14 @@ const mocks = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 
-// CdnHttpError and compute_chunk_timeout_ms stay real: the first is matched with
-// `instanceof`, the second sets the timeout the retry loop runs under.
-vi.mock('@/adapters/graph-sharepoint-chunked-download', async (import_original) => {
-  const actual = await import_original<Record<string, unknown>>();
-  return { ...actual, download_file_chunked: mocks.download_file_chunked };
-});
+// Only the chunk downloader is stubbed. CdnHttpError and compute_chunk_timeout_ms stay real: the
+// first is matched with `instanceof`, the second sets the timeout the retry loop runs under.
+vi.mock('@/adapters/graph-sharepoint-chunk-downloader', () => ({
+  SHAREPOINT_CHUNK_DOWNLOADER: {
+    download_file_chunked: mocks.download_file_chunked,
+    fetch_file_chunks: vi.fn(),
+  },
+}));
 
 // Only the retry wrapper is stubbed, so it cannot multiply call counts. The download
 // classifier is real: it is the behaviour under test (issue #246).

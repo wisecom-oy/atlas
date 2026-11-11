@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 // Static: vi.mock is hoisted above imports, and the partial mock keeps CdnHttpError real.
-import { CdnHttpError } from '@/adapters/graph-onedrive-chunked-download';
+import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
 
 /**
  * The behaviour issue #246 introduces: a 403 is acted on for the reason it was
@@ -23,10 +23,12 @@ const mocks = vi.hoisted(() => ({
   warn: vi.fn(),
 }));
 
-vi.mock('@/adapters/graph-onedrive-chunked-download', async (import_original) => {
-  const actual = await import_original<Record<string, unknown>>();
-  return { ...actual, download_file_chunked: mocks.download_file_chunked };
-});
+vi.mock('@/adapters/graph-onedrive-chunk-downloader', () => ({
+  ONEDRIVE_CHUNK_DOWNLOADER: {
+    download_file_chunked: mocks.download_file_chunked,
+    fetch_file_chunks: vi.fn(),
+  },
+}));
 
 vi.mock('@/adapters/graph-onedrive-connector-stream', () => ({
   download_from_url: mocks.download_from_url,

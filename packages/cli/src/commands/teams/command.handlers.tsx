@@ -11,13 +11,13 @@ import type {
 import {
   AuthError,
   TEAMS_BACKUP_USE_CASE_TOKEN,
-  THROTTLE_COORDINATOR_TOKEN,
   TEAMS_CATALOG_USE_CASE_TOKEN,
 } from '@wisecom/atlas-types';
 import { resolve_channel_concurrency } from '@wisecom/atlas-teams';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
 import { resolve_tenant_id } from '@/commands/sharepoint/command.handlers';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
@@ -173,12 +173,7 @@ export async function execute_teams_backup(
     gate.dispose();
   }
 
-  // Ctrl+C aborts the request but not the cooldown the run raised. That timer is not unref'd, so
-  // it would keep the process alive until the Retry-After expires. Unbinding the coordinator runs
-  // its deactivation hook, which clears the fence timers.
-  if (gate.abort_signal.aborted && container.isBound(THROTTLE_COORDINATOR_TOKEN)) {
-    await container.unbindAsync(THROTTLE_COORDINATOR_TOKEN);
-  }
+  await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
 
   report_run_outcome(
     { errors: run.failed_teams, warnings: [], interrupted: run.interrupted },

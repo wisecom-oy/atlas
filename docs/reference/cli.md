@@ -633,6 +633,8 @@ A file whose newest entry is a deletion stays deleted. The tombstone overrides t
 
 `--full`, a changed `--folder`, and an expired delta link all replace the incremental delta with an enumeration of the drive. An enumeration lists only what currently exists. When an enumeration finishes, Atlas writes a tombstone for each stored file it did not return. The comparison covers the re-crawled drive, and the `--folder` scope when one is set. An interrupted run writes no tombstones, because a partial listing proves nothing about absence. SharePoint applies the same rule per document library.
 
+Ctrl+C stops a OneDrive or SharePoint backup inside the file in flight: the download request and any retry wait end at once, and the run exits `2` without advancing the delta cursor. The interrupted file is not recorded as a failed item, so it keeps its retry budget. A second Ctrl+C exits at once with status `130`.
+
 ```bash
 atlas onedrive backup -o user@company.com
 atlas onedrive backup -o user@company.com --full

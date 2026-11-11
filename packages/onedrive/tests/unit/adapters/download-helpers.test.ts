@@ -2,7 +2,8 @@ import { classify_download_failure } from '@wisecom/atlas-m365-graph';
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { CdnHttpError, CHUNK_DOWNLOAD_THRESHOLD } from '@/adapters/graph-onedrive-chunked-download';
+import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
+import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
 import {
   resolve_download_url,
   download_with_fallback,
@@ -31,10 +32,12 @@ const mocks = vi.hoisted(() => ({
 
 // CdnHttpError stays real: is_expired_url_error branches on `instanceof`, so a stubbed
 // class would silently take the wrong branch and the test would prove nothing.
-vi.mock('@/adapters/graph-onedrive-chunked-download', async (import_original) => {
-  const actual = await import_original<Record<string, unknown>>();
-  return { ...actual, download_file_chunked: mocks.download_file_chunked };
-});
+vi.mock('@/adapters/graph-onedrive-chunk-downloader', () => ({
+  ONEDRIVE_CHUNK_DOWNLOADER: {
+    download_file_chunked: mocks.download_file_chunked,
+    fetch_file_chunks: vi.fn(),
+  },
+}));
 
 vi.mock('@/adapters/graph-onedrive-connector-stream', () => ({
   download_from_url: mocks.download_from_url,
@@ -136,7 +139,7 @@ describe('OneDrive download helpers', () => {
       );
 
       expect(body).toEqual(URL_BODY);
-      expect(mocks.download_from_url).toHaveBeenCalledWith(STALE_URL, 0, 'item-1');
+      expect(mocks.download_from_url).toHaveBeenCalledWith(STALE_URL, 0, 'item-1', undefined);
       expect(mock.api).not.toHaveBeenCalled();
     });
 
@@ -186,8 +189,8 @@ describe('OneDrive download helpers', () => {
 
       expect(body).toEqual(URL_BODY);
       expect(mock.get).toHaveBeenCalledOnce();
-      expect(mocks.download_from_url).toHaveBeenNthCalledWith(1, STALE_URL, 0, 'item-1');
-      expect(mocks.download_from_url).toHaveBeenNthCalledWith(2, FRESH_URL, 0, 'item-1');
+      expect(mocks.download_from_url).toHaveBeenNthCalledWith(1, STALE_URL, 0, 'item-1', undefined);
+      expect(mocks.download_from_url).toHaveBeenNthCalledWith(2, FRESH_URL, 0, 'item-1', undefined);
       expect(mock.get_stream).not.toHaveBeenCalled();
     });
 

@@ -288,7 +288,8 @@ Restored sections arrive as ordinary files. Treat notebook restore as recovering
 
 - **Downloads.** Files up to 4 MiB are read in one request. Files from 4 to 64 MiB are read in 4 MiB ranges. Files of 64 MiB and larger are streamed into multipart uploads on staging, then copied to their content key.
 - **Uploads on restore.** Files up to 4 MiB use a single PUT. Larger files use a resumable session in 10 MiB chunks.
-- **Throttling and CDN faults.** Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads.
+- **Throttling and CDN faults.** Graph `429`, transient `500`, `502`, `503` and `504` responses, and dropped connections are retried with backoff, up to 5 times per range for chunked downloads. A `Retry-After` on a download is honoured in either form, seconds or an HTTP date, and capped at one hour. A `401` or `403` from the download URL means it expired: Atlas resolves a fresh URL once and downloads the file again.
+- **Ctrl+C.** A backup stops in the middle of the file it is transferring, including during a retry wait. That file is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Scope.** Sharing permissions are not captured, and restores do not recreate file authors. See [what a drive restore rebuilds, and what it cannot](/security#what-a-drive-restore-rebuilds-and-what-it-cannot).
 
 ## SDK usage
