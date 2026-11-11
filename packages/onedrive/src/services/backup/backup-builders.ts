@@ -87,6 +87,10 @@ export function build_snapshot_manifest(
   };
 }
 
+/**
+ * Builds the result of a run that created no snapshot. `cursor_updated` says whether the run saved
+ * its delta cursor: a run cancelled before its scan finished writes none (issue #693).
+ */
 export function build_empty_result(
   owner_id: string,
   drives_scanned: number,
@@ -99,6 +103,7 @@ export function build_empty_result(
   warnings: string[],
   interrupted: boolean,
   healthy: boolean,
+  cursor_updated: boolean,
   no_snapshot_reason?: NoSnapshotReason,
 ): OneDriveBackupResult {
   return {
@@ -111,7 +116,7 @@ export function build_empty_result(
       files_stored,
       files_deduplicated,
       deleted_items,
-      cursor_updated: true,
+      cursor_updated,
       snapshot_created: false,
       ...(no_snapshot_reason !== undefined && { no_snapshot_reason }),
       versions_stored,

@@ -11,5 +11,5 @@ export function interrupted_before_scan(
   options: SharePointBackupOptions,
 ): SharePointBackupResult {
   finish_operation_progress(options, 'backup', 'sharepoint', 0, 0, true);
-  return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true);
+  return build_empty_result(site_id, 0, 0, 0, 0, 0, 0, [], [], false, true, false);
 }

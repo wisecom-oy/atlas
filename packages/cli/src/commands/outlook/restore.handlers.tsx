@@ -128,6 +128,9 @@ async function execute_snapshot_restore(
   const restore_options: RestoreOptions = {
     ...(options.folder && { folder_name: options.folder }),
     ...(options.message && { message_ref: options.message }),
+    // The service applies the Recoverable Items policy in snapshot mode too, so dropping the flag
+    // here turned `-s <id> --message <n> --include-recoverable-items` into "No entries" (#691).
+    ...(options.includeRecoverableItems && { include_recoverable_items: true }),
     ...(options.target && { target_mailbox: options.target }),
     ...(options.destination !== undefined && { destination: options.destination }),
     create_progress: create_transfer_progress('restored'),

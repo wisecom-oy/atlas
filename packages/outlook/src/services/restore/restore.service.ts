@@ -13,14 +13,10 @@ import {
 import {
   build_folder_map,
   group_entries_by_folder,
-  filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import {
-  apply_recoverable_items_policy,
-  folder_listing_for,
-} from '@/services/restore/recoverable-items-filter';
-import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
+import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
+import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import {
   restore_single_message,
@@ -83,7 +79,11 @@ export class RestoreService implements RestoreUseCase {
     }
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const { owner_id: source_mailbox, entries } = await resolve_snapshot_entries(
+      const {
+        owner_id: source_mailbox,
+        entries,
+        manifests,
+      } = await resolve_snapshot_entries(
         ctx,
         this._manifests,
         this._connector,
@@ -136,6 +136,7 @@ export class RestoreService implements RestoreUseCase {
           snapshot_id,
           entries[0]!,
           root.folder,
+          manifests,
         );
         // The signal is read too: a caller that passes only `abort_signal` stopped the attachment
         // uploads of this message, and the run is interrupted though the message landed.
@@ -157,6 +158,7 @@ export class RestoreService implements RestoreUseCase {
         target_mailbox,
         snapshot_id,
         entries,
+        manifests,
         options,
       );
     } finally {
@@ -197,19 +199,18 @@ export class RestoreService implements RestoreUseCase {
 
       await assert_mailbox_exists(this._connector, tenant_id, target);
 
-      const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
+      const { manifests, entries: filtered } = await resolve_mailbox_entries(
+        ctx,
+        this._manifests,
+        this._connector,
+        tenant_id,
+        owner_id,
+        options,
+      );
       if (manifests.length === 0) {
         logger.warn('No snapshots found for this mailbox in the given date range');
         return this.finish_empty_result('mailbox', options);
       }
-
-      const entries = merge_snapshot_entries(manifests);
-
-      if (options.folder_name) {
-        await backfill_missing_folder_ids(ctx, entries);
-      }
-
-      const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
 
       if (filtered.length === 0) {
         logger.warn('No entries to restore after filtering');
@@ -218,39 +219,19 @@ export class RestoreService implements RestoreUseCase {
 
       logger.info(`Aggregated ${manifests.length} snapshots -- ${filtered.length} unique messages`);
 
-      return this.restore_batch(ctx, tenant_id, owner_id, target, 'mailbox', filtered, options);
+      return this.restore_batch(
+        ctx,
+        tenant_id,
+        owner_id,
+        target,
+        'mailbox',
+        filtered,
+        manifests,
+        options,
+      );
     } finally {
       ctx.destroy();
     }
-  }
-
-  /** Loads all manifests for a mailbox, sorted newest-first and date-filtered. */
-  private async load_mailbox_manifests(
-    ctx: TenantContext,
-    owner_id: string,
-    options: RestoreOptions,
-  ): Promise<Manifest[]> {
-    const for_mailbox = (await this._manifests.list_by_owner(ctx, owner_id)).sort(
-      (a, b) => b.created_at.getTime() - a.created_at.getTime(),
-    );
-
-    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
-  }
-
-  /** Applies the folder filter, then the Recoverable Items policy to what it selected (#701). */
-  private async apply_entry_filters(
-    entries: ManifestEntry[],
-    owner_id: string,
-    tenant_id: string,
-    options: RestoreOptions,
-  ): Promise<ManifestEntry[]> {
-    let selected = entries;
-    if (options.folder_name) {
-      const listing = folder_listing_for(entries);
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, listing);
-      selected = filter_entries_by_folder_name(entries, options.folder_name, folder_map);
-    }
-    return apply_recoverable_items_policy(selected, options.include_recoverable_items);
   }
 
   /** Restores a batch of messages with dashboard progress. */
@@ -261,10 +242,16 @@ export class RestoreService implements RestoreUseCase {
     target_mailbox: string,
     snapshot_id: string,
     entries: ManifestEntry[],
+    manifests: readonly Manifest[],
     options: RestoreOptions,
   ): Promise<RestoreResult> {
-    const listing = folder_listing_for(entries);
-    const folder_map = await build_folder_map(this._connector, tenant_id, source_mailbox, listing);
+    const folder_map = await build_folder_map(
+      this._connector,
+      tenant_id,
+      source_mailbox,
+      manifests,
+      folder_listing_for(entries),
+    );
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);

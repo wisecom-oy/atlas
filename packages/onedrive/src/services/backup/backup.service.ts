@@ -250,6 +250,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           warnings,
           scan_result.interrupted,
           healthy,
+          true, // cursor_updated: the cursor was saved just above
           // `healthy`, not just `!interrupted`: a failed item still counts as processed, so a run
           // whose every file failed would otherwise read as `no_changes` when the truth is that
           // the changes did not land. An unhealthy run's reason is its errors.
@@ -340,7 +341,7 @@ function interrupted_before_scan(
   options: OneDriveBackupOptions,
 ): OneDriveBackupResult {
   finish_operation_progress(options, 'backup', 'onedrive', 0, 0, true);
-  return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false);
+  return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false, false);
 }
 
 /** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */

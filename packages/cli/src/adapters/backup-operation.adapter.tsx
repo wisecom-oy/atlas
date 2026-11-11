@@ -13,9 +13,12 @@ import { BackupProgressView } from '@/ui/dashboards/backup-progress';
 import { ResultSummary } from '@/ui/components/result-summary';
 import { mount_live_view, render_static_view } from '@/ui/render';
 
-/** Shown on the dashboard after the first Ctrl+C; the gate logs the same line. */
+/**
+ * Shown on the dashboard after the first Ctrl+C; the gate logs the same line. It carries no `[!]`:
+ * `logger.warn` and the dashboard's status line each add the marker themselves (issue #692).
+ */
 export const OUTLOOK_INTERRUPT_MESSAGE =
-  '[!] Stopping; folders already finished keep their delta state (Ctrl+C again to force quit)';
+  'Stopping; folders already finished keep their delta state (Ctrl+C again to force quit)';
 
 /**
  * Executes the backup use case with an Ink progress dashboard, stopping on the gate's Ctrl+C.

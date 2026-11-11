@@ -194,6 +194,8 @@ Anything skipped is reported at the end of the run and recorded in the snapshot 
       Junk Email (skipped by --exclude-junk)
 ```
 
+A folder deleted while the backup lists folders is skipped, with everything beneath it, and reported as `deleted while the folder list was read, not captured`. The run continues. It records no removals and keeps the previous delta links of folders that reported some, so the next run picks them up. A `--folder` run records no removals anyway and advances its links as usual. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook). A 404 on the mailbox's top-level folder listing still fails the run, because it means the mailbox is gone.
+
 ::: warning Drafts and Outbox are included from 4.1.0
 Earlier versions skipped Drafts and Outbox without reporting it. Snapshots taken from 4.1.0 include them, so the first backup after upgrading is larger for mailboxes with unsent mail. Existing snapshots are unchanged.
 :::
@@ -317,6 +319,8 @@ atlas outlook restore -m user@company.com -T other@company.com -f Inbox
 | `--include-recoverable-items` | Also include hard-deleted and hold-retained mail (excluded by default)       |
 
 Exactly one of `--snapshot` or `--mailbox` is required. Passing both exits `1` (see [atlas outlook](#atlas-outlook)). `-T` works in either mode. In mailbox mode, the newest version of each message wins. Cross-mailbox restores keep the source folder names, and nested folders are recreated under the `Restore-{timestamp}` root. For example, `Inbox/Projects/2026` restores to `Restore-.../Inbox/Projects/2026`.
+
+Folder names come from the folders each snapshot recorded, newest snapshot first, so a folder deleted, moved, or renamed since the backup restores under its original path and `-f` selects it by that path. The live mailbox names only folders no snapshot records, such as those of snapshots written before Atlas recorded folders. A folder named nowhere restores into `Unknown`. A folder deleted while the restore lists the source mailbox's folders is skipped with a warning and the restore continues.
 
 `--destination` replaces the generated root with a folder path relative to the top of the mailbox, with `/` between levels. `Inbox/Projects/2026` then restores to `<destination>/Inbox/Projects/2026`, and the summary names the destination. Folder names are matched case-insensitively, as Exchange compares them:
 
@@ -456,6 +460,8 @@ Restore-2026-03-10T14-30-00.zip
   Archive/
     2026-01-15_080000_Old-thread.eml
 ```
+
+Archive folders are named the way [`restore`](#atlas-outlook-restore) names them: from the folders the snapshots recorded first, then from the live mailbox.
 
 File names use `YYYY-MM-DD_HHmmss_Sanitized-subject.eml`, with the time taken from `receivedDateTime`, so they sort chronologically. Duplicate names within a folder get numeric suffixes (`_1`, `_2`).
 

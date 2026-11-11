@@ -1,7 +1,7 @@
 import type { TenantContext } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { ManifestEntry } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import type { RestoreResult, RestoredMessageReport } from '@wisecom/atlas-types';
 import {
   decrypt_and_parse_message,
@@ -234,7 +234,7 @@ export async function restore_folder_entries(
 /**
  * Restores a single message with its attachments under an opened restore root. No dashboard
  * needed. `restore_connector` is the root's connector, so a chosen destination also reuses the
- * source folder levels beneath it.
+ * source folder levels beneath it. `manifests` name the source folder as the backup recorded it.
  */
 export async function restore_single_message(
   ctx: TenantContext,
@@ -246,11 +246,18 @@ export async function restore_single_message(
   snapshot_id: string,
   entry: ManifestEntry,
   root: MailFolder,
+  manifests: readonly Manifest[] = [],
 ): Promise<RestoreResult> {
   const folder_id = await resolve_source_folder_id(ctx, entry);
 
   const listing = folder_listing_for([entry]);
-  const folder_map = await build_folder_map(connector, tenant_id, source_mailbox, listing);
+  const folder_map = await build_folder_map(
+    connector,
+    tenant_id,
+    source_mailbox,
+    manifests,
+    listing,
+  );
   const created_folders = new Map<string, string>();
   const target_fid = await ensure_subfolder(
     restore_connector,

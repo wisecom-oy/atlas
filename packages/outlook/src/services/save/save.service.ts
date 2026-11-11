@@ -14,14 +14,10 @@ import type {
 import {
   build_folder_map,
   group_entries_by_folder,
-  filter_entries_by_folder_name,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
-import {
-  apply_recoverable_items_policy,
-  folder_listing_for,
-} from '@/services/restore/recoverable-items-filter';
-import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
+import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
+import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 import { NoopTransferProgressReporter } from '@/services/shared/noop-transfer-progress-reporter';
@@ -78,7 +74,7 @@ export class SaveService implements SaveUseCase {
       }
       const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
-        const { owner_id, entries } = await resolve_snapshot_entries(
+        const { owner_id, entries, manifests } = await resolve_snapshot_entries(
           ctx,
           this._manifests,
           this._connector,
@@ -97,6 +93,7 @@ export class SaveService implements SaveUseCase {
           owner_id,
           snapshot_id,
           entries,
+          manifests,
           options,
           target,
           output_path,
@@ -136,20 +133,18 @@ export class SaveService implements SaveUseCase {
       }
       const ctx = await this._tenant_factory.create_readonly(tenant_id);
       try {
-        const manifests = await this.load_mailbox_manifests(ctx, owner_id, options);
-
+        const { manifests, entries: filtered } = await resolve_mailbox_entries(
+          ctx,
+          this._manifests,
+          this._connector,
+          tenant_id,
+          owner_id,
+          options,
+        );
         if (manifests.length === 0) {
           logger.warn('No snapshots found for this mailbox in the given date range');
           return await this.finish_empty_result('mailbox', options, target);
         }
-
-        const entries = merge_snapshot_entries(manifests);
-
-        if (options.folder_name) {
-          await backfill_missing_folder_ids(ctx, entries);
-        }
-
-        const filtered = await this.apply_entry_filters(entries, owner_id, tenant_id, options);
         if (filtered.length === 0) {
           logger.warn('No entries to save after filtering');
           return await this.finish_empty_result('mailbox', options, target);
@@ -165,6 +160,7 @@ export class SaveService implements SaveUseCase {
           owner_id,
           'mailbox',
           filtered,
+          manifests,
           options,
           target,
           output_path,
@@ -178,45 +174,24 @@ export class SaveService implements SaveUseCase {
     }
   }
 
-  private async load_mailbox_manifests(
-    ctx: TenantContext,
-    owner_id: string,
-    options: SaveOptions,
-  ): Promise<Manifest[]> {
-    const for_mailbox = (await this._manifests.list_by_owner(ctx, owner_id)).sort(
-      (a, b) => b.created_at.getTime() - a.created_at.getTime(),
-    );
-    return filter_manifests_by_date(for_mailbox, options.start_date, options.end_date);
-  }
-
-  private async apply_entry_filters(
-    entries: ManifestEntry[],
-    owner_id: string,
-    tenant_id: string,
-    options: SaveOptions,
-  ): Promise<ManifestEntry[]> {
-    // The policy runs on the selection, so its skip count names only what was asked for (#701).
-    let selected = entries;
-    if (options.folder_name) {
-      const listing = folder_listing_for(entries);
-      const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, listing);
-      selected = filter_entries_by_folder_name(entries, options.folder_name, folder_map);
-    }
-    return apply_recoverable_items_policy(selected, options.include_recoverable_items);
-  }
-
   private async save_batch(
     ctx: TenantContext,
     tenant_id: string,
     owner_id: string,
     snapshot_id: string,
     entries: ManifestEntry[],
+    manifests: readonly Manifest[],
     options: SaveOptions,
     target: ArchiveTarget,
     output_path: string,
   ): Promise<SaveResult> {
-    const listing = folder_listing_for(entries);
-    const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, listing);
+    const folder_map = await build_folder_map(
+      this._connector,
+      tenant_id,
+      owner_id,
+      manifests,
+      folder_listing_for(entries),
+    );
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);
