@@ -4,7 +4,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
-import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import {
+  WrongPassphraseError,
+  type TenantContext,
+  type TenantContextFactory,
+} from '@wisecom/atlas-types';
+import { DriveDecryptAuthError } from '@/restore/decrypt-auth-error';
 import type { DriveFileVersionIndexView, DriveFileVersionRecord } from '@/drive-ports';
 import { restore_drive_version, type DriveVersionRestoreDeps } from '@/restore/version-restore';
 
@@ -94,5 +99,23 @@ describe('restore_drive_version cancelled during a Graph retry wait (issue #682)
     expect(result.files_skipped).toBe(0);
     expect(result.errors).toEqual([]);
     expect(deps.connector.upload_small_file).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces a key error that lands after the signal instead of reporting nothing restored', async () => {
+    const deps = make_deps();
+    const controller = new AbortController();
+    vi.mocked(deps.download_blob)
+      .mockResolvedValueOnce(Buffer.from('content'))
+      .mockImplementationOnce(async (_ctx, version) => {
+        controller.abort(new Error('Run interrupted by Ctrl+C'));
+        throw new DriveDecryptAuthError(version.file_name);
+      });
+
+    const run = restore_drive_version(deps, 'tenant-1', 'owner-1', {
+      before: CUTOFF,
+      abort_signal: controller.signal,
+    });
+
+    await expect(run).rejects.toBeInstanceOf(WrongPassphraseError);
   });
 });
