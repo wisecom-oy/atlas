@@ -9,7 +9,9 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 
 const chunk_mocks = vi.hoisted(() => ({ fetch_file_chunks: vi.fn() }));
-vi.mock('@/adapters/graph-onedrive-chunked-download', () => chunk_mocks);
+vi.mock('@/adapters/graph-onedrive-chunk-downloader', () => ({
+  ONEDRIVE_CHUNK_DOWNLOADER: chunk_mocks,
+}));
 
 const { cleanup_stale_staging, process_large_file } =
   await import('@/services/backup/large-file-pipeline');

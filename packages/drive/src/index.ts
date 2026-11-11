@@ -38,6 +38,13 @@ export {
   DownloadIntegrityError,
 } from '@/backup/download-integrity';
 export {
+  create_cdn_chunk_downloader,
+  CHUNK_DOWNLOAD_THRESHOLD,
+  type CdnChunkDownloader,
+} from '@/backup/cdn-chunk-download';
+export { CHUNK_SIZE_BYTES, compute_chunk_timeout_ms } from '@/backup/cdn-chunk-request';
+export { CdnHttpError, ChunkDownloadError } from '@/backup/cdn-chunk-errors';
+export {
   stream_whole_file_in_chunks,
   type WholeFileStreamOptions,
 } from '@/backup/whole-file-stream';

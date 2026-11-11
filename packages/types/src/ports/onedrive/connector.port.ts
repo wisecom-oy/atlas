@@ -70,8 +70,8 @@ export interface OneDriveConnector {
     item_id: string,
   ): Promise<OneDriveDeltaItem | undefined>;
 
-  /** Downloads full file content for small files. */
-  download_file_content(item: OneDriveDeltaItem): Promise<Buffer>;
+  /** Downloads full file content for small files; `abort_signal` ends the transfer. */
+  download_file_content(item: OneDriveDeltaItem, abort_signal?: AbortSignal): Promise<Buffer>;
 
   /** Resolves the temporary download URL for chunked download. */
   resolve_download_url(item: OneDriveDeltaItem): Promise<string | undefined>;

@@ -27,6 +27,7 @@ import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
 import {
   require_target_for_profile,
@@ -127,7 +128,7 @@ export async function execute_sharepoint_backup(
     SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   );
   const gate = install_interrupt_gate(
-    'Stopping after the current file; the delta cursor is not advanced for an interrupted run',
+    'Stopping the current transfer; the delta cursor is not advanced for an interrupted run',
   );
   let results;
   try {
@@ -138,9 +139,13 @@ export async function execute_sharepoint_backup(
       site_display_name: site.display_name,
       object_lock_request,
       should_interrupt: gate.should_interrupt,
+      abort_signal: gate.abort_signal,
     });
   } finally {
     gate.dispose();
+    // In `finally`, so a run that throws after Ctrl+C still drops the cooldown timer that would
+    // otherwise keep the process alive.
+    await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
   }
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Backup')} />);

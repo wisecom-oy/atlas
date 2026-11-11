@@ -1,9 +1,7 @@
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
-import {
-  CHUNK_DOWNLOAD_THRESHOLD,
-  compute_chunk_timeout_ms,
-  download_file_chunked,
-} from '@/adapters/graph-onedrive-chunked-download';
+import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
+import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
+import { ONEDRIVE_CHUNK_DOWNLOADER } from '@/adapters/graph-onedrive-chunk-downloader';
 import {
   download_from_url,
   stream_to_buffer,
@@ -78,6 +76,7 @@ async function attempt_download_with_refresh(
   download_url: string | undefined,
   download_fn: (url: string) => Promise<Buffer>,
   strategy_label: string,
+  abort_signal: AbortSignal | undefined,
 ): Promise<Buffer> {
   if (!download_url) {
     return download_via_graph_content(client, item);
@@ -86,6 +85,8 @@ async function attempt_download_with_refresh(
   try {
     return await download_fn(download_url);
   } catch (err) {
+    // A cancelled run neither refreshes the URL nor falls back to /content: it stops (issue #632).
+    abort_signal?.throwIfAborted();
     const kind = classify_download_failure(err);
     rethrow_if_unrecoverable(kind, err, item);
 
@@ -105,10 +106,14 @@ async function attempt_download_with_refresh(
   }
 }
 
-/** Downloads file content with expired-URL refresh and Graph content fallback. */
+/**
+ * Downloads file content with expired-URL refresh and Graph content fallback.
+ * `abort_signal` ends a transfer from the pre-authenticated URL and any backoff it is in.
+ */
 export async function download_with_fallback(
   client: Client,
   item: OneDriveDeltaItem,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
   const download_url = item.download_url ?? (await resolve_download_url(client, item));
 
@@ -117,8 +122,15 @@ export async function download_with_fallback(
       client,
       item,
       download_url,
-      (url) => download_file_chunked(url, item.size_bytes, item.item_id),
+      (url) =>
+        ONEDRIVE_CHUNK_DOWNLOADER.download_file_chunked(
+          url,
+          item.size_bytes,
+          item.item_id,
+          abort_signal,
+        ),
       'Chunked download',
+      abort_signal,
     );
   }
 
@@ -126,8 +138,9 @@ export async function download_with_fallback(
     client,
     item,
     download_url,
-    (url) => download_from_url(url, item.size_bytes, item.item_id),
+    (url) => download_from_url(url, item.size_bytes, item.item_id, abort_signal),
     'URL download',
+    abort_signal,
   );
 }
 

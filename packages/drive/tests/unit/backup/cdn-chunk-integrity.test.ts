@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CHUNK_SIZE_BYTES, fetch_file_chunks } from '@/adapters/graph-onedrive-chunked-download';
+import { create_cdn_chunk_downloader } from '@/backup/cdn-chunk-download';
+import { CHUNK_SIZE_BYTES } from '@/backup/cdn-chunk-request';
+
+const { fetch_file_chunks } = create_cdn_chunk_downloader('onedrive');
 
 // Issue #338: a Range response was accepted without checking its length or its Content-Range, so a
 // short, duplicated or restarted body was encrypted and hashed into a backup that verifies against

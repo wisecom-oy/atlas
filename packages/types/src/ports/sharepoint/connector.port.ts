@@ -96,8 +96,8 @@ export interface SharePointSiteConnector {
     item_id: string,
   ): Promise<SharePointDeltaItem | undefined>;
 
-  /** Downloads full file content for small/medium files. */
-  download_file_content(item: SharePointDeltaItem): Promise<Buffer>;
+  /** Downloads full file content for small/medium files; `abort_signal` ends the transfer. */
+  download_file_content(item: SharePointDeltaItem, abort_signal?: AbortSignal): Promise<Buffer>;
 
   /** Resolves the temporary download URL for chunked download. */
   resolve_download_url(item: SharePointDeltaItem): Promise<string | undefined>;

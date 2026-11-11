@@ -1,45 +1,18 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetch_file_chunks } from '@/services/backup/large-file-chunk-download';
+import { create_cdn_chunk_downloader } from '@/backup/cdn-chunk-download';
+import { CHUNK_SIZE_BYTES } from '@/backup/cdn-chunk-request';
+import { range_response } from './cdn-chunk.fixtures';
 
-// The OneDrive twin of this file has had tests since issue #36; this one had
-// none. Divergent coverage between the two drive pipelines is what let the
-// replication gate divergence through (#190), so it gets the same suite.
+// One downloader serves both drive workloads (issue #632). It replaces three copies, so this suite
+// carries the cases each copy had: retry by status (#36, #618), the Range fallback (#301) and the
+// single-chunk 200.
 
-const CHUNK_SIZE = 4 * 1024 * 1024;
-
-function to_array_buffer(body: Buffer): ArrayBuffer {
-  const copy = new ArrayBuffer(body.byteLength);
-  new Uint8Array(copy).set(body);
-  return copy;
-}
-
-function range_response(status: number, body = Buffer.alloc(0), range_start = 0): Response {
-  const content_range = `bytes ${range_start}-${range_start + Math.max(body.length - 1, 0)}/*`;
-  return {
-    status,
-    ok: status >= 200 && status < 300,
-    headers: {
-      get: (name: string): string | null =>
-        name.toLowerCase() === 'content-range' && status === 206 ? content_range : null,
-    },
-    arrayBuffer: (): Promise<ArrayBuffer> => Promise.resolve(to_array_buffer(body)),
-    text: (): Promise<string> => Promise.resolve(''),
-    // The Range-ignored path cancels the body unread, and the streamed fallback iterates it.
-    body: {
-      cancel: (): Promise<void> => Promise.resolve(),
-      async *[Symbol.asyncIterator](): AsyncGenerator<Uint8Array> {
-        // Two parts, so the re-cut has to join across reads rather than pass one buffer through.
-        yield new Uint8Array(body.subarray(0, Math.ceil(body.length / 2)));
-        yield new Uint8Array(body.subarray(Math.ceil(body.length / 2)));
-      },
-    },
-  } as unknown as Response;
-}
+const downloader = create_cdn_chunk_downloader('sharepoint');
 
 async function collect(url: string, total: number, item = 'item-1'): Promise<Buffer> {
   const parts: Buffer[] = [];
-  for await (const chunk of fetch_file_chunks(url, total, item)) parts.push(chunk);
+  for await (const chunk of downloader.fetch_file_chunks(url, total, item)) parts.push(chunk);
   return Buffer.concat(parts);
 }
 
@@ -51,27 +24,35 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('fetch_file_chunks', () => {
+describe('create_cdn_chunk_downloader', () => {
   it('requests one Range per chunk and yields them in order', async () => {
-    const first = Buffer.alloc(CHUNK_SIZE, 1);
+    const first = Buffer.alloc(CHUNK_SIZE_BYTES, 1);
     const second = Buffer.alloc(1024, 2);
     const fetch_mock = vi
       .fn()
       .mockResolvedValueOnce(range_response(206, first))
-      .mockResolvedValueOnce(range_response(206, second, CHUNK_SIZE));
+      .mockResolvedValueOnce(range_response(206, second, CHUNK_SIZE_BYTES));
     vi.stubGlobal('fetch', fetch_mock);
 
-    const body = await collect('https://cdn.test/file', CHUNK_SIZE + 1024);
+    const body = await collect('https://cdn.test/file', CHUNK_SIZE_BYTES + 1024);
 
-    expect(body.length).toBe(CHUNK_SIZE + 1024);
-    expect(fetch_mock).toHaveBeenCalledTimes(2);
+    expect(body.length).toBe(CHUNK_SIZE_BYTES + 1024);
     const ranges = fetch_mock.mock.calls.map(
       (call) => (call[1] as { headers: Record<string, string> }).headers['Range'],
     );
     expect(ranges).toEqual([
-      `bytes=0-${CHUNK_SIZE - 1}`,
-      `bytes=${CHUNK_SIZE}-${CHUNK_SIZE + 1023}`,
+      `bytes=0-${CHUNK_SIZE_BYTES - 1}`,
+      `bytes=${CHUNK_SIZE_BYTES}-${CHUNK_SIZE_BYTES + 1023}`,
     ]);
+  });
+
+  it('collects the chunks into one buffer through download_file_chunked', async () => {
+    const payload = Buffer.from('chunk-payload');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(range_response(206, payload)));
+
+    await expect(
+      downloader.download_file_chunked('https://cdn.test/file', payload.length, 'item-1'),
+    ).resolves.toEqual(payload);
   });
 
   it.each([429, 500, 502, 503, 504])(
@@ -97,8 +78,6 @@ describe('fetch_file_chunks', () => {
     const fetch_mock = vi.fn().mockResolvedValue(range_response(404));
     vi.stubGlobal('fetch', fetch_mock);
 
-    // A missing object is not a transient CDN fault, and retrying it spends the
-    // budget that a genuinely transient chunk needs.
     await expect(collect('https://cdn.test/file', 10)).rejects.toThrow(/HTTP 404/);
     expect(fetch_mock).toHaveBeenCalledTimes(1);
   });
@@ -138,32 +117,39 @@ describe('fetch_file_chunks', () => {
     vi.stubGlobal('fetch', fetch_mock);
 
     const promise = collect('https://cdn.test/file', 10);
-    const settled = expect(promise).rejects.toThrow(/HTTP 503/);
+    const settled = expect(promise).rejects.toThrow(/after 6 attempts: HTTP 503/);
     await vi.advanceTimersByTimeAsync(300_000);
     await settled;
 
-    // Six attempts: the first plus MAX_CHUNK_RETRIES.
+    // Six attempts: the first plus five retries.
     expect(fetch_mock).toHaveBeenCalledTimes(6);
   });
 
+  it('names the workload the downloader was built for', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(range_response(404)));
+    const onedrive = create_cdn_chunk_downloader('onedrive');
+
+    await expect(
+      onedrive.download_file_chunked('https://cdn.test/file', 10, 'item-1'),
+    ).rejects.toThrow('Failed chunk 1/1 of OneDrive item item-1');
+  });
+
   it('stops asking for ranges once the CDN answers one with the whole file (issue #301)', async () => {
-    const whole = Buffer.concat([Buffer.alloc(CHUNK_SIZE, 1), Buffer.alloc(1024, 2)]);
+    const whole = Buffer.concat([Buffer.alloc(CHUNK_SIZE_BYTES, 1), Buffer.alloc(1024, 2)]);
     const fetch_mock = vi.fn().mockResolvedValue(range_response(200, whole));
     vi.stubGlobal('fetch', fetch_mock);
 
     const parts: Buffer[] = [];
-    for await (const chunk of fetch_file_chunks(
+    for await (const chunk of downloader.fetch_file_chunks(
       'https://cdn.test/file',
-      CHUNK_SIZE + 1024,
+      whole.length,
       'item-1',
     )) {
       parts.push(chunk);
     }
 
-    // Two requests, not one per chunk: the Range probe, then one streamed download. Fetching
-    // per chunk cost the whole file every time, so a 1 GiB item moved 256 GiB.
+    // Two requests, not one per chunk: the Range probe, then one streamed download.
     expect(fetch_mock).toHaveBeenCalledTimes(2);
-    // The streamed request carries no Range header, only the stall-abort signal.
     const streamed_init = (fetch_mock.mock.calls[1] as unknown[])[1] as {
       headers?: Record<string, string>;
       signal?: AbortSignal;
@@ -172,40 +158,57 @@ describe('fetch_file_chunks', () => {
     expect(streamed_init.signal).toBeInstanceOf(AbortSignal);
     // Compared by digest, not by `toEqual`: a deep equality over 4 MiB of bytes takes seconds.
     const rebuilt = Buffer.concat(parts);
-    expect(rebuilt.length).toBe(whole.length);
     expect(createHash('sha256').update(rebuilt).digest('hex')).toBe(
       createHash('sha256').update(whole).digest('hex'),
     );
-    expect(parts[0]?.length).toBe(CHUNK_SIZE);
-    expect(parts[1]?.length).toBe(1024);
+    expect(parts.map((part) => part.length)).toEqual([CHUNK_SIZE_BYTES, 1024]);
   });
 
   it('fails the streamed fallback when the plain download is refused', async () => {
     const fetch_mock = vi
       .fn()
-      .mockResolvedValueOnce(range_response(200, Buffer.alloc(CHUNK_SIZE + 1024, 1)))
+      .mockResolvedValueOnce(range_response(200, Buffer.alloc(CHUNK_SIZE_BYTES + 1024, 1)))
       .mockResolvedValueOnce(range_response(403));
     vi.stubGlobal('fetch', fetch_mock);
 
-    await expect(collect('https://cdn.test/file', CHUNK_SIZE + 1024)).rejects.toThrow(
-      /HTTP 403 for the streamed download/,
-    );
+    await expect(collect('https://cdn.test/file', CHUNK_SIZE_BYTES + 1024)).rejects.toMatchObject({
+      message: expect.stringMatching(/HTTP 403 for the streamed download/),
+      status_code: 403,
+    });
   });
+
+  it.each([
+    ['ends early', CHUNK_SIZE_BYTES + 10],
+    ['runs long', CHUNK_SIZE_BYTES + 2048],
+  ])(
+    'rejects a streamed fallback body that %s instead of returning it as the file',
+    async (_case, length) => {
+      const total = CHUNK_SIZE_BYTES + 1024;
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(range_response(200, Buffer.alloc(total, 1)))
+          .mockResolvedValueOnce(range_response(200, Buffer.alloc(length, 1))),
+      );
+
+      await expect(
+        downloader.download_file_chunked('https://cdn.test/file', total, 'item-1'),
+      ).rejects.toThrow(`produced ${length} bytes, expected ${total}`);
+    },
+  );
 
   it('accepts a 200 for a single-chunk item, where the whole file is the chunk', async () => {
     const whole = Buffer.alloc(1024, 7);
     const fetch_mock = vi.fn().mockResolvedValue(range_response(200, whole));
     vi.stubGlobal('fetch', fetch_mock);
 
-    // One chunk means a 200 is not the server ignoring Range, so there is nothing to fall back
-    // to and no second request to make.
     expect(await collect('https://cdn.test/file', 1024)).toEqual(whole);
     expect(fetch_mock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a single-chunk 200 body too short to satisfy the requested range', async () => {
-    const fetch_mock = vi.fn().mockResolvedValue(range_response(200, Buffer.alloc(5, 1)));
-    vi.stubGlobal('fetch', fetch_mock);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(range_response(200, Buffer.alloc(5, 1))));
 
     await expect(collect('https://cdn.test/file', 10)).rejects.toThrow(/returned 200 with 5 bytes/);
   });

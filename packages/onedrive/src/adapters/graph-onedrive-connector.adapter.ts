@@ -20,7 +20,7 @@ import type {
   OneDriveFileVersion,
 } from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
-import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
+import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { stream_to_buffer } from '@/adapters/graph-onedrive-connector-stream';
 import {
   graph_onedrive_create_folder,
@@ -116,8 +116,11 @@ export class GraphOneDriveConnector implements OneDriveConnector {
   }
 
   /** Downloads full file content with URL refresh and Graph content fallback. */
-  async download_file_content(item: OneDriveDeltaItem): Promise<Buffer> {
-    return download_with_fallback(this._client, item);
+  async download_file_content(
+    item: OneDriveDeltaItem,
+    abort_signal?: AbortSignal,
+  ): Promise<Buffer> {
+    return download_with_fallback(this._client, item, abort_signal);
   }
 
   /** Resolves the temporary pre-authenticated download URL for a file. */

@@ -40,7 +40,7 @@ import {
   open_version_content_stream,
   stream_to_buffer,
 } from '@/adapters/graph-sharepoint-stream-utils';
-import { compute_chunk_timeout_ms } from '@/adapters/graph-sharepoint-chunked-download';
+import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { parse_site_reference } from '@/adapters/graph-sharepoint-url-parser';
 import { canonical_site_id } from '@/services/shared/site-id';
 
@@ -193,8 +193,11 @@ export class GraphSharePointConnector implements SharePointSiteConnector {
   }
 
   /** Downloads file content with chunked download, expired-URL refresh, and Graph fallback. */
-  async download_file_content(item: SharePointDeltaItem): Promise<Buffer> {
-    return await download_with_fallback(this._client, item);
+  async download_file_content(
+    item: SharePointDeltaItem,
+    abort_signal?: AbortSignal,
+  ): Promise<Buffer> {
+    return await download_with_fallback(this._client, item, abort_signal);
   }
 
   /** Resolves the temporary pre-authenticated download URL for a file. */

@@ -45,7 +45,7 @@ export type DriveWorkload = 'onedrive' | 'sharepoint';
  * `SharePointSiteConnector` satisfy it structurally, so neither package has to adapt anything.
  */
 export interface DriveContentConnector {
-  download_file_content(item: DriveDeltaItem): Promise<Buffer>;
+  download_file_content(item: DriveDeltaItem, abort_signal?: AbortSignal): Promise<Buffer>;
   list_file_versions(drive_id: string, item_id: string): Promise<DriveFileVersion[]>;
   download_file_version(
     drive_id: string,

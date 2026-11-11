@@ -1,9 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  CHUNK_SIZE_BYTES,
-  compute_chunk_timeout_ms,
-  download_file_chunked,
-} from '@/adapters/graph-sharepoint-chunked-download';
+import { create_cdn_chunk_downloader } from '@/backup/cdn-chunk-download';
+import { CHUNK_SIZE_BYTES, compute_chunk_timeout_ms } from '@/backup/cdn-chunk-request';
+
+const { download_file_chunked } = create_cdn_chunk_downloader('sharepoint');
+
+/** A 200 carrying the whole file, readable both buffered and as a stream. */
+function range_response_whole(body: Buffer): Response {
+  return {
+    status: 200,
+    ok: true,
+    headers: { get: (): string | null => null },
+    body: {
+      cancel: (): Promise<void> => Promise.resolve(),
+      async *[Symbol.asyncIterator](): AsyncGenerator<Uint8Array> {
+        yield new Uint8Array(body);
+      },
+    },
+  } as unknown as Response;
+}
 
 /**
  * Issue #198: the abort timer is meant to scale with the 4 MiB chunk being
@@ -129,28 +143,19 @@ describe('chunk download abort timeout', () => {
     expect(delays[3]).toBe(FLOOR_MS);
   });
 
-  it('still grants the whole-file budget when the CDN ignores Range and returns 200', async () => {
-    // The reason the whole-file value was there at all: a 200 means the body is
-    // the entire file, so draining it needs the file's budget, not a chunk's.
-    // Arming that per response instead of per chunk is what keeps the common
-    // path fast without regressing this one.
-    // Three chunks, not twenty-five, and one body buffer rather than one per chunk. The size only
-    // has to put the whole-file budget above the 30 second floor, which starts at 7.33 MiB; at
-    // 100 MiB the mock re-copied the body on every chunk and the case spent 2.5 GiB of memcpy to
-    // assert two numbers, which is what made it time out on a loaded runner.
+  it('drains a CDN that ignores Range under a per-read stall budget, not a whole-file one', async () => {
+    // A 200 on a multi-chunk file switches to one streamed download (issue #301). Its timer is a
+    // stall budget reset on every read, so a slow but moving body is never cut off and no read
+    // gets the whole file's ceil(total / 256) ms.
     const total = 12 * 1024 * 1024;
-    const whole_file = Buffer.alloc(total, 7).buffer;
-
-    fetch_mock.mockResolvedValue({
-      status: 200,
-      headers: { get: (): string | null => null },
-      arrayBuffer: () => Promise.resolve(whole_file),
-    } as unknown as Response);
+    fetch_mock.mockResolvedValue(range_response_whole(Buffer.alloc(total, 7)));
 
     const delays = capture_armed_delays();
-    await download_file_chunked('https://cdn.test/file', total, 'item-1');
+    const body = await download_file_chunked('https://cdn.test/file', total, 'item-1');
 
-    expect(delays[0]).toBe(FLOOR_MS);
-    expect(delays).toContain(compute_chunk_timeout_ms(total));
+    expect(body.length).toBe(total);
+    expect(fetch_mock).toHaveBeenCalledTimes(2);
+    expect(delays).not.toContain(compute_chunk_timeout_ms(total));
+    expect(Math.max(...delays)).toBe(FLOOR_MS);
   });
 });

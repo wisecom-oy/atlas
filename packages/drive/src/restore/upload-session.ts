@@ -1,5 +1,7 @@
 import {
+  cancellable_sleep,
   is_transient_error,
+  parse_retry_after_ms,
   report_transfer_throttle,
   wait_for_transfer_slot,
 } from '@wisecom/atlas-m365-graph';
@@ -11,26 +13,6 @@ import type { LargeFileContent, StreamedFileContent } from '@wisecom/atlas-types
 export const LARGE_UPLOAD_CHUNK = 10 * 1024 * 1024;
 
 const CHUNK_PUT_ATTEMPTS = 3;
-
-async function sleep_ms(delay_ms: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, delay_ms);
-  return promise;
-}
-
-/** Reads `Retry-After` in either form RFC 9110 allows: delta-seconds or an HTTP-date. */
-function parse_fetch_retry_after_ms(header_value: string | null): number | undefined {
-  if (!header_value) return undefined;
-  const trimmed = header_value.trim();
-  const seconds = parseInt(trimmed, 10);
-  if (!isNaN(seconds)) return seconds * 1000;
-  const date_ms = Date.parse(trimmed);
-  if (!isNaN(date_ms)) {
-    const delta = date_ms - Date.now();
-    return delta > 0 ? delta : undefined;
-  }
-  return undefined;
-}
 
 /**
  * Releases an upload session Atlas is abandoning.
@@ -207,8 +189,10 @@ async function put_chunk_with_retry(
     // transient 500/502/504 rewrites the same bytes (issue #36).
     const retriable = is_transient_error({ statusCode: response.status });
     if (retriable && attempt < CHUNK_PUT_ATTEMPTS - 1) {
-      const wait_ms = parse_fetch_retry_after_ms(response.headers.get('retry-after')) ?? 1000;
-      await sleep_ms(wait_ms);
+      // The shared parser: the private `parseInt` copy this replaces had no clamp, so a value
+      // above 2^31-1 ms overflowed `setTimeout` and retried after about 1 ms (issue #628).
+      const wait_ms = parse_retry_after_ms(response.headers.get('retry-after')) ?? 1000;
+      await cancellable_sleep(wait_ms, undefined);
       continue;
     }
     throw new Error(`Resumable upload failed at range ${range}: HTTP ${response.status} ${detail}`);

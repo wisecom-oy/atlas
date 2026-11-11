@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 
-import { compute_chunk_timeout_ms } from '@/adapters/graph-onedrive-chunked-download';
+import { compute_chunk_timeout_ms } from '@wisecom/atlas-drive/backup/cdn-chunk-request';
 import { assert_transferred_size } from '@wisecom/atlas-drive/backup/download-integrity';
 import { report_transfer_throttle, wait_for_transfer_slot } from '@wisecom/atlas-m365-graph';
 
@@ -69,11 +69,14 @@ export async function download_from_url(
   download_url: string,
   size_bytes: number,
   item_id: string,
+  abort_signal?: AbortSignal,
 ): Promise<Buffer> {
-  await wait_for_transfer_slot();
+  await wait_for_transfer_slot(abort_signal);
   const timeout_ms = compute_chunk_timeout_ms(size_bytes);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeout_ms);
+  const cancel_request = (): void => controller.abort(abort_signal?.reason);
+  abort_signal?.addEventListener('abort', cancel_request, { once: true });
   try {
     const response = await fetch(download_url, { signal: controller.signal });
     report_transfer_throttle(response);
@@ -85,5 +88,6 @@ export async function download_from_url(
     return body;
   } finally {
     clearTimeout(timeout);
+    abort_signal?.removeEventListener('abort', cancel_request);
   }
 }

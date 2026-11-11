@@ -63,11 +63,36 @@ export class MissingGraphPermissionsError extends Error {
   }
 }
 
+/**
+ * How many `cause` links are followed looking for a status. A wrapper around a wrapper is the most
+ * any download path builds; the bound only stops a cyclic chain from looping.
+ */
+const MAX_CAUSE_DEPTH = 4;
+
+/**
+ * The first error in the `cause` chain that carries an HTTP status, or the error itself when none
+ * does. A chunk that fails for good is rethrown with the attempt's error as its `cause`, and
+ * reading only the outer error is what left a chunked 403 unclassified (issue #632).
+ */
+function find_status_carrier(err: unknown): unknown {
+  let current: unknown = err;
+  for (let depth = 0; depth <= MAX_CAUSE_DEPTH; depth++) {
+    if (current === null || typeof current !== 'object') return err;
+    const candidate = current as { status_code?: unknown; statusCode?: unknown; cause?: unknown };
+    if (typeof candidate.status_code === 'number' || typeof candidate.statusCode === 'number') {
+      return current;
+    }
+    current = candidate.cause;
+  }
+  return err;
+}
+
 /** Classifies a caught download error. Never throws, whatever it is handed. */
 export function classify_download_failure(err: unknown): DownloadFailureKind {
-  if (err === null || typeof err !== 'object') return 'unclassified';
+  const carrier = find_status_carrier(err);
+  if (carrier === null || typeof carrier !== 'object') return 'unclassified';
 
-  const candidate = err as { status_code?: unknown; statusCode?: unknown; code?: unknown };
+  const candidate = carrier as { status_code?: unknown; statusCode?: unknown; code?: unknown };
 
   // A CDN error carries `status_code` and comes from fetching the pre-authenticated
   // URL, which is the one place a 403 does mean the URL went stale.
@@ -91,8 +116,9 @@ export function classify_download_failure(err: unknown): DownloadFailureKind {
 
 /** Reads the Graph error code, for naming a refusal the operator has to investigate. */
 export function read_graph_error_code(err: unknown): string {
-  if (err === null || typeof err !== 'object') return 'unknown';
-  const code = (err as { code?: unknown }).code;
+  const carrier = find_status_carrier(err);
+  if (carrier === null || typeof carrier !== 'object') return 'unknown';
+  const code = (carrier as { code?: unknown }).code;
   return typeof code === 'string' && code.length > 0 ? code : 'unknown';
 }
 
