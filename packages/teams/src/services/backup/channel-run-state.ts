@@ -6,6 +6,7 @@ import {
   UnsupportedFormatVersionError,
   type FailedItemLedger,
   type TeamsChannelCheckpointHead,
+  type TeamsChannelCheckpointHostedEntry,
   type TeamsChannelCheckpointSegment,
   type TeamsCheckpointMode,
   type TeamsCheckpointPhase,
@@ -50,11 +51,10 @@ export interface ChannelRun {
   head: TeamsChannelCheckpointHead | undefined;
 }
 
-/** What one step saves: the threads to write, the ids to mark as seen, and journaled hosted refs. */
+/** What one step saves: the threads to write and the ids to mark as seen. */
 export interface RunStep {
   readonly threads: string[];
   readonly seen: string[];
-  readonly hosted?: Record<string, TeamsHostedRef>;
 }
 
 /**
@@ -105,12 +105,11 @@ export async function flush_channel_run(
   run: ChannelRun,
   step: RunStep,
 ): Promise<void> {
-  if (step.threads.length > 0 || step.seen.length > 0 || step.hosted !== undefined) {
+  if (step.threads.length > 0 || step.seen.length > 0) {
     const name = `seg-${run.stamp}-${run.segments.length}`;
     const segment: TeamsChannelCheckpointSegment = {
       threads: Object.fromEntries(step.threads.map((id) => [id, thread_or_null(run, id)])),
       seen: [...step.seen],
-      ...(step.hosted === undefined ? {} : { hosted: step.hosted }),
     };
     await scope.checkpoints.save_segment(
       checkpoint_ctx(scope),
@@ -127,7 +126,7 @@ export async function flush_channel_run(
 }
 
 /** The context checkpoint objects are read and written through. */
-function checkpoint_ctx(scope: BackupRunScope): TenantContext {
+export function checkpoint_ctx(scope: BackupRunScope): TenantContext {
   return scope.checkpoint_ctx ?? scope.ctx;
 }
 
@@ -160,6 +159,7 @@ function build_head(scope: BackupRunScope, run: ChannelRun): TeamsChannelCheckpo
 interface LoadedCheckpoint {
   readonly head: TeamsChannelCheckpointHead;
   readonly segments: TeamsChannelCheckpointSegment[];
+  readonly hosted_entries: TeamsChannelCheckpointHostedEntry[];
 }
 
 /**
@@ -185,7 +185,12 @@ async function load_checkpoint(
         await repo.load_segment(checkpoint_ctx(scope), scope.team_id, channel_id, name),
       );
     }
-    return { head, segments };
+    const hosted_entries = await repo.load_hosted_entries(
+      checkpoint_ctx(scope),
+      scope.team_id,
+      channel_id,
+    );
+    return { head, segments, hosted_entries };
   } catch (err) {
     if (err instanceof UnreadableContentError || err instanceof UnsupportedFormatVersionError) {
       return discard_checkpoint(scope, channel_id, err.message);
@@ -243,6 +248,7 @@ function resumed_run(
     for (const id of segment.seen) seen.add(id);
     for (const [key, ref] of Object.entries(segment.hosted ?? {})) hosted.set(key, ref);
   }
+  for (const entry of loaded.hosted_entries) hosted.set(entry.key, entry.ref);
   return {
     channel_id,
     start_link: head.start_link,

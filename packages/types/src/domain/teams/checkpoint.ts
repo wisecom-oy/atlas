@@ -39,12 +39,22 @@ export interface TeamsChannelCheckpointHead {
 /**
  * One append-only batch of a checkpointed read. `threads` maps root IDs to their new thread, or to
  * `null` when the root left the working set. `seen` lists every root the read has applied.
- * `hosted` journals hosted content stored before its message was recorded, keyed by
- * `{root_id}/{reply_id}/{hosted_id}` (empty reply ID for a root), so a resumed read reuses the blob
- * instead of downloading it again.
+ * `hosted` holds hosted-journal entries in checkpoints written by Atlas 6.2 and earlier, which
+ * wrote one segment per hosted item. It is still read on resume and no longer written.
  */
 export interface TeamsChannelCheckpointSegment {
   readonly threads: Record<string, TeamsThread | null>;
   readonly seen: string[];
   readonly hosted?: Record<string, TeamsHostedRef> | undefined;
+}
+
+/**
+ * One hosted-journal entry: hosted content whose blob is being stored before its message is
+ * recorded. `key` is `{root_id}/{reply_id}/{hosted_id}` (empty reply ID for a root). Each entry is
+ * its own object beside the head, which never names it, so journaling an item writes one small
+ * object and leaves the head alone. A resumed read reuses the blob instead of downloading it again.
+ */
+export interface TeamsChannelCheckpointHostedEntry {
+  readonly key: string;
+  readonly ref: TeamsHostedRef;
 }

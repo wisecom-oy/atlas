@@ -186,7 +186,9 @@ Ctrl+C stops the run. Atlas stops waiting on the request in flight, but Graph ha
 
 Each channel's read saves its progress after every page of 50 roots. The page's threads go to an encrypted segment, and a head object records where the read stands. Both live under `_meta/{team_id}/checkpoints/{channel_id}/`.
 
-If a run stops partway through a channel, by Ctrl+C or a crash, the next run continues from the last saved page. Pages already applied are not read again. Each inline image is recorded in the checkpoint as soon as it is stored, so a resumed run reuses it instead of downloading it again.
+If a run stops partway through a channel, by Ctrl+C or a crash, the next run continues from the last saved page. Pages already applied are not read again.
+
+Each inline image is journaled as its own small encrypted object under `hosted/` in the checkpoint, written just before the image's blob. A resumed run reuses every journaled image whose blob exists instead of downloading it again, and downloads an image whose blob never reached storage. Journaling an image does not rewrite the head or add a segment, so a channel with thousands of images writes one journal object per image and one head per page.
 
 ::: tip
 A crash can repeat the page that was in flight when it stopped. Graph reads for that page run again, but its content is not stored twice and its images are not downloaded twice.
@@ -209,7 +211,7 @@ teams/
   manifests/{team_id}/{snapshot_id}.json                          encrypted snapshot indexes
   shards/{team_id}/{channel_id}/{content_name}.json                encrypted channel shards
   _meta/{team_id}/channels/{channel_id}.json                      encrypted channel cursors
-  _meta/{team_id}/checkpoints/{channel_id}/                       encrypted read checkpoints (head and segments)
+  _meta/{team_id}/checkpoints/{channel_id}/                       encrypted read checkpoints (head, segments, hosted/ journal)
 ```
 
 `content_name` is the keyed name Atlas uses for every content object. It is an HMAC, so it does not match a plain SHA-256 of the content. See [What object names reveal](/security#what-object-names-reveal).
