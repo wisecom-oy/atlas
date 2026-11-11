@@ -167,19 +167,21 @@ If Graph cannot produce MIME for one item, Atlas stores that item in the legacy 
 
 A MIME request that fails is a different case from Graph having no MIME, for example a `503` still failing after the [retries](#retry-and-error-handling). Atlas stores the JSON form so the run keeps the message, reports the message as an error of its folder, and keeps the folder's previous delta link. The run exits 2. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one in the snapshot chain. A JSON entry whose attachments could not be fetched or stored is handled the same way: the next run fetches the message and its attachments again. A message that fails on every run holds its folder's link back until it succeeds, and the changes refetched each time deduplicate against the stored objects.
 
-### Reactions
+### Reactions, flag, and pin
 
-Outlook reactions (like, heart, celebrate and so on) live in MAPI named properties, not in the MIME and not in the delta payload. Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:
+The delta query selects `flag`, so each message's follow-up flag status and its start, due and completed dates arrive with the delta item. A MIME entry records them in its manifest entry as `flag`, because the MIME carries at most an `X-Message-Flag` header. An unflagged message records nothing.
+
+Outlook reactions (like, heart, celebrate and so on) and the pin live in MAPI properties, not in the MIME and not in the delta payload. Outlook pins a message by setting its renew times, `SystemTime 0x0F02` and `SystemTime 0x0F01`, to a far-future date. Graph rejects the `$expand` that would read these properties on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:
 
 ```
 GET /users/{id}/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=...)
 ```
 
-The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Graph evaluates each request in a batch on its own. What the batch saves is round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 reaction round trips, where it used to make 2N requests. At `--page-size 100` it is N/20. Messages are read in every batch, including messages without reactions and messages whose content deduplicates, because the reactions belong to the manifest entry rather than to the stored object.
+The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Graph evaluates each request in a batch on its own. What the batch saves is round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 batch round trips, where it used to make 2N requests. At `--page-size 100` it is N/20. Messages are read in every batch, including messages without reactions and messages whose content deduplicates, because the reactions and pin belong to the manifest entry rather than to the stored object.
 
-Adding a reaction updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
+Adding a reaction or a flag updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
 
-Only messages with reactions store anything: their manifest entry gains `reaction_properties`. A throttled or failed read inside a batch is retried for that message alone. A read that still fails backs the message up without its reactions, and the run summary prints a warning per folder with the count, because the delta link moves on and those reactions are read again only when the message changes. A permission or licensing failure stops the mailbox, as it does for MIME. If the configured mailbox connector cannot read reactions at all, Atlas logs that once and captures none.
+Only messages with reactions or a pin store anything: their manifest entry gains `reaction_properties` or `pin_properties`. The pin is recorded only when `0x0F01` is present, which it is not on a message that was never pinned. A throttled or failed read inside a batch is retried for that message alone. A read that still fails backs the message up without its reactions and pin, and the run summary prints a warning per folder with the count, because the delta link moves on and those properties are read again only when the message changes. The flag does not depend on this read. A permission or licensing failure stops the mailbox, as it does for MIME. If the configured mailbox connector cannot read these properties at all, Atlas logs that once and captures none.
 
 ## Retry and error handling
 

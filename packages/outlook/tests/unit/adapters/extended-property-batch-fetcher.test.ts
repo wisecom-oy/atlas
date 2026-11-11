@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { AuthError } from '@wisecom/atlas-types';
-import { fetch_message_reaction_properties } from '@/adapters/graph-message-reaction-fetcher';
+import { fetch_message_extended_properties } from '@/adapters/graph-message-extended-property-fetcher';
 
 /**
  * Issue #513. Reactions were read with one `GET /messages/{id}` per message. They are now read
@@ -48,14 +48,14 @@ function ids(count: number): string[] {
   return Array.from({ length: count }, (_, i) => `msg-${i}`);
 }
 
-describe('fetch_message_reaction_properties', () => {
+describe('fetch_message_extended_properties', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
   it('reads 25 messages in two round trips of at most 20, chained and with immutable ids', async () => {
     const { client, api, sent } = batch_client(ok);
 
-    const found = await fetch_message_reaction_properties(client, 'owner-1', ids(25), PREFER);
+    const found = await fetch_message_extended_properties(client, 'owner-1', ids(25), PREFER);
 
     expect(api).toHaveBeenCalledWith('/$batch');
     expect(sent.map((requests) => requests.length)).toEqual([20, 5]);
@@ -63,7 +63,7 @@ describe('fetch_message_reaction_properties', () => {
     expect(sent[0]![1]!.dependsOn).toEqual(['0']);
     expect(sent[0]![0]!.headers).toEqual({ Prefer: PREFER });
     expect(found.size).toBe(25);
-    expect(found.get('msg-24')).toEqual([LIKE]);
+    expect(found.get('msg-24')).toEqual({ reaction_properties: [LIKE], pin_properties: [] });
   });
 
   it('drops a message Graph cannot find and resends only the reads its failure skipped', async () => {
@@ -74,7 +74,7 @@ describe('fetch_message_reaction_properties', () => {
       return ok();
     });
 
-    const found = await fetch_message_reaction_properties(client, 'owner-1', ids(4), PREFER);
+    const found = await fetch_message_extended_properties(client, 'owner-1', ids(4), PREFER);
 
     expect(sent.map((requests) => requests.length)).toEqual([4, 2]);
     expect([...found.keys()]).toEqual(['msg-0', 'msg-2', 'msg-3']);
@@ -87,12 +87,29 @@ describe('fetch_message_reaction_properties', () => {
       return ok();
     });
 
-    const pending = fetch_message_reaction_properties(client, 'owner-1', ids(4), PREFER);
+    const pending = fetch_message_extended_properties(client, 'owner-1', ids(4), PREFER);
     await vi.runAllTimersAsync();
     const found = await pending;
 
     expect(sent.map((requests) => requests.length)).toEqual([4, 2]);
     expect(found.size).toBe(4);
+  });
+
+  // Issue #579: the pin was never asked for, so a pinned message was backed up unpinned.
+  it('reads the renew-time properties and returns a pinned message with its pin', async () => {
+    const pinned = { id: 'SystemTime 0xf01', value: '4500-09-01T00:00:00Z' };
+    const { client, sent } = batch_client(() => ({
+      status: 200,
+      body: { id: 'x', singleValueExtendedProperties: [LIKE, pinned] },
+    }));
+
+    const found = await fetch_message_extended_properties(client, 'owner-1', ids(1), PREFER);
+
+    expect(decodeURIComponent(sent[0]![0]!.url)).toContain("id eq 'SystemTime 0x0F02'");
+    expect(found.get('msg-0')).toEqual({
+      reaction_properties: [LIKE],
+      pin_properties: [{ id: 'SystemTime 0x0F01', value: '4500-09-01T00:00:00Z' }],
+    });
   });
 
   it('throws on a refused permission instead of reporting messages without reactions', async () => {
@@ -102,7 +119,7 @@ describe('fetch_message_reaction_properties', () => {
     }));
 
     await expect(
-      fetch_message_reaction_properties(client, 'owner-1', ids(2), PREFER),
+      fetch_message_extended_properties(client, 'owner-1', ids(2), PREFER),
     ).rejects.toBeInstanceOf(AuthError);
   });
 });

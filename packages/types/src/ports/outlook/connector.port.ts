@@ -1,4 +1,9 @@
-import type { ExtendedProperty, MailAddress, MailboxPurpose } from '@/domain/outlook/manifest';
+import type {
+  ExtendedProperty,
+  FollowUpFlag,
+  MailAddress,
+  MailboxPurpose,
+} from '@/domain/outlook/manifest';
 
 /**
  * Graph well-known mail folder names Atlas records on {@link MailFolder}.
@@ -94,9 +99,19 @@ export interface MailMessage {
   readonly received_at?: Date | undefined;
   /** Graph `from`; absent when Graph reports no sender address. */
   readonly from?: MailAddress | undefined;
+  /** Graph `flag` when the message is flagged or completed; absent when it is not flagged. */
+  readonly flag?: FollowUpFlag | undefined;
   readonly size_bytes: number;
   readonly raw_body: Buffer;
   readonly has_attachments: boolean;
+}
+
+/** The MAPI properties of one message that a backup reads beside its content. */
+export interface MessageExtendedProperties {
+  /** Outlook reaction properties; empty when the message has no reactions. */
+  readonly reaction_properties: ExtendedProperty[];
+  /** Renew-time properties that pin the message; empty when it is not pinned. */
+  readonly pin_properties: ExtendedProperty[];
 }
 
 export interface DeltaSyncResult {
@@ -183,17 +198,17 @@ export interface MailboxConnector {
   fetch_mime?(tenant_id: string, owner_id: string, message_id: string): Promise<Buffer | undefined>;
 
   /**
-   * Fetches the Outlook reaction properties, which neither MIME nor the delta payload carries, for
-   * a page of messages at once (issues #481, #513). The map holds an entry per message that was
-   * read, empty when it has none; a message missing from the map could not be read. Resolves
-   * undefined when the connector cannot read reactions at all.
+   * Fetches the Outlook reaction and pin properties, which neither MIME nor the delta payload
+   * carries, for a page of messages at once (issues #481, #513, #579). The map holds an entry per
+   * message that was read, with empty lists when it has none; a message missing from the map could
+   * not be read. Resolves undefined when the connector cannot read them at all.
    */
   // ponytail: optional for the same reason as fetch_mime
-  fetch_reaction_properties?(
+  fetch_extended_properties?(
     tenant_id: string,
     owner_id: string,
     message_ids: readonly string[],
-  ): Promise<Map<string, ExtendedProperty[]> | undefined>;
+  ): Promise<Map<string, MessageExtendedProperties> | undefined>;
 
   /** Fetches file attachments for a message, decoding contentBytes from base64. */
   fetch_attachments(

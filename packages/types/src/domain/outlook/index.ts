@@ -6,6 +6,8 @@ export type {
   MailAddress,
   AttachmentEntry,
   ExtendedProperty,
+  FollowUpFlag,
+  ZonedDateTime,
   ManifestObjectLockMode,
   ManifestObjectLockPolicy,
   ManifestObjectLockRequestedPolicy,

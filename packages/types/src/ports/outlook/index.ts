@@ -9,6 +9,7 @@ export type {
   DeltaSyncResult,
   DeltaPageCallback,
   MessageAttachment,
+  MessageExtendedProperties,
 } from './connector.port';
 export type {
   TenantMailbox,

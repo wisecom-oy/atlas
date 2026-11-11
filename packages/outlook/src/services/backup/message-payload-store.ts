@@ -1,10 +1,10 @@
 import { compute_content_digests } from '@wisecom/atlas-core/services/shared/content-digests';
 import type {
-  ExtendedProperty,
   MailAddress,
   MailboxConnector,
   MailMessage,
   ManifestEntry,
+  MessageExtendedProperties,
   ObjectLockPolicy,
   TenantContext,
 } from '@wisecom/atlas-types';
@@ -83,37 +83,42 @@ function describe_capture_failure(err: unknown): string {
   return typeof status === 'number' ? `HTTP ${status}` : 'unknown error';
 }
 
-export interface PageReactions {
-  /** Reaction properties per message id; an absent id has none recorded. */
-  readonly by_message: ReadonlyMap<string, ExtendedProperty[]>;
-  /** Messages on the page whose reactions could not be read. */
+export interface PageExtendedProperties {
+  /** Reaction and pin properties per message id; an absent id has none recorded. */
+  readonly by_message: ReadonlyMap<string, MessageExtendedProperties>;
+  /** Messages on the page whose reactions and pin could not be read. */
   readonly failed: number;
 }
 
-const NO_REACTIONS: PageReactions = { by_message: new Map(), failed: 0 };
+const NO_PROPERTIES: PageExtendedProperties = { by_message: new Map(), failed: 0 };
+
+const NO_MESSAGE_PROPERTIES: MessageExtendedProperties = {
+  reaction_properties: [],
+  pin_properties: [],
+};
 
 /**
- * Captures the Outlook reaction properties of a page of messages in one batched read (issues
- * #481, #513). Access and licensing failures propagate as for MIME. Any other failure loses only
- * the reactions, never a message, and is counted so the run summary can report it: the delta link
- * moves past the page, so the reactions are read again only when the message changes.
+ * Captures the Outlook reaction and pin properties of a page of messages in one batched read
+ * (issues #481, #513, #579). Access and licensing failures propagate as for MIME. Any other
+ * failure loses only that metadata, never a message, and is counted so the run summary can report
+ * it: the delta link moves past the page, so it is read again only when the message changes.
  */
-export async function capture_page_reactions(
+export async function capture_page_extended_properties(
   connector: MailboxConnector,
   tenant_id: string,
   owner_id: string,
   messages: readonly MailMessage[],
-): Promise<PageReactions> {
-  if (!connector.fetch_reaction_properties || messages.length === 0) return NO_REACTIONS;
+): Promise<PageExtendedProperties> {
+  if (!connector.fetch_extended_properties || messages.length === 0) return NO_PROPERTIES;
   const ids = messages.map((m) => m.message_id);
   try {
-    const by_message = await connector.fetch_reaction_properties(tenant_id, owner_id, ids);
-    if (!by_message) return NO_REACTIONS;
+    const by_message = await connector.fetch_extended_properties(tenant_id, owner_id, ids);
+    if (!by_message) return NO_PROPERTIES;
     return { by_message, failed: ids.filter((id) => !by_message.has(id)).length };
   } catch (err) {
     if (is_unrecordable_failure(err)) throw err;
     const reason = err instanceof Error ? err.message : String(err);
-    logger.warn(`Reaction capture failed for ${ids.length} messages: ${reason}`);
+    logger.warn(`Reaction and pin capture failed for ${ids.length} messages: ${reason}`);
     return { by_message: new Map(), failed: ids.length };
   }
 }
@@ -121,7 +126,8 @@ export async function capture_page_reactions(
 /**
  * Content-addressed storage with keyed-hash dedup (issue #446): name -> check exists -> encrypt
  * -> upload. Stores `mime` when Graph produced it, otherwise the JSON payload
- * from the delta page; the manifest entry records which (issue #50).
+ * from the delta page; the manifest entry records which (issue #50). The follow-up flag, reactions
+ * and pin go on the entry, since no payload format carries them all (issues #481, #579).
  */
 export async function store_single_message(
   ctx: TenantContext,
@@ -129,8 +135,9 @@ export async function store_single_message(
   owner_id: string,
   object_lock_policy?: ObjectLockPolicy,
   mime?: Buffer,
-  reaction_properties: readonly ExtendedProperty[] = [],
+  properties: MessageExtendedProperties = NO_MESSAGE_PROPERTIES,
 ): Promise<StoredMessage> {
+  const { reaction_properties, pin_properties } = properties;
   const payload = mime ?? message.raw_body;
   const { checksum, content_name } = compute_content_digests(ctx, payload);
   const storage_key = `data/${owner_id}/${content_name}`;
@@ -160,6 +167,8 @@ export async function store_single_message(
     ...(mime ? { payload_format: 'mime' as const } : {}),
     ...(mime && metadata.received_at ? { received_at: metadata.received_at.toISOString() } : {}),
     ...(reaction_properties.length > 0 ? { reaction_properties } : {}),
+    ...(message.flag ? { flag: message.flag } : {}),
+    ...(pin_properties.length > 0 ? { pin_properties } : {}),
   };
 
   return { manifest_entry, was_new: !already_stored };
