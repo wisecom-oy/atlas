@@ -379,6 +379,8 @@ if (!sp.snapshot && sp.summary.noSnapshotReason === 'no_content') {
 
 The field is absent when a snapshot was created. Interrupted or unhealthy runs report `interrupted` and `errors` instead.
 
+`summary.cursorUpdated` on a drive or site backup is `true` when the run saved the delta cursor, the stored position that tells the next run where to resume reading changes. A completed run saves it whether or not it created a snapshot, and so does a run that recorded failed items or was cancelled once its scan had started. In that last case only the drives and libraries the run finished advance. The field is `false` when the run was cancelled before its scan started, for example when the signal was already aborted or fired while the drive, library, or subsite list was loading, including a throttle wait on that list. Nothing was read or stored, and the next run resumes from the previous cursor.
+
 ## Identifiers
 
 Methods accept the same identifiers as the CLI and normalize them the same way.

@@ -187,7 +187,7 @@ describe('build_snapshot_manifest', () => {
 
 describe('build_empty_result', () => {
   it('produces a result with snapshot undefined and given counters', () => {
-    const result = build_empty_result('owner-1', 2, 5, 3, 1, 4, 2, [], [], false, true);
+    const result = build_empty_result('owner-1', 2, 5, 3, 1, 4, 2, [], [], false, true, true);
 
     expect(result.owner_id).toBe('owner-1');
     expect(result.snapshot).toBeUndefined();
@@ -217,10 +217,17 @@ describe('build_empty_result', () => {
       [],
       false,
       false,
+      true,
     );
 
     expect(result.summary.healthy).toBe(false);
     expect(result.summary.errors).toEqual(['timeout on file X']);
+  });
+
+  it('reports the cursor as not updated when the run saved none (issue #693)', () => {
+    const result = build_empty_result('owner-1', 0, 0, 0, 0, 0, 0, [], [], true, false, false);
+
+    expect(result.summary.cursor_updated).toBe(false);
   });
 });
 

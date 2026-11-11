@@ -196,6 +196,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
           warnings,
           healthy,
           scan.interrupted,
+          true, // cursor_updated: the cursor was saved just above
           // `healthy`, not just `!interrupted`: a failed item still counts as processed, so a run
           // whose every file failed would otherwise read as `no_changes` when the truth is that
           // the changes did not land. An unhealthy run's reason is its errors.
