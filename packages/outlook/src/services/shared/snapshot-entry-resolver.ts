@@ -1,5 +1,6 @@
 import type {
   MailboxConnector,
+  Manifest,
   ManifestEntry,
   ManifestRepository,
   TenantContext,
@@ -27,6 +28,8 @@ export interface SnapshotEntryFilter {
 export interface ResolvedSnapshotEntries {
   readonly owner_id: string;
   readonly entries: ManifestEntry[];
+  /** The snapshot's delta chain, newest first, whose recorded folders name the entries' folders. */
+  readonly manifests: readonly Manifest[];
 }
 
 /**
@@ -50,15 +53,19 @@ export async function resolve_snapshot_entries(
     // Resolve before the policy, or `-r 5` would silently mean a different message once anything
     // is filtered out.
     const entry = resolve_message_ref(target, merged, filter.message_ref);
-    return { owner_id: target.owner_id, entries: entry && allowed.includes(entry) ? [entry] : [] };
+    return {
+      owner_id: target.owner_id,
+      entries: entry && allowed.includes(entry) ? [entry] : [],
+      manifests: chain,
+    };
   }
 
   if (filter.folder_name) {
     await backfill_missing_folder_ids(ctx, allowed);
-    const folder_map = await build_folder_map(connector, tenant_id, target.owner_id);
+    const folder_map = await build_folder_map(connector, tenant_id, target.owner_id, chain);
     const entries = filter_entries_by_folder_name(allowed, filter.folder_name, folder_map);
-    return { owner_id: target.owner_id, entries };
+    return { owner_id: target.owner_id, entries, manifests: chain };
   }
 
-  return { owner_id: target.owner_id, entries: allowed };
+  return { owner_id: target.owner_id, entries: allowed, manifests: chain };
 }

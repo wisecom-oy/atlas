@@ -21,6 +21,7 @@ import { resolve_progress_reporter } from '@/services/shared/backup-progress-res
 import {
   build_manifest,
   build_manifest_object_lock_policy,
+  count_folders_to_finish,
   create_pending_snapshot,
   mark_snapshot_completed,
   resolve_saved_delta_links,
@@ -209,7 +210,11 @@ export class MailboxSyncService implements BackupUseCase {
 
       const merged_links = {
         ...saved_links,
-        ...withhold_links_of_unrecorded_removals(new_delta_links, removal_counts, folders.length),
+        ...withhold_links_of_unrecorded_removals(
+          new_delta_links,
+          removal_counts,
+          count_folders_to_finish(folders, excluded_folders, options.folder_filter),
+        ),
       };
       const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
         previous_total_objects: previous_entry_count,

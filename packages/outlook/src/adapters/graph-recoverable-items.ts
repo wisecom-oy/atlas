@@ -18,7 +18,7 @@
 
 import type { ExcludedFolder, MailFolder, MailFolderListOptions } from '@wisecom/atlas-types';
 import type { GraphFolderRecord } from '@/adapters/graph-mailbox-response-mappers';
-import { enumerate_folder_tree } from '@/adapters/graph-folder-tree-enumerator';
+import { enumerate_folder_subtree } from '@/adapters/graph-folder-tree-enumerator';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
 
@@ -93,6 +93,21 @@ export async function enumerate_recoverable_items(
       continue;
     }
 
+    // Same rule as the visible tree: only a folder that reports children costs
+    // a request. Descending unconditionally would spend four per mailbox per
+    // run for subtrees that are almost always empty. A subfolder deleted before
+    // its child listing is skipped with its subtree, as in the visible tree.
+    const subtree =
+      (child.childFolderCount ?? 0) > 0
+        ? await enumerate_folder_subtree(
+            (parent_folder_id) => fetch_children(parent_folder_id ?? child.id!),
+            options,
+            child.id,
+            [RECOVERABLE_ITEMS_PATH_PREFIX, display_name],
+          )
+        : [];
+    if (!subtree) continue;
+
     captured.push({
       folder_id: child.id,
       display_name,
@@ -104,17 +119,6 @@ export async function enumerate_recoverable_items(
       ...(child.id === anchor?.id ? { well_known_name: RECOVERABLE_ITEMS_ANCHOR } : {}),
       ...(child.isHidden === true ? { is_hidden: true } : {}),
     });
-
-    // Same rule as the visible tree: only a folder that reports children costs
-    // a request. Descending unconditionally would spend four per mailbox per
-    // run for subtrees that are almost always empty.
-    if ((child.childFolderCount ?? 0) === 0) continue;
-
-    const subtree = await enumerate_folder_tree(
-      (parent_folder_id) => fetch_children(parent_folder_id ?? child.id!),
-      options,
-      { root_path: [RECOVERABLE_ITEMS_PATH_PREFIX, display_name] },
-    );
     append_all(
       captured,
       subtree.map((folder) => ({ ...folder, is_recoverable_items: true })),
