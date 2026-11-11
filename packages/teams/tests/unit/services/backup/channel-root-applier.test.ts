@@ -95,8 +95,9 @@ describe('apply_root_changes stored roots', () => {
     expect(vi.mocked(store_thread).mock.calls[1]?.[4]).toEqual([]);
   });
 
-  it('marks a previous root removed on a full read when Graph no longer lists it', async () => {
-    const scope = make_scope(make_connector());
+  it('marks a previous root removed when a full read does not list it and Graph 404s it', async () => {
+    const connector = make_connector();
+    const scope = make_scope(connector);
     const previous = { m1: thread_entry('m1'), m2: thread_entry('m2') };
 
     const out = await apply_root_changes(
@@ -108,9 +109,17 @@ describe('apply_root_changes stored roots', () => {
       {},
     );
 
+    expect(connector.get_channel_message).toHaveBeenCalledTimes(1);
+    expect(connector.get_channel_message).toHaveBeenCalledWith(
+      'tenant-1',
+      expect.any(String),
+      'channel-1',
+      'm2',
+    );
     expect(out.threads.m2?.deleted_at).toBe(BACKUP_AT);
     expect(out.threads.m1?.deleted_at).toBeUndefined();
     expect(scope.counters.threads_deleted).toBe(1);
+    expect(out.failed_roots).toEqual({});
   });
 
   it('does not mark previous roots removed on a delta read', async () => {

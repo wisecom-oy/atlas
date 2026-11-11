@@ -8,9 +8,9 @@ import type {
 } from '@wisecom/atlas-types';
 import type { BackupRunScope } from '@/services/backup/backup-run-scope';
 import {
-  apply_full_read_sweep,
   apply_root_tasks,
   changed_tasks,
+  drop_unlisted_root_tracking,
   fetched_task,
   pending_retry_roots,
 } from '@/services/backup/channel-root-applier';
@@ -195,9 +195,11 @@ async function fetch_list_page(
 }
 
 /**
- * Applies the last listing page and ends the full read. The sweep marks roots the read did not see
- * as removed, and one flush saves the page with the sweep, so a crash before it replays only this
- * page. An interrupt keeps the page's link and skips the sweep, which needs every root seen.
+ * Applies the last listing page and ends the listing. Roots the listing did not show leave the
+ * ledger and recheck, and one flush saves the page with that change, so a crash before it replays
+ * only this page. A live root the listing missed is not marked removed here: a root can fall between
+ * two pages when the channel changes during paging, so the retry step reads each one by id and only
+ * a 404 marks it removed. An interrupt keeps the page's link, because the drop needs every root seen.
  */
 async function finish_list_phase(
   scope: BackupRunScope,
@@ -214,29 +216,32 @@ async function finish_list_phase(
     return true;
   }
   for (const id of batch.processed) run.seen.add(id);
-  const removed = apply_full_read_sweep(scope, run.state, run.seen);
-  run.phase = 'done';
+  drop_unlisted_root_tracking(run.state, run.seen);
+  const owed = pending_retry_roots(run.state, channel_id, run.seen, true).length > 0;
+  run.phase = owed ? 'retry' : 'done';
   run.next_page = undefined;
   scope.progress.roots_applied(channel_id, batch.processed.length);
-  await flush_channel_run(scope, run, {
-    threads: [...batch.processed, ...removed],
-    seen: batch.processed,
-  });
+  await flush_channel_run(scope, run, { threads: batch.processed, seen: batch.processed });
   return false;
 }
 
 /**
- * Re-applies ledger roots and hosted rechecks that the read did not see. Batches are recomputed
- * from the current state each time, so a root applied in an earlier batch is not picked again.
+ * Re-applies ledger roots and hosted rechecks that the read did not see, and after a full read
+ * confirms the live roots its listing missed. Batches are recomputed from the current state each
+ * time, so a root applied in an earlier batch is not picked again.
  */
 async function read_retry_phase(
   scope: BackupRunScope,
   channel: TeamsGraphResource,
   run: ChannelRun,
 ): Promise<boolean> {
+  const full_read = run.mode === 'full';
   for (;;) {
     if (scope.should_interrupt()) return true;
-    const pending = pending_retry_roots(run.state, channel.id, run.seen).slice(0, ROOTS_PER_STEP);
+    const pending = pending_retry_roots(run.state, channel.id, run.seen, full_read).slice(
+      0,
+      ROOTS_PER_STEP,
+    );
     if (pending.length === 0) {
       run.phase = 'done';
       await flush_channel_run(scope, run, { threads: [], seen: [] });
