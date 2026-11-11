@@ -194,7 +194,7 @@ Anything skipped is reported at the end of the run and recorded in the snapshot 
       Junk Email (skipped by --exclude-junk)
 ```
 
-A folder deleted while the backup lists folders is skipped, with everything beneath it, and reported as `deleted while the folder list was read, not captured`. The run continues. It records no removals and keeps the previous delta links of folders that reported some, so the next run picks them up. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook). A 404 on the mailbox's top-level folder listing still fails the run, because it means the mailbox is gone.
+A folder deleted while the backup lists folders is skipped, with everything beneath it, and reported as `deleted while the folder list was read, not captured`. The run continues. It records no removals and keeps the previous delta links of folders that reported some, so the next run picks them up. A `--folder` run records no removals anyway and advances its links as usual. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook). A 404 on the mailbox's top-level folder listing still fails the run, because it means the mailbox is gone.
 
 ::: warning Drafts and Outbox are included from 4.1.0
 Earlier versions skipped Drafts and Outbox without reporting it. Snapshots taken from 4.1.0 include them, so the first backup after upgrading is larger for mailboxes with unsent mail. Existing snapshots are unchanged.

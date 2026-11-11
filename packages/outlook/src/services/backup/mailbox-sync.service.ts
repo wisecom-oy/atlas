@@ -213,7 +213,7 @@ export class MailboxSyncService implements BackupUseCase {
         ...withhold_links_of_unrecorded_removals(
           new_delta_links,
           removal_counts,
-          count_folders_to_finish(folders, excluded_folders),
+          count_folders_to_finish(folders, excluded_folders, options.folder_filter),
         ),
       };
       const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {

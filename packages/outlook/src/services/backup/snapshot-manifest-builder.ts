@@ -160,12 +160,16 @@ export function withhold_links_of_unrecorded_removals(
  * Counts the folders a run had to finish to record its removals: the folders it walked plus any
  * deleted while the tree was listed. A vanished folder is never walked, so a run that met one
  * holds back the links of folders with removals, as a failed folder does, and the next run reads
- * those removals again once the listing is stable (issue #690).
+ * those removals again once the listing is stable (issue #690). A filtered run never records
+ * removals, so it counts only what it walked and advances its links as any filtered run does: a
+ * folder outside the selection that vanished would otherwise hold back links for nothing.
  */
 export function count_folders_to_finish(
   walked: readonly MailFolder[],
   excluded: readonly ExcludedFolder[],
+  folder_filter: readonly string[] | undefined,
 ): number {
+  if (folder_filter?.length) return walked.length;
   return (
     walked.length + excluded.filter((folder) => folder.reason === 'deleted-during-listing').length
   );

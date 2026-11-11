@@ -101,6 +101,16 @@ describe('an outlook backup that meets a folder deleted during its folder listin
     });
   });
 
+  it('advances the links of a filtered run when a folder outside its selection vanished', async () => {
+    const harness = harness_resuming_from_old_links();
+    list_with_vanished_folder(harness);
+
+    await harness.service.sync_mailbox('t', 'john.doe@example.com', { folder_filter: ['Inbox'] });
+
+    // A filtered run never records removals, so holding Inbox back would refetch it for nothing.
+    expect(saved_links(harness)['folder-1']).toBe('https://delta/new');
+  });
+
   it('records the removals on the next run, once the folder is simply gone from the listing', async () => {
     const harness = harness_resuming_from_old_links();
     vi.mocked(harness.mock_connector.list_mail_folders).mockResolvedValue([INBOX, SENT]);
