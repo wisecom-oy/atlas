@@ -120,7 +120,7 @@ Atlas enforces conventions via ESLint and Prettier. The linter config in `eslint
 | Single quotes, trailing commas, 100-char print width | Prettier                               |
 | `@/` path aliases, no relative imports (warning)     | `no-restricted-imports` ESLint rule    |
 | Type-aware: promises, unsafe `any`, assertions       | `typescript-eslint` type-checked       |
-| No spread into `push`/`unshift`, use `append_all`    | `no-restricted-syntax` ESLint rule     |
+| No spread into `push` or `unshift`                   | `no-restricted-syntax` ESLint rule     |
 | JSDoc on all exported functions                      | Convention                             |
 
 Two rules are staged as warnings because the codebase still has existing hits:
@@ -132,7 +132,9 @@ introduces it rather than being silently accepted.
 throws `RangeError: Maximum call stack size exceeded` once an array passes
 roughly 125k elements on Node 22. Manifest entry arrays from large folders and
 libraries reach that size, so `src/` code appends with `append_all` from
-`@wisecom/atlas-core/utils/append-all` instead.
+`@wisecom/atlas-core/utils/append-all` instead. `unshift` has the same limit; to
+prepend, build a new array with `[...items, ...target]`, since spread inside an
+array literal is not a call argument.
 
 **SDK exception:** Files under `src/sdk.ts`, `src/ports/atlas/`, and `src/adapters/sdk/` use standard ES6 `camelCase` naming to provide a familiar interface for external consumers. This is configured as an ESLint override.
 

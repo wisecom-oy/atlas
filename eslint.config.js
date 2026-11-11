@@ -55,9 +55,14 @@ const structural_convention_rules = {
   'no-restricted-syntax': [
     'error',
     {
-      selector: 'CallExpression[callee.property.name=/^(push|unshift)$/] > SpreadElement',
+      selector: "CallExpression[callee.property.name='push'] > SpreadElement",
       message:
-        'Spreading into push/unshift throws RangeError on large arrays. Use append_all from @wisecom/atlas-core/utils/append-all.',
+        'Spreading into push throws RangeError on large arrays. Use append_all from @wisecom/atlas-core/utils/append-all.',
+    },
+    {
+      selector: "CallExpression[callee.property.name='unshift'] > SpreadElement",
+      message:
+        'Spreading into unshift throws RangeError on large arrays. Build a new array instead: [...items, ...target] has no argument limit.',
     },
   ],
   'max-lines-per-function': [

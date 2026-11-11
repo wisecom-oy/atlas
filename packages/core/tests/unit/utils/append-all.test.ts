@@ -17,6 +17,12 @@ describe('append_all', () => {
     expect(target).toEqual(['a', 'b']);
   });
 
+  it('appends a copy when the target is also the input', () => {
+    const target = [1, 2];
+    append_all(target, target);
+    expect(target).toEqual([1, 2, 1, 2]);
+  });
+
   it('appends an array larger than the engine argument limit', () => {
     const items = Array.from({ length: BEYOND_ARGUMENT_LIMIT }, (_, i) => i);
     expect(() => [].push(...(items as never[]))).toThrow(RangeError);
