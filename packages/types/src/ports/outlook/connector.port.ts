@@ -152,6 +152,9 @@ export interface MailboxConnector {
    * Fetches messages changed since the previous delta link.
    * Pass the full @odata.deltaLink URL from a prior sync, or omit for a full initial sync.
    * The optional on_page callback is invoked after each page for progress reporting.
+   * Each message reaches on_page at most once per call, even when a rejected delta link forces a
+   * full re-enumeration after earlier pages were handed over; removals read before that fallback
+   * stay in `removed_ids`.
    */
   fetch_delta(
     tenant_id: string,

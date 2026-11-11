@@ -30,12 +30,12 @@ Delta links are stored inside the encrypted manifest (Outlook) or cursor object 
 
 ## When Atlas performs a full enumeration
 
-| Trigger                    | Behaviour                                                                                                                                                                                                        |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Stale-delta safeguard      | The saved link returns no items, but the previous manifest stored no entries. The earlier backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full. |
-| Expired or invalid token   | Graph returns `syncStateNotFound`, `resyncRequired`, or `syncStateInvalid`. Atlas resyncs the folder in full and logs a warning. Tokens lapse after a period of inactivity, and the incremental chain is broken. |
-| `--full`                   | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt. |
-| Legacy message IDs         | Snapshots created before Atlas used immutable Outlook IDs hold mutable IDs. Mixing the two formats breaks correlation, so the first backup after upgrading runs in full and records `id_format: immutable` in the new manifest. This happens once per mailbox. |
+| Trigger                  | Behaviour                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stale-delta safeguard    | The saved link returns no items, but the previous manifest stored no entries. The earlier backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full.                                                                                                                                                       |
+| Expired or invalid token | Graph returns `syncStateNotFound`, `resyncRequired`, or `syncStateInvalid`. Atlas resyncs the folder in full and logs a warning. Tokens lapse after a period of inactivity, and the incremental chain is broken. Outlook can reject a token after some of its pages were already stored; the resync skips those messages and keeps the removals they carried. |
+| `--full`                 | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt.                                                                                                                                                                                                                                    |
+| Legacy message IDs       | Snapshots created before Atlas used immutable Outlook IDs hold mutable IDs. Mixing the two formats breaks correlation, so the first backup after upgrading runs in full and records `id_format: immutable` in the new manifest. This happens once per mailbox.                                                                                                |
 
 A full enumeration is scoped to the drive or library that triggered it. Delta links are kept per drive, so a site with several libraries, or a user with several drives, keeps working links for the rest. Files in the rebased drive are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
 
@@ -58,11 +58,11 @@ Withheld removals are not always lost. When a folder fails or the run is interru
 
 Some deletions are never reported, and those messages still come back from the chain:
 
-| Case                                             | Why                                                                                                                            |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| A filtered or excluded run                       | `--folder` or `--exclude-junk`. Links advance, so the removals it saw are not reported again.                                  |
-| A full enumeration                               | `--full`, an expired token, or the stale-delta safeguard re-lists the folder. Graph reports what exists, not what was deleted. |
-| Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden.                                                                                     |
+| Case                                             | Why                                                                                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A filtered or excluded run                       | `--folder` or `--exclude-junk`. Links advance, so the removals it saw are not reported again.                                                                                                           |
+| A full enumeration                               | `--full`, an expired token, or the stale-delta safeguard re-lists the folder. Graph reports what exists, not what was deleted. Removals read before Graph rejected an expired token are still recorded. |
+| Snapshots written before Atlas recorded removals | The field is absent, so nothing is hidden.                                                                                                                                                              |
 
 ## Commit order for OneDrive and SharePoint
 
@@ -114,11 +114,11 @@ Version IDs are compared for equality only. Graph does not guarantee their forma
 
 Atlas processes versions oldest first. The watermark stops at the first version the run could not capture:
 
-| Outcome for a version                                             | Watermark        | Reason                                                                       |
-| ----------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------- |
-| Stored, or already present as a deduplicated object               | Advances past it | Atlas holds the content.                                                     |
-| `404` or `410` from Graph                                         | Advances past it | The library's version policy removed it. It can never be retrieved.          |
-| Any other error, such as `403` or `500`                           | Stops before it  | The version may still be retrievable, so the next run retries it.            |
+| Outcome for a version                               | Watermark        | Reason                                                              |
+| --------------------------------------------------- | ---------------- | ------------------------------------------------------------------- |
+| Stored, or already present as a deduplicated object | Advances past it | Atlas holds the content.                                            |
+| `404` or `410` from Graph                           | Advances past it | The library's version policy removed it. It can never be retrieved. |
+| Any other error, such as `403` or `500`             | Stops before it  | The version may still be retrievable, so the next run retries it.   |
 
 Nothing is dropped silently. A run that fails on an old version retries that version and every newer one on the next run.
 
@@ -154,9 +154,9 @@ The original bytes keep what Graph's JSON does not expose: the `Received:` chain
 
 ### Request cost
 
-| Message shape    | Before MIME                                                 | With MIME                                                    |
-| ---------------- | ----------------------------------------------------------- | ------------------------------------------------------------ |
-| No attachments   | None beyond the delta page                                  | One `/$value` request                                        |
+| Message shape    | Before MIME                                                  | With MIME                                                      |
+| ---------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
+| No attachments   | None beyond the delta page                                   | One `/$value` request                                          |
 | With attachments | One attachment-list request, plus one request per attachment | One `/$value` request, because attachments are inside the MIME |
 
 Each new or changed message costs one request, and a message with attachments costs fewer requests than before. Incremental runs fetch MIME only for changed messages. The first backup of a large mailbox is the expensive case, and the retry policy below absorbs the throttling it causes.
@@ -185,12 +185,12 @@ Only messages with reactions store anything: their manifest entry gains `reactio
 
 Atlas retries transient Graph errors with exponential backoff:
 
-| Response                             | Behaviour                                                            |
-| ------------------------------------ | -------------------------------------------------------------------- |
-| `429 Too Many Requests`              | Honours `Retry-After`, then backs off exponentially. Up to 12 retries. |
-| `500`, `502`, `503`, `504`           | Same retry policy as `429`.                                          |
-| `501` and all other `4xx`            | Not retried, because the same request returns the same error.        |
-| `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The delta token is no longer valid. Atlas resyncs the folder in full. |
+| Response                                                  | Behaviour                                                              |
+| --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `429 Too Many Requests`                                   | Honours `Retry-After`, then backs off exponentially. Up to 12 retries. |
+| `500`, `502`, `503`, `504`                                | Same retry policy as `429`.                                            |
+| `501` and all other `4xx`                                 | Not retried, because the same request returns the same error.          |
+| `syncStateNotFound`, `resyncRequired`, `syncStateInvalid` | The delta token is no longer valid. Atlas resyncs the folder in full.  |
 
 `500` and `502` are retried because Graph returns them for load and gateway faults that clear on their own. Without a retry, one such error would fail the whole folder (Outlook) or drive batch (OneDrive and SharePoint).
 
@@ -198,10 +198,10 @@ Atlas retries transient Graph errors with exponential backoff:
 
 ## Interruption
 
-| Action            | Result                                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| First Ctrl+C      | Sets the interrupt flag. The current delta page finishes. Stored objects and completed delta links are saved to a partial manifest. The dashboard marks interrupted folders. |
-| Second Ctrl+C     | Exits at once. Nothing is saved for work in progress. Folders that finished earlier in the run stay saved.                                    |
+| Action        | Result                                                                                                                                                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First Ctrl+C  | Sets the interrupt flag. The current delta page finishes. Stored objects and completed delta links are saved to a partial manifest. The dashboard marks interrupted folders. |
+| Second Ctrl+C | Exits at once. Nothing is saved for work in progress. Folders that finished earlier in the run stay saved.                                                                   |
 
 A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. Only the interrupted folder reprocesses from its last saved link.
 
