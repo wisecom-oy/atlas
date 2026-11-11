@@ -1,4 +1,5 @@
 import type { ObjectStorage, StorageTarget } from '@wisecom/atlas-types';
+import { AtlasError } from '@wisecom/atlas-types';
 import { logger } from '@/utils/logger';
 import {
   DEK_META_KEY,
@@ -6,17 +7,22 @@ import {
   replace_dek_if_unchanged,
 } from '@/services/replication/conditional-dek-write';
 
-/** Thrown when replacing the primary's DEK could destroy existing ciphertext. */
-export class DekOverwriteRefusedError extends Error {
+/**
+ * Thrown when replacing the primary's DEK could destroy existing ciphertext.
+ *
+ * Carries `ATLAS_KEY_CONFLICT` so the CLI exits in its own category and SDK callers can branch on
+ * the code. Rerunning is refused the same way until an operator purges the primary (issue #659).
+ */
+export class DekOverwriteRefusedError extends AtlasError {
   constructor(tenant_id: string) {
     super(
+      'ATLAS_KEY_CONFLICT',
       `Refusing to replace the encryption key of tenant ${tenant_id}: the primary bucket ` +
         `holds a key AND other objects, so the key may protect existing backups. ` +
         `Overwriting it would make that data permanently undecryptable. If the primary's ` +
         `content is disposable, purge the tenant (atlas delete --purge) and rerun ` +
         `rehydration into the empty bucket.`,
     );
-    this.name = 'DekOverwriteRefusedError';
   }
 }
 
