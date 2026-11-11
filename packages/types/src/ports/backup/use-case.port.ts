@@ -110,6 +110,11 @@ export interface SyncResult {
   readonly mode: BackupSyncMode;
   readonly summary: BackupSyncSummary;
   readonly interrupted: boolean;
+  /**
+   * False when the run was cancelled before it read any folder. `snapshot` and `manifest` are then
+   * placeholders that were never stored, `mode` is not meaningful, and no delta link moved.
+   */
+  readonly snapshot_stored?: boolean;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
 }
