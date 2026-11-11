@@ -1,8 +1,8 @@
 import { classify_download_failure, DownloadRefusedError } from '@wisecom/atlas-m365-graph';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
-import { Readable } from 'node:stream';
 
 /**
  * The SharePoint half of issue #246, asserted separately from the OneDrive half
@@ -33,7 +33,9 @@ vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: mocks.warn, debug: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
-const { download_with_fallback } = await import('@/adapters/graph-sharepoint-download-executor');
+const { SHAREPOINT_DOWNLOAD_EXECUTOR } =
+  await import('@/adapters/graph-sharepoint-download-executor');
+const { download_with_fallback } = SHAREPOINT_DOWNLOAD_EXECUTOR;
 
 const STALE_URL = 'https://cdn.example.invalid/stale';
 const CONTENT_BODY = Buffer.from('graph-content');
@@ -56,9 +58,9 @@ interface GraphClientMock {
 
 function make_client(): GraphClientMock {
   const get = vi.fn().mockResolvedValue({ '@microsoft.graph.downloadUrl': 'https://fresh' });
-  const get_stream = vi.fn().mockResolvedValue(Readable.from([CONTENT_BODY]));
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, getStream: get_stream }));
+  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream };
 }

@@ -269,7 +269,7 @@ Restored sections are ordinary files. Dropping them back into a drive does not r
 ## Limits
 
 - **Uploads.** Files up to 4 MiB are uploaded in one request. Larger files use a resumable upload session in 10 MiB chunks.
-- **Throttling.** Graph `429` and transient `5xx` responses are retried with backoff.
+- **Throttling and CDN faults.** Graph `429` and transient `5xx` responses are retried with backoff. A file up to 4 MiB is read from its pre-authenticated download URL in one request, and a `429` there is retried up to 3 times against the same URL before Atlas falls back to the Graph `/content` endpoint. A `Retry-After` on a download is honoured in either form, seconds or an HTTP date, and capped at one hour. A `401` or `403` from the download URL means it expired: Atlas resolves a fresh URL once and downloads the file again.
 - **Ctrl+C.** A backup stops at once: in the middle of a file it is reading from its download URL, in a Graph call such as delta listing or the `/content` fallback, and during any retry or throttle wait. A file interrupted this way is not recorded as a failed item, so it keeps its 5 retry attempts for the next run.
 - **Path length.** Restores under a root add path depth. Files over OneDrive's path length limit are skipped and reported.
 - **Scope.** Permissions and authors are not restored.

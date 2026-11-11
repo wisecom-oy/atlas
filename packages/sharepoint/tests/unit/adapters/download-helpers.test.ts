@@ -1,29 +1,19 @@
-import { classify_download_failure } from '@wisecom/atlas-m365-graph';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { Readable } from 'node:stream';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import type { SharePointDeltaItem } from '@wisecom/atlas-types';
 import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
 import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
-import {
-  resolve_download_url,
-  download_with_fallback,
-  download_via_graph_content,
-  is_expired_url_error,
-  rethrow_if_access_denied,
-} from '@/adapters/graph-sharepoint-download-executor';
+import { MAX_URL_RETRIES } from '@wisecom/atlas-drive/backup/cdn-url-download';
+import { SHAREPOINT_DOWNLOAD_EXECUTOR } from '@/adapters/graph-sharepoint-download-executor';
 
 /**
- * Pins the current behaviour of the SharePoint download helpers (issue #247).
- *
- * The SharePoint twin is not a copy of the OneDrive one: it owns a private
- * `download_from_url` with its own 429 retry loop honouring `Retry-After`, and its
- * permission error names a different scope. Both differences are asserted here rather
- * than avoided, because divergence between the two drive pipelines is what let the
- * replication gate drift through in #190.
- *
- * The 403 classification is contradictory in this file too, and issue #246 changes it.
+ * The SharePoint binding of the shared download executor, driven through `fetch`. The helpers it
+ * shares with OneDrive are tested once in the drive package; this suite pins the routing, the
+ * refresh, the 429 loop and the permission scope SharePoint names.
  */
+
+const { download_with_fallback, rethrow_if_access_denied } = SHAREPOINT_DOWNLOAD_EXECUTOR;
 
 const mocks = vi.hoisted(() => ({
   download_file_chunked: vi.fn(),
@@ -57,9 +47,6 @@ const CONTENT_BODY = Buffer.from('graph-content');
 const FRESH_URL = 'https://cdn.example.invalid/fresh';
 const STALE_URL = 'https://cdn.example.invalid/stale';
 
-/** MAX_URL_RETRIES is private; 3 retries means 4 attempts in total. */
-const MAX_URL_ATTEMPTS = 4;
-
 interface GraphClientMock {
   /** The fake, shaped for the helpers' parameter type so call sites need no cast. */
   client: Client;
@@ -77,10 +64,10 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
         ? { '@microsoft.graph.downloadUrl': overrides.download_url }
         : { '@microsoft.graph.downloadUrl': FRESH_URL },
     );
-  const get_stream = vi.fn().mockResolvedValue(Readable.from([CONTENT_BODY]));
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, getStream: get_stream }));
-  // The real Client has a large surface; these helpers touch only api/select/get/getStream.
+  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  // The real Client has a large surface; these helpers touch only api/select/get/responseType.
   const client = { api } as unknown as Client;
   return { client, api, get, get_stream, select };
 }
@@ -127,22 +114,6 @@ describe('SharePoint download helpers', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  describe('resolve_download_url', () => {
-    it('returns the @microsoft.graph.downloadUrl value', async () => {
-      const mock = make_client();
-
-      await expect(resolve_download_url(mock.client, make_item())).resolves.toBe(FRESH_URL);
-      expect(mock.api).toHaveBeenCalledWith('/drives/drive-1/items/item-1');
-      expect(mock.select).toHaveBeenCalledWith('@microsoft.graph.downloadUrl');
-    });
-
-    it('returns undefined when Graph omits the property', async () => {
-      const mock = make_client({ download_url: undefined });
-
-      await expect(resolve_download_url(mock.client, make_item())).resolves.toBeUndefined();
-    });
   });
 
   describe('download_with_fallback routing', () => {
@@ -237,10 +208,7 @@ describe('SharePoint download helpers', () => {
     });
   });
 
-  // This loop is SharePoint's own. OneDrive imports download_from_url from
-  // graph-onedrive-connector-stream and has no equivalent 429 handling here, which is
-  // the divergence issue #247 requires asserting rather than hiding.
-  describe('download_from_url 429 handling (SharePoint only)', () => {
+  describe('download_from_url 429 handling', () => {
     it('retries 429 honouring Retry-After and then succeeds', async () => {
       fetch_mock
         .mockResolvedValueOnce(make_response({ status: 429, retry_after: '0' }))
@@ -268,7 +236,7 @@ describe('SharePoint download helpers', () => {
       );
 
       expect(body).toEqual(CONTENT_BODY);
-      expect(fetch_mock).toHaveBeenCalledTimes(MAX_URL_ATTEMPTS);
+      expect(fetch_mock).toHaveBeenCalledTimes(MAX_URL_RETRIES + 1);
       expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 429'));
       expect(mock.get).not.toHaveBeenCalled();
     });
@@ -285,7 +253,7 @@ describe('SharePoint download helpers', () => {
 
       await download_with_fallback(mock.client, make_item({ download_url: STALE_URL }));
 
-      expect(fetch_mock).toHaveBeenCalledTimes(MAX_URL_ATTEMPTS);
+      expect(fetch_mock).toHaveBeenCalledTimes(MAX_URL_RETRIES + 1);
       expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 429'));
     });
 
@@ -300,79 +268,7 @@ describe('SharePoint download helpers', () => {
     });
   });
 
-  describe('download_via_graph_content', () => {
-    it('requests /content and drains the stream', async () => {
-      const mock = make_client();
-
-      await expect(download_via_graph_content(mock.client, make_item())).resolves.toEqual(
-        CONTENT_BODY,
-      );
-      expect(mock.api).toHaveBeenCalledWith('/drives/drive-1/items/item-1/content');
-    });
-  });
-
-  describe('is_expired_url_error', () => {
-    // Identical to the OneDrive classifier, including reading 403 as an expired URL
-    // when it is also what a missing grant and a label-protected item return (#246).
-    it.each([401, 403])('treats CdnHttpError %i as an expired URL (see #246 for 403)', (status) => {
-      expect(is_expired_url_error(new CdnHttpError('denied', status))).toBe(true);
-    });
-
-    it.each([404, 429, 500])('does not treat CdnHttpError %i as an expired URL', (status) => {
-      expect(is_expired_url_error(new CdnHttpError('other', status))).toBe(false);
-    });
-
-    // Split by #246: a CDN 401/403 is a stale URL, but a Graph 401 is a credential
-    // problem and a Graph 403 is either a missing grant or a service refusal. None of
-    // them is a URL worth re-resolving.
-    it.each([401, 403])(
-      'no longer treats a Graph error with statusCode %i as an expired URL',
-      (status) => {
-        expect(is_expired_url_error({ statusCode: status })).toBe(false);
-      },
-    );
-
-    it('classifies a Graph 401 separately from a Graph 403', () => {
-      expect(classify_download_failure({ statusCode: 401 })).toBe('unauthorized');
-      expect(classify_download_failure({ statusCode: 403, code: 'accessDenied' })).toBe(
-        'missing_permission',
-      );
-      expect(classify_download_failure({ statusCode: 403, code: 'notAllowed' })).toBe(
-        'service_refused',
-      );
-    });
-
-    it('does not treat a Graph error with another statusCode as an expired URL', () => {
-      expect(is_expired_url_error({ statusCode: 500, message: 'Forbidden' })).toBe(false);
-    });
-
-    // Removed by #246. Microsoft's own error guidance is that `message` can change at
-    // any time and only `code` should be relied on, and the substring test also matched
-    // wrapped storage and proxy errors that had nothing to do with the download URL.
-    it.each(['Forbidden', 'Unauthorized'])(
-      'no longer classifies a message-only error containing %s as an expired URL',
-      (word) => {
-        expect(is_expired_url_error(new Error(`S3 GetObject failed: ${word}`))).toBe(false);
-      },
-    );
-
-    it('returns false for an unrelated error', () => {
-      expect(is_expired_url_error(new Error('ECONNRESET'))).toBe(false);
-      expect(is_expired_url_error('plain string')).toBe(false);
-    });
-
-    // Same latent crash as the OneDrive twin, tracked in #263 rather than fixed here.
-    // Was a TypeError before #246 replaced the raw property read (issue #263).
-    it.each([undefined, null])('classifies %s as unclassified instead of crashing', (value) => {
-      expect(is_expired_url_error(value)).toBe(false);
-      expect(classify_download_failure(value)).toBe('unclassified');
-    });
-  });
-
   describe('rethrow_if_access_denied', () => {
-    // Divergence: SharePoint names Sites.Read.All only, where OneDrive names
-    // Files.Read.All plus Sites.Read.All through throw_missing_permissions, which
-    // SharePoint does not have.
     it('throws only on statusCode 403, naming the SharePoint scope', () => {
       expect(() => rethrow_if_access_denied({ statusCode: 403 })).toThrow(
         'Missing Microsoft Graph application permissions for SharePoint: Sites.Read.All.',

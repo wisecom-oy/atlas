@@ -1,37 +1,27 @@
-import { classify_download_failure } from '@wisecom/atlas-m365-graph';
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { binary_graph_response } from '@wisecom/atlas-types/testing/queued-graph-fetch';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import type { Client } from '@microsoft/microsoft-graph-client';
 import { CdnHttpError } from '@wisecom/atlas-drive/backup/cdn-chunk-errors';
 import { CHUNK_DOWNLOAD_THRESHOLD } from '@wisecom/atlas-drive/backup/cdn-chunk-download';
-import {
-  resolve_download_url,
-  download_with_fallback,
-  download_via_graph_content,
-  is_expired_url_error,
-  rethrow_if_access_denied,
-  throw_missing_permissions,
-} from '@/adapters/graph-onedrive-download-executor';
+import { ONEDRIVE_DOWNLOAD_EXECUTOR } from '@/adapters/graph-onedrive-download-executor';
 
 /**
- * Pins the current behaviour of the OneDrive download helpers (issue #247). It does
- * not assert that the behaviour is correct: the 403 classification is contradictory
- * by design here, and issue #246 changes it. Tests that describe behaviour expected
- * to change say so and name #246, so that PR gets a failing baseline rather than an
- * assumption.
+ * The OneDrive binding of the shared download executor, driven through `fetch`.
+ *
+ * Only the chunk downloader is stubbed. The URL download is the real one: this suite used to
+ * stub it with a function rejecting `CdnHttpError`, which the OneDrive copy never threw, so the
+ * refresh it asserted never happened in a real run (issue #675).
  */
+
+const { download_with_fallback, rethrow_if_access_denied } = ONEDRIVE_DOWNLOAD_EXECUTOR;
 
 const mocks = vi.hoisted(() => ({
   download_file_chunked: vi.fn(),
-  download_from_url: vi.fn(),
-  stream_to_buffer: vi.fn(),
-  with_timeout: vi.fn(),
   warn: vi.fn(),
   debug: vi.fn(),
 }));
 
-// CdnHttpError stays real: is_expired_url_error branches on `instanceof`, so a stubbed
-// class would silently take the wrong branch and the test would prove nothing.
 vi.mock('@/adapters/graph-onedrive-chunk-downloader', () => ({
   ONEDRIVE_CHUNK_DOWNLOADER: {
     download_file_chunked: mocks.download_file_chunked,
@@ -39,13 +29,6 @@ vi.mock('@/adapters/graph-onedrive-chunk-downloader', () => ({
   },
 }));
 
-vi.mock('@/adapters/graph-onedrive-connector-stream', () => ({
-  download_from_url: mocks.download_from_url,
-  stream_to_buffer: mocks.stream_to_buffer,
-  with_timeout: mocks.with_timeout,
-}));
-
-// Retry policy is owned and tested elsewhere; here it must not multiply call counts.
 // Only the retry wrapper is stubbed, so it cannot multiply call counts. The download
 // classifier is real: it is the behaviour under test (issue #246).
 vi.mock('@wisecom/atlas-m365-graph', async (import_original) => {
@@ -69,7 +52,6 @@ interface GraphClientMock {
   api: Mock;
   get: Mock;
   get_stream: Mock;
-  select: Mock;
 }
 
 /** Fake Graph client exposing the fluent chain these helpers use. */
@@ -81,18 +63,17 @@ function make_client(overrides: { download_url?: string | undefined } = {}): Gra
         ? { '@microsoft.graph.downloadUrl': overrides.download_url }
         : { '@microsoft.graph.downloadUrl': FRESH_URL },
     );
-  const get_stream = vi.fn().mockResolvedValue('stream-handle');
+  const get_stream = vi.fn(() => Promise.resolve(binary_graph_response(CONTENT_BODY)));
   const select = vi.fn(() => ({ get }));
-  const api = vi.fn(() => ({ select, get, getStream: get_stream }));
-  // The real Client has a large surface; these helpers touch only api/select/get/getStream.
+  const api = vi.fn(() => ({ select, get, responseType: () => ({ get: get_stream }) }));
+  // The real Client has a large surface; these helpers touch only api/select/get/responseType.
   const client = { api } as unknown as Client;
-  return { client, api, get, get_stream, select };
+  return { client, api, get, get_stream };
 }
 
 /**
  * `size_bytes` defaults to 0, which `assert_transferred_size` reads as "no recorded size" and
- * skips. These cases are about routing and refresh, not transfer length, so they should not have
- * to keep a fixture body and a fixture size in step (issue #368).
+ * skips. These cases are about routing and refresh, not transfer length (issue #368).
  */
 function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaItem {
   return {
@@ -104,32 +85,36 @@ function make_item(overrides: Partial<OneDriveDeltaItem> = {}): OneDriveDeltaIte
   } as OneDriveDeltaItem;
 }
 
-describe('OneDrive download helpers', () => {
+/** Minimal fetch Response stand-in: only the fields the URL download reads. */
+function make_response(init: { status: number; body?: Buffer; retry_after?: string }): Response {
+  const headers = new Headers();
+  if (init.retry_after !== undefined) headers.set('Retry-After', init.retry_after);
+  const body = init.body ?? URL_BODY;
+  return {
+    status: init.status,
+    ok: init.status >= 200 && init.status < 300,
+    headers,
+    arrayBuffer: () =>
+      Promise.resolve(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)),
+  } as unknown as Response;
+}
+
+describe('OneDrive download executor', () => {
+  let fetch_mock: Mock;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.download_from_url.mockResolvedValue(URL_BODY);
     mocks.download_file_chunked.mockResolvedValue(CHUNK_BODY);
-    mocks.stream_to_buffer.mockResolvedValue(CONTENT_BODY);
-    mocks.with_timeout.mockImplementation((promise: Promise<unknown>) => promise);
+    fetch_mock = vi.fn().mockResolvedValue(make_response({ status: 200 }));
+    vi.stubGlobal('fetch', fetch_mock);
   });
 
-  describe('resolve_download_url', () => {
-    it('returns the @microsoft.graph.downloadUrl value', async () => {
-      const mock = make_client();
-
-      await expect(resolve_download_url(mock.client, make_item())).resolves.toBe(FRESH_URL);
-      expect(mock.api).toHaveBeenCalledWith('/drives/drive-1/items/item-1');
-      expect(mock.select).toHaveBeenCalledWith('@microsoft.graph.downloadUrl');
-    });
-
-    it('returns undefined when Graph omits the property', async () => {
-      const mock = make_client({ download_url: undefined });
-
-      await expect(resolve_download_url(mock.client, make_item())).resolves.toBeUndefined();
-    });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
-  describe('download_with_fallback routing', () => {
+  describe('routing', () => {
     it("uses the item's existing download_url without re-resolving", async () => {
       const mock = make_client();
 
@@ -139,29 +124,23 @@ describe('OneDrive download helpers', () => {
       );
 
       expect(body).toEqual(URL_BODY);
-      expect(mocks.download_from_url).toHaveBeenCalledWith(STALE_URL, 0, 'item-1', undefined);
+      expect(fetch_mock).toHaveBeenCalledWith(STALE_URL, expect.anything());
       expect(mock.api).not.toHaveBeenCalled();
     });
 
-    it('takes the chunked path above the threshold and the direct path below it', async () => {
-      const big = make_item({
-        download_url: STALE_URL,
-        size_bytes: CHUNK_DOWNLOAD_THRESHOLD + 1,
-      });
+    it('takes the chunked path above the threshold and the direct path at it', async () => {
+      const big = make_item({ download_url: STALE_URL, size_bytes: CHUNK_DOWNLOAD_THRESHOLD + 1 });
       await expect(download_with_fallback(make_client().client, big)).resolves.toEqual(CHUNK_BODY);
       expect(mocks.download_file_chunked).toHaveBeenCalledOnce();
-      expect(mocks.download_from_url).not.toHaveBeenCalled();
+      expect(fetch_mock).not.toHaveBeenCalled();
 
-      vi.clearAllMocks();
-      mocks.download_from_url.mockResolvedValue(URL_BODY);
-
-      const small = make_item({
-        download_url: STALE_URL,
-        size_bytes: CHUNK_DOWNLOAD_THRESHOLD,
-      });
-      await expect(download_with_fallback(make_client().client, small)).resolves.toEqual(URL_BODY);
-      expect(mocks.download_from_url).toHaveBeenCalledOnce();
-      expect(mocks.download_file_chunked).not.toHaveBeenCalled();
+      const at_threshold = Buffer.alloc(CHUNK_DOWNLOAD_THRESHOLD, 1);
+      fetch_mock.mockResolvedValue(make_response({ status: 200, body: at_threshold }));
+      const small = make_item({ download_url: STALE_URL, size_bytes: CHUNK_DOWNLOAD_THRESHOLD });
+      const body = await download_with_fallback(make_client().client, small);
+      expect(body.length).toBe(CHUNK_DOWNLOAD_THRESHOLD);
+      expect(fetch_mock).toHaveBeenCalledOnce();
+      expect(mocks.download_file_chunked).toHaveBeenCalledOnce();
     });
 
     it('goes to /content without attempting a URL download when no URL resolves', async () => {
@@ -170,35 +149,36 @@ describe('OneDrive download helpers', () => {
       const body = await download_with_fallback(mock.client, make_item());
 
       expect(body).toEqual(CONTENT_BODY);
-      expect(mocks.download_from_url).not.toHaveBeenCalled();
+      expect(fetch_mock).not.toHaveBeenCalled();
       expect(mock.get_stream).toHaveBeenCalledOnce();
     });
   });
 
-  describe('expired-URL refresh', () => {
-    it('re-resolves exactly once and retries with the refreshed URL', async () => {
+  describe('expired-URL refresh (issue #675)', () => {
+    it.each([401, 403])(
+      're-resolves once after a CDN %i and downloads from the fresh URL',
+      async (status) => {
+        const mock = make_client();
+        fetch_mock
+          .mockResolvedValueOnce(make_response({ status }))
+          .mockResolvedValueOnce(make_response({ status: 200 }));
+
+        const body = await download_with_fallback(
+          mock.client,
+          make_item({ download_url: STALE_URL }),
+        );
+
+        expect(body).toEqual(URL_BODY);
+        expect(mock.get).toHaveBeenCalledOnce();
+        expect(fetch_mock).toHaveBeenNthCalledWith(1, STALE_URL, expect.anything());
+        expect(fetch_mock).toHaveBeenNthCalledWith(2, FRESH_URL, expect.anything());
+        expect(mock.get_stream).not.toHaveBeenCalled();
+      },
+    );
+
+    it('falls back to /content when the refreshed URL also fails', async () => {
       const mock = make_client();
-      mocks.download_from_url
-        .mockRejectedValueOnce(new CdnHttpError('gone', 401))
-        .mockResolvedValueOnce(URL_BODY);
-
-      const body = await download_with_fallback(
-        mock.client,
-        make_item({ download_url: STALE_URL }),
-      );
-
-      expect(body).toEqual(URL_BODY);
-      expect(mock.get).toHaveBeenCalledOnce();
-      expect(mocks.download_from_url).toHaveBeenNthCalledWith(1, STALE_URL, 0, 'item-1', undefined);
-      expect(mocks.download_from_url).toHaveBeenNthCalledWith(2, FRESH_URL, 0, 'item-1', undefined);
-      expect(mock.get_stream).not.toHaveBeenCalled();
-    });
-
-    it('falls back to /content when the refreshed URL also fails, without surfacing the original error', async () => {
-      const mock = make_client();
-      mocks.download_from_url
-        .mockRejectedValueOnce(new CdnHttpError('stale', 401))
-        .mockRejectedValueOnce(new CdnHttpError('still stale', 401));
+      fetch_mock.mockResolvedValue(make_response({ status: 403 }));
 
       const body = await download_with_fallback(
         mock.client,
@@ -212,7 +192,7 @@ describe('OneDrive download helpers', () => {
 
     it('goes straight to /content without re-resolving for a non-expired failure', async () => {
       const mock = make_client();
-      mocks.download_from_url.mockRejectedValue(new CdnHttpError('server error', 500));
+      fetch_mock.mockResolvedValue(make_response({ status: 500 }));
 
       const body = await download_with_fallback(
         mock.client,
@@ -221,112 +201,55 @@ describe('OneDrive download helpers', () => {
 
       expect(body).toEqual(CONTENT_BODY);
       expect(mock.get).not.toHaveBeenCalled();
-      expect(mocks.download_from_url).toHaveBeenCalledOnce();
-      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('falling back'));
+      expect(fetch_mock).toHaveBeenCalledOnce();
+      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 500'));
     });
 
     it('skips the retry and falls back when the refreshed URL cannot be resolved', async () => {
       const mock = make_client({ download_url: undefined });
-      mocks.download_from_url.mockRejectedValue(new CdnHttpError('gone', 403));
+      fetch_mock.mockResolvedValue(make_response({ status: 403 }));
 
       await expect(
         download_with_fallback(mock.client, make_item({ download_url: STALE_URL })),
       ).resolves.toEqual(CONTENT_BODY);
-      expect(mocks.download_from_url).toHaveBeenCalledOnce();
+      expect(fetch_mock).toHaveBeenCalledOnce();
     });
   });
 
-  describe('download_via_graph_content', () => {
-    it('requests /content and drains the stream', async () => {
+  describe('429 handling (issue #675)', () => {
+    it('waits out Retry-After and retries the same URL instead of falling back', async () => {
+      vi.useFakeTimers();
       const mock = make_client();
+      fetch_mock
+        .mockResolvedValueOnce(make_response({ status: 429, retry_after: '3' }))
+        .mockResolvedValueOnce(make_response({ status: 200 }));
 
-      await expect(download_via_graph_content(mock.client, make_item())).resolves.toEqual(
-        CONTENT_BODY,
-      );
-      expect(mock.api).toHaveBeenCalledWith('/drives/drive-1/items/item-1/content');
-      // Drain budget is twice the request budget.
-      expect(mocks.stream_to_buffer).toHaveBeenCalledWith('stream-handle', 60_000);
-      expect(mocks.with_timeout).toHaveBeenCalledWith(
-        expect.anything(),
-        30_000,
-        'Graph content request timed out for file item-1',
-      );
+      const pending = download_with_fallback(mock.client, make_item({ download_url: STALE_URL }));
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(fetch_mock).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(pending).resolves.toEqual(URL_BODY);
+      expect(fetch_mock).toHaveBeenCalledTimes(2);
+      expect(fetch_mock).toHaveBeenNthCalledWith(2, STALE_URL, expect.anything());
+      expect(mocks.debug).toHaveBeenCalledWith(expect.stringContaining('retry in 3000ms'));
+      expect(mock.get).not.toHaveBeenCalled();
+      expect(mock.get_stream).not.toHaveBeenCalled();
     });
 
-    it('refuses a drained body that is not the recorded length (issue #368)', async () => {
+    it('falls back to /content only after the retries are spent', async () => {
       const mock = make_client();
-      mocks.stream_to_buffer.mockResolvedValue(Buffer.from('<html>error page</html>'));
+      fetch_mock.mockResolvedValue(make_response({ status: 429, retry_after: '0' }));
 
-      await expect(
-        download_via_graph_content(mock.client, make_item({ size_bytes: 4096 })),
-      ).rejects.toThrow(/expected 4096/);
-    });
-  });
-
-  describe('is_expired_url_error', () => {
-    // 403 is also what a missing Files.Read.All grant and a label-protected item
-    // return, so this branch currently swallows two unrelated causes. Issue #246
-    // splits them; these assertions are expected to change with it.
-    it.each([401, 403])('treats CdnHttpError %i as an expired URL (see #246 for 403)', (status) => {
-      expect(is_expired_url_error(new CdnHttpError('denied', status))).toBe(true);
-    });
-
-    it.each([404, 429, 500])('does not treat CdnHttpError %i as an expired URL', (status) => {
-      expect(is_expired_url_error(new CdnHttpError('other', status))).toBe(false);
-    });
-
-    // Split by #246: a CDN 401/403 is a stale URL, but a Graph 401 is a credential
-    // problem and a Graph 403 is either a missing grant or a service refusal. None of
-    // them is a URL worth re-resolving.
-    it.each([401, 403])(
-      'no longer treats a Graph error with statusCode %i as an expired URL',
-      (status) => {
-        expect(is_expired_url_error({ statusCode: status })).toBe(false);
-      },
-    );
-
-    it('classifies a Graph 401 separately from a Graph 403', () => {
-      expect(classify_download_failure({ statusCode: 401 })).toBe('unauthorized');
-      expect(classify_download_failure({ statusCode: 403, code: 'accessDenied' })).toBe(
-        'missing_permission',
+      const body = await download_with_fallback(
+        mock.client,
+        make_item({ download_url: STALE_URL }),
       );
-      expect(classify_download_failure({ statusCode: 403, code: 'notAllowed' })).toBe(
-        'service_refused',
-      );
-    });
 
-    it('does not treat a Graph error with another statusCode as an expired URL', () => {
-      expect(is_expired_url_error({ statusCode: 500, message: 'Forbidden' })).toBe(false);
-    });
-
-    // Substring classification: any wrapped error whose text happens to contain the
-    // word is classified as an expired download URL, including a storage or proxy
-    // error unrelated to the URL. Issue #246 removes or narrows this.
-    // Removed by #246. Microsoft's own error guidance is that `message` can change at
-    // any time and only `code` should be relied on, and the substring test also matched
-    // wrapped storage and proxy errors that had nothing to do with the download URL.
-    it.each(['Forbidden', 'Unauthorized'])(
-      'no longer classifies a message-only error containing %s as an expired URL',
-      (word) => {
-        expect(is_expired_url_error(new Error(`S3 GetObject failed: ${word}`))).toBe(false);
-      },
-    );
-
-    it('returns false for an unrelated error', () => {
-      expect(is_expired_url_error(new Error('ECONNRESET'))).toBe(false);
-      expect(is_expired_url_error('plain string')).toBe(false);
-      expect(is_expired_url_error(0)).toBe(false);
-    });
-
-    // Found while writing this suite, and left unfixed on purpose: issue #247 pins
-    // behaviour and rules that anything beyond the 403 classification gets its own
-    // issue. The classifier reads `.statusCode` off the raw value, so a rejection
-    // carrying no reason (`Promise.reject()`) crashes the classifier instead of
-    // being classified. Tracked in #263.
-    // Was a TypeError before #246 replaced the raw property read (issue #263).
-    it.each([undefined, null])('classifies %s as unclassified instead of crashing', (value) => {
-      expect(is_expired_url_error(value)).toBe(false);
-      expect(classify_download_failure(value)).toBe('unclassified');
+      expect(body).toEqual(CONTENT_BODY);
+      // MAX_URL_RETRIES is 3, so four attempts in total.
+      expect(fetch_mock).toHaveBeenCalledTimes(4);
+      expect(mocks.warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 429'));
     });
   });
 
@@ -342,18 +265,7 @@ describe('OneDrive download helpers', () => {
     });
 
     it('is a no-op for a CdnHttpError carrying 403, because it reads statusCode only', () => {
-      // The CDN error uses status_code, not statusCode, so the permission path never
-      // sees a CDN refusal. Recorded rather than endorsed (#246).
       expect(() => rethrow_if_access_denied(new CdnHttpError('denied', 403))).not.toThrow();
-    });
-  });
-
-  describe('throw_missing_permissions', () => {
-    it('names read permissions by default and write permissions on request', () => {
-      expect(() => throw_missing_permissions()).toThrow(/Files\.Read\.All, Sites\.Read\.All/);
-      expect(() => throw_missing_permissions('write')).toThrow(
-        /Files\.ReadWrite\.All, Sites\.Read\.All/,
-      );
     });
   });
 });

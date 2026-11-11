@@ -5,6 +5,7 @@ import {
 } from '@wisecom/atlas-m365-graph';
 import { assert_range_chunk } from '@/backup/download-integrity';
 import { CdnHttpError, RangeIgnoredError } from '@/backup/cdn-chunk-errors';
+import { discard_response_body } from '@/backup/response-body';
 
 /** Maximum bytes per HTTP Range chunk (4 MiB). */
 export const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
@@ -57,11 +58,15 @@ export async function download_single_chunk(
       signal: controller.signal,
     });
     report_transfer_throttle(response);
-    assert_usable_chunk_status(response, request);
+    if (response.status !== 206 && response.status !== 200) {
+      // Never read, so cancelled to free the connection before the chunk is retried or failed.
+      await discard_response_body(response);
+      throw chunk_status_error(response, request);
+    }
 
     if (response.status === 200 && request.report_ignored_range) {
       // Drop the body unread: buffering a whole file per chunk is the cost this avoids.
-      await response.body?.cancel();
+      await discard_response_body(response);
       throw new RangeIgnoredError();
     }
 
@@ -89,13 +94,12 @@ export async function download_single_chunk(
   }
 }
 
-/** Throws `CdnHttpError` for any status other than 200 or 206, reading Retry-After on a 429. */
-function assert_usable_chunk_status(response: Response, request: ChunkRequest): void {
-  if (response.status === 206 || response.status === 200) return;
+/** The `CdnHttpError` for a chunk answered with an unusable status, with Retry-After on a 429. */
+function chunk_status_error(response: Response, request: ChunkRequest): CdnHttpError {
   const range = `bytes=${request.range_start}-${request.range_end}`;
   const retry_after_ms =
     response.status === 429 ? parse_retry_after_ms(response.headers.get('Retry-After')) : undefined;
-  throw new CdnHttpError(
+  return new CdnHttpError(
     `HTTP ${response.status} for chunk ${range} of ${request.item_id}`,
     response.status,
     retry_after_ms,
