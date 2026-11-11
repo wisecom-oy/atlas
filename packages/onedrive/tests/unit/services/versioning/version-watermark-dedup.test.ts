@@ -8,6 +8,7 @@ import type {
 import { stub_drive_version_download } from '@wisecom/atlas-types/testing/stub-drive-version-download';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 // Issue #161: version dedup used to preload the whole version index on every
 // run, which is one GET per backup ever taken for the owner. It now rides on
@@ -93,7 +94,7 @@ function make_harness(
     connector as never,
     {
       save: vi.fn().mockResolvedValue(undefined),
-      list_snapshots_by_owner: async () => [],
+      list_readable_snapshots_by_owner: async () => readable_manifests([]),
     } as never,
     file_indexes as never,
     cursors as never,

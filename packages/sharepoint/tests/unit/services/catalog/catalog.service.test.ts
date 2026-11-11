@@ -10,6 +10,11 @@ import type {
 } from '@wisecom/atlas-types';
 import { SharePointCatalogService } from '@/services/catalog/catalog.service';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import {
+  latest_readable,
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const SITE_ID = 'site-abc';
@@ -68,13 +73,13 @@ function create_mocks() {
   const manifests: SharePointManifestRepository = {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
-    find_latest_by_site: vi.fn(),
-    list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as SharePointManifestRepository;
 
   const indexes: SharePointFileVersionIndexRepository = {
     write_run_index: vi.fn(),
-    list_by_site: vi.fn().mockResolvedValue([]),
+    list_readable_by_site: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as SharePointFileVersionIndexRepository;
 
   return { tenant_factory, manifests, indexes };
@@ -99,12 +104,14 @@ describe('SharePointCatalogService', () => {
 
       expect(result).toEqual([]);
       expect(mocks.tenant_factory.create_readonly).toHaveBeenCalledWith(TENANT_ID);
-      expect(mocks.manifests.list_snapshots_by_site).toHaveBeenCalledWith(ctx, SITE_ID);
+      expect(mocks.manifests.list_readable_snapshots_by_site).toHaveBeenCalledWith(ctx, SITE_ID);
     });
 
     it('returns all snapshots from the manifest repository', async () => {
       const snaps = [make_snapshot('snap-2', 10), make_snapshot('snap-1', 5)];
-      vi.mocked(mocks.manifests.list_snapshots_by_site).mockResolvedValue(snaps);
+      vi.mocked(mocks.manifests.list_readable_snapshots_by_site).mockResolvedValue(
+        readable_manifests(snaps),
+      );
 
       const result = await service.list_sharepoint_snapshots(TENANT_ID, SITE_ID);
 
@@ -121,7 +128,7 @@ describe('SharePointCatalogService', () => {
         make_version({ snapshot_id: 'snap-2', change_type: 'updated' }),
       ];
       const idx = make_index('file-abc', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(TENANT_ID, SITE_ID, 'file-abc');
 
@@ -131,7 +138,7 @@ describe('SharePointCatalogService', () => {
     });
 
     it('returns empty array when Graph item ID is not found', async () => {
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -147,7 +154,7 @@ describe('SharePointCatalogService', () => {
         make_version({ parent_path: '/Shared Documents', file_name: 'report.docx' }),
       ];
       const idx = make_index('file-xyz', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -162,7 +169,7 @@ describe('SharePointCatalogService', () => {
     it('resolves file by path with backslashes', async () => {
       const versions = [make_version({ parent_path: '/Documents', file_name: 'notes.txt' })];
       const idx = make_index('file-back', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -177,7 +184,7 @@ describe('SharePointCatalogService', () => {
     it('resolves file by path without leading slash', async () => {
       const versions = [make_version({ parent_path: '/Projects', file_name: 'plan.xlsx' })];
       const idx = make_index('file-noslash', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -189,7 +196,7 @@ describe('SharePointCatalogService', () => {
     });
 
     it('returns empty when path does not match any indexed file', async () => {
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -203,7 +210,7 @@ describe('SharePointCatalogService', () => {
     it('trims whitespace from file_ref before resolving', async () => {
       const versions = [make_version()];
       const idx = make_index('file-trimmed', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -212,12 +219,12 @@ describe('SharePointCatalogService', () => {
       );
 
       expect(result).toHaveLength(1);
-      expect(mocks.indexes.list_by_site).toHaveBeenCalledWith(ctx, SITE_ID);
+      expect(mocks.indexes.list_readable_by_site).toHaveBeenCalledWith(ctx, SITE_ID);
     });
 
     it('returns versions when index exists but has empty versions array', async () => {
       const idx = make_index('file-empty', []);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(TENANT_ID, SITE_ID, 'file-empty');
 
@@ -227,7 +234,7 @@ describe('SharePointCatalogService', () => {
     it('matches path with root parent_path correctly', async () => {
       const versions = [make_version({ parent_path: '/', file_name: 'root-file.pdf' })];
       const idx = make_index('file-root', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -246,7 +253,9 @@ describe('SharePointCatalogService', () => {
       const idx2 = make_index('file-b', [
         make_version({ parent_path: '/Docs', file_name: 'b.docx' }),
       ]);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx1, idx2]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+        readable_indexes([idx1, idx2]),
+      );
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,
@@ -263,7 +272,7 @@ describe('SharePointCatalogService', () => {
         make_version({ parent_path: '/Shared Documents', file_name: 'report.docx' }),
       ];
       const idx = make_index('file-bare', versions);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([idx]));
 
       const result = await service.list_sharepoint_file_versions(TENANT_ID, SITE_ID, 'report.docx');
 
@@ -278,7 +287,9 @@ describe('SharePointCatalogService', () => {
       const idx2 = make_index('file-two', [
         make_version({ parent_path: '/Archive', file_name: 'report.docx' }),
       ]);
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([idx1, idx2]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(
+        readable_indexes([idx1, idx2]),
+      );
 
       await expect(
         service.list_sharepoint_file_versions(TENANT_ID, SITE_ID, 'report.docx'),
@@ -286,7 +297,7 @@ describe('SharePointCatalogService', () => {
     });
 
     it('returns empty when a bare filename matches nothing', async () => {
-      vi.mocked(mocks.indexes.list_by_site).mockResolvedValue([]);
+      vi.mocked(mocks.indexes.list_readable_by_site).mockResolvedValue(readable_indexes([]));
 
       const result = await service.list_sharepoint_file_versions(
         TENANT_ID,

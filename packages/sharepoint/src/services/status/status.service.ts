@@ -41,7 +41,9 @@ export class SharePointStatusService implements SharePointStatusUseCase {
     try {
       const previous_cursor = await this._cursors.load(ctx, site_id);
       const failed_items = previous_cursor?.failed_items ?? {};
-      const previous_manifest = await this._manifests.find_latest_by_site(ctx, site_id);
+      // A damaged manifest is named in the result instead of failing the site (issue #631).
+      const latest = await this._manifests.find_latest_readable(ctx, site_id);
+      const previous_manifest = latest.manifest;
       const all_libraries = await this._connector.list_document_libraries(tenant_id, site_id);
 
       const library_statuses = await peek_drive_statuses({
@@ -63,6 +65,7 @@ export class SharePointStatusService implements SharePointStatusUseCase {
         total_libraries: all_libraries.length,
         libraries: library_statuses,
         ...summarize_drive_statuses(library_statuses, failed_items),
+        ...(latest.unreadable_keys.length > 0 ? { unreadable_keys: latest.unreadable_keys } : {}),
       };
     } finally {
       ctx.destroy();

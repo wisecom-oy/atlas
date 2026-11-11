@@ -37,7 +37,7 @@ export class OneDriveVersionRestoreService implements OneDriveVersionRestoreUseC
         workload: 'onedrive',
         tenant_factory: this._tenant_factory,
         connector: this._connector,
-        list_indexes: (ctx, id) => this._indexes.list_by_owner(ctx, id),
+        list_indexes: (ctx, id) => this._indexes.list_readable_by_owner(ctx, id),
         download_blob: download_and_decrypt_blob,
         ensure_folder_path: (tenant, id, drive_id, parent_path, folder_ids) =>
           ensure_onedrive_folder_path(

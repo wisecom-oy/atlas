@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import { logger } from '@wisecom/atlas-core';
 import type {
   CalendarBackupUseCase,
@@ -132,6 +133,7 @@ export async function execute_calendar_backup(
     { errors: summary.errors, warnings: summary.warnings, interrupted: result.interrupted },
     'event',
   );
+  report_unreadable_keys(summary.unreadable_keys);
   report_skipped_attachments(summary.attachments_skipped);
 }
 

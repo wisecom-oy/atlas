@@ -11,6 +11,7 @@ import type { TenantMailbox, MailboxDiscoveryOptions } from '@/ports/outlook/dis
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 import type { TargetTenantOption } from '@/ports/atlas/tenant.port';
 import type { Camelize } from '@/public/case-convert';
+import type { SdkQuarantineResult } from '@/ports/storage/quarantine.port';
 
 /**
  * The public Outlook surface. Every option and result is the camelCase view of the internal
@@ -84,4 +85,9 @@ export interface OutlookApi {
   getMailboxStats(mailboxId: string): Promise<OutlookMailboxStats>;
   checkMailboxStatus(mailboxId: string): Promise<OutlookMailboxStatus>;
   listAvailableMailboxes(options?: OutlookMailboxDiscoveryOptions): Promise<OutlookTenantMailbox[]>;
+  /**
+   * Moves an unreadable snapshot manifest to `_quarantine/{storageKey}` so listings, status and
+   * backups stop reporting it. Refuses an object that reads cleanly or does not exist.
+   */
+  quarantine(storageKey: string): Promise<SdkQuarantineResult>;
 }

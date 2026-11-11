@@ -5,6 +5,7 @@ import { memory_calendar_manifests } from '@wisecom/atlas-types/testing/stub-cal
 import { tenant_factory_for } from '@wisecom/atlas-types/testing/stub-contacts-ports';
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 import { describe, expect, it } from 'vitest';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 import { CalendarCatalogService } from '@/services/catalog/catalog.service';
 
@@ -18,7 +19,8 @@ function catalog_over(
   const { ctx } = stub_tenant_context();
   const manifests: CalendarManifestRepository = {
     ...memory_calendar_manifests(),
-    list_snapshots_by_mailbox: async (_ctx, mailbox) => list(mailbox),
+    list_readable_snapshots_by_mailbox: async (_ctx, mailbox) =>
+      readable_manifests(await list(mailbox)),
   };
   return new CalendarCatalogService(tenant_factory_for(ctx), manifests);
 }

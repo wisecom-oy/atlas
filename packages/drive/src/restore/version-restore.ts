@@ -12,9 +12,11 @@ import type {
   DriveVersionRestoreOptions,
   DriveVersionRestoreResult,
   LargeFileContent,
+  ReadableVersionIndexListing,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import type {
   DriveFileVersionIndexView,
   DriveFileVersionRecord,
@@ -56,7 +58,7 @@ export interface DriveVersionRestoreDeps {
   readonly list_indexes: (
     ctx: TenantContext,
     owner_id: string,
-  ) => Promise<readonly DriveFileVersionIndexView[]>;
+  ) => Promise<ReadableVersionIndexListing<DriveFileVersionIndexView>>;
   /** Reads a stored version blob, verifying it, or returns undefined when it cannot be trusted. */
   readonly download_blob: (
     ctx: TenantContext,
@@ -104,7 +106,7 @@ export async function restore_drive_version(
 
   const ctx = await deps.tenant_factory.create_readonly(tenant_id);
   try {
-    const indexes = await deps.list_indexes(ctx, owner_id);
+    const indexes = readable_indexes_or_raise(await deps.list_indexes(ctx, owner_id));
     const selection = select_versions_to_restore(indexes, options);
 
     // The version row records the drive it came from, so a version restore needs no drive lookup
@@ -172,6 +174,24 @@ export async function restore_drive_version(
   } finally {
     ctx.destroy();
   }
+}
+
+/**
+ * Returns the index rows when every index object was read, and refuses otherwise.
+ *
+ * Selection reads the whole history: a cutoff takes the newest version before it, and a path or
+ * name resolves only when no other file's rows match it. The newer version, or the rows that make
+ * a path ambiguous, can sit in the object that could not be read, so going on would roll a file
+ * back to older bytes, or to another file's, without saying so (issue #631).
+ */
+function readable_indexes_or_raise(
+  listing: ReadableVersionIndexListing<DriveFileVersionIndexView>,
+): readonly DriveFileVersionIndexView[] {
+  if (listing.unreadable_keys.length === 0) return listing.indexes;
+  throw new UnreadableObjectsError(
+    'Versions cannot be selected while version index objects are unreadable',
+    listing.unreadable_keys,
+  );
 }
 
 /** Fetches one stored version and uploads it, honouring the placement choice. */

@@ -9,10 +9,12 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import type {
+  ReadableVersionIndexListing,
   TenantContext,
   TenantContextFactory,
   VerificationOptions,
 } from '@wisecom/atlas-types';
+import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import type { DriveFileVersionIndexView, DriveManifestEntry, DriveWorkload } from '@/drive-ports';
 import {
   load_drive_chain_entries,
@@ -28,6 +30,8 @@ export interface DriveVerificationResult {
   readonly failed_file_ids: string[];
   readonly index_issues: string[];
   readonly interrupted: boolean;
+  /** Damaged manifests outside the chain and damaged version index objects, by key (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 /** What a provider supplies to the shared verification flow. */
@@ -42,7 +46,7 @@ export interface DriveVerifyDeps<TManifest extends DriveChainManifest> {
   readonly list_indexes: (
     ctx: TenantContext,
     manifest: TManifest,
-  ) => Promise<readonly DriveFileVersionIndexView[]>;
+  ) => Promise<ReadableVersionIndexListing<DriveFileVersionIndexView>>;
 }
 
 /** Checks a snapshot's content blobs against manifest checksums, plus its per-file index rows. */
@@ -71,7 +75,7 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
     // The chain, not the single manifest: a snapshot inherits every file that last changed in an
     // earlier run, and verifying only the target would report those as checked when they were
     // never looked at (issue #173).
-    const { manifest, entries } = await load_drive_chain_entries(
+    const { manifest, entries, unreadable_keys } = await load_drive_chain_entries(
       deps.manifests,
       ctx,
       owner_id,
@@ -84,9 +88,11 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
     let processed = 0;
     // One read of the owning segment's merged version index instead of one lookup per entry: the
     // index is a handful of per-run objects since issue #161.
-    const indexes_by_file = new Map(
-      (await deps.list_indexes(ctx, manifest)).map((idx) => [idx.file_id, idx]),
-    );
+    const index_listing = await deps.list_indexes(ctx, manifest);
+    const indexes_by_file = new Map(index_listing.indexes.map((idx) => [idx.file_id, idx]));
+    for (const key of index_listing.unreadable_keys) {
+      index_issues.push(`version index ${key} could not be read; its rows are not checked`);
+    }
     emit_operation_progress(options, {
       operation: 'verify',
       workload,
@@ -130,14 +136,17 @@ export async function verify_drive_snapshot<TManifest extends DriveChainManifest
       processed < entries.length,
     );
 
-    return {
-      snapshot_id,
-      total_checked,
-      passed: total_checked - failed_file_ids.length,
-      failed_file_ids,
-      index_issues,
-      interrupted,
-    };
+    return with_unreadable_keys(
+      {
+        snapshot_id,
+        total_checked,
+        passed: total_checked - failed_file_ids.length,
+        failed_file_ids,
+        index_issues,
+        interrupted,
+      },
+      [...unreadable_keys, ...index_listing.unreadable_keys],
+    );
   } finally {
     ctx.destroy();
   }

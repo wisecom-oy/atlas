@@ -1,0 +1,143 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import {
+  NotFoundError,
+  ObjectLockRetainedError,
+  UnreadableObjectsError,
+} from '@wisecom/atlas-types';
+import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
+import {
+  quarantine_unreadable_object,
+  type QuarantineTarget,
+} from '@/services/quarantine/stored-object-quarantine';
+
+const KEY = 'onedrive/manifests/owner-1/od-snap-1000-abc.json';
+
+/** A target that reads JSON at a key and treats anything else there as damaged. */
+function json_target(): QuarantineTarget {
+  return {
+    workload: 'OneDrive',
+    accepts: 'OneDrive manifests',
+    kind_of: (key) => (key.startsWith('onedrive/manifests/') ? 'manifest' : undefined),
+    read: async (ctx, key) => {
+      const bytes = await ctx.storage.get(key).catch(() => undefined);
+      if (bytes === undefined) return undefined;
+      try {
+        return JSON.parse(ctx.decrypt(bytes, key).toString('utf-8')) as unknown;
+      } catch (err) {
+        throw new UnreadableObjectsError('The manifest does not decrypt or parse', [key], {
+          cause: err,
+        });
+      }
+    },
+  };
+}
+
+function factory_for(ctx: TenantContext): TenantContextFactory {
+  return { create: async () => ctx } as unknown as TenantContextFactory;
+}
+
+function stored(harness: ReturnType<typeof in_memory_tenant_context>, damaged: boolean): Buffer {
+  const ciphertext = harness.ctx.encrypt(Buffer.from('{"entries":[]}'), KEY);
+  const bytes = damaged
+    ? Buffer.concat([ciphertext.subarray(0, -1), Buffer.from([0])])
+    : ciphertext;
+  harness.set_raw(KEY, bytes);
+  return bytes;
+}
+
+describe('quarantine_unreadable_object (issue #631)', () => {
+  it('moves a damaged object under _quarantine/ with its bytes unchanged', async () => {
+    const harness = in_memory_tenant_context();
+    const bytes = stored(harness, true);
+
+    const result = await quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      json_target(),
+      'tenant-1',
+      KEY,
+    );
+
+    expect(result).toMatchObject({
+      storage_key: KEY,
+      quarantine_key: `_quarantine/${KEY}`,
+      kind: 'manifest',
+    });
+    expect(result.reason).toContain('does not decrypt or parse');
+    expect(harness.raw(KEY)).toBeUndefined();
+    expect(harness.raw(`_quarantine/${KEY}`)).toEqual(bytes);
+  });
+
+  it('refuses an object that reads cleanly and leaves it in place', async () => {
+    const harness = in_memory_tenant_context();
+    const bytes = stored(harness, false);
+
+    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+
+    await expect(move).rejects.toBeInstanceOf(NotFoundError);
+    await expect(move).rejects.toThrow(/reads cleanly/);
+    expect(harness.raw(KEY)).toEqual(bytes);
+    expect(harness.keys()).toEqual([KEY]);
+  });
+
+  it('refuses a key that holds nothing', async () => {
+    const harness = in_memory_tenant_context();
+
+    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+
+    await expect(move).rejects.toThrow(/No OneDrive object exists/);
+  });
+
+  it('refuses a key the workload never writes, before opening the tenant', async () => {
+    const create = vi.fn();
+
+    const move = quarantine_unreadable_object(
+      { create } as unknown as TenantContextFactory,
+      json_target(),
+      't',
+      'onedrive/data/owner-1/abc',
+    );
+
+    await expect(move).rejects.toThrow(/Only OneDrive manifests can be quarantined/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('never overwrites an earlier quarantined copy of the same key', async () => {
+    const harness = in_memory_tenant_context();
+    harness.set_raw(`_quarantine/${KEY}`, Buffer.from('earlier copy'));
+    stored(harness, true);
+
+    const result = await quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      json_target(),
+      't',
+      KEY,
+    );
+
+    expect(result.quarantine_key).toMatch(new RegExp(`^_quarantine/${KEY}\\.\\d+$`));
+    expect(harness.raw(`_quarantine/${KEY}`)).toEqual(Buffer.from('earlier copy'));
+  });
+
+  it('keeps the copy and reports retention when Object Lock refuses the removal', async () => {
+    const harness = in_memory_tenant_context();
+    stored(harness, true);
+    harness.ctx.storage.delete = async (key) => {
+      throw new ObjectLockRetainedError(key);
+    };
+
+    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+
+    await expect(move).rejects.toBeInstanceOf(ObjectLockRetainedError);
+    expect(harness.raw(`_quarantine/${KEY}`)).toBeDefined();
+    expect(harness.raw(KEY)).toBeDefined();
+  });
+
+  it('destroys the tenant context it opened', async () => {
+    const harness = in_memory_tenant_context();
+    stored(harness, true);
+
+    await quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+
+    expect(harness.destroyed()).toBe(1);
+  });
+});

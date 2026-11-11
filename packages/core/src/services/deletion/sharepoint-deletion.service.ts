@@ -8,6 +8,7 @@ import type {
 import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 import { delete_scopes, delete_snapshot_manifest } from '@/services/deletion/shared/prefix-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
+import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 
 @injectable()
 export class SharePointDeletionService implements SharePointDeletionUseCase {
@@ -32,6 +33,10 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
       `sharepoint/index/${site_id}/`,
       `sharepoint/_meta/${site_id}/`,
       staging_prefix,
+      ...quarantined_copies_of([
+        `sharepoint/manifests/${site_id}/`,
+        `sharepoint/index/${site_id}/`,
+      ]),
     ]);
     // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps a site
     // nobody backs up any more (issue #345).

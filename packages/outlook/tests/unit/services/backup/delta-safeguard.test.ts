@@ -19,6 +19,7 @@ import {
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 function make_message(id: string, body: string): MailMessage {
   const raw = Buffer.from(body);
@@ -107,9 +108,12 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
       save: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
+      list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+      list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+      read_manifest_at: vi.fn(),
     };
 
     const mock_factory: TenantContextFactory = {
@@ -130,18 +134,20 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
   });
 
   it('ignores saved delta links when force_full is true', async () => {
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
-      id: 'old',
-      tenant_id: 't',
-      owner_id: 'user@test.com',
-      snapshot_id: 'old-snap',
-      created_at: new Date(),
-      total_objects: 0,
-      total_size_bytes: 0,
-      delta_links: { 'folder-1': 'https://stale-delta' },
-      id_format: 'immutable',
-      entries: [],
-    });
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        id: 'old',
+        tenant_id: 't',
+        owner_id: 'user@test.com',
+        snapshot_id: 'old-snap',
+        created_at: new Date(),
+        total_objects: 0,
+        total_size_bytes: 0,
+        delta_links: { 'folder-1': 'https://stale-delta' },
+        id_format: 'immutable',
+        entries: [],
+      }),
+    );
 
     await service.sync_mailbox('t', 'user@test.com', { force_full: true });
 
@@ -156,18 +162,20 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
   });
 
   it('retries without delta link when saved delta returns 0 and prior backup was empty', async () => {
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
-      id: 'old',
-      tenant_id: 't',
-      owner_id: 'user@test.com',
-      snapshot_id: 'old-snap',
-      created_at: new Date(),
-      total_objects: 0,
-      total_size_bytes: 0,
-      delta_links: { 'folder-1': 'https://stale-delta' },
-      id_format: 'immutable',
-      entries: [],
-    });
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        id: 'old',
+        tenant_id: 't',
+        owner_id: 'user@test.com',
+        snapshot_id: 'old-snap',
+        created_at: new Date(),
+        total_objects: 0,
+        total_size_bytes: 0,
+        delta_links: { 'folder-1': 'https://stale-delta' },
+        id_format: 'immutable',
+        entries: [],
+      }),
+    );
 
     const fresh_msg = make_message('fresh-1', 'fresh content');
     vi.mocked(mock_connector.fetch_delta)
@@ -199,17 +207,19 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
   });
 
   it('trusts delta returning 0 when prior backup had data (nothing changed)', async () => {
-    vi.mocked(mock_manifests.find_latest_by_owner).mockResolvedValue({
-      id: 'old',
-      tenant_id: 't',
-      owner_id: 'user@test.com',
-      snapshot_id: 'old-snap',
-      created_at: new Date(),
-      total_objects: 100,
-      total_size_bytes: 5000,
-      delta_links: { 'folder-1': 'https://valid-delta' },
-      entries: [],
-    });
+    vi.mocked(mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        id: 'old',
+        tenant_id: 't',
+        owner_id: 'user@test.com',
+        snapshot_id: 'old-snap',
+        created_at: new Date(),
+        total_objects: 100,
+        total_size_bytes: 5000,
+        delta_links: { 'folder-1': 'https://valid-delta' },
+        entries: [],
+      }),
+    );
 
     vi.mocked(mock_connector.fetch_delta).mockResolvedValueOnce(make_delta([]));
     const result = await service.sync_mailbox('t', 'user@test.com');

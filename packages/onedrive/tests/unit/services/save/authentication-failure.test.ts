@@ -14,6 +14,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #341: a file whose decryption failed was mapped to `undefined` and counted as a skip, so a
@@ -111,7 +112,7 @@ function make_service(entries: OneDriveManifestEntry[]): OneDriveSaveService {
   } as unknown as TenantContextFactory);
   container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([manifest]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
   } as unknown as OneDriveManifestRepository);
   container.bind(OneDriveSaveService).toSelf();
   return container.get(OneDriveSaveService);

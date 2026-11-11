@@ -7,6 +7,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveStatusService } from '@/services/status/status.service';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
@@ -30,7 +31,7 @@ function make_mocks() {
   } as unknown as OneDriveConnector;
 
   const manifests: OneDriveManifestRepository = {
-    find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
   } as unknown as OneDriveManifestRepository;
 
   const cursors: OneDriveDeltaCursorRepository = {
@@ -84,10 +85,12 @@ describe('OneDriveStatusService', () => {
   });
 
   it('reports the previous backup from the newest manifest', async () => {
-    vi.mocked(mocks.manifests.find_latest_by_owner).mockResolvedValue({
-      snapshot_id: 'snap-7',
-      created_at: new Date('2026-03-02T00:00:00Z'),
-    } as never);
+    vi.mocked(mocks.manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'snap-7',
+        created_at: new Date('2026-03-02T00:00:00Z'),
+      } as never),
+    );
     vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1') as never);
 
     const result = await check();
@@ -237,5 +240,18 @@ describe('OneDriveStatusService', () => {
     expect(result.drives).toEqual([]);
     // `every` on an empty list is true, so this is up to date by definition.
     expect(result.is_up_to_date).toBe(true);
+  });
+
+  it('reports the newest readable snapshot and names a damaged manifest (issue #631)', async () => {
+    vi.mocked(mocks.manifests.find_latest_readable).mockResolvedValue({
+      manifest: { snapshot_id: 'snap-6', created_at: new Date('2026-03-01T00:00:00Z') } as never,
+      unreadable_keys: ['onedrive/manifests/owner/od-snap-9-abc.json'],
+    });
+    vi.mocked(mocks.cursors.load).mockResolvedValue(cursor_for('drive-1') as never);
+
+    const result = await check();
+
+    expect(result.last_snapshot_id).toBe('snap-6');
+    expect(result.unreadable_keys).toEqual(['onedrive/manifests/owner/od-snap-9-abc.json']);
   });
 });

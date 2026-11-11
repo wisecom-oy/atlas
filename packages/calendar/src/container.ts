@@ -2,6 +2,7 @@ import { scope_connector_throttling } from '@wisecom/atlas-m365-graph';
 import type { Container } from 'inversify';
 import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 import {
+  CALENDAR_QUARANTINE_USE_CASE_TOKEN,
   CALENDAR_BACKUP_USE_CASE_TOKEN,
   CALENDAR_CATALOG_USE_CASE_TOKEN,
   CALENDAR_CONNECTOR_TOKEN,
@@ -22,6 +23,7 @@ import { CalendarCatalogService } from '@/services/catalog/catalog.service';
 import { CalendarDeletionService } from '@/services/deletion/deletion.service';
 import { CalendarRestoreService } from '@/services/restore/restore.service';
 import { CalendarVerificationService } from '@/services/verification/verification.service';
+import { CalendarQuarantineService } from '@/services/quarantine/quarantine.service';
 
 /** Registers calendar DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_calendar(container: Container): void {
@@ -71,4 +73,8 @@ export function bind_calendar(container: Container): void {
     .to(CalendarVerificationService)
     .inSingletonScope();
   container.bind(CALENDAR_DELETION_USE_CASE_TOKEN).to(CalendarDeletionService).inSingletonScope();
+  container
+    .bind(CALENDAR_QUARANTINE_USE_CASE_TOKEN)
+    .to(CalendarQuarantineService)
+    .inSingletonScope();
 }

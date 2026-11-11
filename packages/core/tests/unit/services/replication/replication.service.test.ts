@@ -143,10 +143,10 @@ describe('ReplicationService', () => {
       save: vi.fn(),
       find_by_snapshot: vi.fn(),
       list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_by_owner: vi.fn(),
       list_all_manifests: vi.fn().mockResolvedValue([]),
       list_owner_ids: vi.fn().mockResolvedValue([]),
-    };
+      // Replication reads only the strict listings: it must never copy around a damaged manifest.
+    } as unknown as ManifestRepository;
 
     config = {
       tenant_id: 'tenant-1',

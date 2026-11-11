@@ -93,7 +93,9 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     options: CalendarBackupOptions,
   ): Promise<CalendarBackupResult> {
     const cursor = await this._cursors.load(ctx, mailbox_id);
-    const previous = await this._manifests.find_latest_by_mailbox(ctx, mailbox_id);
+    const latest = await this._manifests.find_latest_readable(ctx, mailbox_id);
+    const previous = latest.manifest;
+    const head_unreadable = latest.unreadable_keys.length > 0;
     const listed = await this._connector.list_calendars(tenant_id, mailbox_id);
     // The default calendar is always backed up: losing it to a misreported canEdit is data loss.
     const backed_up = (calendar: GraphCalendar): boolean =>
@@ -111,7 +113,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
           options.should_interrupt?.() === true || options.abort_signal?.aborted === true,
       },
       calendars,
-      loop_state(previous, cursor, options.force_full === true),
+      loop_state(previous, cursor, options.force_full === true || head_unreadable),
       options,
       reporter,
     );
@@ -122,6 +124,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
       calendars,
       skipped,
       previous,
+      unreadable_keys: latest.unreadable_keys,
       loop,
       options,
     });
@@ -135,7 +138,8 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     ctx: TenantContext,
     run: PersistInput,
   ): Promise<CalendarBackupResult> {
-    const { tenant_id, mailbox_id, calendars, skipped, previous, loop, options } = run;
+    const { tenant_id, mailbox_id, calendars, skipped, previous, unreadable_keys, loop, options } =
+      run;
     const created_at = new Date();
     const calendar_records: CalendarRecord[] = calendars.map((calendar) => ({
       calendar_id: calendar.id,
@@ -145,8 +149,10 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     const counts = compare_entries(previous?.entries ?? [], loop.entries);
     const changed =
       counts.changed + counts.removed > 0 ||
-      calendars_differ(previous?.calendars, calendar_records);
-    const has_content = loop.entries.length > 0 || previous !== undefined;
+      calendars_differ(previous?.calendars, calendar_records) ||
+      unreadable_keys.length > 0;
+    const has_content =
+      loop.entries.length > 0 || previous !== undefined || unreadable_keys.length > 0;
     const writable = !loop.interrupted;
     const snapshot =
       writable && changed && has_content
@@ -196,6 +202,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
       attachments_skipped: loop.attachments_skipped,
       errors: loop.errors,
       healthy: loop.errors.length === 0 && loop.attachments_skipped === 0,
+      ...(unreadable_keys.length > 0 ? { unreadable_keys: [...unreadable_keys] } : {}),
     };
     return { mailbox_id, snapshot, interrupted, summary };
   }
@@ -207,20 +214,25 @@ interface PersistInput {
   readonly calendars: readonly GraphCalendar[];
   readonly skipped: readonly GraphCalendar[];
   readonly previous: CalendarSnapshotManifest | undefined;
+  /** Manifests newer than `previous` that could not be read; they force a full read and a snapshot. */
+  readonly unreadable_keys: readonly string[];
   readonly loop: CalendarLoopOutcome;
   readonly options: CalendarBackupOptions;
 }
 
 /**
  * Decides which previous state a run may build on. Links are only trusted when the previous
- * manifest exists, since the links describe the state that manifest captured.
+ * manifest exists, since the links describe the state that manifest captured. A damaged newer
+ * manifest counts as untrusted too: the cursor's links describe the state it captured, which is
+ * unreadable, so building on an older manifest with those links would drop every change between
+ * the two. The run reads every folder in full instead and writes a fresh snapshot (issue #631).
  */
 function loop_state(
   previous: CalendarSnapshotManifest | undefined,
   cursor: CalendarDeltaCursor | undefined,
-  force_full: boolean,
+  read_in_full: boolean,
 ): CalendarLoopState {
-  const trusted = previous !== undefined && !force_full;
+  const trusted = previous !== undefined && !read_in_full;
   const links = trusted ? (cursor?.delta_link_by_calendar ?? {}) : {};
   return {
     previous_entries: previous?.entries ?? [],

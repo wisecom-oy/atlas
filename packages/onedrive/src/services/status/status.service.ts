@@ -40,7 +40,9 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
       const saved_cursor = await this._cursors.load(ctx, owner_id);
       const failed_items = saved_cursor?.failed_items ?? {};
       const all_drives = await this._connector.list_drives(tenant_id, owner_id);
-      const previous = await this._manifests.find_latest_by_owner(ctx, owner_id);
+      // A damaged manifest is named in the result instead of failing the owner (issue #631).
+      const latest = await this._manifests.find_latest_readable(ctx, owner_id);
+      const previous = latest.manifest;
 
       const drive_statuses = await peek_drive_statuses({
         drives: all_drives,
@@ -59,6 +61,7 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
         total_drives: all_drives.length,
         drives: drive_statuses,
         ...summarize_drive_statuses(drive_statuses, failed_items),
+        ...(latest.unreadable_keys.length > 0 ? { unreadable_keys: latest.unreadable_keys } : {}),
       };
     } finally {
       ctx.destroy();

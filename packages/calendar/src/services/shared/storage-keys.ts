@@ -48,5 +48,7 @@ export function calendar_mailbox_prefixes(mailbox_id: string): string[] {
     `calendar/attachments/${segment}/`,
     `calendar/manifests/${segment}/`,
     `calendar/_meta/${segment}/`,
+    // A quarantined manifest still lists this mailbox's items (issue #631).
+    `_quarantine/calendar/manifests/${segment}/`,
   ];
 }

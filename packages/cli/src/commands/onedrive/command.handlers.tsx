@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, GRAPH_IDENTITY_RESOLVER_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
@@ -208,6 +209,7 @@ export async function execute_onedrive_backup(
     },
     'file',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 export async function execute_onedrive_restore(
@@ -246,6 +248,7 @@ export async function execute_onedrive_restore(
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_unreadable_keys(result.unreadable_keys);
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
     process.exitCode = 1;
@@ -280,6 +283,7 @@ export async function execute_onedrive_save(
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_unreadable_keys(result.unreadable_keys);
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {
@@ -305,6 +309,7 @@ export async function execute_onedrive_verify(
   );
 
   await render_static_view(<Banner title={banner_title('onedrive', 'Verify')} />);
+  report_unreadable_keys(result.unreadable_keys);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;

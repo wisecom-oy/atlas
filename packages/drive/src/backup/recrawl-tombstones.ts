@@ -1,5 +1,6 @@
 import { fold_drive_snapshot_chain } from '@wisecom/atlas-core/services/shared/drive-snapshot-chain';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import type { ReadableManifestListing } from '@wisecom/atlas-types';
 
 /** What a tombstone needs from a manifest entry; both providers' entries carry it. */
 interface TrackedEntry {
@@ -60,14 +61,21 @@ export interface RecrawlScan<Entry extends TrackedEntry> {
  * files (#199). The scan lists a drive there only when its enumeration and processing finished,
  * because absence proves nothing when the listing stopped early. `is_in_scope` narrows the
  * comparison to a `--folder` scope. No manifest is read when nothing was re-crawled.
+ *
+ * A damaged earlier manifest is left out of the comparison and its key returned (issue #631).
+ * That is safe in both directions. A file only it knew about and that is gone now gets no
+ * tombstone, but no readable manifest lists it either, so nothing resurrects it. A file it
+ * recorded as deleted still looks live in the older state, so it gets a tombstone again, which
+ * restates a real deletion. The re-crawl itself writes every file that exists, so nothing is lost.
  */
 export async function append_recrawl_tombstones<Entry extends TrackedEntry>(
   scan: RecrawlScan<Entry>,
-  list_previous_manifests: () => Promise<readonly ChainManifest<Entry>[]>,
+  list_previous_manifests: () => Promise<ReadableManifestListing<ChainManifest<Entry>>>,
   is_in_scope: (entry: Entry) => boolean = () => true,
-): Promise<void> {
-  if (scan.recrawls.length === 0) return;
-  const previous = fold_newest_entries(await list_previous_manifests());
+): Promise<string[]> {
+  if (scan.recrawls.length === 0) return [];
+  const listing = await list_previous_manifests();
+  const previous = fold_newest_entries(listing.manifests);
   const returned_by_drive = new Map(scan.recrawls.map((r) => [r.drive_id, r.returned_item_ids]));
   const written = new Set(scan.entries.map((entry) => entry.file_id));
   const backup_at = new Date().toISOString();
@@ -86,6 +94,7 @@ export async function append_recrawl_tombstones<Entry extends TrackedEntry>(
     .map((entry) => to_tombstone(entry, backup_at));
   append_all(scan.entries, tombstones);
   scan.deleted_items += tombstones.length;
+  return listing.unreadable_keys;
 }
 
 /** Folds every earlier manifest newest-first into the latest state of each file. */

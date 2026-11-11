@@ -1,49 +1,43 @@
 import { injectable } from 'inversify';
 import type {
+  LatestReadableManifest,
+  ReadableManifestListing,
   SharePointSnapshotManifest,
   SharePointManifestRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
 import {
+  as_manifest_listing,
+  find_latest_readable_drive_manifest,
+  read_drive_manifest,
+  read_drive_manifests,
+  read_owner_drive_manifests,
+  require_readable_drive_manifests,
+  save_drive_manifest,
+  type DriveManifestLayout,
+} from '@wisecom/atlas-drive/shared/drive-manifest-store';
+import {
+  SHAREPOINT_KEYS,
   sharepoint_manifest_key,
   sharepoint_manifest_prefix,
   sharepoint_manifest_root_prefix,
 } from '@/services/shared/storage-keys';
-import { StorageError } from '@wisecom/atlas-types';
-import { is_absent_object_error } from '@wisecom/atlas-core/services/shared/absent-object';
 
-class InvalidSharePointManifestDateError extends Error {
-  constructor(readonly storage_key: string) {
-    super(`Invalid created_at in SharePoint manifest at ${storage_key}`);
-    this.name = 'InvalidSharePointManifestDateError';
-  }
-}
-
-class MismatchedSharePointManifestError extends Error {
-  constructor(
-    readonly storage_key: string,
-    site_id: string,
-    snapshot_id: string,
-  ) {
-    super(
-      `SharePoint manifest at ${storage_key} decrypts to ${site_id}/${snapshot_id}; ` +
-        `refusing to use a manifest that is not the one the key names`,
-    );
-    this.name = 'MismatchedSharePointManifestError';
-  }
-}
+const LAYOUT: DriveManifestLayout = {
+  label: 'SharePoint',
+  keys: SHAREPOINT_KEYS,
+  owner_field: 'site_id',
+};
 
 /** Persists SharePoint snapshot manifests as encrypted JSON in S3. */
 @injectable()
 export class S3SharePointManifestRepository implements SharePointManifestRepository {
   /** Encrypts and uploads a manifest. */
   async save(ctx: TenantContext, manifest: SharePointSnapshotManifest): Promise<void> {
-    const key = sharepoint_manifest_key(manifest.site_id, manifest.snapshot_id);
-    const payload = Buffer.from(JSON.stringify(manifest));
-    await ctx.storage.put(key, ctx.encrypt(payload, key));
+    await save_drive_manifest(ctx, LAYOUT, manifest.site_id, manifest);
   }
 
-  /** Loads a manifest by listing only that site's manifest prefix. */
+  /** Loads a manifest by listing only that site's manifest prefix; raises when it is damaged. */
   async find_by_snapshot(
     ctx: TenantContext,
     site_id: string,
@@ -51,78 +45,53 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
   ): Promise<SharePointSnapshotManifest | undefined> {
     const expected_key = sharepoint_manifest_key(site_id, snapshot_id);
     const keys = await ctx.storage.list(sharepoint_manifest_prefix(site_id));
-    const key = keys.find((candidate) => candidate === expected_key);
-    if (!key) return undefined;
-    return this.download_manifest(ctx, key);
+    if (!keys.includes(expected_key)) return undefined;
+    return read_drive_manifest<SharePointSnapshotManifest>(ctx, LAYOUT, expected_key);
   }
 
-  /** Returns the most recent manifest for a site. */
-  async find_latest_by_site(
+  /** Returns the most recent readable manifest for a site, naming the damaged ones. */
+  async find_latest_readable(
     ctx: TenantContext,
     site_id: string,
-  ): Promise<SharePointSnapshotManifest | undefined> {
-    const manifests = await this.list_snapshots_by_site(ctx, site_id);
-    return manifests.at(0);
+  ): Promise<LatestReadableManifest<SharePointSnapshotManifest>> {
+    return find_latest_readable_drive_manifest(ctx, LAYOUT, site_id);
   }
 
-  /** Lists all manifests for a site, sorted newest first. */
+  /** Lists all manifests for a site, newest first; raises when any is damaged. */
   async list_snapshots_by_site(
     ctx: TenantContext,
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]> {
-    const keys = await ctx.storage.list(sharepoint_manifest_prefix(site_id));
-    const manifests: SharePointSnapshotManifest[] = [];
-    for (const key of keys) {
-      const parsed = await this.download_manifest(ctx, key);
-      if (parsed) manifests.push(parsed);
-    }
-    return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    return require_readable_drive_manifests(
+      LAYOUT,
+      await read_owner_drive_manifests<SharePointSnapshotManifest>(ctx, LAYOUT, site_id),
+    );
   }
 
-  /** Lists every manifest across all sites, sorted newest first. */
+  /** Lists a site's readable manifests, newest first, naming the damaged ones. */
+  async list_readable_snapshots_by_site(
+    ctx: TenantContext,
+    site_id: string,
+  ): Promise<ReadableManifestListing<SharePointSnapshotManifest>> {
+    return as_manifest_listing(
+      await read_owner_drive_manifests<SharePointSnapshotManifest>(ctx, LAYOUT, site_id),
+    );
+  }
+
+  /** Lists every manifest across all sites, newest first; raises when any is damaged. */
   async list_all_manifests(ctx: TenantContext): Promise<SharePointSnapshotManifest[]> {
     const keys = await ctx.storage.list(sharepoint_manifest_root_prefix());
-    const manifests: SharePointSnapshotManifest[] = [];
-    for (const key of keys) {
-      const parsed = await this.download_manifest(ctx, key);
-      if (parsed) manifests.push(parsed);
-    }
-    return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+    return require_readable_drive_manifests(
+      LAYOUT,
+      await read_drive_manifests<SharePointSnapshotManifest>(ctx, LAYOUT, keys),
+    );
   }
 
-  /**
-   * Downloads one manifest, rejecting a body that is not the identity the key names.
-   *
-   * A manifest is encrypted with the tenant key and nothing in the ciphertext says which manifest
-   * it is, so any manifest in the tenant authenticates at any other manifest's key. Rebuilding the
-   * key from the decrypted body and comparing it to the key that was read is what distinguishes
-   * them, and it covers every lookup here rather than only the one that had an id to check
-   * (issue #340).
-   */
-  private async download_manifest(
+  /** Reads the manifest at exactly this key; raises when it is damaged. */
+  async read_manifest_at(
     ctx: TenantContext,
-    key: string,
+    storage_key: string,
   ): Promise<SharePointSnapshotManifest | undefined> {
-    try {
-      const payload = await ctx.storage.get(key);
-      const json = ctx.decrypt(payload, key).toString('utf-8');
-      const parsed = JSON.parse(json) as SharePointSnapshotManifest;
-      if (sharepoint_manifest_key(parsed.site_id, parsed.snapshot_id) !== key) {
-        throw new MismatchedSharePointManifestError(key, parsed.site_id, parsed.snapshot_id);
-      }
-      const created_at = new Date(parsed.created_at);
-      if (Number.isNaN(created_at.getTime())) {
-        throw new InvalidSharePointManifestDateError(key);
-      }
-      return { ...parsed, created_at };
-    } catch (err) {
-      // Absence is the only recoverable outcome. A manifest that failed to decrypt, parse or
-      // identify is damaged, and returning `undefined` for it reports a broken backup with the
-      // same value as a snapshot that was never taken (issues #340, #341).
-      if (is_absent_object_error(err)) return undefined;
-      if (err instanceof InvalidSharePointManifestDateError) throw err;
-      if (err instanceof MismatchedSharePointManifestError) throw err;
-      throw new StorageError(`Could not read the SharePoint manifest at ${key}`, { cause: err });
-    }
+    return read_drive_manifest<SharePointSnapshotManifest>(ctx, LAYOUT, storage_key);
   }
 }

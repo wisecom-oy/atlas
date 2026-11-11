@@ -15,6 +15,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
@@ -78,7 +79,7 @@ describe('SharePointRestoreService cross-site routing', () => {
         total_files: 1,
         entries: [make_entry()],
       }),
-      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+      list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
     } as unknown as SharePointManifestRepository;
 
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);

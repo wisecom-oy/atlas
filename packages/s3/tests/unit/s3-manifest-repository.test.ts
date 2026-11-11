@@ -161,7 +161,7 @@ describe('S3ManifestRepository', () => {
     });
   });
 
-  describe('find_latest_by_owner', () => {
+  describe('find_latest_readable', () => {
     it('loads the indexed latest manifest without scanning snapshot history', async () => {
       const manifest = make_manifest({
         snapshot_id: 'snap-new',
@@ -174,7 +174,7 @@ describe('S3ManifestRepository', () => {
 
       vi.mocked(ctx.storage.get).mockResolvedValueOnce(pointer).mockResolvedValueOnce(encrypted);
 
-      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
+      const result = (await repo.find_latest_readable(ctx, 'user@test.com')).manifest;
 
       expect(result?.snapshot_id).toBe('snap-new');
       expect(ctx.storage.list).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe('S3ManifestRepository', () => {
         'manifests/user@test.com/snap-new.json',
       ]);
 
-      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
+      const result = (await repo.find_latest_readable(ctx, 'user@test.com')).manifest;
       expect(result).toBeDefined();
       expect(result!.id).toBe('new');
     });
@@ -214,8 +214,8 @@ describe('S3ManifestRepository', () => {
       vi.mocked(ctx.storage.get).mockRejectedValueOnce(new Error('latest pointer not found'));
       vi.mocked(ctx.storage.list).mockResolvedValue([]);
 
-      const result = await repo.find_latest_by_owner(ctx, 'user@test.com');
-      expect(result).toBeUndefined();
+      const result = await repo.find_latest_readable(ctx, 'user@test.com');
+      expect(result).toEqual({ manifest: undefined, unreadable_keys: [] });
     });
   });
 

@@ -3,6 +3,7 @@
 // carries a folder scope and a per-drive delta cursor. Unifying them means a parameter per
 // branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
@@ -13,6 +14,7 @@ import {
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import { append_recrawl_tombstones } from '@wisecom/atlas-drive/backup/recrawl-tombstones';
+import { build_version_errors } from '@wisecom/atlas-drive/backup/version-failure-errors';
 import type {
   SharePointBackupOptions,
   SharePointBackupResult,
@@ -44,10 +46,7 @@ import {
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import type {
-  FileTrackingState,
-  VersionStatsState,
-} from '@/services/backup/library-item-processor';
+import type { FileTrackingState } from '@/services/backup/library-item-processor';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import {
   scan_all_libraries,
@@ -140,8 +139,8 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         delta_link_by_drive,
         ctx,
       });
-      await append_recrawl_tombstones(scan, () =>
-        this._manifests.list_snapshots_by_site(ctx, site_id),
+      const skipped_manifests = await append_recrawl_tombstones(scan, () =>
+        this._manifests.list_readable_snapshots_by_site(ctx, site_id),
       );
 
       emit_operation_progress(options, {
@@ -165,7 +164,10 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       // Version downloads that failed for an unexpected reason leave history out
       // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
       // like every other incomplete backup (issue #92).
-      const errors = [...scan.errors, ...this.build_version_errors(scan.version_stats)];
+      const errors = [
+        ...scan.errors,
+        ...build_version_errors(scan.version_stats.total_versions_failed),
+      ];
       const healthy =
         !scan.interrupted && errors.length === 0 && Object.keys(scan.failed_items).length === 0;
 
@@ -201,7 +203,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
             ? await classify_empty_run({
                 previous_kind_by_file_id: tracking.previous_kind_by_file_id,
                 files_processed: scan.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_by_site(ctx, site_id),
+                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, site_id),
               })
             : undefined,
         );
@@ -227,7 +229,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
         phase: scan.interrupted ? 'interrupted' : 'completed',
         processed: scan.items_processed,
       });
-      return result;
+      return with_summary_unreadable_keys(result, skipped_manifests);
     } finally {
       tenant_ctx.destroy();
     }
@@ -283,14 +285,6 @@ export class SharePointBackupService implements SharePointBackupUseCase {
       watermarks: await this._file_indexes.load_version_watermarks(ctx, site_id),
       rows: new Map(),
     };
-  }
-
-  private build_version_errors(version_stats: VersionStatsState): string[] {
-    if (version_stats.total_versions_failed === 0) return [];
-    return [
-      `${version_stats.total_versions_failed} version download(s) failed unexpectedly ` +
-        `-- see the per-version reasons above; those versions are not in this snapshot`,
-    ];
   }
 
   private async finalize_snapshot(

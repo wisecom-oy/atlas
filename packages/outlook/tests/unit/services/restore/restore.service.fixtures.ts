@@ -21,6 +21,7 @@ import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/st
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import { createHash } from 'node:crypto';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /** Builds a minimal Outlook manifest entry for restore service tests. */
 export function make_restore_entry(id: string, folder_id: string): ManifestEntry {
@@ -117,10 +118,13 @@ export function make_restore_harness(): RestoreHarness {
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
-    find_latest_by_owner: vi.fn(),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
     list_by_owner: vi.fn().mockResolvedValue([]),
     list_all_manifests: vi.fn().mockResolvedValue([]),
     list_owner_ids: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+    list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+    read_manifest_at: vi.fn(),
   };
 
   const folders: MailFolder[] = [

@@ -13,6 +13,11 @@ import type {
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
+import {
+  latest_readable,
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
@@ -100,12 +105,12 @@ function create_mocks() {
   const manifests: OneDriveManifestRepository = {
     save: vi.fn(),
     find_by_snapshot: vi.fn(),
-    find_latest_by_owner: vi.fn(),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 
   const indexes: OneDriveFileVersionIndexRepository = {
-    list_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as OneDriveFileVersionIndexRepository;
 
   return { ctx, tenant_factory, manifests, indexes, store };
@@ -135,7 +140,9 @@ describe('OneDriveVerificationService', () => {
   const given_snapshot = (entries: OneDriveManifestEntry[]): OneDriveSnapshotManifest => {
     const manifest = make_manifest(entries);
     vi.mocked(mocks.manifests.find_by_snapshot).mockResolvedValue(manifest);
-    vi.mocked(mocks.manifests.list_snapshots_by_owner).mockResolvedValue([manifest]);
+    vi.mocked(mocks.manifests.list_readable_snapshots_by_owner).mockResolvedValue(
+      readable_manifests([manifest]),
+    );
     return manifest;
   };
 
@@ -151,9 +158,9 @@ describe('OneDriveVerificationService', () => {
   it('returns all passed when blobs are intact and the index is consistent', async () => {
     const entry = make_entry();
     given_snapshot([entry]);
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index(entry.file_id, [SNAPSHOT_ID]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, [SNAPSHOT_ID])]),
+    );
 
     const result = await verify();
 
@@ -166,9 +173,9 @@ describe('OneDriveVerificationService', () => {
   it('reports a mismatch when the stored content has a different checksum', async () => {
     const entry = make_entry();
     given_snapshot([entry]);
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index(entry.file_id, [SNAPSHOT_ID]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, [SNAPSHOT_ID])]),
+    );
     serve_object(mocks.store.encrypt(Buffer.from('tampered-content')));
 
     const result = await verify();
@@ -205,7 +212,7 @@ describe('OneDriveVerificationService', () => {
   it('records an index issue when the file has no index at all', async () => {
     const entry = make_entry();
     given_snapshot([entry]);
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(readable_indexes([]));
 
     const result = await verify();
 
@@ -217,9 +224,9 @@ describe('OneDriveVerificationService', () => {
   it('records an index issue when the index has no row for this snapshot', async () => {
     const entry = make_entry();
     given_snapshot([entry]);
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index(entry.file_id, ['od-snap-unrelated']),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([make_index(entry.file_id, ['od-snap-unrelated'])]),
+    );
 
     const result = await verify();
 
@@ -254,11 +261,13 @@ describe('OneDriveVerificationService', () => {
       checksum: undefined,
     });
     given_snapshot([good, bad, deleted]);
-    vi.mocked(mocks.indexes.list_by_owner).mockResolvedValue([
-      make_index('file-good', [SNAPSHOT_ID]),
-      make_index('file-bad', [SNAPSHOT_ID]),
-      make_index('file-del', [SNAPSHOT_ID]),
-    ]);
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockResolvedValue(
+      readable_indexes([
+        make_index('file-good', [SNAPSHOT_ID]),
+        make_index('file-bad', [SNAPSHOT_ID]),
+        make_index('file-del', [SNAPSHOT_ID]),
+      ]),
+    );
 
     const result = await verify();
 
@@ -291,7 +300,9 @@ describe('OneDriveVerificationService', () => {
 
   it('destroys the context even when the run throws', async () => {
     given_snapshot([make_entry()]);
-    vi.mocked(mocks.indexes.list_by_owner).mockRejectedValue(new Error('index read failed'));
+    vi.mocked(mocks.indexes.list_readable_by_owner).mockRejectedValue(
+      new Error('index read failed'),
+    );
 
     await expect(verify()).rejects.toThrow('index read failed');
     // Otherwise the tenant's key material stays in the heap until GC.

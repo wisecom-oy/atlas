@@ -99,6 +99,8 @@ describe('workload deletion', () => {
         `onedrive/index/${OWNER}/`,
         `onedrive/_meta/${OWNER}/`,
         `onedrive/staging/${OWNER}/`,
+        `_quarantine/onedrive/manifests/${OWNER}/`,
+        `_quarantine/onedrive/index/${OWNER}/`,
       ]);
     });
 

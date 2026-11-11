@@ -1,5 +1,6 @@
 import { Box, Text } from 'ink';
 import type { Container } from 'inversify';
+import { read_listing, report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, html_to_text } from '@wisecom/atlas-core';
 import type { CatalogUseCase, MailboxSummary } from '@wisecom/atlas-types';
@@ -112,7 +113,9 @@ export async function execute_outlook_read(
 
 /** Prints a table of all backed-up mailboxes with summary stats. */
 async function print_all_mailboxes(catalog: CatalogUseCase, tenant_id: string): Promise<void> {
-  const mailboxes = await catalog.list_mailboxes(tenant_id);
+  const listing = await read_listing(() => catalog.list_mailboxes(tenant_id));
+  const mailboxes = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   if (mailboxes.length === 0) {
     logger.warn('No backed-up mailboxes found');
@@ -158,7 +161,9 @@ async function print_mailbox_snapshots(
   mailbox_id: string,
   mailbox_label: string,
 ): Promise<void> {
-  const snapshots = await catalog.list_snapshots(tenant_id, mailbox_id);
+  const listing = await read_listing(() => catalog.list_snapshots(tenant_id, mailbox_id));
+  const snapshots = listing.result;
+  report_unreadable_keys(listing.unreadable_keys);
 
   if (snapshots.length === 0) {
     logger.warn(`No snapshots found for ${mailbox_label}`);

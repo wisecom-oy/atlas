@@ -10,6 +10,7 @@ import {
   NotFoundError,
 } from '@wisecom/atlas-types';
 import { load_snapshot_chain, resolve_message_ref } from '@/services/shared/manifest-chain';
+import { return_or_raise_partial } from '@/services/shared/unreadable-object-report';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 
 @injectable()
@@ -22,25 +23,36 @@ export class CatalogService implements CatalogUseCase {
   /**
    * Groups all manifests by mailbox, picking the latest per mailbox
    * for summary stats (object count, size, last backup time).
+   *
+   * @throws UnreadableObjectsError naming each damaged manifest, with the summaries of the readable
+   *   ones in `partial_result` (issue #631).
    */
   async list_mailboxes(tenant_id: string): Promise<MailboxSummary[]> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const all = await this._manifests.list_all_manifests(ctx);
-      const by_mailbox = group_by_mailbox(all);
-      return build_mailbox_summaries(by_mailbox);
+      const listing = await this._manifests.list_all_readable(ctx);
+      const by_mailbox = group_by_mailbox(listing.manifests);
+      return return_or_raise_partial(listing.unreadable_keys, build_mailbox_summaries(by_mailbox));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Returns every manifest for a given mailbox owner, sorted newest-first. */
+  /**
+   * Returns every manifest for a given mailbox owner, sorted newest-first.
+   *
+   * @throws UnreadableObjectsError naming each damaged manifest, with the readable ones in
+   *   `partial_result` (issue #631).
+   */
   async list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]> {
     owner_id = normalize_owner_id(owner_id);
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = await this._manifests.list_by_owner(ctx, owner_id);
-      return manifests.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      const listing = await this._manifests.list_readable_by_owner(ctx, owner_id);
+      const manifests = listing.manifests.sort(
+        (a, b) => b.created_at.getTime() - a.created_at.getTime(),
+      );
+      return return_or_raise_partial(listing.unreadable_keys, manifests);
     } finally {
       ctx.destroy();
     }

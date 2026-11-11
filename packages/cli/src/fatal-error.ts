@@ -1,6 +1,7 @@
 import { inspect } from 'node:util';
 import { logger } from '@wisecom/atlas-core';
-import { AtlasError, type AtlasErrorCode } from '@wisecom/atlas-types';
+import { AtlasError, UnreadableObjectsError, type AtlasErrorCode } from '@wisecom/atlas-types';
+import { log_quarantine_hint } from '@/command-unreadable-objects';
 
 const ATLAS_EXIT_CODES = {
   ATLAS_AUTH_DENIED: 4,
@@ -126,6 +127,7 @@ function log_transport_details(error: ErrorFields): void {
 }
 
 function log_remediation(error: AtlasError): void {
+  if (error instanceof UnreadableObjectsError) log_quarantine_hint(error.unreadable_keys);
   if (error.code === 'ATLAS_WRONG_PASSPHRASE') {
     logger.error(
       'Use the original encryption passphrase for this tenant. Do not replace or pad it, or ' +

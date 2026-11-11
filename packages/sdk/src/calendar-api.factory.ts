@@ -1,4 +1,7 @@
 import type { Container } from 'inversify';
+import type { QuarantineUseCase } from '@wisecom/atlas-types';
+import { CALENDAR_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { with_camelized_partial_result } from '@/partial-listing';
 import type {
   CalendarApi,
   CalendarBackupUseCase,
@@ -24,6 +27,7 @@ import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the CalendarApi sub-namespace from the DI container. */
 export function create_calendar_api(tenant_id: string, container: Container): CalendarApi {
+  const quarantine = container.get<QuarantineUseCase>(CALENDAR_QUARANTINE_USE_CASE_TOKEN);
   const backup = container.get<CalendarBackupUseCase>(CALENDAR_BACKUP_USE_CASE_TOKEN);
   const catalog = container.get<CalendarCatalogUseCase>(CALENDAR_CATALOG_USE_CASE_TOKEN);
   const verification = container.get<CalendarVerificationUseCase>(
@@ -94,8 +98,11 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
       );
     },
     async listSnapshots(mailbox) {
+      const resolved_id = await resolve_mailbox_id(mailbox);
       return camelize(
-        await catalog.list_calendar_snapshots(tenant_id, await resolve_mailbox_id(mailbox)),
+        await with_camelized_partial_result(() =>
+          catalog.list_calendar_snapshots(tenant_id, resolved_id),
+        ),
       );
     },
     async deleteMailboxData(mailbox) {
@@ -106,6 +113,9 @@ export function create_calendar_api(tenant_id: string, container: Container): Ca
     async deleteSnapshot(mailbox, snapshot_id) {
       const mailbox_id = await resolve_mailbox_id(mailbox);
       return camelize(await deletion.delete_snapshot(tenant_id, mailbox_id, snapshot_id));
+    },
+    async quarantine(storage_key) {
+      return camelize(await quarantine.quarantine_unreadable_object(tenant_id, storage_key));
     },
   };
 }

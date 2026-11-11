@@ -163,15 +163,18 @@ describe('S3OneDriveManifestRepository', () => {
       'onedrive/manifests/owner-1/snap-new.json': make_manifest('snap-new', '2026-03-03T00:00:00Z'),
     });
 
-    const latest = await repo.find_latest_by_owner(ctx, OWNER);
+    const latest = await repo.find_latest_readable(ctx, OWNER);
 
-    expect(latest?.snapshot_id).toBe('snap-new');
+    expect(latest.manifest?.snapshot_id).toBe('snap-new');
   });
 
   it('reports no latest manifest for an owner that has never been backed up', async () => {
     const { ctx } = make_ctx();
 
-    await expect(repo.find_latest_by_owner(ctx, OWNER)).resolves.toBeUndefined();
+    await expect(repo.find_latest_readable(ctx, OWNER)).resolves.toEqual({
+      manifest: undefined,
+      unreadable_keys: [],
+    });
   });
 
   it('lists every owner\u2019s manifests from the root prefix, newest first', async () => {

@@ -2,6 +2,7 @@ import { scope_connector_throttling } from '@wisecom/atlas-m365-graph';
 import type { Container } from 'inversify';
 import type { ThrottleCoordinator } from '@wisecom/atlas-types';
 import {
+  CONTACTS_QUARANTINE_USE_CASE_TOKEN,
   CONTACTS_BACKUP_USE_CASE_TOKEN,
   CONTACTS_CATALOG_USE_CASE_TOKEN,
   CONTACTS_CONNECTOR_TOKEN,
@@ -22,6 +23,7 @@ import { ContactsCatalogService } from '@/services/catalog/catalog.service';
 import { ContactsDeletionService } from '@/services/deletion/deletion.service';
 import { ContactsRestoreService } from '@/services/restore/restore.service';
 import { ContactsVerificationService } from '@/services/verification/verification.service';
+import { ContactsQuarantineService } from '@/services/quarantine/quarantine.service';
 
 /** Registers contacts DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_contacts(container: Container): void {
@@ -71,4 +73,8 @@ export function bind_contacts(container: Container): void {
     .to(ContactsVerificationService)
     .inSingletonScope();
   container.bind(CONTACTS_DELETION_USE_CASE_TOKEN).to(ContactsDeletionService).inSingletonScope();
+  container
+    .bind(CONTACTS_QUARANTINE_USE_CASE_TOKEN)
+    .to(ContactsQuarantineService)
+    .inSingletonScope();
 }

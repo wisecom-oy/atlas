@@ -12,6 +12,11 @@ import type {
 import { stub_encrypted_object_store } from '@wisecom/atlas-types/testing/stub-encrypted-object-store';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
+import {
+  latest_readable,
+  readable_indexes,
+  readable_manifests,
+} from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #341: verification required a checksum before it would look at an entry, so an entry that
@@ -77,12 +82,12 @@ function make_service(entries: OneDriveManifestEntry[]): OneDriveVerificationSer
   } as unknown as TenantContextFactory;
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([manifest]),
-    find_latest_by_owner: vi.fn(),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([manifest])),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
     save: vi.fn(),
   } as unknown as OneDriveManifestRepository;
   const indexes = {
-    list_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_indexes([])),
   } as unknown as OneDriveFileVersionIndexRepository;
 
   return new OneDriveVerificationService(tenant_factory, manifests, indexes);

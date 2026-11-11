@@ -10,6 +10,7 @@ import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/st
 import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 // Issue #34: one persistently failing file must not freeze a drive's delta
 // cursor. The run keeps its successful entries, advances the delta link, and
@@ -134,8 +135,8 @@ function make_harness(options: {
   };
   const manifests = {
     save: vi.fn(() => void save_order.push('manifest')),
-    find_latest_by_owner: vi.fn(),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   };
 
   const service = new OneDriveBackupService(

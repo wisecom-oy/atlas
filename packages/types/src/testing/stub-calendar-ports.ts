@@ -248,8 +248,13 @@ export function memory_calendar_manifests(
     },
     find_by_snapshot: async (_ctx, _mailbox, snapshot_id) =>
       saved.find((m) => m.snapshot_id === snapshot_id),
-    find_latest_by_mailbox: async () => saved.at(-1),
-    list_snapshots_by_mailbox: async () => [...saved].reverse(),
+    find_latest_readable: async () => ({ manifest: saved.at(-1), unreadable_keys: [] }),
+    list_readable_snapshots_by_mailbox: async () => ({
+      manifests: [...saved].reverse(),
+      unreadable_keys: [],
+    }),
+    read_manifest_at: async (_ctx, key) =>
+      saved.find((m) => key.endsWith(`/${m.snapshot_id}.json`)),
   };
 }
 

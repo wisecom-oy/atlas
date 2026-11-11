@@ -30,6 +30,7 @@ describe('calendar storage keys', () => {
       `calendar/attachments/${MAILBOX_LOWER}/`,
       `calendar/manifests/${MAILBOX_LOWER}/`,
       `calendar/_meta/${MAILBOX_LOWER}/`,
+      `_quarantine/calendar/manifests/${MAILBOX_LOWER}/`,
     ]);
   });
 

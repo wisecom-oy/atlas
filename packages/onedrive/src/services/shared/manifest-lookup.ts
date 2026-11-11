@@ -9,6 +9,7 @@ export function onedrive_manifest_lookup(
     workload: 'OneDrive',
     find_by_snapshot: (ctx, owner_id, snapshot_id) =>
       manifests.find_by_snapshot(ctx, owner_id, snapshot_id),
-    list_snapshots: (ctx, owner_id) => manifests.list_snapshots_by_owner(ctx, owner_id),
+    list_readable_snapshots: (ctx, owner_id) =>
+      manifests.list_readable_snapshots_by_owner(ctx, owner_id),
   };
 }

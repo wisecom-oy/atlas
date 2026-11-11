@@ -26,6 +26,11 @@ export interface MailboxStatusResult {
   readonly total_pending_changes: number;
   /** True when any folder's count is a lower bound, so `total_pending_changes` is one too. */
   readonly pending_capped: boolean;
+  /**
+   * Snapshot manifests that could not be read, by storage key. `last_snapshot_id` is then the
+   * newest readable snapshot. Present only when a manifest was skipped (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
   /** Graph API cost for this operation. Present when called via the SDK; absent via CLI. */
   readonly graph_cost?: OperationCost;
 }

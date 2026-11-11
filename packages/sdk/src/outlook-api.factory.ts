@@ -1,4 +1,7 @@
 import type { Container } from 'inversify';
+import type { QuarantineUseCase } from '@wisecom/atlas-types';
+import { OUTLOOK_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { with_camelized_partial_result } from '@/partial-listing';
 import type {
   OutlookApi,
   BackupUseCase,
@@ -40,6 +43,7 @@ import { split_target_tenant, with_restore_side } from '@/target-tenant';
 
 /** Builds the OutlookApi sub-namespace from the DI container. */
 export function create_outlook_api(tenant_id: string, container: Container): OutlookApi {
+  const quarantine = container.get<QuarantineUseCase>(OUTLOOK_QUARANTINE_USE_CASE_TOKEN);
   const backup = container.get<BackupUseCase>(BACKUP_USE_CASE_TOKEN);
   const verification = container.get<VerificationUseCase>(VERIFICATION_USE_CASE_TOKEN);
   const catalog = container.get<CatalogUseCase>(CATALOG_USE_CASE_TOKEN);
@@ -135,11 +139,13 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
       return camelize({ ...result, graph_cost: cost_result });
     },
     async listMailboxes() {
-      return camelize(await catalog.list_mailboxes(tenant_id));
+      return camelize(await with_camelized_partial_result(() => catalog.list_mailboxes(tenant_id)));
     },
     async listSnapshots(mailbox) {
       const mailbox_id = await resolve_object_id(mailbox);
-      return camelize(await catalog.list_snapshots(tenant_id, mailbox_id));
+      return camelize(
+        await with_camelized_partial_result(() => catalog.list_snapshots(tenant_id, mailbox_id)),
+      );
     },
     async getSnapshotDetail(snapshot_id) {
       return camelize(await catalog.get_snapshot_detail(tenant_id, snapshot_id));
@@ -169,6 +175,9 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
     },
     async listAvailableMailboxes(options) {
       return camelize(await discovery.list_tenant_mailboxes(tenant_id, snakeize(options)));
+    },
+    async quarantine(storage_key) {
+      return camelize(await quarantine.quarantine_unreadable_object(tenant_id, storage_key));
     },
   };
 }

@@ -8,6 +8,7 @@ import type {
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { OneDriveStatusService } from '@/services/status/status.service';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 const TENANT_ID = 'tenant-1';
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
@@ -37,7 +38,7 @@ function build(fetch_delta: OneDriveConnector['fetch_delta']): OneDriveStatusSer
       failed_items: { [FAILED.item_id]: FAILED },
     }),
   };
-  const manifests = { find_latest_by_owner: vi.fn().mockResolvedValue(undefined) };
+  const manifests = { find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)) };
   return new OneDriveStatusService(
     factory as unknown as TenantContextFactory,
     connector as unknown as OneDriveConnector,

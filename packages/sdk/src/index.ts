@@ -144,6 +144,7 @@ export type {
   StorageUsageTotals,
   StorageOwnerUsage,
 } from './public-types';
+export type { SdkQuarantineResult as QuarantineResult } from '@wisecom/atlas-types';
 export type {
   StorageUsageOptions,
   StorageUsageBreakdown,
@@ -161,6 +162,7 @@ export {
   ObjectLockRetainedError,
   StorageError,
   ConfigError,
+  UnreadableObjectsError,
 } from '@wisecom/atlas-types';
 export type { AtlasErrorCode } from '@wisecom/atlas-types';
 export {

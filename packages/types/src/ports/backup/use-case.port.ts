@@ -102,6 +102,11 @@ export interface BackupSyncSummary {
    * reactions are read again only when the message changes.
    */
   readonly reactions_not_captured: number;
+  /**
+   * Manifests of this mailbox that could not be read, by storage key. The run built on the newest
+   * readable manifest instead; present only when one was skipped (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface SyncResult {

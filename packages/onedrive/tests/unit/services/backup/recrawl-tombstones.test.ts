@@ -15,6 +15,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 const OWNER_ID = 'owner-1';
 
@@ -88,7 +89,7 @@ interface RunOptions {
 
 interface Run {
   readonly result: Promise<OneDriveBackupResult>;
-  readonly list_snapshots_by_owner: Mock;
+  readonly list_readable_snapshots_by_owner: Mock;
 }
 
 function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}): Run {
@@ -121,11 +122,11 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     create_content_hmac: stub_tenant_create_content_hmac,
   } as unknown as TenantContext;
   const factory = { create: async () => ctx } as unknown as TenantContextFactory;
-  const list_snapshots_by_owner = vi.fn(async () => [PREVIOUS]);
+  const list_readable_snapshots_by_owner = vi.fn(async () => readable_manifests([PREVIOUS]));
   const service = new OneDriveBackupService(
     factory,
     connector as never,
-    { save: vi.fn(), list_snapshots_by_owner } as never,
+    { save: vi.fn(), list_readable_snapshots_by_owner } as never,
     { load_version_watermarks: async () => ({}), write_run_index: vi.fn() } as never,
     { load: async () => CURSOR, save: vi.fn() } as never,
   );
@@ -134,7 +135,7 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     ...(options.folder_scope !== undefined && { folder_scope: options.folder_scope }),
     should_interrupt: () => options.stop_after_first_download === true && downloaded.length > 0,
   });
-  return { result, list_snapshots_by_owner };
+  return { result, list_readable_snapshots_by_owner };
 }
 
 async function tombstoned(run: Run): Promise<string[]> {
@@ -170,7 +171,7 @@ describe('OneDrive re-crawl tombstones (issue #435)', () => {
     const run = run_backup({ d1: { items: [make_item('report')] }, d2: { items: [] } });
 
     expect(await tombstoned(run)).toEqual([]);
-    expect(run.list_snapshots_by_owner).not.toHaveBeenCalled();
+    expect(run.list_readable_snapshots_by_owner).not.toHaveBeenCalled();
   });
 
   it('compares only inside the --folder scope', async () => {

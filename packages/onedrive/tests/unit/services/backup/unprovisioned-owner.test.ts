@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { OneDriveDrive, TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 interface Harness {
   service: OneDriveBackupService;
@@ -40,7 +41,10 @@ function make_harness(list_drives: () => Promise<OneDriveDrive[]>): Harness {
   const service = new OneDriveBackupService(
     factory,
     { list_drives: vi.fn(list_drives), fetch_delta: vi.fn(), list_file_versions: vi.fn() } as never,
-    { save: manifest_save, find_latest_by_owner: vi.fn() } as never,
+    {
+      save: manifest_save,
+      find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    } as never,
     { load_version_watermarks: vi.fn().mockResolvedValue({}), write_run_index: vi.fn() } as never,
     { load: vi.fn().mockResolvedValue(undefined), save: vi.fn() } as never,
   );

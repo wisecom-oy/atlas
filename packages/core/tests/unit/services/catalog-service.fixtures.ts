@@ -13,6 +13,7 @@ import {
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 /** Builds a manifest with sensible defaults, overridable per test. */
 export function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
@@ -89,9 +90,12 @@ export function build_catalog_harness(): CatalogTestHarness {
     save: vi.fn(),
     find_by_snapshot: vi.fn().mockResolvedValue(undefined),
     list_by_owner: vi.fn().mockResolvedValue([]),
-    find_latest_by_owner: vi.fn().mockResolvedValue(undefined),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
     list_all_manifests: vi.fn().mockResolvedValue([]),
     list_owner_ids: vi.fn().mockResolvedValue([]),
+    list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
+    list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
+    read_manifest_at: vi.fn(),
   };
 
   const mock_factory: TenantContextFactory = {

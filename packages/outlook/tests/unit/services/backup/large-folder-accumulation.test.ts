@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Manifest } from '@wisecom/atlas-types';
 import { create_mailbox_sync_harness } from './mailbox-sync.fixtures';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #626. The run accumulated each folder's results with `push(...outcome.removed_ids)`, which
@@ -12,13 +13,15 @@ const BEYOND_ARGUMENT_LIMIT = 300_000;
 describe('an outlook backup of a folder larger than the engine argument limit', () => {
   it('records every removed id instead of throwing', async () => {
     const harness = create_mailbox_sync_harness();
-    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue({
-      snapshot_id: 'snap-head',
-      total_objects: 0,
-      delta_links: {},
-      id_format: 'immutable',
-      entries: [],
-    } as unknown as Manifest);
+    vi.mocked(harness.mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'snap-head',
+        total_objects: 0,
+        delta_links: {},
+        id_format: 'immutable',
+        entries: [],
+      } as unknown as Manifest),
+    );
     const removed_ids = Array.from({ length: BEYOND_ARGUMENT_LIMIT }, (_, i) => `msg-${i}`);
     vi.mocked(harness.mock_connector.fetch_delta).mockResolvedValue({
       messages: [],

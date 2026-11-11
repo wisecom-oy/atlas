@@ -12,6 +12,7 @@ export function sharepoint_manifest_lookup(
     workload: 'SharePoint',
     find_by_snapshot: (ctx, site_id, snapshot_id) =>
       manifests.find_by_snapshot(ctx, site_id, snapshot_id),
-    list_snapshots: (ctx, site_id) => manifests.list_snapshots_by_site(ctx, site_id),
+    list_readable_snapshots: (ctx, site_id) =>
+      manifests.list_readable_snapshots_by_site(ctx, site_id),
   };
 }

@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import { logger } from '@wisecom/atlas-core';
 import type {
   ContactsBackupUseCase,
@@ -129,6 +130,7 @@ export async function execute_contacts_backup(
     { errors: summary.errors, warnings: [], interrupted: result.interrupted },
     'contact',
   );
+  report_unreadable_keys(summary.unreadable_keys);
 }
 
 /** Restores a contacts snapshot into the source or a target mailbox, skipping contacts that already exist. */

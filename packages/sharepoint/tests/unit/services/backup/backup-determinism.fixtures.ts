@@ -11,6 +11,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 export function make_file_item(
   id: string,
@@ -82,8 +83,8 @@ export function make_manifests(): SharePointManifestRepository {
   return {
     save: vi.fn().mockResolvedValue(undefined),
     find_by_snapshot: vi.fn(),
-    find_latest_by_site: vi.fn(),
-    list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+    find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
+    list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as SharePointManifestRepository;
 }
 

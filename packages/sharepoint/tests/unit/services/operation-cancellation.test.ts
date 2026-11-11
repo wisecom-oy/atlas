@@ -11,6 +11,7 @@ import { SharePointBackupService } from '@/services/backup/backup.service';
 import { SharePointRestoreService } from '@/services/restore/restore.service';
 import { SharePointSaveService } from '@/services/save/save.service';
 import { SharePointVerificationService } from '@/services/verification/verification.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
@@ -109,7 +110,7 @@ describe('SharePoint restore cancellation', () => {
         total_files: 2,
         entries: [make_entry('f1'), make_entry('f2')],
       }),
-      list_snapshots_by_site: vi.fn().mockResolvedValue([]),
+      list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
     } as unknown as SharePointManifestRepository;
     const service = new SharePointRestoreService(factory, connector, manifests);
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {

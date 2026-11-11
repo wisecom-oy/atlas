@@ -15,6 +15,7 @@ import {
   make_manifests,
   make_service,
 } from './backup-determinism.fixtures';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 /** A cursor from an earlier run that knows the site holds one file. */
 function cursor_knowing_a_file(): SharePointDeltaCursor {
@@ -54,9 +55,11 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
     // manifest by retention, still has a recovery point. Calling that no_content would raise a
     // false alarm about an unprotected site.
     const manifests = make_manifests();
-    vi.mocked(manifests.find_latest_by_site).mockResolvedValue({
-      snapshot_id: 'sp-snap-1',
-    } as SharePointSnapshotManifest);
+    vi.mocked(manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'sp-snap-1',
+      } as SharePointSnapshotManifest),
+    );
 
     const result = await make_service({
       manifests,
@@ -74,7 +77,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
       'site-1',
     );
 
-    expect(manifests.find_latest_by_site).not.toHaveBeenCalled();
+    expect(manifests.find_latest_readable).not.toHaveBeenCalled();
   });
 
   it('leaves the reason unset when every processed item failed', async () => {
@@ -203,6 +206,6 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
 
     expect(result.snapshot).toBeUndefined();
     expect(result.summary.no_snapshot_reason).toBe('no_changes');
-    expect(manifests.find_latest_by_site).not.toHaveBeenCalled();
+    expect(manifests.find_latest_readable).not.toHaveBeenCalled();
   });
 });

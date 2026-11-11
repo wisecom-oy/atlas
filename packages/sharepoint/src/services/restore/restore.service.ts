@@ -2,6 +2,7 @@
 // restore target differs in kind, a resolved site and library against an owner's drive, and
 // so does the conflict handling around the restore root.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import {
   begin_operation_progress,
   emit_operation_progress,
@@ -168,14 +169,17 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
         files_restored + files_skipped < restorable.length,
       );
 
-      return {
-        snapshot_id: options.snapshot_id,
-        files_restored,
-        folders_created,
-        files_skipped,
-        errors,
-        interrupted,
-      };
+      return with_unreadable_keys(
+        {
+          snapshot_id: options.snapshot_id,
+          files_restored,
+          folders_created,
+          files_skipped,
+          errors,
+          interrupted,
+        },
+        chain.unreadable_keys,
+      );
     } finally {
       ctx.destroy();
     }

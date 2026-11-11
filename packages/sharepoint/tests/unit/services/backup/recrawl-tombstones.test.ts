@@ -18,6 +18,7 @@ import {
   make_manifests,
   make_service,
 } from './backup-determinism.fixtures';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 function stored_entry(file_id: string, drive_id = 'drive-1'): SharePointManifestEntry {
   return {
@@ -84,7 +85,9 @@ function two_libraries(
 
 async function tombstoned_after(libraries: Libraries, force_full: boolean): Promise<string[]> {
   const manifests = make_manifests();
-  vi.mocked(manifests.list_snapshots_by_site).mockResolvedValue([PREVIOUS]);
+  vi.mocked(manifests.list_readable_snapshots_by_site).mockResolvedValue(
+    readable_manifests([PREVIOUS]),
+  );
   const result = await make_service({
     connector: libraries.connector,
     manifests,

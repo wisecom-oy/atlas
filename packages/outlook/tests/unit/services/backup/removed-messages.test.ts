@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DeltaSyncResult, Manifest } from '@wisecom/atlas-types';
 import { create_mailbox_sync_harness, make_message } from './mailbox-sync.fixtures';
 import type { MailboxSyncHarness } from './mailbox-sync.fixtures';
+import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
 
 /**
  * Issue #512. A delta run's `@removed` ids were dropped, so a snapshot chain brought back mail
@@ -27,13 +28,15 @@ const INBOX = {
 describe('an outlook backup whose delta reports removed messages', () => {
   it('writes a manifest recording them even when nothing new was stored', async () => {
     const harness = create_mailbox_sync_harness();
-    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue({
-      snapshot_id: 'snap-head',
-      total_objects: 3,
-      delta_links: {},
-      id_format: 'immutable',
-      entries: [],
-    } as unknown as Manifest);
+    vi.mocked(harness.mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'snap-head',
+        total_objects: 3,
+        delta_links: {},
+        id_format: 'immutable',
+        entries: [],
+      } as unknown as Manifest),
+    );
     vi.mocked(harness.mock_connector.fetch_delta).mockResolvedValue(
       delta_with_removals(['msg-deleted']),
     );
@@ -148,13 +151,15 @@ describe('the saved cursor of a run whose removals were withheld', () => {
       delta_links: OLD_LINKS,
       updated_at: '2026-10-01T00:00:00.000Z',
     });
-    vi.mocked(harness.mock_manifests.find_latest_by_owner).mockResolvedValue({
-      snapshot_id: 'snap-head',
-      total_objects: 3,
-      delta_links: OLD_LINKS,
-      id_format: 'immutable',
-      entries: [],
-    } as unknown as Manifest);
+    vi.mocked(harness.mock_manifests.find_latest_readable).mockResolvedValue(
+      latest_readable({
+        snapshot_id: 'snap-head',
+        total_objects: 3,
+        delta_links: OLD_LINKS,
+        id_format: 'immutable',
+        entries: [],
+      } as unknown as Manifest),
+    );
     return harness;
   }
 

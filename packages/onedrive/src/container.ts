@@ -1,5 +1,6 @@
 import { type Container } from 'inversify';
 import {
+  ONEDRIVE_QUARANTINE_USE_CASE_TOKEN,
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
@@ -27,6 +28,7 @@ import { OneDriveVersionRestoreService } from '@/services/restore/version-restor
 import { OneDriveCatalogService } from '@/services/catalog/catalog.service';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
 import { OneDriveStatusService } from '@/services/status/status.service';
+import { OneDriveQuarantineService } from '@/services/quarantine/quarantine.service';
 
 /** Registers OneDrive-specific DI bindings. Requires TENANT_CONTEXT_FACTORY_TOKEN to be bound first. */
 export function bind_onedrive(container: Container): void {
@@ -82,4 +84,8 @@ export function bind_onedrive(container: Container): void {
   container.bind(ONEDRIVE_RESTORE_USE_CASE_TOKEN).to(OneDriveRestoreService).inSingletonScope();
   container.bind(ONEDRIVE_SAVE_USE_CASE_TOKEN).to(OneDriveSaveService).inSingletonScope();
   container.bind(ONEDRIVE_STATUS_USE_CASE_TOKEN).to(OneDriveStatusService).inSingletonScope();
+  container
+    .bind(ONEDRIVE_QUARANTINE_USE_CASE_TOKEN)
+    .to(OneDriveQuarantineService)
+    .inSingletonScope();
 }

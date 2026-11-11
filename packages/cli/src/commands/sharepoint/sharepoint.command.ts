@@ -37,6 +37,8 @@ import {
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
+import { SHAREPOINT_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { register_quarantine_command } from '@/commands/shared/quarantine.command';
 
 type ContainerFactory = () => Container;
 
@@ -65,6 +67,11 @@ export function register_sharepoint_command(
   register_sharepoint_verify(group, get_container);
   register_sharepoint_status(group, get_container);
   register_sharepoint_delete(group, get_container);
+  register_quarantine_command(group, get_container, {
+    workload: 'sharepoint',
+    object_noun: 'manifest or version index',
+    token: SHAREPOINT_QUARANTINE_USE_CASE_TOKEN,
+  });
 }
 
 function register_sharepoint_restore_version(

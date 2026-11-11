@@ -37,6 +37,11 @@ export interface CalendarBackupSummary {
   readonly errors: string[];
   /** False when any event failed or any attachment was skipped. */
   readonly healthy: boolean;
+  /**
+   * Newer manifests that could not be read, by key. The run then read every calendar in full and
+   * wrote a fresh snapshot instead of building on them (issue #631).
+   */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface CalendarBackupResult {

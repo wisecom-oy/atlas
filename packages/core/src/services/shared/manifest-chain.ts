@@ -4,7 +4,7 @@ import type {
   ManifestRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
-import { NotFoundError } from '@wisecom/atlas-types';
+import { NotFoundError, UnreadableObjectsError } from '@wisecom/atlas-types';
 
 /**
  * Loads a snapshot's manifest plus every older manifest of the same mailbox, target first, then
@@ -21,11 +21,38 @@ export async function load_snapshot_chain(
   if (!target) throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
 
   const target_time = target.created_at.getTime();
-  const for_owner = await manifests.list_by_owner(ctx, target.owner_id);
+  const for_owner = await list_whole_chain(manifests, ctx, target.owner_id, snapshot_id);
   const older = for_owner
     .filter((m) => m.snapshot_id !== target.snapshot_id && m.created_at.getTime() <= target_time)
     .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
   return [target, ...older];
+}
+
+/**
+ * Lists every manifest of the owner, refusing when any is damaged.
+ *
+ * A damaged manifest's `created_at` is inside the ciphertext and an Outlook snapshot id carries no
+ * time, so nothing says whether it is older than the target. If it is, the target's chain needs
+ * it: its messages, and the removals that hide deleted ones, exist nowhere else. Leaving it out
+ * would restore a different mailbox than the one backed up, so the chain is refused with every
+ * damaged key named rather than resolved without them (issue #631).
+ */
+async function list_whole_chain(
+  manifests: ManifestRepository,
+  ctx: TenantContext,
+  owner_id: string,
+  snapshot_id: string,
+): Promise<Manifest[]> {
+  try {
+    return await manifests.list_by_owner(ctx, owner_id);
+  } catch (err) {
+    if (!(err instanceof UnreadableObjectsError)) throw err;
+    throw new UnreadableObjectsError(
+      `Snapshot ${snapshot_id} cannot be resolved: its chain may need a damaged Outlook manifest`,
+      err.unreadable_keys,
+      { cause: err },
+    );
+  }
 }
 
 /**

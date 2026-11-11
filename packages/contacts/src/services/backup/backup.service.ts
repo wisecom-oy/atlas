@@ -92,7 +92,9 @@ export class ContactsBackupService implements ContactsBackupUseCase {
     options: ContactsBackupOptions,
   ): Promise<ContactsBackupResult> {
     const cursor = await this._cursors.load(ctx, mailbox_id);
-    const previous = await this._manifests.find_latest_by_mailbox(ctx, mailbox_id);
+    const latest = await this._manifests.find_latest_readable(ctx, mailbox_id);
+    const previous = latest.manifest;
+    const head_unreadable = latest.unreadable_keys.length > 0;
     const folders = await this._connector.list_contact_folders(tenant_id, mailbox_id);
     const reporter = resolve_backup_progress(options, folders);
     const loop = await sync_all_folders(
@@ -105,12 +107,20 @@ export class ContactsBackupService implements ContactsBackupUseCase {
           options.should_interrupt?.() === true || options.abort_signal?.aborted === true,
       },
       folders,
-      loop_state(previous, cursor, options.force_full === true),
+      loop_state(previous, cursor, options.force_full === true || head_unreadable),
       options,
       reporter,
     );
     reporter.finish(folders.length);
-    return this.persist_snapshot(ctx, { tenant_id, mailbox_id, folders, previous, loop, options });
+    return this.persist_snapshot(ctx, {
+      tenant_id,
+      mailbox_id,
+      folders,
+      previous,
+      unreadable_keys: latest.unreadable_keys,
+      loop,
+      options,
+    });
   }
 
   /**
@@ -121,7 +131,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
     ctx: TenantContext,
     run: PersistInput,
   ): Promise<ContactsBackupResult> {
-    const { tenant_id, mailbox_id, folders, previous, loop, options } = run;
+    const { tenant_id, mailbox_id, folders, previous, unreadable_keys, loop, options } = run;
     const created_at = new Date();
     const folder_records: ContactFolderRecord[] = folders.map((folder) => ({
       folder_id: folder.id,
@@ -130,8 +140,11 @@ export class ContactsBackupService implements ContactsBackupUseCase {
     }));
     const counts = compare_entries(previous?.entries ?? [], loop.entries);
     const changed =
-      counts.changed + counts.removed > 0 || folders_differ(previous?.folders, folder_records);
-    const has_content = loop.entries.length > 0 || previous !== undefined;
+      counts.changed + counts.removed > 0 ||
+      folders_differ(previous?.folders, folder_records) ||
+      unreadable_keys.length > 0;
+    const has_content =
+      loop.entries.length > 0 || previous !== undefined || unreadable_keys.length > 0;
     const writable = !loop.interrupted;
     const snapshot =
       writable && changed && has_content
@@ -175,6 +188,7 @@ export class ContactsBackupService implements ContactsBackupUseCase {
         : {}),
       errors: loop.errors,
       healthy: loop.errors.length === 0,
+      ...(unreadable_keys.length > 0 ? { unreadable_keys: [...unreadable_keys] } : {}),
     };
     return { mailbox_id, snapshot, interrupted, summary };
   }
@@ -185,20 +199,25 @@ interface PersistInput {
   readonly mailbox_id: string;
   readonly folders: readonly GraphContactFolder[];
   readonly previous: ContactsSnapshotManifest | undefined;
+  /** Manifests newer than `previous` that could not be read; they force a full read and a snapshot. */
+  readonly unreadable_keys: readonly string[];
   readonly loop: FolderLoopOutcome;
   readonly options: ContactsBackupOptions;
 }
 
 /**
  * Decides which previous state a run may build on. Links are only trusted when the previous
- * manifest exists, since the links describe the state that manifest captured.
+ * manifest exists, since the links describe the state that manifest captured. A damaged newer
+ * manifest counts as untrusted too: the cursor's links describe the state it captured, which is
+ * unreadable, so building on an older manifest with those links would drop every change between
+ * the two. The run reads every folder in full instead and writes a fresh snapshot (issue #631).
  */
 function loop_state(
   previous: ContactsSnapshotManifest | undefined,
   cursor: ContactsDeltaCursor | undefined,
-  force_full: boolean,
+  read_in_full: boolean,
 ): FolderLoopState {
-  const trusted = previous !== undefined && !force_full;
+  const trusted = previous !== undefined && !read_in_full;
   const links = trusted ? (cursor?.delta_link_by_folder ?? {}) : {};
   return {
     previous_entries: previous?.entries ?? [],

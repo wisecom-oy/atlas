@@ -15,6 +15,7 @@ import {
 } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { OneDriveRestoreService } from '@/services/restore/restore.service';
+import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
   logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -70,7 +71,7 @@ function make_harness(damaged: readonly string[]) {
   } as unknown as OneDriveConnector;
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
-    list_snapshots_by_owner: vi.fn().mockResolvedValue([]),
+    list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 
   return { store, connector, service: new OneDriveRestoreService(factory, connector, manifests) };

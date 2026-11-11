@@ -25,6 +25,8 @@ export interface OneDriveRestoreResult {
   readonly files_skipped: number;
   readonly errors: string[];
   readonly interrupted: boolean;
+  /** Damaged manifests outside the snapshot's chain, by key: reported, not needed (issue #631). */
+  readonly unreadable_keys?: string[] | undefined;
 }
 
 export interface OneDriveRestoreUseCase {

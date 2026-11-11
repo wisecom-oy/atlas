@@ -55,8 +55,9 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
   private catalog_deps(): DriveCatalogDeps<OneDriveSnapshotManifest> {
     return {
       tenant_factory: this._tenant_factory,
-      list_snapshots: (ctx, owner_id) => this._manifests.list_snapshots_by_owner(ctx, owner_id),
-      list_indexes: (ctx, owner_id) => this._indexes.list_by_owner(ctx, owner_id),
+      list_snapshots: (ctx, owner_id) =>
+        this._manifests.list_readable_snapshots_by_owner(ctx, owner_id),
+      list_indexes: (ctx, owner_id) => this._indexes.list_readable_by_owner(ctx, owner_id),
     };
   }
 }
