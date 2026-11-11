@@ -16,6 +16,9 @@ const ATLAS_EXIT_CODES = {
   ATLAS_CONFIG_INVALID: 6,
   // Written by a newer Atlas: rerunning cannot help, upgrading does. Same category as unreadable.
   ATLAS_FORMAT_UNSUPPORTED: 9,
+  // The destination holds a different data key that may protect existing backups. Every rerun is
+  // refused the same way until an operator purges that bucket (issue #659).
+  ATLAS_KEY_CONFLICT: 10,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {

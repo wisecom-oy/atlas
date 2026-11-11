@@ -4,6 +4,7 @@ import {
   DekOverwriteRefusedError,
 } from '@/services/replication/dek-rehydration-validator';
 import type { ObjectStorage, StorageTarget } from '@wisecom/atlas-types';
+import { AtlasError } from '@wisecom/atlas-types';
 import {
   stub_storage_target,
   type StubStorageTarget,
@@ -119,6 +120,20 @@ describe('ensure_source_dek_on_primary (issue #26)', () => {
     ).rejects.toBeInstanceOf(DekOverwriteRefusedError);
 
     expect(primary.storage.put).not.toHaveBeenCalled();
+  });
+
+  it('names the refusal with the ATLAS_KEY_CONFLICT code (issue #659)', async () => {
+    const primary = make_target({
+      [DEK_KEY]: PRIMARY_DEK,
+      'onedrive/manifests/owner-1/snap-1.json': Buffer.from('drive manifest'),
+    });
+
+    const refusal = await ensure_source_dek_on_primary(primary.target, source.target, 't').catch(
+      (err: unknown) => err,
+    );
+
+    expect(refusal).toBeInstanceOf(AtlasError);
+    expect(refusal).toMatchObject({ code: 'ATLAS_KEY_CONFLICT', name: 'DekOverwriteRefusedError' });
   });
 
   it('refuses to overwrite when the primary holds only replication sidecars', async () => {
