@@ -20,6 +20,9 @@ export interface InterruptGate {
  * A second Ctrl+C exits at once with 130, so an operator can always force the issue. The listener
  * stays installed for the whole run, which suppresses Node's default SIGINT exit, so the gate must
  * exit itself.
+ *
+ * `message` is plain text: the gate logs it with `logger.warn`, which adds the `[!]` marker, so a
+ * message that carries its own prints it twice (issue #692).
  */
 export function install_interrupt_gate(message: string): InterruptGate {
   let interrupted = false;
