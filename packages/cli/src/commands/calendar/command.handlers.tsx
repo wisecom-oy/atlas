@@ -59,9 +59,8 @@ export interface CalendarVerifyCommandOptions extends CalendarTenantOptions {
 }
 
 const BACKUP_INTERRUPT_MESSAGE =
-  '[!] Stopping after the current event; the delta cursor is not advanced for an interrupted run';
-const RESTORE_INTERRUPT_MESSAGE =
-  '[!] Stopping after the current event; the restore will be partial';
+  'Stopping after the current event; the delta cursor is not advanced for an interrupted run';
+const RESTORE_INTERRUPT_MESSAGE = 'Stopping after the current event; the restore will be partial';
 
 function mailbox_label(mailbox: ResolvedOwner): string {
   return mailbox.display_name
