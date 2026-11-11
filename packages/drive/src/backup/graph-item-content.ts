@@ -48,7 +48,9 @@ export async function resolve_download_url(
  * Downloads via the Graph /content endpoint with stream drain.
  *
  * The request goes through `get_graph_content_stream`, so a throttled `/content` keeps its
- * Retry-After and `with_graph_retry` waits as long as Graph asked (issue #674). The drained byte
+ * Retry-After and `with_graph_retry` waits as long as Graph asked (issue #674). The request timeout
+ * applies to each attempt, not to the retry loop, so a Retry-After longer than the timeout is waited
+ * out instead of being cut off as a timed-out request. The drained byte
  * count is checked against the recorded size for the same reason the chunked path checks it: a
  * complete-looking body of the wrong length would otherwise be stored with a checksum computed
  * over those wrong bytes (issue #368).
@@ -59,10 +61,12 @@ export async function download_via_graph_content(
 ): Promise<Buffer> {
   const content_path = `/drives/${item.drive_id}/items/${item.item_id}/content`;
   const stream_timeout_ms = compute_chunk_timeout_ms(item.size_bytes);
-  const stream = await with_timeout(
-    with_graph_retry(() => get_graph_content_stream(client.api(content_path))),
-    stream_timeout_ms,
-    `Graph content request timed out for file ${item.item_id}`,
+  const stream = await with_graph_retry(() =>
+    with_timeout(
+      get_graph_content_stream(client.api(content_path)),
+      stream_timeout_ms,
+      `Graph content request timed out for file ${item.item_id}`,
+    ),
   );
   const drain_timeout_ms = stream_timeout_ms * 2;
   // A web stream on Node's fetch; the drain reads it through a reader.

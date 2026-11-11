@@ -74,4 +74,26 @@ describe('shared /content fallback Retry-After (issue #674)', () => {
     expect(rig.urls[2]).toContain('/drives/drive-1/items/item-1/content');
     await expect(body).resolves.toEqual(BYTES);
   });
+
+  // The request timeout (at least 30 s) wrapped the whole retry loop, so a Retry-After longer than
+  // it was cut off as "Graph content request timed out" instead of being waited out.
+  it('waits out a Retry-After longer than the request timeout', async () => {
+    const rig = queued_graph_fetch(
+      no_download_url_response(),
+      throttled_graph_response('120'),
+      binary_graph_response(BYTES),
+    );
+    vi.stubGlobal('fetch', rig.fetch);
+
+    const body = run_with_throttle_coordinator(coordinator, 'sharepoint_onedrive', () =>
+      ONEDRIVE_DOWNLOAD_EXECUTOR.download_with_fallback(client, make_item()),
+    );
+    const outcome = body.catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(rig.urls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(10_001);
+
+    expect(rig.urls).toHaveLength(3);
+    expect(await outcome).toEqual(BYTES);
+  });
 });
