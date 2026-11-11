@@ -15,6 +15,7 @@ import {
   group_entries_by_folder,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
+import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
 import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import {
@@ -249,6 +250,7 @@ export class RestoreService implements RestoreUseCase {
       tenant_id,
       source_mailbox,
       manifests,
+      folder_listing_for(entries),
     );
     await backfill_missing_folder_ids(ctx, entries);
 

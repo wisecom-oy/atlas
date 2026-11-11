@@ -16,6 +16,7 @@ import {
   group_entries_by_folder,
   count_unique_folders,
 } from '@/services/restore/folder-restore-planner';
+import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
 import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
@@ -184,7 +185,13 @@ export class SaveService implements SaveUseCase {
     target: ArchiveTarget,
     output_path: string,
   ): Promise<SaveResult> {
-    const folder_map = await build_folder_map(this._connector, tenant_id, owner_id, manifests);
+    const folder_map = await build_folder_map(
+      this._connector,
+      tenant_id,
+      owner_id,
+      manifests,
+      folder_listing_for(entries),
+    );
     await backfill_missing_folder_ids(ctx, entries);
 
     const groups = group_entries_by_folder(entries);

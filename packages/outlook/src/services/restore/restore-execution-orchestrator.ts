@@ -20,6 +20,7 @@ import {
   count_attachment_kinds,
 } from '@/services/restore/restored-message-report';
 import { build_folder_map, ensure_subfolder } from '@/services/restore/folder-restore-planner';
+import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
 import type { OperationControlOptions, TransferProgressReporter } from '@wisecom/atlas-types';
 import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
@@ -249,7 +250,14 @@ export async function restore_single_message(
 ): Promise<RestoreResult> {
   const folder_id = await resolve_source_folder_id(ctx, entry);
 
-  const folder_map = await build_folder_map(connector, tenant_id, source_mailbox, manifests);
+  const listing = folder_listing_for([entry]);
+  const folder_map = await build_folder_map(
+    connector,
+    tenant_id,
+    source_mailbox,
+    manifests,
+    listing,
+  );
   const created_folders = new Map<string, string>();
   const target_fid = await ensure_subfolder(
     restore_connector,

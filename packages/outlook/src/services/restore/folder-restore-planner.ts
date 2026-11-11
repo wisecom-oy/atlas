@@ -1,5 +1,5 @@
 import type { RestoreConnector } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder } from '@wisecom/atlas-types';
+import type { MailboxConnector, MailFolder, MailFolderListOptions } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { FOLDER_PATH_SEPARATOR } from '@/adapters/graph-folder-tree-enumerator';
@@ -15,16 +15,21 @@ const UNKNOWN_FOLDER_NAME = 'Unknown';
  * The path a manifest recorded wins, newest manifest first, so a folder deleted
  * or moved since the backup keeps its original path. The live listing names
  * folders no manifest records, such as those of manifests written before
- * `folders` existed (issue #690).
+ * `folders` existed (issue #690). `listing` widens that live listing, e.g. to
+ * the Recoverable Items subtree (issue #700).
  */
 export async function build_folder_map(
   connector: MailboxConnector,
   tenant_id: string,
   owner_id: string,
   recorded: readonly Manifest[] = [],
+  listing?: MailFolderListOptions,
 ): Promise<Map<string, string>> {
   const map = collect_recorded_folder_paths(recorded);
-  for (const f of await connector.list_mail_folders(tenant_id, owner_id)) {
+  const live = listing
+    ? await connector.list_mail_folders(tenant_id, owner_id, listing)
+    : await connector.list_mail_folders(tenant_id, owner_id);
+  for (const f of live) {
     if (!map.has(f.folder_id)) map.set(f.folder_id, f.folder_path);
   }
   return map;

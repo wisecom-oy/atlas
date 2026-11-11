@@ -10,7 +10,10 @@ import {
   build_folder_map,
   filter_entries_by_folder_name,
 } from '@/services/restore/folder-restore-planner';
-import { apply_recoverable_items_policy } from '@/services/restore/recoverable-items-filter';
+import {
+  apply_recoverable_items_policy,
+  folder_listing_for,
+} from '@/services/restore/recoverable-items-filter';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 
 /** Entry filters shared by `restore -m` and `save -m`. */
@@ -29,7 +32,8 @@ export interface ResolvedMailboxEntries {
 
 /**
  * Merges every snapshot of a mailbox in the date range, newest version per `object_id`, then
- * applies the Recoverable Items policy and the folder filter. Folders are named from the
+ * applies the folder filter and the Recoverable Items policy, in that order so the policy's skip
+ * count names only what the filter selected (issue #701). Folders are named from the
  * snapshots' recorded folders first, so a folder deleted since the backup is still selectable.
  */
 export async function resolve_mailbox_entries(
@@ -44,12 +48,14 @@ export async function resolve_mailbox_entries(
   if (in_range.length === 0) return { manifests: in_range, entries: [] };
 
   const merged = merge_snapshot_entries(in_range);
-  const allowed = apply_recoverable_items_policy(merged, filter.include_recoverable_items);
-  if (!filter.folder_name) return { manifests: in_range, entries: allowed };
-
-  await backfill_missing_folder_ids(ctx, allowed);
-  const folder_map = await build_folder_map(connector, tenant_id, owner_id, in_range);
-  const entries = filter_entries_by_folder_name(allowed, filter.folder_name, folder_map);
+  let selected = merged;
+  if (filter.folder_name) {
+    await backfill_missing_folder_ids(ctx, merged);
+    const listing = folder_listing_for(merged);
+    const folder_map = await build_folder_map(connector, tenant_id, owner_id, in_range, listing);
+    selected = filter_entries_by_folder_name(merged, filter.folder_name, folder_map);
+  }
+  const entries = apply_recoverable_items_policy(selected, filter.include_recoverable_items);
   return { manifests: in_range, entries };
 }
 

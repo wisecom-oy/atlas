@@ -221,9 +221,9 @@ atlas outlook backup -m user@company.com --include-recoverable-items
 The flag is off by default. On a mailbox under litigation hold, the dumpster can be as large as the mailbox, and that cost should be a deliberate choice. With the flag off, request volume matches earlier runs. The subtree is located only when the flag is set. Subfolders Atlas does not recognize are reported rather than guessed at, so a new Exchange subfolder shows up as a visible gap.
 
 ::: warning Restoring purged mail is opt-in twice
-Entries captured this way are marked in the manifest. `restore` and `save` exclude them by default, so an ordinary restore does not resurrect deleted mail or mail that exists only because a hold kept it. Pass `--include-recoverable-items` to the restore or save command as well, including when naming one message with `--message`.
+Entries captured this way are marked in the manifest. `restore` and `save` exclude them by default, so an ordinary restore does not resurrect deleted mail or mail that exists only because a hold kept it. Pass `--include-recoverable-items` to the restore or save command as well, including when naming one message with `--message`. Without it, Atlas logs how many of the selected messages it skipped, so a message or folder selection that holds no Recoverable Items entry logs nothing.
 
-Graph offers no way to write into Recoverable Items. Recovered items land in the normal restore folder. See [Recoverable Items and legal hold](../security.md#recoverable-items-and-legal-hold) for the compliance implications.
+Graph offers no way to write into Recoverable Items. Recovered items land in the normal restore folder, under `Recoverable Items/<subfolder>` (for example `Restore-<timestamp>/Recoverable Items/Deletions`), and `save` uses the same path inside the archive. Select one subfolder with `--folder "Recoverable Items/Deletions"`. See [Recoverable Items and legal hold](../security.md#recoverable-items-and-legal-hold) for the compliance implications.
 :::
 
 ::: warning Exit codes for backup, restore, and save
