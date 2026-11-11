@@ -198,12 +198,12 @@ Atlas retries transient Graph errors with exponential backoff:
 
 ## Interruption
 
-| Action        | Result                                                                                                                                                                       |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| First Ctrl+C  | Sets the interrupt flag. The current delta page finishes. Stored objects and completed delta links are saved to a partial manifest. The dashboard marks interrupted folders. |
-| Second Ctrl+C | Exits at once. Nothing is saved for work in progress. Folders that finished earlier in the run stay saved.                                                                   |
+| Action        | Result                                                                                                                                                                                                                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First Ctrl+C  | Stops the run. The Graph request in flight and any retry or throttle wait end at once. Completed folders and their delta links are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. |
+| Second Ctrl+C | Exits at once with status `130`. The run writes no manifest, so no delta link moves. Objects already uploaded stay in storage and are deduplicated by the next run.                                                                 |
 
-A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. Only the interrupted folder reprocesses from its last saved link.
+A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. The interrupted folder keeps its previous link and is read again from there. Graph has no cancel, so a request it already accepted still completes on its side; Atlas drops the result.
 
 ## See also
 

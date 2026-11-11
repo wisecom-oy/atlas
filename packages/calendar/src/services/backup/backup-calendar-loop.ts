@@ -98,6 +98,8 @@ async function sync_one_calendar(
     };
   } catch (err) {
     if (is_run_fatal(err)) throw err;
+    // A Graph call cut short by cancellation is the run stopping, not the calendar failing.
+    if (deps.should_interrupt()) return { state: previous, interrupted: true };
     const message = error_message(err);
     totals.errors.push(`Calendar ${calendar.display_name} failed: ${message}`);
     reporter.mark_error(index, message);

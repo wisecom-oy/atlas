@@ -10,6 +10,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { parse_mime_envelope } from '@/services/shared/mime-message-parser';
 import type { MimeEnvelope } from '@/services/shared/mime-message-parser';
 
@@ -54,11 +55,21 @@ export async function capture_mime_payload(
   try {
     return { mime: await connector.fetch_mime(tenant_id, owner_id, message.message_id) };
   } catch (err) {
-    if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
+    if (is_unrecordable_failure(err)) throw err;
     const reason = describe_capture_failure(err);
     logger.warn(`MIME capture failed for message ${message.message_id}: ${reason}`);
     return { mime: undefined, failure: reason };
   }
+}
+
+/**
+ * A failure the caller must not record against one message: lost access or licence ends the run
+ * (issue #372), and a Graph call cut short by cancellation is the run stopping (issue #673).
+ */
+export function is_unrecordable_failure(err: unknown): boolean {
+  return (
+    err instanceof AuthError || err instanceof MailboxNotLicensedError || is_active_run_cancelled()
+  );
 }
 
 /**
@@ -100,7 +111,7 @@ export async function capture_page_reactions(
     if (!by_message) return NO_REACTIONS;
     return { by_message, failed: ids.filter((id) => !by_message.has(id)).length };
   } catch (err) {
-    if (err instanceof AuthError || err instanceof MailboxNotLicensedError) throw err;
+    if (is_unrecordable_failure(err)) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     logger.warn(`Reaction capture failed for ${ids.length} messages: ${reason}`);
     return { by_message: new Map(), failed: ids.length };

@@ -89,9 +89,14 @@ export async function sync_all_folders(
       }
     } catch (err) {
       if (is_run_fatal(err)) throw err;
+      states.push(previous);
+      // A Graph call cut short by cancellation is the run stopping, not the folder failing.
+      if (deps.should_interrupt()) {
+        interrupted = true;
+        continue;
+      }
       const message = error_message(err);
       errors.push(`Contacts folder ${folder.display_name} failed: ${message}`);
-      states.push(previous);
       reporter.mark_error(index, message);
     }
     emit_operation_progress(control, {

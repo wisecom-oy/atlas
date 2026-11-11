@@ -201,3 +201,11 @@ export function run_with_abort_signal<T>(signal: AbortSignal | undefined, fn: ()
 export function get_active_abort_signal(): AbortSignal | undefined {
   return _abort.getStore();
 }
+
+/**
+ * True once the run the current async context belongs to has been cancelled. A catch block uses it
+ * to tell a Graph call cut short by the run's abort signal from one that failed on its own.
+ */
+export function is_active_run_cancelled(): boolean {
+  return _abort.getStore()?.aborted === true;
+}

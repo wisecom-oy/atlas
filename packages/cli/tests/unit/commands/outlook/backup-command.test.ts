@@ -8,6 +8,7 @@ import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 const mock_run_backup_with_cli_adapter = vi.fn();
 
 vi.mock('@/adapters/backup-operation.adapter', () => ({
+  OUTLOOK_INTERRUPT_MESSAGE: 'stopping',
   run_backup_with_cli_adapter: (...args: unknown[]): unknown =>
     mock_run_backup_with_cli_adapter(...args),
 }));

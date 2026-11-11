@@ -1,4 +1,6 @@
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { emit_operation_progress } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { append_all } from '@wisecom/atlas-core/utils/append-all';
 import type { ContactManifestEntry, OperationControlOptions } from '@wisecom/atlas-types';
 
 import {
@@ -15,6 +17,14 @@ import { is_run_fatal } from '@/services/shared/run-fatal-error';
 
 function describe_entry(entry: ContactManifestEntry): string {
   return entry.display_name ? `${entry.display_name} (${entry.contact_id})` : entry.contact_id;
+}
+
+/** The photo a restored contact left out, as one line; none for a skipped or complete contact. */
+function photo_error_lines(entry: ContactManifestEntry, outcome: EntryOutcome): string[] {
+  if (outcome.status !== 'restored' || outcome.photo_error === undefined) return [];
+  return [
+    `Contact ${describe_entry(entry)} restored without its photo: ${error_message(outcome.photo_error)}`,
+  ];
 }
 
 export interface RestoreLoopOutcome {
@@ -100,13 +110,15 @@ export async function restore_all_entries(
       const outcome = await restore_mapped_entry(deps, entry, scope);
       if (outcome.status === 'skipped') skipped += 1;
       else restored += 1;
-      if (outcome.status === 'restored' && outcome.photo_error !== undefined) {
-        errors.push(
-          `Contact ${describe_entry(entry)} restored without its photo: ${error_message(outcome.photo_error)}`,
-        );
-      }
+      append_all(errors, photo_error_lines(entry, outcome));
     } catch (err) {
       if (is_run_fatal(err)) throw err;
+      // A write cut short by cancellation is the run stopping. A write that landed anyway is
+      // found by its source tag on the next restore (issue #673).
+      if (is_active_run_cancelled()) {
+        interrupted = true;
+        break;
+      }
       errors.push(`Contact ${describe_entry(entry)} failed to restore: ${error_message(err)}`);
     }
     emit_operation_progress(control, {

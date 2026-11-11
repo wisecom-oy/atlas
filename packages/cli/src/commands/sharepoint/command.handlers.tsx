@@ -26,8 +26,7 @@ import { ResultSummary, type SummaryEntry } from '@/ui/components/result-summary
 import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
-import { install_interrupt_gate } from '@/adapters/interrupt-gate';
-import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
+import { run_interruptible } from '@/adapters/interruptible-run';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
 import {
   require_target_for_profile,
@@ -71,6 +70,9 @@ export interface SharePointSaveCommandOptions extends SharePointTenantOptions {
   output?: string;
   skipVerify?: boolean;
 }
+
+const BACKUP_INTERRUPT_MESSAGE =
+  'Stopping the current transfer; the delta cursor is not advanced for an interrupted run';
 
 /** Resolves the tenant id from CLI options, falling back to the configured tenant. */
 export function resolve_tenant_id(container: Container, options: SharePointTenantOptions): string {
@@ -127,12 +129,8 @@ export async function execute_sharepoint_backup(
   const backup = container.get<SharePointSiteTreeBackupUseCase>(
     SHAREPOINT_SITE_TREE_BACKUP_USE_CASE_TOKEN,
   );
-  const gate = install_interrupt_gate(
-    'Stopping the current transfer; the delta cursor is not advanced for an interrupted run',
-  );
-  let results;
-  try {
-    results = await backup.backup_site_tree(tenant_id, site.site_id, {
+  const results = await run_interruptible(container, BACKUP_INTERRUPT_MESSAGE, (gate) =>
+    backup.backup_site_tree(tenant_id, site.site_id, {
       force_full: options.full ?? false,
       include_subsites: options.includeSubsites ?? false,
       site_url: site.site_url,
@@ -140,13 +138,9 @@ export async function execute_sharepoint_backup(
       object_lock_request,
       should_interrupt: gate.should_interrupt,
       abort_signal: gate.abort_signal,
-    });
-  } finally {
-    gate.dispose();
-    // In `finally`, so a run that throws after Ctrl+C still drops the cooldown timer that would
-    // otherwise keep the process alive.
-    await release_throttle_cooldowns_if_cancelled(container, gate.abort_signal);
-  }
+    }),
+  );
+  if (results === undefined) return;
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Backup')} />);
   if (results.length > 1) {

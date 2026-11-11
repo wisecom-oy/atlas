@@ -4,6 +4,7 @@
 // them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
@@ -65,17 +66,28 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     private readonly _cursors: OneDriveDeltaCursorRepository,
   ) {}
 
-  /** Backs up changed OneDrive files and creates a snapshot only when data changed. */
+  /**
+   * Backs up changed OneDrive files and creates a snapshot only when data changed.
+   *
+   * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
+   * Graph retry or throttle wait rather than only the next file (issue #673).
+   */
   async backup_onedrive(
     tenant_id: string,
     owner_id: string,
     options: OneDriveBackupOptions = {},
   ): Promise<OneDriveBackupResult> {
     owner_id = normalize_owner_id(owner_id);
-    if (begin_operation_progress(options, 'backup', 'onedrive')) {
-      finish_operation_progress(options, 'backup', 'onedrive', 0, 0);
-      return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false);
-    }
+    const cancelled = (): OneDriveBackupResult => interrupted_before_scan(owner_id, options);
+    if (begin_operation_progress(options, 'backup', 'onedrive')) return cancelled();
+    return run_cancellable(options, () => this.run_backup(tenant_id, owner_id, options), cancelled);
+  }
+
+  private async run_backup(
+    tenant_id: string,
+    owner_id: string,
+    options: OneDriveBackupOptions,
+  ): Promise<OneDriveBackupResult> {
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     let progress: BackupProgressReporter | undefined;
     try {
@@ -323,6 +335,15 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       rows: new Map(),
     };
   }
+}
+
+/** A run cancelled before its scan finished: no snapshot, and the delta cursor is untouched. */
+function interrupted_before_scan(
+  owner_id: string,
+  options: OneDriveBackupOptions,
+): OneDriveBackupResult {
+  finish_operation_progress(options, 'backup', 'onedrive', 0, 0, true);
+  return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false);
 }
 
 /** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */

@@ -139,6 +139,12 @@ export async function scan_all_libraries({
         break;
       }
     } catch (err) {
+      // A Graph call cut short by cancellation is the run stopping, not the library failing. The
+      // library keeps its old delta link either way (issue #673).
+      if (options.abort_signal?.aborted === true) {
+        result.interrupted = true;
+        break;
+      }
       const reason = err instanceof Error ? err.message : String(err);
       logger.error(`Library ${library.drive_id} failed: ${reason}`);
       result.errors.push(`Library ${library.drive_name} (${library.drive_id}): ${reason}`);
