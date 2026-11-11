@@ -6,6 +6,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { AuthError } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
   clear_item_failure,
   record_item_failure,
@@ -293,7 +294,9 @@ async function refetch_or_record(
     library_state.failed_items = clear_item_failure(library_state.failed_items, record.item_id);
     return undefined;
   } catch (err) {
-    if (err instanceof AuthError) throw err;
+    // A fetch cut short by cancellation keeps the attempt count the item already had; the library
+    // scan treats the throw as the run stopping (issue #673).
+    if (err instanceof AuthError || is_active_run_cancelled()) throw err;
     const reason = err instanceof Error ? err.message : String(err);
     library_state.failed_items = record_item_failure(library_state.failed_items, {
       item_id: record.item_id,

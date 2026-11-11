@@ -217,15 +217,36 @@ export async function scan_all_drives(
         break;
       }
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      logger.error(`Drive ${drive.drive_id} failed: ${reason}`);
-      accumulators.errors.push(`Drive ${drive.drive_name} (${drive.drive_id}): ${reason}`);
-      progress?.mark_error(index, reason);
       Object.assign(tracking_state, tracking_before);
+      record_failed_or_cancelled_drive(err, drive, index, accumulators, progress, control);
     }
   }
 
   return accumulators;
+}
+
+/**
+ * Records a drive whose scan threw. A Graph call cut short by cancellation is the run stopping,
+ * not the drive failing, so it marks the scan interrupted instead of adding an error; the drive
+ * keeps its old delta link either way (issue #673).
+ */
+function record_failed_or_cancelled_drive(
+  err: unknown,
+  drive: OneDriveDrive,
+  index: number,
+  accumulators: DriveScanAccumulators,
+  progress: BackupProgressReporter | undefined,
+  control: OperationControlOptions,
+): void {
+  if (control.abort_signal?.aborted === true) {
+    accumulators.interrupted = true;
+    progress?.mark_all_pending_interrupted();
+    return;
+  }
+  const reason = err instanceof Error ? err.message : String(err);
+  logger.error(`Drive ${drive.drive_id} failed: ${reason}`);
+  accumulators.errors.push(`Drive ${drive.drive_name} (${drive.drive_id}): ${reason}`);
+  progress?.mark_error(index, reason);
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   begin_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type {
   CalendarConnector,
@@ -44,8 +45,8 @@ export class CalendarRestoreService implements CalendarRestoreUseCase {
   ): Promise<CalendarRestoreResult> {
     const source_id = normalize_owner_id(mailbox_id);
     const target_id = normalize_owner_id(options.target_mailbox_id ?? mailbox_id);
-    if (begin_operation_progress(options, 'restore', 'calendar')) {
-      finish_operation_progress(options, 'restore', 'calendar', 0, 0);
+    const cancelled = (): CalendarRestoreResult => {
+      finish_operation_progress(options, 'restore', 'calendar', 0, 0, true);
       return {
         snapshot_id: options.snapshot_id,
         events_restored: 0,
@@ -54,11 +55,16 @@ export class CalendarRestoreService implements CalendarRestoreUseCase {
         errors: [],
         interrupted: true,
       };
-    }
+    };
+    if (begin_operation_progress(options, 'restore', 'calendar')) return cancelled();
 
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      return await this.run_restore(tenant_ctx, tenant_id, source_id, target_id, options);
+      return await run_cancellable(
+        options,
+        () => this.run_restore(tenant_ctx, tenant_id, source_id, target_id, options),
+        cancelled,
+      );
     } finally {
       tenant_ctx.destroy();
     }

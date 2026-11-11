@@ -20,7 +20,7 @@ import { render_static_view } from '@/ui/render';
 import { create_backup_progress } from '@/ui/dashboards/backup-progress-factory';
 import { build_object_lock_request } from '@/command-object-lock';
 import { report_run_outcome } from '@/command-run-outcome';
-import { install_interrupt_gate } from '@/adapters/interrupt-gate';
+import { run_interruptible } from '@/adapters/interruptible-run';
 import {
   resolve_owner,
   resolve_restore_target,
@@ -86,10 +86,8 @@ export async function execute_contacts_backup(
     </Box>,
   );
 
-  const gate = install_interrupt_gate(BACKUP_INTERRUPT_MESSAGE);
-  let result;
-  try {
-    result = await backup.backup_contacts(tenant_id, mailbox.object_id, {
+  const result = await run_interruptible(container, BACKUP_INTERRUPT_MESSAGE, (gate) =>
+    backup.backup_contacts(tenant_id, mailbox.object_id, {
       force_full: options.full ?? false,
       object_lock_request,
       create_progress: create_backup_progress({
@@ -98,10 +96,10 @@ export async function execute_contacts_backup(
         row_noun: 'folder',
       }),
       should_interrupt: gate.should_interrupt,
-    });
-  } finally {
-    gate.dispose();
-  }
+      abort_signal: gate.abort_signal,
+    }),
+  );
+  if (result === undefined) return;
 
   const { summary } = result;
   if (result.snapshot) {
@@ -147,17 +145,15 @@ export async function execute_contacts_restore(
     : undefined;
   const restore = restore_container.get<ContactsRestoreUseCase>(CONTACTS_RESTORE_USE_CASE_TOKEN);
 
-  const gate = install_interrupt_gate(RESTORE_INTERRUPT_MESSAGE);
-  let result;
-  try {
-    result = await restore.restore_contacts(tenant_id, mailbox.object_id, {
+  const result = await run_interruptible(restore_container, RESTORE_INTERRUPT_MESSAGE, (gate) =>
+    restore.restore_contacts(tenant_id, mailbox.object_id, {
       snapshot_id: options.snapshot,
       ...(target ? { target_mailbox_id: target.object_id } : {}),
       should_interrupt: gate.should_interrupt,
-    });
-  } finally {
-    gate.dispose();
-  }
+      abort_signal: gate.abort_signal,
+    }),
+  );
+  if (result === undefined) return;
 
   await render_static_view(
     <Box flexDirection="column">

@@ -93,6 +93,23 @@ export interface ExtendedProperty {
   readonly value: string;
 }
 
+/** A wall-clock time and the Windows or IANA time zone it is in, as Graph `dateTimeTimeZone`. */
+export interface ZonedDateTime {
+  readonly date_time: string;
+  readonly time_zone: string;
+}
+
+/**
+ * An Outlook follow-up flag that is set or completed, from Graph `flag`. A message that is not
+ * flagged has no flag recorded.
+ */
+export interface FollowUpFlag {
+  readonly status: 'flagged' | 'complete';
+  readonly start?: ZonedDateTime | undefined;
+  readonly due?: ZonedDateTime | undefined;
+  readonly completed?: ZonedDateTime | undefined;
+}
+
 export interface ManifestEntry {
   readonly object_id: string;
   readonly storage_key: string;
@@ -135,6 +152,18 @@ export interface ManifestEntry {
    * separately and written back on restore. Absent when the message has no reactions (issue #481).
    */
   readonly reaction_properties?: readonly ExtendedProperty[] | undefined;
+  /**
+   * The follow-up flag with its dates, from the delta item. The MIME carries at most an
+   * `X-Message-Flag` header, so a MIME entry would otherwise restore unflagged. Absent when the
+   * message is not flagged and on entries written before the field (issue #579).
+   */
+  readonly flag?: FollowUpFlag | undefined;
+  /**
+   * The renew-time properties (`SystemTime 0x0F02` and `SystemTime 0x0F01`) Outlook moves to a
+   * far-future date to pin a message. Recorded only when the message carries a renew time, which
+   * an unpinned message does not, and written back on restore (issue #579).
+   */
+  readonly pin_properties?: readonly ExtendedProperty[] | undefined;
 }
 
 /**

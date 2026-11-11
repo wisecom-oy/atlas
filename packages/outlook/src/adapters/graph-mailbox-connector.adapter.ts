@@ -9,7 +9,7 @@ import type {
   MessageAttachment,
   DeltaSyncResult,
   DeltaPageCallback,
-  ExtendedProperty,
+  MessageExtendedProperties,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { map_attachments, resolve_downloaded_attachment } from '@/adapters/graph-attachment-mapper';
@@ -21,7 +21,7 @@ import {
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
 import { fetch_message_mime } from '@/adapters/graph-message-mime-fetcher';
-import { fetch_message_reaction_properties } from '@/adapters/graph-message-reaction-fetcher';
+import { fetch_message_extended_properties } from '@/adapters/graph-message-extended-property-fetcher';
 import { fetch_attachment_content } from '@/adapters/graph-attachment-content-fetcher';
 import {
   extract_user_ids,
@@ -196,13 +196,13 @@ export class GraphMailboxConnector implements MailboxConnector {
     return fetch_message_mime(this._client, owner_id, message_id, IMMUTABLE_ID_PREFER);
   }
 
-  /** Reads reaction properties for a page of messages, 20 per `$batch` (issues #481, #513). */
-  async fetch_reaction_properties(
+  /** Reads reaction and pin properties for a page of messages, 20 per `$batch` (issue #579). */
+  async fetch_extended_properties(
     _tenant_id: string,
     owner_id: string,
     message_ids: readonly string[],
-  ): Promise<Map<string, ExtendedProperty[]>> {
-    return fetch_message_reaction_properties(
+  ): Promise<Map<string, MessageExtendedProperties>> {
+    return fetch_message_extended_properties(
       this._client,
       owner_id,
       message_ids,

@@ -1,4 +1,5 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
@@ -12,6 +13,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
+import { failed_folder_result } from '@/services/backup/failed-folder-result';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -57,17 +59,31 @@ export class MailboxSyncService implements BackupUseCase {
     private readonly _cursors: MailboxDeltaCursorRepository,
   ) {}
 
-  /** Orchestrates a full or incremental mailbox backup across all (or filtered) folders. */
+  /**
+   * Orchestrates a full or incremental mailbox backup across all (or filtered) folders.
+   *
+   * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
+   * Graph retry or throttle wait rather than only the next page (issue #673).
+   */
   async sync_mailbox(
     tenant_id: string,
     owner_id: string,
     options: SyncOptions = {},
   ): Promise<SyncResult> {
     owner_id = normalize_owner_id(owner_id);
-    if (begin_operation_progress(options, 'backup', 'outlook')) {
-      finish_operation_progress(options, 'backup', 'outlook', 0, 0);
+    const cancelled = (): SyncResult => {
+      finish_operation_progress(options, 'backup', 'outlook', 0, 0, true);
       return build_interrupted_result(tenant_id, owner_id, options);
-    }
+    };
+    if (begin_operation_progress(options, 'backup', 'outlook')) return cancelled();
+    return run_cancellable(options, () => this.run_sync(tenant_id, owner_id, options), cancelled);
+  }
+
+  private async run_sync(
+    tenant_id: string,
+    owner_id: string,
+    options: SyncOptions,
+  ): Promise<SyncResult> {
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
     const ctx = await this._tenant_factory.create(tenant_id);
@@ -78,7 +94,8 @@ export class MailboxSyncService implements BackupUseCase {
         owner_display_name: options.owner_display_name,
       });
       const sync_start = Date.now();
-      const should_interrupt: () => boolean = options.should_interrupt ?? always_false;
+      const should_interrupt = (): boolean =>
+        options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
       const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
 
       const { previous, saved_links, previous_entry_count, mode } = await resolve_resume_state(
@@ -303,21 +320,7 @@ export class MailboxSyncService implements BackupUseCase {
             : result.entries,
       };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        entries: [],
-        removed_ids: [],
-        delta_link: '',
-        complete: false,
-        stored: 0,
-        deduplicated: 0,
-        attachments_stored: 0,
-        message_errors: [],
-        folder_processed: 0,
-        warnings: [],
-        reactions_not_captured: 0,
-        error: msg,
-      };
+      return failed_folder_result(err, options);
     }
   }
 }

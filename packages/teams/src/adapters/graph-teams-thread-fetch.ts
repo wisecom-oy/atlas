@@ -1,11 +1,10 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import { GraphError, ResponseType } from '@microsoft/microsoft-graph-client';
 import type {
   TeamsGraphResource,
   TeamsHostedContent,
   TeamsMessageLocator,
 } from '@wisecom/atlas-types';
-import { with_graph_retry } from '@wisecom/atlas-m365-graph';
+import { get_graph_binary_response, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { INCLUDE_UNKNOWN_ENUM_HEADERS, read_all_pages } from '@/adapters/graph-teams-request';
 
 function message_path(team_id: string, channel_id: string, root_id: string): string {
@@ -43,20 +42,11 @@ export async function list_hosted_contents(
   return items;
 }
 
-/** The raw `$value` response: status, bytes and the headers Graph sent with them. */
-interface RawHostedResponse {
-  readonly ok: boolean;
-  readonly status: number;
-  readonly headers: { get(name: string): string | null };
-  arrayBuffer(): Promise<ArrayBuffer>;
-  json(): Promise<unknown>;
-}
-
 /**
- * Downloads one hosted content item's raw bytes and its Content-Type header. A raw response is
- * not checked by the Graph client, so a non-2xx is turned into a GraphError here, inside the
- * retried call: otherwise a 404 or 429 error body would be stored as the image. The call is not
- * wrapped in `graph_teams_call`, so a 403 stays a GraphError for the caller to treat as missing.
+ * Downloads one hosted content item's raw bytes and its Content-Type header. A non-2xx becomes a
+ * GraphError with its headers inside the retried call, so a 404 or 429 error body is never stored
+ * as the image. The call is not wrapped in `graph_teams_call`, so a 403 stays a GraphError for the
+ * caller to treat as missing.
  */
 export async function download_hosted_content(
   client: Client,
@@ -64,28 +54,9 @@ export async function download_hosted_content(
   hosted_id: string,
 ): Promise<TeamsHostedContent> {
   const url = `${hosted_contents_path(locator)}/${encodeURIComponent(hosted_id)}/$value`;
-  const response = await with_graph_retry(async () => {
-    const raw = (await client.api(url).responseType(ResponseType.RAW).get()) as RawHostedResponse;
-    if (!raw.ok) throw await graph_error_from(raw);
-    return raw;
-  });
+  const response = await with_graph_retry(() => get_graph_binary_response(client.api(url)));
   return {
     bytes: Buffer.from(await response.arrayBuffer()),
     content_type: response.headers.get('content-type') ?? undefined,
   };
-}
-
-/**
- * Builds the GraphError the client would have thrown for a non-raw request: status, Graph error
- * code, body, and headers, so retry, Retry-After, 403 and 404 handling all see the usual shape.
- */
-async function graph_error_from(raw: RawHostedResponse): Promise<GraphError> {
-  const body = (await raw.json().catch(() => null)) as {
-    error?: { code?: string; message?: string };
-  } | null;
-  const error = new GraphError(raw.status, body?.error?.message ?? `HTTP ${raw.status}`);
-  error.code = body?.error?.code ?? null;
-  error.body = body;
-  error.headers = raw.headers as unknown as Headers;
-  return error;
 }

@@ -4,6 +4,7 @@ import {
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type {
   CalendarBackupOptions,
@@ -62,19 +63,24 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     options: CalendarBackupOptions = {},
   ): Promise<CalendarBackupResult> {
     const mailbox = normalize_owner_id(mailbox_id);
-    if (begin_operation_progress(options, 'backup', 'calendar')) {
-      finish_operation_progress(options, 'backup', 'calendar', 0, 0);
+    const cancelled = (): CalendarBackupResult => {
+      finish_operation_progress(options, 'backup', 'calendar', 0, 0, true);
       return {
         mailbox_id: mailbox,
         snapshot: undefined,
         interrupted: true,
         summary: empty_summary(),
       };
-    }
+    };
+    if (begin_operation_progress(options, 'backup', 'calendar')) return cancelled();
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
       const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
-      return await this.run_backup(ctx, tenant_id, mailbox, options);
+      return await run_cancellable(
+        options,
+        () => this.run_backup(ctx, tenant_id, mailbox, options),
+        cancelled,
+      );
     } finally {
       tenant_ctx.destroy();
     }

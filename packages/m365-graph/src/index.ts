@@ -14,6 +14,11 @@ export {
   with_graph_retry,
 } from './graph-request-error-handler';
 export { is_network_error } from './graph-network-error';
+export {
+  get_graph_binary_response,
+  get_graph_bytes,
+  get_graph_content_stream,
+} from '@/graph-binary-download';
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   no_onedrive_message,

@@ -215,7 +215,7 @@ describe('GraphCostMiddleware', () => {
 
     const [, cost] = await run_with_cost_tracking(() =>
       run_with_graph_operation(
-        { pool: 'outlook', request_type: 'fetch_reaction_properties' },
+        { pool: 'outlook', request_type: 'fetch_extended_properties' },
         async () => {
           await middleware.execute(batch_of(20));
           await middleware.execute(batch_of(20));
@@ -223,7 +223,7 @@ describe('GraphCostMiddleware', () => {
       ),
     );
 
-    expect(cost.requests_by_type['fetch_reaction_properties']).toBe(40);
+    expect(cost.requests_by_type['fetch_extended_properties']).toBe(40);
     expect(cost.by_service.outlook?.requests).toBe(40);
     expect(cost.by_service.outlook?.resource_units).toBe(40);
   });

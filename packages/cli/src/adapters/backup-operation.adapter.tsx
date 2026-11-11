@@ -6,39 +6,37 @@ import type {
   SyncResult,
 } from '@wisecom/atlas-types/ports/backup/use-case.port';
 import { logger } from '@wisecom/atlas-core';
+import type { InterruptGate } from '@/adapters/interrupt-gate';
 import { BackupProgressStore } from '@/ui/dashboards/backup-progress-store';
 import { BackupProgressLineReporter } from '@/ui/dashboards/backup-progress-line-reporter';
 import { BackupProgressView } from '@/ui/dashboards/backup-progress';
 import { ResultSummary } from '@/ui/components/result-summary';
 import { mount_live_view, render_static_view } from '@/ui/render';
 
-interface InterruptState {
-  interrupted: boolean;
-  sigint_count: number;
-}
+/** Shown on the dashboard after the first Ctrl+C; the gate logs the same line. */
+export const OUTLOOK_INTERRUPT_MESSAGE =
+  '[!] Stopping; folders already finished keep their delta state (Ctrl+C again to force quit)';
 
-/** Executes backup use case with an Ink progress dashboard and SIGINT behavior. */
+/**
+ * Executes the backup use case with an Ink progress dashboard, stopping on the gate's Ctrl+C.
+ *
+ * The gate's signal is passed as `abort_signal`, so the first Ctrl+C also ends a Graph retry or
+ * throttle wait. The gate exits with 130 on the second, which the old listener here never did: it
+ * only set a flag polled at page boundaries, so no number of presses ended a run parked in a wait
+ * (issue #673).
+ */
 export async function run_backup_with_cli_adapter(
   use_case: BackupUseCase,
   tenant_id: string,
   mailbox_id: string,
   options: SyncOptions,
+  gate: InterruptGate,
 ): Promise<SyncResult> {
-  const state: InterruptState = { interrupted: false, sigint_count: 0 };
   let reporter: BackupProgressReporter | undefined;
   let instance: Instance | undefined;
 
-  const on_sigint = (): void => {
-    state.sigint_count++;
-    state.interrupted = true;
-    if (state.sigint_count === 1) {
-      reporter?.set_status(
-        '[!] Stopping -- finishing page fetch to save delta state (Ctrl+C again to force quit)',
-      );
-    }
-  };
-
-  process.on('SIGINT', on_sigint);
+  const show_stopping = (): void => reporter?.set_status(OUTLOOK_INTERRUPT_MESSAGE);
+  gate.abort_signal.addEventListener('abort', show_stopping, { once: true });
   try {
     const result = await use_case.sync_mailbox(tenant_id, mailbox_id, {
       ...options,
@@ -53,8 +51,8 @@ export async function run_backup_with_cli_adapter(
         reporter = line_reporter;
         return line_reporter;
       },
-      should_interrupt: () => state.interrupted,
-      should_force_stop: () => state.sigint_count >= 2,
+      should_interrupt: gate.should_interrupt,
+      abort_signal: gate.abort_signal,
     });
 
     instance?.unmount();
@@ -63,7 +61,7 @@ export async function run_backup_with_cli_adapter(
     return result;
   } finally {
     instance?.unmount();
-    process.removeListener('SIGINT', on_sigint);
+    gate.abort_signal.removeEventListener('abort', show_stopping);
   }
 }
 

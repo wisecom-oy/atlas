@@ -13,7 +13,7 @@ atlas outlook backup -m user@example.com -s "$TENANT" --full   # ignore saved de
 
 ## Lifecycle of a delta link
 
-1. **First run.** Atlas requests `/users/{id}/mailFolders/{id}/messages/delta` for each folder, including the message body. Graph pages through every message. The final `@odata.deltaLink` is saved with the snapshot.
+1. **First run.** Atlas requests `/users/{id}/mailFolders/{id}/messages/delta` for each folder, including the message body. Graph pages through every message. The final `@odata.deltaLink` is saved in the mailbox's delta cursor, `_meta/outlook-cursors/{owner_id}.json`, and in the snapshot manifest when the run writes one.
 2. **Later runs.** Atlas sends the saved link. Graph returns only the changes since the last sync.
 
 A delta link is a Graph URL with an opaque sync token:
@@ -25,7 +25,7 @@ https://graph.microsoft.com/v1.0/users/.../messages/delta?$deltatoken=aGR2b...
 The token records the point where the last sync ended. Sending the link back returns only the changes after that point.
 
 ::: warning Delta links are sensitive
-Delta links are stored inside the encrypted manifest (Outlook) or cursor object (OneDrive and SharePoint), never in plaintext. They hold tenant-scoped sync state. Anyone who obtains one could learn which mailbox items changed. Atlas encrypts manifests and cursors with the tenant data key, so the links are protected at rest. Do not copy them into logs or tickets.
+Delta links are stored inside encrypted cursor objects, and for Outlook also inside the encrypted manifest, never in plaintext. They hold tenant-scoped sync state. Anyone who obtains one could learn which mailbox items changed. Atlas encrypts manifests and cursors with the tenant data key, so the links are protected at rest. Do not copy them into logs or tickets.
 :::
 
 ## When Atlas performs a full enumeration
@@ -34,7 +34,7 @@ Delta links are stored inside the encrypted manifest (Outlook) or cursor object 
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Stale-delta safeguard    | The saved link returns no items, but the previous manifest stored no entries. The earlier backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full.                                                                                                                                                       |
 | Expired or invalid token | Graph returns `syncStateNotFound`, `resyncRequired`, or `syncStateInvalid`. Atlas resyncs the folder in full and logs a warning. Tokens lapse after a period of inactivity, and the incremental chain is broken. Outlook can reject a token after some of its pages were already stored; the resync skips those messages and keeps the removals they carried. |
-| `--full`                 | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt.                                                                                                                                                                                                                                    |
+| `--full`                 | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt. See [what a full run costs](/troubleshooting#outlook-cursor-carries-folder-links-of-another-mailbox).                                                                                                                              |
 | Legacy message IDs       | Snapshots created before Atlas used immutable Outlook IDs hold mutable IDs. Mixing the two formats breaks correlation, so the first backup after upgrading runs in full and records `id_format: immutable` in the new manifest. This happens once per mailbox.                                                                                                |
 
 A full enumeration is scoped to the drive or library that triggered it. Delta links are kept per drive, so a site with several libraries, or a user with several drives, keeps working links for the rest. Files in the rebased drive are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
@@ -80,7 +80,7 @@ With the manifest written first, the worst case is repeated work. If the run cra
 
 This ordering applies per run. A run covering several drives or libraries collects the advanced links in memory and commits them together, after the manifest. A finished drive never has its progress saved ahead of the snapshot that references it.
 
-Outlook has one write per run, because its delta links live inside the manifest.
+Outlook follows the same rule: the manifest first, then the cursor. A run that captured nothing and found no deletions writes only the cursor.
 
 ## File version capture (OneDrive and SharePoint)
 
@@ -167,19 +167,21 @@ If Graph cannot produce MIME for one item, Atlas stores that item in the legacy 
 
 A MIME request that fails is a different case from Graph having no MIME, for example a `503` still failing after the [retries](#retry-and-error-handling). Atlas stores the JSON form so the run keeps the message, reports the message as an error of its folder, and keeps the folder's previous delta link. The run exits 2. The next run fetches the folder's changes again, captures the MIME, and its entry replaces the JSON one in the snapshot chain. A JSON entry whose attachments could not be fetched or stored is handled the same way: the next run fetches the message and its attachments again. A message that fails on every run holds its folder's link back until it succeeds, and the changes refetched each time deduplicate against the stored objects.
 
-### Reactions
+### Reactions, flag, and pin
 
-Outlook reactions (like, heart, celebrate and so on) live in MAPI named properties, not in the MIME and not in the delta payload. Graph rejects the `$expand` that would read them on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:
+The delta query selects `flag`, so each message's follow-up flag status and its start, due and completed dates arrive with the delta item. A MIME entry records them in its manifest entry as `flag`, because the MIME carries at most an `X-Message-Flag` header. An unflagged message records nothing.
+
+Outlook reactions (like, heart, celebrate and so on) and the pin live in MAPI properties, not in the MIME and not in the delta payload. Outlook pins a message by setting its renew times, `SystemTime 0x0F02` and `SystemTime 0x0F01`, to a far-future date. Graph rejects the `$expand` that would read these properties on the delta query with `400 BadRequest`, so Atlas reads them for each delta page in one `$batch` of up to 20 of these requests:
 
 ```
 GET /users/{id}/messages/{id}?$select=id&$expand=singleValueExtendedProperties($filter=...)
 ```
 
-The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Graph evaluates each request in a batch on its own. What the batch saves is round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 reaction round trips, where it used to make 2N requests. At `--page-size 100` it is N/20. Messages are read in every batch, including messages without reactions and messages whose content deduplicates, because the reactions belong to the manifest entry rather than to the stored object.
+The requests in a batch are chained with `dependsOn`, so Exchange runs them one at a time and the batch never exceeds the four concurrent requests a mailbox allows. Every message still counts once against the per-mailbox budget, because Graph evaluates each request in a batch on its own. What the batch saves is round trips: at the default page size of 10, a first backup of N messages makes N `/$value` requests plus N/10 batch round trips, where it used to make 2N requests. At `--page-size 100` it is N/20. Messages are read in every batch, including messages without reactions and messages whose content deduplicates, because the reactions and pin belong to the manifest entry rather than to the stored object.
 
-Adding a reaction updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
+Adding a reaction or a flag updates the message's `lastModifiedDateTime`, so the next incremental run picks it up as a changed message.
 
-Only messages with reactions store anything: their manifest entry gains `reaction_properties`. A throttled or failed read inside a batch is retried for that message alone. A read that still fails backs the message up without its reactions, and the run summary prints a warning per folder with the count, because the delta link moves on and those reactions are read again only when the message changes. A permission or licensing failure stops the mailbox, as it does for MIME. If the configured mailbox connector cannot read reactions at all, Atlas logs that once and captures none.
+Only messages with reactions or a pin store anything: their manifest entry gains `reaction_properties` or `pin_properties`. The pin is recorded only when `0x0F01` is present, which it is not on a message that was never pinned. A throttled or failed read inside a batch is retried for that message alone. A read that still fails backs the message up without its reactions and pin, and the run summary prints a warning per folder with the count, because the delta link moves on and those properties are read again only when the message changes. The flag does not depend on this read. A permission or licensing failure stops the mailbox, as it does for MIME. If the configured mailbox connector cannot read these properties at all, Atlas logs that once and captures none.
 
 ## Retry and error handling
 
@@ -198,12 +200,12 @@ Atlas retries transient Graph errors with exponential backoff:
 
 ## Interruption
 
-| Action        | Result                                                                                                                                                                       |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| First Ctrl+C  | Sets the interrupt flag. The current delta page finishes. Stored objects and completed delta links are saved to a partial manifest. The dashboard marks interrupted folders. |
-| Second Ctrl+C | Exits at once. Nothing is saved for work in progress. Folders that finished earlier in the run stay saved.                                                                   |
+| Action        | Result                                                                                                                                                                                                                              |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| First Ctrl+C  | Stops the run. The Graph request in flight and any retry or throttle wait end at once. Completed folders and their delta links are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. |
+| Second Ctrl+C | Exits at once with status `130`. The run writes no manifest, so no delta link moves. Objects already uploaded stay in storage and are deduplicated by the next run.                                                                 |
 
-A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. Only the interrupted folder reprocesses from its last saved link.
+A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. The interrupted folder keeps its previous link and is read again from there. Graph has no cancel, so a request it already accepted still completes on its side; Atlas drops the result.
 
 ## See also
 
