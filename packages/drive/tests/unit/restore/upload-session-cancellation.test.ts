@@ -1,0 +1,62 @@
+/**
+ * Issue #682. A chunk PUT answered with a throttle slept out its Retry-After with no abort signal,
+ * so Ctrl+C during a large-file restore waited up to an hour. The upload session the cancelled
+ * upload leaves behind must be released, never completed into a partial file.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { upload_content_to_session } from '@/restore/upload-session';
+
+vi.mock('@wisecom/atlas-core/utils/logger', () => ({
+  logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+const UPLOAD_URL = 'https://graph.test/upload/session-cancel';
+
+/** Answers every chunk PUT with `429 Retry-After: 360` and records each request's method. */
+function stub_throttled_session(): string[] {
+  const methods: string[] = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init?: { method?: string }) => {
+      methods.push(init?.method ?? 'GET');
+      if (init?.method === 'PUT') {
+        return new Response('slow down', { status: 429, headers: { 'Retry-After': '360' } });
+      }
+      return new Response(null, { status: 204 });
+    }),
+  );
+  return methods;
+}
+
+describe('upload_content_to_session cancelled during a chunk Retry-After (issue #682)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('ends the wait within a second and deletes the session instead of committing it', async () => {
+    const methods = stub_throttled_session();
+    const controller = new AbortController();
+    let settled = false;
+
+    const upload = run_with_abort_signal(controller.signal, () =>
+      upload_content_to_session(UPLOAD_URL, Buffer.alloc(16, 1), 'Report.docx'),
+    ).finally(() => (settled = true));
+    const outcome = upload.catch((err: unknown) => err);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(settled).toBe(false);
+
+    controller.abort(new Error('Run interrupted by Ctrl+C'));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(settled).toBe(true);
+    expect(await outcome).toBeInstanceOf(Error);
+    expect(methods).toEqual(['PUT', 'DELETE']);
+  });
+});

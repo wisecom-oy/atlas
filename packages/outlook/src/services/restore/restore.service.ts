@@ -1,4 +1,5 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
@@ -54,6 +55,20 @@ export class RestoreService implements RestoreUseCase {
     snapshot_id: string,
     options: RestoreOptions = {},
   ): Promise<RestoreResult> {
+    // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+    return run_cancellable(
+      options,
+      () => this.restore_snapshot_entries(tenant_id, snapshot_id, options),
+      () => this.finish_interrupted_result(snapshot_id, options),
+    );
+  }
+
+  /** Restores one snapshot, or the single message `message_ref` names. */
+  private async restore_snapshot_entries(
+    tenant_id: string,
+    snapshot_id: string,
+    options: RestoreOptions,
+  ): Promise<RestoreResult> {
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result(snapshot_id, options);
     }
@@ -77,7 +92,7 @@ export class RestoreService implements RestoreUseCase {
       }
 
       if (options.message_ref) {
-        if (options.should_interrupt?.() === true) {
+        if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) {
           const result = this.empty_result(snapshot_id, true);
           emit_operation_progress(options, {
             operation: 'restore',
@@ -132,6 +147,19 @@ export class RestoreService implements RestoreUseCase {
     tenant_id: string,
     owner_id: string,
     options: RestoreOptions = {},
+  ): Promise<RestoreResult> {
+    return run_cancellable(
+      options,
+      () => this.restore_mailbox_entries(tenant_id, owner_id, options),
+      () => this.finish_interrupted_result('mailbox', options),
+    );
+  }
+
+  /** Restores the merged, filtered entries of every snapshot of a mailbox. */
+  private async restore_mailbox_entries(
+    tenant_id: string,
+    owner_id: string,
+    options: RestoreOptions,
   ): Promise<RestoreResult> {
     owner_id = normalize_owner_id(owner_id);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
@@ -245,6 +273,12 @@ export class RestoreService implements RestoreUseCase {
   private finish_empty_result(snapshot_id: string, options: RestoreOptions): RestoreResult {
     const interrupted = finish_operation_progress(options, 'restore', 'outlook', 0, 0);
     return this.empty_result(snapshot_id, interrupted);
+  }
+
+  /** The result of a run cancelled before it could build its own: nothing was restored. */
+  private finish_interrupted_result(snapshot_id: string, options: RestoreOptions): RestoreResult {
+    finish_operation_progress(options, 'restore', 'outlook', 0, 0, true);
+    return this.empty_result(snapshot_id, true);
   }
 
   private empty_result(snapshot_id: string, interrupted = false): RestoreResult {

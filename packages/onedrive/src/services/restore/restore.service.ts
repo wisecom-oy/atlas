@@ -7,6 +7,8 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
+import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { is_active_run_cancelled } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { inject, injectable } from 'inversify';
 import type {
   OneDriveConnector,
@@ -58,7 +60,24 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     owner_id: string,
     options: OneDriveRestoreOptions,
   ): Promise<OneDriveRestoreResult> {
-    owner_id = normalize_owner_id(owner_id);
+    // Under the run's abort signal, so Ctrl+C also ends a Graph retry or throttle wait (#682).
+    // A run cancelled before it could build its own result restored nothing.
+    return run_cancellable(
+      options,
+      () => this.restore_snapshot_entries(tenant_id, normalize_owner_id(owner_id), options),
+      () => {
+        finish_operation_progress(options, 'restore', 'onedrive', 0, 0, true);
+        return empty_restore_result(options.snapshot_id);
+      },
+    );
+  }
+
+  /** Restores every selected snapshot entry, stopping at an interrupt. */
+  private async restore_snapshot_entries(
+    tenant_id: string,
+    owner_id: string,
+    options: OneDriveRestoreOptions,
+  ): Promise<OneDriveRestoreResult> {
     if (begin_operation_progress(options, 'restore', 'onedrive')) {
       finish_operation_progress(options, 'restore', 'onedrive', 0, 0);
       return empty_restore_result(options.snapshot_id);
@@ -112,7 +131,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       );
 
       for (const entry of restorable) {
-        if (options.should_interrupt?.() === true) break;
+        if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
         const routed = resolve_target_drive(entry);
         if (routed.error !== undefined) {
           files_skipped++;
@@ -129,6 +148,8 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
           conflict,
           { root: restore_root, file_name: options.rename_to ?? entry.file_name },
         );
+        // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
+        if (result.cancelled === true) break;
         if (result.restored) {
           files_restored++;
         } else {
@@ -178,7 +199,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     folder_ids: Map<string, string>,
     conflict: NonNullable<OneDriveRestoreOptions['conflict_behavior']>,
     placement: { readonly root: string; readonly file_name: string },
-  ): Promise<{ restored: boolean; error?: string }> {
+  ): Promise<{ restored: boolean; error?: string; cancelled?: true }> {
     const target_path = restore_parent_path(placement.root, entry.parent_path);
     try {
       const parent_id = await ensure_onedrive_folder_path(
@@ -238,6 +259,8 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       // A failed tag means the key does not fit the snapshot, which fails every remaining file
       // too. Aborting surfaces that as a key error instead of N skipped files (issue #633).
       if (err instanceof DriveDecryptAuthError) throw err;
+      // An upload cut short by Ctrl+C is the run stopping, not a failed file (issue #682).
+      if (is_active_run_cancelled()) return { restored: false, cancelled: true };
       const msg = `${entry.file_name}: ${err instanceof Error ? err.message : String(err)}`;
       logger.warn(`Skipped ${entry.file_name}: ${msg}`);
       return { restored: false, error: msg };

@@ -102,6 +102,8 @@ atlas onedrive restore -o user@example.com -s od-snap-123 \
 
 Restored files keep their original created and modified timestamps. Each file is decrypted and checked against its SHA-256 checksum before upload. A file whose stored bytes do not match the manifest is reported as a restore error, is not created, and makes the run exit non-zero.
 
+Ctrl+C stops a restore at once, including during an upload parked in a Graph retry or throttle wait. The command prints the files restored so far and exits `2`. The file in flight is neither reported as failed nor created: a file up to 4 MiB is written by one request that creates nothing until it completes, and a larger file's upload session is deleted before the final chunk that would create it. A second Ctrl+C exits at once with status `130`. `restore-version` behaves the same way.
+
 ### restore-version
 
 Restores earlier versions of a file, or of every file as of a point in time. See [rolling a file back to an earlier version](#rolling-a-file-back-to-an-earlier-version).

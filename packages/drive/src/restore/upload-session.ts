@@ -6,6 +6,7 @@ import {
   wait_for_transfer_slot,
 } from '@wisecom/atlas-m365-graph';
 import { ByteQueue } from '@wisecom/atlas-core/services/shared/byte-queue';
+import { get_active_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import type { LargeFileContent, StreamedFileContent } from '@wisecom/atlas-types';
 
@@ -73,13 +74,17 @@ export async function upload_content_to_session(
     ? { chunks: [content], total_bytes: content.length }
     : content;
 
+  // Ctrl+C ends a chunk PUT or its retry wait. The committing chunk is the last one sent, so a
+  // cancelled upload leaves an abandoned session, never a partial file (issue #682).
+  const abort_signal = get_active_abort_signal();
   let outcome: UploadOutcome;
   try {
-    outcome = await put_source_chunks(upload_url, source, label);
+    outcome = await put_source_chunks(upload_url, source, label, abort_signal);
   } catch (err) {
     // A thrown error takes the same exit as a terminal HTTP failure. Without this a socket reset on
     // a chunk, or a source that failed to authenticate, left the session open.
-    await cancel_upload_session(upload_url, 'a failed chunk upload');
+    const reason = abort_signal?.aborted === true ? 'a cancelled run' : 'a failed chunk upload';
+    await cancel_upload_session(upload_url, reason);
     throw err;
   }
 
@@ -116,6 +121,7 @@ async function put_source_chunks(
   upload_url: string,
   source: StreamedFileContent,
   label: string,
+  abort_signal: AbortSignal | undefined,
 ): Promise<UploadOutcome> {
   const pending = new ByteQueue();
   let sent = 0;
@@ -137,7 +143,7 @@ async function put_source_chunks(
         );
       }
       const range = `bytes ${sent}-${sent + block.length - 1}/${source.total_bytes}`;
-      if (await put_chunk_with_retry(upload_url, range, block)) {
+      if (await put_chunk_with_retry(upload_url, range, block, abort_signal)) {
         return { kind: 'early', range, unsent: source.total_bytes - sent - block.length };
       }
       sent += block.length;
@@ -158,7 +164,8 @@ async function put_source_chunks(
   // is left and this single PUT is the one that creates the item.
   if (pending.bytes > 0) {
     const range = `bytes ${sent}-${source.total_bytes - 1}/${source.total_bytes}`;
-    if (await put_chunk_with_retry(upload_url, range, pending.take(pending.bytes))) {
+    const last = pending.take(pending.bytes);
+    if (await put_chunk_with_retry(upload_url, range, last, abort_signal)) {
       return { kind: 'completed' };
     }
   }
@@ -171,13 +178,15 @@ async function put_chunk_with_retry(
   upload_url: string,
   range: string,
   chunk: Buffer,
+  abort_signal: AbortSignal | undefined,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < CHUNK_PUT_ATTEMPTS; attempt++) {
-    await wait_for_transfer_slot();
+    await wait_for_transfer_slot(abort_signal);
     const response = await fetch(upload_url, {
       method: 'PUT',
       headers: { 'Content-Range': range, 'Content-Length': String(chunk.length) },
       body: chunk,
+      ...(abort_signal ? { signal: abort_signal } : {}),
     });
     report_transfer_throttle(response);
     // 200 and 201 carry the finished driveItem; 202 means the session wants more bytes.
@@ -192,7 +201,7 @@ async function put_chunk_with_retry(
       // The shared parser: the private `parseInt` copy this replaces had no clamp, so a value
       // above 2^31-1 ms overflowed `setTimeout` and retried after about 1 ms (issue #628).
       const wait_ms = parse_retry_after_ms(response.headers.get('retry-after')) ?? 1000;
-      await cancellable_sleep(wait_ms, undefined);
+      await cancellable_sleep(wait_ms, abort_signal);
       continue;
     }
     throw new Error(`Resumable upload failed at range ${range}: HTTP ${response.status} ${detail}`);

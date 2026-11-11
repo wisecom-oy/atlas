@@ -27,6 +27,10 @@ import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import {
+  DRIVE_RESTORE_INTERRUPT_MESSAGE,
+  report_drive_restore,
+} from '@/commands/drive/restore-presenter';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
 import {
   require_target_for_profile,
@@ -236,36 +240,29 @@ export async function execute_sharepoint_restore(
   const restore = restore_container.get<SharePointRestoreUseCase>(
     SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   );
-  const result = await restore.restore_sharepoint(tenant_id, site_id, {
-    snapshot_id: options.snapshot,
-    ...(target_site_id ? { target_site_id } : {}),
-    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
-    ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
-    ...(options.destination ? { destination: options.destination } : {}),
-    ...(options.inPlace === true ? { in_place: true } : {}),
-    ...(options.name ? { rename_to: options.name } : {}),
-  });
-
-  await render_static_view(
-    <Box flexDirection="column">
-      <Banner title={banner_title('sharepoint', 'Restore')} />
-      <KeyValueList
-        items={[
-          { label: 'Snapshot', value: result.snapshot_id },
-          { label: 'Files restored', value: String(result.files_restored) },
-          { label: 'Folders created', value: String(result.folders_created) },
-          ...target_profile_items(options.targetProfile, restore_container),
-        ]}
-      />
-    </Box>,
+  const result = await run_interruptible(
+    restore_container,
+    DRIVE_RESTORE_INTERRUPT_MESSAGE,
+    (gate) =>
+      restore.restore_sharepoint(tenant_id, site_id, {
+        snapshot_id: options.snapshot,
+        ...(target_site_id ? { target_site_id } : {}),
+        ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
+        ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+        ...(options.destination ? { destination: options.destination } : {}),
+        ...(options.inPlace === true ? { in_place: true } : {}),
+        ...(options.name ? { rename_to: options.name } : {}),
+        should_interrupt: gate.should_interrupt,
+        abort_signal: gate.abort_signal,
+      }),
   );
-  report_skipped_items(result.files_skipped, 'File');
-  if (result.errors.length > 0) {
-    await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
-  } else {
-    logger.success('Restore completed successfully');
-  }
+  if (result === undefined) return;
+
+  await report_drive_restore(
+    banner_title('sharepoint', 'Restore'),
+    result,
+    target_profile_items(options.targetProfile, restore_container),
+  );
 }
 
 export async function execute_sharepoint_save(

@@ -31,6 +31,10 @@ import {
   target_profile_items,
 } from '@/commands/shared/restore-target-container';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import {
+  DRIVE_RESTORE_INTERRUPT_MESSAGE,
+  report_drive_restore,
+} from '@/commands/drive/restore-presenter';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -222,36 +226,29 @@ export async function execute_onedrive_restore(
     ? await resolve_restore_target(restore_container, tenant_id, options.targetOwner)
     : undefined;
   const restore = restore_container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
-  const result = await restore.restore_onedrive(tenant_id, owner.object_id, {
-    snapshot_id: options.snapshot,
-    ...(target_owner ? { target_owner_id: target_owner.object_id } : {}),
-    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
-    ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
-    ...(options.destination ? { destination: options.destination } : {}),
-    ...(options.inPlace === true ? { in_place: true } : {}),
-    ...(options.name ? { rename_to: options.name } : {}),
-  });
-
-  await render_static_view(
-    <Box flexDirection="column">
-      <Banner title={banner_title('onedrive', 'Restore')} />
-      <KeyValueList
-        items={[
-          { label: 'Snapshot', value: result.snapshot_id },
-          { label: 'Files restored', value: String(result.files_restored) },
-          { label: 'Folders created', value: String(result.folders_created) },
-          ...target_profile_items(options.targetProfile, restore_container),
-        ]}
-      />
-    </Box>,
+  const result = await run_interruptible(
+    restore_container,
+    DRIVE_RESTORE_INTERRUPT_MESSAGE,
+    (gate) =>
+      restore.restore_onedrive(tenant_id, owner.object_id, {
+        snapshot_id: options.snapshot,
+        ...(target_owner ? { target_owner_id: target_owner.object_id } : {}),
+        ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
+        ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+        ...(options.destination ? { destination: options.destination } : {}),
+        ...(options.inPlace === true ? { in_place: true } : {}),
+        ...(options.name ? { rename_to: options.name } : {}),
+        should_interrupt: gate.should_interrupt,
+        abort_signal: gate.abort_signal,
+      }),
   );
-  report_skipped_items(result.files_skipped, 'File');
-  if (result.errors.length > 0) {
-    await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
-  } else {
-    logger.success('Restore completed successfully');
-  }
+  if (result === undefined) return;
+
+  await report_drive_restore(
+    banner_title('onedrive', 'Restore'),
+    result,
+    target_profile_items(options.targetProfile, restore_container),
+  );
 }
 
 export async function execute_onedrive_save(

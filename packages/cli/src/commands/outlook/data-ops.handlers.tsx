@@ -7,6 +7,8 @@ import type { SaveUseCase, SaveResult, SaveOptions, DeletionUseCase } from '@wis
 import { SAVE_USE_CASE_TOKEN, DELETION_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import { report_run_outcome } from '@/command-run-outcome';
+import { run_interruptible } from '@/adapters/interruptible-run';
+import type { InterruptGate } from '@/adapters/interrupt-gate';
 import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook/scope';
 import {
   confirm_deletion,
@@ -43,6 +45,8 @@ export interface OutlookDeleteOptions {
   yes?: boolean;
 }
 
+const SAVE_INTERRUPT_MESSAGE = 'Stopping after the current message; the archive will be partial';
+
 /** Saves backed-up emails as EML files in a compressed zip archive. */
 export async function execute_outlook_save(
   container: Container,
@@ -78,7 +82,7 @@ export async function execute_outlook_save(
   if (conflict) logger.warn(conflict);
 
   if (scope.mode === 'snapshot') {
-    return execute_snapshot_save(save_service, tenant_id, options, save_options);
+    return execute_snapshot_save(container, save_service, tenant_id, options, save_options);
   }
 
   return execute_mailbox_save(container, save_service, tenant_id, options, save_options);
@@ -147,6 +151,7 @@ function build_save_options(options: OutlookSaveOptions): SaveOptions {
 }
 
 async function execute_snapshot_save(
+  container: Container,
   service: SaveUseCase,
   tenant_id: string,
   cli_options: OutlookSaveOptions,
@@ -157,8 +162,10 @@ async function execute_snapshot_save(
   if (cli_options.message) items.push({ label: 'Message', value: cli_options.message });
   await render_static_view(<KeyValueList items={items} />);
 
-  const result = await service.save_snapshot(tenant_id, cli_options.snapshot!, save_options);
-  await report_save_result(result);
+  const result = await run_interruptible(container, SAVE_INTERRUPT_MESSAGE, (gate) =>
+    service.save_snapshot(tenant_id, cli_options.snapshot!, with_gate(save_options, gate)),
+  );
+  if (result !== undefined) await report_save_result(result);
 }
 
 async function execute_mailbox_save(
@@ -175,8 +182,15 @@ async function execute_mailbox_save(
   if (cli_options.folder) items.push({ label: 'Folder filter', value: cli_options.folder });
   await render_static_view(<KeyValueList items={items} />);
 
-  const result = await service.save_mailbox(tenant_id, owner.object_id, save_options);
-  await report_save_result(result);
+  const result = await run_interruptible(container, SAVE_INTERRUPT_MESSAGE, (gate) =>
+    service.save_mailbox(tenant_id, owner.object_id, with_gate(save_options, gate)),
+  );
+  if (result !== undefined) await report_save_result(result);
+}
+
+/** Hands the interrupt gate to the service; a second Ctrl+C then exits with 130 (issue #682). */
+function with_gate(options: SaveOptions, gate: InterruptGate): SaveOptions {
+  return { ...options, should_interrupt: gate.should_interrupt, abort_signal: gate.abort_signal };
 }
 
 async function report_save_result(result: SaveResult): Promise<void> {

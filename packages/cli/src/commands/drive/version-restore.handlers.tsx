@@ -26,6 +26,9 @@ import { Banner } from '@/ui/components/banner';
 import { DataTable, type TableColumn } from '@/ui/components/data-table';
 import { render_static_view } from '@/ui/render';
 import { report_skipped_items, EXIT_PARTIAL } from '@/command-run-outcome';
+import { run_interruptible } from '@/adapters/interruptible-run';
+import type { InterruptGate } from '@/adapters/interrupt-gate';
+import { DRIVE_RESTORE_INTERRUPT_MESSAGE } from '@/commands/drive/restore-presenter';
 
 /** Flags shared by both drives; only the scope flag differs. */
 interface VersionRestoreFlags {
@@ -100,11 +103,11 @@ export async function execute_onedrive_restore_version(
   const use_case = container.get<OneDriveVersionRestoreUseCase>(
     ONEDRIVE_VERSION_RESTORE_USE_CASE_TOKEN,
   );
-  const result = await use_case.restore_onedrive_version(
-    tenant_id,
-    owner.object_id,
-    build_version_restore_options(options),
+  const restore_options = build_version_restore_options(options);
+  const result = await run_interruptible(container, DRIVE_RESTORE_INTERRUPT_MESSAGE, (gate) =>
+    use_case.restore_onedrive_version(tenant_id, owner.object_id, with_gate(restore_options, gate)),
   );
+  if (result === undefined) return;
   await report_version_restore(banner_title('onedrive', 'Version Restore'), result);
 }
 
@@ -118,12 +121,20 @@ export async function execute_sharepoint_restore_version(
   const use_case = container.get<SharePointVersionRestoreUseCase>(
     SHAREPOINT_VERSION_RESTORE_USE_CASE_TOKEN,
   );
-  const result = await use_case.restore_sharepoint_version(
-    tenant_id,
-    site_id,
-    build_version_restore_options(options),
+  const restore_options = build_version_restore_options(options);
+  const result = await run_interruptible(container, DRIVE_RESTORE_INTERRUPT_MESSAGE, (gate) =>
+    use_case.restore_sharepoint_version(tenant_id, site_id, with_gate(restore_options, gate)),
   );
+  if (result === undefined) return;
   await report_version_restore(banner_title('sharepoint', 'Version Restore'), result);
+}
+
+/** Hands the interrupt gate to the service, so Ctrl+C also ends a Graph wait (issue #682). */
+function with_gate(
+  options: DriveVersionRestoreOptions,
+  gate: InterruptGate,
+): DriveVersionRestoreOptions {
+  return { ...options, should_interrupt: gate.should_interrupt, abort_signal: gate.abort_signal };
 }
 
 /** Prints what was written, then what was not, then the placement guarantee. */
