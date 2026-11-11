@@ -121,7 +121,16 @@ export class RestoreService implements RestoreUseCase {
           snapshot_id,
           entries[0]!,
         );
-        const interrupted = finish_operation_progress(options, 'restore', 'outlook', 1, 1);
+        // The signal is read too: a caller that passes only `abort_signal` stopped the attachment
+        // uploads of this message, and the run is interrupted though the message landed.
+        const interrupted = finish_operation_progress(
+          options,
+          'restore',
+          'outlook',
+          1,
+          1,
+          was_aborted(options.abort_signal),
+        );
         return { ...result, interrupted };
       }
 
@@ -295,4 +304,12 @@ export class RestoreService implements RestoreUseCase {
       interrupted,
     };
   }
+}
+
+/**
+ * Reads the signal at the moment of the call. A plain `signal.aborted` check after an earlier
+ * early return is narrowed to false by the compiler, though the signal can fire in between.
+ */
+function was_aborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }

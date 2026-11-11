@@ -109,6 +109,44 @@ describe('Outlook restore cancelled during a Graph retry wait (issue #682)', () 
     expect(mock_restore.create_message).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a single-message restore stopped during its attachments as interrupted', async () => {
+    const { service, mock_manifests, mock_restore } = make_restore_harness();
+    vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+      make_manifest([
+        {
+          ...make_entry('msg-1', 'f1'),
+          attachments: [
+            {
+              attachment_id: 'a-1',
+              name: 'a-1.pdf',
+              content_type: 'application/pdf',
+              size_bytes: 10,
+              storage_key: 'att/a-1',
+              checksum: STORED_PAYLOAD_CHECKSUM,
+              is_inline: false,
+            },
+          ],
+        },
+      ]),
+    );
+    vi.mocked(mock_restore.add_attachment).mockImplementation(graph_call_parked_in_retry_wait);
+    const controller = new AbortController();
+
+    // Only the signal, as a direct service caller may pass it, with no `should_interrupt`.
+    const run = service.restore_snapshot('test-tenant', 'snap-1', {
+      message_ref: '1',
+      abort_signal: controller.signal,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    controller.abort(new Error('Run interrupted by Ctrl+C'));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const result = await run;
+    expect(result.interrupted).toBe(true);
+    expect(result.restored_count).toBe(1);
+    expect(result.errors).toEqual(['1 attachment(s) not uploaded: the run was interrupted']);
+  });
+
   it('resolves an interrupted result when the signal lands before any message is written', async () => {
     const { service, mock_manifests, mock_restore } = make_restore_harness();
     vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
