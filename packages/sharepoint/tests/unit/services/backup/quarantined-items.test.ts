@@ -3,7 +3,7 @@
  *
  * Graph never serves quarantined content, and it refuses in a way that looks
  * retryable: the transfer aborts rather than returning a clean 403, so
- * `is_network_error` matches on the message and `with_graph_retry` spends its
+ * `is_network_error` classifies the abort as retryable and `with_graph_retry` spends its
  * full ~23 minute budget on content that will never arrive. The pipeline
  * therefore has to skip the item on the `malware` facet, before any download.
  */

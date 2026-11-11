@@ -7,12 +7,12 @@ export { parse_retry_after_ms } from './graph-retry-after';
 export {
   is_invalid_delta_error,
   is_transient_error,
-  is_network_error,
   is_retryable_error,
   describe_graph_error,
   is_content_gone_error,
   with_graph_retry,
 } from './graph-request-error-handler';
+export { is_network_error } from './graph-network-error';
 export type { GraphRetryOptions } from './graph-request-error-handler';
 export {
   no_onedrive_message,
