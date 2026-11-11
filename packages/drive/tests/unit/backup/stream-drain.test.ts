@@ -57,6 +57,40 @@ describe('stream_to_buffer', () => {
     expect(stream.destroyed).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it('drains a web stream, the body type Graph returns on the built-in fetch', async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(Buffer.from('ab'));
+        controller.enqueue(Buffer.from('cd'));
+        controller.close();
+      },
+    });
+
+    await expect(
+      stream_to_buffer(stream as unknown as NodeJS.ReadableStream, DRAIN_TIMEOUT_MS),
+    ).resolves.toEqual(Buffer.from('abcd'));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // A web stream has no destroy(): calling it from the timer threw inside the callback, an uncaught
+  // exception that crashed the process instead of rejecting the drain.
+  it('cancels a stalled web stream and rejects once the timeout passes', async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const drained = stream_to_buffer(stream as unknown as NodeJS.ReadableStream, DRAIN_TIMEOUT_MS);
+    const outcome = drained.catch((err: unknown) => err);
+
+    await vi.advanceTimersByTimeAsync(DRAIN_TIMEOUT_MS);
+
+    expect(await outcome).toEqual(new Error('Graph content stream timed out'));
+    expect(cancelled).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 describe('with_timeout', () => {
