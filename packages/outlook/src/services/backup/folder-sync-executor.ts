@@ -1,7 +1,7 @@
-import type { ExtendedProperty, TenantContext } from '@wisecom/atlas-types';
+import type { MessageExtendedProperties, TenantContext } from '@wisecom/atlas-types';
 import {
   capture_mime_payload,
-  capture_page_reactions,
+  capture_page_extended_properties,
   store_single_message,
 } from '@/services/backup/message-payload-store';
 import type { MailboxConnector, MailMessage } from '@wisecom/atlas-types';
@@ -43,7 +43,7 @@ export interface FolderSyncResult {
   folder_processed: number;
   /** Per-folder problems that lost data but no message, e.g. reactions not read (issue #513). */
   warnings: string[];
-  /** Messages stored without their reactions; also summarised in `warnings`. */
+  /** Messages stored without their reactions and pin; also summarised in `warnings`. */
   reactions_not_captured: number;
 }
 
@@ -71,7 +71,7 @@ export interface FolderSyncParams {
 /**
  * Processes a single message: capture MIME, dedup check, encrypt, store.
  * MIME embeds its attachments, so only a JSON fallback queues a separate
- * attachment fetch. Reactions were read for the whole page beforehand (issue #513).
+ * attachment fetch. Reactions and pin were read for the whole page beforehand (issue #513).
  * A MIME capture that failed for now is recorded in `message_errors` (issue #614).
  */
 async function process_message(
@@ -80,7 +80,7 @@ async function process_message(
   tenant_id: string,
   owner_id: string,
   message: MailMessage,
-  reactions: ExtendedProperty[],
+  properties: MessageExtendedProperties | undefined,
   entries: ManifestEntry[],
   stats: { stored: number; deduplicated: number; att_stored: number },
   pending_attachments: PendingAttachment[],
@@ -99,7 +99,7 @@ async function process_message(
     owner_id,
     object_lock_policy,
     mime,
-    reactions,
+    properties,
   );
   if (entry.was_new) stats.stored++;
   else stats.deduplicated++;
@@ -168,10 +168,15 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
       return false;
     }
 
-    // Read for the page, not per message: reactions belong to the manifest entry, so a message
+    // Read for the page, not per message: reactions and pin belong to the manifest entry, so a message
     // whose content dedups still needs them, and the batch costs one round trip per 20.
-    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, page_messages);
-    stats.reactions_failed += reactions.failed;
+    const properties = await capture_page_extended_properties(
+      connector,
+      tenant_id,
+      owner_id,
+      page_messages,
+    );
+    stats.reactions_failed += properties.failed;
     for (const message of page_messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -183,7 +188,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
-        reactions.by_message.get(message.message_id) ?? [],
+        properties.by_message.get(message.message_id),
         entries,
         stats,
         pending_attachments,
@@ -251,8 +256,13 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
   }
 
   if (!streamed) {
-    const reactions = await capture_page_reactions(connector, tenant_id, owner_id, delta.messages);
-    stats.reactions_failed += reactions.failed;
+    const properties = await capture_page_extended_properties(
+      connector,
+      tenant_id,
+      owner_id,
+      delta.messages,
+    );
+    stats.reactions_failed += properties.failed;
     for (const message of delta.messages) {
       if (is_interrupted()) {
         aborted = true;
@@ -264,7 +274,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
         tenant_id,
         owner_id,
         message,
-        reactions.by_message.get(message.message_id) ?? [],
+        properties.by_message.get(message.message_id),
         entries,
         stats,
         pending_attachments,
@@ -318,7 +328,7 @@ export async function sync_single_folder(params: FolderSyncParams): Promise<Fold
     warnings:
       stats.reactions_failed > 0
         ? [
-            `reactions not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
+            `reactions and pin not captured for ${stats.reactions_failed} message(s); they are read again only when the message changes`,
           ]
         : [],
     reactions_not_captured: stats.reactions_failed,

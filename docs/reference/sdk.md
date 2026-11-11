@@ -134,7 +134,7 @@ Each line includes `fields` that identify the source. Field names are snake_case
 Logs are not the record of a run. The typed result carries what happened: `summary.warnings`, `summary.folderErrors`, `summary.excludedFolders`, `summary.reactionsNotCaptured`, and `integrityFailures`. Do not parse log text to find out what a run did.
 :::
 
-`summary.reactionsNotCaptured` on an Outlook backup counts messages stored without their reactions, because Graph returned an error for them or a reaction read used up its retries. The messages themselves are stored, and `summary.warnings` carries one line per affected folder. The delta link still advances, so those reactions are read again only when the message changes.
+`summary.reactionsNotCaptured` on an Outlook backup counts messages stored without their reactions and pin, because Graph returned an error for them or the read used up its retries. The messages themselves are stored, and `summary.warnings` carries one line per affected folder. The delta link still advances, so those properties are read again only when the message changes.
 
 ## Storage request events
 
@@ -1083,7 +1083,7 @@ Each request sent through the Graph client is counted once, as it is sent. Pagin
 
 - **Every page.** A delta sync that follows `@odata.nextLink` across 40 pages counts 40.
 - **Every attempt.** A call throttled twice and then succeeding counts 3.
-- **Every request inside a `$batch`.** Graph charges each sub-request against the mailbox's limits, so a batch of 20 counts 20, and a resend of the 5 still pending counts 5. Reaction capture (`fetch_reaction_properties`) is the only batched read.
+- **Every request inside a `$batch`.** Graph charges each sub-request against the mailbox's limits, so a batch of 20 counts 20, and a resend of the 5 still pending counts 5. Reaction and pin capture (`fetch_extended_properties`) is the only batched read.
 
 `requestsByType` labels each request with the connector operation that issued it. A paginated `delta_sync` shows all its pages under one label.
 

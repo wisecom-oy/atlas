@@ -37,13 +37,13 @@ describe('RateLimitedGraphConnector.list_mail_folders', () => {
  * Issue #513. A connector that cannot read reactions used to drop them without a word, so a
  * misconfigured connector looked like a mailbox nobody reacts in.
  */
-describe('RateLimitedGraphConnector.fetch_reaction_properties', () => {
+describe('RateLimitedGraphConnector.fetch_extended_properties', () => {
   it('says once that reactions are not captured when the inner connector cannot read them', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const connector = wrap({} as MailboxConnector);
 
-    await expect(connector.fetch_reaction_properties('t', 'o', ['m1'])).resolves.toBeUndefined();
-    await connector.fetch_reaction_properties('t', 'o', ['m2']);
+    await expect(connector.fetch_extended_properties('t', 'o', ['m1'])).resolves.toBeUndefined();
+    await connector.fetch_extended_properties('t', 'o', ['m2']);
 
     expect(warn).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('reactions'));

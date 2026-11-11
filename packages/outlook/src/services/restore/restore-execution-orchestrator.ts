@@ -92,7 +92,7 @@ async function restore_json_entry(
   entry: ManifestEntry,
 ): Promise<EntryRestoreOutcome> {
   const json = await decrypt_and_parse_message(ctx, entry);
-  const sanitized = sanitize_message_for_restore(json, entry.reaction_properties);
+  const sanitized = sanitize_message_for_restore(json, entry);
   const new_msg_id = await restore_connector.create_message(
     tenant_id,
     owner_id,
@@ -133,7 +133,7 @@ async function restore_mime_entry(
     tenant_id,
     owner_id,
     target_folder_id,
-    build_restore_payload_from_mime(parsed, entry.reaction_properties),
+    build_restore_payload_from_mime(parsed, entry),
   );
 
   if (parsed.attachments.length === 0)

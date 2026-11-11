@@ -2,6 +2,7 @@ import type { TenantContext } from '@wisecom/atlas-types';
 import type { ExtendedProperty, ManifestEntry } from '@wisecom/atlas-types';
 import { assert_restored_content_matches } from '@wisecom/atlas-core/services/shared/restored-content-verifier';
 import { parse_mime_message } from '@/services/shared/mime-message-parser';
+import { to_graph_follow_up_flag } from '@/services/restore/follow-up-flag-payload';
 import type {
   MimeAddress,
   MimeHeader,
@@ -102,14 +103,23 @@ const PR_CLIENT_SUBMIT_TIME = 'SystemTime 0x0039';
 const MSGFLAG_READ = 0x01;
 
 /**
+ * What a manifest entry records beside its payload and restore writes back: reactions, the
+ * follow-up flag and the pin (issues #481, #579). Each is absent on entries written before it.
+ */
+export type RecordedMessageState = Pick<
+  ManifestEntry,
+  'reaction_properties' | 'flag' | 'pin_properties'
+>;
+
+/**
  * Strips read-only and OData metadata fields from a stored Graph message,
  * keeping only writable properties. Uses MAPI extended properties to
  * override Graph's default draft behavior and preserve original timestamps,
- * and appends the reaction properties captured at backup (issue #481).
+ * and appends the reaction and pin properties captured at backup (issues #481, #579).
  */
 export function sanitize_message_for_restore(
   message_json: Record<string, unknown>,
-  reaction_properties: readonly ExtendedProperty[] = [],
+  recorded: RecordedMessageState = {},
 ): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {};
 
@@ -121,16 +131,25 @@ export function sanitize_message_for_restore(
   }
 
   sanitized['isDraft'] = false;
+  // The JSON payload carries Graph's own `flag`; the recorded one fills in only when it is missing.
+  if (sanitized['flag'] === undefined && recorded.flag) {
+    sanitized['flag'] = to_graph_follow_up_flag(recorded.flag);
+  }
   sanitized['singleValueExtendedProperties'] = [
     ...build_mapi_overrides({
       is_read: Boolean(message_json['isRead']),
       received_at: as_iso_string(message_json['receivedDateTime']),
       sent_at: as_iso_string(message_json['sentDateTime']),
     }),
-    ...reaction_properties,
+    ...recorded_extended_properties(recorded),
   ];
 
   return sanitized;
+}
+
+/** The recorded reaction and pin properties, appended after the MAPI overrides. */
+function recorded_extended_properties(recorded: RecordedMessageState): ExtendedProperty[] {
+  return [...(recorded.reaction_properties ?? []), ...(recorded.pin_properties ?? [])];
 }
 
 /** Timestamps and read state that drive the MAPI overrides, from JSON or MIME. */
@@ -172,10 +191,11 @@ export function extract_folder_id_from_json(message_json: Record<string, unknown
  * from MIME are always `isDraft: true` and that flag cannot be cleared, so a
  * mailbox restore would land as thousands of drafts. Parsing the MIME and
  * feeding the normal JSON create path keeps the existing restore quality.
+ * The MIME has no flag status, dates or pin, so those come from the entry (issue #579).
  */
 export function build_restore_payload_from_mime(
   parsed: ParsedMimeMessage,
-  reaction_properties: readonly ExtendedProperty[] = [],
+  recorded: RecordedMessageState = {},
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     subject: parsed.subject,
@@ -190,9 +210,10 @@ export function build_restore_payload_from_mime(
     singleValueExtendedProperties: [
       ...build_mapi_overrides({ is_read: true, received_at: parsed.date, sent_at: parsed.date }),
       ...build_threading_properties(parsed.headers),
-      ...reaction_properties,
+      ...recorded_extended_properties(recorded),
     ],
   };
+  if (recorded.flag) payload['flag'] = to_graph_follow_up_flag(recorded.flag);
 
   if (parsed.from) payload['from'] = to_graph_recipient(parsed.from);
   if (parsed.message_id) payload['internetMessageId'] = parsed.message_id;

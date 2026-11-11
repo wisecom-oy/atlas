@@ -18,11 +18,9 @@ import type {
   DeltaSyncResult,
   DeltaPageCallback,
   MessageAttachment,
+  MessageExtendedProperties,
 } from '@wisecom/atlas-types/ports/outlook/connector.port';
-import type {
-  ExtendedProperty,
-  MailboxPurpose,
-} from '@wisecom/atlas-types/domain/outlook/manifest';
+import type { MailboxPurpose } from '@wisecom/atlas-types/domain/outlook/manifest';
 import type {
   MailboxRateLimiter,
   MailboxRateLimiterFactory,
@@ -45,7 +43,7 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   private readonly _factory: MailboxRateLimiterFactory;
   private readonly _throttle: ThrottleCoordinator;
   private readonly _limiters = new Map<string, MailboxRateLimiter>();
-  private _reactions_unsupported_logged = false;
+  private _extended_properties_unsupported_logged = false;
 
   constructor(
     inner: MailboxConnector,
@@ -181,25 +179,26 @@ export class RateLimitedGraphConnector implements MailboxConnector {
   }
 
   /**
-   * Forwards the batched reaction read (issues #481, #513). Charged one unit per message: Graph
-   * counts every request inside a `$batch` against the mailbox's limits, not the round trip.
+   * Forwards the batched reaction and pin read (issues #481, #513, #579). Charged one unit per
+   * message: Graph counts every request inside a `$batch` against the mailbox's limits, not the
+   * round trip.
    */
-  async fetch_reaction_properties(
+  async fetch_extended_properties(
     tenant_id: string,
     owner_id: string,
     message_ids: readonly string[],
-  ): Promise<Map<string, ExtendedProperty[]> | undefined> {
+  ): Promise<Map<string, MessageExtendedProperties> | undefined> {
     const inner = this._inner;
-    if (!inner.fetch_reaction_properties) {
-      if (!this._reactions_unsupported_logged) {
-        this._reactions_unsupported_logged = true;
-        logger.warn('The mailbox connector cannot read reactions; they are not captured');
+    if (!inner.fetch_extended_properties) {
+      if (!this._extended_properties_unsupported_logged) {
+        this._extended_properties_unsupported_logged = true;
+        logger.warn('The mailbox connector cannot read reactions or pins; they are not captured');
       }
       return undefined;
     }
     return this.rateLimited(owner_id, message_ids.length, () =>
-      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_reaction_properties' }, () =>
-        inner.fetch_reaction_properties!(tenant_id, owner_id, message_ids),
+      run_with_graph_operation({ pool: 'outlook', request_type: 'fetch_extended_properties' }, () =>
+        inner.fetch_extended_properties!(tenant_id, owner_id, message_ids),
       ),
     );
   }

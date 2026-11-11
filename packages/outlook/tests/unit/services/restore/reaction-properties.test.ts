@@ -38,7 +38,9 @@ function property_ids(payload: Record<string, unknown>): string[] {
 
 describe('reaction properties on restore (issue #481)', () => {
   it('writes MIME-entry reactions alongside the overrides and threading properties', async () => {
-    const payload = build_restore_payload_from_mime(await parse_mime_message(MIME), REACTIONS);
+    const payload = build_restore_payload_from_mime(await parse_mime_message(MIME), {
+      reaction_properties: REACTIONS,
+    });
 
     expect(payload['singleValueExtendedProperties']).toEqual(expect.arrayContaining(REACTIONS));
     expect(property_ids(payload)).toEqual(
@@ -52,7 +54,7 @@ describe('reaction properties on restore (issue #481)', () => {
   });
 
   it('writes JSON-entry reactions alongside the read-state and timestamp overrides', () => {
-    const payload = sanitize_message_for_restore(JSON_MESSAGE, REACTIONS);
+    const payload = sanitize_message_for_restore(JSON_MESSAGE, { reaction_properties: REACTIONS });
 
     expect(payload['singleValueExtendedProperties']).toEqual([
       { id: 'Integer 0x0E07', value: '1' },
@@ -65,10 +67,10 @@ describe('reaction properties on restore (issue #481)', () => {
   it('restores an entry without reactions exactly as before', async () => {
     const parsed = await parse_mime_message(MIME);
 
-    expect(build_restore_payload_from_mime(parsed, undefined)).toEqual(
+    expect(build_restore_payload_from_mime(parsed, {})).toEqual(
       build_restore_payload_from_mime(parsed),
     );
-    expect(sanitize_message_for_restore(JSON_MESSAGE, undefined)).toEqual(
+    expect(sanitize_message_for_restore(JSON_MESSAGE, {})).toEqual(
       sanitize_message_for_restore(JSON_MESSAGE),
     );
     expect(property_ids(sanitize_message_for_restore(JSON_MESSAGE))).toHaveLength(3);

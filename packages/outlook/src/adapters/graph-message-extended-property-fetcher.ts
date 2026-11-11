@@ -1,5 +1,5 @@
 import type { Client } from '@microsoft/microsoft-graph-client';
-import type { ExtendedProperty } from '@wisecom/atlas-types';
+import type { ExtendedProperty, MessageExtendedProperties } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   describe_graph_error,
@@ -8,17 +8,12 @@ import {
   rethrow_if_mailbox_not_licensed,
   with_graph_retry,
 } from '@wisecom/atlas-m365-graph';
+import {
+  EXTENDED_PROPERTY_IDS,
+  split_extended_properties,
+} from '@/adapters/message-extended-property-ids';
 
-const REACTIONS_PROPERTY_SET = '{41F28F13-83F4-4114-A584-EEDB5A6B0BFF}';
-
-/** The MAPI named properties Exchange stores Outlook reactions in (issue #481). */
-const REACTION_PROPERTY_IDS = [
-  `String ${REACTIONS_PROPERTY_SET} Name OwnerReactionType`,
-  `Binary ${REACTIONS_PROPERTY_SET} Name MapiReactionsBlob`,
-  `Binary ${REACTIONS_PROPERTY_SET} Name ReactionsSummary`,
-];
-
-const REACTION_EXPAND = `singleValueExtendedProperties($filter=${REACTION_PROPERTY_IDS.map(
+const EXTENDED_PROPERTY_EXPAND = `singleValueExtendedProperties($filter=${EXTENDED_PROPERTY_IDS.map(
   (id) => `id eq '${id}'`,
 ).join(' or ')})`;
 
@@ -39,20 +34,20 @@ interface BatchResponse {
 }
 
 /**
- * Reads the reaction properties of many messages, 20 per `$batch` round trip instead of one
- * `GET /messages/{id}` each (issue #513). The delta query rejects this `$expand` with 400, so it
- * cannot ride along on the delta page.
+ * Reads the reaction and pin properties of many messages, 20 per `$batch` round trip instead of
+ * one `GET /messages/{id}` each (issues #513, #579). The delta query rejects this `$expand` with
+ * 400, so it cannot ride along on the delta page.
  *
  * A message missing from the result could not be read; the reason is logged. Access and
  * licensing failures throw, as for every other mailbox read.
  */
-export async function fetch_message_reaction_properties(
+export async function fetch_message_extended_properties(
   client: Client,
   owner_id: string,
   message_ids: readonly string[],
   immutable_id_prefer: string,
-): Promise<Map<string, ExtendedProperty[]>> {
-  const found = new Map<string, ExtendedProperty[]>();
+): Promise<Map<string, MessageExtendedProperties>> {
+  const found = new Map<string, MessageExtendedProperties>();
   for (let start = 0; start < message_ids.length; start += BATCH_LIMIT) {
     const chunk = message_ids.slice(start, start + BATCH_LIMIT);
     try {
@@ -61,7 +56,9 @@ export async function fetch_message_reaction_properties(
       rethrow_if_mailbox_not_licensed(err);
       rethrow_if_access_denied(err);
       const unread = chunk.filter((id) => !found.has(id)).length;
-      logger.warn(`Reaction capture failed for ${unread} messages: ${describe_graph_error(err)}`);
+      logger.warn(
+        `Reaction and pin capture failed for ${unread} messages: ${describe_graph_error(err)}`,
+      );
     }
   }
   return found;
@@ -76,7 +73,7 @@ async function read_chunk(
   owner_id: string,
   chunk: readonly string[],
   immutable_id_prefer: string,
-  found: Map<string, ExtendedProperty[]>,
+  found: Map<string, MessageExtendedProperties>,
 ): Promise<void> {
   let pending = [...chunk];
   await with_graph_retry(async () => {
@@ -102,7 +99,7 @@ async function post_sequential_batch(
   message_ids: readonly string[],
   immutable_id_prefer: string,
 ): Promise<BatchResponse[]> {
-  const query = `$select=id&$expand=${encodeURIComponent(REACTION_EXPAND)}`;
+  const query = `$select=id&$expand=${encodeURIComponent(EXTENDED_PROPERTY_EXPAND)}`;
   const requests = message_ids.map((message_id, index) => ({
     id: String(index),
     method: 'GET',
@@ -125,7 +122,7 @@ async function post_sequential_batch(
 function settle_responses(
   pending: readonly string[],
   responses: readonly BatchResponse[],
-  found: Map<string, ExtendedProperty[]>,
+  found: Map<string, MessageExtendedProperties>,
 ): { still_pending: string[]; transient: Error | undefined } {
   const by_request = new Map(responses.map((r) => [r.id, r]));
   const still_pending: string[] = [];
@@ -135,10 +132,7 @@ function settle_responses(
     const response = by_request.get(String(index));
     if (response?.status === 200) {
       const properties = response.body?.singleValueExtendedProperties ?? [];
-      found.set(
-        message_id,
-        properties.map(({ id, value }) => ({ id, value })),
-      );
+      found.set(message_id, split_extended_properties(properties));
       return;
     }
     const err = to_graph_error(response);
@@ -153,7 +147,9 @@ function settle_responses(
     }
     rethrow_if_mailbox_not_licensed(err);
     if (response.status === 403) throw err;
-    logger.warn(`Reaction capture failed for message ${message_id}: ${describe_graph_error(err)}`);
+    logger.warn(
+      `Reaction and pin capture failed for message ${message_id}: ${describe_graph_error(err)}`,
+    );
   });
 
   return { still_pending, transient };
