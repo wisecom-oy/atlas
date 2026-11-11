@@ -126,6 +126,11 @@ export class ContactsBackupService implements ContactsBackupUseCase {
   /**
    * Writes the snapshot and cursor. An interrupted run writes neither: a partial run has moved some
    * folder links past changes no manifest records, so the next run must replay from the old links.
+   *
+   * A run built on an older manifest because the newest could not be read writes neither when any
+   * folder failed. A failed folder keeps its entries from that older manifest, so the snapshot would
+   * roll it back past the unreadable one: items added since missing, deleted ones back. Without a
+   * cursor the next run reads every folder in full again (issue #631).
    */
   private async persist_snapshot(
     ctx: TenantContext,
@@ -145,7 +150,8 @@ export class ContactsBackupService implements ContactsBackupUseCase {
       unreadable_keys.length > 0;
     const has_content =
       loop.entries.length > 0 || previous !== undefined || unreadable_keys.length > 0;
-    const writable = !loop.interrupted;
+    const writable =
+      !loop.interrupted && (unreadable_keys.length === 0 || loop.errors.length === 0);
     const snapshot =
       writable && changed && has_content
         ? build_snapshot_manifest({

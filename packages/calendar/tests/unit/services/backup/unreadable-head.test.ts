@@ -42,4 +42,25 @@ describe('CalendarBackupService when the newest manifest is unreadable (issue #6
 
     expect(result.summary.unreadable_keys).toBeUndefined();
   });
+
+  it('writes neither snapshot nor cursor when a calendar fails on top of the older manifest', async () => {
+    const h = backup_harness();
+    h.script.deltas['cal-work'] = delta_of('work-1', [calendar_event('e-work')]);
+    const first = await h.service.backup_calendar('tenant-1', MAILBOX);
+    const cursors_before = h.cursors.saved.length;
+    h.manifests.find_latest_readable = async () => ({
+      manifest: first.snapshot,
+      unreadable_keys: [DAMAGED_KEY],
+    });
+    h.script.hooks = { delta: (id) => (id === 'cal-work' ? new Error('graph 500') : undefined) };
+
+    const result = await h.service.backup_calendar('tenant-1', MAILBOX);
+
+    // The failed calendar would keep the older manifest's events: a snapshot rolled back past the
+    // unreadable one. Nothing is written, and without a cursor the next run reads in full again.
+    expect(result.snapshot).toBeUndefined();
+    expect(h.cursors.saved).toHaveLength(cursors_before);
+    expect(result.summary.errors.join(' ')).toContain('graph 500');
+    expect(result.summary.unreadable_keys).toEqual([DAMAGED_KEY]);
+  });
 });

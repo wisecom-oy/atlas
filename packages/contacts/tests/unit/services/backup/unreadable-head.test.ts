@@ -18,14 +18,15 @@ const DAMAGED_KEY = `contacts/manifests/${MAILBOX}/ct-snap-9999-abc.json`;
 function harness() {
   const { connector, script, delta_calls } = fake_connector();
   const manifests = memory_manifests();
+  const cursors = memory_cursors();
   const service = new ContactsBackupService(
     tenant_factory_for(stub_tenant_context().ctx),
     connector,
     manifests,
-    memory_cursors(),
+    cursors,
   );
   const run = () => service.backup_contacts('tenant-1', MAILBOX);
-  return { script, delta_calls, manifests, run };
+  return { script, delta_calls, manifests, cursors, run };
 }
 
 function full_mailbox(link_suffix: string) {
@@ -89,5 +90,28 @@ describe('ContactsBackupService when the newest manifest is unreadable (issue #6
     const result = await h.run();
 
     expect(result.summary.unreadable_keys).toBeUndefined();
+  });
+
+  it('writes neither snapshot nor cursor when a folder fails on top of the older manifest', async () => {
+    const h = harness();
+    h.script.deltas = full_mailbox('1');
+    const first = await h.run();
+    const manifests_before = h.manifests.saved.length;
+    h.manifests.find_latest_readable = async () => ({
+      manifest: first.snapshot,
+      unreadable_keys: [DAMAGED_KEY],
+    });
+    h.script.deltas = full_mailbox('2');
+    h.script.failing_delta_folders.add('f-sub');
+
+    const result = await h.run();
+
+    // The failed folder would keep the older manifest's contacts: a snapshot rolled back past the
+    // unreadable one. Nothing is written, and without a cursor the next run reads in full again.
+    expect(result.snapshot).toBeUndefined();
+    expect(h.manifests.saved).toHaveLength(manifests_before);
+    expect(h.cursors.saved).toHaveLength(1);
+    expect(result.summary.errors.some((message) => message.includes('Sub'))).toBe(true);
+    expect(result.summary.unreadable_keys).toEqual([DAMAGED_KEY]);
   });
 });
