@@ -9,20 +9,19 @@ export interface DriveQuarantineReads {
 }
 
 /**
- * Builds the quarantine target of one drive provider. A manifest is `{manifests}/{owner}/{id}.json`;
- * a version index is any `.json` object under `{index}/{owner}/`, which covers the per-run objects
- * and the legacy per-file ones alike.
+ * Builds the quarantine target of one drive provider. A key is accepted only when it is exactly
+ * the key Atlas builds from its own segments: a manifest `{manifests}/{owner}/{snapshot}.json`, a
+ * per-run version index `{index}/{owner}/runs/{snapshot}.json`, or a legacy per-file index
+ * `{index}/{owner}/files/{file}.json`. Anything else, including `.` or `..` segments or another
+ * spelling of the owner, is refused before it is read.
  */
 export function drive_quarantine_target(
   workload: string,
   keys: DriveStorageKeys,
   reads: DriveQuarantineReads,
 ): QuarantineTarget {
-  const kind_of = (storage_key: string): QuarantinedObjectKind | undefined => {
-    if (is_owner_json(storage_key, keys.manifest_prefix, false)) return 'manifest';
-    if (is_owner_json(storage_key, keys.index_prefix, true)) return 'version_index';
-    return undefined;
-  };
+  const kind_of = (storage_key: string): QuarantinedObjectKind | undefined =>
+    kind_of_drive_key(keys, storage_key);
   return {
     workload,
     accepts: `${workload} manifests and version indexes`,
@@ -34,10 +33,50 @@ export function drive_quarantine_target(
   };
 }
 
-/** Whether a key is a `.json` object under `{prefix}/{owner}/`, optionally in a subdirectory. */
-function is_owner_json(storage_key: string, prefix: string, nested: boolean): boolean {
-  if (!storage_key.startsWith(`${prefix}/`) || !storage_key.endsWith('.json')) return false;
+/** The kind of object a drive key names when Atlas would write exactly that key, else undefined. */
+function kind_of_drive_key(
+  keys: DriveStorageKeys,
+  storage_key: string,
+): QuarantinedObjectKind | undefined {
+  const manifest = segments_under(storage_key, keys.manifest_prefix, 2);
+  if (manifest) {
+    const [owner = '', name = ''] = manifest;
+    const ok = rebuilds(storage_key, () => keys.manifest_key(owner, strip_json(name)));
+    return ok ? 'manifest' : undefined;
+  }
+  const index = segments_under(storage_key, keys.index_prefix, 3);
+  if (!index) return undefined;
+  const [owner = '', folder = '', name = ''] = index;
+  if (folder === 'runs') {
+    const ok = rebuilds(storage_key, () => keys.run_index_key(owner, strip_json(name)));
+    return ok ? 'version_index' : undefined;
+  }
+  const legacy_ok =
+    folder === 'files' &&
+    rebuilds(`${keys.index_prefix}/${owner}/`, () => keys.index_prefix_for(owner)) &&
+    rebuilds(name, () => {
+      keys.validate_key_segment(strip_json(name));
+      return name;
+    });
+  return legacy_ok ? 'version_index' : undefined;
+}
+
+/** The segments after `{prefix}/` when there are exactly `count` and the key ends in `.json`. */
+function segments_under(storage_key: string, prefix: string, count: number): string[] | undefined {
+  if (!storage_key.startsWith(`${prefix}/`) || !storage_key.endsWith('.json')) return undefined;
   const segments = storage_key.slice(prefix.length + 1).split('/');
-  const shape_ok = nested ? segments.length >= 2 : segments.length === 2;
-  return shape_ok && segments.every((segment) => segment !== '' && segment !== '..');
+  return segments.length === count ? segments : undefined;
+}
+
+function strip_json(name: string): string {
+  return name.slice(0, -'.json'.length);
+}
+
+/** Whether the key builder reproduces `expected` exactly; a builder that refuses never does. */
+function rebuilds(expected: string, build: () => string): boolean {
+  try {
+    return build() === expected;
+  } catch {
+    return false;
+  }
 }

@@ -67,7 +67,19 @@ export async function execute_quarantine(
       />
     </Box>,
   );
-  if (result.kind === 'manifest' && spec.workload !== 'contacts' && spec.workload !== 'calendar') {
+  warn_what_was_lost(spec, result.kind);
+}
+
+/** Tells the operator what the moved object recorded that later commands no longer see. */
+function warn_what_was_lost(spec: QuarantineCommandSpec, kind: string): void {
+  if (kind === 'version_index') {
+    logger.warn(
+      'The versions this index recorded are no longer listed, and `restore-version --before` ' +
+        'can now pick an older version of those files. Check `list-versions` before a rollback.',
+    );
+  } else if (spec.workload === 'contacts' || spec.workload === 'calendar') {
+    logger.warn('The delta cursor was removed, so the next backup reads the mailbox in full.');
+  } else {
     logger.warn(
       'Snapshots taken after this one no longer include the changes it recorded. Run one ' +
         `\`atlas ${spec.workload} backup --full\` so the newest snapshot holds every current item.`,

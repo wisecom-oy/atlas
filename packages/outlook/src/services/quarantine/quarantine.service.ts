@@ -12,7 +12,18 @@ import {
 } from '@wisecom/atlas-core/services/quarantine/stored-object-quarantine';
 
 /** An Outlook snapshot manifest: `manifests/{owner}/{snapshot}.json`. */
-const MANIFEST_KEY = /^manifests\/[^/]+\/[^/]+\.json$/;
+const MANIFEST_KEY = /^manifests\/([^/]+)\/([^/]+)\.json$/;
+
+/**
+ * Whether Atlas would write this key: two plain segments after `manifests/`. The quarantine
+ * executor already rejects `.` and `..` path segments; this also rejects them as a snapshot id.
+ */
+function is_outlook_manifest_key(storage_key: string): boolean {
+  const [, owner = '', snapshot_id = ''] = MANIFEST_KEY.exec(storage_key) ?? [];
+  return [owner, snapshot_id].every(
+    (segment) => segment !== '' && segment !== '.' && segment !== '..',
+  );
+}
 
 /** Moves an unreadable Outlook manifest aside (issue #631). Outlook keeps no version index. */
 @injectable()
@@ -30,7 +41,7 @@ export class OutlookQuarantineService implements QuarantineUseCase {
     const target: QuarantineTarget = {
       workload: 'Outlook',
       accepts: 'Outlook manifests',
-      kind_of: (key) => (MANIFEST_KEY.test(key) ? 'manifest' : undefined),
+      kind_of: (key) => (is_outlook_manifest_key(key) ? 'manifest' : undefined),
       read: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
     };
     return quarantine_unreadable_object(this._tenant_factory, target, tenant_id, storage_key);

@@ -160,4 +160,50 @@ describe('quarantine_unreadable_object (issue #631)', () => {
     expect(harness.raw(KEY)).toEqual(bytes);
     expect(harness.keys()).toEqual([KEY]);
   });
+
+  it.each([
+    'onedrive/manifests/../_meta/dek.enc.json',
+    'onedrive/manifests/./owner-1.json',
+    'onedrive/manifests//od-snap-1000-abc.json',
+  ])('refuses %s, whose segments are not plain names, before opening the tenant', async (key) => {
+    const create = vi.fn();
+
+    const move = quarantine_unreadable_object(
+      { create } as unknown as TenantContextFactory,
+      json_target(),
+      't',
+      key,
+    );
+
+    await expect(move).rejects.toThrow(/can be quarantined/);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('leaves the original in place when the copy does not hold the same bytes', async () => {
+    const harness = in_memory_tenant_context();
+    const bytes = stored(harness, true);
+    harness.ctx.storage.copy = async (_source, destination) => {
+      harness.set_raw(destination, bytes.subarray(1));
+    };
+
+    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+
+    await expect(move).rejects.toThrow(/does not match/);
+    expect(harness.raw(KEY)).toEqual(bytes);
+  });
+
+  it('runs the workload hook after the move, and not when the move is refused', async () => {
+    const harness = in_memory_tenant_context();
+    stored(harness, true);
+    const after_move = vi.fn().mockResolvedValue(undefined);
+    const target = { ...json_target(), after_move };
+
+    await quarantine_unreadable_object(factory_for(harness.ctx), target, 't', KEY);
+    await expect(
+      quarantine_unreadable_object(factory_for(harness.ctx), target, 't', KEY),
+    ).rejects.toThrow(/No OneDrive object exists/);
+
+    expect(after_move).toHaveBeenCalledTimes(1);
+    expect(after_move).toHaveBeenCalledWith(harness.ctx, KEY);
+  });
 });

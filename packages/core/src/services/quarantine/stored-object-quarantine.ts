@@ -4,7 +4,7 @@ import type {
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { NotFoundError, UnreadableContentError } from '@wisecom/atlas-types';
+import { NotFoundError, StorageError, UnreadableContentError } from '@wisecom/atlas-types';
 
 /** Prefix every quarantined object is moved under, keeping its original key after it. */
 export const QUARANTINE_PREFIX = '_quarantine/';
@@ -22,6 +22,25 @@ export interface QuarantineTarget {
    * and raises `UnreadableContentError` when it fails to decrypt, parse, or identify.
    */
   readonly read: (ctx: TenantContext, storage_key: string) => Promise<unknown>;
+  /**
+   * Runs once the object has moved, for state that described it. Contacts and Calendar drop the
+   * mailbox's delta cursor there, since its links may describe the snapshot just moved aside.
+   */
+  readonly after_move?: ((ctx: TenantContext, storage_key: string) => Promise<void>) | undefined;
+}
+
+/**
+ * Whether every `/`-separated segment of a key is a plain name: not empty, not `.` or `..`, and
+ * free of `\` and NUL. A backend that normalises paths would otherwise resolve
+ * `manifests/../identity-registry.json` to a healthy object outside the workload, which fails its
+ * scope-bound decrypt and would be moved as damage.
+ */
+export function has_plain_segments(storage_key: string): boolean {
+  return storage_key
+    .split('/')
+    .every(
+      (segment) => segment !== '' && segment !== '.' && segment !== '..' && !/[\\\0]/.test(segment),
+    );
 }
 
 /**
@@ -35,7 +54,7 @@ export async function quarantine_unreadable_object(
   tenant_id: string,
   storage_key: string,
 ): Promise<QuarantineResult> {
-  const kind = target.kind_of(storage_key);
+  const kind = has_plain_segments(storage_key) ? target.kind_of(storage_key) : undefined;
   if (kind === undefined) {
     throw new Error(`Only ${target.accepts} can be quarantined, and ${storage_key} is not one`);
   }
@@ -43,6 +62,7 @@ export async function quarantine_unreadable_object(
   try {
     const reason = await read_damage_reason(ctx, target, storage_key);
     const quarantine_key = await move_aside(ctx, storage_key);
+    await target.after_move?.(ctx, storage_key);
     return { storage_key, quarantine_key, kind, reason };
   } finally {
     ctx.destroy();
@@ -79,7 +99,9 @@ async function read_damage_reason(
 /**
  * Copies the object's bytes unchanged under the quarantine prefix, then removes the original.
  *
- * Copy first, so a failure between the two steps leaves a duplicate rather than a loss. An earlier
+ * Copy first, so a failure between the two steps leaves a duplicate rather than a loss, and read
+ * the copy back before the removal: an original is never removed unless its bytes demonstrably
+ * sit at the quarantine key. An earlier
  * quarantined copy of the same key is never overwritten: the new copy takes a timestamp suffix.
  * In a versioned bucket the removal only adds a delete marker, so a version under Object Lock
  * stays retained exactly as it was; a backend that refuses the removal raises
@@ -90,7 +112,14 @@ async function move_aside(ctx: TenantContext, storage_key: string): Promise<stri
   const quarantine_key = (await ctx.storage.exists(base_key))
     ? `${base_key}.${Date.now()}`
     : base_key;
+  const original = await ctx.storage.get(storage_key);
   await ctx.storage.copy(storage_key, quarantine_key);
+  const copied = await ctx.storage.get(quarantine_key).catch(() => undefined);
+  if (copied === undefined || !copied.equals(original)) {
+    throw new StorageError(
+      `The quarantined copy at ${quarantine_key} does not match ${storage_key}; the original was left in place`,
+    );
+  }
   await ctx.storage.delete(storage_key);
   return quarantine_key;
 }

@@ -39,4 +39,17 @@ describe('OutlookQuarantineService (issue #631)', () => {
     ).rejects.toThrow(/Only Outlook manifests can be quarantined/);
     expect(read).not.toHaveBeenCalled();
   });
+
+  it.each(['manifests/../identity-registry.json', 'manifests/./snap-1.json', 'manifests/x/..json'])(
+    'refuses %s, whose segments are not plain names, without reading it',
+    async (key) => {
+      const read = vi.fn();
+      const { service } = rig(read);
+
+      await expect(service.quarantine_unreadable_object('tenant-1', key)).rejects.toThrow(
+        /Only Outlook manifests can be quarantined/,
+      );
+      expect(read).not.toHaveBeenCalled();
+    },
+  );
 });
