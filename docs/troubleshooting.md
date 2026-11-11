@@ -287,7 +287,32 @@ The messages mean different things:
 - **`is corrupt or tampered`** means the object failed AES-256-GCM authentication or JSON parsing (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Retrying does not help. Treat it as possible tampering first.
 - **`belongs to a different owner`** means the cursor decrypted but names another mailbox, owner, or site than its key (`ATLAS_CONTENT_UNREADABLE`, exit `9`). Every Outlook cursor shares the `_meta/outlook-cursors/` directory, so the encryption scope alone does not stop one mailbox's cursor from being copied over another's. Resuming from it would skip changes and record another mailbox's state. Treat it as tampering or an operator copy mistake.
 
-To recover a damaged delta cursor, restore an earlier version from bucket versioning, or delete the cursor to force a full enumeration on the next run. For a damaged `identity-registry.json`, restore an earlier version and do not delete the object. The registry is the only record of departed users that Graph no longer resolves, so deleting it makes their backups impossible to find by address.
+To recover a damaged delta cursor, restore an earlier version from bucket versioning, or delete the cursor to force a full enumeration on the next run. Outlook is different on both counts: a run without a cursor resumes from the delta links in the mailbox's latest manifest, and `atlas outlook backup --full` never reads the cursor, so it runs past a damaged one and replaces it. See [Outlook cursor carries folder links of another mailbox](#outlook-cursor-carries-folder-links-of-another-mailbox) for what each costs. For a damaged `identity-registry.json`, restore an earlier version and do not delete the object. The registry is the only record of departed users that Graph no longer resolves, so deleting it makes their backups impossible to find by address.
+
+### Outlook cursor carries folder links of another mailbox
+
+```bash
+atlas outlook backup -m user@example.com --full
+```
+
+Atlas 6.2.0 and earlier did not check the owner inside an Outlook cursor. If one mailbox's `_meta/outlook-cursors/{owner_id}.json` was copied over another's, for example by a manual fix or a partial bucket restore, the next backup of the second mailbox read the first mailbox's links and saved them again under its own owner. That cursor now passes the owner check, so nothing reports it.
+
+Delta links are kept per Graph folder ID, and Outlook folder IDs are specific to one mailbox. The copied links are therefore never sent to Graph. They stay in the cursor, and in every manifest written since, as entries no folder uses. The damage happened in the first run after the copy: the mailbox's own links were gone, so that run read every folder in full and recorded no deletions for the interval since the run before it. Each folder it finished saved a fresh link, and later runs resume from those.
+
+Run one `--full` backup without `--folder` to drop the foreign entries. Two recovery paths exist, and only `--full` removes them:
+
+| Recovery                                       | What happens                                                                                                                                                                                                                                  | Removes foreign links                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `atlas outlook backup --full`                  | Reads neither the cursor nor the latest manifest. Every selected folder is read in full, and the cursor is replaced with the links of the folders that finished. Also recovers from an unreadable cursor.                                     | Yes                                                                              |
+| Delete `_meta/outlook-cursors/{owner_id}.json` | The next run resumes from the delta links in the mailbox's latest manifest. Changes since that snapshot are fetched again and deduplicate. A full read happens only when the mailbox has no manifest, or its manifest predates immutable IDs. | No, when a manifest written after the copy carries them, which is the usual case |
+
+A `--full` run costs what a first backup costs in Graph requests and time. Graph lists every message again, at one delta page per 10 messages by default (`--page-size`), and Atlas fetches each message's MIME with one `/$value` request plus one reaction `$batch` per page, because the content must be read before it can be hashed. Storage barely grows: messages are named by keyed hash, so each one costs a `HEAD` request and no upload when it is already stored. The run always writes a snapshot, and that manifest lists every message of the selected folders, so it is as large as the first backup's.
+
+A full read records no removals. Graph reports what exists, not what was deleted, so a message deleted since the previous run stays restorable from older snapshots in the chain. See [Deleted and moved messages](/operations/delta-sync#deleted-and-moved-messages-outlook).
+
+::: warning Do not combine `--full` with `--folder`
+`--full` starts the new cursor empty. With `--folder`, it holds links only for the selected folders, and the next unfiltered run reads every other folder in full.
+:::
 
 ### Identity registry kept changing
 

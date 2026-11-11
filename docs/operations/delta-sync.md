@@ -13,7 +13,7 @@ atlas outlook backup -m user@example.com -s "$TENANT" --full   # ignore saved de
 
 ## Lifecycle of a delta link
 
-1. **First run.** Atlas requests `/users/{id}/mailFolders/{id}/messages/delta` for each folder, including the message body. Graph pages through every message. The final `@odata.deltaLink` is saved with the snapshot.
+1. **First run.** Atlas requests `/users/{id}/mailFolders/{id}/messages/delta` for each folder, including the message body. Graph pages through every message. The final `@odata.deltaLink` is saved in the mailbox's delta cursor, `_meta/outlook-cursors/{owner_id}.json`, and in the snapshot manifest when the run writes one.
 2. **Later runs.** Atlas sends the saved link. Graph returns only the changes since the last sync.
 
 A delta link is a Graph URL with an opaque sync token:
@@ -25,7 +25,7 @@ https://graph.microsoft.com/v1.0/users/.../messages/delta?$deltatoken=aGR2b...
 The token records the point where the last sync ended. Sending the link back returns only the changes after that point.
 
 ::: warning Delta links are sensitive
-Delta links are stored inside the encrypted manifest (Outlook) or cursor object (OneDrive and SharePoint), never in plaintext. They hold tenant-scoped sync state. Anyone who obtains one could learn which mailbox items changed. Atlas encrypts manifests and cursors with the tenant data key, so the links are protected at rest. Do not copy them into logs or tickets.
+Delta links are stored inside encrypted cursor objects, and for Outlook also inside the encrypted manifest, never in plaintext. They hold tenant-scoped sync state. Anyone who obtains one could learn which mailbox items changed. Atlas encrypts manifests and cursors with the tenant data key, so the links are protected at rest. Do not copy them into logs or tickets.
 :::
 
 ## When Atlas performs a full enumeration
@@ -34,7 +34,7 @@ Delta links are stored inside the encrypted manifest (Outlook) or cursor object 
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Stale-delta safeguard    | The saved link returns no items, but the previous manifest stored no entries. The earlier backup was interrupted before storing anything, so Atlas discards the link and enumerates the folder in full.                                                                                                                                                       |
 | Expired or invalid token | Graph returns `syncStateNotFound`, `resyncRequired`, or `syncStateInvalid`. Atlas resyncs the folder in full and logs a warning. Tokens lapse after a period of inactivity, and the incremental chain is broken. Outlook can reject a token after some of its pages were already stored; the resync skips those messages and keeps the removals they carried. |
-| `--full`                 | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt.                                                                                                                                                                                                                                    |
+| `--full`                 | `atlas outlook backup --full` ignores every saved link. Use it for periodic audits, or when you suspect a link is corrupt. See [what a full run costs](/troubleshooting#outlook-cursor-carries-folder-links-of-another-mailbox).                                                                                                                              |
 | Legacy message IDs       | Snapshots created before Atlas used immutable Outlook IDs hold mutable IDs. Mixing the two formats breaks correlation, so the first backup after upgrading runs in full and records `id_format: immutable` in the new manifest. This happens once per mailbox.                                                                                                |
 
 A full enumeration is scoped to the drive or library that triggered it. Delta links are kept per drive, so a site with several libraries, or a user with several drives, keeps working links for the rest. Files in the rebased drive are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
@@ -80,7 +80,7 @@ With the manifest written first, the worst case is repeated work. If the run cra
 
 This ordering applies per run. A run covering several drives or libraries collects the advanced links in memory and commits them together, after the manifest. A finished drive never has its progress saved ahead of the snapshot that references it.
 
-Outlook has one write per run, because its delta links live inside the manifest.
+Outlook follows the same rule: the manifest first, then the cursor. A run that captured nothing and found no deletions writes only the cursor.
 
 ## File version capture (OneDrive and SharePoint)
 
