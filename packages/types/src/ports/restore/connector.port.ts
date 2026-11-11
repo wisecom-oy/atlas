@@ -1,4 +1,4 @@
-import type { MailFolder } from '@/ports/outlook/connector.port';
+import type { MailFolder, WellKnownMailFolder } from '@/ports/outlook/connector.port';
 
 export interface AttachmentUpload {
   readonly name: string;
@@ -21,6 +21,24 @@ export interface RestoreConnector {
     display_name: string,
     parent_folder_id?: string,
   ): Promise<MailFolder>;
+
+  /**
+   * Finds a visible folder directly under msgFolderRoot (top-level) or under a parent by display
+   * name, compared case-insensitively as Exchange compares folder names. Undefined when absent.
+   */
+  find_child_mail_folder(
+    tenant_id: string,
+    owner_id: string,
+    display_name: string,
+    parent_folder_id?: string,
+  ): Promise<MailFolder | undefined>;
+
+  /** Returns the well-known role of a folder, such as `inbox`, or undefined when it has none. */
+  find_well_known_folder_role(
+    tenant_id: string,
+    owner_id: string,
+    folder_id: string,
+  ): Promise<WellKnownMailFolder | undefined>;
 
   /** Creates a message in the specified folder. Returns the new message ID. */
   create_message(

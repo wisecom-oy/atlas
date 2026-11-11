@@ -31,6 +31,7 @@ export interface OutlookRestoreOptions {
   targetProfile?: string;
   folder?: string;
   message?: string;
+  destination?: string;
   startDate?: string;
   endDate?: string;
   includeRecoverableItems?: boolean;
@@ -58,6 +59,11 @@ function validate_restore_options(options: OutlookRestoreOptions): void {
     logger.error('--start-date / --end-date can only be used with --mailbox (-m).');
     process.exit(1);
   }
+}
+
+/** Adds the chosen restore folder to the run summary; the generated default is shown at the end. */
+function push_destination_item(items: KeyValueItem[], destination: string | undefined): void {
+  if (destination !== undefined) items.push({ label: 'Destination', value: destination });
 }
 
 /** Parses a YYYY-MM-DD string into a Date at midnight UTC. */
@@ -116,12 +122,14 @@ async function execute_snapshot_restore(
   // `restore -s <id> -T other@example.com` silently restored to the original mailbox while the
   // undocumented `-m` spelling worked (issue #201).
   if (options.target) items.push({ label: 'Target mailbox', value: options.target });
+  push_destination_item(items, options.destination);
   await render_static_view(<KeyValueList items={items} />);
 
   const restore_options: RestoreOptions = {
     ...(options.folder && { folder_name: options.folder }),
     ...(options.message && { message_ref: options.message }),
     ...(options.target && { target_mailbox: options.target }),
+    ...(options.destination !== undefined && { destination: options.destination }),
     create_progress: create_transfer_progress('restored'),
   };
 
@@ -147,6 +155,7 @@ async function execute_mailbox_restore(
   if (end_date) items.push({ label: 'End date', value: options.endDate! });
   if (options.folder) items.push({ label: 'Folder filter', value: options.folder });
   if (options.target) items.push({ label: 'Target mailbox', value: options.target });
+  push_destination_item(items, options.destination);
   await render_static_view(<KeyValueList items={items} />);
 
   const restore_options: RestoreOptions = {
@@ -155,6 +164,7 @@ async function execute_mailbox_restore(
     ...(start_date && { start_date }),
     ...(end_date && { end_date }),
     ...(options.target && { target_mailbox: options.target }),
+    ...(options.destination !== undefined && { destination: options.destination }),
     create_progress: create_transfer_progress('restored'),
   };
 

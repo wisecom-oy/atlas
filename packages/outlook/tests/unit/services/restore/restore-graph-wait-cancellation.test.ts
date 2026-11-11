@@ -147,6 +147,36 @@ describe('Outlook restore cancelled during a Graph retry wait (issue #682)', () 
     expect(result.errors).toEqual(['1 attachment(s) not uploaded: the run was interrupted']);
   });
 
+  it('treats a cancelled destination folder lookup as the run stopping, not a failure', async () => {
+    const { service, mock_manifests, mock_restore } = make_restore_harness();
+    vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(
+      make_manifest([make_entry('msg-1', 'f1')]),
+    );
+    vi.mocked(mock_restore.find_child_mail_folder).mockImplementation(
+      graph_call_parked_in_retry_wait,
+    );
+    const controller = new AbortController();
+    let settled = false;
+
+    const run = service
+      .restore_snapshot('test-tenant', 'snap-1', {
+        destination: 'Recovered/2026-03',
+        abort_signal: controller.signal,
+      })
+      .finally(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(settled).toBe(false);
+    controller.abort(new Error('Run interrupted by Ctrl+C'));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(settled).toBe(true);
+    const result = await run;
+    expect(result.interrupted).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(mock_restore.create_mail_folder).not.toHaveBeenCalled();
+    expect(mock_restore.create_message).not.toHaveBeenCalled();
+  });
+
   it('resolves an interrupted result when the signal lands before any message is written', async () => {
     const { service, mock_manifests, mock_restore } = make_restore_harness();
     vi.mocked(mock_manifests.find_by_snapshot).mockResolvedValue(

@@ -21,6 +21,8 @@ function make_capturing_stub(seen: GraphOperation[]): RestoreConnector {
     };
   return {
     create_mail_folder: vi.fn(capture({ id: 'folder-id', display_name: 'Restored' })),
+    find_child_mail_folder: vi.fn(capture(undefined)),
+    find_well_known_folder_role: vi.fn(capture(undefined)),
     create_message: vi.fn(capture('msg-id')),
     add_attachment: vi.fn(capture(undefined)),
     create_upload_session: vi.fn(capture({ upload_url: 'https://upload', expires_at: '' })),
@@ -36,6 +38,8 @@ describe('CostTrackingRestoreConnector — operation labelling', () => {
     const connector = new CostTrackingRestoreConnector(make_capturing_stub(seen));
 
     await connector.create_mail_folder('t', 'user@example.com', 'Restored');
+    await connector.find_child_mail_folder('t', 'user@example.com', 'Restored');
+    await connector.find_well_known_folder_role('t', 'user@example.com', 'folder-id');
     await connector.create_message('t', 'user@example.com', 'f1', {});
     await connector.add_attachment('t', 'user@example.com', 'm1', {
       name: 'report.pdf',
@@ -50,6 +54,8 @@ describe('CostTrackingRestoreConnector — operation labelling', () => {
 
     expect(seen.map((op) => op.request_type)).toEqual([
       'create_folder',
+      'find_child_folder',
+      'read_well_known_folder',
       'create_message',
       'add_attachment',
       'create_upload_session',

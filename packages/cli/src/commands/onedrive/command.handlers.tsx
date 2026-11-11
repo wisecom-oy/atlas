@@ -186,8 +186,11 @@ export async function execute_onedrive_backup(
     // "No changes" on a drive that holds nothing reads as backed up, and there is no recovery
     // point at all (issue #405).
     logger.warn('No OneDrive content found. Nothing was backed up and no snapshot exists.');
-  } else {
+  } else if (result.summary.no_snapshot_reason === 'no_changes') {
     logger.info('No OneDrive changes detected. Snapshot skipped.');
+  } else {
+    // No reason means the run was interrupted or unhealthy, so its changes did not land (#683).
+    logger.warn('No snapshot created: the run was interrupted or every change failed.');
   }
 
   const { versions_stored, versions_unavailable } = result.summary;
