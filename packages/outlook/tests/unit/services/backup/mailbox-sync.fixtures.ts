@@ -5,6 +5,7 @@ import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
@@ -16,6 +17,10 @@ import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-ten
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export function make_message(id: string, body: string, has_attachments = false): MailMessage {
   const raw = Buffer.from(body);
@@ -87,6 +92,8 @@ export interface MailboxSyncHarness {
   readonly mock_context: TenantContext;
   readonly mock_manifests: ManifestRepository;
   readonly mock_cursors: MailboxDeltaCursorRepository;
+  /** The mailbox lease the service takes, for asserting when it is taken, checked and released. */
+  readonly leases: StubOwnerLeases;
 }
 
 export function create_mailbox_sync_harness(): MailboxSyncHarness {
@@ -135,6 +142,8 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(mock_cursors);
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+  const leases = stub_owner_leases();
+  container.bind(OWNER_LEASE_TOKEN).toConstantValue(leases.leases);
   container.bind(MailboxSyncService).toSelf();
 
   return {
@@ -143,5 +152,6 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
     mock_context,
     mock_manifests,
     mock_cursors,
+    leases,
   };
 }

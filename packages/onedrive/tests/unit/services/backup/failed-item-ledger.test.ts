@@ -12,6 +12,7 @@ import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // Issue #34: one persistently failing file must not freeze a drive's delta
 // cursor. The run keeps its successful entries, advances the delta link, and
@@ -149,6 +150,7 @@ function make_harness(options: {
       write_run_index: vi.fn(),
     } as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, fetch_item_by_id, saved_cursors, calls, save_order };
 }

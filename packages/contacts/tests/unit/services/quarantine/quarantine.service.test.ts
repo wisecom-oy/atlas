@@ -5,6 +5,7 @@ import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory
 import { S3ContactsManifestRepository } from '@/adapters/s3-contacts-manifest-repository.adapter';
 import { ContactsQuarantineService } from '@/services/quarantine/quarantine.service';
 import { contacts_delta_cursor_key, contacts_manifest_key } from '@/services/shared/storage-keys';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
 const KEY = contacts_manifest_key(MAILBOX, 'ct-snap-2000-abc');
@@ -15,7 +16,11 @@ function rig() {
   harness.set_raw(KEY, Buffer.from('damaged'));
   harness.set_raw(CURSOR, Buffer.from('cursor'));
   const factory = { create: async () => harness.ctx } as unknown as TenantContextFactory;
-  const service = new ContactsQuarantineService(factory, new S3ContactsManifestRepository());
+  const service = new ContactsQuarantineService(
+    factory,
+    new S3ContactsManifestRepository(),
+    stub_owner_leases().leases,
+  );
   return { harness, service };
 }
 

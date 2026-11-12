@@ -1,11 +1,16 @@
 import { inject, injectable } from 'inversify';
 import type {
   ManifestRepository,
+  OwnerLeasePort,
   QuarantineResult,
   QuarantineUseCase,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { MANIFEST_REPOSITORY_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import {
   quarantine_unreadable_object,
   type QuarantineTarget,
@@ -31,6 +36,7 @@ export class OutlookQuarantineService implements QuarantineUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Moves the manifest at `storage_key` to `_quarantine/`, refusing one that reads cleanly. */
@@ -40,10 +46,17 @@ export class OutlookQuarantineService implements QuarantineUseCase {
   ): Promise<QuarantineResult> {
     const target: QuarantineTarget = {
       workload: 'Outlook',
+      lease_workload: 'outlook',
       accepts: 'Outlook manifests',
       kind_of: (key) => (is_outlook_manifest_key(key) ? 'manifest' : undefined),
       read: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
     };
-    return quarantine_unreadable_object(this._tenant_factory, target, tenant_id, storage_key);
+    return quarantine_unreadable_object(
+      this._tenant_factory,
+      this._leases,
+      target,
+      tenant_id,
+      storage_key,
+    );
   }
 }

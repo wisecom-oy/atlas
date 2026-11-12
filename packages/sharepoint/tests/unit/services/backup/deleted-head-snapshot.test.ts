@@ -14,6 +14,7 @@ import {
 } from '@wisecom/atlas-types/testing/stub-drive-backup-rig';
 
 import { SharePointBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /**
  * Issue #725: after `delete -s` of the newest snapshot the delta cursor still pointed past the run
@@ -53,6 +54,7 @@ function harness() {
       write_run_index: stores.write_run_index,
     } as never,
     { load: stores.load_cursor, save: stores.save_cursor } as never,
+    stub_owner_leases().leases,
   );
   const run = (options: SharePointBackupOptions = {}): Promise<SharePointBackupResult> =>
     service.backup_site('tenant-1', SITE, options);

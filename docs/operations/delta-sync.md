@@ -219,7 +219,7 @@ Atlas retries transient Graph errors with exponential backoff:
 | Action        | Result                                                                                                                                                                                                                              |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | First Ctrl+C  | Stops the run. The Graph request in flight and any retry or throttle wait end at once. Completed folders and their delta links are saved to a partial manifest, and the command exits `2`. The dashboard marks interrupted folders. |
-| Second Ctrl+C | Exits at once with status `130`. The run writes no manifest, so no delta link moves. Objects already uploaded stay in storage and are deduplicated by the next run.                                                                 |
+| Second Ctrl+C | Exits at once with status `130`. The run writes no manifest, so no delta link moves. Objects already uploaded stay in storage and are deduplicated by the next run. The mailbox's [lease](/reference/sdk#concurrent-operations) is not released, so a backup of it started within the next 5 minutes exits `12`. |
 
 A partial manifest from the first Ctrl+C is valid. The next run resumes from the saved delta links of the completed folders. The interrupted folder keeps its previous link and is read again from there. Graph has no cancel, so a request it already accepted still completes on its side; Atlas drops the result.
 

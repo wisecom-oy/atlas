@@ -12,6 +12,7 @@ import { SharePointRestoreService } from '@/services/restore/restore.service';
 import { SharePointSaveService } from '@/services/save/save.service';
 import { SharePointVerificationService } from '@/services/verification/verification.service';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
@@ -48,6 +49,7 @@ describe('SharePoint restore cancellation', () => {
       {} as never,
       {} as never,
       {} as never,
+      stub_owner_leases().leases,
     );
     const restore = new SharePointRestoreService(factory, {} as never, {} as never);
     const save = new SharePointSaveService(factory, {} as never);

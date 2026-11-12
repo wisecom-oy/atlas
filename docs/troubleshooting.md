@@ -332,6 +332,26 @@ john.doe@example.com is not in the identity registry of tenant <source>, and the
 
 The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 
+### Another operation holds the owner
+
+```
+Another backup is running on onedrive owner <owner-id>, so this operation did not start and wrote nothing. Its lease expires at 2026-03-01T10:05:00.000Z unless that operation is still running and renews it. Retry once the other operation ends, or after the lease expires.
+  Atlas code: ATLAS_OWNER_BUSY
+```
+
+A backup, deletion, or quarantine takes a lease on its mailbox, drive owner, site, or team, and this command found a live one. It exits `12` and has written nothing. The message names the workload, the owner, the operation that holds it, and when its lease runs out. See [Concurrent operations](/reference/sdk#concurrent-operations).
+
+| Situation                                             | What to do                                                                                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The other operation is still running                  | Wait for it and rerun. The expiry in the message moves forward every minute while it runs, so it is not a completion time                                                                                                                   |
+| Its process was killed, or exited on a second Ctrl+C  | Wait until the time in the message, at most 5 minutes after the kill, and rerun. The next run takes the expired lease over and logs `Taking over the lease a backup left behind`                                                            |
+| Two scheduled jobs overlap every night                | Space them out, or wrap them in `flock` as in [Scheduling](/self-hosting/scheduling). The lease keeps the data safe, but the second job still fails with exit `12`                                                                          |
+| `This run lost its lease on ...`                      | This run held the owner and could not renew its lease for 5 minutes, or another host took it over. It stopped before writing its manifest or cursor. Check storage reachability and the clocks of the hosts that share the bucket, then rerun |
+
+Do not delete or edit the lease object by hand to get past the error unless you are certain no operation on that owner is running anywhere. Deleting a live lease lets a second run start next to the first. The first run notices at its next renewal, within 60 seconds, and stops before its next commit, but until then both write the same owner's state. Waiting out the 5 minutes is always safe.
+
+Clocks matter here. A host whose clock runs several minutes ahead sees a live lease as expired and takes it over. If runs fail with `lost its lease` while storage is healthy, compare the hosts' clocks against NTP.
+
 ## Refused and unconfirmed metadata writes
 
 ```
@@ -353,7 +373,7 @@ Atlas checks every manifest, index, and cursor before it uploads it, writes snap
 | `Refusing to write ... its reader would reject it`         | `RefusedWriteError`, `ATLAS_WRITE_REFUSED`, exit `1`   | The object Atlas built fails the checks its own reader applies. Storing it would have produced a damaged manifest                                       | Rerun the backup. If it repeats, report it with the message. It names the key and the failed check, never content                                                        |
 | `Refusing to write ... too large to store as one JSON document` | The same                                          | One manifest or index passed the JSON string limit of about 512 MB                                                                                      | Rerunning gives the same result. Report it with the message                                                                                                              |
 | `Refusing to write ... decrypts to different bytes`, `does not decrypt` | The same                                  | The ciphertext did not decrypt back to what was encrypted, which points at faulty memory or CPU on the host                                             | Rerun. If it repeats, test the host's memory before trusting any backup made on it                                                                                      |
-| `already exists and holds a different object`              | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. Two runs for the same owner at the same time is the likely cause                                | Rerun. A new run uses a new snapshot ID. Run one backup per mailbox, owner, site, or team at a time                                                                      |
+| `already exists and holds a different object`              | `StoredObjectConflictError`, `ATLAS_STORAGE_FAILURE`, exit `1` | Another object sits under this run's snapshot ID. The owner lease keeps two runs off one owner, so suspect a backend that ignores write conditions | Rerun. A new run uses a new snapshot ID. Run `atlas storage-check` and read its `Conditional writes` row                                                                 |
 | `was written, but reading it back returned different bytes` | `StorageError`, `ATLAS_STORAGE_FAILURE`, exit `1`     | Storage returned something other than what was sent: a backend fault, or for a cursor, another run writing the same cursor                              | Rerun. Check `status` afterwards. If the object is reported damaged, follow [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes) or [Delta cursor or identity registry cannot be read](#delta-cursor-or-identity-registry-cannot-be-read) |
 | `was written but could not be read back to confirm it`     | The same                                               | The upload succeeded and the confirming `GET` failed. The cause is attached                                                                             | Rerun once storage responds                                                                                                                                             |
 

@@ -4,13 +4,14 @@ description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with
 
 # Storage layout
 
-Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, calendars under `calendar/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, calendars under `calendar/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below and the [owner leases](#owner-leases).
 
 ```
 atlas-{tenant_id}/
 ├── _meta/
 │   ├── dek.enc                                  # wrapped data encryption key
 │   ├── outlook-cursors/{owner_id}.json          # Outlook delta links, one per folder
+│   ├── outlook-leases/{owner_id}.json           # owner lease, present while an operation runs
 │   ├── outlook-manifests/
 │   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
 │   │   └── snapshots/{snapshot_id}.json         # manifest key per snapshot
@@ -18,6 +19,7 @@ atlas-{tenant_id}/
 │   │   ├── {owner_id}/                          # Outlook
 │   │   ├── onedrive/{owner_id}/                 # OneDrive
 │   │   └── sharepoint/{site_id}/                # SharePoint
+│   ├── storage-check/                           # probe object of `atlas storage-check`, removed at once
 │   └── replica.marker                           # present only on replica buckets
 ├── _quarantine/{original_key}                    # damaged manifests and version indexes moved aside
 ├── identity-registry.json                       # resolved users, one per tenant
@@ -28,33 +30,38 @@ atlas-{tenant_id}/
 │   ├── data/{owner_id}/{content_name}          # contact records, keyed HMAC-SHA256 name
 │   ├── photos/{owner_id}/{content_name}        # contact photos, keyed HMAC-SHA256 name
 │   ├── manifests/{owner_id}/{snapshot_id}.json # contacts manifests
-│   └── _meta/{owner_id}/delta.json             # delta cursor
+│   ├── _meta/{owner_id}/delta.json             # delta cursor
+│   └── _meta/{owner_id}/lease.json             # owner lease
 ├── calendar/
 │   ├── data/{owner_id}/{content_name}          # event records, keyed HMAC-SHA256 name
 │   ├── attachments/{owner_id}/{content_name}   # event file attachments, keyed HMAC-SHA256 name
 │   ├── manifests/{owner_id}/{snapshot_id}.json # calendar manifests
-│   └── _meta/{owner_id}/delta.json             # delta cursors, one per calendar
+│   ├── _meta/{owner_id}/delta.json             # delta cursors, one per calendar
+│   └── _meta/{owner_id}/lease.json             # owner lease
 ├── onedrive/
 │   ├── data/{owner_id}/{content_name}           # file blobs
 │   ├── manifests/{owner_id}/{snapshot_id}.json
 │   ├── index/{owner_id}/runs/{snapshot_id}.json # version index per backup run
 │   ├── index/{owner_id}/files/{file_id}.json    # legacy per-file index
 │   ├── staging/{owner_id}/                      # temporary multipart uploads
-│   └── _meta/{owner_id}/delta.json              # delta cursors
+│   ├── _meta/{owner_id}/delta.json              # delta cursors
+│   └── _meta/{owner_id}/lease.json              # owner lease
 ├── sharepoint/
 │   ├── data/{site_id}/{content_name}
 │   ├── manifests/{site_id}/{snapshot_id}.json
 │   ├── index/{site_id}/runs/{snapshot_id}.json
 │   ├── index/{site_id}/files/{file_id}.json
 │   ├── staging/{site_id}/
-│   └── _meta/{site_id}/delta.json
+│   ├── _meta/{site_id}/delta.json
+│   └── _meta/{site_id}/lease.json
 └── teams/
     ├── data/{team_id}/{content_name}
     ├── data/{team_id}/hosted/{content_name}
     ├── manifests/{team_id}/{snapshot_id}.json
     ├── shards/{team_id}/{channel_id}/{content_name}.json
     ├── _meta/{team_id}/channels/{channel_id}.json
-    └── _meta/{team_id}/checkpoints/{channel_id}/
+    ├── _meta/{team_id}/checkpoints/{channel_id}/
+    └── _meta/{team_id}/lease.json
 ```
 
 ## Quarantined objects
@@ -68,6 +75,40 @@ _quarantine/teams/manifests/{team_id}/{snapshot_id}.json
 `atlas <workload> quarantine --key <key>` moves a damaged snapshot manifest or version index to `_quarantine/` followed by its original key, so the workload prefixes no longer list it. The bytes are copied unchanged, so the object stays encrypted and bound to its original key: it does not decrypt at the quarantine key. A second quarantine of the same key adds a millisecond suffix rather than overwriting the first copy. See [Damaged manifests and version indexes](/reference/cli#damaged-manifests-and-version-indexes).
 
 No backup, restore, listing, or verification reads `_quarantine/`. Deleting an owner, mailbox, site, or team removes its quarantined copies too, and `atlas delete --purge` removes the whole prefix. `atlas stats storage` counts the prefix as `other`, not under a workload.
+
+## Owner leases
+
+```
+_meta/outlook-leases/{owner_id}.json     # Outlook mail
+onedrive/_meta/{owner_id}/lease.json     # also contacts/, calendar/
+sharepoint/_meta/{site_id}/lease.json
+teams/_meta/{team_id}/lease.json
+```
+
+A backup, deletion, or quarantine holds one lease object for its mailbox, drive owner, site, or team while it runs, so two operations never write the same owner's cursor, pointer, or checkpoint at once. The object sits next to the owner's delta cursor. See [Concurrent operations](/reference/sdk#concurrent-operations) for the protocol.
+
+The lease is not encrypted. It is plain JSON, so that an operation without the tenant key, such as erasing an owner after the passphrase is lost, can still take it. Anyone with read access to the bucket can read:
+
+| Field                        | What it reveals                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `operation`                  | That a `backup`, `delete`, or `quarantine` is running on the owner, or last ran if the lease was left behind |
+| `acquired_at`, `expires_at`  | When that operation started and when it last renewed the lease, to the minute                                |
+| `released_at`                | When it finished, present only when the lease could not be deleted                                           |
+| `holder_id`                  | A random ID generated for that one run. It names no host, user, or process                                   |
+| `format_version`             | The lease format                                                                                             |
+
+The owner ID is in the key, as it is for every object of that owner. The lease holds no backup content, no item names, and nothing derived from the tenant key.
+
+| Property     | Behavior                                                                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Lifetime     | Written when the operation starts, rewritten every 60 seconds, deleted when it ends. If the delete is refused, it is rewritten as released and stays as a free lease. One left by a killed process expires 5 minutes after its last write |
+| Object Lock  | Never written with retention, also when the run uses `--retention-days`. A bucket default retention still locks each version, which is one more reason to remove it |
+| Versions     | In a versioned bucket every renewal leaves a noncurrent version of about 200 bytes. The 30-day noncurrent expiry rule removes them                                   |
+| Deletion     | Deleting an owner removes its lease last, with all versions, so nothing is left under the erased owner's ID                                                        |
+| Replication  | Never copied to a replica. A lease describes a run on this bucket                                                                                                   |
+| Storage usage | Counted like a delta cursor: under its workload for the prefixed workloads, under `meta` for Outlook. It is not backup data                                         |
+
+Do not delete a lease by hand while its operation may still be running. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner).
 
 ## Bucket isolation
 
@@ -156,6 +197,8 @@ If the file is lost or corrupted and you have no separate copy, every object in 
 - Restrict `DeleteObject` on `_meta/*` in the bucket policy.
 - Enable Object Lock with a long retention on this key.
 - Check periodically that the file exists and can be read.
+
+With `DeleteObject` denied on `_meta/*`, Atlas cannot delete the Outlook [owner lease](#owner-leases) under `_meta/outlook-leases/` and marks it released in place instead, so the next run on that mailbox still starts at once.
 
 ## Content addressing
 

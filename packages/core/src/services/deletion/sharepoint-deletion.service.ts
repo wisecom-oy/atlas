@@ -3,14 +3,21 @@ import { inject, injectable } from 'inversify';
 import type {
   SharePointDeletionUseCase,
   SharePointManifestRepository,
+  OwnerLeasePort,
   TenantContextFactory,
   DeletionResult,
 } from '@wisecom/atlas-types';
 import {
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import { delete_scopes } from '@/services/deletion/shared/prefix-deleter';
+import {
+  erase_leased_owner_scopes,
+  run_owner_deletion,
+  run_owner_erasure,
+  type LeasedDeletionPorts,
+} from '@/services/deletion/shared/leased-owner-deletion';
 import { delete_newest_drive_snapshot } from '@/services/deletion/drive-snapshot-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
@@ -21,7 +28,12 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: SharePointManifestRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
+
+  private get _ports(): LeasedDeletionPorts {
+    return { tenant_factory: this._tenant_factory, leases: this._leases };
+  }
 
   /**
    * Deletes all backed-up SharePoint data for a single site.
@@ -29,26 +41,31 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
    * Staging is swept alongside the rest: a large-file upload interrupted before
    * its canonical copy leaves the file content parked there, and the backup path
    * only clears it opportunistically.
+   *
+   * Runs under the site's lease, so it is refused with `OwnerBusyError` while a backup of the
+   * site is running (issue #623).
    */
   async delete_site_data(tenant_id: string, site_id: string): Promise<DeletionResult> {
     site_id = normalize_owner_id(site_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    const staging_prefix = `sharepoint/staging/${site_id}/`;
-    const result = await delete_scopes(storage, [
-      `sharepoint/manifests/${site_id}/`,
-      `sharepoint/data/${site_id}/`,
-      `sharepoint/index/${site_id}/`,
-      `sharepoint/_meta/${site_id}/`,
-      staging_prefix,
-      ...quarantined_copies_of([
+    const owner = { workload: 'sharepoint', owner_id: site_id } as const;
+    return run_owner_erasure(this._ports, tenant_id, owner, async (storage, lease) => {
+      const staging_prefix = `sharepoint/staging/${site_id}/`;
+      const result = await erase_leased_owner_scopes(storage, lease, [
         `sharepoint/manifests/${site_id}/`,
+        `sharepoint/data/${site_id}/`,
         `sharepoint/index/${site_id}/`,
-      ]),
-    ]);
-    // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps a site
-    // nobody backs up any more (issue #345).
-    await abort_staging_uploads(storage, staging_prefix);
-    return result;
+        `sharepoint/_meta/${site_id}/`,
+        staging_prefix,
+        ...quarantined_copies_of([
+          `sharepoint/manifests/${site_id}/`,
+          `sharepoint/index/${site_id}/`,
+        ]),
+      ]);
+      // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps a site
+      // nobody backs up any more (issue #345).
+      await abort_staging_uploads(storage, staging_prefix);
+      return result;
+    });
   }
 
   /**
@@ -63,9 +80,10 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     site_id = normalize_owner_id(site_id);
-    const ctx = await this._tenant_factory.create_readonly(tenant_id);
-    try {
-      return await delete_newest_drive_snapshot(ctx, {
+    const owner = { workload: 'sharepoint', owner_id: site_id } as const;
+    return run_owner_deletion(this._ports, tenant_id, owner, (ctx, lease) =>
+      delete_newest_drive_snapshot(ctx, {
+        lease,
         workload: 'sharepoint',
         label: 'SharePoint',
         owner_id: site_id,
@@ -73,9 +91,7 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
         wording: { owner: 'site', records: 'files', delete_all_flag: '--site' },
         find_snapshot: () => this._manifests.find_by_snapshot(ctx, site_id, snapshot_id),
         list_owner_manifests: () => this._manifests.list_snapshots_by_site(ctx, site_id),
-      });
-    } finally {
-      ctx.destroy();
-    }
+      }),
+    );
   }
 }

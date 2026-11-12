@@ -39,6 +39,12 @@ const RAW_PUT_ALLOWLIST: Record<string, string> = {
   'core/src/services/replication/drive-snapshot-replicator.ts': 'byte-identical manifest copy',
   // The registry retries on its own ETag compare-and-swap, which the guarded writer does not model.
   's3/src/adapters/s3-identity-registry-repository.adapter.ts': 'identity registry CAS loop',
+  // The owner lease is plain JSON by design, so it can be taken without the tenant key. It is
+  // only ever written under a condition and read back for its holder id.
+  'core/src/services/lease/owner-lease-record.ts':
+    'owner lease, unencrypted, create-only and compare-and-swap',
+  // A throwaway plaintext object `storage-check` writes to see the conditions refused, then removes.
+  's3/src/adapters/s3-conditional-write-probe.ts': 'storage-check conditional-write probe',
 };
 
 /** Every `.ts` file under `packages/<name>/src`, as a path relative to `packages/`. */

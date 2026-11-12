@@ -2,6 +2,7 @@
 // manifests they build differ in their identity fields and in what each provider records per
 // entry, so the shared version would be generic over almost every line.
 import type {
+  HeldOwnerLease,
   NoSnapshotReason,
   SharePointBackupResult,
   SharePointChangeType,
@@ -238,18 +239,23 @@ export function build_run_version_indexes(
   }));
 }
 
-/** Saves snapshot manifest, the run's single version index object, and the delta cursor. */
+/**
+ * Saves snapshot manifest, the run's single version index object, and the delta cursor. Each
+ * write is preceded by a lease check, so a run that lost its site commits nothing (issue #623).
+ */
 export async function persist_snapshot_backup(
   manifests: SharePointManifestRepository,
   file_indexes: SharePointFileVersionIndexRepository,
   cursors: SharePointDeltaCursorRepository,
   ctx: TenantContext,
+  lease: HeldOwnerLease,
   site_id: string,
   snapshot: SharePointSnapshotManifest,
   entries: SharePointManifestEntry[],
   cursor: SharePointDeltaCursor,
   collected_rows: Map<string, SharePointFileVersionRecord[]>,
 ): Promise<void> {
+  lease.assert_held();
   await manifests.save(ctx, snapshot);
   await file_indexes.write_run_index(
     ctx,
@@ -257,5 +263,6 @@ export async function persist_snapshot_backup(
     snapshot.snapshot_id,
     build_run_version_indexes(site_id, snapshot.snapshot_id, entries, collected_rows),
   );
+  lease.assert_held();
   await cursors.save(ctx, cursor);
 }

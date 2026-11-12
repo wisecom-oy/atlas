@@ -6,6 +6,8 @@ import {
   NotFoundError,
   ObjectLockRetainedError,
   RefusedWriteError,
+  OwnerBusyError,
+  OwnerLeaseLostError,
   SnapshotNotNewestError,
   StorageError,
   StoredObjectConflictError,
@@ -153,6 +155,33 @@ describe('fatal CLI errors', () => {
     const output = diagnostics.join('\n');
     expect(output).toContain('Atlas code: ATLAS_SNAPSHOT_NOT_NEWEST');
     expect(output).toContain('Delete the newer snapshots first');
+  });
+
+  it('gives a busy owner its own exit category, so a scheduler can retry later (#623)', () => {
+    handle_fatal_error(
+      new OwnerBusyError({
+        workload: 'onedrive',
+        owner_id: 'owner-1',
+        held_by_operation: 'backup',
+        lease_expires_at: '2026-03-01T10:05:00.000Z',
+      }),
+    );
+    expect(process.exitCode).toBe(12);
+    const output = diagnostics.join('\n');
+    expect(output).toContain('Atlas code: ATLAS_OWNER_BUSY');
+    expect(output).toContain('Another backup is running on onedrive owner owner-1');
+    expect(output).toContain('2026-03-01T10:05:00.000Z');
+  });
+
+  it('exits the same way when a run lost its lease before committing (#623)', () => {
+    handle_fatal_error(
+      new OwnerLeaseLostError(
+        { workload: 'teams', owner_id: 'team-1' },
+        'another operation replaced it',
+      ),
+    );
+    expect(process.exitCode).toBe(12);
+    expect(diagnostics.join('\n')).toContain('lost its lease on teams owner team-1');
   });
 
   it('reports a refused metadata write as a general failure, with no quarantine hint', () => {

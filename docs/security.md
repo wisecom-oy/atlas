@@ -90,7 +90,7 @@ Rotation limits exposure to data written after the rotation. It targets a DEK th
 
 ## Content encryption
 
-Every object is encrypted with **AES-256-GCM**. The GCM tag gives confidentiality and authenticity: a single flipped bit fails decryption.
+Every object is encrypted with **AES-256-GCM**. The GCM tag gives confidentiality and authenticity: a single flipped bit fails decryption. The one exception is the [owner lease](/operations/storage-layout#owner-leases), plain JSON that tells a reader of the bucket which operation is running on an owner and since when, and nothing about the content.
 
 ```
 [ATLS][version][12-byte IV][16-byte GCM tag][ciphertext]
@@ -532,6 +532,10 @@ Atlas separates read and write storage access, so an operator who only browses n
 | Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                               | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                                               | Yes          |
 
 Only the provisioning row creates a bucket or writes `_meta/dek.enc`. Every other command fails with `No backups found for tenant <id>` (exit `7`) when the tenant has no bucket, or, for commands that decrypt, no data key. A mistyped tenant ID or profile therefore leaves nothing behind.
+
+Backups, deletions, and quarantines also write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) of the mailbox, drive owner, site, or team they act on. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. The lease keeps Atlas runs apart. It is not an access control: it is unencrypted and unauthenticated, so anyone who can write to the bucket can remove or forge it, and anyone who can do that can already delete the backups.
+
+`storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs.
 
 Give monitoring and audit principals the read-only row only. If a principal holds `s3:CreateBucket`, that permission dates from Atlas versions before 2.1.0-beta and can be revoked.
 

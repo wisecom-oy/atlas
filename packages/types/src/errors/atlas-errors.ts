@@ -15,6 +15,7 @@ export type AtlasErrorCode =
   | 'ATLAS_KEY_CONFLICT'
   | 'ATLAS_SNAPSHOT_NOT_NEWEST'
   | 'ATLAS_WRITE_REFUSED'
+  | 'ATLAS_OWNER_BUSY'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -180,6 +181,76 @@ export class RefusedWriteError extends AtlasError {
       `Refusing to write the ${label} at ${key}: ${reason}. Nothing was written.`,
       options,
     );
+  }
+}
+
+/** The owner a lease error is about, and what is known of the operation that holds it. */
+export interface OwnerLeaseHolder {
+  /** Workload namespace of the lease, e.g. `outlook`, `onedrive`, `teams`. */
+  readonly workload: string;
+  /** The mailbox, drive owner, site or team id the lease covers. */
+  readonly owner_id: string;
+  /** The operation that holds the owner, when its lease could be read: `backup`, `delete`, `quarantine`. */
+  readonly held_by_operation?: string | undefined;
+  /** When the holder's lease runs out unless it renews it first, as an ISO 8601 UTC timestamp. */
+  readonly lease_expires_at?: string | undefined;
+}
+
+/**
+ * Another operation holds the lease on this mailbox, drive owner, site or team, so this one did not
+ * start and wrote nothing (issue #623). Retrying helps once the other operation ends, or after its
+ * lease expires when the process that held it was killed.
+ */
+export class OwnerBusyError extends AtlasError {
+  readonly workload: string;
+  readonly owner_id: string;
+  readonly held_by_operation: string | undefined;
+  readonly lease_expires_at: string | undefined;
+
+  constructor(holder: OwnerLeaseHolder, options?: { cause?: unknown; message?: string }) {
+    super(
+      'ATLAS_OWNER_BUSY',
+      options?.message ?? owner_busy_message(holder),
+      options?.cause === undefined ? undefined : { cause: options.cause },
+    );
+    this.workload = holder.workload;
+    this.owner_id = holder.owner_id;
+    this.held_by_operation = holder.held_by_operation;
+    this.lease_expires_at = holder.lease_expires_at;
+  }
+}
+
+function owner_busy_message(holder: OwnerLeaseHolder): string {
+  const operation = holder.held_by_operation ?? 'operation';
+  const expiry =
+    holder.lease_expires_at === undefined
+      ? ''
+      : ` Its lease expires at ${holder.lease_expires_at} unless that operation is still running and renews it.`;
+  return (
+    `Another ${operation} is running on ${holder.workload} owner ${holder.owner_id}, so this ` +
+    `operation did not start and wrote nothing.${expiry} Retry once the other operation ends, ` +
+    'or after the lease expires.'
+  );
+}
+
+/**
+ * This run held the owner's lease and lost it before a commit point: it could not renew the lease
+ * until it expired, or another operation took the owner over. The run stopped before writing the
+ * manifest, cursor or deletion the check guarded.
+ *
+ * An `OwnerBusyError`, with the same code and exit status, because the remedy is the same: another
+ * operation may own the mailbox, drive owner, site or team now, and a rerun is safe once it ends.
+ * Content objects this run already uploaded stay in storage and are deduplicated by the next run.
+ */
+export class OwnerLeaseLostError extends OwnerBusyError {
+  constructor(holder: OwnerLeaseHolder, reason: string, options?: { cause?: unknown }) {
+    super(holder, {
+      ...options,
+      message:
+        `This run lost its lease on ${holder.workload} owner ${holder.owner_id}: ${reason}. It ` +
+        'stopped before committing, so no manifest, cursor or deletion was written past this ' +
+        'point. Retry once no other operation is running on the owner.',
+    });
   }
 }
 

@@ -4,7 +4,7 @@
 // them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
@@ -15,6 +15,7 @@ import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
 import type {
   BackupProgressReporter,
+  HeldOwnerLease,
   OneDriveBackupOptions,
   OneDriveBackupResult,
   OneDriveBackupUseCase,
@@ -23,7 +24,7 @@ import type {
   OneDriveDeltaCursorRepository,
   OneDriveFileVersionIndexRepository,
   OneDriveManifestRepository,
-  TenantContext,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
@@ -31,6 +32,7 @@ import {
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import {
@@ -40,7 +42,7 @@ import {
   build_success_result,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import type { RunVersionCollector } from '@/services/versioning/version-sync';
+import { load_run_version_collector } from '@/services/versioning/run-version-collector';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
 import { build_package_warnings } from '@/services/backup/package-report';
 import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
@@ -72,6 +74,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     private readonly _file_indexes: OneDriveFileVersionIndexRepository,
     @inject(ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: OneDriveDeltaCursorRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -79,6 +82,10 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
    *
    * The run's abort signal is published to every Graph call inside it, so cancelling also ends a
    * Graph retry or throttle wait rather than only the next file (issue #673).
+   *
+   * The run holds the owner's OneDrive lease from before it reads the cursor until it ends.
+   *
+   * @throws OwnerBusyError when another operation holds the owner's OneDrive backup.
    */
   async backup_onedrive(
     tenant_id: string,
@@ -98,10 +105,17 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
   ): Promise<OneDriveBackupResult> {
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     let progress: BackupProgressReporter | undefined;
+    let lease: HeldOwnerLease | undefined;
     try {
+      // Taken before the cursor is read, released in the `finally` below (issue #623).
+      lease = await this._leases.acquire(tenant_ctx, {
+        workload: 'onedrive',
+        owner_id: owner_id,
+        operation: 'backup',
+      });
       // Per-object retention carried by this run's context, not the bucket default: concurrent
       // runs on one tenant would overwrite each other's bucket setting (#551).
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
+      const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
       // A changed scope or a cursor whose snapshot is gone reads in full, as `--full` does: either
@@ -154,7 +168,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       // record which historical versions Graph already handed over, not where
       // the delta stream stopped, and discarding them would re-download every
       // version of every file (issue #161).
-      const versions = await this.load_run_version_collector(
+      const versions = await load_run_version_collector(
+        this._file_indexes,
         ctx,
         owner_id,
         resume.watermark_cursor,
@@ -245,12 +260,14 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
         // failure discards them) are still on the wire and still watermarked:
         // the rows have to land before the cursor that tells the next run to
         // skip those versions, or that history is unreachable forever.
+        lease.assert_held();
         await this._file_indexes.write_run_index(
           ctx,
           owner_id,
           snapshot_id,
           build_run_version_indexes(owner_id, snapshot_id, [], scan_result.version_rows),
         );
+        lease.assert_held();
         await this._cursors.save(ctx, cursor);
         result = build_empty_result(
           owner_id,
@@ -291,6 +308,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
           this._file_indexes,
           this._cursors,
           ctx,
+          lease,
           owner_id,
           snapshot,
           scan_result.entries,
@@ -322,29 +340,8 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       return with_summary_unreadable_keys(result, skipped_manifests);
     } finally {
       progress?.finish();
+      await lease?.release();
       tenant_ctx.destroy();
     }
-  }
-
-  /**
-   * Builds the run's version bookkeeping from the delta cursor.
-   *
-   * Steady state costs nothing: the cursor is one object the run already reads,
-   * and it carries the dedup watermarks. Only a cursor written before
-   * watermarks existed falls back to scanning the version index, once, to seed
-   * them; from the next run on that owner is on the cheap path (issue #161).
-   */
-  private async load_run_version_collector(
-    ctx: TenantContext,
-    owner_id: string,
-    stored_cursor: OneDriveDeltaCursor | undefined,
-  ): Promise<RunVersionCollector> {
-    const carried = stored_cursor?.version_watermark_by_file_id;
-    if (carried) return { watermarks: { ...carried }, rows: new Map() };
-    logger.info(`Seeding version dedup watermarks for ${owner_id} from the version index`);
-    return {
-      watermarks: await this._file_indexes.load_version_watermarks(ctx, owner_id),
-      rows: new Map(),
-    };
   }
 }

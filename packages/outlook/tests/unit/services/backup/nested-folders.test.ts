@@ -6,6 +6,7 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type {
@@ -18,6 +19,7 @@ import type {
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 function make_folder(path: string, id: string): MailFolder {
   const segments = path.split('/');
@@ -94,6 +96,7 @@ describe('MailboxSyncService - nested folders', () => {
       .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
       .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
 
     service = container.get(MailboxSyncService);

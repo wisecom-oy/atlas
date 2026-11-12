@@ -198,7 +198,7 @@ New buckets also receive lifecycle rules:
 | Expire delete markers              | Orphaned delete markers are removed             |
 | `atlas-expire-noncurrent-versions` | Noncurrent object versions expire after 30 days |
 
-Atlas does not read noncurrent versions. Its version history is stored as separate objects, so the expiry only removes superseded delta cursors and indexes.
+Atlas does not read noncurrent versions. Its version history is stored as separate objects, so the expiry only removes superseded delta cursors, indexes, and [owner leases](#owner-leases-and-conditional-writes).
 
 Only write paths create buckets. Read-only commands (`list`, `read`, `status`, `verify`, `stats`, `list-users`) never create a bucket or a data key. They fail with `No backups found for tenant <id>` when the tenant has no stored key, so a mistyped `-t` cannot create an empty, billable bucket.
 
@@ -262,7 +262,7 @@ Add a bucket policy that blocks overwrites of the key object, so a buggy or outd
 ```
 
 ::: warning Some S3-compatible stores ignore the header
-Older MinIO releases, some Ceph RGW versions, and various emulators silently ignore unknown conditional headers. On those backends the create-only guarantee does not hold. Test it by writing the same key twice with `If-None-Match: *`. The second write must fail with 412. After bootstrap, Atlas also reads back the stored key and uses it, so concurrent bootstraps still converge when the header is ignored.
+Older MinIO releases, some Ceph RGW versions, and various emulators silently ignore unknown conditional headers. On those backends the create-only guarantee does not hold. Test it by writing the same key twice with `If-None-Match: *`. The second write must fail with 412, and `atlas storage-check` runs that test for you. After bootstrap, Atlas also reads back the stored key and uses it, so concurrent bootstraps still converge when the header is ignored.
 :::
 
 ## Create-only snapshot objects and the read-back
@@ -285,6 +285,26 @@ After the upload, Atlas reads each manifest, run index, Teams index, and delta c
 
 A run that changed nothing writes no snapshot and reads back only its cursor. The read-back needs no new permission, because backups already read from the bucket. See [Metadata is checked before and after it is stored](/security#metadata-is-checked-before-and-after-it-is-stored) for what each step proves.
 
+## Owner leases and conditional writes
+
+```bash
+atlas storage-check   # the `Conditional writes` row must read `supported`
+```
+
+A backup, deletion, or quarantine holds a small unencrypted lease object for its mailbox, drive owner, site, or team, so a second operation on the same owner fails with `ATLAS_OWNER_BUSY` (exit `12`) instead of overwriting the first one's delta cursor. The lease is taken with `If-None-Match: *`, renewed and taken over with `If-Match`, and read back after every acquire. See [Concurrent operations](/reference/sdk#concurrent-operations) and [Owner leases](/operations/storage-layout#owner-leases).
+
+| Consideration   | Detail                                                                                                                                                                                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend         | Must refuse a create-only write onto an existing key and a compare-and-swap with a stale ETag, both with `412`. `atlas storage-check` probes both. A backend that accepts them lets two runs hold one lease for up to 60 seconds                    |
+| Requests        | Per operation: 2 to acquire and 2 to release, 3 when the delete is refused. While it runs: 2 per minute, one `GET` and one `PUT` of about 200 bytes. Nothing per object |
+| Permissions     | `s3:PutObject` and `s3:GetObject` on the lease keys, and `s3:DeleteObject` to remove a lease when its run ends. Where the delete is denied, as under a policy that denies `DeleteObject` on `_meta/*`, the run marks its lease released with a conditional `PUT` and the object stays as a free lease |
+| Versioned bucket | Each renewal replaces the lease, so an operation leaves one noncurrent version per minute it ran, plus a delete marker. The `atlas-expire-noncurrent-versions` rule removes the versions after 30 days, and the delete marker rule removes the marker |
+| Other buckets   | A bucket Atlas did not create has no such rule. Add a noncurrent-version expiry, or the lease versions accumulate                                                                                                                                   |
+| Default retention | A lease is never written with retention, but a bucket default retention locks every version of it until the retention ends. See [Removing a bucket default retention](#removing-a-bucket-default-retention)                                      |
+| Clocks          | Hosts that share a bucket must agree on the time to within a few minutes. Expiry compares a timestamp one host wrote with another host's clock                                                                                                      |
+
+A 6-hour backup renews its lease 360 times, which in a versioned bucket is about 72 KB of noncurrent versions until the lifecycle rule removes them.
+
 ## The identity registry under concurrent runs
 
 ```
@@ -297,7 +317,7 @@ Backups record every user they resolve by email in one tenant-wide object, `iden
 - Every later write carries the ETag the registry was read at (`If-Match`).
 - On `412 Precondition Failed`, or the `409 ConditionalRequestConflict` S3 returns when two conditional writes arrive together, Atlas re-reads the registry, re-applies its own change on top of the other writer's, and tries again. It makes 8 attempts with a short jittered pause before failing the run with `ATLAS_STORAGE_FAILURE`.
 
-A backend that ignores `If-Match` degrades this to last writer wins, and concurrent runs can then drop each other's new entries. Test it the same way as above: overwrite an object with `If-Match` set to a stale ETag. The write must fail with 412. If it does not, run one backup per tenant at a time.
+A backend that ignores `If-Match` degrades this to last writer wins, and concurrent runs can then drop each other's new entries. Test it the same way as above: overwrite an object with `If-Match` set to a stale ETag. The write must fail with 412, which `atlas storage-check` also tests. If it does not, run one backup per tenant at a time.
 
 ## Object layout and billable sizes
 

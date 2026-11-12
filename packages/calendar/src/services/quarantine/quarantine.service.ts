@@ -1,6 +1,7 @@
 import { inject, injectable } from 'inversify';
 import type {
   CalendarManifestRepository,
+  OwnerLeasePort,
   QuarantinedObjectKind,
   QuarantineResult,
   QuarantineUseCase,
@@ -9,6 +10,7 @@ import type {
 } from '@wisecom/atlas-types';
 import {
   CALENDAR_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import {
@@ -39,6 +41,7 @@ export class CalendarQuarantineService implements QuarantineUseCase {
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(CALENDAR_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: CalendarManifestRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -53,13 +56,20 @@ export class CalendarQuarantineService implements QuarantineUseCase {
   ): Promise<QuarantineResult> {
     const target: QuarantineTarget = {
       workload: 'Calendar',
+      lease_workload: 'calendar',
       accepts: 'Calendar manifests',
       kind_of: (key): QuarantinedObjectKind | undefined =>
         mailbox_of(key) === undefined ? undefined : 'manifest',
       read: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
       after_move: (ctx, key) => drop_cursor(ctx, key),
     };
-    return quarantine_unreadable_object(this._tenant_factory, target, tenant_id, storage_key);
+    return quarantine_unreadable_object(
+      this._tenant_factory,
+      this._leases,
+      target,
+      tenant_id,
+      storage_key,
+    );
   }
 }
 

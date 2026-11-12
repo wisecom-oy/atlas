@@ -17,6 +17,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER_ID = 'owner-1';
 
@@ -95,6 +96,7 @@ function make_service(options: {
       load: vi.fn().mockResolvedValue(options.previous_cursor),
       save: vi.fn().mockResolvedValue(undefined),
     } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, manifests };

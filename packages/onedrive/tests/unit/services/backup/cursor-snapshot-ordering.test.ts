@@ -9,6 +9,7 @@ import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/st
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // Issue #339: change tracking must never be committed ahead of the snapshot
 // that makes the scanned content reachable. A manifest write that fails after
@@ -118,6 +119,7 @@ function make_harness(options: {
       }),
     } as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, save_order, saved_cursors };
 }

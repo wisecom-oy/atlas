@@ -339,7 +339,7 @@ The stored snapshot keeps the raw Graph objects, inline images with their conten
 
 ## SDK usage
 
-The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. Never run two operations on one team at once. See [Concurrent operations](/reference/sdk#concurrent-operations).
+The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. A backup, deletion, or quarantine of a team holds that team's lease, so a second one rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`) and writes nothing. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 `backup` accepts `concurrency`, the number of channels backed up at once (1 to 16, default 4). The result's `summary` reports `elapsedMs`, one entry per channel in `channels` (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event names the channel that finished in `current` and carries `etaMs`, an estimate of the time left based on the channels finished so far.
 
@@ -347,7 +347,7 @@ To back up many teams, run several `backup` calls at once, one per team. All cal
 
 - Give them a shared `throttleCoordinator`. For `teams` requests its `wait` and `raise` receive the team ID as `scope.ownerId`, so a cooldown applies to one team.
 - Set `teamsPacingShare` on each instance to its share of the tenant budget, for example `0.25` for four processes. Pacing state lives in each process, so without it four processes would together send up to four times the tenant rate. Team and channel budgets stay whole.
-- Run only one operation per team at a time, for example with a lease keyed by the team ID. Two runs on one team would also split its channel budget.
+- Schedule one operation per team at a time. Atlas refuses the second with `OwnerBusyError`, so an overlap costs a failed run rather than a lost cursor or checkpoint, and the refused run can be retried after `lease_expires_at`.
 
 See [Concurrent operations](/reference/sdk#concurrent-operations).
 

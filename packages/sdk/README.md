@@ -80,7 +80,7 @@ Run one operation at a time per tenant unless your scheduler guarantees that no 
 | `atlas.teams`               | Teams channel backup, verification, and snapshot catalog                         |
 | `atlas.getBucketStats()`    | Storage statistics                                                               |
 | `atlas.getStorageUsage()`   | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
-| `atlas.checkStorage()`      | S3 Object Lock readiness                                                         |
+| `atlas.checkStorage()`      | S3 Object Lock and conditional-write readiness                                   |
 | `atlas.validate()`          | S3 access, existing key and Graph token validation                               |
 | `atlas.replicateSnapshot()` | Cross-region replication                                                         |
 | `createStorageTarget()`     | Configure secondary S3 targets                                                   |

@@ -4,6 +4,7 @@ import type { ManifestRepository, TenantContextFactory } from '@wisecom/atlas-ty
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { OutlookQuarantineService } from '@/services/quarantine/quarantine.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const KEY = 'manifests/00000000-0000-0000-0000-00000000abcd/snap-1.json';
 
@@ -12,7 +13,10 @@ function rig(read_manifest_at: ManifestRepository['read_manifest_at']) {
   harness.set_raw(KEY, Buffer.from('damaged'));
   const factory = { create: async () => harness.ctx } as unknown as TenantContextFactory;
   const manifests = { read_manifest_at } as unknown as ManifestRepository;
-  return { harness, service: new OutlookQuarantineService(factory, manifests) };
+  return {
+    harness,
+    service: new OutlookQuarantineService(factory, manifests, stub_owner_leases().leases),
+  };
 }
 
 describe('OutlookQuarantineService (issue #631)', () => {

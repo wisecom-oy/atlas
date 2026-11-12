@@ -4,6 +4,12 @@ import { Container } from 'inversify';
 import 'reflect-metadata';
 import { StorageCheckService } from '@/services/storage-check.service';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
+import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
+
+// The probe writes objects and has its own tests; here it would only shift the request counts.
+vi.mock('@/adapters/s3-conditional-write-probe', () => ({
+  probe_conditional_writes: vi.fn(async () => ({ support: 'supported' })),
+}));
 
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
   return { send: vi.fn() };
@@ -74,5 +80,18 @@ describe('StorageCheckService', () => {
 
     expect(result.default_retention).toBeUndefined();
     expect(mock_s3.send).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports what the conditional-write probe found on the tenant bucket (issue #623)', async () => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockRejectedValueOnce(new Error('ObjectLockConfigurationNotFoundError'));
+    const ignored = { support: 'ignored', detail: 'the backend accepted a write' } as const;
+    vi.mocked(probe_conditional_writes).mockResolvedValueOnce(ignored);
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.conditional_writes).toEqual(ignored);
   });
 });

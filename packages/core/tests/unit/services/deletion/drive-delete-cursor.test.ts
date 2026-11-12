@@ -17,6 +17,7 @@ import {
 } from '@wisecom/atlas-types';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 interface StoredSnapshot {
   readonly snapshot_id: string;
@@ -50,10 +51,14 @@ const WORKLOADS: Workload[] = [
     owner: '00000000-0000-0000-0000-00000000abcd',
     owner_noun: 'OneDrive',
     build: (factory, reads) => {
-      const service = new OneDriveDeletionService(factory, {
-        find_by_snapshot: reads.find_by_snapshot,
-        list_snapshots_by_owner: reads.list_owner_manifests,
-      } as never);
+      const service = new OneDriveDeletionService(
+        factory,
+        {
+          find_by_snapshot: reads.find_by_snapshot,
+          list_snapshots_by_owner: reads.list_owner_manifests,
+        } as never,
+        stub_owner_leases().leases,
+      );
       return (snapshot_id) =>
         service.delete_snapshot('t', '00000000-0000-0000-0000-00000000abcd', snapshot_id);
     },
@@ -64,10 +69,14 @@ const WORKLOADS: Workload[] = [
     owner: 'contoso.sharepoint.com,site-guid,web-guid',
     owner_noun: 'site',
     build: (factory, reads) => {
-      const service = new SharePointDeletionService(factory, {
-        find_by_snapshot: reads.find_by_snapshot,
-        list_snapshots_by_site: reads.list_owner_manifests,
-      } as never);
+      const service = new SharePointDeletionService(
+        factory,
+        {
+          find_by_snapshot: reads.find_by_snapshot,
+          list_snapshots_by_site: reads.list_owner_manifests,
+        } as never,
+        stub_owner_leases().leases,
+      );
       return (snapshot_id) =>
         service.delete_snapshot('t', 'contoso.sharepoint.com,site-guid,web-guid', snapshot_id);
     },

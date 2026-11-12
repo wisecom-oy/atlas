@@ -6,12 +6,20 @@ import { calendar_event, delta_of } from '@wisecom/atlas-types/testing/stub-cale
 import { CalendarBackupService } from '@/services/backup/backup.service';
 import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import { MAILBOX } from '@wisecom/atlas-types/testing/stub-calendar-snapshots';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const DAMAGED_KEY = `calendar/manifests/${MAILBOX}/cal-snap-9999-abc.json`;
 
 function backup_harness() {
   return calendar_rig(
-    (s) => new CalendarBackupService(s.tenant_factory, s.connector, s.manifests, s.cursors),
+    (s) =>
+      new CalendarBackupService(
+        s.tenant_factory,
+        s.connector,
+        s.manifests,
+        s.cursors,
+        stub_owner_leases().leases,
+      ),
   );
 }
 

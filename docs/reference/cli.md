@@ -40,6 +40,7 @@ case "$status" in
   2) echo "Incomplete run: inspect the reported items" >&2 ;;
   3) echo "Transient failure: schedule a later attempt" >&2 ;;
   4|5|6|7|8|9|10|11) echo "Operator action required; do not retry unchanged" >&2 ;;
+  12) echo "Another operation holds this mailbox, owner, site or team: retry later" >&2 ;;
   *) echo "Command failed; inspect stderr" >&2 ;;
 esac
 exit "$status"
@@ -59,6 +60,7 @@ exit "$status"
 | `9`  | `ATLAS_CONTENT_UNREADABLE`, `ATLAS_FORMAT_UNSUPPORTED`, or a command that skipped a damaged manifest or version index and named it |  The stored bytes cannot be parsed back, or were written by a newer Atlas format. Repeating the command will not help. For a newer format, upgrade Atlas. For a named manifest or version index, see [Damaged manifests and version indexes](#damaged-manifests-and-version-indexes). Otherwise extract the raw content with `save`. |
 | `10` | `ATLAS_KEY_CONFLICT`: `rehydrate` found a different data key on primary next to other objects, so it refused to replace a key that may protect existing backups | Repeating the command will not help. Confirm primary's content is disposable, run `atlas delete --purge`, then rehydrate into the empty bucket.                                                                        |
 | `11` | `ATLAS_SNAPSHOT_NOT_NEWEST`: `outlook delete -s`, `onedrive delete -s`, or `sharepoint delete -s` named a snapshot that newer snapshots of the same mailbox, owner, or site are built on | Repeating the command will not help. Delete the newer snapshots first, newest first, or delete the whole backup of that mailbox, owner, or site by leaving out `-s`. |
+| `12` | `ATLAS_OWNER_BUSY`: another backup, deletion, or quarantine holds the lease on the same mailbox, drive owner, site, or team, or this run lost its lease before it could commit | Nothing was committed. Retry once the other operation ends. If its process was killed, the lease expires 5 minutes after its last renewal, and the message names that time. See [Another operation holds the owner](/troubleshooting#another-operation-holds-the-owner). |
 
 Fatal exceptions map to these categories. Failures the command reports itself stay `1`: failed verification, `storage-check` reporting an unready bucket, and `config validate` reporting a failed probe. Per-item failures already reported as partial stay `2`, and their messages are not reclassified.
 
@@ -486,6 +488,8 @@ atlas outlook delete -m user@company.com -y     # skip the confirmation prompt
 | `-t, --tenant <id>`           | Override the tenant ID from config                        |
 
 Atlas deletes manifests first, then data objects. If a delete is interrupted, the leftover objects are orphan blobs, which are harmless, rather than manifests that point at missing data. `--snapshot` removes only the manifest, because other snapshots may reference the same blobs.
+
+Every workload's `delete` and `quarantine` takes the [owner lease](/reference/sdk#concurrent-operations) of the mailbox, drive owner, site, or team, so it exits `12` while a backup of the same owner is running, and a backup exits `12` while the deletion runs. The lease is not encrypted, so a deletion that needed no passphrase before still needs none.
 
 `--mailbox` also removes the mailbox's delta cursor (`_meta/outlook-cursors/`) and the replication status records of the deleted snapshots. Records under `_meta/replication/` that belong to a OneDrive snapshot of the same user stay. The next backup of the mailbox is a full backup.
 
@@ -1189,7 +1193,7 @@ A run exits `2` when any team is unhealthy: a channel error, a ledger root still
 
 ## atlas storage-check
 
-Check whether the bucket can hold immutable backups, without running a backup. The command reports versioning, Object Lock status, and the bucket class:
+Check whether the bucket can hold immutable backups and whether the backend honours conditional writes, without running a backup. The command reports versioning, Object Lock status, and the bucket class:
 
 - `lock-capable`: can take retention policies.
 - `versioned-only (legacy)`: predates v2.1.0 auto-provisioning.
@@ -1210,6 +1214,16 @@ atlas storage-check --lock-mode compliance --retention-days 365
 | `-t, --tenant <id>`    | Override the tenant ID from config                      |
 
 On a lock-capable bucket the command also reports the bucket's default retention. Atlas has not set one since 6.1.0, because it locks every object written without its own retention: backups without `--retention-days`, and the staging uploads Atlas deletes after copying them. A default found here was left by an older version or set by hand. It is shown in yellow and does not change the exit code. See [Removing a bucket default retention](/self-hosting/storage#removing-a-bucket-default-retention).
+
+The `Conditional writes` row reports a probe of the two writes that keep concurrent runs apart: a create-only write (`If-None-Match: *`) onto an existing key, and a compare-and-swap (`If-Match`) with a stale ETag. Both must be refused with `412`. The owner lease, the data key bootstrap, and the identity registry depend on it.
+
+| Value        | Meaning                                                                                                                                              | Exit code |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `supported`  | Both writes were refused                                                                                                                             | Unchanged |
+| `IGNORED`    | The backend accepted at least one of them, and the row names which. Two runs on one owner are then not kept apart. Upgrade or replace the backend    | `1`       |
+| `not probed` | The probe object could not be written: the bucket does not exist yet, or the credentials are read-only. The row gives the reason                     | Unchanged |
+
+The probe is the only write this command makes. It puts one plaintext object of a few bytes under `_meta/storage-check/` and deletes it, with its versions, before the command returns, so it needs `s3:PutObject` and `s3:DeleteObject` on that prefix. On a bucket with a default retention the probe's versions stay until that retention ends.
 
 ## atlas stats
 

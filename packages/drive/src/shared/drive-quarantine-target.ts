@@ -1,4 +1,8 @@
-import type { QuarantinedObjectKind, TenantContext } from '@wisecom/atlas-types';
+import type {
+  OwnerLeaseWorkload,
+  QuarantinedObjectKind,
+  TenantContext,
+} from '@wisecom/atlas-types';
 import type { QuarantineTarget } from '@wisecom/atlas-core/services/quarantine/stored-object-quarantine';
 import type { DriveStorageKeys } from '@/shared/storage-keys';
 
@@ -17,6 +21,7 @@ export interface DriveQuarantineReads {
  */
 export function drive_quarantine_target(
   workload: string,
+  lease_workload: OwnerLeaseWorkload,
   keys: DriveStorageKeys,
   reads: DriveQuarantineReads,
 ): QuarantineTarget {
@@ -24,6 +29,7 @@ export function drive_quarantine_target(
     kind_of_drive_key(keys, storage_key);
   return {
     workload,
+    lease_workload,
     accepts: `${workload} manifests and version indexes`,
     kind_of,
     read: (ctx, storage_key) =>

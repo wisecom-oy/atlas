@@ -104,6 +104,7 @@ export async function flush_channel_run(
   run: ChannelRun,
   step: RunStep,
 ): Promise<void> {
+  scope.lease.assert_held();
   if (step.threads.length > 0 || step.seen.length > 0) {
     const name = `seg-${run.stamp}-${run.segments.length}`;
     const segment: TeamsChannelCheckpointSegment = {
@@ -223,6 +224,7 @@ async function discard_checkpoint(
   channel_id: string,
   reason: string,
 ): Promise<undefined> {
+  scope.lease.assert_held();
   logger.warn(`Teams channel ${channel_id}: discarding its checkpoint (${reason})`);
   await scope.checkpoints.delete_channel(checkpoint_ctx(scope), scope.team_id, channel_id);
   return undefined;

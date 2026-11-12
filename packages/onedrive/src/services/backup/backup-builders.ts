@@ -2,6 +2,7 @@
 // manifests they build differ in their identity fields and in what each provider records per
 // entry, so the shared version would be generic over almost every line.
 import type {
+  HeldOwnerLease,
   NoSnapshotReason,
   OneDriveBackupResult,
   OneDriveChangeType,
@@ -220,17 +221,23 @@ export function build_success_result(
 }
 
 /** Saves snapshot manifest, the run's single version index object, and the delta cursor. */
+/**
+ * Saves the snapshot manifest, the run's version index and the delta cursor. Each write is
+ * preceded by a lease check, so a run that lost its owner commits nothing (issue #623).
+ */
 export async function persist_snapshot_backup(
   manifests: OneDriveManifestRepository,
   file_indexes: OneDriveFileVersionIndexRepository,
   cursors: OneDriveDeltaCursorRepository,
   ctx: TenantContext,
+  lease: HeldOwnerLease,
   owner_id: string,
   snapshot: OneDriveSnapshotManifest,
   entries: OneDriveManifestEntry[],
   cursor: OneDriveDeltaCursor,
   collected_rows: Map<string, OneDriveFileVersionRecord[]>,
 ): Promise<void> {
+  lease.assert_held();
   await manifests.save(ctx, snapshot);
   await file_indexes.write_run_index(
     ctx,
@@ -238,5 +245,6 @@ export async function persist_snapshot_backup(
     snapshot.snapshot_id,
     build_run_version_indexes(owner_id, snapshot.snapshot_id, entries, collected_rows),
   );
+  lease.assert_held();
   await cursors.save(ctx, cursor);
 }

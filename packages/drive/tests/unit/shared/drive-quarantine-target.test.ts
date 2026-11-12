@@ -9,7 +9,12 @@ function target() {
   const reads = { read_manifest: vi.fn(), read_index_object: vi.fn() };
   return {
     reads,
-    target: drive_quarantine_target('OneDrive', build_drive_storage_keys('onedrive'), reads),
+    target: drive_quarantine_target(
+      'OneDrive',
+      'onedrive',
+      build_drive_storage_keys('onedrive'),
+      reads,
+    ),
   };
 }
 

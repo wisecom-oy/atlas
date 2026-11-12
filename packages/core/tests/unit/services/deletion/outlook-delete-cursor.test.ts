@@ -9,6 +9,7 @@ import { Container } from 'inversify';
 import {
   MANIFEST_REPOSITORY_TOKEN,
   SnapshotNotNewestError,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   UnreadableObjectsError,
   type Manifest,
@@ -17,6 +18,7 @@ import {
   type TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { DeletionService } from '@/services/deletion/deletion.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER = 'john.doe@example.com';
 const CURSOR_KEY = `_meta/outlook-cursors/${OWNER}.json`;
@@ -84,6 +86,7 @@ describe('Outlook deletion and the delta cursor', () => {
     const container = new Container();
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(manifests);
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(DeletionService).toSelf();
     service = container.get(DeletionService);
   });

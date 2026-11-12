@@ -1,4 +1,5 @@
 import type {
+  HeldOwnerLease,
   TeamsChannelCheckpointRepository,
   TeamsConnector,
   TeamsHostedRef,
@@ -47,6 +48,8 @@ export interface BackupRunScope {
    * when the read finishes, so they skip the run's Object Lock. Defaults to `ctx`.
    */
   readonly checkpoint_ctx?: TenantContext | undefined;
+  /** The team's lease, checked before a checkpoint is advanced or discarded (issue #623). */
+  readonly lease: HeldOwnerLease;
   /** The channel read's hosted journal. Set per channel while its pages are applied. */
   readonly hosted_journal?: HostedJournal | undefined;
   readonly progress: BackupProgress;

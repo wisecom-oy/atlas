@@ -1,4 +1,9 @@
-import type { DeletionResult, SnapshotChainWording, TenantContext } from '@wisecom/atlas-types';
+import type {
+  DeletionResult,
+  HeldOwnerLease,
+  SnapshotChainWording,
+  TenantContext,
+} from '@wisecom/atlas-types';
 import { NotFoundError } from '@wisecom/atlas-types';
 import {
   delete_scopes,
@@ -24,6 +29,8 @@ export interface DriveSnapshotDeletion<M extends OrderedSnapshot> {
   readonly owner_id: string;
   readonly snapshot_id: string;
   readonly wording: SnapshotChainWording;
+  /** The owner's lease, checked once the order is known and before anything is deleted. */
+  readonly lease: HeldOwnerLease;
   /** Reads the snapshot's manifest; undefined when absent, rejects when it is damaged. */
   readonly find_snapshot: () => Promise<M | undefined>;
   /** Every manifest of the owning segment; rejects with `UnreadableObjectsError` on a damaged one. */
@@ -55,6 +62,7 @@ export async function delete_newest_drive_snapshot<M extends OrderedSnapshot>(
   const target = await deletion.find_snapshot();
   if (!target) throw new NotFoundError(`No ${label} manifest found for snapshot ${snapshot_id}`);
   await assert_snapshot_is_newest(target, deletion.list_owner_manifests, deletion.wording);
+  deletion.lease.assert_held();
 
   const manifest_result = await delete_snapshot_manifest(
     ctx.storage,

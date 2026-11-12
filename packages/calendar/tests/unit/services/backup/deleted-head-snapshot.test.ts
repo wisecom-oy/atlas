@@ -6,6 +6,7 @@ import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import { MAILBOX } from '@wisecom/atlas-types/testing/stub-calendar-snapshots';
 
 import { CalendarBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /**
  * Issue #704, reproduced live on Calendar: after `delete -s` of the newest snapshot the cursor still
@@ -14,7 +15,14 @@ import { CalendarBackupService } from '@/services/backup/backup.service';
  */
 function backup_harness() {
   return calendar_rig(
-    (s) => new CalendarBackupService(s.tenant_factory, s.connector, s.manifests, s.cursors),
+    (s) =>
+      new CalendarBackupService(
+        s.tenant_factory,
+        s.connector,
+        s.manifests,
+        s.cursors,
+        stub_owner_leases().leases,
+      ),
   );
 }
 

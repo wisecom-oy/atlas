@@ -8,11 +8,13 @@ import { Container } from 'inversify';
 import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const LOWER = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const UPPER = LOWER.toUpperCase();
@@ -52,6 +54,7 @@ describe('deletion prefixes ignore identifier case', () => {
 
     container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
       find_by_snapshot,
       list_snapshots_by_owner: vi.fn().mockResolvedValue([snap]),
@@ -74,6 +77,8 @@ describe('deletion prefixes ignore identifier case', () => {
       `onedrive/staging/${LOWER}/`,
       `_quarantine/onedrive/manifests/${LOWER}/`,
       `_quarantine/onedrive/index/${LOWER}/`,
+      // The owner's lease goes last, under the same lowercase id (issue #623).
+      `stub-lease/onedrive/${LOWER}.json`,
     ]);
     expect(swept().some((scope) => scope.includes(UPPER))).toBe(false);
   });
