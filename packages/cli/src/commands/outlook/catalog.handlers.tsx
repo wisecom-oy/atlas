@@ -5,7 +5,7 @@ import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, html_to_text } from '@wisecom/atlas-core';
 import type { CatalogUseCase, MailboxSummary } from '@wisecom/atlas-types';
 import { CATALOG_USE_CASE_TOKEN } from '@wisecom/atlas-types';
-import type { Manifest, AttachmentEntry } from '@wisecom/atlas-types';
+import type { AttachmentEntry, OutlookSnapshotSummary } from '@wisecom/atlas-types';
 import { format_bytes } from '@/command-formatters';
 import { logger } from '@wisecom/atlas-core';
 import { describe_scope_conflict, resolve_outlook_scope } from '@/commands/outlook/scope';
@@ -161,7 +161,7 @@ async function print_mailbox_snapshots(
   mailbox_id: string,
   mailbox_label: string,
 ): Promise<void> {
-  const listing = await read_listing(() => catalog.list_snapshots(tenant_id, mailbox_id));
+  const listing = await read_listing(() => catalog.list_snapshot_summaries(tenant_id, mailbox_id));
   const snapshots = listing.result;
   report_unreadable_keys(listing.unreadable_keys);
 
@@ -184,7 +184,7 @@ async function print_mailbox_snapshots(
     { key: 'size', header: 'Size' },
     { key: 'created', header: 'Created' },
   ];
-  const rows = snapshots.map((s: Manifest) => ({
+  const rows = snapshots.map((s: OutlookSnapshotSummary) => ({
     snapshot: s.snapshot_id,
     objects: String(s.total_objects),
     size: format_bytes(s.total_size_bytes),

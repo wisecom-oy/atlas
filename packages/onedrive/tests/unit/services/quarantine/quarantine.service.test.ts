@@ -75,6 +75,10 @@ describe('OneDriveQuarantineService (issue #631)', () => {
     await expect(service.quarantine_unreadable_object('tenant-1', INDEX_KEY)).rejects.toThrow(
       /reads cleanly/,
     );
-    expect(harness.keys()).toEqual([INDEX_KEY, MANIFEST_KEY]);
+    expect(harness.keys()).toEqual([
+      `onedrive/_meta/${OWNER}/snapshots.json`,
+      INDEX_KEY,
+      MANIFEST_KEY,
+    ]);
   });
 });

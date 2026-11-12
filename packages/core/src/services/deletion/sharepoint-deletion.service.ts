@@ -69,7 +69,8 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
   }
 
   /**
-   * Deletes the site's newest SharePoint snapshot: its manifest and the delta cursor. Blob objects
+   * Deletes the site's newest SharePoint snapshot: its manifest, the delta cursor and its row in the
+   * summary index. Blob objects
    * are retained because other snapshots may reference the same content-addressed keys. Any other
    * snapshot is refused with `SnapshotNotNewestError`; see `delete_newest_drive_snapshot` (issue
    * #725). Reading the manifests to check the order needs the tenant key.
@@ -91,6 +92,7 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
         wording: { owner: 'site', records: 'files', delete_all_flag: '--site' },
         find_snapshot: () => this._manifests.find_by_snapshot(ctx, site_id, snapshot_id),
         list_owner_manifests: () => this._manifests.list_snapshots_by_site(ctx, site_id),
+        forget_summary: () => this._manifests.forget_snapshot_summary(ctx, site_id, snapshot_id),
       }),
     );
   }

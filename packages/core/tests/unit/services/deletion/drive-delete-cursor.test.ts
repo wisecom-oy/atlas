@@ -31,6 +31,7 @@ const S2: StoredSnapshot = { snapshot_id: 'snap-2', created_at: new Date('2026-0
 interface ManifestReads {
   readonly find_by_snapshot: ReturnType<typeof vi.fn>;
   readonly list_owner_manifests: ReturnType<typeof vi.fn>;
+  readonly forget_snapshot_summary: ReturnType<typeof vi.fn>;
 }
 
 interface Workload {
@@ -56,6 +57,7 @@ const WORKLOADS: Workload[] = [
         {
           find_by_snapshot: reads.find_by_snapshot,
           list_snapshots_by_owner: reads.list_owner_manifests,
+          forget_snapshot_summary: reads.forget_snapshot_summary,
         } as never,
         stub_owner_leases().leases,
       );
@@ -74,6 +76,7 @@ const WORKLOADS: Workload[] = [
         {
           find_by_snapshot: reads.find_by_snapshot,
           list_snapshots_by_site: reads.list_owner_manifests,
+          forget_snapshot_summary: reads.forget_snapshot_summary,
         } as never,
         stub_owner_leases().leases,
       );
@@ -122,6 +125,7 @@ describe.each(WORKLOADS)('$name delete -s and the delta cursor', (workload) => {
         [S1, S2].find((m) => m.snapshot_id === id),
       ),
       list_owner_manifests: vi.fn(async () => [S2, S1]),
+      forget_snapshot_summary: vi.fn(async () => undefined),
     };
     const factory = {
       create: vi.fn(),
@@ -154,6 +158,19 @@ describe.each(WORKLOADS)('$name delete -s and the delta cursor', (workload) => {
         `${prefix}/data/${owner}/aaa`,
       ].sort(),
     );
+  });
+
+  it('drops the snapshot from the summary index last, once manifest and cursor are gone', async () => {
+    let left_when_pruned: string[] = [];
+    reads.forget_snapshot_summary.mockImplementation(async () => {
+      left_when_pruned = [...bucket.keys];
+    });
+
+    await delete_snapshot('snap-2');
+
+    expect(reads.forget_snapshot_summary).toHaveBeenCalledWith(bucket.ctx, owner, 'snap-2');
+    expect(left_when_pruned).not.toContain(manifest_key('snap-2'));
+    expect(left_when_pruned).not.toContain(cursor_key);
   });
 
   it('reads the manifests of the normalized owner only', async () => {
@@ -222,5 +239,6 @@ describe.each(WORKLOADS)('$name delete -s and the delta cursor', (workload) => {
 
     expect(result.retained_manifests).toBe(1);
     expect(bucket.keys.has(cursor_key)).toBe(true);
+    expect(reads.forget_snapshot_summary).not.toHaveBeenCalled();
   });
 });

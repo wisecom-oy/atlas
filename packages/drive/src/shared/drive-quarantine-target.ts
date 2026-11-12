@@ -12,18 +12,28 @@ export interface DriveQuarantineReads {
   readonly read_index_object: (ctx: TenantContext, storage_key: string) => Promise<unknown>;
 }
 
+/** Drops a moved manifest's row from its owner's summary index; logs instead of failing (#625). */
+export type ForgetSnapshotSummary = (
+  ctx: TenantContext,
+  owner_id: string,
+  snapshot_id: string,
+) => Promise<void>;
+
 /**
  * Builds the quarantine target of one drive provider. A key is accepted only when it is exactly
  * the key Atlas builds from its own segments: a manifest `{manifests}/{owner}/{snapshot}.json`, a
  * per-run version index `{index}/{owner}/runs/{snapshot}.json`, or a legacy per-file index
  * `{index}/{owner}/files/{file}.json`. Anything else, including `.` or `..` segments or another
  * spelling of the owner, is refused before it is read.
+ *
+ * Once a manifest has moved, its row leaves the owner's summary index. A version index has none.
  */
 export function drive_quarantine_target(
   workload: string,
   lease_workload: OwnerLeaseWorkload,
   keys: DriveStorageKeys,
   reads: DriveQuarantineReads,
+  forget_summary: ForgetSnapshotSummary,
 ): QuarantineTarget {
   const kind_of = (storage_key: string): QuarantinedObjectKind | undefined =>
     kind_of_drive_key(keys, storage_key);
@@ -36,6 +46,11 @@ export function drive_quarantine_target(
       kind_of(storage_key) === 'manifest'
         ? reads.read_manifest(ctx, storage_key)
         : reads.read_index_object(ctx, storage_key),
+    after_move: async (ctx, storage_key) => {
+      if (kind_of(storage_key) !== 'manifest') return;
+      const [owner = '', name = ''] = segments_under(storage_key, keys.manifest_prefix, 2) ?? [];
+      await forget_summary(ctx, owner, strip_json(name));
+    },
   };
 }
 

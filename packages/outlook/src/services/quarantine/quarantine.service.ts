@@ -4,6 +4,7 @@ import type {
   OwnerLeasePort,
   QuarantineResult,
   QuarantineUseCase,
+  TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
@@ -50,6 +51,7 @@ export class OutlookQuarantineService implements QuarantineUseCase {
       accepts: 'Outlook manifests',
       kind_of: (key) => (is_outlook_manifest_key(key) ? 'manifest' : undefined),
       read: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
+      after_move: (ctx, key) => this.forget_moved_manifest(ctx, key),
     };
     return quarantine_unreadable_object(
       this._tenant_factory,
@@ -58,5 +60,11 @@ export class OutlookQuarantineService implements QuarantineUseCase {
       tenant_id,
       storage_key,
     );
+  }
+
+  /** Drops a moved manifest's row from the mailbox's summary index (#625). */
+  private async forget_moved_manifest(ctx: TenantContext, storage_key: string): Promise<void> {
+    const [, owner_id = '', snapshot_id = ''] = MANIFEST_KEY.exec(storage_key) ?? [];
+    await this._manifests.forget_snapshot_summary(ctx, owner_id, snapshot_id);
   }
 }

@@ -111,7 +111,7 @@ export async function persist_mailbox_run(
   const wrote_snapshot = captured_change || previous === undefined;
   if (wrote_snapshot) {
     lease.assert_held();
-    await deps.manifests.save(ctx, manifest);
+    await deps.manifests.save(ctx, manifest, lease);
   }
 
   const head_snapshot_id = wrote_snapshot ? manifest.snapshot_id : previous.snapshot_id;

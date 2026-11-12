@@ -238,7 +238,7 @@ export async function persist_snapshot_backup(
   collected_rows: Map<string, OneDriveFileVersionRecord[]>,
 ): Promise<void> {
   lease.assert_held();
-  await manifests.save(ctx, snapshot);
+  await manifests.save(ctx, snapshot, lease);
   await file_indexes.write_run_index(
     ctx,
     owner_id,

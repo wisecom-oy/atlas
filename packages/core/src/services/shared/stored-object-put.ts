@@ -7,8 +7,18 @@ export interface StoredObjectPut {
   readonly key: string;
   /** Operator-facing name of the object, e.g. `Outlook manifest`. */
   readonly label: string;
-  /** `create_only` never replaces an existing object; `overwrite` is an unconditional PUT. */
+  /**
+   * `create_only` never replaces an existing object; `overwrite` replaces it, unconditionally
+   * unless `expected_etag` makes the PUT a compare-and-swap.
+   */
   readonly write: 'create_only' | 'overwrite';
+  /**
+   * `overwrite` only. A string replaces only the object stored at that ETag (`If-Match`); `null`
+   * writes only when no object exists (`If-None-Match: *`). A refusal raises the backend's
+   * precondition failure unchanged, so the caller can read again and retry. Unlike `create_only`,
+   * a refusal is never taken for this write's own retried PUT: the caller re-reads either way.
+   */
+  readonly expected_etag?: string | null | undefined;
   readonly object_lock_policy?: StorageObjectLockPolicy | undefined;
 }
 
@@ -20,6 +30,8 @@ export async function put_stored_object(
 ): Promise<void> {
   if (put.write === 'create_only') {
     await put_create_only(ctx, put, ciphertext);
+  } else if (put.expected_etag !== undefined) {
+    await put_compare_and_swap(ctx, put, put.expected_etag, ciphertext);
   } else if (put.object_lock_policy !== undefined) {
     await ctx.storage.put(put.key, ciphertext, undefined, put.object_lock_policy);
   } else {
@@ -43,6 +55,25 @@ async function put_create_only(
     if (!is_precondition_failure(err)) throw err;
     await require_existing_object_is_this_write(ctx, put, ciphertext, err);
   }
+}
+
+/** Uploads only over the object read at `expected_etag`, or only onto an absent key for `null`. */
+async function put_compare_and_swap(
+  ctx: TenantContext,
+  put: StoredObjectPut,
+  expected_etag: string | null,
+  ciphertext: Buffer,
+): Promise<void> {
+  const if_match = expected_etag ?? undefined;
+  const if_none_match = expected_etag === null;
+  await ctx.storage.put(
+    put.key,
+    ciphertext,
+    undefined,
+    put.object_lock_policy,
+    if_match,
+    if_none_match,
+  );
 }
 
 /** Raises unless the object already under the key is byte for byte the ciphertext just sent. */

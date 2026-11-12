@@ -20,7 +20,7 @@ import type { DriveChainManifest } from '@/shared/manifest-chain';
 import { save_drive_snapshot, type DriveSaveDeps } from '@/save/save-snapshot';
 import {
   readable_indexes,
-  readable_manifests,
+  readable_summaries,
 } from '@wisecom/atlas-types/testing/readable-listing';
 
 vi.mock('@wisecom/atlas-core/utils/logger', () => ({
@@ -91,7 +91,8 @@ function make_save_harness(): SaveHarness {
     manifests: {
       workload: 'OneDrive',
       find_by_snapshot: async () => manifest,
-      list_readable_snapshots: async () => readable_manifests([manifest]),
+      list_snapshot_summaries: async () => readable_summaries([]),
+      read_manifest_at: async () => undefined,
     },
   };
 

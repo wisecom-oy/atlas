@@ -127,6 +127,14 @@ export function create_onedrive_api(tenant_id: string, container: Container): On
         ),
       );
     },
+    async listSnapshotSummaries(owner_input) {
+      const resolved_id = await resolve_owner_id(owner_input);
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_onedrive_snapshot_summaries(tenant_id, resolved_id),
+        ),
+      );
+    },
     async listFileVersions(owner_input, file_ref) {
       const owner_id = await resolve_owner_id(owner_input);
       return camelize(

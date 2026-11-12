@@ -7,6 +7,7 @@ import { S3ManifestRepository } from '@/adapters/s3-manifest-repository.adapter'
 const MANIFEST_KEY = 'manifests/user@test.com/snap-1.json';
 const SNAPSHOT_POINTER_KEY = '_meta/outlook-manifests/snapshots/snap-1.json';
 const LATEST_POINTER_KEY = '_meta/outlook-manifests/owners/user@test.com/latest.json';
+const SUMMARY_KEY = '_meta/outlook-manifests/owners/user@test.com/summary.json';
 
 function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
   return {
@@ -31,21 +32,34 @@ function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
 }
 
 describe('S3ManifestRepository.save', () => {
-  it('stores the manifest and its encrypted lookup pointers', async () => {
+  it('stores the manifest, its encrypted lookup pointers, then its summary row', async () => {
     const mem = in_memory_tenant_context();
     const encrypt = vi.spyOn(mem.ctx, 'encrypt');
     const put = vi.spyOn(mem.ctx.storage, 'put');
 
     await new S3ManifestRepository().save(mem.ctx, make_manifest());
 
-    // Manifest, snapshot pointer, latest pointer: the two pointers carry the same JSON but
-    // live in different directories, and each is bound to its own (issue #350).
-    expect(encrypt).toHaveBeenCalledTimes(3);
+    // Manifest, snapshot pointer, latest pointer, summary: the two pointers carry the same JSON
+    // but live in different directories, and each is bound to its own (issue #350).
+    expect(encrypt).toHaveBeenCalledTimes(4);
     expect(put.mock.calls.map((call) => call[0])).toEqual([
       MANIFEST_KEY,
       SNAPSHOT_POINTER_KEY,
       LATEST_POINTER_KEY,
+      SUMMARY_KEY,
     ]);
+  });
+
+  it('creates the summary only onto an absent key and does not read it back', async () => {
+    const mem = in_memory_tenant_context();
+    const put = vi.spyOn(mem.ctx.storage, 'put');
+    const get = vi.spyOn(mem.ctx.storage, 'get');
+
+    await new S3ManifestRepository().save(mem.ctx, make_manifest());
+
+    const summary_put = put.mock.calls.find((call) => call[0] === SUMMARY_KEY);
+    expect(summary_put?.slice(4)).toEqual([undefined, true]);
+    expect(get.mock.calls).not.toContainEqual([SUMMARY_KEY]);
   });
 
   it('applies effective object lock policy to manifest uploads', async () => {
@@ -135,5 +149,18 @@ describe('S3ManifestRepository.save', () => {
 
     await expect(colliding).rejects.toBeInstanceOf(StoredObjectConflictError);
     expect(mem.raw(MANIFEST_KEY)!.equals(first)).toBe(true);
+  });
+
+  it('leaves the summary untouched when the guarded manifest save fails', async () => {
+    const mem = in_memory_tenant_context();
+    const repo = new S3ManifestRepository();
+    await repo.save(mem.ctx, make_manifest());
+    const summary = Buffer.from(mem.raw(SUMMARY_KEY)!);
+
+    await expect(repo.save(mem.ctx, make_manifest({ entries: [] }))).rejects.toBeInstanceOf(
+      StoredObjectConflictError,
+    );
+
+    expect(mem.raw(SUMMARY_KEY)!.equals(summary)).toBe(true);
   });
 });

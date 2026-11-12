@@ -34,10 +34,17 @@ export class SharePointQuarantineService implements QuarantineUseCase {
     tenant_id: string,
     storage_key: string,
   ): Promise<QuarantineResult> {
-    const target = drive_quarantine_target('SharePoint', 'sharepoint', SHAREPOINT_KEYS, {
-      read_manifest: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
-      read_index_object: (ctx, key) => this._indexes.read_index_object_at(ctx, key),
-    });
+    const target = drive_quarantine_target(
+      'SharePoint',
+      'sharepoint',
+      SHAREPOINT_KEYS,
+      {
+        read_manifest: (ctx, key) => this._manifests.read_manifest_at(ctx, key),
+        read_index_object: (ctx, key) => this._indexes.read_index_object_at(ctx, key),
+      },
+      (ctx, site_id, snapshot_id) =>
+        this._manifests.forget_snapshot_summary(ctx, site_id, snapshot_id),
+    );
     return quarantine_unreadable_object(
       this._tenant_factory,
       this._leases,

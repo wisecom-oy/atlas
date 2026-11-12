@@ -64,12 +64,17 @@ describe('workload deletion', () => {
     const container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
     container.bind(OWNER_LEASE_TOKEN).toConstantValue(leases.leases);
-    container
-      .bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
-      .toConstantValue({ find_by_snapshot, list_snapshots_by_owner: vi.fn(async () => [snap]) });
-    container
-      .bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
-      .toConstantValue({ find_by_snapshot, list_snapshots_by_site: vi.fn(async () => [snap]) });
+    const forget_snapshot_summary = vi.fn(async () => undefined);
+    container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
+      find_by_snapshot,
+      list_snapshots_by_owner: vi.fn(async () => [snap]),
+      forget_snapshot_summary,
+    });
+    container.bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
+      find_by_snapshot,
+      list_snapshots_by_site: vi.fn(async () => [snap]),
+      forget_snapshot_summary,
+    });
     container.bind(OneDriveDeletionService).toSelf();
     container.bind(SharePointDeletionService).toSelf();
 

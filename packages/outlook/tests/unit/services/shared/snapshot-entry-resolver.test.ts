@@ -1,3 +1,4 @@
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   MailboxConnector,
@@ -63,6 +64,7 @@ function make_repo(): ManifestRepository {
       all.filter((m) => m.owner_id === owner_id),
     ),
     list_all_manifests: vi.fn(async () => all),
+    ...outlook_stub_chain_reads(),
   } as unknown as ManifestRepository;
 }
 

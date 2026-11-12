@@ -69,7 +69,8 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
   }
 
   /**
-   * Deletes the owner's newest OneDrive snapshot: its manifest and the delta cursor. Blob objects
+   * Deletes the owner's newest OneDrive snapshot: its manifest, the delta cursor and its row in the
+   * summary index. Blob objects
    * are retained because other snapshots may reference the same content-addressed keys. Any other
    * snapshot is refused with `SnapshotNotNewestError`; see `delete_newest_drive_snapshot` (issue
    * #725). Reading the manifests to check the order needs the tenant key.
@@ -91,6 +92,7 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
         wording: { owner: 'OneDrive', records: 'files', delete_all_flag: '-o' },
         find_snapshot: () => this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id),
         list_owner_manifests: () => this._manifests.list_snapshots_by_owner(ctx, owner_id),
+        forget_summary: () => this._manifests.forget_snapshot_summary(ctx, owner_id, snapshot_id),
       }),
     );
   }

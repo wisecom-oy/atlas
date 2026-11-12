@@ -58,6 +58,7 @@ describe('deletion prefixes ignore identifier case', () => {
     container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
       find_by_snapshot,
       list_snapshots_by_owner: vi.fn().mockResolvedValue([snap]),
+      forget_snapshot_summary: vi.fn(),
     });
     container.bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN).toConstantValue({});
     container.bind(OneDriveDeletionService).toSelf();

@@ -49,6 +49,7 @@ describe('Outlook deletion under the mailbox lease (issue #623)', () => {
     manifests = {
       find_by_snapshot: vi.fn().mockResolvedValue(SNAPSHOT),
       list_by_owner: vi.fn().mockResolvedValue([SNAPSHOT]),
+      forget_snapshot_summary: vi.fn(),
     } as unknown as ManifestRepository;
     leases = stub_owner_leases();
     service = new DeletionService(factory, manifests, leases.leases);

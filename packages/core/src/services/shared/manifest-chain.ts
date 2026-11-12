@@ -5,12 +5,17 @@ import type {
   TenantContext,
 } from '@wisecom/atlas-types';
 import { NotFoundError, UnreadableObjectsError } from '@wisecom/atlas-types';
+import { read_each_readable } from '@/services/shared/readable-object-listing';
+
+const CHAIN_READ_CONCURRENCY = 8;
 
 /**
  * Loads a snapshot's manifest plus every older manifest of the same mailbox, target first, then
  * newest-first. An Outlook manifest holds only that run's delta, so this chain is what a snapshot
  * actually contains. Verify, restore and save all read it, so the three cannot drift (issue #432).
- * Only the target's own `manifests/{owner_id}/` prefix is read, never the whole tenant (issue #510).
+ * Only the target's own `manifests/{owner_id}/` prefix is read, never the whole tenant (issue #510),
+ * and the mailbox's summary index picks the older manifests, so newer ones are never decrypted
+ * (#625).
  */
 export async function load_snapshot_chain(
   manifests: ManifestRepository,
@@ -19,40 +24,50 @@ export async function load_snapshot_chain(
 ): Promise<Manifest[]> {
   const target = await manifests.find_by_snapshot(ctx, snapshot_id);
   if (!target) throw new NotFoundError(`No manifest found for snapshot ${snapshot_id}`);
-
-  const target_time = target.created_at.getTime();
-  const for_owner = await list_whole_chain(manifests, ctx, target.owner_id, snapshot_id);
-  const older = for_owner
-    .filter((m) => m.snapshot_id !== target.snapshot_id && m.created_at.getTime() <= target_time)
-    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-  return [target, ...older];
+  return [target, ...(await load_older_manifests(manifests, ctx, target))];
 }
 
 /**
- * Lists every manifest of the owner, refusing when any is damaged.
+ * Reads the manifests the summary index places at or before the target, newest first, refusing
+ * when one the chain may need is damaged.
  *
- * A damaged manifest's `created_at` is inside the ciphertext and an Outlook snapshot id carries no
- * time, so nothing says whether it is older than the target. If it is, the target's chain needs
- * it: its messages, and the removals that hide deleted ones, exist nowhere else. Leaving it out
- * would restore a different mailbox than the one backed up, so the chain is refused with every
- * damaged key named rather than resolved without them (issue #631).
+ * A damaged manifest without a row has its `created_at` inside the ciphertext, and an Outlook
+ * snapshot id carries no time, so nothing says whether it is older than the target. If it is, the
+ * target's chain needs it: its messages, and the removals that hide deleted ones, exist nowhere
+ * else. Leaving it out would restore a different mailbox than the one backed up, so the chain is
+ * refused with every damaged key named rather than resolved without them (issue #631).
  */
-async function list_whole_chain(
+async function load_older_manifests(
   manifests: ManifestRepository,
   ctx: TenantContext,
-  owner_id: string,
-  snapshot_id: string,
+  target: Manifest,
 ): Promise<Manifest[]> {
-  try {
-    return await manifests.list_by_owner(ctx, owner_id);
-  } catch (err) {
-    if (!(err instanceof UnreadableObjectsError)) throw err;
-    throw new UnreadableObjectsError(
-      `Snapshot ${snapshot_id} cannot be resolved: its chain may need a damaged Outlook manifest`,
-      err.unreadable_keys,
-      { cause: err },
-    );
+  const listing = await manifests.list_snapshot_summaries(ctx, target.owner_id);
+  if (listing.unreadable_keys.length > 0) {
+    throw chain_refusal(target.snapshot_id, listing.unreadable_keys);
   }
+  const cutoff = target.created_at.getTime();
+  const older_keys = listing.summaries
+    .filter((s) => s.snapshot_id !== target.snapshot_id && s.created_at.getTime() <= cutoff)
+    .map((s) => s.manifest_key);
+  const read = await read_each_readable(
+    older_keys,
+    (key) => manifests.read_manifest_at(ctx, key),
+    CHAIN_READ_CONCURRENCY,
+  );
+  if (read.unreadable_keys.length > 0) {
+    throw chain_refusal(target.snapshot_id, read.unreadable_keys, read.unreadable_errors[0]);
+  }
+  return read.items.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+}
+
+/** The error a chain that may need damaged manifests is refused with. */
+function chain_refusal(snapshot_id: string, keys: string[], cause?: Error): UnreadableObjectsError {
+  return new UnreadableObjectsError(
+    `Snapshot ${snapshot_id} cannot be resolved: its chain may need a damaged Outlook manifest`,
+    keys,
+    cause ? { cause } : undefined,
+  );
 }
 
 /**
@@ -66,8 +81,25 @@ export function resolve_message_ref(
   merged: ManifestEntry[],
   ref: string,
 ): ManifestEntry | undefined {
-  const index = Number(ref);
-  const object_id =
-    Number.isInteger(index) && index >= 1 ? target.entries[index - 1]?.object_id : ref;
+  const index = message_index_of(ref);
+  const object_id = index !== undefined ? target.entries[index - 1]?.object_id : ref;
   return merged.find((e) => e.object_id === object_id);
+}
+
+/** The 1-based message index a reference names, or undefined when it is a message ID. */
+export function message_index_of(ref: string): number | undefined {
+  const index = Number(ref);
+  return Number.isInteger(index) && index >= 1 ? index : undefined;
+}
+
+/**
+ * Finds the message a 1-based index names, from the target manifest alone. The target heads its
+ * merged chain and its own entries win over its removals, so the merge would return this entry
+ * too: an index never needs the older manifests (#625).
+ */
+export function find_indexed_message(target: Manifest, index: number): ManifestEntry | undefined {
+  const object_id = target.entries[index - 1]?.object_id;
+  return object_id === undefined
+    ? undefined
+    : target.entries.find((e) => e.object_id === object_id);
 }

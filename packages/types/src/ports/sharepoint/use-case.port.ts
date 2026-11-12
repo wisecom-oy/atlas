@@ -2,6 +2,7 @@ import type {
   SharePointFileVersionRecord,
   SharePointSnapshotManifest,
 } from '../../domain/sharepoint/manifest';
+import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { NoSnapshotReason, ObjectLockRequest } from '../backup/use-case.port';
 import type { OperationControlOptions } from '@/ports/atlas/progress-event.port';
 import type { VerificationOptions } from '@/ports/verification/use-case.port';
@@ -109,6 +110,12 @@ export interface SharePointCatalogUseCase {
     tenant_id: string,
     site_id: string,
   ): Promise<SharePointSnapshotManifest[]>;
+
+  /** Lists a site's SharePoint snapshots from its summary index, newest first, without entries. */
+  list_sharepoint_snapshot_summaries(
+    tenant_id: string,
+    site_id: string,
+  ): Promise<SharePointSnapshotSummary[]>;
 
   /** Lists all version records for a specific file. */
   list_sharepoint_file_versions(

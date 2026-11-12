@@ -65,6 +65,7 @@ describe('Outlook deletion and the delta cursor', () => {
       `_meta/outlook-manifests/snapshots/snap-1.json`,
       `_meta/outlook-manifests/snapshots/snap-2.json`,
       `_meta/outlook-manifests/owners/${OWNER}/latest.json`,
+      `_meta/outlook-manifests/owners/${OWNER}/summary.json`,
       CURSOR_KEY,
       `_meta/replication/${OWNER}/snap-2/replica-a.json`,
       // A OneDrive snapshot of the same user shares the replication tree.
@@ -77,6 +78,7 @@ describe('Outlook deletion and the delta cursor', () => {
         [S1, S2].find((m) => m.snapshot_id === id),
       ),
       list_by_owner: vi.fn(async () => [S1, S2]),
+      forget_snapshot_summary: vi.fn(async () => undefined),
     } as unknown as ManifestRepository;
     const factory = {
       create: vi.fn(),
@@ -108,6 +110,7 @@ describe('Outlook deletion and the delta cursor', () => {
     expect(bucket.keys.has(`manifests/${OWNER}/snap-2.json`)).toBe(false);
     expect(bucket.keys.has(CURSOR_KEY)).toBe(false);
     expect(bucket.keys.has(`manifests/${OWNER}/snap-1.json`)).toBe(true);
+    expect(manifests.forget_snapshot_summary).toHaveBeenCalledWith(bucket.ctx, OWNER, 'snap-2');
   });
 
   it('refuses delete -s of an older snapshot and deletes nothing', async () => {

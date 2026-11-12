@@ -30,6 +30,7 @@ export interface QuarantineTarget {
   /**
    * Runs once the object has moved, for state that described it. Contacts and Calendar drop the
    * mailbox's delta cursor there, since its links may describe the snapshot just moved aside.
+   * Outlook, OneDrive and SharePoint drop a moved manifest's row from the summary index.
    */
   readonly after_move?: ((ctx: TenantContext, storage_key: string) => Promise<void>) | undefined;
 }

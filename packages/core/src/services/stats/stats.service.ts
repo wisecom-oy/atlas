@@ -5,8 +5,9 @@ import type {
   ManifestRepository,
   OneDriveManifestRepository,
   SharePointManifestRepository,
-  OneDriveSnapshotManifest,
-  SharePointSnapshotManifest,
+  OneDriveSnapshotSummary,
+  ReadableSnapshotSummaries,
+  SharePointSnapshotSummary,
 } from '@wisecom/atlas-types';
 import type { StatsUseCase } from '@wisecom/atlas-types';
 import type { BucketStats, MailboxStats, DriveStats } from '@wisecom/atlas-types';
@@ -15,6 +16,7 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  UnreadableObjectsError,
 } from '@wisecom/atlas-types';
 import { aggregate_bucket_stats, aggregate_mailbox_stats } from '@/services/stats/stats-aggregator';
 import {
@@ -31,8 +33,20 @@ function timed<T>(fn: () => T): T & { aggregation_us: number } {
   return { ...result, aggregation_us: elapsed_us };
 }
 
-/** Maps a OneDrive manifest to the service-agnostic aggregation shape. */
-function to_onedrive_summary(manifest: OneDriveSnapshotManifest): DriveManifestSummary {
+/**
+ * Returns the summaries of a listing, raising when a rowless manifest could not be read: the
+ * totals would silently leave that snapshot out, as `list_snapshots_by_owner` refused to do.
+ */
+function require_every_summary<T>(listing: ReadableSnapshotSummaries<T>, workload: string): T[] {
+  if (listing.unreadable_keys.length === 0) return listing.summaries;
+  throw new UnreadableObjectsError(
+    `${listing.unreadable_keys.length} ${workload} manifest(s) could not be read`,
+    listing.unreadable_keys,
+  );
+}
+
+/** Maps a OneDrive snapshot summary to the service-agnostic aggregation shape. */
+function to_onedrive_summary(manifest: OneDriveSnapshotSummary): DriveManifestSummary {
   return {
     owner_id: manifest.owner_id,
     owner_label: manifest.owner_email ?? manifest.owner_display_name,
@@ -42,8 +56,8 @@ function to_onedrive_summary(manifest: OneDriveSnapshotManifest): DriveManifestS
   };
 }
 
-/** Maps a SharePoint manifest to the service-agnostic aggregation shape. */
-function to_sharepoint_summary(manifest: SharePointSnapshotManifest): DriveManifestSummary {
+/** Maps a SharePoint snapshot summary to the service-agnostic aggregation shape. */
+function to_sharepoint_summary(manifest: SharePointSnapshotSummary): DriveManifestSummary {
   return {
     owner_id: manifest.site_id,
     owner_label: manifest.site_display_name ?? manifest.site_url,
@@ -87,28 +101,28 @@ export class StatsService implements StatsUseCase {
     }
   }
 
-  /** Loads OneDrive manifests (all owners or one) and computes drive statistics. */
+  /** Reads OneDrive snapshot summaries (all owners or one) and computes drive statistics. */
   async get_onedrive_stats(tenant_id: string, owner_id?: string): Promise<DriveStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = owner_id
-        ? await this._od_manifests.list_snapshots_by_owner(ctx, owner_id)
-        : await this._od_manifests.list_all_manifests(ctx);
-      const summaries = manifests.map(to_onedrive_summary);
+      const listing = owner_id
+        ? await this._od_manifests.list_snapshot_summaries(ctx, owner_id)
+        : await this._od_manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'OneDrive').map(to_onedrive_summary);
       return timed(() => aggregate_drive_stats(tenant_id, 'onedrive', summaries));
     } finally {
       ctx.destroy();
     }
   }
 
-  /** Loads SharePoint manifests (all sites or one) and computes drive statistics. */
+  /** Reads SharePoint snapshot summaries (all sites or one) and computes drive statistics. */
   async get_sharepoint_stats(tenant_id: string, site_id?: string): Promise<DriveStats> {
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const manifests = site_id
-        ? await this._sp_manifests.list_snapshots_by_site(ctx, site_id)
-        : await this._sp_manifests.list_all_manifests(ctx);
-      const summaries = manifests.map(to_sharepoint_summary);
+      const listing = site_id
+        ? await this._sp_manifests.list_snapshot_summaries(ctx, site_id)
+        : await this._sp_manifests.list_all_snapshot_summaries(ctx);
+      const summaries = require_every_summary(listing, 'SharePoint').map(to_sharepoint_summary);
       return timed(() => aggregate_drive_stats(tenant_id, 'sharepoint', summaries));
     } finally {
       ctx.destroy();

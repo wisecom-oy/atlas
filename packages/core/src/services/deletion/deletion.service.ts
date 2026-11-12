@@ -98,7 +98,9 @@ export class DeletionService implements DeletionUseCase {
   }
 
   /**
-   * Deletes the mailbox's newest snapshot manifest, then its pointers and the delta cursor.
+   * Deletes the mailbox's newest snapshot manifest, then its pointers and the delta cursor, then
+   * its row in the summary index. The row goes last and a failure only logs: readers already skip
+   * a row whose manifest is gone.
    *
    * Data objects are intentionally kept because delta manifests are not self-contained: other
    * manifests in the chain may reference the same objects. Any other snapshot is refused with
@@ -141,6 +143,7 @@ export class DeletionService implements DeletionUseCase {
         `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${manifest.owner_id}/latest.json`,
         outlook_cursor_key(manifest.owner_id),
       ]);
+      await this._manifests.forget_snapshot_summary(ctx, manifest.owner_id, snapshot_id);
       return merge_deletion_results(manifest_summary, pointer_summary);
     } finally {
       await lease?.release();

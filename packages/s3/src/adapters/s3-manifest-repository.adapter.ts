@@ -3,8 +3,11 @@ import type { Manifest } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
 import type { TenantContext, TenantStorageContext } from '@wisecom/atlas-types';
 import type {
+  HeldOwnerLease,
   LatestReadableManifest,
+  OutlookSnapshotSummary,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
   StorageObjectLockPolicy,
 } from '@wisecom/atlas-types';
 import { StorageError, UnreadableContentError } from '@wisecom/atlas-types';
@@ -21,8 +24,15 @@ import {
   require_outlook_manifest,
 } from '@/adapters/outlook-manifest-reader';
 import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
+import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import { list_snapshot_summaries } from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
+import { record_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-writer';
+import {
+  OUTLOOK_MANIFEST_POINTER_PREFIX as MANIFEST_POINTER_PREFIX,
+  OUTLOOK_SUMMARY_LAYOUT,
+  summarize_outlook_manifest,
+} from '@/adapters/outlook-snapshot-summary-layout';
 
-const MANIFEST_POINTER_PREFIX = '_meta/outlook-manifests';
 const MANIFEST_READ_CONCURRENCY = 8;
 
 interface ManifestPointer {
@@ -44,10 +54,12 @@ function snapshot_pointer_key(snapshot_id: string): string {
 @injectable()
 export class S3ManifestRepository implements ManifestRepository {
   /**
-   * Stores a manifest, then the two pointers that name it. The manifest write is create-only,
-   * refused when `require_outlook_manifest` would reject the body, and read back once it lands.
+   * Stores a manifest, then the two pointers that name it, then its row in the mailbox's summary
+   * index. The manifest write is create-only, refused when `require_outlook_manifest` would reject
+   * the body, and read back once it lands; nothing after it runs unless it succeeded. `lease` is
+   * checked again right before the summary write.
    */
-  async save(ctx: TenantContext, manifest: Manifest): Promise<void> {
+  async save(ctx: TenantContext, manifest: Manifest, lease?: HeldOwnerLease): Promise<void> {
     const key = outlook_manifest_key(manifest.owner_id, manifest.snapshot_id);
     await write_encrypted_json(
       ctx,
@@ -69,6 +81,30 @@ export class S3ManifestRepository implements ManifestRepository {
       write_manifest_pointer(ctx, snapshot_pointer_key(manifest.snapshot_id), pointer),
       write_manifest_pointer(ctx, latest_pointer_key(manifest.owner_id), pointer),
     ]);
+    await record_snapshot_summary_or_warn(
+      ctx,
+      OUTLOOK_SUMMARY_LAYOUT,
+      manifest.owner_id,
+      summarize_outlook_manifest(manifest, key),
+      lease,
+    );
+  }
+
+  /** Drops a removed snapshot's row from the mailbox's summary index; logs instead of failing. */
+  async forget_snapshot_summary(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_id: string,
+  ): Promise<void> {
+    await forget_snapshot_summary_or_warn(ctx, OUTLOOK_SUMMARY_LAYOUT, owner_id, snapshot_id);
+  }
+
+  /** Lists one owner's snapshots from its summary index, decrypting only rowless manifests. */
+  async list_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<ReadableSnapshotSummaries<OutlookSnapshotSummary>> {
+    return list_snapshot_summaries(ctx, OUTLOOK_SUMMARY_LAYOUT, owner_id);
   }
 
   /** Loads a manifest through its snapshot index, with a legacy layout fallback. */

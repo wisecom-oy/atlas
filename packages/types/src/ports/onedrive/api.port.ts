@@ -12,6 +12,7 @@ import type {
   OneDriveSnapshotManifest,
   OneDriveFileVersionRecord,
 } from '@/domain/onedrive/manifest';
+import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
 import type { DeletionResult } from '@/ports/deletion/use-case.port';
 import type { ReplicationResult } from '@/domain/replication/replication';
@@ -57,6 +58,7 @@ export type OneDriveSdkRestoreResult = Camelize<OneDriveRestoreResult>;
 export type OneDriveSdkVersionRestoreResult = Camelize<DriveVersionRestoreResult>;
 export type OneDriveSdkSaveResult = Camelize<FileSaveResult>;
 export type OneDriveSdkSnapshotManifest = Camelize<OneDriveSnapshotManifest>;
+export type OneDriveSdkSnapshotSummary = Camelize<OneDriveSnapshotSummary>;
 export type OneDriveSdkFileVersion = Camelize<OneDriveFileVersionRecord>;
 export type OneDriveSdkDeletionResult = Camelize<DeletionResult>;
 export type OneDriveSdkReplicationResult = Camelize<ReplicationResult>;
@@ -78,6 +80,8 @@ export interface OneDriveApi {
   ): Promise<OneDriveSdkVersionRestoreResult>;
   save(ownerId: string, options: OneDriveSdkSaveOptions): Promise<OneDriveSdkSaveResult>;
   listSnapshots(ownerId: string): Promise<OneDriveSdkSnapshotManifest[]>;
+  /** Snapshots from the owner's summary index, newest first, without decrypting each manifest. */
+  listSnapshotSummaries(ownerId: string): Promise<OneDriveSdkSnapshotSummary[]>;
   listFileVersions(ownerId: string, fileRef: string): Promise<OneDriveSdkFileVersion[]>;
   deleteOwnerData(ownerId: string): Promise<OneDriveSdkDeletionResult>;
   deleteSnapshot(ownerId: string, snapshotId: string): Promise<OneDriveSdkDeletionResult>;

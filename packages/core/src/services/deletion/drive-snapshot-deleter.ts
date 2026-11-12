@@ -35,11 +35,15 @@ export interface DriveSnapshotDeletion<M extends OrderedSnapshot> {
   readonly find_snapshot: () => Promise<M | undefined>;
   /** Every manifest of the owning segment; rejects with `UnreadableObjectsError` on a damaged one. */
   readonly list_owner_manifests: () => Promise<readonly M[]>;
+  /** Drops the deleted snapshot's row from the summary index; logs instead of failing (#625). */
+  readonly forget_summary: () => Promise<void>;
 }
 
 /**
- * Deletes the newest snapshot of a drive owner or site: its manifest, then the delta cursor.
- * Content blobs stay, because other snapshots reference the same keys.
+ * Deletes the newest snapshot of a drive owner or site: its manifest, then the delta cursor, then
+ * its row in the summary index. Content blobs stay, because other snapshots reference the same
+ * keys. The summary goes last because it matters least: readers already skip a row whose manifest
+ * is gone, so a failed prune is only logged.
  *
  * Any other snapshot is refused with `SnapshotNotNewestError`, since newer snapshots fold in the
  * changes it recorded (issue #725).
@@ -75,5 +79,6 @@ export async function delete_newest_drive_snapshot<M extends OrderedSnapshot>(
   const cursor_result = await delete_scopes(ctx.storage, [
     `${workload}/_meta/${owner_id}/delta.json`,
   ]);
+  await deletion.forget_summary();
   return merge_deletion_results(manifest_result, cursor_result);
 }

@@ -7,13 +7,16 @@ const CTX = {} as TenantContext;
 
 function target() {
   const reads = { read_manifest: vi.fn(), read_index_object: vi.fn() };
+  const forget_summary = vi.fn(async () => undefined);
   return {
     reads,
+    forget_summary,
     target: drive_quarantine_target(
       'OneDrive',
       'onedrive',
       build_drive_storage_keys('onedrive'),
       reads,
+      forget_summary,
     ),
   };
 }
@@ -53,5 +56,15 @@ describe('drive_quarantine_target', () => {
 
     expect(reads.read_manifest).toHaveBeenCalledTimes(1);
     expect(reads.read_index_object).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a moved manifest from the summary index, and leaves it alone for a version index', async () => {
+    const { forget_summary, target: t } = target();
+
+    await t.after_move?.(CTX, 'onedrive/index/owner-1/runs/od-snap-1-abc.json');
+    await t.after_move?.(CTX, 'onedrive/manifests/owner-1/od-snap-1-abc.json');
+
+    expect(forget_summary).toHaveBeenCalledTimes(1);
+    expect(forget_summary).toHaveBeenCalledWith(CTX, 'owner-1', 'od-snap-1-abc');
   });
 });

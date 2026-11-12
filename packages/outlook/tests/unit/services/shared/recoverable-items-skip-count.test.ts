@@ -1,3 +1,4 @@
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, expect, it, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 import type {
   MailboxConnector,
@@ -39,6 +40,7 @@ async function resolve(filter: Record<string, unknown>): Promise<string[]> {
   const repo = {
     find_by_snapshot: vi.fn(async () => SNAPSHOT),
     list_by_owner: vi.fn(async () => [SNAPSHOT]),
+    ...outlook_stub_chain_reads(),
   } as unknown as ManifestRepository;
   const connector = {
     list_mail_folders: vi.fn(async () => [

@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -80,6 +81,7 @@ describe('SharePointRestoreService cross-site routing', () => {
         entries: [make_entry()],
       }),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
     } as unknown as SharePointManifestRepository;
 
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
