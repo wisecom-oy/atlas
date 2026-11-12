@@ -33,7 +33,11 @@ export interface ChannelBaseline {
 export interface TeamsBaseline {
   readonly previous: TeamsSnapshotIndex | undefined;
   readonly channels: ReadonlyMap<string, ChannelBaseline>;
-  readonly errors: string[];
+  /**
+   * Indexes newer than `previous` that could not be read, by storage key. The run still finishes;
+   * the caller names them so an operator can quarantine them (issue #694).
+   */
+  readonly unreadable_keys: string[];
   readonly warnings: string[];
 }
 
@@ -48,16 +52,12 @@ export async function load_team_baseline(
   team_id: string,
   channel_ids: readonly string[],
 ): Promise<TeamsBaseline> {
-  const errors: string[] = [];
   const warnings: string[] = [];
   const latest = await ports.indexes.find_latest_readable(ctx, team_id);
   if (latest.unsupported_keys.length > 0) {
     throw new UnsupportedFormatVersionError(
       `${latest.unsupported_keys.length} Teams snapshot index(es) were written by a newer Atlas format; upgrade Atlas before backing up this team`,
     );
-  }
-  for (const key of latest.unreadable_keys) {
-    errors.push(`Snapshot ${key} could not be read; its channels were not compared`);
   }
   if (latest.unreadable_keys.length > 0) {
     warnings.push(
@@ -77,7 +77,12 @@ export async function load_team_baseline(
       hosted_recheck: cursor?.hosted_recheck ?? {},
     });
   }
-  return { previous: latest.index, channels, errors, warnings };
+  return {
+    previous: latest.index,
+    channels,
+    unreadable_keys: [...latest.unreadable_keys],
+    warnings,
+  };
 }
 
 async function load_cursor(

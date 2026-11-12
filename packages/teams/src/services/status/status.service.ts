@@ -32,6 +32,7 @@ function team_status(
     last_snapshot_id: newest?.snapshot_id,
     total_channels: newest?.channels.length ?? 0,
     unreadable_keys: [...listing.unreadable_keys, ...cursors.unreadable_keys],
+    unreadable_index_keys: [...listing.unreadable_keys],
     unsupported_keys: [...listing.unsupported_keys, ...cursors.unsupported_keys],
     failed_root_count: cursors.cursors.reduce(
       (sum, cursor) => sum + Object.keys(cursor.failed_roots ?? {}).length,

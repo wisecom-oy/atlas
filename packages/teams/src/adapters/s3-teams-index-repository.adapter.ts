@@ -104,6 +104,14 @@ export class S3TeamsIndexRepository implements TeamsIndexRepository {
     return this.download_index(ctx, key);
   }
 
+  /** Reads the index at exactly this key with the checks every listing applies. */
+  async read_index_at(
+    ctx: TenantContext,
+    storage_key: string,
+  ): Promise<TeamsSnapshotIndex | undefined> {
+    return this.download_index(ctx, storage_key);
+  }
+
   /** Reads each index key, sorting readable ones newest first and recording the rest by reason. */
   private async read_listing(ctx: TenantContext, keys: string[]): Promise<TeamsSnapshotListing> {
     const indexes: TeamsSnapshotIndex[] = [];

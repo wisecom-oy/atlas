@@ -99,6 +99,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         last_snapshot_id: 'teams-snap-2000-bbbbbb',
         total_channels: 2,
         unreadable_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
+        unreadable_index_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
         unsupported_keys: [],
         failed_root_count: 0,
         pending_recheck_count: 0,
@@ -129,6 +130,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         last_snapshot_id: undefined,
         total_channels: 0,
         unreadable_keys: [],
+        unreadable_index_keys: [],
         unsupported_keys: ['teams/manifests/b/teams-snap-3000-dddddd.json'],
         failed_root_count: 0,
         pending_recheck_count: 0,
@@ -136,8 +138,9 @@ describe('TeamsStatusService.check_teams_status', () => {
     ]);
   });
 
-  it('adds damaged and newer-format cursor keys to the team lists and counts failed roots (P9)', async () => {
+  it('adds damaged cursor keys to unreadable_keys but not to the index keys, and counts failed roots (P9, #694)', async () => {
     const damaged_cursor = 'teams/_meta/a/channels/channel-9.json';
+    const damaged_index = 'teams/manifests/a/teams-snap-500-cccccc.json';
     const newer_cursor = 'teams/_meta/a/channels/channel-8.json';
     const { service } = setup(
       [
@@ -145,7 +148,7 @@ describe('TeamsStatusService.check_teams_status', () => {
           team_id: TEAM_A,
           listing: {
             indexes: [index('teams-snap-2000-bbbbbb', 1)],
-            unreadable_keys: [],
+            unreadable_keys: [damaged_index],
             unsupported_keys: [],
           },
         },
@@ -164,7 +167,9 @@ describe('TeamsStatusService.check_teams_status', () => {
 
     const [row] = await service.check_teams_status('tenant');
 
-    expect(row?.unreadable_keys).toEqual([damaged_cursor]);
+    // unreadable_keys keeps its shape from before #694; only indexes can be quarantined.
+    expect(row?.unreadable_keys).toEqual([damaged_index, damaged_cursor]);
+    expect(row?.unreadable_index_keys).toEqual([damaged_index]);
     expect(row?.unsupported_keys).toEqual([newer_cursor]);
     expect(row?.failed_root_count).toBe(3);
   });

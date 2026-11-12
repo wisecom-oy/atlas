@@ -27,6 +27,11 @@ export interface TeamsBackupSummary {
   readonly errors: string[];
   readonly warnings: string[];
   readonly healthy: boolean;
+  /**
+   * Snapshot indexes newer than the run's baseline that could not be read, by storage key. The run
+   * compared against the newest readable index instead; present only when one was skipped (#694).
+   */
+  readonly unreadable_keys?: string[] | undefined;
   /** Wall-clock time the run took, from the start of the team backup to its return. */
   readonly elapsed_ms: number;
   /** One report per channel of the team, in the channel listing order. */

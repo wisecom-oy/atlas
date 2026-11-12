@@ -51,7 +51,7 @@ function make_inputs(overrides: Partial<ChannelRunInputs> = {}): ChannelRunInput
   const baseline: TeamsBaseline = {
     previous: undefined,
     channels: new Map(),
-    errors: [],
+    unreadable_keys: [],
     warnings: [],
   };
   return {

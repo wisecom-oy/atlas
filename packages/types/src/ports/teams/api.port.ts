@@ -11,6 +11,7 @@ import type { VerificationOptions } from '@/ports/verification/use-case.port';
 import type { SdkOperationOptions } from '@/ports/atlas/progress-event.port';
 import type { TeamsSaveOptions, TeamsSaveResult } from '@/ports/teams/save.port';
 import type { Camelize } from '@/public/case-convert';
+import type { SdkQuarantineResult } from '@/ports/storage/quarantine.port';
 
 export type TeamsSdkBackupOptions = Camelize<
   Omit<TeamsBackupOptions, 'create_progress' | 'on_progress' | 'should_interrupt'>
@@ -54,4 +55,9 @@ export interface TeamsApi {
   delete(teamId: string, snapshotId?: string): Promise<TeamsSdkDeletionResult>;
   /** Exports one snapshot as a zip: team.json, per-channel messages.json, and HTML transcripts. */
   save(teamId: string, options: TeamsSdkSaveOptions): Promise<TeamsSdkSaveResult>;
+  /**
+   * Moves an unreadable snapshot index to `_quarantine/{storageKey}` so listings, status and
+   * backups stop reporting it. Refuses an object that reads cleanly or does not exist.
+   */
+  quarantine(storageKey: string): Promise<SdkQuarantineResult>;
 }
