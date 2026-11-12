@@ -40,6 +40,17 @@ Delta links are stored inside encrypted cursor objects, and for Outlook also ins
 
 A full enumeration is scoped to the drive or library that triggered it. Delta links are kept per drive, so a site with several libraries, or a user with several drives, keeps working links for the rest. Files in the rebased drive are recorded again as `created`. Files elsewhere keep their history, and an edit there is still reported as `updated`.
 
+### After a snapshot delete
+
+`delete -s` also deletes the owner's delta cursor, and what the next backup reads depends on the workload:
+
+| Workload           | Next backup after `delete -s`                                                                                                                                                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Calendar, Contacts | Reads every calendar or folder in full, whichever snapshot was deleted. Each manifest is complete, so deleting an older snapshot loses nothing, but the cursor is dropped anyway rather than checking which snapshot it followed.                  |
+| Outlook            | Resumes from the delta links stored in the remaining newest snapshot, so it re-reads only the changes since that snapshot, including those the deleted one held. Only the newest snapshot can be deleted, so those links are always the right base. |
+
+`delete -m` removes the cursor with the rest of the owner's data, so the next backup is a full backup on every workload.
+
 ## Deleted and moved messages (Outlook)
 
 ```bash
