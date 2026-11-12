@@ -115,7 +115,7 @@ export async function execute_teams_status(
   }));
   await render_static_view(<DataTable columns={status_columns} rows={rows} />);
   for (const team of teams) warn_team_status(team);
-  report_unreadable_keys(teams.flatMap((team) => team.unreadable_keys));
+  report_unreadable_keys(teams.flatMap((team) => team.unreadable_index_keys));
 }
 
 /**
@@ -124,10 +124,13 @@ export async function execute_teams_status(
  */
 function warn_team_status(team: TeamsTeamStatus): void {
   const name = team.team_display_name ?? team.team_id;
-  if (team.unreadable_cursor_keys.length > 0) {
+  const cursor_keys = team.unreadable_keys.filter(
+    (key) => !team.unreadable_index_keys.includes(key),
+  );
+  if (cursor_keys.length > 0) {
     logger.warn(
-      `${name}: ${team.unreadable_cursor_keys.length} channel cursor(s) could not be read; ` +
-        `the next backup reads those channels in full: ${team.unreadable_cursor_keys.join(', ')}`,
+      `${name}: ${cursor_keys.length} channel cursor(s) could not be read; ` +
+        `the next backup reads those channels in full: ${cursor_keys.join(', ')}`,
     );
   }
   if (team.unsupported_keys.length > 0) {

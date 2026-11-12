@@ -4,16 +4,13 @@ export interface TeamsTeamStatus {
   readonly last_backup_at: Date | undefined;
   readonly last_snapshot_id: string | undefined;
   readonly total_channels: number;
-  /**
-   * Snapshot index keys that could not be read; the team's status may be older than its newest
-   * snapshot. Each one can be moved aside with `quarantine` (issue #694).
-   */
+  /** Index and cursor keys that could not be read; the team's status may be older than its newest snapshot. */
   readonly unreadable_keys: string[];
   /**
-   * Channel cursor keys that could not be read. The next backup reads those channels in full and
-   * rewrites their cursors, so they need no quarantine.
+   * The snapshot index keys among `unreadable_keys`. Each can be moved aside with `quarantine`
+   * (issue #694). The rest are channel cursors, which the next backup rewrites.
    */
-  readonly unreadable_cursor_keys: string[];
+  readonly unreadable_index_keys: string[];
   /** Index and cursor keys written by a newer format version than this build reads. */
   readonly unsupported_keys: string[];
   /** Channel roots that failed in a previous run, summed over the team's channel cursors. */

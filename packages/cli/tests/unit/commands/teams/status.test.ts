@@ -25,7 +25,7 @@ function team(overrides: Partial<TeamsTeamStatus>): TeamsTeamStatus {
     last_snapshot_id: undefined,
     total_channels: 0,
     unreadable_keys: [],
-    unreadable_cursor_keys: [],
+    unreadable_index_keys: [],
     unsupported_keys: [],
     failed_root_count: 0,
     pending_recheck_count: 0,
@@ -56,7 +56,7 @@ describe('teams status warnings', () => {
 
   it('warns with the keys of unreadable cursors and newer-format objects, exiting 0 (P9)', async () => {
     check_teams_status.mockResolvedValueOnce([
-      team({ unreadable_cursor_keys: [CURSOR_KEY], unsupported_keys: [UNSUPPORTED_KEY] }),
+      team({ unreadable_keys: [CURSOR_KEY], unsupported_keys: [UNSUPPORTED_KEY] }),
     ]);
 
     await execute_teams_status(container, { tenant: TENANT });
@@ -71,7 +71,11 @@ describe('teams status warnings', () => {
   it('names a damaged index of any team with the quarantine command and exits 9 (issue #694)', async () => {
     check_teams_status.mockResolvedValueOnce([
       team({}),
-      team({ team_id: 'team-b', unreadable_keys: [INDEX_KEY] }),
+      team({
+        team_id: 'team-b',
+        unreadable_keys: [INDEX_KEY, CURSOR_KEY],
+        unreadable_index_keys: [INDEX_KEY],
+      }),
     ]);
 
     await execute_teams_status(container, { tenant: TENANT });
@@ -79,6 +83,9 @@ describe('teams status warnings', () => {
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining(`atlas teams quarantine --key ${INDEX_KEY}`),
     );
+    expect(logger.error).not.toHaveBeenCalledWith(expect.stringContaining(CURSOR_KEY));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(CURSOR_KEY));
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining(INDEX_KEY));
     expect(process.exitCode).toBe(EXIT_CONTENT_UNREADABLE);
   });
 
