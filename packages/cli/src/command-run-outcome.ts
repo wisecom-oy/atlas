@@ -74,6 +74,20 @@ export function report_skipped_items(skipped: number, item_noun: string): void {
 }
 
 /**
+ * Names each `--file-filter` value that matched no file while other values did, and exits partial
+ * unless a stronger code is already set. A filter that matched nothing at all is a NotFoundError
+ * from the service instead (issue #707).
+ */
+export function report_unmatched_file_filters(unmatched: readonly string[] | undefined): void {
+  if (!unmatched || unmatched.length === 0) return;
+  for (const value of unmatched) {
+    logger.error(`  File filter "${value}" matched no file in the snapshot`);
+  }
+  logger.error(`File filters unmatched: ${unmatched.length} -- exit ${EXIT_PARTIAL}`);
+  if (!process.exitCode) process.exitCode = EXIT_PARTIAL;
+}
+
+/**
  * Prints a drive backup's verdict line. A damaged stored object makes the run UNHEALTHY even when
  * every item landed, as Teams does since #722: a HEALTHY line beside exit 9 hid the damage
  * (issue #709). An unhealthy run exits partial. A run whose only finding is a damaged object keeps

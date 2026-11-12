@@ -1,6 +1,10 @@
 import { Box } from 'ink';
 import { logger } from '@wisecom/atlas-core';
-import { EXIT_PARTIAL, report_skipped_items } from '@/command-run-outcome';
+import {
+  EXIT_PARTIAL,
+  report_skipped_items,
+  report_unmatched_file_filters,
+} from '@/command-run-outcome';
 import { report_unreadable_keys } from '@/command-unreadable-objects';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
@@ -21,6 +25,8 @@ export interface DriveRestoreSummary {
   readonly interrupted: boolean;
   /** Damaged manifests the restore skipped because they are newer than the snapshot (issue #631). */
   readonly unreadable_keys?: readonly string[] | undefined;
+  /** `--file-filter` values that matched no file while others did (issue #707). */
+  readonly unmatched_file_filters?: readonly string[] | undefined;
 }
 
 /**
@@ -47,6 +53,7 @@ export async function report_drive_restore(
   );
   report_skipped_items(result.files_skipped, 'File');
   report_unreadable_keys(result.unreadable_keys);
+  report_unmatched_file_filters(result.unmatched_file_filters);
   if (result.errors.length > 0) {
     await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
     process.exitCode = 1;
@@ -55,7 +62,7 @@ export async function report_drive_restore(
       `Restore interrupted after ${result.files_restored} file(s) -- exit ${EXIT_PARTIAL}`,
     );
     process.exitCode = EXIT_PARTIAL;
-  } else {
+  } else if (!result.unmatched_file_filters?.length) {
     logger.success('Restore completed successfully');
   }
 }

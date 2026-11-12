@@ -7,7 +7,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { filter_manifests_by_date, merge_snapshot_entries } from '@wisecom/atlas-core';
 import {
-  build_folder_map,
+  list_known_folders,
   filter_entries_by_folder_name,
 } from '@/services/restore/folder-restore-planner';
 import {
@@ -52,8 +52,14 @@ export async function resolve_mailbox_entries(
   if (filter.folder_name) {
     await backfill_missing_folder_ids(ctx, merged);
     const listing = folder_listing_for(merged);
-    const folder_map = await build_folder_map(connector, tenant_id, owner_id, in_range, listing);
-    selected = filter_entries_by_folder_name(merged, filter.folder_name, folder_map);
+    const known_folders = await list_known_folders(
+      connector,
+      tenant_id,
+      owner_id,
+      in_range,
+      listing,
+    );
+    selected = filter_entries_by_folder_name(merged, filter.folder_name, known_folders);
   }
   const entries = apply_recoverable_items_policy(selected, filter.include_recoverable_items);
   return { manifests: in_range, entries };

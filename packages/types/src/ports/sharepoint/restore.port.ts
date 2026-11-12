@@ -29,6 +29,11 @@ export interface SharePointRestoreResult {
   readonly interrupted: boolean;
   /** Damaged manifests outside the snapshot's chain, by key: reported, not needed (issue #631). */
   readonly unreadable_keys?: string[] | undefined;
+  /**
+   * File filter values that matched no file while other values did. The run is partial, and the
+   * CLI exits 2 (issue #707). A filter that matched no file at all rejects with NotFoundError.
+   */
+  readonly unmatched_file_filters?: string[] | undefined;
 }
 
 export interface SharePointRestoreUseCase {

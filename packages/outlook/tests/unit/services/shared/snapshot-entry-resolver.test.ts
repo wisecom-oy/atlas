@@ -1,5 +1,6 @@
 import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, expect, it, vi } from 'vitest';
+import { NotFoundError } from '@wisecom/atlas-types';
 import type {
   MailboxConnector,
   Manifest,
@@ -76,7 +77,7 @@ async function resolve(
   const connector = {
     list_mail_folders: vi.fn(async () => [
       { folder_id: 'f1', display_name: 'Inbox', folder_path: 'Inbox' },
-      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent' },
+      { folder_id: 'f2', display_name: 'Sent', folder_path: 'Sent', well_known_name: 'sentitems' },
     ]),
   } as unknown as MailboxConnector;
   const ctx = {} as TenantContext;
@@ -131,5 +132,18 @@ describe('resolve_snapshot_entries', () => {
     const ids = (await resolve('snap-2', { folder_name: 'Sent' })).map((e) => e.object_id);
 
     expect(ids).toEqual(['S']);
+  });
+
+  it('selects a folder by its well-known name, whatever its display name', async () => {
+    const ids = (await resolve('snap-2', { folder_name: 'sentitems' })).map((e) => e.object_id);
+
+    expect(ids).toEqual(['S']);
+  });
+
+  it('rejects a folder filter that names no folder instead of selecting nothing (#707)', async () => {
+    const run = resolve('snap-2', { folder_name: 'NoSuchFolder' });
+
+    await expect(run).rejects.toBeInstanceOf(NotFoundError);
+    await expect(run).rejects.toThrow('Folder "NoSuchFolder" not found. Available: Inbox, Sent');
   });
 });

@@ -37,7 +37,10 @@ import {
   describe_unresolved_destination,
   resolve_destination_library,
 } from '@/services/restore/restore-target';
-import { filter_drive_entries } from '@wisecom/atlas-drive/shared/entry-filter';
+import {
+  select_drive_entries,
+  with_unmatched_file_filters,
+} from '@wisecom/atlas-drive/shared/entry-filter';
 import { sharepoint_manifest_lookup } from '@/services/shared/manifest-lookup';
 import {
   load_drive_chain_entries,
@@ -123,6 +126,9 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
       site_id,
       options.snapshot_id,
     );
+    // Before the library listing, so a file filter that matches nothing fails without a Graph call.
+    const selection = select_drive_entries(restorable_entries(chain.entries), options.file_filter);
+    const restorable = selection.entries;
 
     const target_site = options.target_site_id ?? site_id;
     const conflict = options.conflict_behavior ?? 'rename';
@@ -146,7 +152,6 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     let files_skipped = 0;
     const errors: string[] = [];
 
-    const restorable = filter_drive_entries(restorable_entries(chain.entries), options.file_filter);
     assert_renameable(options.rename_to, restorable.length);
     const restore_root = resolve_restore_root(options);
     const routing: EntryRouting = {
@@ -207,14 +212,17 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     );
 
     return with_unreadable_keys(
-      {
-        snapshot_id: options.snapshot_id,
-        files_restored,
-        folders_created,
-        files_skipped,
-        errors,
-        interrupted,
-      },
+      with_unmatched_file_filters(
+        {
+          snapshot_id: options.snapshot_id,
+          files_restored,
+          folders_created,
+          files_skipped,
+          errors,
+          interrupted,
+        },
+        selection.unmatched_filters,
+      ),
       chain.unreadable_keys,
     );
   }

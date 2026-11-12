@@ -11,7 +11,7 @@ import {
   resolve_message_ref,
 } from '@wisecom/atlas-core/services/shared/manifest-chain';
 import {
-  build_folder_map,
+  list_known_folders,
   filter_entries_by_folder_name,
 } from '@/services/restore/folder-restore-planner';
 import {
@@ -79,14 +79,14 @@ async function select_requested_entries(
   if (filter.folder_name) {
     await backfill_missing_folder_ids(ctx, merged);
     const listing = folder_listing_for(merged);
-    const folder_map = await build_folder_map(
+    const known_folders = await list_known_folders(
       connector,
       tenant_id,
       target.owner_id,
       chain,
       listing,
     );
-    return filter_entries_by_folder_name(merged, filter.folder_name, folder_map);
+    return filter_entries_by_folder_name(merged, filter.folder_name, known_folders);
   }
 
   return merged;

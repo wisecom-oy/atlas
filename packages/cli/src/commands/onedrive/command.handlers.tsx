@@ -29,6 +29,7 @@ import {
   report_backup_verdict,
   report_run_outcome,
   report_skipped_items,
+  report_unmatched_file_filters,
 } from '@/command-run-outcome';
 import {
   require_target_for_profile,
@@ -281,6 +282,7 @@ export async function execute_onedrive_save(
   );
   report_skipped_items(result.files_skipped, 'File');
   report_unreadable_keys(result.unreadable_keys);
+  report_unmatched_file_filters(result.unmatched_file_filters);
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {

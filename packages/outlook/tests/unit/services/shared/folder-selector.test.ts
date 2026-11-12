@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { folder_matches_selector } from '@/services/shared/folder-selector';
+import {
+  apply_folder_filter,
+  folder_matches_selector,
+  select_folders,
+} from '@/services/shared/folder-selector';
 
 describe('folder_matches_selector', () => {
   it('matches an exact path', () => {
@@ -37,5 +41,41 @@ describe('folder_matches_selector', () => {
   it('never matches on an empty selector', () => {
     expect(folder_matches_selector('Inbox', '')).toBe(false);
     expect(folder_matches_selector('Inbox', '/')).toBe(false);
+  });
+});
+
+describe('select_folders', () => {
+  const FOLDERS = [
+    { folder_id: 'f1', folder_path: 'Lähetetyt', well_known_name: 'sentitems' as const },
+    { folder_id: 'f2', folder_path: 'Lähetetyt/2026' },
+    { folder_id: 'f3', folder_path: 'Lähetetyt kopio' },
+  ];
+
+  it('selects a well-known folder and its subtree, in any case, but not a sibling prefix', () => {
+    expect(select_folders(FOLDERS, 'SentItems').map((f) => f.folder_id)).toEqual(['f1', 'f2']);
+  });
+
+  it('selects nothing for a name that is neither a path nor a well-known name', () => {
+    expect(select_folders(FOLDERS, 'Sent Items')).toEqual([]);
+  });
+});
+
+describe('apply_folder_filter', () => {
+  const folder = (folder_path: string) =>
+    ({
+      folder_id: folder_path,
+      folder_path,
+      display_name: folder_path,
+      total_item_count: 0,
+    }) as const;
+
+  it('keeps listing order and lists each selector that matched nothing', () => {
+    const selection = apply_folder_filter(
+      [folder('Inbox'), folder('Archive')],
+      ['Archive', 'Nope', 'Inbox'],
+    );
+
+    expect(selection.folders.map((f) => f.folder_path)).toEqual(['Inbox', 'Archive']);
+    expect(selection.unmatched_selectors).toEqual(['Nope']);
   });
 });
