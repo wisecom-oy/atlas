@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -8,6 +7,7 @@ import { AuthError, MailboxNotLicensedError } from '@wisecom/atlas-types';
 import { CalendarBackupService } from '@/services/backup/backup.service';
 import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import { MAILBOX } from '@wisecom/atlas-types/testing/stub-calendar-snapshots';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** Backup service over in-memory stores. */
 function backup_harness() {

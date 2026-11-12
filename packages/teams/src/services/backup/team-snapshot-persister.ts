@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type {
+  HeldOwnerLease,
   NoSnapshotReason,
   TeamsChannelCheckpointRepository,
   TeamsChannelCursorRepository,
@@ -32,6 +33,8 @@ export interface SnapshotPorts {
   readonly checkpoints: TeamsChannelCheckpointRepository;
   /** The context checkpoints are written through, without the run's Object Lock. Defaults to `ctx`. */
   readonly checkpoint_ctx?: TenantContext | undefined;
+  /** The team's lease, checked before the index and before each channel's cursor. */
+  readonly lease: HeldOwnerLease;
 }
 
 /** Everything the snapshot step writes: the team-level content and the processed channels. */
@@ -79,7 +82,7 @@ export async function save_channel_shards(
  * Saves the team index when the run changed something, then saves the cursor of every processed
  * channel. Each cursor is bound to its channel's merged shard key, so the next run trusts its delta
  * link only while that shard is the channel's latest. A failed index save leaves the cursors where
- * they were.
+ * they were. A run that lost the team's lease writes neither (issue #623).
  */
 export async function persist_team_snapshot(
   ctx: TenantContext,
@@ -102,10 +105,12 @@ export async function persist_team_snapshot(
       members: input.members,
       channels: input.channels,
     });
+    ports.lease.assert_held();
     await ports.indexes.save(ctx, index);
   }
   const updated_at = input.backup_at.toISOString();
   for (const { channel_id, entry, output } of input.saves) {
+    ports.lease.assert_held();
     await ports.cursors.save(
       ctx,
       build_channel_cursor({
@@ -118,6 +123,7 @@ export async function persist_team_snapshot(
         updated_at,
       }),
     );
+    ports.lease.assert_held();
     await settle_checkpoint(
       ports.checkpoint_ctx ?? ctx,
       ports.checkpoints,

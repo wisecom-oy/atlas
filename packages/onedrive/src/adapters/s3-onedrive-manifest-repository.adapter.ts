@@ -1,14 +1,24 @@
 import { injectable } from 'inversify';
 import type {
+  HeldOwnerLease,
   LatestReadableManifest,
   OneDriveSnapshotManifest,
+  OneDriveSnapshotSummary,
   OneDriveManifestRepository,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import {
+  find_latest_readable_by_summary,
+  list_snapshot_summaries,
+  list_tenant_snapshot_summaries,
+} from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
+import { record_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-writer';
+import { build_drive_summary_layout } from '@wisecom/atlas-drive/shared/drive-snapshot-summary-layout';
 import {
   as_manifest_listing,
-  find_latest_readable_drive_manifest,
   read_drive_manifest,
   read_drive_manifests,
   read_owner_drive_manifests,
@@ -29,12 +39,52 @@ const LAYOUT: DriveManifestLayout = {
   owner_field: 'owner_id',
 };
 
+const SUMMARY_LAYOUT = build_drive_summary_layout<
+  OneDriveSnapshotManifest,
+  OneDriveSnapshotSummary
+>(LAYOUT, ['owner_email', 'owner_display_name']);
+
 /** Persists OneDrive snapshot manifests as encrypted JSON in S3. */
 @injectable()
 export class S3OneDriveManifestRepository implements OneDriveManifestRepository {
-  /** Encrypts and uploads a manifest. */
-  async save(ctx: TenantContext, manifest: OneDriveSnapshotManifest): Promise<void> {
+  /**
+   * Stores a manifest through the guarded create-only write, then records it in the owner's
+   * summary index, checking `lease` right before that write.
+   */
+  async save(
+    ctx: TenantContext,
+    manifest: OneDriveSnapshotManifest,
+    lease?: HeldOwnerLease,
+  ): Promise<void> {
     await save_drive_manifest(ctx, LAYOUT, manifest.owner_id, manifest);
+    const key = onedrive_manifest_key(manifest.owner_id, manifest.snapshot_id);
+    const summary = SUMMARY_LAYOUT.summarize(manifest, key);
+    await record_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, manifest.owner_id, summary, lease);
+  }
+
+  /** Drops a removed snapshot's row from the owner's summary index; logs instead of failing. */
+  async forget_snapshot_summary(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_id: string,
+    lease?: HeldOwnerLease,
+  ): Promise<void> {
+    await forget_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, owner_id, snapshot_id, lease);
+  }
+
+  /** Lists an owner's snapshots from its summary index, decrypting only rowless manifests. */
+  async list_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<ReadableSnapshotSummaries<OneDriveSnapshotSummary>> {
+    return list_snapshot_summaries(ctx, SUMMARY_LAYOUT, owner_id);
+  }
+
+  /** Lists every owner's snapshots from their summary indexes. */
+  async list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<OneDriveSnapshotSummary>> {
+    return list_tenant_snapshot_summaries(ctx, SUMMARY_LAYOUT);
   }
 
   /** Loads a manifest by listing only that owner's manifest prefix; raises when it is damaged. */
@@ -49,12 +99,12 @@ export class S3OneDriveManifestRepository implements OneDriveManifestRepository 
     return read_drive_manifest<OneDriveSnapshotManifest>(ctx, LAYOUT, expected_key);
   }
 
-  /** Returns the most recent readable manifest for an owner, naming the damaged ones. */
+  /** Returns the most recent readable manifest, chosen by the summary index, naming damaged ones. */
   async find_latest_readable(
     ctx: TenantContext,
     owner_id: string,
   ): Promise<LatestReadableManifest<OneDriveSnapshotManifest>> {
-    return find_latest_readable_drive_manifest(ctx, LAYOUT, owner_id);
+    return find_latest_readable_by_summary(ctx, SUMMARY_LAYOUT, owner_id);
   }
 
   /** Lists all manifests for an owner, newest first; raises when any is damaged. */

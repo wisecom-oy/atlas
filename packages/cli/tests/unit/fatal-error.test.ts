@@ -5,12 +5,15 @@ import {
   MailboxNotLicensedError,
   NotFoundError,
   ObjectLockRetainedError,
-  SnapshotNotNewestError,
+  RefusedWriteError,
   OwnerBusyError,
   OwnerLeaseLostError,
+  SnapshotNotNewestError,
   StorageError,
+  StoredObjectConflictError,
   ThrottledError,
   UnreadableContentError,
+  UnreadableObjectsError,
   WrongPassphraseError,
 } from '@wisecom/atlas-types';
 import { DekOverwriteRefusedError } from '@wisecom/atlas-core/services/replication/dek-rehydration-validator';
@@ -154,26 +157,55 @@ describe('fatal CLI errors', () => {
     expect(output).toContain('Delete the newer snapshots first');
   });
 
-  it('gives a busy owner its own exit code with the holder and expiry on stderr (issue #623)', () => {
-    const holder = {
-      operation: 'backup',
-      host: 'host-example',
-      pid: 42,
-      started_at: '2026-01-01T00:00:00.000Z',
-      expires_at: '2026-01-01T00:10:00.000Z',
-    };
-    // A lease conflict that surfaced as a refused write must still not read as a storage failure.
-    const cause = Object.assign(new Error('Precondition'), { $metadata: { httpStatusCode: 412 } });
-    handle_fatal_error(new OwnerBusyError('_meta/leases/outlook/owner.json', holder, { cause }));
-
+  it('gives a busy owner its own exit category, so a scheduler can retry later (#623)', () => {
+    handle_fatal_error(
+      new OwnerBusyError({
+        workload: 'onedrive',
+        owner_id: 'owner-1',
+        held_by_operation: 'backup',
+        lease_expires_at: '2026-03-01T10:05:00.000Z',
+      }),
+    );
     expect(process.exitCode).toBe(12);
     const output = diagnostics.join('\n');
     expect(output).toContain('Atlas code: ATLAS_OWNER_BUSY');
-    expect(output).toContain('backup on host-example (pid 42)');
-    expect(output).toContain('expires 2026-01-01T00:10:00.000Z');
+    expect(output).toContain('Another backup is running on onedrive owner owner-1');
+    expect(output).toContain('2026-03-01T10:05:00.000Z');
+  });
 
-    handle_fatal_error(new OwnerLeaseLostError('_meta/leases/outlook/owner.json', 'expired'));
+  it('exits the same way when a run lost its lease before committing (#623)', () => {
+    handle_fatal_error(
+      new OwnerLeaseLostError(
+        { workload: 'teams', owner_id: 'team-1' },
+        'another operation replaced it',
+      ),
+    );
     expect(process.exitCode).toBe(12);
+    expect(diagnostics.join('\n')).toContain('lost its lease on teams owner team-1');
+  });
+
+  it('reports a refused metadata write as a general failure, with no quarantine hint', () => {
+    // The reader's rejection is the cause, but nothing was stored: there is no object to move.
+    const key = 'contacts/manifests/owner-1/ct-snap-1000-abc.json';
+    const reader_rejection = new UnreadableObjectsError('The contacts manifest is not a manifest', [
+      key,
+    ]);
+    handle_fatal_error(
+      new RefusedWriteError(key, 'contacts manifest', 'its reader would reject it', {
+        cause: reader_rejection,
+      }),
+    );
+    expect(process.exitCode).toBe(1);
+    const output = diagnostics.join('\n');
+    expect(output).toContain('Atlas code: ATLAS_WRITE_REFUSED');
+    expect(output).toContain('Nothing was written');
+    expect(output).not.toContain('quarantine');
+  });
+
+  it('reports a create-only conflict as a storage failure', () => {
+    handle_fatal_error(new StoredObjectConflictError('manifests/owner-1/snap-1.json', 'manifest'));
+    expect(process.exitCode).toBe(1);
+    expect(diagnostics.join('\n')).toContain('Atlas code: ATLAS_STORAGE_FAILURE');
   });
 
   it('classifies AWS server errors as retryable without treating every 5xx as transient', () => {

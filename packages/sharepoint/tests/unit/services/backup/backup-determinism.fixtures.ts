@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { vi } from 'vitest';
 import type {
   SharePointSiteConnector,
@@ -12,6 +11,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { SharePointBackupService } from '@/services/backup/backup.service';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
 
 export function make_file_item(

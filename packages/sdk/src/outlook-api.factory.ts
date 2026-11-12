@@ -147,6 +147,14 @@ export function create_outlook_api(tenant_id: string, container: Container): Out
         await with_camelized_partial_result(() => catalog.list_snapshots(tenant_id, mailbox_id)),
       );
     },
+    async listSnapshotSummaries(mailbox) {
+      const mailbox_id = await resolve_object_id(mailbox);
+      return camelize(
+        await with_camelized_partial_result(() =>
+          catalog.list_snapshot_summaries(tenant_id, mailbox_id),
+        ),
+      );
+    },
     async getSnapshotDetail(snapshot_id) {
       return camelize(await catalog.get_snapshot_detail(tenant_id, snapshot_id));
     },

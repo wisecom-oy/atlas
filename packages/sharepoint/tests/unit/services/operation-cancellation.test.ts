@@ -1,4 +1,4 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -13,6 +13,7 @@ import { SharePointRestoreService } from '@/services/restore/restore.service';
 import { SharePointSaveService } from '@/services/save/save.service';
 import { SharePointVerificationService } from '@/services/verification/verification.service';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 vi.mock('@wisecom/atlas-drive/restore/streaming-restore', () => ({
   should_stream_restore: vi.fn().mockReturnValue(false),
@@ -118,6 +119,7 @@ describe('SharePoint restore cancellation', () => {
         entries: [make_entry('f1'), make_entry('f2')],
       }),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
     } as unknown as SharePointManifestRepository;
     const service = new SharePointRestoreService(
       factory,

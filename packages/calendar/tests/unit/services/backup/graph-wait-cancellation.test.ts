@@ -3,7 +3,6 @@
  * delta read parked in a Graph Retry-After sat the wait out.
  */
 
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +11,7 @@ import { calendar_rig } from '@wisecom/atlas-types/testing/stub-calendar-rig';
 import { MAILBOX } from '@wisecom/atlas-types/testing/stub-calendar-snapshots';
 
 import { CalendarBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** A Graph call throttled with `Retry-After: 360`, which on its own waits six minutes. */
 function graph_call_parked_in_retry_wait(): Promise<never> {

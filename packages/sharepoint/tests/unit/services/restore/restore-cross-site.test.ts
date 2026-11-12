@@ -1,5 +1,6 @@
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
-import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
+import { OWNER_LEASE_TOKEN } from '@wisecom/atlas-types';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -82,10 +83,11 @@ describe('SharePointRestoreService cross-site routing', () => {
         entries: [make_entry()],
       }),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
     } as unknown as SharePointManifestRepository;
 
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
-    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(SHAREPOINT_CONNECTOR_TOKEN).toConstantValue(connector);
     container.bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN).toConstantValue(manifests);
     container.bind(SharePointRestoreService).toSelf();

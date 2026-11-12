@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -8,6 +7,7 @@ import { MAILBOX, TENANT } from '@wisecom/atlas-types/testing/stub-calendar-snap
 
 import { CalendarBackupService } from '@/services/backup/backup.service';
 import { CalendarRestoreService } from '@/services/restore/restore.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** Backup and restore services over one set of in-memory stores. */
 function round_trip_harness() {

@@ -25,6 +25,7 @@ export function channel_hosted_journal(scope: BackupRunScope, run: ChannelRun): 
       run.hosted.set(key, ref);
       if (run.head === undefined) await flush_channel_run(scope, run, { threads: [], seen: [] });
       const name = `${run.stamp}-${written++}`;
+      scope.lease.assert_held();
       await scope.checkpoints.save_hosted_entry(
         checkpoint_ctx(scope),
         scope.team_id,

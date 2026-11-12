@@ -2,8 +2,6 @@
  * OneDrive and SharePoint erasure. Both were deleting visible keys only, so in a
  * versioned bucket they reported success while every byte stayed retrievable.
  */
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
-import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -12,10 +10,18 @@ import { SharePointDeletionService } from '@/services/deletion/sharepoint-deleti
 import {
   NotFoundError,
   ObjectLockRetainedError,
+  OwnerBusyError,
+  ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   type TenantContextFactory,
 } from '@wisecom/atlas-types';
 import type { DeletionStorage } from '@/services/deletion/shared/prefix-deleter';
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
@@ -39,18 +45,36 @@ describe('workload deletion', () => {
   let factory: TenantContextFactory;
   let onedrive: OneDriveDeletionService;
   let sharepoint: SharePointDeletionService;
+  let leases: StubOwnerLeases;
 
   beforeEach(() => {
     storage = make_storage();
+    leases = stub_owner_leases();
     factory = {
       create: vi.fn(),
-      create_readonly: vi.fn(),
+      // delete -s reads the owner's manifests to check the snapshot is the newest (issue #725).
+      create_readonly: vi.fn().mockResolvedValue({ tenant_id: 't', storage, destroy: vi.fn() }),
       create_storage_only: vi.fn().mockResolvedValue({ tenant_id: 't', storage }),
     };
+    const snap = { snapshot_id: 'snap', created_at: new Date('2026-03-01T10:00:00Z') };
+    const find_by_snapshot = vi.fn(async (_ctx: unknown, _owner: string, id: string) =>
+      id === 'snap' ? snap : undefined,
+    );
 
     const container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
-    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(leases.leases);
+    const forget_snapshot_summary = vi.fn(async () => undefined);
+    container.bind(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
+      find_by_snapshot,
+      list_snapshots_by_owner: vi.fn(async () => [snap]),
+      forget_snapshot_summary,
+    });
+    container.bind(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN).toConstantValue({
+      find_by_snapshot,
+      list_snapshots_by_site: vi.fn(async () => [snap]),
+      forget_snapshot_summary,
+    });
     container.bind(OneDriveDeletionService).toSelf();
     container.bind(SharePointDeletionService).toSelf();
 
@@ -104,6 +128,8 @@ describe('workload deletion', () => {
         `onedrive/staging/${OWNER}/`,
         `_quarantine/onedrive/manifests/${OWNER}/`,
         `_quarantine/onedrive/index/${OWNER}/`,
+        // The owner's lease goes last, so no backup starts while the rest is erased (#623).
+        `stub-lease/onedrive/${OWNER}.json`,
       ]);
     });
 
@@ -139,11 +165,34 @@ describe('workload deletion', () => {
       expect(result.deleted_manifests).toBe(0);
     });
 
+    it('erases under the owner lease, which needs no tenant key', async () => {
+      await onedrive.delete_owner_data('t', OWNER);
+
+      expect(leases.requests).toEqual([
+        { workload: 'onedrive', owner_id: OWNER, operation: 'delete' },
+      ]);
+      expect(leases.held()).toBe(0);
+      expect(factory.create_readonly).not.toHaveBeenCalled();
+    });
+
     it('erases without the DEK, so a purged tenant can still be cleaned up', async () => {
       await onedrive.delete_owner_data('t', OWNER);
 
       expect(factory.create_storage_only).toHaveBeenCalledWith('t');
       expect(factory.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses to erase while another operation holds the owner, and deletes nothing', async () => {
+      leases.refuse_with(new OwnerBusyError({ workload: 'onedrive', owner_id: OWNER }));
+
+      await expect(onedrive.delete_owner_data('t', OWNER)).rejects.toBeInstanceOf(OwnerBusyError);
+      await expect(onedrive.delete_snapshot('t', OWNER, 'snap')).rejects.toBeInstanceOf(
+        OwnerBusyError,
+      );
+
+      expect(storage.list_versions).not.toHaveBeenCalled();
+      expect(storage.delete_version).not.toHaveBeenCalled();
+      expect(storage.abort_incomplete_uploads).not.toHaveBeenCalled();
     });
   });
 
@@ -171,11 +220,33 @@ describe('workload deletion', () => {
       expect(scopes).toContain(`sharepoint/staging/${SITE}/`);
     });
 
+    it('erases under the site lease, which needs no tenant key', async () => {
+      await sharepoint.delete_site_data('t', SITE);
+
+      expect(leases.requests).toEqual([
+        { workload: 'sharepoint', owner_id: SITE, operation: 'delete' },
+      ]);
+      expect(leases.held()).toBe(0);
+      expect(factory.create_readonly).not.toHaveBeenCalled();
+    });
+
     it('erases without the DEK, so a purged tenant can still be cleaned up', async () => {
       await sharepoint.delete_site_data('t', SITE);
 
       expect(factory.create_storage_only).toHaveBeenCalledWith('t');
       expect(factory.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses to erase while another operation holds the site, and deletes nothing', async () => {
+      leases.refuse_with(new OwnerBusyError({ workload: 'sharepoint', owner_id: SITE }));
+
+      await expect(sharepoint.delete_site_data('t', SITE)).rejects.toBeInstanceOf(OwnerBusyError);
+      await expect(sharepoint.delete_snapshot('t', SITE, 'snap')).rejects.toBeInstanceOf(
+        OwnerBusyError,
+      );
+
+      expect(storage.list_versions).not.toHaveBeenCalled();
+      expect(storage.delete_version).not.toHaveBeenCalled();
     });
   });
 });

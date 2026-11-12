@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -12,6 +11,7 @@ import {
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 
 import { ContactsBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /**
  * Issue #704: after `delete -s` of the newest snapshot the cursor still pointed past the run that

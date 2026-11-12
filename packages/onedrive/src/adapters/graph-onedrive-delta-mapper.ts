@@ -94,8 +94,19 @@ function is_removed_shape(raw: GraphDeltaDriveItem): boolean {
   return raw.id !== undefined && raw.name === undefined;
 }
 
+/** A delta item Graph returned with the id every record of the item is keyed by. */
+export type IdentifiedGraphDeltaDriveItem = GraphDeltaDriveItem & { id: string };
+
+/** Whether Graph returned the item with a usable id. An item without one cannot be recorded. */
+export function has_item_id(raw: GraphDeltaDriveItem): raw is IdentifiedGraphDeltaDriveItem {
+  return typeof raw.id === 'string' && raw.id.length > 0;
+}
+
 /** Maps a raw Graph delta drive item to the domain delta item. */
-export function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): OneDriveDeltaItem {
+export function map_delta_item(
+  raw: IdentifiedGraphDeltaDriveItem,
+  drive_id: string,
+): OneDriveDeltaItem {
   const parent_path = normalize_path(extract_parent_path(raw.parentReference?.path));
   const file_name = normalize_path(raw.name ?? '');
   const is_deleted = Boolean(raw.deleted ?? raw['@removed']) || is_removed_shape(raw);
@@ -107,7 +118,7 @@ export function map_delta_item(raw: GraphDeltaDriveItem, drive_id: string): OneD
         ? 'file'
         : 'folder';
   return {
-    item_id: raw.id!,
+    item_id: raw.id,
     drive_id,
     kind,
     file_name,

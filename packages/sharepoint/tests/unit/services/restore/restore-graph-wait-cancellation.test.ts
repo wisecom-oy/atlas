@@ -4,6 +4,7 @@
  * out. An upload cut short by the signal is the run stopping, not a skipped file.
  */
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
@@ -77,6 +78,7 @@ function make_harness() {
       entries,
     }),
     list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('sharepoint'),
   } as unknown as SharePointManifestRepository;
   return {
     connector,

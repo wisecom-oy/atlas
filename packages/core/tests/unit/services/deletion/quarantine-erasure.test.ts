@@ -1,10 +1,14 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import type { ManifestRepository, TenantContextFactory } from '@wisecom/atlas-types';
+import type {
+  ManifestRepository,
+  OneDriveManifestRepository,
+  TenantContextFactory,
+} from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER = '00000000-0000-0000-0000-00000000abcd';
 
@@ -43,10 +47,12 @@ describe('owner erasure covers quarantined copies', () => {
       `_quarantine/onedrive/index/${OWNER}/runs/od-snap-1-abc.json`,
     ]);
 
-    await new OneDriveDeletionService(factory, stub_owner_leases().leases).delete_owner_data(
-      't',
-      OWNER,
-    );
+    const manifests = {} as OneDriveManifestRepository;
+    await new OneDriveDeletionService(
+      factory,
+      manifests,
+      stub_owner_leases().leases,
+    ).delete_owner_data('t', OWNER);
 
     expect(harness.keys()).toEqual([]);
   });

@@ -2,14 +2,19 @@ import { normalize_owner_id } from '@/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { Manifest } from '@wisecom/atlas-types';
+import type { Manifest, ManifestEntry, OutlookSnapshotSummary } from '@wisecom/atlas-types';
 import type { MailboxSummary, ReadMessageResult, CatalogUseCase } from '@wisecom/atlas-types';
 import {
   TENANT_CONTEXT_FACTORY_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   NotFoundError,
 } from '@wisecom/atlas-types';
-import { load_snapshot_chain, resolve_message_ref } from '@/services/shared/manifest-chain';
+import {
+  find_indexed_message,
+  load_snapshot_chain,
+  message_index_of,
+  resolve_message_ref,
+} from '@/services/shared/manifest-chain';
 import { return_or_raise_partial } from '@/services/shared/unreadable-object-report';
 import { merge_snapshot_entries } from '@/services/shared/manifest-entry-merger';
 
@@ -53,6 +58,27 @@ export class CatalogService implements CatalogUseCase {
         (a, b) => b.created_at.getTime() - a.created_at.getTime(),
       );
       return return_or_raise_partial(listing.unreadable_keys, manifests);
+    } finally {
+      ctx.destroy();
+    }
+  }
+
+  /**
+   * Lists a mailbox's snapshots from its summary index, newest first, decrypting only manifests
+   * the index has no row for (#625).
+   *
+   * @throws UnreadableObjectsError naming each rowless manifest that could not be read, with the
+   *   summaries in `partial_result`.
+   */
+  async list_snapshot_summaries(
+    tenant_id: string,
+    owner_id: string,
+  ): Promise<OutlookSnapshotSummary[]> {
+    owner_id = normalize_owner_id(owner_id);
+    const ctx = await this._tenant_factory.create_readonly(tenant_id);
+    try {
+      const listing = await this._manifests.list_snapshot_summaries(ctx, owner_id);
+      return return_or_raise_partial(listing.unreadable_keys, listing.summaries);
     } finally {
       ctx.destroy();
     }
@@ -104,7 +130,12 @@ export class CatalogService implements CatalogUseCase {
     ctx: TenantContext,
     snapshot_id: string,
     ref: string,
-  ): Promise<Manifest['entries'][number] | undefined> {
+  ): Promise<ManifestEntry | undefined> {
+    const index = message_index_of(ref);
+    if (index !== undefined) {
+      const target = await this._manifests.find_by_snapshot(ctx, snapshot_id);
+      return target ? find_indexed_message(target, index) : undefined;
+    }
     let chain: Manifest[];
     try {
       chain = await load_snapshot_chain(this._manifests, ctx, snapshot_id);

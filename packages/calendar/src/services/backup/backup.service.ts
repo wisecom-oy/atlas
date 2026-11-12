@@ -3,8 +3,9 @@ import {
   begin_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { apply_run_object_lock_policy } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
+import { run_with_owner_lease } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { cursor_describes_head } from '@wisecom/atlas-core/services/shared/delta-cursor-binding';
 import { inject, injectable } from 'inversify';
 import type {
@@ -19,7 +20,8 @@ import type {
   CalendarRecord,
   CalendarSnapshotManifest,
   GraphCalendar,
-  OwnerLeases,
+  HeldOwnerLease,
+  OwnerLeasePort,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -27,7 +29,7 @@ import {
   CALENDAR_CONNECTOR_TOKEN,
   CALENDAR_DELTA_CURSOR_REPOSITORY_TOKEN,
   CALENDAR_MANIFEST_REPOSITORY_TOKEN,
-  OWNER_LEASES_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { resolve_backup_progress } from '@/services/backup/backup-progress';
@@ -57,10 +59,15 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     private readonly _manifests: CalendarManifestRepository,
     @inject(CALENDAR_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: CalendarDeltaCursorRepository,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
-  /** Backs up the mailbox's calendars; returns the new snapshot, or none when nothing changed. */
+  /**
+   * Backs up the mailbox's calendars; returns the new snapshot, or none when nothing changed. The
+   * run holds the mailbox's calendar lease from before it reads the cursor until it ends.
+   *
+   * @throws OwnerBusyError when another operation holds the mailbox's calendar backup.
+   */
   async backup_calendar(
     tenant_id: string,
     mailbox_id: string,
@@ -79,15 +86,19 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     if (begin_operation_progress(options, 'backup', 'calendar')) return cancelled();
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const scope = { workload: 'calendar', owner_id: mailbox, operation: 'backup' } as const;
-      return await this._leases.run_exclusive(tenant_ctx, scope, async (leased) => {
-        const ctx = await apply_run_object_lock_policy(leased, options.object_lock_request);
-        return run_cancellable(
-          options,
-          () => this.run_backup(ctx, tenant_id, mailbox, options),
-          cancelled,
-        );
-      });
+      return await run_with_owner_lease(
+        this._leases,
+        tenant_ctx,
+        { workload: 'calendar', owner_id: mailbox, operation: 'backup' },
+        async (lease) => {
+          const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
+          return run_cancellable(
+            options,
+            () => this.run_backup(ctx, lease, tenant_id, mailbox, options),
+            cancelled,
+          );
+        },
+      );
     } finally {
       tenant_ctx.destroy();
     }
@@ -95,6 +106,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
 
   private async run_backup(
     ctx: TenantContext,
+    lease: HeldOwnerLease,
     tenant_id: string,
     mailbox_id: string,
     options: CalendarBackupOptions,
@@ -126,6 +138,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     );
     reporter.finish(calendars.length);
     return this.persist_snapshot(ctx, {
+      lease,
       tenant_id,
       mailbox_id,
       calendars,
@@ -145,6 +158,9 @@ export class CalendarBackupService implements CalendarBackupUseCase {
    * calendar failed. A failed calendar keeps its entries from that older manifest, so the snapshot would
    * roll it back past the unreadable one: items added since missing, deleted ones back. Without a
    * cursor the next run reads every calendar in full again (issue #631).
+   *
+   * Each write is preceded by a lease check, so a run that lost the mailbox to another operation
+   * commits nothing (issue #623).
    */
   private async persist_snapshot(
     ctx: TenantContext,
@@ -178,8 +194,12 @@ export class CalendarBackupService implements CalendarBackupUseCase {
             entries: loop.entries,
           })
         : undefined;
-    if (snapshot !== undefined) await this._manifests.save(ctx, snapshot);
+    if (snapshot !== undefined) {
+      run.lease.assert_held();
+      await this._manifests.save(ctx, snapshot);
+    }
     if (writable) {
+      run.lease.assert_held();
       const head_snapshot_id = snapshot?.snapshot_id ?? previous?.snapshot_id;
       const cursor: CalendarDeltaCursor = {
         mailbox_id,
@@ -224,6 +244,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
 }
 
 interface PersistInput {
+  readonly lease: HeldOwnerLease;
   readonly tenant_id: string;
   readonly mailbox_id: string;
   readonly calendars: readonly GraphCalendar[];

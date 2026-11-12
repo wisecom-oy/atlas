@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import type { Writable } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
@@ -120,6 +121,7 @@ describe('OneDriveSaveService', () => {
     mock_manifests = {
       find_by_snapshot: vi.fn(),
       list_readable_snapshots_by_owner: vi.fn(async () => readable_manifests(owner_snapshots)),
+      ...drive_chain_reads('onedrive'),
       list_manifests: vi.fn().mockResolvedValue([]),
       save_manifest: vi.fn(),
     } as unknown as OneDriveManifestRepository;

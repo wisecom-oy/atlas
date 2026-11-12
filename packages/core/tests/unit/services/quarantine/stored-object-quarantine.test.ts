@@ -12,6 +12,7 @@ import {
   quarantine_unreadable_object,
   type QuarantineTarget,
 } from '@/services/quarantine/stored-object-quarantine';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const KEY = 'onedrive/manifests/owner-1/od-snap-1000-abc.json';
 
@@ -19,6 +20,7 @@ const KEY = 'onedrive/manifests/owner-1/od-snap-1000-abc.json';
 function json_target(): QuarantineTarget {
   return {
     workload: 'OneDrive',
+    lease_workload: 'onedrive',
     accepts: 'OneDrive manifests',
     kind_of: (key) => (key.startsWith('onedrive/manifests/') ? 'manifest' : undefined),
     read: async (ctx, key) => {
@@ -41,8 +43,9 @@ function factory_for(ctx: TenantContext): TenantContextFactory {
 
 function stored(harness: ReturnType<typeof in_memory_tenant_context>, damaged: boolean): Buffer {
   const ciphertext = harness.ctx.encrypt(Buffer.from('{"entries":[]}'), KEY);
+  // Flips the last byte. Overwriting it with a constant left 1 run in 256 undamaged.
   const bytes = damaged
-    ? Buffer.concat([ciphertext.subarray(0, -1), Buffer.from([0])])
+    ? Buffer.concat([ciphertext.subarray(0, -1), Buffer.from([ciphertext.at(-1)! ^ 0xff])])
     : ciphertext;
   harness.set_raw(KEY, bytes);
   return bytes;
@@ -55,6 +58,7 @@ describe('quarantine_unreadable_object (issue #631)', () => {
 
     const result = await quarantine_unreadable_object(
       factory_for(harness.ctx),
+      stub_owner_leases().leases,
       json_target(),
       'tenant-1',
       KEY,
@@ -74,7 +78,13 @@ describe('quarantine_unreadable_object (issue #631)', () => {
     const harness = in_memory_tenant_context();
     const bytes = stored(harness, false);
 
-    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+    const move = quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      json_target(),
+      't',
+      KEY,
+    );
 
     await expect(move).rejects.toBeInstanceOf(NotFoundError);
     await expect(move).rejects.toThrow(/reads cleanly/);
@@ -85,7 +95,13 @@ describe('quarantine_unreadable_object (issue #631)', () => {
   it('refuses a key that holds nothing', async () => {
     const harness = in_memory_tenant_context();
 
-    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+    const move = quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      json_target(),
+      't',
+      KEY,
+    );
 
     await expect(move).rejects.toThrow(/No OneDrive object exists/);
   });
@@ -95,6 +111,7 @@ describe('quarantine_unreadable_object (issue #631)', () => {
 
     const move = quarantine_unreadable_object(
       { create } as unknown as TenantContextFactory,
+      stub_owner_leases().leases,
       json_target(),
       't',
       'onedrive/data/owner-1/abc',
@@ -111,6 +128,7 @@ describe('quarantine_unreadable_object (issue #631)', () => {
 
     const result = await quarantine_unreadable_object(
       factory_for(harness.ctx),
+      stub_owner_leases().leases,
       json_target(),
       't',
       KEY,
@@ -127,7 +145,13 @@ describe('quarantine_unreadable_object (issue #631)', () => {
       throw new ObjectLockRetainedError(key);
     };
 
-    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+    const move = quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      json_target(),
+      't',
+      KEY,
+    );
 
     await expect(move).rejects.toBeInstanceOf(ObjectLockRetainedError);
     expect(harness.raw(`_quarantine/${KEY}`)).toBeDefined();
@@ -138,7 +162,13 @@ describe('quarantine_unreadable_object (issue #631)', () => {
     const harness = in_memory_tenant_context();
     stored(harness, true);
 
-    await quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+    await quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      json_target(),
+      't',
+      KEY,
+    );
 
     expect(harness.destroyed()).toBe(1);
   });
@@ -154,7 +184,13 @@ describe('quarantine_unreadable_object (issue #631)', () => {
       throw new UnsupportedFormatVersionError('Unsupported content envelope version 2');
     };
 
-    const move = quarantine_unreadable_object(factory_for(harness.ctx), target, 't', KEY);
+    const move = quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      target,
+      't',
+      KEY,
+    );
 
     await expect(move).rejects.toBeInstanceOf(UnsupportedFormatVersionError);
     expect(harness.raw(KEY)).toEqual(bytes);
@@ -170,6 +206,7 @@ describe('quarantine_unreadable_object (issue #631)', () => {
 
     const move = quarantine_unreadable_object(
       { create } as unknown as TenantContextFactory,
+      stub_owner_leases().leases,
       json_target(),
       't',
       key,
@@ -186,7 +223,13 @@ describe('quarantine_unreadable_object (issue #631)', () => {
       harness.set_raw(destination, bytes.subarray(1));
     };
 
-    const move = quarantine_unreadable_object(factory_for(harness.ctx), json_target(), 't', KEY);
+    const move = quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      json_target(),
+      't',
+      KEY,
+    );
 
     await expect(move).rejects.toThrow(/does not match/);
     expect(harness.raw(KEY)).toEqual(bytes);
@@ -198,12 +241,28 @@ describe('quarantine_unreadable_object (issue #631)', () => {
     const after_move = vi.fn().mockResolvedValue(undefined);
     const target = { ...json_target(), after_move };
 
-    await quarantine_unreadable_object(factory_for(harness.ctx), target, 't', KEY);
+    await quarantine_unreadable_object(
+      factory_for(harness.ctx),
+      stub_owner_leases().leases,
+      target,
+      't',
+      KEY,
+    );
     await expect(
-      quarantine_unreadable_object(factory_for(harness.ctx), target, 't', KEY),
+      quarantine_unreadable_object(
+        factory_for(harness.ctx),
+        stub_owner_leases().leases,
+        target,
+        't',
+        KEY,
+      ),
     ).rejects.toThrow(/No OneDrive object exists/);
 
     expect(after_move).toHaveBeenCalledTimes(1);
-    expect(after_move).toHaveBeenCalledWith(harness.ctx, KEY);
+    expect(after_move).toHaveBeenCalledWith(
+      harness.ctx,
+      KEY,
+      expect.objectContaining({ assert_held: expect.any(Function) }),
+    );
   });
 });

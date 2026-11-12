@@ -1,3 +1,4 @@
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
@@ -12,14 +13,14 @@ import type {
   CalendarRestoreResult,
   CalendarRestoreUseCase,
   TenantContext,
-  OwnerLeases,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   CALENDAR_CONNECTOR_TOKEN,
   CALENDAR_MANIFEST_REPOSITORY_TOKEN,
   NotFoundError,
-  OWNER_LEASES_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 
@@ -37,7 +38,7 @@ export class CalendarRestoreService implements CalendarRestoreUseCase {
     @inject(CALENDAR_CONNECTOR_TOKEN) private readonly _connector: CalendarConnector,
     @inject(CALENDAR_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: CalendarManifestRepository,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Restores a snapshot into the source or a target mailbox without re-inviting attendees. */
@@ -64,7 +65,7 @@ export class CalendarRestoreService implements CalendarRestoreUseCase {
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const scope = { workload: 'calendar', owner_id: source_id, operation: 'restore' } as const;
-      return await this._leases.run_exclusive_when_writable(tenant_ctx, scope, (ctx) =>
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
         run_cancellable(
           options,
           () => this.run_restore(ctx, tenant_id, source_id, target_id, options),

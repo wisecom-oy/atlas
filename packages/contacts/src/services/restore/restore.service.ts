@@ -1,3 +1,4 @@
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import {
   begin_operation_progress,
@@ -12,14 +13,14 @@ import type {
   ContactsRestoreResult,
   ContactsRestoreUseCase,
   TenantContext,
-  OwnerLeases,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   CONTACTS_CONNECTOR_TOKEN,
   CONTACTS_MANIFEST_REPOSITORY_TOKEN,
   NotFoundError,
-  OWNER_LEASES_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 
@@ -38,7 +39,7 @@ export class ContactsRestoreService implements ContactsRestoreUseCase {
     @inject(CONTACTS_CONNECTOR_TOKEN) private readonly _connector: ContactsConnector,
     @inject(CONTACTS_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: ContactsManifestRepository,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Restores a snapshot into the source or a target mailbox without overwriting existing contacts. */
@@ -65,7 +66,7 @@ export class ContactsRestoreService implements ContactsRestoreUseCase {
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const scope = { workload: 'contacts', owner_id: source_id, operation: 'restore' } as const;
-      return await this._leases.run_exclusive_when_writable(tenant_ctx, scope, (ctx) =>
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
         run_cancellable(
           options,
           () => this.run_restore(ctx, tenant_id, source_id, target_id, options),

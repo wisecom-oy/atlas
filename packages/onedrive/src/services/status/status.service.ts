@@ -1,5 +1,6 @@
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { peek_drive_statuses, summarize_drive_statuses } from '@wisecom/atlas-drive';
+import { explain_outlived_cursor } from '@wisecom/atlas-drive/shared/cursor-snapshot-binding';
 import { inject, injectable } from 'inversify';
 import type {
   TenantContextFactory,
@@ -15,6 +16,7 @@ import {
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
 } from '@wisecom/atlas-types';
+import { ONEDRIVE_KEYS } from '@/services/shared/storage-keys';
 
 /** Binds the shared drive status peek to the OneDrive connector, cursor and manifest lookup. */
 @injectable()
@@ -37,7 +39,11 @@ export class OneDriveStatusService implements OneDriveStatusUseCase {
 
     const ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const saved_cursor = await this._cursors.load(ctx, owner_id);
+      const stored_cursor = await this._cursors.load(ctx, owner_id);
+      // The next backup does not resume a cursor that outlived its snapshot, so neither does the
+      // peek: every drive then reports as not backed up (issue #725).
+      const outlived = await explain_outlived_cursor(ctx, ONEDRIVE_KEYS, owner_id, stored_cursor);
+      const saved_cursor = outlived === undefined ? stored_cursor : undefined;
       const failed_items = saved_cursor?.failed_items ?? {};
       const all_drives = await this._connector.list_drives(tenant_id, owner_id);
       // A damaged manifest is named in the result instead of failing the owner (issue #631).

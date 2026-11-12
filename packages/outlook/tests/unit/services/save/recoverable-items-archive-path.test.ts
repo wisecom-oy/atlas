@@ -1,3 +1,4 @@
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -69,6 +70,7 @@ function make_service(manifest: Manifest): SaveService {
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue({
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
     list_by_owner: vi.fn().mockResolvedValue([manifest]),
+    ...outlook_stub_chain_reads(),
   } as unknown as ManifestRepository);
   container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue({
     list_mail_folders: vi.fn(async (_t: string, _o: string, options?: MailFolderListOptions) =>

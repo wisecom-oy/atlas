@@ -6,11 +6,11 @@
  * as a permission fault sent the operator to check a consent grant that was fine (issue #369).
  */
 
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { OneDriveDrive, TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 interface Harness {
   service: OneDriveBackupService;

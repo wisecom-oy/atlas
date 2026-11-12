@@ -6,6 +6,7 @@ import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory
 import { S3OneDriveManifestRepository } from '@/adapters/s3-onedrive-manifest-repository.adapter';
 import { S3OneDriveFileVersionIndexRepository } from '@/adapters/s3-onedrive-file-version-index-repository.adapter';
 import { OneDriveQuarantineService } from '@/services/quarantine/quarantine.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER = 'owner-1';
 const MANIFEST_KEY = `onedrive/manifests/${OWNER}/od-snap-1000-abc.json`;
@@ -29,7 +30,12 @@ async function rig() {
     { file_id: 'file-1', owner_id: OWNER, versions: [] },
   ]);
   const factory = { create: async () => harness.ctx } as unknown as TenantContextFactory;
-  const service = new OneDriveQuarantineService(factory, manifests, indexes);
+  const service = new OneDriveQuarantineService(
+    factory,
+    manifests,
+    indexes,
+    stub_owner_leases().leases,
+  );
   const damage = (key: string): void => harness.set_raw(key, Buffer.from('garbage'));
   return { harness, manifests, service, damage };
 }
@@ -69,6 +75,10 @@ describe('OneDriveQuarantineService (issue #631)', () => {
     await expect(service.quarantine_unreadable_object('tenant-1', INDEX_KEY)).rejects.toThrow(
       /reads cleanly/,
     );
-    expect(harness.keys()).toEqual([INDEX_KEY, MANIFEST_KEY]);
+    expect(harness.keys()).toEqual([
+      `onedrive/_meta/${OWNER}/snapshots.json`,
+      INDEX_KEY,
+      MANIFEST_KEY,
+    ]);
   });
 });

@@ -4,6 +4,7 @@
  * partial summary. The first failed tag now aborts the restore as a key error.
  */
 import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -73,6 +74,7 @@ function make_harness(damaged: readonly string[]) {
   const manifests = {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 
   return {

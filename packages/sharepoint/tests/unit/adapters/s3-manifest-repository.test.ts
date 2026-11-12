@@ -39,6 +39,11 @@ function make_ctx(objects: Record<string, unknown> = {}, get_error: Record<strin
         const value = objects[key];
         return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value), 'utf-8');
       }),
+      get_with_etag: vi.fn(async (key: string) => {
+        if (!(key in objects))
+          throw Object.assign(new Error(`NoSuchKey: ${key}`), { name: 'NoSuchKey' });
+        return { data: Buffer.from(JSON.stringify(objects[key]), 'utf-8'), etag: '"1"' };
+      }),
       put,
     },
     encrypt: (data: Buffer) => data,
@@ -56,7 +61,10 @@ describe('S3SharePointManifestRepository', () => {
 
     await repo.save(ctx, make_manifest('snap-1', '2026-03-01T00:00:00Z'));
 
-    expect(Object.keys(objects)).toEqual(['sharepoint/manifests/site-1/snap-1.json']);
+    expect(Object.keys(objects)).toEqual([
+      'sharepoint/manifests/site-1/snap-1.json',
+      'sharepoint/_meta/site-1/snapshots.json',
+    ]);
   });
 
   it('lower-cases the site segment so one site never writes two prefixes', async () => {
@@ -65,7 +73,10 @@ describe('S3SharePointManifestRepository', () => {
     await repo.save(ctx, make_manifest('snap-1', '2026-03-01T00:00:00Z', 'Site-1'));
 
     // Issue #38: S3 keys are case-sensitive, Graph site IDs are not.
-    expect(Object.keys(objects)).toEqual(['sharepoint/manifests/site-1/snap-1.json']);
+    expect(Object.keys(objects)).toEqual([
+      'sharepoint/manifests/site-1/snap-1.json',
+      'sharepoint/_meta/site-1/snapshots.json',
+    ]);
   });
 
   it('rejects a snapshot id that would escape the site prefix', async () => {

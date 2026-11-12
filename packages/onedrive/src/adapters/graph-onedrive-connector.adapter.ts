@@ -30,7 +30,11 @@ import {
   graph_onedrive_upload_small_file,
 } from '@/adapters/graph-onedrive-restore.adapter';
 import { ONEDRIVE_DOWNLOAD_EXECUTOR } from '@/adapters/graph-onedrive-download-executor';
-import { DRIVE_DELTA_SELECT_FIELDS, map_delta_item } from '@/adapters/graph-onedrive-delta-mapper';
+import {
+  DRIVE_DELTA_SELECT_FIELDS,
+  has_item_id,
+  map_delta_item,
+} from '@/adapters/graph-onedrive-delta-mapper';
 import { graph_onedrive_fetch_item_by_id } from '@/adapters/graph-onedrive-item-fetch';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 
@@ -289,10 +293,11 @@ export class GraphOneDriveConnector implements OneDriveConnector {
     );
     let page = initial_page;
 
+    let items_without_id = 0;
     while (true) {
       for (const raw of page.value ?? []) {
-        if (!raw.id) continue;
-        items.push(map_delta_item(raw, drive_id));
+        if (has_item_id(raw)) items.push(map_delta_item(raw, drive_id));
+        else items_without_id++;
       }
 
       const next = page['@odata.nextLink'];
@@ -302,6 +307,11 @@ export class GraphOneDriveConnector implements OneDriveConnector {
       }
       page = await with_graph_retry(
         () => this._client.api(next).get() as Promise<GraphCollectionResponse<GraphDeltaDriveItem>>,
+      );
+    }
+    if (items_without_id > 0) {
+      logger.warn(
+        `Skipped ${items_without_id} item(s) in drive ${drive_id} that Graph returned without an id`,
       );
     }
 

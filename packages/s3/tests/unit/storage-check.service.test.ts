@@ -4,6 +4,12 @@ import { Container } from 'inversify';
 import 'reflect-metadata';
 import { StorageCheckService } from '@/services/storage-check.service';
 import { S3_CLIENT_TOKEN } from '@/adapters/s3-client.factory';
+import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
+
+// The probe writes objects and has its own tests; here it would only shift the request counts.
+vi.mock('@/adapters/s3-conditional-write-probe', () => ({
+  probe_conditional_writes: vi.fn(async () => ({ support: 'supported' })),
+}));
 
 function make_mock_s3(): { send: ReturnType<typeof vi.fn> } {
   return { send: vi.fn() };
@@ -44,8 +50,6 @@ describe('StorageCheckService', () => {
     expect(result.requested_retention_days).toBe(30);
     expect(result.resolved_retain_until).toBeDefined();
     expect(result.default_retention).toBeUndefined();
-    // The mock accepts the second create-only write, as a backend that ignores If-None-Match does.
-    expect(result.conditional_writes_supported).toBe(false);
   });
 
   it('reports a bucket default retention on a lock-capable bucket', async () => {
@@ -75,8 +79,19 @@ describe('StorageCheckService', () => {
     const result = await service.check_storage('tenant-1');
 
     expect(result.default_retention).toBeUndefined();
-    const commands = mock_s3.send.mock.calls.map(([command]) => command.constructor.name);
-    // One lock-configuration read, the immutability probe's; no second one for a default retention.
-    expect(commands.filter((name) => name === 'GetObjectLockConfigurationCommand')).toHaveLength(1);
+    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports what the conditional-write probe found on the tenant bucket (issue #623)', async () => {
+    mock_s3.send
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Status: 'Enabled' })
+      .mockRejectedValueOnce(new Error('ObjectLockConfigurationNotFoundError'));
+    const ignored = { support: 'ignored', detail: 'the backend accepted a write' } as const;
+    vi.mocked(probe_conditional_writes).mockResolvedValueOnce(ignored);
+
+    const result = await service.check_storage('tenant-1');
+
+    expect(result.conditional_writes).toEqual(ignored);
   });
 });

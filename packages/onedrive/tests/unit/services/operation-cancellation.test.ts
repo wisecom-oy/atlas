@@ -1,4 +1,4 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -16,6 +16,7 @@ import { OneDriveRestoreService } from '@/services/restore/restore.service';
 import { OneDriveSaveService } from '@/services/save/save.service';
 import { OneDriveVerificationService } from '@/services/verification/verification.service';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const CONTENT = Buffer.from('file-content');
 const CHECKSUM = createHash('sha256').update(CONTENT).digest('hex');
@@ -65,6 +66,7 @@ function make_manifest_repository(manifest: OneDriveSnapshotManifest): OneDriveM
   return {
     find_by_snapshot: vi.fn().mockResolvedValue(manifest),
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
+    ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
 }
 

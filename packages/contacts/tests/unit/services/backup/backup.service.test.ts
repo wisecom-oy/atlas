@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -15,6 +14,7 @@ import {
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 
 import { ContactsBackupService } from '@/services/backup/backup.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
 

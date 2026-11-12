@@ -15,6 +15,7 @@ import type {
   SharePointFileVersionRecord,
   SharePointSnapshotManifest,
 } from '@/domain/sharepoint/manifest';
+import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { ReplicationResult } from '@/domain/replication/replication';
 import type { StorageTarget } from '@/ports/replication/storage-target.port';
 import type { FileSaveOptions, FileSaveResult } from '@/ports/save/file-save.port';
@@ -60,6 +61,7 @@ export type SharePointSdkRestoreResult = Camelize<SharePointRestoreResult>;
 export type SharePointSdkVersionRestoreResult = Camelize<DriveVersionRestoreResult>;
 export type SharePointSdkSaveResult = Camelize<FileSaveResult>;
 export type SharePointSdkSnapshotManifest = Camelize<SharePointSnapshotManifest>;
+export type SharePointSdkSnapshotSummary = Camelize<SharePointSnapshotSummary>;
 export type SharePointSdkFileVersion = Camelize<SharePointFileVersionRecord>;
 export type SharePointSdkDeletionResult = Camelize<DeletionResult>;
 export type SharePointSdkReplicationResult = Camelize<ReplicationResult>;
@@ -94,6 +96,8 @@ export interface SharePointApi {
   ): Promise<SharePointSdkVersionRestoreResult>;
   save(siteId: string, options: SharePointSdkSaveOptions): Promise<SharePointSdkSaveResult>;
   listSnapshots(siteId: string): Promise<SharePointSdkSnapshotManifest[]>;
+  /** Snapshots from the site's summary index, newest first, without decrypting each manifest. */
+  listSnapshotSummaries(siteId: string): Promise<SharePointSdkSnapshotSummary[]>;
   listFileVersions(siteId: string, fileRef: string): Promise<SharePointSdkFileVersion[]>;
   listSites(): Promise<SharePointSdkSite[]>;
   resolveSite(urlOrId: string): Promise<SharePointSdkSite>;

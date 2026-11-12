@@ -28,6 +28,7 @@ export type {
   OutlookSaveResult,
   OutlookMailboxSummary,
   OutlookSnapshotManifest,
+  OutlookSdkSnapshotSummary,
   OutlookReadMessageResult,
   OutlookDeletionResult,
   OutlookMailboxStats,

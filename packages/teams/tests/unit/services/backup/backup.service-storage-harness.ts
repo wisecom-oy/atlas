@@ -1,7 +1,5 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { vi } from 'vitest';
 import type {
-  OwnerLeases,
   TeamsChannelCursor,
   TeamsChannelShard,
   TeamsConnector,
@@ -19,6 +17,7 @@ import { S3TeamsChannelShardRepository } from '@/adapters/s3-teams-channel-shard
 import { S3TeamsIndexRepository } from '@/adapters/s3-teams-index-repository.adapter';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { make_connector } from './channel-backup-processor-harness';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export const TENANT = 'tenant-test';
 export const TEAM = '00000000-0000-0000-0000-000000000042';
@@ -35,11 +34,7 @@ export interface Env {
 }
 
 /** A service over real index, shard and cursor adapters and in-memory storage. */
-export function build_env(
-  channel: TeamsGraphResource,
-  overrides: Partial<TeamsConnector>,
-  leases: OwnerLeases = stub_owner_leases().leases,
-): Env {
+export function build_env(channel: TeamsGraphResource, overrides: Partial<TeamsConnector>): Env {
   const harness = in_memory_tenant_context(TENANT);
   const factory = { create: vi.fn(async () => harness.ctx) } as unknown as TenantContextFactory;
   const connector = make_connector({
@@ -58,7 +53,7 @@ export function build_env(
     shards,
     cursors,
     new InMemoryTeamsChannelCheckpointRepository(),
-    leases,
+    stub_owner_leases().leases,
   );
   return { harness, service, connector, indexes, shards, cursors };
 }

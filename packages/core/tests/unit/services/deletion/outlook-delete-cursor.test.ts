@@ -3,14 +3,13 @@
  * backup resumed past changes no remaining snapshot holds. And deleting an older snapshot dropped
  * the messages it recorded from every newer snapshot, because a newer snapshot folds the chain.
  */
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
-import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import 'reflect-metadata';
 import { Container } from 'inversify';
 import {
   MANIFEST_REPOSITORY_TOKEN,
   SnapshotNotNewestError,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   UnreadableObjectsError,
   type Manifest,
@@ -19,6 +18,7 @@ import {
   type TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { DeletionService } from '@/services/deletion/deletion.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER = 'john.doe@example.com';
 const CURSOR_KEY = `_meta/outlook-cursors/${OWNER}.json`;
@@ -65,6 +65,7 @@ describe('Outlook deletion and the delta cursor', () => {
       `_meta/outlook-manifests/snapshots/snap-1.json`,
       `_meta/outlook-manifests/snapshots/snap-2.json`,
       `_meta/outlook-manifests/owners/${OWNER}/latest.json`,
+      `_meta/outlook-manifests/owners/${OWNER}/summary.json`,
       CURSOR_KEY,
       `_meta/replication/${OWNER}/snap-2/replica-a.json`,
       // A OneDrive snapshot of the same user shares the replication tree.
@@ -77,6 +78,7 @@ describe('Outlook deletion and the delta cursor', () => {
         [S1, S2].find((m) => m.snapshot_id === id),
       ),
       list_by_owner: vi.fn(async () => [S1, S2]),
+      forget_snapshot_summary: vi.fn(async () => undefined),
     } as unknown as ManifestRepository;
     const factory = {
       create: vi.fn(),
@@ -86,7 +88,7 @@ describe('Outlook deletion and the delta cursor', () => {
     const container = new Container();
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(manifests);
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
-    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(DeletionService).toSelf();
     service = container.get(DeletionService);
   });
@@ -108,6 +110,12 @@ describe('Outlook deletion and the delta cursor', () => {
     expect(bucket.keys.has(`manifests/${OWNER}/snap-2.json`)).toBe(false);
     expect(bucket.keys.has(CURSOR_KEY)).toBe(false);
     expect(bucket.keys.has(`manifests/${OWNER}/snap-1.json`)).toBe(true);
+    expect(manifests.forget_snapshot_summary).toHaveBeenCalledWith(
+      bucket.ctx,
+      OWNER,
+      'snap-2',
+      expect.objectContaining({ assert_held: expect.any(Function) }),
+    );
   });
 
   it('refuses delete -s of an older snapshot and deletes nothing', async () => {

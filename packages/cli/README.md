@@ -71,14 +71,14 @@ atlas teams backup --team <team-id>
 | `atlas teams backup`      | Back up Teams channel messages to object storage                                 |
 | `atlas stats`             | Storage statistics                                                               |
 | `atlas stats storage`     | Physical bytes in the bucket or a replica: versions, staging, incomplete uploads |
-| `atlas storage-check`     | Validate S3 Object Lock readiness                                                |
+| `atlas storage-check`     | Validate S3 Object Lock and conditional-write readiness                          |
 | `atlas replicate`         | Replicate snapshots to a secondary target                                        |
 
 Run `atlas --help` or `atlas <command> --help` for full flag reference.
 
 ## Exit codes
 
-Atlas uses `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource, `8` for retention and `9` for stored content that cannot be read back, including a damaged snapshot manifest, Teams snapshot index, or version index that a command skipped and named. `atlas <workload> quarantine --key <key>` moves such an object aside. `11` means `delete` refused a snapshot that newer snapshots depend on. `12` means another Atlas run holds the same mailbox, drive owner, site or team, so the command wrote nothing; retry after that run finishes or its lease expires, at most 10 minutes after a crash.
+Atlas uses `0` for success, `1` for unclassified or command-reported failure, and `2` for partial results. Fatal failures use `3` for retryable network/throttle errors, `4` for auth/licensing, `5` for a wrong passphrase, `6` for configuration, `7` for a missing resource, `8` for retention and `9` for stored content that cannot be read back, including a damaged snapshot manifest, Teams snapshot index, or version index that a command skipped and named. `atlas <workload> quarantine --key <key>` moves such an object aside. `12` means another Atlas operation holds the same mailbox, drive owner, site, or team: nothing was written, so retry later.
 
 Treat every nonzero code as a failure or incomplete run. Fatal diagnostics go to stderr and include both the Atlas category and the underlying provider details. See the [exit-code reference](https://wisecom-oy.github.io/atlas/reference/cli#exit-codes) before updating scheduled jobs, and the [v7 migration guide](https://wisecom-oy.github.io/atlas/migration/v7) before upgrading.
 

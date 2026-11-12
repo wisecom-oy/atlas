@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ContactsSnapshotManifest } from '@wisecom/atlas-types';
-import { StorageError, UnreadableObjectsError } from '@wisecom/atlas-types';
+import {
+  RefusedWriteError,
+  StorageError,
+  StoredObjectConflictError,
+  UnreadableObjectsError,
+} from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import { S3ContactsManifestRepository } from '@/adapters/s3-contacts-manifest-repository.adapter';
 import { contacts_manifest_key } from '@/services/shared/storage-keys';
@@ -49,6 +54,49 @@ function plant(harness: ReturnType<typeof in_memory_tenant_context>, body: strin
   harness.set_raw(key, harness.ctx.encrypt(Buffer.from(body), key));
   return key;
 }
+
+describe('S3ContactsManifestRepository.save', () => {
+  it('stores a manifest its reader accepts, create-only, and reads it back once', async () => {
+    const harness = in_memory_tenant_context();
+    const put = vi.spyOn(harness.ctx.storage, 'put');
+    const get = vi.spyOn(harness.ctx.storage, 'get');
+    const key = contacts_manifest_key(MAILBOX, 'ct-snap-1000-abc');
+
+    await new S3ContactsManifestRepository().save(harness.ctx, manifest(1000));
+
+    expect(put).toHaveBeenCalledWith(key, harness.raw(key), undefined, undefined, undefined, true);
+    expect(get.mock.calls).toEqual([[key]]);
+  });
+
+  it.each([
+    ['an entry without its contact id', { entries: [{ storage_key: 'k', checksum: 'x' }] }],
+    ['an entry without its storage key', { entries: [{ contact_id: 'c', checksum: 'x' }] }],
+    ['created_at not a date', { created_at: 'not-a-date' }],
+  ])('refuses a manifest with %s and writes nothing', async (_label, overrides) => {
+    const harness = in_memory_tenant_context();
+    const malformed = { ...manifest(1000), ...overrides } as ContactsSnapshotManifest;
+
+    const save = new S3ContactsManifestRepository().save(harness.ctx, malformed);
+
+    await expect(save).rejects.toBeInstanceOf(RefusedWriteError);
+    await expect(save).rejects.toThrow(contacts_manifest_key(MAILBOX, 'ct-snap-1000-abc'));
+    await expect(save).rejects.not.toBeInstanceOf(UnreadableObjectsError);
+    expect(harness.keys()).toEqual([]);
+  });
+
+  it('never replaces a manifest already stored under the snapshot id', async () => {
+    const harness = in_memory_tenant_context();
+    const repo = new S3ContactsManifestRepository();
+    await repo.save(harness.ctx, manifest(1000));
+    const key = contacts_manifest_key(MAILBOX, 'ct-snap-1000-abc');
+    const first = Buffer.from(harness.raw(key)!);
+
+    const colliding = repo.save(harness.ctx, manifest(1000, { entries: [] }));
+
+    await expect(colliding).rejects.toBeInstanceOf(StoredObjectConflictError);
+    expect(harness.raw(key)!.equals(first)).toBe(true);
+  });
+});
 
 describe('S3ContactsManifestRepository with a damaged manifest (issue #631)', () => {
   it('lists the readable manifests and names the damaged key', async () => {

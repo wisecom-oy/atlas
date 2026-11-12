@@ -1,8 +1,4 @@
-import type {
-  LatestReadableManifest,
-  ReadableManifestListing,
-  TenantContext,
-} from '@wisecom/atlas-types';
+import type { ReadableManifestListing, TenantContext } from '@wisecom/atlas-types';
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   read_each_readable,
@@ -13,6 +9,7 @@ import {
   is_json_record,
   read_encrypted_json,
 } from '@wisecom/atlas-core/services/shared/stored-json-reader';
+import { write_encrypted_json } from '@wisecom/atlas-core/services/shared/stored-json-writer';
 import type { DriveStorageKeys } from '@/shared/storage-keys';
 
 /** What the store needs from either provider's manifest. */
@@ -34,15 +31,29 @@ export interface DriveManifestLayout {
 
 const MANIFEST_READ_CONCURRENCY = 8;
 
-/** Encrypts and uploads a manifest under the key its owner and snapshot name. */
+/**
+ * Encrypts and uploads a manifest under the key its owner and snapshot name. The write is
+ * create-only, refused when {@link require_drive_manifest} would reject the body, and read back
+ * once it lands. The provider's repository records it in the owner's summary index afterwards,
+ * only once this has resolved (#625).
+ */
 export async function save_drive_manifest(
   ctx: TenantContext,
   layout: DriveManifestLayout,
   owner_id: string,
   manifest: DriveStoredManifest,
 ): Promise<void> {
-  const key = layout.keys.manifest_key(owner_id, manifest.snapshot_id);
-  await ctx.storage.put(key, ctx.encrypt(Buffer.from(JSON.stringify(manifest)), key));
+  await write_encrypted_json(
+    ctx,
+    {
+      key: layout.keys.manifest_key(owner_id, manifest.snapshot_id),
+      label: `${layout.label} manifest`,
+      reader_check: (parsed, key) => require_drive_manifest(layout, parsed, key),
+      write: 'create_only',
+      confirm_read_back: true,
+    },
+    manifest,
+  );
 }
 
 /**
@@ -60,9 +71,21 @@ export async function read_drive_manifest<T extends DriveStoredManifest>(
   layout: DriveManifestLayout,
   key: string,
 ): Promise<T | undefined> {
-  const label = `${layout.label} manifest`;
-  const parsed = await read_encrypted_json(ctx, key, label);
+  const parsed = await read_encrypted_json(ctx, key, `${layout.label} manifest`);
   if (parsed === undefined) return undefined;
+  return require_drive_manifest<T>(layout, parsed, key);
+}
+
+/**
+ * The shape, identity and date checks of a parsed manifest body, shared by reader and writer.
+ * Returns the manifest with `created_at` revived as a Date.
+ */
+export function require_drive_manifest<T extends DriveStoredManifest>(
+  layout: DriveManifestLayout,
+  parsed: unknown,
+  key: string,
+): T {
+  const label = `${layout.label} manifest`;
   if (!is_json_record(parsed) || !Array.isArray(parsed.entries)) {
     throw new UnreadableObjectsError(`The ${label} is not a manifest`, [key]);
   }
@@ -122,16 +145,6 @@ export async function read_owner_drive_manifests<T extends DriveStoredManifest>(
 /** Presents a read as the port's listing: the readable manifests and the damaged keys. */
 export function as_manifest_listing<T>(read: ReadableObjects<T>): ReadableManifestListing<T> {
   return { manifests: read.items, unreadable_keys: read.unreadable_keys };
-}
-
-/** Returns the newest readable manifest of an owning segment, naming every damaged one. */
-export async function find_latest_readable_drive_manifest<T extends DriveStoredManifest>(
-  ctx: TenantContext,
-  layout: DriveManifestLayout,
-  owner_id: string,
-): Promise<LatestReadableManifest<T>> {
-  const read = await read_owner_drive_manifests<T>(ctx, layout, owner_id);
-  return { manifest: read.items.at(0), unreadable_keys: read.unreadable_keys };
 }
 
 /** Returns every manifest of a read, raising for a damaged one as `require_every_object_readable`. */

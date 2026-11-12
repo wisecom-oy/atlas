@@ -11,6 +11,7 @@ export type {
   OneDriveSdkSaveOptions,
   OneDriveSdkSaveResult,
   OneDriveSdkSnapshotManifest,
+  OneDriveSdkSnapshotSummary,
   OneDriveSdkFileVersion,
   OneDriveSdkDeletionResult,
   OneDriveSdkReplicationResult,

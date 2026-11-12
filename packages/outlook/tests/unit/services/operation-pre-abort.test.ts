@@ -1,9 +1,9 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
 import { RestoreService } from '@/services/restore/restore.service';
 import { SaveService } from '@/services/save/save.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 describe('Outlook operation cancellation', () => {
   it('does no remote work when every operation starts interrupted', async () => {

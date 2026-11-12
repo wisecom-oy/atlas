@@ -23,8 +23,12 @@ const ATLAS_EXIT_CODES = {
   // Newer snapshots depend on the one asked for. Rerunning is refused the same way until they are
   // deleted first, so it is an operator decision, not a retry (issue #704).
   ATLAS_SNAPSHOT_NOT_NEWEST: 11,
-  // Another run holds this owner or the tenant. Nothing was written; a later rerun succeeds once the
-  // holder finishes or its lease expires, so a scheduler retries this one later (issue #623).
+  // Atlas refused to store a metadata object it built wrongly. Nothing was written, so the run
+  // failed like any other and a rerun starts from the previous cursor: the general failure code.
+  ATLAS_WRITE_REFUSED: 1,
+  // Another operation holds the mailbox, drive owner, site or team. Nothing was committed, and a
+  // rerun succeeds once that operation ends or its lease expires, so a scheduler can tell "try
+  // again later" from a failure (issue #623).
   ATLAS_OWNER_BUSY: 12,
 } satisfies Record<AtlasErrorCode, number>;
 

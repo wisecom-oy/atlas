@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { scope_connector_throttling, with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { InProcessThrottleCoordinator } from '@wisecom/atlas-core/services/shared/in-process-throttle-coordinator';
@@ -13,9 +12,10 @@ import type {
 } from '@wisecom/atlas-types';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { TEAM_ID } from './backup-service-harness';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
-  apply_run_object_lock_policy: vi.fn(async (ctx: unknown) => ctx),
+  attach_run_retention: vi.fn(async (ctx: unknown) => ctx),
 }));
 
 /** A Graph 429 as the SDK delivers it: a fetch `Headers` object carrying Retry-After. */

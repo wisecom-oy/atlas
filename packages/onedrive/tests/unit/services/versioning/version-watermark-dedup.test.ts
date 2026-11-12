@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type {
   OneDriveDeltaCursor,
@@ -9,7 +8,9 @@ import type {
 import { stub_drive_version_download } from '@wisecom/atlas-types/testing/stub-drive-version-download';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
-import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // Issue #161: version dedup used to preload the whole version index on every
 // run, which is one GET per backup ever taken for the owner. It now rides on
@@ -52,7 +53,7 @@ function make_harness(
   const context = {
     tenant_id: 't',
     storage: {
-      list: vi.fn().mockResolvedValue([]),
+      list: vi.fn(list_one_drive_snapshot()),
       list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
       exists: vi.fn().mockResolvedValue(false),
@@ -95,6 +96,8 @@ function make_harness(
     connector as never,
     {
       save: vi.fn().mockResolvedValue(undefined),
+      // A run that writes no snapshot binds a cursor that names none to the newest one (#725).
+      find_latest_readable: async () => latest_readable({ snapshot_id: 'snap-0' }),
       list_readable_snapshots_by_owner: async () => readable_manifests([]),
     } as never,
     file_indexes as never,

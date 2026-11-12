@@ -1,8 +1,11 @@
 import type { SharePointSnapshotManifest } from '../../domain/sharepoint/manifest';
+import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { TenantContext } from '../tenant/context.port';
+import type { HeldOwnerLease } from '@/ports/lease/owner-lease.port';
 import type {
   LatestReadableManifest,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
 } from '@/ports/storage/readable-listing.port';
 
 /**
@@ -11,8 +14,26 @@ import type {
  * instead (issue #631).
  */
 export interface SharePointManifestRepository {
-  /** Persists a snapshot manifest. */
-  save(ctx: TenantContext, manifest: SharePointSnapshotManifest): Promise<void>;
+  /**
+   * Persists a snapshot manifest, then records it in the site's summary index. A backup passes
+   * its lease, which is checked again right before the summary write.
+   */
+  save(
+    ctx: TenantContext,
+    manifest: SharePointSnapshotManifest,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
+
+  /**
+   * Drops a removed snapshot's row from the summary index; logs instead of failing. `lease` is
+   * checked right before the write, and a lost one is raised.
+   */
+  forget_snapshot_summary(
+    ctx: TenantContext,
+    site_id: string,
+    snapshot_id: string,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
 
   /**
    * Finds a manifest for a site by snapshot ID.
@@ -46,6 +67,17 @@ export interface SharePointManifestRepository {
     ctx: TenantContext,
     site_id: string,
   ): Promise<ReadableManifestListing<SharePointSnapshotManifest>>;
+
+  /** Lists a site's snapshots from its summary index, newest first, decrypting only rowless manifests. */
+  list_snapshot_summaries(
+    ctx: TenantContext,
+    site_id: string,
+  ): Promise<ReadableSnapshotSummaries<SharePointSnapshotSummary>>;
+
+  /** Lists every site's snapshots from their summary indexes, decrypting only rowless manifests. */
+  list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<SharePointSnapshotSummary>>;
 
   /**
    * Lists snapshot manifests for every site in the tenant.

@@ -1,6 +1,7 @@
 // Deliberately not shared with the SharePoint copy (#306): 194 differing lines of 496. The
 // restore target differs in kind, an owner's drive against a resolved site and library, and
 // so does the conflict handling around the restore root.
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import {
@@ -19,14 +20,14 @@ import type {
   OneDriveRestoreResult,
   OneDriveRestoreUseCase,
   TenantContext,
-  OwnerLeases,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   NotFoundError,
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
-  OWNER_LEASES_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -55,7 +56,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     @inject(ONEDRIVE_CONNECTOR_TOKEN) private readonly _connector: OneDriveConnector,
     @inject(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: OneDriveManifestRepository,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Restores files from a snapshot to the target user's OneDrive. */
@@ -89,7 +90,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const scope = { workload: 'onedrive', owner_id: owner_id, operation: 'restore' } as const;
-      return await this._leases.run_exclusive_when_writable(tenant_ctx, scope, (ctx) =>
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
         this.restore_leased_entries(ctx, tenant_id, owner_id, options),
       );
     } finally {

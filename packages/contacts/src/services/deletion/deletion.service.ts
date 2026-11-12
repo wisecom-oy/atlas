@@ -1,23 +1,23 @@
 import {
+  erase_leased_owner_scopes,
+  run_owner_erasure,
+  type LeasedDeletionPorts,
+} from '@wisecom/atlas-core/services/deletion/shared/leased-owner-deletion';
+import {
   delete_scopes,
   delete_snapshot_manifest,
   has_survivors,
   merge_deletion_results,
 } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
-import {
-  delete_under_owner_lease,
-  type LeasedDeletionDeps,
-} from '@wisecom/atlas-core/services/deletion/shared/leased-deletion';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   ContactsDeletionUseCase,
   DeletionResult,
-  ObjectStorage,
-  OwnerLeases,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { OWNER_LEASES_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import { OWNER_LEASE_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 
 import {
   contacts_delta_cursor_key,
@@ -26,25 +26,27 @@ import {
 } from '@/services/shared/storage-keys';
 
 /**
- * Deletes a mailbox's contacts data or single snapshots, using a storage-only tenant context, while
- * holding the mailbox's contacts lease.
+ * Deletes a mailbox's contacts data or single snapshots, using a storage-only tenant context. Each
+ * deletion holds the mailbox's contacts lease, so it is refused with `OwnerBusyError` while a backup
+ * of the mailbox runs (issue #623).
  */
 @injectable()
 export class ContactsDeletionService implements ContactsDeletionUseCase {
-  private readonly _deps: LeasedDeletionDeps;
-
   constructor(
-    @inject(TENANT_CONTEXT_FACTORY_TOKEN) tenant_factory: TenantContextFactory,
-    @inject(OWNER_LEASES_TOKEN) leases: OwnerLeases,
-  ) {
-    this._deps = { tenant_factory, leases };
+    @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
+  ) {}
+
+  private get _ports(): LeasedDeletionPorts {
+    return { tenant_factory: this._tenant_factory, leases: this._leases };
   }
 
   /** Deletes all backed-up contacts data for a mailbox. */
   async delete_mailbox_data(tenant_id: string, mailbox_id: string): Promise<DeletionResult> {
     const mailbox = normalize_owner_id(mailbox_id);
-    return delete_under_owner_lease(this._deps, tenant_id, 'contacts', mailbox, (storage) =>
-      delete_scopes(storage, contacts_mailbox_prefixes(mailbox)),
+    const owner = { workload: 'contacts', owner_id: mailbox } as const;
+    return run_owner_erasure(this._ports, tenant_id, owner, (storage, lease) =>
+      erase_leased_owner_scopes(storage, lease, contacts_mailbox_prefixes(mailbox)),
     );
   }
 
@@ -60,25 +62,18 @@ export class ContactsDeletionService implements ContactsDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     const mailbox = normalize_owner_id(mailbox_id);
-    return delete_under_owner_lease(this._deps, tenant_id, 'contacts', mailbox, (storage) =>
-      delete_snapshot_and_cursor(storage, mailbox, snapshot_id),
-    );
+    const owner = { workload: 'contacts', owner_id: mailbox } as const;
+    return run_owner_erasure(this._ports, tenant_id, owner, async (storage, lease) => {
+      lease.assert_held();
+      const manifest_result = await delete_snapshot_manifest(
+        storage,
+        contacts_manifest_key(mailbox, snapshot_id),
+        'Contacts',
+        snapshot_id,
+      );
+      if (has_survivors(manifest_result)) return manifest_result;
+      const cursor_result = await delete_scopes(storage, [contacts_delta_cursor_key(mailbox)]);
+      return merge_deletion_results(manifest_result, cursor_result);
+    });
   }
-}
-
-/** Deletes the snapshot manifest, then the cursor once the manifest is gone. */
-async function delete_snapshot_and_cursor(
-  storage: ObjectStorage,
-  mailbox: string,
-  snapshot_id: string,
-): Promise<DeletionResult> {
-  const manifest_result = await delete_snapshot_manifest(
-    storage,
-    contacts_manifest_key(mailbox, snapshot_id),
-    'Contacts',
-    snapshot_id,
-  );
-  if (has_survivors(manifest_result)) return manifest_result;
-  const cursor_result = await delete_scopes(storage, [contacts_delta_cursor_key(mailbox)]);
-  return merge_deletion_results(manifest_result, cursor_result);
 }

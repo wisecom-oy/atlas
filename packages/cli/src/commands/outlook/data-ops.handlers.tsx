@@ -36,6 +36,7 @@ export interface OutlookSaveOptions {
   output?: string;
   skipVerify?: boolean;
   includeRecoverableItems?: boolean;
+  yes?: boolean;
 }
 
 export interface OutlookDeleteOptions {
@@ -66,7 +67,7 @@ export async function execute_outlook_save(
 
   const save_options = build_save_options(options);
 
-  if (save_options.output_path && existsSync(save_options.output_path)) {
+  if (save_options.output_path && existsSync(save_options.output_path) && !options.yes) {
     const proceed = await ask_confirmation(
       `File "${save_options.output_path}" already exists. Overwrite?`,
       true,

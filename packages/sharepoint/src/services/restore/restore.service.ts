@@ -1,6 +1,7 @@
 // Deliberately not shared with the OneDrive copy (#306): 194 differing lines of 496. The
 // restore target differs in kind, a resolved site and library against an owner's drive, and
 // so does the conflict handling around the restore root.
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import {
@@ -20,13 +21,13 @@ import type {
   SharePointRestoreResult,
   SharePointRestoreUseCase,
   TenantContext,
-  OwnerLeases,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
-  OWNER_LEASES_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -67,7 +68,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     @inject(SHAREPOINT_CONNECTOR_TOKEN) private readonly _connector: SharePointSiteConnector,
     @inject(SHAREPOINT_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: SharePointManifestRepository,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Restores files from a snapshot back to the site's document libraries. */
@@ -101,7 +102,7 @@ export class SharePointRestoreService implements SharePointRestoreUseCase {
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const scope = { workload: 'sharepoint', owner_id: site_id, operation: 'restore' } as const;
-      return await this._leases.run_exclusive_when_writable(tenant_ctx, scope, (ctx) =>
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
         this.restore_leased_entries(ctx, tenant_id, site_id, options),
       );
     } finally {

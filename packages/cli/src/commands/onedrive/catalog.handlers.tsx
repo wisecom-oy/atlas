@@ -65,7 +65,7 @@ export async function execute_onedrive_list_snapshots(
   const owner = await resolve_owner(container, tenant_id, options.owner);
   const catalog = container.get<OneDriveCatalogUseCase>(ONEDRIVE_CATALOG_USE_CASE_TOKEN);
   const listing = await read_listing(() =>
-    catalog.list_onedrive_snapshots(tenant_id, owner.object_id),
+    catalog.list_onedrive_snapshot_summaries(tenant_id, owner.object_id),
   );
   const snapshots = listing.result;
   report_unreadable_keys(listing.unreadable_keys);

@@ -1,12 +1,13 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
 import type { ObjectStorage } from '@wisecom/atlas-types';
+import { OwnerBusyError } from '@wisecom/atlas-types';
 import { tenant_factory_for } from '@wisecom/atlas-types/testing/stub-contacts-ports';
 import { stub_tenant_context } from '@wisecom/atlas-types/testing/stub-tenant-context';
 
 import { CalendarDeletionService } from '@/services/deletion/deletion.service';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const MAILBOX = '00000000-0000-0000-0000-00000000abcd';
 const OTHER_MAILBOX = '00000000-0000-0000-0000-00000000beef';
@@ -45,16 +46,47 @@ function seeded_objects(): Record<string, Buffer> {
   };
 }
 
-function build_service(objects: Record<string, Buffer>): CalendarDeletionService {
+function build_service(
+  objects: Record<string, Buffer>,
+  leases = stub_owner_leases(),
+): CalendarDeletionService {
   const { ctx } = stub_tenant_context(objects);
   const storage_only = { tenant_id: 'tenant-1', storage: deletion_storage(objects) };
-  return new CalendarDeletionService(
-    tenant_factory_for(ctx, storage_only),
-    stub_owner_leases().leases,
-  );
+  return new CalendarDeletionService(tenant_factory_for(ctx, storage_only), leases.leases);
 }
 
 describe('CalendarDeletionService', () => {
+  it('holds the mailbox lease for a deletion and gives it back (issue #623)', async () => {
+    const leases = stub_owner_leases();
+    const service = build_service(seeded_objects(), leases);
+
+    await service.delete_mailbox_data('tenant-1', MAILBOX.toUpperCase());
+    await service.delete_snapshot('tenant-1', OTHER_MAILBOX, 'missing').catch(() => undefined);
+
+    expect(leases.requests).toEqual([
+      { workload: 'calendar', owner_id: MAILBOX, operation: 'delete' },
+      { workload: 'calendar', owner_id: OTHER_MAILBOX, operation: 'delete' },
+    ]);
+    expect(leases.held()).toBe(0);
+  });
+
+  it('refuses both deletions while a backup holds the mailbox, and deletes nothing', async () => {
+    const objects = seeded_objects();
+    const before = Object.keys(objects);
+    const leases = stub_owner_leases();
+    leases.refuse_with(new OwnerBusyError({ workload: 'calendar', owner_id: MAILBOX }));
+    const service = build_service(objects, leases);
+
+    await expect(service.delete_mailbox_data('tenant-1', MAILBOX)).rejects.toBeInstanceOf(
+      OwnerBusyError,
+    );
+    await expect(service.delete_snapshot('tenant-1', MAILBOX, SNAPSHOT)).rejects.toBeInstanceOf(
+      OwnerBusyError,
+    );
+
+    expect(Object.keys(objects)).toEqual(before);
+  });
+
   it('deletes every calendar prefix of one mailbox and leaves other mailboxes alone', async () => {
     const objects = seeded_objects();
 

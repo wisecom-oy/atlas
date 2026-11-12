@@ -4,7 +4,6 @@
  * say whether this run saved a cursor, on every path.
  */
 
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   OneDriveBackupOptions,
@@ -16,6 +15,7 @@ import type {
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 /** A Graph call throttled with `Retry-After: 600`, which on its own waits ten minutes. */
 function graph_call_parked_in_retry_wait(): Promise<never> {

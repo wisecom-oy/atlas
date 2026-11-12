@@ -1,10 +1,14 @@
 import type {
+  HeldOwnerLease,
+  OwnerLeasePort,
+  OwnerLeaseWorkload,
   QuarantinedObjectKind,
   QuarantineResult,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import { NotFoundError, StorageError, UnreadableContentError } from '@wisecom/atlas-types';
+import { run_with_owner_lease } from '@/services/lease/run-with-owner-lease';
 
 /** Prefix every quarantined object is moved under, keeping its original key after it. */
 export const QUARANTINE_PREFIX = '_quarantine/';
@@ -13,6 +17,8 @@ export const QUARANTINE_PREFIX = '_quarantine/';
 export interface QuarantineTarget {
   /** Workload name for operator-facing messages, e.g. `OneDrive`. */
   readonly workload: string;
+  /** The namespace of the owner lease a quarantine of this workload takes. */
+  readonly lease_workload: OwnerLeaseWorkload;
   /** What the workload quarantines, e.g. `OneDrive manifests and version indexes`. */
   readonly accepts: string;
   /** The kind of object a key names, or undefined when the workload never writes such a key. */
@@ -25,8 +31,11 @@ export interface QuarantineTarget {
   /**
    * Runs once the object has moved, for state that described it. Contacts and Calendar drop the
    * mailbox's delta cursor there, since its links may describe the snapshot just moved aside.
+   * Outlook, OneDrive and SharePoint drop a moved manifest's row from the summary index. The
+   * lease is checked before the hook runs and passed in for any write the hook makes (#623).
    */
-  readonly after_move?: ((ctx: TenantContext, storage_key: string) => Promise<void>) | undefined;
+  readonly after_move?:
+    ((ctx: TenantContext, storage_key: string, lease: HeldOwnerLease) => Promise<void>) | undefined;
 }
 
 /**
@@ -46,10 +55,15 @@ export function has_plain_segments(storage_key: string): boolean {
 /**
  * Moves one unreadable manifest or version index to `_quarantine/{key}` (issue #631).
  *
- * Opens the tenant with a write context, since the move writes and deletes, then runs the move.
+ * Opens the tenant with a write context, since the move writes and deletes, then runs the move
+ * under the lease of the owner the key names: a backup of that owner reads its manifests to pick
+ * a head, and must not do so while one is being moved (issue #623).
+ *
+ * @throws OwnerBusyError when another operation holds the owner.
  */
 export async function quarantine_unreadable_object(
   tenant_factory: TenantContextFactory,
+  leases: OwnerLeasePort,
   target: QuarantineTarget,
   tenant_id: string,
   storage_key: string,
@@ -60,13 +74,32 @@ export async function quarantine_unreadable_object(
   }
   const ctx = await tenant_factory.create(tenant_id);
   try {
-    const reason = await read_damage_reason(ctx, target, storage_key);
-    const quarantine_key = await move_aside(ctx, storage_key);
-    await target.after_move?.(ctx, storage_key);
-    return { storage_key, quarantine_key, kind, reason };
+    const owner_id = owner_segment_of(target.lease_workload, storage_key);
+    return await run_with_owner_lease(
+      leases,
+      ctx,
+      { workload: target.lease_workload, owner_id, operation: 'quarantine' },
+      async (lease) => {
+        const reason = await read_damage_reason(ctx, target, storage_key);
+        lease.assert_held();
+        const quarantine_key = await move_aside(ctx, storage_key);
+        lease.assert_held();
+        await target.after_move?.(ctx, storage_key, lease);
+        return { storage_key, quarantine_key, kind, reason };
+      },
+    );
   } finally {
     ctx.destroy();
   }
+}
+
+/**
+ * The owner segment of a manifest or version index key the target accepted. Outlook keeps the
+ * owner second (`manifests/{owner}/...`); every other workload keeps it third
+ * (`{workload}/manifests/{owner}/...`).
+ */
+function owner_segment_of(workload: OwnerLeaseWorkload, storage_key: string): string {
+  return storage_key.split('/')[workload === 'outlook' ? 1 : 2] ?? '';
 }
 
 /**

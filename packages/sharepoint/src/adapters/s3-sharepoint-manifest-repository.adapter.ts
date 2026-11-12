@@ -1,14 +1,24 @@
 import { injectable } from 'inversify';
 import type {
+  HeldOwnerLease,
   LatestReadableManifest,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
   SharePointSnapshotManifest,
+  SharePointSnapshotSummary,
   SharePointManifestRepository,
   TenantContext,
 } from '@wisecom/atlas-types';
+import { forget_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-pruner';
+import {
+  find_latest_readable_by_summary,
+  list_snapshot_summaries,
+  list_tenant_snapshot_summaries,
+} from '@wisecom/atlas-core/services/shared/snapshot-summary-reader';
+import { record_snapshot_summary_or_warn } from '@wisecom/atlas-core/services/shared/snapshot-summary-writer';
+import { build_drive_summary_layout } from '@wisecom/atlas-drive/shared/drive-snapshot-summary-layout';
 import {
   as_manifest_listing,
-  find_latest_readable_drive_manifest,
   read_drive_manifest,
   read_drive_manifests,
   read_owner_drive_manifests,
@@ -29,12 +39,37 @@ const LAYOUT: DriveManifestLayout = {
   owner_field: 'site_id',
 };
 
+const SUMMARY_LAYOUT = build_drive_summary_layout<
+  SharePointSnapshotManifest,
+  SharePointSnapshotSummary
+>(LAYOUT, ['site_url', 'site_display_name']);
+
 /** Persists SharePoint snapshot manifests as encrypted JSON in S3. */
 @injectable()
 export class S3SharePointManifestRepository implements SharePointManifestRepository {
-  /** Encrypts and uploads a manifest. */
-  async save(ctx: TenantContext, manifest: SharePointSnapshotManifest): Promise<void> {
+  /**
+   * Stores a manifest through the guarded create-only write, then records it in the site's
+   * summary index, checking `lease` right before that write.
+   */
+  async save(
+    ctx: TenantContext,
+    manifest: SharePointSnapshotManifest,
+    lease?: HeldOwnerLease,
+  ): Promise<void> {
     await save_drive_manifest(ctx, LAYOUT, manifest.site_id, manifest);
+    const key = sharepoint_manifest_key(manifest.site_id, manifest.snapshot_id);
+    const summary = SUMMARY_LAYOUT.summarize(manifest, key);
+    await record_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, manifest.site_id, summary, lease);
+  }
+
+  /** Drops a removed snapshot's row from the site's summary index; logs instead of failing. */
+  async forget_snapshot_summary(
+    ctx: TenantContext,
+    site_id: string,
+    snapshot_id: string,
+    lease?: HeldOwnerLease,
+  ): Promise<void> {
+    await forget_snapshot_summary_or_warn(ctx, SUMMARY_LAYOUT, site_id, snapshot_id, lease);
   }
 
   /** Loads a manifest by listing only that site's manifest prefix; raises when it is damaged. */
@@ -49,12 +84,27 @@ export class S3SharePointManifestRepository implements SharePointManifestReposit
     return read_drive_manifest<SharePointSnapshotManifest>(ctx, LAYOUT, expected_key);
   }
 
-  /** Returns the most recent readable manifest for a site, naming the damaged ones. */
+  /** Returns the most recent readable manifest, chosen by the summary index, naming damaged ones. */
   async find_latest_readable(
     ctx: TenantContext,
     site_id: string,
   ): Promise<LatestReadableManifest<SharePointSnapshotManifest>> {
-    return find_latest_readable_drive_manifest(ctx, LAYOUT, site_id);
+    return find_latest_readable_by_summary(ctx, SUMMARY_LAYOUT, site_id);
+  }
+
+  /** Lists a site's snapshots from its summary index, decrypting only rowless manifests. */
+  async list_snapshot_summaries(
+    ctx: TenantContext,
+    site_id: string,
+  ): Promise<ReadableSnapshotSummaries<SharePointSnapshotSummary>> {
+    return list_snapshot_summaries(ctx, SUMMARY_LAYOUT, site_id);
+  }
+
+  /** Lists every site's snapshots from their summary indexes. */
+  async list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<SharePointSnapshotSummary>> {
+    return list_tenant_snapshot_summaries(ctx, SUMMARY_LAYOUT);
   }
 
   /** Lists all manifests for a site, newest first; raises when any is damaged. */

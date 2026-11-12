@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   OneDriveBackupResult,
@@ -9,6 +8,7 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // Issue #52: a OneNote notebook root arrives as a folder carrying the `package`
 // facet and its sections arrive as ordinary files. Nothing downloads from the

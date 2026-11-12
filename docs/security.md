@@ -90,7 +90,7 @@ Rotation limits exposure to data written after the rotation. It targets a DEK th
 
 ## Content encryption
 
-Every object is encrypted with **AES-256-GCM**. The GCM tag gives confidentiality and authenticity: a single flipped bit fails decryption.
+Every object is encrypted with **AES-256-GCM**. The GCM tag gives confidentiality and authenticity: a single flipped bit fails decryption. The one exception is the [owner lease](/operations/storage-layout#owner-leases), plain JSON that tells a reader of the bucket which operation is running on an owner and since when, and nothing about the content.
 
 ```
 [ATLS][version][12-byte IV][16-byte GCM tag][ciphertext]
@@ -102,31 +102,36 @@ Each object gets a fresh random 12-byte IV. Reusing an IV under the same key wou
 
 Because one DEK encrypts the whole tenant, the GCM tag alone proves only that bytes came from that tenant's key. Atlas binds the header and the object's scope as associated data, so a ciphertext decrypts only where it was written. The scope is the key's directory: `onedrive/data/{owner_id}/`, `contacts/data/{owner_id}/`, `calendar/data/{owner_id}/`, `manifests/{owner_id}/`, or `_meta/replication/{owner}/{snapshot}/`.
 
-| Attack                                               | Result                                                     |
-| ---------------------------------------------------- | ---------------------------------------------------------- |
-| Move an object over another owner's or purpose's key | Decryption fails: the scope no longer matches              |
-| Strip or lower the version header                    | Decryption fails: the header is authenticated              |
-| Move an object within its own directory              | Not prevented. The manifest checksum comparison detects it |
-| Copy one owner's delta cursor over another's         | Rejected: the cursor names its owner, and load checks it   |
-| Replay an older ciphertext of the same object        | Not prevented. Object Lock and versioning handle this      |
+| Attack                                               | Result                                                                                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Move an object over another owner's or purpose's key | Decryption fails: the scope no longer matches                                                                  |
+| Strip or lower the version header                    | Decryption fails: the header is authenticated                                                                  |
+| Move an object within its own directory              | Not prevented. The manifest checksum comparison detects it                                                     |
+| Copy one owner's delta cursor over another's         | Rejected: the cursor names its owner, and load checks it                                                       |
+| Copy one owner's snapshot summary over another's     | Ignored: the summary names its owner, and the read falls back to decrypting the manifests                      |
+| Edit a summary row to point at another manifest      | Not possible without the DEK. A row is also used only when its manifest key matches its own owner and snapshot |
+| Replay an older ciphertext of the same object        | Not prevented. Object Lock and versioning handle this                                                          |
 
-| Data                                           | Encrypted | Notes                                                                                     |
-| ---------------------------------------------- | --------- | ----------------------------------------------------------------------------------------- |
-| Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`               |
-| Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them |
-| Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                    |
-| OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                 |
-| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                  |
-| Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`       |
-| Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                          |
-| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                |
-| Calendar events, attachments, and manifests    | Yes       | `calendar/data`, `calendar/attachments`, `calendar/manifests`, `calendar/_meta`           |
-| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                   |
-| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                |
-| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                  |
-| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                |
-| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                   |
-| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                |
+The version byte is read before the tag is checked, so a bit flipped in that one byte would make an intact object look like one a newer Atlas wrote. When the byte holds a version this build does not know, Atlas checks the tag with the current header as associated data. A match proves the object was written as the current version and the byte changed in storage: the object is read, and a warning names its key so it can be rewritten. No match means the object is refused with `ATLAS_FORMAT_UNSUPPORTED`. This is not a downgrade path, because an object a newer Atlas wrote was authenticated under its own header and cannot pass the check. Streamed reads of large files do not make this second check and refuse the object.
+
+| Data                                           | Encrypted | Notes                                                                                                                           |
+| ---------------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Email messages                                 | Yes       | RFC 5322 MIME, or legacy Graph JSON, under `data/{owner_id}/{content_name}`                                                     |
+| Attachments                                    | Yes       | Legacy JSON entries only, under `attachments/{owner_id}/{content_name}`. MIME embeds them                                       |
+| Manifests                                      | Yes       | Subjects, senders, folder names, delta URLs, checksums                                                                          |
+| Snapshot summary indexes                       | Yes       | Snapshot IDs, times, totals, and owner labels, under `_meta/outlook-manifests/owners`, `onedrive/_meta`, and `sharepoint/_meta` |
+| OneDrive file blobs                            | Yes       | `onedrive/data/{owner_id}/{content_name}`                                                                                       |
+| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                                        |
+| Teams message blobs and inline images          | Yes       | `teams/data/{team_id}/{content_name}`, `teams/data/{team_id}/hosted/{content_name}`                                             |
+| Teams indexes, channel shards, and delta state | Yes       | `teams/manifests`, `teams/shards`, `teams/_meta`                                                                                |
+| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                                                      |
+| Calendar events, attachments, and manifests    | Yes       | `calendar/data`, `calendar/attachments`, `calendar/manifests`, `calendar/_meta`                                                 |
+| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                                                         |
+| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                                      |
+| OneDrive manifests, indexes, and delta state   | Yes       | `onedrive/manifests`, `onedrive/index`, `onedrive/_meta`                                                                        |
+| Contacts data, photos, and manifests           | Yes       | `contacts/data`, `contacts/photos`, `contacts/manifests`, `contacts/_meta`                                                      |
+| Wrapped DEK                                    | Yes       | `_meta/dek.enc`, encrypted with the KEK                                                                                         |
+| S3 object metadata                             | **No**    | `x-message-id` on mailbox objects is visible to anyone with S3 read access                                                      |
 
 Apart from `x-message-id`, objects store no item IDs, version IDs, or plaintext checksums in unencrypted metadata. Those live inside encrypted manifests and version indexes. Mailbox objects written before keyed naming also carry `x-plaintext-sha256`; see below.
 
@@ -217,6 +222,50 @@ An entry with no recorded checksum is refused rather than restored unverified. A
 Two limits remain. Neither check stops replay of an older valid ciphertext for the same object, which Object Lock and versioning handle. A checksum recorded wrongly at backup time also goes undetected.
 
 An attacker with write access to the bucket can still make a manifest unreadable, and `quarantine` then removes its run from later points in time for OneDrive, SharePoint, and Outlook. That needs the same access as deleting the manifest outright, and the damage is reported by key on every run until an operator acts. Quarantine never deletes the bytes, and Object Lock keeps a retained version in place. Check bucket versioning for an intact earlier version before quarantining.
+
+### Metadata is checked before and after it is stored
+
+```
+Refusing to write the contacts manifest at contacts/manifests/<mailbox-id>/ct-snap-1767225600000-a1b2c3.json: its reader would reject it (The contacts manifest is not a manifest: ...). Nothing was written.
+```
+
+A snapshot manifest, version index, Teams index, or delta cursor is the only record of what a run stored. The delta cursor then moves past the changes that record describes, so a metadata object that cannot be read back later loses them. Before 7.0 these objects were serialised, encrypted, and uploaded with no check, and a bad one was only found by a later read. Every one of them now goes through a single writer that runs these steps in order:
+
+| Step            | What it does                                                                                                                                                       | What it catches                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Serialise       | Writes the object as one JSON document                                                                                                                             | An object past the V8 string limit of about 512 MB. There is no lower size ceiling                                        |
+| Reader check    | Parses the document back and applies the checks the reader of that object applies: required fields, the owner and snapshot its key names, a parseable `created_at` | A defect in Atlas or an item Graph returned malformed, before it becomes a stored object every command reports as damaged |
+| Decrypt back    | Encrypts with AES-256-GCM, decrypts the ciphertext in memory, and compares it with the plaintext                                                                   | A memory or CPU fault between serialisation and upload                                                                    |
+| Conditional PUT | Writes an object that is never rewritten with `If-None-Match: *`, and replaces a summary index only at the ETag it read (`If-Match`)                               | A snapshot ID collision, a second writer replacing a manifest, or a lost summary update                                   |
+| Read back       | Reads the object with one `GET` and compares it byte for byte with the ciphertext sent                                                                             | A write the backend acknowledged but stored differently, or a concurrent overwrite                                        |
+
+The first three steps fail with `RefusedWriteError` (`ATLAS_WRITE_REFUSED`) and store nothing. It is a defect on the writing side, not damage in storage, so it is never reported as an unreadable object and there is nothing to quarantine. A cursor is saved only after its manifest, so a refused manifest leaves the cursor where it was and the next run reads the same changes again.
+
+Which objects get the last two steps:
+
+| Object                                                                                        | Create-only          | Read back |
+| --------------------------------------------------------------------------------------------- | -------------------- | --------- |
+| Outlook, OneDrive, SharePoint, contacts, and calendar snapshot manifests                      | Yes                  | Yes       |
+| OneDrive and SharePoint version index of a run                                                | Yes                  | Yes       |
+| Teams snapshot index                                                                          | Yes                  | Yes       |
+| Outlook, OneDrive, SharePoint, contacts, and calendar delta cursors                           | No                   | Yes       |
+| Outlook, OneDrive, and SharePoint snapshot summary indexes                                    | No, compare-and-swap | No        |
+| Outlook manifest pointers, Teams channel shards, cursors, and checkpoints, replication status | No                   | No        |
+
+The read-back is limited to objects a run writes once, so a run makes at most three extra `GET` requests per mailbox, owner, site, or team. Teams writes one shard and one cursor per changed channel and checkpoint objects per page, so those are checked and decrypted back but not read back.
+
+A [snapshot summary index](/operations/storage-layout#snapshot-summary-index) is rewritten by every backup, so it cannot be create-only. It is not read back either, because no command trusts it on its own: every read lists the manifest keys and treats a summary that is missing, damaged, or names another owner as empty. Its reader check is the document check the reader applies, the format version and the owner. A malformed row is not refused, since the reader drops it and decrypts that manifest instead.
+
+The storage client retries a `PUT` whose response was lost, and the retry then meets the object the first attempt stored and is refused with `412 Precondition Failed`. Atlas reads the stored object in that case. Each encryption uses a fresh random IV, so a byte-identical ciphertext can only be this write and the run continues. Anything else fails with `StoredObjectConflictError` and the stored object is left as it is.
+
+What these checks do not cover:
+
+- **Content.** Message, file, and attachment objects are not JSON metadata. They stay covered by the three layers above.
+- **Values that are well formed but wrong.** The reader check is exactly as strict as the reader. The Outlook, OneDrive, and SharePoint readers check a manifest's identity, its `entries` list, and its date, not each entry, so a wrong field inside an entry passes both.
+- **Changes after the read-back.** An attacker with write access can still replace or damage the object later. Object Lock and versioning address that.
+- **Backends that ignore conditional headers.** There the create-only write overwrites like any other. The tenant key bootstrap relies on the same header, see [Storage](/self-hosting/storage#protecting-the-tenant-data-key).
+
+See [Refused and unconfirmed metadata writes](/troubleshooting#refused-and-unconfirmed-metadata-writes) for each message.
 
 ### Authentication failures are reported everywhere
 
@@ -480,32 +529,21 @@ Microsoft Graph is stricter. Atlas refuses to call Graph at all when `NODE_TLS_R
 
 Atlas separates read and write storage access, so an operator who only browses never needs write credentials:
 
-| Command class                                                                                                                                                                                                                      | Required S3 actions                                                                                                                                           | Provisioning |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                                                               | None         |
-| Storage usage: `stats storage`                                                                                                                                                                                                     | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts`                                                | None         |
-| Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                                             | Read-only actions. Restore also writes and deletes its [run lease](#run-leases) under `_meta/leases/` when allowed, and runs unleased with a warning when not | None         |
-| Delete and replicate: `delete`, `replicate`, `keys rewrap`                                                                                                                                                                         | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                                                                            | None         |
-| Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                                                | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                                                                   | Yes          |
+| Command class                                                                                                                                                                                                                      | Required S3 actions                                                                                            | Provisioning |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------ |
+| Read-only: `outlook list`, `outlook read`, `outlook status`, `outlook verify`, `onedrive list`, `contacts list`, `calendar list`, `sharepoint list`, `teams list-snapshots`, `teams verify`, `teams status`, `stats`, `list-users` | `s3:GetObject`, `s3:ListBucket`                                                                                | None         |
+| Storage usage: `stats storage`                                                                                                                                                                                                     | Read-only actions plus `s3:ListBucketVersions`, `s3:ListBucketMultipartUploads`, `s3:ListMultipartUploadParts` | None         |
+| Restore and save: `restore`, `restore-version`, `save`                                                                                                                                                                             | Read-only actions. The writes go to Microsoft 365 or a local file, not to the bucket                           | None         |
+| Delete and replicate: `delete`, `replicate`, `keys rewrap`                                                                                                                                                                         | Read-only actions plus `s3:PutObject`, `s3:DeleteObject`, `s3:DeleteObjectVersion`                             | None         |
+| Provisioning: `backup`, `teams backup`, `rehydrate`                                                                                                                                                                                | All of the above plus `s3:CreateBucket` and lifecycle or lock configuration                                    | Yes          |
 
 Only the provisioning row creates a bucket or writes `_meta/dek.enc`. Every other command fails with `No backups found for tenant <id>` (exit `7`) when the tenant has no bucket, or, for commands that decrypt, no data key. A mistyped tenant ID or profile therefore leaves nothing behind.
 
+Backups, restores, deletions, and quarantines also write, renew, and delete the [owner lease](/operations/storage-layout#owner-leases) of the mailbox, drive owner, site, or team they act on. A principal that may write but not delete, for example under a policy that denies `DeleteObject` on `_meta/*`, marks the lease released in place with a conditional write instead. A restore whose credentials cannot write the lease runs without one and logs that concurrent-run protection is off for it, so read-only restore credentials keep working at the cost of that protection. The lease keeps Atlas runs apart. It is not an access control: it is unencrypted and unauthenticated, so anyone who can write to the bucket can remove or forge it, and anyone who can do that can already delete the backups.
+
+`storage-check` is read-only except for its conditional-write probe, which puts and deletes one object under `_meta/storage-check/`. With read-only credentials the probe reports `not probed` and the rest of the check still runs.
+
 Give monitoring and audit principals the read-only row only. If a principal holds `s3:CreateBucket`, that permission dates from Atlas versions before 2.1.0-beta and can be revoked.
-
-## Run leases
-
-Atlas refuses to run two operations on one owner at once. Before a backup, restore or delete writes anything, it creates `_meta/leases/{workload}/{owner}.json` with `If-None-Match: *`. Purge and key re-wrap hold `_meta/leases/tenant.json`. The holder renews its lease every 2 minutes and deletes it at the end. A lease is valid for 10 minutes after its last renewal, so a killed process blocks its owner for at most that long.
-
-The threat is accidental overlap: a scheduler that starts a second job before the first ends, or a retried job. Without the lease, the run that finishes last silently overwrote the other's delta cursors, failed-item ledger and Teams checkpoints, and files could then be skipped by every later run. With it, the second run stops with `ATLAS_OWNER_BUSY` (exit `12`) before writing, and a run that loses its lease refuses every further write.
-
-What the lease does not do:
-
-- It is not access control. Anyone with `s3:PutObject` or `s3:DeleteObject` on the bucket can delete or forge a lease, and such a principal can already overwrite the backups themselves.
-- It does not protect against Atlas releases older than the one that introduced it, which take no lease.
-- Its expiry is compared against each host's clock. A host whose clock runs minutes ahead can take over a lease in use, and both runs write until the holder's next renewal stops it, up to 2 minutes later.
-- On a backend that ignores `If-None-Match` and `If-Match`, two runs that start in the same instant can both proceed. A run that starts while another holds the lease is still refused. `atlas storage-check` reports which case applies.
-
-The lease body is plaintext JSON, because purge and deletion open the bucket without the data key. It holds the operation, host name, process ID, start time and expiry. The key holds the owner ID, as every other key under that owner's prefix already does. No message, file or Graph content is ever written to it.
 
 ## Configuration file security
 

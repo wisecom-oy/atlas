@@ -1,5 +1,6 @@
-import { apply_run_object_lock_policy } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { attach_run_retention } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
+import { run_with_owner_lease } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import {
   begin_operation_progress,
   emit_operation_progress,
@@ -7,6 +8,8 @@ import {
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import type {
+  HeldOwnerLease,
+  OwnerLeasePort,
   TeamsBackupOptions,
   TeamsBackupResult,
   TeamsBackupUseCase,
@@ -16,17 +19,16 @@ import type {
   TeamsConnector,
   TeamsGraphResource,
   TeamsIndexRepository,
-  OwnerLeases,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
+  OWNER_LEASE_TOKEN,
   TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN,
   TEAMS_CHANNEL_CURSOR_REPOSITORY_TOKEN,
   TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
   TEAMS_CONNECTOR_TOKEN,
   TEAMS_INDEX_REPOSITORY_TOKEN,
-  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   attach_unreadable_keys,
 } from '@wisecom/atlas-types';
@@ -78,7 +80,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     private readonly _cursors: TeamsChannelCursorRepository,
     @inject(TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN)
     private readonly _checkpoints: TeamsChannelCheckpointRepository,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -86,6 +88,10 @@ export class TeamsBackupService implements TeamsBackupUseCase {
    * fails keeps its previous entry and cursor, and the run is reported as unhealthy. A run that
    * throws after loading its baseline rethrows the same error, carrying the damaged index keys it
    * found (`attached_unreadable_keys`), so the caller can still name them (issue #694).
+   *
+   * The run holds the team's lease from before it reads the baseline until it ends.
+   *
+   * @throws OwnerBusyError when another operation holds the team's backup.
    */
   async backup_team(
     tenant_id: string,
@@ -104,23 +110,23 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     }
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const scope = {
-        workload: 'teams',
-        owner_id: normalized_team_id,
-        operation: 'backup',
-      } as const;
-      return await this._leases.run_exclusive(tenant_ctx, scope, async (leased) => {
-        const ctx = await apply_run_object_lock_policy(leased, options.object_lock_request);
-        return run_with_abort_signal(options.abort_signal, () =>
-          run_with_teams_request_stats(settings.stats, () =>
-            this.run_backup(ctx, tenant_id, normalized_team_id, options, {
-              ...settings,
-              // Checkpoints are rewritten every page: never under the run's lock, always under its lease.
-              checkpoint_ctx: leased,
-            }),
-          ),
-        );
-      });
+      return await run_with_owner_lease(
+        this._leases,
+        tenant_ctx,
+        { workload: 'teams', owner_id: normalized_team_id, operation: 'backup' },
+        async (lease) => {
+          const ctx = await attach_run_retention(tenant_ctx, options.object_lock_request);
+          return run_with_abort_signal(options.abort_signal, () =>
+            run_with_teams_request_stats(settings.stats, () =>
+              this.run_backup(ctx, lease, tenant_id, normalized_team_id, options, {
+                ...settings,
+                // Checkpoints are short-lived and rewritten every page: never put them under the run's lock.
+                checkpoint_ctx: tenant_ctx,
+              }),
+            ),
+          );
+        },
+      );
     } catch (err) {
       throw attach_unreadable_keys(err, settings.unreadable_keys);
     } finally {
@@ -130,6 +136,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
 
   private async run_backup(
     ctx: TenantContext,
+    lease: HeldOwnerLease,
     tenant_id: string,
     team_id: string,
     options: TeamsBackupOptions,
@@ -160,6 +167,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       counters: create_backup_counters(),
       checkpoints: this._checkpoints,
       checkpoint_ctx: settings.checkpoint_ctx,
+      lease,
       progress: {
         roots_applied: (channel_id, count) => {
           roots_applied.set(channel_id, (roots_applied.get(channel_id) ?? 0) + count);
@@ -178,6 +186,8 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     state.interrupted = state.interrupted || scope.should_interrupt();
     append_all(state.warnings, baseline.warnings);
     append_all(state.errors, missing_channel_errors(options.channel_id, all_channels, team_id));
+    // A channel that lost the lease mid-read was recorded as a failed channel; this stops the run.
+    lease.assert_held();
     const saves = await save_channel_shards(ctx, this._shards, state.results);
     const channels = merge_channel_entries({
       channels: all_channels,
@@ -193,6 +203,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
         cursors: this._cursors,
         checkpoints: this._checkpoints,
         checkpoint_ctx: settings.checkpoint_ctx,
+        lease,
       },
       {
         tenant_id,

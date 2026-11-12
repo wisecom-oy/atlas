@@ -46,13 +46,28 @@ describe('S3SharePointManifestRepository with a damaged manifest (issue #631)', 
     expect(listing.unreadable_keys).toEqual([damaged_key]);
   });
 
-  it('reports the newest readable snapshot and the damaged key for status', async () => {
-    const { harness, repo, damaged_key } = await two_snapshots_older_damaged();
+  it('answers status from the summary without reading an older damaged manifest (#625)', async () => {
+    const { harness, repo } = await two_snapshots_older_damaged();
 
     const latest = await repo.find_latest_readable(harness.ctx, SITE);
 
+    // The summary picks the newest snapshot, so the older manifest is never decrypted; verify
+    // is what finds damage at rest in a manifest that has a summary row.
     expect(latest.manifest?.snapshot_id).toBe('sp-snap-2000-abc');
-    expect(latest.unreadable_keys).toEqual([damaged_key]);
+    expect(latest.unreadable_keys).toEqual([]);
+  });
+
+  it('falls back to the next snapshot when the newest is damaged, naming it', async () => {
+    const { harness, repo } = await two_snapshots_older_damaged();
+    const newest_key = `sharepoint/manifests/${SITE}/sp-snap-2000-abc.json`;
+    // Flipping the same bit again repairs the older manifest, leaving only the newest damaged.
+    damage(harness, `sharepoint/manifests/${SITE}/sp-snap-1000-abc.json`);
+    damage(harness, newest_key);
+
+    const latest = await repo.find_latest_readable(harness.ctx, SITE);
+
+    expect(latest.manifest?.snapshot_id).toBe('sp-snap-1000-abc');
+    expect(latest.unreadable_keys).toEqual([newest_key]);
   });
 
   it('keeps the strict listing replication and stats read refusing, naming the key', async () => {

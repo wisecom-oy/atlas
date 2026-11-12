@@ -1,113 +1,43 @@
-import { injectable } from 'inversify';
-import {
-  OwnerLeaseLostError,
-  type LeaseableContext,
-  type OwnerLeases,
-  type OwnerLeaseScope,
-  type TenantLeaseOperation,
+import type {
+  HeldOwnerLease,
+  OwnerLeasePort,
+  OwnerLeaseRequest,
+  TenantStorageContext,
 } from '@wisecom/atlas-types';
-import type { HeldLease } from '@/services/lease/held-lease';
+import { acquire_owner_lease } from '@/services/lease/owner-lease-acquirer';
+import { owner_lease_key } from '@/services/lease/owner-lease-key';
 import {
-  acquire_lease,
-  refuse_during_owner_leases,
-  refuse_during_tenant_lease,
-} from '@/services/lease/lease-acquisition';
-import { LeaseGuardedStorage } from '@/services/lease/lease-guarded-storage';
-import { owner_lease_key, TENANT_LEASE_KEY } from '@/services/lease/lease-record';
-import { is_storage_access_denied } from '@/services/shared/storage-access-denied';
-import { logger } from '@/utils/logger';
+  SYSTEM_OWNER_LEASE_RUNTIME,
+  type OwnerLeaseRuntime,
+} from '@/services/lease/owner-lease-timing';
+import { RenewingOwnerLease } from '@/services/lease/renewing-owner-lease';
+import { ObjectLockingStorage } from '@/services/shared/run-object-lock';
 
 /**
- * Holds per-owner and tenant leases as objects in the tenant bucket (`_meta/leases/`).
- *
- * Costs a handful of S3 requests per run and one renewal every two minutes, never one per object,
- * and no Graph request at all.
+ * Owner leases kept as one plaintext JSON object per workload and owner in the tenant bucket
+ * (issue #623). They need storage only, never the tenant key. Exclusion rests on the backend honouring `If-None-Match` and `If-Match`, which
+ * `atlas storage-check` probes.
  */
-@injectable()
-export class StorageOwnerLeases implements OwnerLeases {
-  /** Runs `run` holding the owner's lease. */
-  async run_exclusive<C extends LeaseableContext, T>(
-    ctx: C,
-    scope: OwnerLeaseScope,
-    run: (leased: C) => Promise<T>,
-  ): Promise<T> {
-    const lease = await acquire_owner_lease(ctx, scope);
-    return run_holding(ctx, lease, run);
-  }
+export class StorageOwnerLeases implements OwnerLeasePort {
+  constructor(private readonly _runtime: OwnerLeaseRuntime = SYSTEM_OWNER_LEASE_RUNTIME) {}
 
-  /** Runs `run` holding the owner's lease, or unleased when storage credentials cannot write. */
-  async run_exclusive_when_writable<C extends LeaseableContext, T>(
-    ctx: C,
-    scope: OwnerLeaseScope,
-    run: (leased: C) => Promise<T>,
-  ): Promise<T> {
-    let lease: HeldLease;
-    try {
-      lease = await acquire_owner_lease(ctx, scope);
-    } catch (err) {
-      if (!is_storage_access_denied(err)) throw err;
-      logger.warn(
-        `Storage credentials cannot write the run lease for ${scope.owner_id}: concurrent-run ` +
-          `protection is off for this ${scope.operation}. Another run on this owner is not detected.`,
-      );
-      return run(ctx);
-    }
-    return run_holding(ctx, lease, run);
-  }
-
-  /** Runs `run` holding the tenant lease, once no owner lease is live. */
-  async run_tenant_exclusive<C extends LeaseableContext, T>(
-    ctx: C,
-    operation: TenantLeaseOperation,
-    run: (leased: C) => Promise<T>,
-  ): Promise<T> {
-    const lease = await acquire_lease(ctx.storage, TENANT_LEASE_KEY, operation);
-    await release_on_failure(lease, () => refuse_during_owner_leases(ctx.storage));
-    return run_holding(ctx, lease, run);
+  /** Takes the owner's lease and starts renewing it. */
+  async acquire(ctx: TenantStorageContext, request: OwnerLeaseRequest): Promise<HeldOwnerLease> {
+    require_storage_without_run_retention(ctx);
+    const key = owner_lease_key(request.workload, request.owner_id);
+    const acquired = await acquire_owner_lease(ctx, request, key, this._runtime);
+    return new RenewingOwnerLease(ctx, request, acquired, this._runtime);
   }
 }
 
 /**
- * Takes the owner's lease, then checks the tenant lease. Tenant runs do the mirror image (take
- * theirs, then check owners), so whichever of two racing runs writes second sees the other.
+ * Refuses a context decorated with a run's Object Lock retention. That decorator attaches the
+ * run's policy to every put without one, and a retained lease version could not be removed.
  */
-async function acquire_owner_lease(
-  ctx: LeaseableContext,
-  scope: OwnerLeaseScope,
-): Promise<HeldLease> {
-  const key = owner_lease_key(scope.workload, scope.owner_id);
-  const lease = await acquire_lease(ctx.storage, key, scope.operation);
-  await release_on_failure(lease, () => refuse_during_tenant_lease(ctx.storage));
-  return lease;
-}
-
-async function release_on_failure(lease: HeldLease, check: () => Promise<void>): Promise<void> {
-  try {
-    await check();
-  } catch (err) {
-    await lease.release();
-    throw err;
-  }
-}
-
-/**
- * Runs `run` with storage that refuses writes once the lease is lost, renewing meanwhile, and
- * releases the lease however `run` ends. A run that lost its lease rejects even when `run`
- * resolved: its result was produced without the exclusion it relies on, and some of its writes
- * were refused.
- */
-async function run_holding<C extends LeaseableContext, T>(
-  ctx: C,
-  lease: HeldLease,
-  run: (leased: C) => Promise<T>,
-): Promise<T> {
-  lease.start_renewal();
-  try {
-    const result = await run({ ...ctx, storage: new LeaseGuardedStorage(ctx.storage, lease) });
-    const lost_reason = lease.lost_reason();
-    if (lost_reason !== undefined) throw new OwnerLeaseLostError(lease.key, lost_reason);
-    return result;
-  } finally {
-    await lease.release();
+function require_storage_without_run_retention(ctx: TenantStorageContext): void {
+  if (ctx.storage instanceof ObjectLockingStorage) {
+    throw new Error(
+      'An owner lease must be written through the tenant context without run retention',
+    );
   }
 }

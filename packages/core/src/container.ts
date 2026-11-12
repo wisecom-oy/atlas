@@ -11,17 +11,17 @@ import {
   ONEDRIVE_REPLICATION_USE_CASE_TOKEN,
   ONEDRIVE_DELETION_USE_CASE_TOKEN,
   SHAREPOINT_DELETION_USE_CASE_TOKEN,
-  OWNER_LEASES_TOKEN,
-  type OwnerLeases,
+  OWNER_LEASE_TOKEN,
+  type OwnerLeasePort,
   type SharePointReplicationUseCase,
   type OneDriveReplicationUseCase,
   type OneDriveDeletionUseCase,
   type SharePointDeletionUseCase,
 } from '@wisecom/atlas-types';
-import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
 import { CatalogService } from '@/services/catalog/catalog.service';
 import { DeletionService } from '@/services/deletion/deletion.service';
 import { DekRewrapService } from '@/services/keys/dek-rewrap.service';
+import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
 import { OneDriveDeletionService } from '@/services/deletion/onedrive-deletion.service';
 import { SharePointDeletionService } from '@/services/deletion/sharepoint-deletion.service';
 import { VerificationService } from '@/services/verification/verification.service';
@@ -32,7 +32,7 @@ import { SharePointReplicationService } from '@/services/replication/sharepoint-
 import { OneDriveReplicationService } from '@/services/replication/onedrive-replication.service';
 
 export function bind_core_services(container: Container): void {
-  container.bind<OwnerLeases>(OWNER_LEASES_TOKEN).to(StorageOwnerLeases).inSingletonScope();
+  container.bind<OwnerLeasePort>(OWNER_LEASE_TOKEN).toConstantValue(new StorageOwnerLeases());
   container.bind(CatalogService).toSelf();
   container.bind(CATALOG_USE_CASE_TOKEN).toService(CatalogService);
   container.bind(DeletionService).toSelf();

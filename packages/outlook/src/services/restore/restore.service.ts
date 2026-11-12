@@ -1,9 +1,10 @@
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContextFactory, TenantContext } from '@wisecom/atlas-types';
 import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { MailboxConnector, OwnerLeases } from '@wisecom/atlas-types';
+import type { MailboxConnector, OwnerLeasePort } from '@wisecom/atlas-types';
 import type { RestoreConnector } from '@wisecom/atlas-types';
 import type { Manifest, ManifestEntry } from '@wisecom/atlas-types';
 import {
@@ -33,7 +34,7 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_CONNECTOR_TOKEN,
   RESTORE_CONNECTOR_TOKEN,
-  OWNER_LEASES_TOKEN,
+  OWNER_LEASE_TOKEN,
 } from '@wisecom/atlas-types';
 import {
   begin_operation_progress,
@@ -47,7 +48,7 @@ export class RestoreService implements RestoreUseCase {
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
     @inject(MAILBOX_CONNECTOR_TOKEN) private readonly _connector: MailboxConnector,
     @inject(RESTORE_CONNECTOR_TOKEN) private readonly _restore_connector: RestoreConnector,
-    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /**
@@ -98,7 +99,7 @@ export class RestoreService implements RestoreUseCase {
         owner_id: source_mailbox,
         operation: 'restore',
       } as const;
-      return await this._leases.run_exclusive_when_writable(ctx, scope, (leased) =>
+      return await run_with_owner_lease_when_writable(this._leases, ctx, scope, (leased) =>
         this.restore_resolved_snapshot(
           leased,
           tenant_id,
@@ -190,7 +191,7 @@ export class RestoreService implements RestoreUseCase {
     const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
       const scope = { workload: 'outlook', owner_id, operation: 'restore' } as const;
-      return await this._leases.run_exclusive_when_writable(tenant_ctx, scope, (ctx) =>
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
         this.restore_leased_mailbox(ctx, tenant_id, owner_id, options),
       );
     } finally {

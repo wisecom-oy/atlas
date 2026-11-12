@@ -2,7 +2,6 @@
  * Team erasure under Object Lock or a refused delete. The objects that outlive the sweep must
  * reach the caller as retained or failed counts, never as a clean result (issue #634).
  */
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import { ObjectLockRetainedError, type TenantContextFactory } from '@wisecom/atlas-types';
 import type { DeletionStorage } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
@@ -12,6 +11,7 @@ import {
   teams_shard_prefix_for,
   TEAMS_KEYS,
 } from '@/services/shared/storage-keys';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const TEAM = 'a1b2c3d4-e5f6-4789-8abc-0123456789ab';
 const CURSOR_KEY = teams_cursor_key(TEAM, 'channel-1');

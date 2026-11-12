@@ -1,5 +1,4 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
-import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -8,6 +7,7 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   type MailboxConnector,
   type MailMessage,
@@ -22,6 +22,7 @@ import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-ten
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 function make_message(id: string, body: string): MailMessage {
   const raw = Buffer.from(body);
@@ -108,6 +109,7 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
 
     mock_manifests = {
       save: vi.fn(),
+      forget_snapshot_summary: vi.fn(),
       find_by_snapshot: vi.fn().mockResolvedValue(undefined),
       list_by_owner: vi.fn().mockResolvedValue([]),
       find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
@@ -115,7 +117,10 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
       list_owner_ids: vi.fn().mockResolvedValue([]),
       list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
       list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
-      read_manifest_at: vi.fn(),
+      read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+      list_snapshot_summaries: vi.fn(
+        outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+      ),
     };
 
     const mock_factory: TenantContextFactory = {
@@ -131,7 +136,7 @@ describe('MailboxSyncService – force_full / stale-delta safeguard', () => {
       .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
       .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
-    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
+    container.bind(OWNER_LEASE_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
     service = container.get(MailboxSyncService);
   });

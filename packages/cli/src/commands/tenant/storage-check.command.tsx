@@ -6,6 +6,7 @@ import type { ObjectLockMode } from '@wisecom/atlas-types/ports/backup/use-case.
 import type {
   StorageCheckResult,
   StorageCheckUseCase,
+  StorageConditionalWriteCheck,
   StorageDefaultRetention,
 } from '@wisecom/atlas-types';
 import { STORAGE_CHECK_USE_CASE_TOKEN } from '@wisecom/atlas-types';
@@ -34,7 +35,7 @@ export function register_storage_check_command(
 ): void {
   const command = program
     .command('storage-check')
-    .description('Check S3/MinIO Object Lock readiness for backup policies');
+    .description('Check S3/MinIO Object Lock and conditional-write readiness for backups');
   with_object_lock(command, 'planned retention period in days');
   with_tenant(command).action((options: StorageCheckOptions) =>
     execute_storage_check(get_container(), options),
@@ -54,7 +55,9 @@ async function execute_storage_check(
     result.reachable &&
     result.versioning_enabled &&
     result.object_lock_enabled &&
-    result.mode_supported;
+    result.mode_supported &&
+    // A backend that ignores write conditions cannot keep two runs off one owner (issue #623).
+    result.conditional_writes.support !== 'ignored';
 
   await render_static_view(
     <Box flexDirection="column">
@@ -80,7 +83,7 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
   if (result.object_lock_enabled) {
     items.push(describe_default_retention(result.default_retention));
   }
-  items.push(describe_conditional_writes(result.conditional_writes_supported));
+  items.push(describe_conditional_writes(result.conditional_writes));
   if (result.requested_mode) {
     items.push({ label: 'Requested mode', value: result.requested_mode });
   }
@@ -124,6 +127,19 @@ function describe_default_retention(retention?: StorageDefaultRetention): KeyVal
   };
 }
 
+/**
+ * Reports the conditional-write probe. `ignored` is the dangerous answer: owner leases, the data
+ * key bootstrap and the identity registry all depend on the backend refusing these writes.
+ */
+function describe_conditional_writes(check: StorageConditionalWriteCheck): KeyValueItem {
+  const label = 'Conditional writes';
+  if (check.support === 'supported') return { label, value: 'supported', color: 'green' };
+  if (check.support === 'ignored') {
+    return { label, value: `IGNORED: ${check.detail ?? 'see docs'}`, color: 'red' };
+  }
+  return { label, value: `not probed (${check.detail ?? 'no reason given'})`, color: 'yellow' };
+}
+
 function resolve_tenant_id(container: Container, options: StorageCheckOptions): string {
   if (options.tenant) return options.tenant;
   return container.get<AtlasConfig>(ATLAS_CONFIG_TOKEN).tenant_id;
@@ -139,22 +155,4 @@ function build_request(options: StorageCheckOptions): {
     ...(mode !== undefined ? { mode } : {}),
     ...(retention_days !== undefined ? { retention_days } : {}),
   };
-}
-
-/**
- * Reports whether the bucket honours create-only writes, which the per-owner run lease relies on to
- * refuse two runs that start at the same instant. A warning, not a failure: the lease still catches
- * every other overlap.
- */
-function describe_conditional_writes(supported: boolean | undefined): KeyValueItem {
-  if (supported === true)
-    return { label: 'Conditional writes', value: 'supported', color: 'green' };
-  if (supported === false) {
-    return {
-      label: 'Conditional writes',
-      value: 'ignored (run lease is best-effort for simultaneous starts)',
-      color: 'yellow',
-    };
-  }
-  return { label: 'Conditional writes', value: 'not checked (no write access)', color: 'yellow' };
 }

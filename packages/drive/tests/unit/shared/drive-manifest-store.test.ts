@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { OneDriveSnapshotManifest } from '@wisecom/atlas-types';
 import {
+  RefusedWriteError,
   StorageError,
+  StoredObjectConflictError,
   UnreadableObjectsError,
   UnsupportedFormatVersionError,
 } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import {
   as_manifest_listing,
-  find_latest_readable_drive_manifest,
   read_drive_manifest,
   read_owner_drive_manifests,
   require_readable_drive_manifests,
@@ -50,6 +51,49 @@ async function middle_damaged() {
   return { harness, damaged_key };
 }
 
+describe('save_drive_manifest', () => {
+  it('stores a manifest its reader accepts, create-only, and reads it back once', async () => {
+    const harness = in_memory_tenant_context();
+    const put = vi.spyOn(harness.ctx.storage, 'put');
+    const get = vi.spyOn(harness.ctx.storage, 'get');
+    const key = LAYOUT.keys.manifest_key(OWNER, 'od-snap-1000-abc');
+
+    await save_drive_manifest(harness.ctx, LAYOUT, OWNER, manifest(1000));
+
+    expect(put).toHaveBeenCalledWith(key, harness.raw(key), undefined, undefined, undefined, true);
+    expect(get.mock.calls).toEqual([[key]]);
+  });
+
+  it.each([
+    ['no entries', { entries: undefined }],
+    ['another owner than its key', { owner_id: 'owner-2' }],
+    ['an unparseable created_at', { created_at: new Date(Number.NaN) }],
+  ])('refuses a manifest with %s and writes nothing', async (_label, overrides) => {
+    const harness = in_memory_tenant_context();
+    const malformed = { ...manifest(1000), ...overrides } as OneDriveSnapshotManifest;
+
+    const save = save_drive_manifest(harness.ctx, LAYOUT, OWNER, malformed);
+
+    await expect(save).rejects.toBeInstanceOf(RefusedWriteError);
+    await expect(save).rejects.toThrow(LAYOUT.keys.manifest_key(OWNER, 'od-snap-1000-abc'));
+    await expect(save).rejects.not.toBeInstanceOf(UnreadableObjectsError);
+    expect(harness.keys()).toEqual([]);
+  });
+
+  it('never replaces a manifest already stored under the snapshot id', async () => {
+    const harness = in_memory_tenant_context();
+    await save_drive_manifest(harness.ctx, LAYOUT, OWNER, manifest(1000));
+    const key = LAYOUT.keys.manifest_key(OWNER, 'od-snap-1000-abc');
+    const first = Buffer.from(harness.raw(key)!);
+
+    const other: OneDriveSnapshotManifest = { ...manifest(1000), total_files: 7 };
+    const colliding = save_drive_manifest(harness.ctx, LAYOUT, OWNER, other);
+
+    await expect(colliding).rejects.toBeInstanceOf(StoredObjectConflictError);
+    expect(harness.raw(key)!.equals(first)).toBe(true);
+  });
+});
+
 describe('drive manifest store with a damaged manifest (issue #631)', () => {
   it('lists every readable manifest newest first and names the damaged key', async () => {
     const { harness, damaged_key } = await middle_damaged();
@@ -63,15 +107,6 @@ describe('drive manifest store with a damaged manifest (issue #631)', () => {
       'od-snap-1000-abc',
     ]);
     expect(listing.unreadable_keys).toEqual([damaged_key]);
-  });
-
-  it('returns the newest readable manifest as the latest, naming the damaged one', async () => {
-    const { harness, damaged_key } = await middle_damaged();
-
-    const latest = await find_latest_readable_drive_manifest(harness.ctx, LAYOUT, OWNER);
-
-    expect(latest.manifest?.snapshot_id).toBe('od-snap-3000-abc');
-    expect(latest.unreadable_keys).toEqual([damaged_key]);
   });
 
   it('refuses the strict listing with the damaged key named', async () => {

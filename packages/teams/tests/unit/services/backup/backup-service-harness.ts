@@ -1,4 +1,3 @@
-import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { vi, type Mock } from 'vitest';
 import type {
   FailedItemLedger,
@@ -16,6 +15,10 @@ import type {
 import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import type { ChannelBackupOutput } from '@/services/backup/channel-backup-processor';
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export const TEAM_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
 
@@ -68,11 +71,14 @@ export interface Ports {
   readonly indexes: { find_latest_readable: Mock; save: Mock };
   readonly shards: { load: Mock; save: Mock };
   readonly cursors: { load: Mock; save: Mock };
+  /** The team lease the service takes, for asserting when it is taken, checked and released. */
+  readonly leases: StubOwnerLeases;
 }
 
 /** Builds the service with in-memory ports. Only the connector's team and channel calls are stubbed. */
 export function make_ports(options: PortOptions = {}): Ports {
   const order: string[] = [];
+  const leases = stub_owner_leases();
   const tenant_ctx = { destroy: vi.fn() } as unknown as TenantContext;
   const factory = { create: vi.fn(async () => tenant_ctx) } as unknown as TenantContextFactory;
   const connector = {
@@ -116,7 +122,7 @@ export function make_ports(options: PortOptions = {}): Ports {
     shards as unknown as TeamsChannelShardRepository,
     cursors as unknown as TeamsChannelCursorRepository,
     new InMemoryTeamsChannelCheckpointRepository(),
-    stub_owner_leases().leases,
+    leases.leases,
   );
-  return { service, order, connector, indexes, shards, cursors };
+  return { service, order, connector, indexes, shards, cursors, leases };
 }
