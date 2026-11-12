@@ -123,6 +123,7 @@ export async function persist_team_snapshot(
         updated_at,
       }),
     );
+    ports.lease.assert_held();
     await settle_checkpoint(
       ports.checkpoint_ctx ?? ctx,
       ports.checkpoints,

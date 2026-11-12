@@ -88,17 +88,17 @@ sharepoint/_meta/{site_id}/lease.json
 teams/_meta/{team_id}/lease.json
 ```
 
-A backup, deletion, or quarantine holds one lease object for its mailbox, drive owner, site, or team while it runs, so two operations never write the same owner's cursor, pointer, summary index, or checkpoint at once. The object sits next to the owner's delta cursor. See [Concurrent operations](/reference/sdk#concurrent-operations) for the protocol.
+A backup, deletion, or quarantine holds one lease object for its mailbox, drive owner, site, or team while it runs, so two operations never write the same owner's cursor, pointer, summary index, or checkpoint at once. A restore of a mailbox, drive owner, or site holds the same lease, so a deletion cannot remove the snapshot it is restoring. The object sits next to the owner's delta cursor. See [Concurrent operations](/reference/sdk#concurrent-operations) for the protocol.
 
 The lease is not encrypted. It is plain JSON, so that an operation without the tenant key, such as erasing an owner after the passphrase is lost, can still take it. Anyone with read access to the bucket can read:
 
-| Field                       | What it reveals                                                                                              |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `operation`                 | That a `backup`, `delete`, or `quarantine` is running on the owner, or last ran if the lease was left behind |
-| `acquired_at`, `expires_at` | When that operation started and when it last renewed the lease, to the minute                                |
-| `released_at`               | When it finished, present only when the lease could not be deleted                                           |
-| `holder_id`                 | A random ID generated for that one run. It names no host, user, or process                                   |
-| `format_version`            | The lease format                                                                                             |
+| Field                       | What it reveals                                                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `operation`                 | That a `backup`, `delete`, `quarantine`, or `restore` is running on the owner, or last ran if the lease was left behind |
+| `acquired_at`, `expires_at` | When that operation started and when it last renewed the lease, to the minute                                           |
+| `released_at`               | When it finished, present only when the lease could not be deleted                                                      |
+| `holder_id`                 | A random ID generated for that one run. It names no host, user, or process                                              |
+| `format_version`            | The lease format                                                                                                        |
 
 The owner ID is in the key, as it is for every object of that owner. The lease holds no backup content, no item names, and nothing derived from the tenant key.
 

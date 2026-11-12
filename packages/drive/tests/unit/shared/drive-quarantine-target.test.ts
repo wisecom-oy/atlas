@@ -1,3 +1,4 @@
+import { stub_held_owner_lease } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type { TenantContext } from '@wisecom/atlas-types';
 import { drive_quarantine_target } from '@/shared/drive-quarantine-target';
@@ -61,10 +62,12 @@ describe('drive_quarantine_target', () => {
   it('drops a moved manifest from the summary index, and leaves it alone for a version index', async () => {
     const { forget_summary, target: t } = target();
 
-    await t.after_move?.(CTX, 'onedrive/index/owner-1/runs/od-snap-1-abc.json');
-    await t.after_move?.(CTX, 'onedrive/manifests/owner-1/od-snap-1-abc.json');
+    const lease = stub_held_owner_lease();
+    await t.after_move?.(CTX, 'onedrive/index/owner-1/runs/od-snap-1-abc.json', lease);
+    await t.after_move?.(CTX, 'onedrive/manifests/owner-1/od-snap-1-abc.json', lease);
 
     expect(forget_summary).toHaveBeenCalledTimes(1);
-    expect(forget_summary).toHaveBeenCalledWith(CTX, 'owner-1', 'od-snap-1-abc');
+    // The lease reaches the summary write, which checks it before writing (#623).
+    expect(forget_summary).toHaveBeenCalledWith(CTX, 'owner-1', 'od-snap-1-abc', lease);
   });
 });

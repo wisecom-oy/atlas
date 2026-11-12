@@ -37,6 +37,7 @@ describe('OutlookQuarantineService (issue #631)', () => {
       harness.ctx,
       '00000000-0000-0000-0000-00000000abcd',
       'snap-1',
+      expect.objectContaining({ assert_held: expect.any(Function) }),
     );
   });
 

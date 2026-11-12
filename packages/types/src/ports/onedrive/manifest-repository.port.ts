@@ -24,8 +24,16 @@ export interface OneDriveManifestRepository {
     lease?: HeldOwnerLease,
   ): Promise<void>;
 
-  /** Drops a removed snapshot's row from the owner's summary index; logs instead of failing. */
-  forget_snapshot_summary(ctx: TenantContext, owner_id: string, snapshot_id: string): Promise<void>;
+  /**
+   * Drops a removed snapshot's row from the summary index; logs instead of failing. `lease` is
+   * checked right before the write, and a lost one is raised.
+   */
+  forget_snapshot_summary(
+    ctx: TenantContext,
+    owner_id: string,
+    snapshot_id: string,
+    lease?: HeldOwnerLease,
+  ): Promise<void>;
 
   /**
    * Finds a manifest for an owner by snapshot ID under that owner's prefix.

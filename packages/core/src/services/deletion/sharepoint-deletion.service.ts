@@ -92,7 +92,8 @@ export class SharePointDeletionService implements SharePointDeletionUseCase {
         wording: { owner: 'site', records: 'files', delete_all_flag: '--site' },
         find_snapshot: () => this._manifests.find_by_snapshot(ctx, site_id, snapshot_id),
         list_owner_manifests: () => this._manifests.list_snapshots_by_site(ctx, site_id),
-        forget_summary: () => this._manifests.forget_snapshot_summary(ctx, site_id, snapshot_id),
+        forget_summary: () =>
+          this._manifests.forget_snapshot_summary(ctx, site_id, snapshot_id, lease),
       }),
     );
   }

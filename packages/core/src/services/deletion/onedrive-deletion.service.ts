@@ -92,7 +92,8 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
         wording: { owner: 'OneDrive', records: 'files', delete_all_flag: '-o' },
         find_snapshot: () => this._manifests.find_by_snapshot(ctx, owner_id, snapshot_id),
         list_owner_manifests: () => this._manifests.list_snapshots_by_owner(ctx, owner_id),
-        forget_summary: () => this._manifests.forget_snapshot_summary(ctx, owner_id, snapshot_id),
+        forget_summary: () =>
+          this._manifests.forget_snapshot_summary(ctx, owner_id, snapshot_id, lease),
       }),
     );
   }

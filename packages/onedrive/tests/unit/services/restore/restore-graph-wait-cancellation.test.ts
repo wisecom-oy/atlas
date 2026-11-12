@@ -3,6 +3,7 @@
  * the abort signal, so Ctrl+C during a Graph call parked in a Retry-After sat the wait out. A
  * call cut short by the signal is the run stopping, not a skipped file.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,7 +71,7 @@ function make_service(entries: OneDriveManifestEntry[], connector: OneDriveConne
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
     ...drive_chain_reads('onedrive'),
   } as unknown as OneDriveManifestRepository;
-  return new OneDriveRestoreService(factory, connector, manifests);
+  return new OneDriveRestoreService(factory, connector, manifests, stub_owner_leases().leases);
 }
 
 function make_connector(overrides: Partial<Record<keyof OneDriveConnector, unknown>>) {

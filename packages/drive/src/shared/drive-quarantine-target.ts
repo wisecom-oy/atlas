@@ -1,4 +1,5 @@
 import type {
+  HeldOwnerLease,
   OwnerLeaseWorkload,
   QuarantinedObjectKind,
   TenantContext,
@@ -17,6 +18,7 @@ export type ForgetSnapshotSummary = (
   ctx: TenantContext,
   owner_id: string,
   snapshot_id: string,
+  lease: HeldOwnerLease,
 ) => Promise<void>;
 
 /**
@@ -46,10 +48,10 @@ export function drive_quarantine_target(
       kind_of(storage_key) === 'manifest'
         ? reads.read_manifest(ctx, storage_key)
         : reads.read_index_object(ctx, storage_key),
-    after_move: async (ctx, storage_key) => {
+    after_move: async (ctx, storage_key, lease) => {
       if (kind_of(storage_key) !== 'manifest') return;
       const [owner = '', name = ''] = segments_under(storage_key, keys.manifest_prefix, 2) ?? [];
-      await forget_summary(ctx, owner, strip_json(name));
+      await forget_summary(ctx, owner, strip_json(name), lease);
     },
   };
 }

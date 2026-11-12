@@ -56,7 +56,8 @@ describe('quarantine under the owner lease (issue #623)', () => {
     );
 
     expect(leases.requests).toEqual([{ workload, owner_id, operation: 'quarantine' }]);
-    expect(leases.events).toEqual(['acquire', 'assert', 'release']);
+    // Checked before the move and again before the after-move hook writes (#623).
+    expect(leases.events).toEqual(['acquire', 'assert', 'assert', 'release']);
     expect(harness.keys()).toEqual([`_quarantine/${key}`]);
   });
 

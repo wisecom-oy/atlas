@@ -143,7 +143,7 @@ export class DeletionService implements DeletionUseCase {
         `${OUTLOOK_MANIFEST_POINTER_PREFIX}/owners/${manifest.owner_id}/latest.json`,
         outlook_cursor_key(manifest.owner_id),
       ]);
-      await this._manifests.forget_snapshot_summary(ctx, manifest.owner_id, snapshot_id);
+      await this._manifests.forget_snapshot_summary(ctx, manifest.owner_id, snapshot_id, lease);
       return merge_deletion_results(manifest_summary, pointer_summary);
     } finally {
       await lease?.release();

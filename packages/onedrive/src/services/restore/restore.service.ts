@@ -1,6 +1,7 @@
 // Deliberately not shared with the SharePoint copy (#306): 194 differing lines of 496. The
 // restore target differs in kind, an owner's drive against a resolved site and library, and
 // so does the conflict handling around the restore root.
+import { run_with_owner_lease_when_writable } from '@wisecom/atlas-core/services/lease/run-with-owner-lease';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
 import {
@@ -19,12 +20,14 @@ import type {
   OneDriveRestoreResult,
   OneDriveRestoreUseCase,
   TenantContext,
+  OwnerLeasePort,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   NotFoundError,
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASE_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
@@ -53,6 +56,7 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
     @inject(ONEDRIVE_CONNECTOR_TOKEN) private readonly _connector: OneDriveConnector,
     @inject(ONEDRIVE_MANIFEST_REPOSITORY_TOKEN)
     private readonly _manifests: OneDriveManifestRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Restores files from a snapshot to the target user's OneDrive. */
@@ -83,114 +87,124 @@ export class OneDriveRestoreService implements OneDriveRestoreUseCase {
       finish_operation_progress(options, 'restore', 'onedrive', 0, 0);
       return empty_restore_result(options.snapshot_id);
     }
-    const ctx = await this._tenant_factory.create_readonly(tenant_id);
+    const tenant_ctx = await this._tenant_factory.create_readonly(tenant_id);
     try {
-      const chain = await load_drive_chain_entries(
-        onedrive_manifest_lookup(this._manifests),
-        ctx,
-        owner_id,
-        options.snapshot_id,
+      const scope = { workload: 'onedrive', owner_id: owner_id, operation: 'restore' } as const;
+      return await run_with_owner_lease_when_writable(this._leases, tenant_ctx, scope, (ctx) =>
+        this.restore_leased_entries(ctx, tenant_id, owner_id, options),
       );
+    } finally {
+      tenant_ctx.destroy();
+    }
+  }
 
-      const target_owner = options.target_owner_id ?? owner_id;
-      const drives = await this._connector.list_drives(tenant_id, target_owner);
-      const [primary_drive] = drives;
-      if (!primary_drive) {
-        throw new NotFoundError('No OneDrive drives found for target user');
+  /** Restores the selected entries while holding the owner's lease. */
+  private async restore_leased_entries(
+    ctx: TenantContext,
+    tenant_id: string,
+    owner_id: string,
+    options: OneDriveRestoreOptions,
+  ): Promise<OneDriveRestoreResult> {
+    const chain = await load_drive_chain_entries(
+      onedrive_manifest_lookup(this._manifests),
+      ctx,
+      owner_id,
+      options.snapshot_id,
+    );
+
+    const target_owner = options.target_owner_id ?? owner_id;
+    const drives = await this._connector.list_drives(tenant_id, target_owner);
+    const [primary_drive] = drives;
+    if (!primary_drive) {
+      throw new NotFoundError('No OneDrive drives found for target user');
+    }
+
+    const conflict = options.conflict_behavior ?? 'rename';
+    const restorable = filter_drive_entries(restorable_entries(chain.entries), options.file_filter);
+    assert_renameable(options.rename_to, restorable.length);
+    const restore_root = resolve_restore_root(options);
+    const folder_ids = new Map<string, string>();
+
+    let files_restored = 0;
+    let files_skipped = 0;
+    const errors: string[] = [];
+
+    emit_operation_progress(options, {
+      operation: 'restore',
+      workload: 'onedrive',
+      phase: 'processing',
+      processed: 0,
+      total: restorable.length,
+    });
+
+    // Each entry records the drive it came from, and an owner can have several. Resolving one
+    // target drive per run and writing everything into it put the second drive's files into
+    // the first drive, silently, since every upload succeeded against real folder ids. With
+    // `--conflict replace` that overwrote same-path files (issue #361).
+    const resolve_target_drive = build_drive_router(
+      restorable,
+      drives.map((drive) => drive.drive_id),
+      owner_id,
+      target_owner,
+    );
+
+    for (const entry of restorable) {
+      if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
+      const routed = resolve_target_drive(entry);
+      if (routed.error !== undefined) {
+        files_skipped++;
+        errors.push(routed.error);
+        continue;
       }
-
-      const conflict = options.conflict_behavior ?? 'rename';
-      const restorable = filter_drive_entries(
-        restorable_entries(chain.entries),
-        options.file_filter,
+      const result = await this.restore_single_entry(
+        tenant_id,
+        target_owner,
+        routed.drive_id,
+        entry,
+        ctx,
+        folder_ids,
+        conflict,
+        { root: restore_root, file_name: options.rename_to ?? entry.file_name },
       );
-      assert_renameable(options.rename_to, restorable.length);
-      const restore_root = resolve_restore_root(options);
-      const folder_ids = new Map<string, string>();
-
-      let files_restored = 0;
-      let files_skipped = 0;
-      const errors: string[] = [];
-
+      // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
+      if (result.cancelled === true) break;
+      if (result.restored) {
+        files_restored++;
+      } else {
+        files_skipped++;
+        if (result.error) errors.push(result.error);
+      }
       emit_operation_progress(options, {
         operation: 'restore',
         workload: 'onedrive',
         phase: 'processing',
-        processed: 0,
+        processed: files_restored + files_skipped,
         total: restorable.length,
+        current: entry.file_name,
       });
-
-      // Each entry records the drive it came from, and an owner can have several. Resolving one
-      // target drive per run and writing everything into it put the second drive's files into
-      // the first drive, silently, since every upload succeeded against real folder ids. With
-      // `--conflict replace` that overwrote same-path files (issue #361).
-      const resolve_target_drive = build_drive_router(
-        restorable,
-        drives.map((drive) => drive.drive_id),
-        owner_id,
-        target_owner,
-      );
-
-      for (const entry of restorable) {
-        if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
-        const routed = resolve_target_drive(entry);
-        if (routed.error !== undefined) {
-          files_skipped++;
-          errors.push(routed.error);
-          continue;
-        }
-        const result = await this.restore_single_entry(
-          tenant_id,
-          target_owner,
-          routed.drive_id,
-          entry,
-          ctx,
-          folder_ids,
-          conflict,
-          { root: restore_root, file_name: options.rename_to ?? entry.file_name },
-        );
-        // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
-        if (result.cancelled === true) break;
-        if (result.restored) {
-          files_restored++;
-        } else {
-          files_skipped++;
-          if (result.error) errors.push(result.error);
-        }
-        emit_operation_progress(options, {
-          operation: 'restore',
-          workload: 'onedrive',
-          phase: 'processing',
-          processed: files_restored + files_skipped,
-          total: restorable.length,
-          current: entry.file_name,
-        });
-      }
-
-      const folders_created = count_created_folders(folder_ids);
-      const interrupted = finish_operation_progress(
-        options,
-        'restore',
-        'onedrive',
-        files_restored + files_skipped,
-        restorable.length,
-        files_restored + files_skipped < restorable.length,
-      );
-
-      return with_unreadable_keys(
-        {
-          snapshot_id: options.snapshot_id,
-          files_restored,
-          folders_created,
-          files_skipped,
-          errors,
-          interrupted,
-        },
-        chain.unreadable_keys,
-      );
-    } finally {
-      ctx.destroy();
     }
+
+    const folders_created = count_created_folders(folder_ids);
+    const interrupted = finish_operation_progress(
+      options,
+      'restore',
+      'onedrive',
+      files_restored + files_skipped,
+      restorable.length,
+      files_restored + files_skipped < restorable.length,
+    );
+
+    return with_unreadable_keys(
+      {
+        snapshot_id: options.snapshot_id,
+        files_restored,
+        folders_created,
+        files_skipped,
+        errors,
+        interrupted,
+      },
+      chain.unreadable_keys,
+    );
   }
 
   /** Restores one manifest entry to the target drive, returning success or skip reason. */

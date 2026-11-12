@@ -3,6 +3,7 @@
  * create parked in a Graph Retry-After sat the wait out.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -42,7 +43,13 @@ describe('Calendar restore cancelled during a Graph retry wait (issue #673)', ()
 
   it('ends the create wait within a second and reports an interrupted restore, not a failed event', async () => {
     const rig = calendar_rig(
-      (s) => new CalendarRestoreService(s.tenant_factory, s.connector, s.manifests),
+      (s) =>
+        new CalendarRestoreService(
+          s.tenant_factory,
+          s.connector,
+          s.manifests,
+          stub_owner_leases().leases,
+        ),
     );
     save_snapshot(rig.manifests, [
       stored_event(rig.objects, 'src-default', calendar_event('e-1')),

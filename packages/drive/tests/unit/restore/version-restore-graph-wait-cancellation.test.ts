@@ -2,6 +2,7 @@
  * Issue #682. Version restore read its interrupt flag only between versions and never ran under
  * the abort signal, so Ctrl+C during an upload parked in a Graph Retry-After sat the wait out.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import {
@@ -55,6 +56,7 @@ function make_deps(): DriveVersionRestoreDeps & { connector: { upload_small_file
     tenant_factory: {
       create_readonly: vi.fn().mockResolvedValue(ctx),
     } as unknown as TenantContextFactory,
+    leases: stub_owner_leases().leases,
     connector: {
       upload_small_file: vi
         .fn()

@@ -3,6 +3,7 @@
  * the restore moved on, so a key that did not fit the snapshot produced N skipped files and a
  * partial summary. The first failed tag now aborts the restore as a key error.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
@@ -72,7 +73,16 @@ function make_harness(damaged: readonly string[]) {
     ...drive_chain_reads('sharepoint'),
   } as unknown as SharePointManifestRepository;
 
-  return { store, connector, service: new SharePointRestoreService(factory, connector, manifests) };
+  return {
+    store,
+    connector,
+    service: new SharePointRestoreService(
+      factory,
+      connector,
+      manifests,
+      stub_owner_leases().leases,
+    ),
+  };
 }
 
 describe('SharePoint restore after a decrypt authentication failure', () => {

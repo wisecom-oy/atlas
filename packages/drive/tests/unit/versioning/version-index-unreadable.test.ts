@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import { UnreadableObjectsError, UnsupportedFormatVersionError } from '@wisecom/atlas-types';
@@ -79,6 +80,7 @@ describe('version index damage is reported, not swallowed (issue #631)', () => {
       {
         workload: 'onedrive',
         tenant_factory: factory_for(harness.ctx),
+        leases: stub_owner_leases().leases,
         connector: { upload_small_file: vi.fn(), upload_large_file: vi.fn() },
         list_indexes: async () => ({ indexes: READABLE, unreadable_keys: [DAMAGED_KEY] }),
         download_blob,

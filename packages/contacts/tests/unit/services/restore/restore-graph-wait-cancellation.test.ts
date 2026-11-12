@@ -3,6 +3,7 @@
  * create parked in a Graph Retry-After sat the wait out.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -61,6 +62,7 @@ describe('Contacts restore cancelled during a Graph retry wait (issue #673)', ()
       tenant_factory_for(ctx),
       target.connector,
       manifests,
+      stub_owner_leases().leases,
     );
     const controller = new AbortController();
     let settled = false;
