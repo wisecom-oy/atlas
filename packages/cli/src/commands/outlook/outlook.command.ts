@@ -171,6 +171,7 @@ function register_outlook_save(group: Command, get_container: ContainerFactory):
   with_snapshot(command, 'save from a specific snapshot');
   with_folder(command, 'save only messages from this folder');
   with_output(command, 'output zip file path (default: Restore-<timestamp>.zip)');
+  command.option('-y, --yes', 'overwrite an existing output file without asking');
   // `-o` was this command's own spelling of --output and is the owner everywhere else.
   reject_retired_short(command, '-o', '--output');
   with_tenant(command).action((options: OutlookSaveOptions) =>

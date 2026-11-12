@@ -118,6 +118,7 @@ export function make_restore_harness(): RestoreHarness {
 
   const mock_manifests: ManifestRepository = {
     save: vi.fn(),
+    forget_snapshot_summary: vi.fn(),
     find_by_snapshot: vi.fn(),
     find_latest_readable: vi.fn().mockResolvedValue(latest_readable()),
     list_by_owner: vi.fn().mockResolvedValue([]),

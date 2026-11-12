@@ -12,6 +12,18 @@ export interface StorageDefaultRetention {
   readonly years?: number | undefined;
 }
 
+/**
+ * Whether the backend refuses a create-only write onto an existing key and a compare-and-swap
+ * with a stale ETag. `ignored` means it accepted at least one of them, so the owner lease, the
+ * data key bootstrap and the identity registry cannot exclude concurrent writers on this backend.
+ * `not_probed` means the probe object could not be written: no bucket yet, or no write access.
+ */
+export interface StorageConditionalWriteCheck {
+  readonly support: 'supported' | 'ignored' | 'not_probed';
+  /** Which condition was ignored, or why the probe did not run. */
+  readonly detail?: string | undefined;
+}
+
 export interface StorageCheckResult {
   readonly bucket: string;
   readonly reachable: boolean;
@@ -24,6 +36,8 @@ export interface StorageCheckResult {
    * no retention of its own.
    */
   readonly default_retention?: StorageDefaultRetention | undefined;
+  /** Result of the conditional-write probe, which writes and removes one throwaway object. */
+  readonly conditional_writes: StorageConditionalWriteCheck;
   readonly requested_mode?: ObjectLockMode | undefined;
   readonly requested_retention_days?: number | undefined;
   readonly resolved_retain_until?: string | undefined;

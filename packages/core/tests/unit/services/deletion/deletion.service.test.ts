@@ -1,121 +1,17 @@
-import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundError, ObjectLockRetainedError } from '@wisecom/atlas-types';
-import { Container } from 'inversify';
-import 'reflect-metadata';
-import { DeletionService } from '@/services/deletion/deletion.service';
-import {
-  MANIFEST_REPOSITORY_TOKEN,
-  TENANT_CONTEXT_FACTORY_TOKEN,
-  type ManifestRepository,
-  type TenantContext,
-  type TenantContextFactory,
-  type ObjectStorage,
-  type Manifest,
-} from '@wisecom/atlas-types';
-import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
-import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
-import { stub_tenant_create_decipher } from '@wisecom/atlas-types/testing/stub-tenant-create-decipher';
-import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
-
-function make_manifest(overrides: Partial<Manifest> = {}): Manifest {
-  return {
-    id: 'manifest-1',
-    tenant_id: 't',
-    owner_id: 'user@test.com',
-    snapshot_id: 'snap-1',
-    created_at: new Date('2026-03-01T10:00:00Z'),
-    total_objects: 10,
-    total_size_bytes: 1000,
-    delta_links: {},
-    entries: [],
-    ...overrides,
-  };
-}
-
-function make_mock_storage(): ObjectStorage {
-  return {
-    put: vi.fn(),
-    get: vi.fn(),
-    delete: vi.fn(),
-    delete_version: vi.fn(),
-    exists: vi.fn().mockResolvedValue(false),
-    list_stale: vi.fn(async () => []),
-    list: vi.fn().mockResolvedValue([]),
-    list_versions: vi.fn().mockResolvedValue([]),
-    begin_multipart_upload: vi.fn().mockResolvedValue({
-      upload_part: vi.fn(),
-      complete: vi.fn(),
-      abort: vi.fn(),
-    }),
-    copy: vi.fn(),
-    get_with_etag: vi.fn(),
-    get_stream: vi.fn(),
-    validate_object_lock_policy: vi.fn(),
-    abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
-    probe_immutability: vi.fn().mockResolvedValue({
-      bucket: 'test-bucket',
-      reachable: true,
-      versioning_enabled: true,
-      object_lock_enabled: true,
-      mode_supported: true,
-    }),
-  };
-}
-
-function make_mock_context(): TenantContext {
-  return {
-    tenant_id: 'test-tenant',
-    storage: make_mock_storage(),
-    encrypt: vi.fn((data: Buffer) => data),
-    decrypt: vi.fn((data: Buffer) => data),
-    create_cipher: stub_tenant_create_cipher,
-    create_content_hmac: stub_tenant_create_content_hmac,
-    create_decipher: stub_tenant_create_decipher,
-    destroy: vi.fn(),
-  };
-}
+import type { ManifestRepository, TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
+import type { DeletionService } from '@/services/deletion/deletion.service';
+import { deletion_service_rig, make_manifest } from './deletion.service.fixtures';
 
 describe('DeletionService', () => {
-  let container: Container;
   let mock_manifests: ManifestRepository;
   let mock_context: TenantContext;
   let mock_factory: TenantContextFactory;
   let service: DeletionService;
 
   beforeEach(() => {
-    mock_context = make_mock_context();
-
-    mock_manifests = {
-      save: vi.fn(),
-      find_by_snapshot: vi.fn().mockResolvedValue(undefined),
-      list_by_owner: vi.fn().mockResolvedValue([]),
-      find_latest_readable: vi.fn().mockResolvedValue(latest_readable(undefined)),
-      list_all_manifests: vi.fn().mockResolvedValue([]),
-      list_owner_ids: vi.fn().mockResolvedValue([]),
-      list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
-      list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
-      read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
-      list_snapshot_summaries: vi.fn(
-        outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
-      ),
-    };
-
-    mock_factory = {
-      create: vi.fn().mockResolvedValue(mock_context),
-      create_readonly: vi.fn().mockResolvedValue(mock_context),
-      create_storage_only: vi.fn().mockResolvedValue({
-        tenant_id: mock_context.tenant_id,
-        storage: mock_context.storage,
-      }),
-    };
-
-    container = new Container();
-    container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
-    container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
-    container.bind(DeletionService).toSelf();
-
-    service = container.get(DeletionService);
+    ({ service, mock_manifests, mock_context, mock_factory } = deletion_service_rig());
   });
 
   // ---------------------------------------------------------------------------
@@ -257,105 +153,6 @@ describe('DeletionService', () => {
 
       expect(mock_factory.create).not.toHaveBeenCalled();
       expect(mock_factory.create_storage_only).not.toHaveBeenCalled();
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // purge_tenant
-  // ---------------------------------------------------------------------------
-
-  describe('purge_tenant', () => {
-    it('sweeps every workload in the bucket, not a list of known prefixes', async () => {
-      const list_fn = vi.mocked(mock_context.storage.list);
-      list_fn
-        .mockResolvedValueOnce([
-          'manifests/u/snap-1.json',
-          'data/u/aaa',
-          'attachments/u/ccc',
-          'onedrive/data/u/blob',
-          'sharepoint/data/site/blob',
-          'identity-registry.json',
-        ])
-        .mockResolvedValueOnce(['_meta/dek.enc']);
-
-      const result = await service.purge_tenant('t');
-
-      // Five workload objects from the sweep, plus the DEK from the second pass.
-      expect(result.deleted_objects).toBe(6);
-      expect(result.deleted_manifests).toBe(1);
-      expect(mock_context.storage.delete).toHaveBeenCalledWith('onedrive/data/u/blob');
-      expect(mock_context.storage.delete).toHaveBeenCalledWith('sharepoint/data/site/blob');
-      expect(mock_context.storage.delete).toHaveBeenCalledWith('identity-registry.json');
-    });
-
-    it('holds the DEK back until the data it protects is gone', async () => {
-      vi.mocked(mock_context.storage.list).mockResolvedValueOnce(['onedrive/data/u/locked']);
-      vi.mocked(mock_context.storage.delete).mockRejectedValueOnce(
-        new ObjectLockRetainedError('data/u/blob'),
-      );
-
-      const result = await service.purge_tenant('t');
-
-      expect(result.retained_objects).toBe(1);
-      expect(mock_context.storage.delete).not.toHaveBeenCalledWith('_meta/dek.enc');
-      expect(mock_context.storage.list).not.toHaveBeenCalledWith('_meta/');
-    });
-
-    it('deletes the DEK last, once the sweep came back clean', async () => {
-      await service.purge_tenant('t');
-
-      const scopes = vi.mocked(mock_context.storage.list).mock.calls.map(([scope]) => scope);
-      expect(scopes).toEqual(['', '_meta/dek.enc']);
-    });
-
-    it('erases the DEK-encrypted neighbours in _meta before the DEK itself', async () => {
-      // Replica markers and replication records share _meta/ with the key that
-      // decrypts them, and sort after it. Holding back the whole prefix would
-      // let a retained record outlive its key.
-      vi.mocked(mock_context.storage.list)
-        .mockResolvedValueOnce([
-          '_meta/dek.enc',
-          '_meta/replica.marker',
-          '_meta/replication/u/snap/target.json',
-        ])
-        .mockResolvedValueOnce(['_meta/dek.enc']);
-
-      await service.purge_tenant('t');
-
-      const order = vi.mocked(mock_context.storage.delete).mock.calls.map(([key]) => key);
-      expect(order).toEqual([
-        '_meta/replica.marker',
-        '_meta/replication/u/snap/target.json',
-        '_meta/dek.enc',
-      ]);
-    });
-
-    it('leaves the DEK out of the bucket-wide sweep', async () => {
-      vi.mocked(mock_context.storage.list)
-        .mockResolvedValueOnce(['data/u/aaa', '_meta/dek.enc'])
-        .mockResolvedValueOnce(['_meta/dek.enc']);
-
-      const result = await service.purge_tenant('t');
-
-      // One from the sweep, one from the DEK pass -- never twice from the sweep.
-      expect(result.deleted_objects).toBe(2);
-      expect(mock_context.storage.delete).toHaveBeenCalledTimes(2);
-    });
-
-    it('handles empty tenant bucket', async () => {
-      const result = await service.purge_tenant('t');
-
-      expect(result.deleted_objects).toBe(0);
-      expect(result.deleted_manifests).toBe(0);
-      expect(result.retained_objects).toBe(0);
-      expect(result.retained_manifests).toBe(0);
-    });
-
-    it('uses create_storage_only instead of create', async () => {
-      await service.purge_tenant('t');
-
-      expect(mock_factory.create_storage_only).toHaveBeenCalledWith('t');
-      expect(mock_factory.create).not.toHaveBeenCalled();
     });
   });
 });

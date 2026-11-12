@@ -3,6 +3,7 @@ import type { TeamsConnector, TeamsGraphResource, TenantContext } from '@wisecom
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
+import { stub_held_owner_lease } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export const BACKUP_AT = '2025-01-01T00:00:00.000Z';
 export const DELETED_AT = '2025-01-02T00:00:00.000Z';
@@ -49,6 +50,7 @@ export function make_harness(force_full = false): ThreadHarness {
     should_interrupt: () => false,
     force_full,
     checkpoints: new InMemoryTeamsChannelCheckpointRepository(),
+    lease: stub_held_owner_lease(),
     progress: { roots_applied: vi.fn() },
   };
   return { scope, objects, put, list_hosted_contents, download_hosted_content };

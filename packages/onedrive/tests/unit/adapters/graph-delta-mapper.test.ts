@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   DRIVE_DELTA_SELECT_FIELDS,
+  has_item_id,
   map_delta_item,
-  type GraphDeltaDriveItem,
+  type IdentifiedGraphDeltaDriveItem,
 } from '@/adapters/graph-onedrive-delta-mapper';
 
 // Issue #139: driveItem delta signals removal with the `deleted` facet. The
@@ -17,9 +18,20 @@ describe('DRIVE_DELTA_SELECT_FIELDS', () => {
   });
 });
 
+describe('has_item_id', () => {
+  it('accepts an item with a non-empty id', () => {
+    expect(has_item_id({ id: 'i1', name: 'a.txt' })).toBe(true);
+  });
+
+  it('rejects an item Graph returned without an id, or with an empty one', () => {
+    expect(has_item_id({ name: 'a.txt', file: {} })).toBe(false);
+    expect(has_item_id({ id: '', name: 'a.txt' })).toBe(false);
+  });
+});
+
 describe('map_delta_item deletion detection', () => {
   it('treats the deleted facet as a removal', () => {
-    const raw: GraphDeltaDriveItem = {
+    const raw: IdentifiedGraphDeltaDriveItem = {
       id: 'i1',
       parentReference: { path: '/drive/root:/Folder' },
       file: {},

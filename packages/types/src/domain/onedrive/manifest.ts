@@ -101,4 +101,10 @@ export interface OneDriveDeltaCursor {
    */
   readonly folder_scope?: string | undefined;
   readonly updated_at: string;
+  /**
+   * The owner's newest snapshot when the cursor was saved, or `null` when the owner had none. The
+   * cursor is resumed only while that snapshot's manifest still exists (issue #725). Absent on
+   * cursors written before 7.0.
+   */
+  readonly snapshot_id?: string | null;
 }

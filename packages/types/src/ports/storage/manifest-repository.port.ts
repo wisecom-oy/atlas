@@ -1,5 +1,6 @@
 import type { Manifest } from '@/domain/outlook/manifest';
 import type { OutlookSnapshotSummary } from '@/domain/shared/snapshot-summary';
+import type { HeldOwnerLease } from '@/ports/lease/owner-lease.port';
 import type { TenantContext, TenantStorageContext } from '@/ports/tenant/context.port';
 import type {
   LatestReadableManifest,
@@ -13,7 +14,14 @@ import type {
  * damaged manifest. The `readable` reads skip it and name its key instead (issue #631).
  */
 export interface ManifestRepository {
-  save(ctx: TenantContext, manifest: Manifest): Promise<void>;
+  /**
+   * Stores a manifest and its pointers, then records it in the mailbox's summary index. A backup
+   * passes its lease, which is checked again right before the summary write.
+   */
+  save(ctx: TenantContext, manifest: Manifest, lease?: HeldOwnerLease): Promise<void>;
+
+  /** Drops a removed snapshot's row from the mailbox's summary index; logs instead of failing. */
+  forget_snapshot_summary(ctx: TenantContext, owner_id: string, snapshot_id: string): Promise<void>;
 
   /** @throws UnreadableContentError when the snapshot's manifest is damaged. */
   find_by_snapshot(ctx: TenantContext, snapshot_id: string): Promise<Manifest | undefined>;

@@ -287,6 +287,7 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
   );
   log_run_detail(result.summary);
 
+  const repaired_count = result.summary.repaired_shard_keys?.length ?? 0;
   if (result.snapshot) {
     logger.success(`Snapshot ${result.snapshot.snapshot_id} created`);
     const counters: SummaryEntry[] = [
@@ -301,6 +302,11 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
     await render_static_view(<ResultSummary entries={counters} />);
   } else if (result.summary.healthy && result.summary.no_snapshot_reason === 'no_content') {
     logger.warn('No Teams messages found. Nothing was backed up and no snapshot exists.');
+  } else if (result.summary.healthy && repaired_count > 0) {
+    // A --full run that rewrote a damaged shard at its own key changed storage, not the index.
+    logger.info(
+      `Repaired ${repaired_count} unreadable channel shard(s) in place; no new snapshot needed.`,
+    );
   } else if (result.summary.healthy) {
     // Unhealthy runs report their failure through the run outcome, not as "no changes".
     logger.info('No Teams changes detected. Snapshot skipped.');

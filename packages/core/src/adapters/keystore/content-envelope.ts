@@ -44,7 +44,8 @@ export function has_content_header(blob: Buffer): boolean {
  * A version this build does not know is refused rather than guessed at: the layout after the
  * header is what a future version would change. It raises `UnsupportedFormatVersionError`, so a
  * reader can tell an object a newer Atlas wrote from a damaged one and never skips or quarantines
- * it as damage (issue #631).
+ * it as damage (issue #631). The check runs before authentication, so the buffered decrypt path
+ * still tries the blob as the current version before it lets this error stand.
  */
 export function read_content_header(blob: Buffer): Buffer {
   const header = blob.subarray(0, CONTENT_HEADER_LENGTH);

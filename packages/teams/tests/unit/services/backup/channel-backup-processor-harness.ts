@@ -9,6 +9,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { InMemoryTeamsChannelCheckpointRepository } from '@wisecom/atlas-types/testing/in-memory-teams-channel-checkpoint-repository';
 import { create_backup_counters, type BackupRunScope } from '@/services/backup/backup-run-scope';
+import { stub_held_owner_lease } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 export const BACKUP_AT = '2025-01-01T00:00:00.000Z';
 export const TEAM_ID = '00000000-0000-0000-0000-000000000001';
@@ -91,6 +92,7 @@ export function make_scope(
     should_interrupt,
     force_full,
     checkpoints: new InMemoryTeamsChannelCheckpointRepository(),
+    lease: stub_held_owner_lease(),
     progress: { roots_applied: vi.fn() },
   };
 }

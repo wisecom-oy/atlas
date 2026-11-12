@@ -16,6 +16,8 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER_ID = 'owner-1';
 
@@ -114,7 +116,7 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     storage: {
       exists: async () => false,
       put: async () => undefined,
-      list: async () => [],
+      list: list_one_drive_snapshot(),
       list_stale: async () => [],
       abort_incomplete_uploads: async () => 0,
     },
@@ -130,9 +132,18 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
   const service = new OneDriveBackupService(
     factory,
     connector as never,
-    { save: vi.fn(), list_readable_snapshots_by_owner } as never,
+    {
+      save: vi.fn(),
+      list_readable_snapshots_by_owner,
+      // The head check names what the full listing names when the damaged manifest is newest.
+      find_latest_readable: async () => ({
+        manifest: PREVIOUS,
+        unreadable_keys: options.unreadable_keys ?? [],
+      }),
+    } as never,
     { load_version_watermarks: async () => ({}), write_run_index: vi.fn() } as never,
     { load: async () => CURSOR, save: vi.fn() } as never,
+    stub_owner_leases().leases,
   );
   const result = service.backup_onedrive('t', OWNER_ID, {
     ...(options.force_full !== undefined && { force_full: options.force_full }),
@@ -214,5 +225,15 @@ describe('OneDrive re-crawl tombstones (issue #435)', () => {
     );
 
     expect(await tombstoned(run)).toEqual(['budget', 'archive']);
+  });
+
+  it('names a damaged manifest once when the head check and the re-crawl both skip it (#709)', async () => {
+    const damaged = `onedrive/manifests/${OWNER_ID}/od-snap-2-abc.json`;
+    const run = run_backup(
+      { d1: { items: [make_item('report')] }, d2: { items: [make_item('photo', 'd2')] } },
+      { force_full: true, unreadable_keys: [damaged] },
+    );
+
+    expect((await run.result).summary.unreadable_keys).toEqual([damaged]);
   });
 });

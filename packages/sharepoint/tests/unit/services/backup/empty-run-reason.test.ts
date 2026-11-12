@@ -27,6 +27,8 @@ function cursor_knowing_a_file(): SharePointDeltaCursor {
     previous_etag_by_file_id: { f1: 'etag-1' },
     previous_kind_by_file_id: { f1: 'file' },
     updated_at: new Date().toISOString(),
+    // Saved while the site had no snapshot, and none is stored, so the run resumes it (#725).
+    snapshot_id: null,
   };
 }
 
@@ -69,7 +71,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
     expect(result.summary.no_snapshot_reason).toBe('no_changes');
   });
 
-  it('does not spend a manifest lookup when the cursor already proves content', async () => {
+  it('spends no second manifest lookup when the cursor already proves content', async () => {
     const manifests = make_manifests();
 
     await make_service({ manifests, cursors: make_cursors(cursor_knowing_a_file()) }).backup_site(
@@ -77,7 +79,8 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
       'site-1',
     );
 
-    expect(manifests.find_latest_readable).not.toHaveBeenCalled();
+    // The one lookup is the run's head check for damaged manifests (issue #709).
+    expect(manifests.find_latest_readable).toHaveBeenCalledTimes(1);
   });
 
   it('leaves the reason unset when every processed item failed', async () => {
@@ -158,6 +161,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
       previous_etag_by_file_id: { sub: 'etag-sub' },
       previous_kind_by_file_id: { sub: 'folder' },
       updated_at: new Date().toISOString(),
+      snapshot_id: null,
     };
     const connector = make_connector({
       fetch_delta: vi.fn().mockResolvedValue({
@@ -178,7 +182,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
 
   it('reports no_changes when the run walked a file it left unchanged', async () => {
     // The cursor remembers the file's path, name and ETag but not its kind, so the file is walked,
-    // skipped as unchanged, and proves content without a manifest lookup (issue #572).
+    // skipped as unchanged, and proves content without a second manifest lookup (issue #572).
     const cursor: SharePointDeltaCursor = {
       site_id: 'site-1',
       delta_link_by_drive: { 'drive-1': 'https://delta-link' },
@@ -187,6 +191,7 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
       previous_etag_by_file_id: { f1: 'etag-f1' },
       previous_kind_by_file_id: {},
       updated_at: new Date().toISOString(),
+      snapshot_id: null,
     };
     const manifests = make_manifests();
     const connector = make_connector({
@@ -206,6 +211,6 @@ describe('SharePoint backup with no snapshot to create (issue #405)', () => {
 
     expect(result.snapshot).toBeUndefined();
     expect(result.summary.no_snapshot_reason).toBe('no_changes');
-    expect(manifests.find_latest_readable).not.toHaveBeenCalled();
+    expect(manifests.find_latest_readable).toHaveBeenCalledTimes(1);
   });
 });

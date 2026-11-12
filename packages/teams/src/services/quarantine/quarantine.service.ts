@@ -1,12 +1,17 @@
 import { inject, injectable } from 'inversify';
 import type {
+  OwnerLeasePort,
   QuarantinedObjectKind,
   QuarantineResult,
   QuarantineUseCase,
   TeamsIndexRepository,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { TEAMS_INDEX_REPOSITORY_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  OWNER_LEASE_TOKEN,
+  TEAMS_INDEX_REPOSITORY_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import {
   quarantine_unreadable_object,
   type QuarantineTarget,
@@ -41,6 +46,7 @@ export class TeamsQuarantineService implements QuarantineUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(TEAMS_INDEX_REPOSITORY_TOKEN) private readonly _indexes: TeamsIndexRepository,
+    @inject(OWNER_LEASE_TOKEN) private readonly _leases: OwnerLeasePort,
   ) {}
 
   /** Moves the index at `storage_key` to `_quarantine/`, refusing one that reads cleanly. */
@@ -50,11 +56,18 @@ export class TeamsQuarantineService implements QuarantineUseCase {
   ): Promise<QuarantineResult> {
     const target: QuarantineTarget = {
       workload: 'Teams',
+      lease_workload: 'teams',
       accepts: 'Teams snapshot indexes',
       kind_of: (key): QuarantinedObjectKind | undefined =>
         is_teams_index_key(key) ? 'manifest' : undefined,
       read: (ctx, key) => this._indexes.read_index_at(ctx, key),
     };
-    return quarantine_unreadable_object(this._tenant_factory, target, tenant_id, storage_key);
+    return quarantine_unreadable_object(
+      this._tenant_factory,
+      this._leases,
+      target,
+      tenant_id,
+      storage_key,
+    );
   }
 }

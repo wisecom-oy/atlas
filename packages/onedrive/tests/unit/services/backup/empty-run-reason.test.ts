@@ -17,6 +17,7 @@ import type {
 } from '@wisecom/atlas-types';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const OWNER_ID = 'owner-1';
 
@@ -30,6 +31,8 @@ function cursor_knowing_a_file(): OneDriveDeltaCursor {
     previous_etag_by_file_id: { f1: 'etag-1' },
     previous_kind_by_file_id: { f1: 'file' },
     updated_at: new Date().toISOString(),
+    // Saved while the owner had no snapshot, and none is stored, so the run resumes it (#725).
+    snapshot_id: null,
   } as OneDriveDeltaCursor;
 }
 
@@ -93,6 +96,7 @@ function make_service(options: {
       load: vi.fn().mockResolvedValue(options.previous_cursor),
       save: vi.fn().mockResolvedValue(undefined),
     } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, manifests };
@@ -118,8 +122,9 @@ describe('OneDrive backup with no snapshot to create (issue #405)', () => {
     const result = await service.backup_onedrive('tenant-1', OWNER_ID, {});
 
     expect(result.summary.no_snapshot_reason).toBe('no_changes');
-    // The cursor already answered the question, so the run spends no extra storage read.
-    expect(manifests.find_latest_readable).not.toHaveBeenCalled();
+    // The cursor already answered the question, so the run's one lookup is its head check for
+    // damaged manifests (issue #709) and the classifier spends no second one.
+    expect(manifests.find_latest_readable).toHaveBeenCalledTimes(1);
   });
 
   it('reports no_changes for an empty-looking run that has a snapshot in storage', async () => {
@@ -163,7 +168,7 @@ describe('OneDrive backup with no snapshot to create (issue #405)', () => {
 
   it('reports no_changes when the run walked a file it left unchanged', async () => {
     // The cursor knows the file's path, name and ETag but not its kind, so the file is walked,
-    // skipped as unchanged, and proves content without a manifest lookup (issue #572).
+    // skipped as unchanged, and proves content without a second manifest lookup (issue #572).
     const previous_cursor = {
       owner_id: OWNER_ID,
       delta_link_by_drive: { 'drive-1': 'delta-drive-1' },
@@ -172,6 +177,7 @@ describe('OneDrive backup with no snapshot to create (issue #405)', () => {
       previous_etag_by_file_id: { f1: 'etag-1' },
       previous_kind_by_file_id: {},
       updated_at: new Date().toISOString(),
+      snapshot_id: null,
     } as OneDriveDeltaCursor;
     const file: OneDriveDeltaItem = {
       item_id: 'f1',
@@ -197,6 +203,6 @@ describe('OneDrive backup with no snapshot to create (issue #405)', () => {
     const result = await service.backup_onedrive('tenant-1', OWNER_ID, {});
 
     expect(result.summary.no_snapshot_reason).toBe('no_changes');
-    expect(manifests.find_latest_readable).not.toHaveBeenCalled();
+    expect(manifests.find_latest_readable).toHaveBeenCalledTimes(1);
   });
 });

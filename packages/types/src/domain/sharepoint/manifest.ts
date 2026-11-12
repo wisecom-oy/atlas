@@ -92,4 +92,10 @@ export interface SharePointDeltaCursor {
    */
   readonly failed_items?: FailedItemLedger | undefined;
   readonly updated_at: string;
+  /**
+   * The site's newest snapshot when the cursor was saved, or `null` when the site had none. The
+   * cursor is resumed only while that snapshot's manifest still exists (issue #725). Absent on
+   * cursors written before 7.0.
+   */
+  readonly snapshot_id?: string | null;
 }

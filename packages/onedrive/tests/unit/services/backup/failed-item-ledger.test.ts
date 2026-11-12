@@ -11,6 +11,8 @@ import { MAX_FAILED_ITEM_ATTEMPTS } from '@wisecom/atlas-core/services/shared/fa
 import { OneDriveBackupService } from '@/services/backup/backup.service';
 import { resolve_retry_items } from '@/services/backup/failed-item-retry';
 import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 // Issue #34: one persistently failing file must not freeze a drive's delta
 // cursor. The run keeps its successful entries, advances the delta link, and
@@ -109,7 +111,7 @@ function make_harness(options: {
     storage: {
       exists: vi.fn().mockResolvedValue(false),
       put: vi.fn().mockResolvedValue(undefined),
-      list: vi.fn().mockResolvedValue([]),
+      list: vi.fn(list_one_drive_snapshot()),
       delete: vi.fn().mockResolvedValue(undefined),
       list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
@@ -148,6 +150,7 @@ function make_harness(options: {
       write_run_index: vi.fn(),
     } as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, fetch_item_by_id, saved_cursors, calls, save_order };
 }

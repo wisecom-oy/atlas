@@ -199,9 +199,11 @@ Reports pending file changes and failed-item ledger entries per library, using a
 | Flag                  | Description                                          | Default        |
 | --------------------- | ---------------------------------------------------- | -------------- |
 | `--site <url-or-id>`  | Site                                                 | Required       |
-| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the site | All data       |
+| `-s, --snapshot <id>` | Delete the newest snapshot instead of all data for the site | All data       |
 | `-y, --yes`           | Skip the confirmation prompt                         | `false`        |
 | `-t, --tenant <id>`   | Tenant identifier                                    | Config default |
+
+`-s` accepts only the site's newest snapshot. Every newer snapshot is built on the ones before it, so deleting an older one would silently change them. Atlas refuses that with exit code `11` and deletes nothing. Deleting the newest snapshot also removes the delta cursor, so the next backup reads every library in full and captures again what that snapshot held. See [what `-s` does](/reference/cli#drive-snapshot-delete).
 
 Deletion erases every version of each object. Objects still protected by Object Lock are reported as retained, separately from failures. See [erasure](/security#erasure). To remove all data for a tenant across every workload, use `atlas delete --purge`.
 
@@ -263,7 +265,7 @@ Other content the service refuses to serve is handled as follows:
 Each backup ends with a health status:
 
 - **HEALTHY.** Every file's primary content was backed up in every library.
-- **UNHEALTHY.** At least one file failed, a library crashed, or an encryption error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`.
+- **UNHEALTHY.** At least one file failed, a library crashed, or an encryption error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`. A newest snapshot manifest that cannot be read also makes the run UNHEALTHY. When it is the only finding, the run names it and exits `9`, see [Damaged manifests](/troubleshooting#damaged-manifests-and-version-indexes).
 
 A version that fails to download for an unexpected reason (throttling, `403 accessDenied`, a transient fault) makes the run UNHEALTHY. A version Graph reports as gone (`404` or `410`, purged by the site's retention policy) is counted as `unavailable` and does not affect health. Only the HTTP status of the response decides this. An error whose message text happens to contain "404" or "Not Found" is an ordinary failure, and the version is downloaded again by the next backup that picks up a change to the file.
 

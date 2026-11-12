@@ -3,6 +3,7 @@ import { with_graph_retry } from '@wisecom/atlas-m365-graph';
 import type { OneDriveDeltaItem } from '@wisecom/atlas-types';
 import {
   DRIVE_DELTA_SELECT_FIELDS,
+  has_item_id,
   map_delta_item,
   type GraphDeltaDriveItem,
 } from '@/adapters/graph-onedrive-delta-mapper';
@@ -40,5 +41,5 @@ export async function graph_onedrive_fetch_item_by_id(
     if (is_item_not_found(err)) return undefined;
     throw err;
   }
-  return raw.id ? map_delta_item(raw, drive_id) : undefined;
+  return has_item_id(raw) ? map_delta_item(raw, drive_id) : undefined;
 }

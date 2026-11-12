@@ -17,8 +17,9 @@ import { S3TeamsChannelShardRepository } from '@/adapters/s3-teams-channel-shard
 import { S3TeamsIndexRepository } from '@/adapters/s3-teams-index-repository.adapter';
 import { TeamsBackupService } from '@/services/backup/backup.service';
 import { make_connector } from './channel-backup-processor-harness';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
-export const TENANT = 'tenant-test';
+export const TENANT = '00000000-0000-0000-0000-0000000000a1';
 export const TEAM = '00000000-0000-0000-0000-000000000042';
 export const CHANNEL: TeamsGraphResource = { id: 'channel-1', displayName: 'General' };
 export const CHANNEL_ID = 'channel-1';
@@ -52,6 +53,7 @@ export function build_env(channel: TeamsGraphResource, overrides: Partial<TeamsC
     shards,
     cursors,
     new InMemoryTeamsChannelCheckpointRepository(),
+    stub_owner_leases().leases,
   );
   return { harness, service, connector, indexes, shards, cursors };
 }

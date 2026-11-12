@@ -16,7 +16,9 @@ import type {
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
 import { is_within_folder_scope, normalize_folder_scope } from '@/services/backup/folder-scope';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
-import { readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { latest_readable, readable_manifests } from '@wisecom/atlas-types/testing/readable-listing';
+import { list_one_drive_snapshot } from '@wisecom/atlas-types/testing/stub-drive-snapshot-listing';
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 
 const DRIVE_ID = 'd1';
 const OWNER_ID = 'owner-1';
@@ -106,7 +108,7 @@ function make_harness(options: {
     storage: {
       exists: vi.fn().mockResolvedValue(false),
       put: vi.fn().mockResolvedValue(undefined),
-      list: vi.fn().mockResolvedValue([]),
+      list: vi.fn(list_one_drive_snapshot()),
       delete: vi.fn().mockResolvedValue(undefined),
       list_stale: vi.fn(async () => []),
       abort_incomplete_uploads: vi.fn().mockResolvedValue(0),
@@ -128,6 +130,7 @@ function make_harness(options: {
     {
       save: vi.fn(),
       list_readable_snapshots_by_owner: async () => readable_manifests([]),
+      find_latest_readable: async () => latest_readable(),
     } as never,
     { load_version_watermarks: vi.fn().mockResolvedValue({}), write_run_index: vi.fn() } as never,
     {
@@ -137,6 +140,7 @@ function make_harness(options: {
         return Promise.resolve();
       }),
     } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, fetch_delta, saved, downloaded };

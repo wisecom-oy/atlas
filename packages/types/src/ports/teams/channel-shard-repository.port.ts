@@ -7,8 +7,12 @@ import type { TenantContext } from '@/ports/tenant/context.port';
  */
 export interface TeamsChannelShardRepository {
   /**
-   * Stores a shard under its content name. Writes nothing when an object with that name already
-   * exists, since identical content has identical bytes.
+   * Stores a shard under its content name. Writes nothing when a readable object with that name
+   * already exists, since identical content has identical bytes. An existing object that is
+   * damaged is overwritten.
+   *
+   * @throws UnsupportedFormatVersionError when the existing object was written by a newer format
+   *   version. It is not overwritten.
    */
   save(ctx: TenantContext, shard: TeamsChannelShard): Promise<TeamsStoredBlobRef>;
 

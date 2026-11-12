@@ -181,13 +181,15 @@ Reports pending file changes and failed-item ledger entries per drive, using a G
 | Flag                  | Description                                           | Default        |
 | --------------------- | ----------------------------------------------------- | -------------- |
 | `-o, --owner <id>`    | Owner                                                 | Required       |
-| `-s, --snapshot <id>` | Delete one snapshot instead of all data for the owner | All data       |
+| `-s, --snapshot <id>` | Delete the newest snapshot instead of all data for the owner | All data       |
 | `-y, --yes`           | Skip the confirmation prompt                          | `false`        |
 | `-t, --tenant <id>`   | Tenant identifier                                     | Config default |
 
 ```bash
 atlas onedrive delete -o user@example.com -s od-snap-123
 ```
+
+`-s` accepts only the owner's newest snapshot. Every newer snapshot is built on the ones before it, so deleting an older one would silently change them. Atlas refuses that with exit code `11` and deletes nothing. Deleting the newest snapshot also removes the delta cursor, so the next backup reads every drive in full and captures again what that snapshot held. See [what `-s` does](/reference/cli#drive-snapshot-delete).
 
 Deletion erases every version of each object, not just the latest. Objects still protected by Object Lock are reported as retained, separately from failures. See [erasure](/security#erasure). To remove all data for a tenant across every workload, use `atlas delete --purge`.
 
@@ -226,7 +228,7 @@ atlas onedrive restore-version -o user@example.com \
 Each backup ends with a health status:
 
 - **HEALTHY.** Every file's primary content was backed up. The snapshot and delta state are safe to rely on.
-- **UNHEALTHY.** At least one file failed, or a library-level error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`.
+- **UNHEALTHY.** At least one file failed, or a library-level error occurred. The run exits with code `2` for a partial run. A hard failure that aborts the run exits with code `1`. A newest snapshot manifest that cannot be read also makes the run UNHEALTHY. When it is the only finding, the run names it and exits `9`, see [Damaged manifests](/troubleshooting#damaged-manifests-and-version-indexes).
 
 Warnings, such as advisory OneNote notes, print as `[!]` lines and leave the exit code at `0`.
 

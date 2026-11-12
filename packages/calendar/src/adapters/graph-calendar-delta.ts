@@ -3,6 +3,7 @@ import { is_invalid_delta_error } from '@wisecom/atlas-m365-graph';
 import type { CalendarEventDelta, GraphEventPayload } from '@wisecom/atlas-types';
 import { CALENDARS_READ, get_json, mailbox_url } from '@/adapters/graph-calendar-requests';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 type DeltaItem = GraphEventPayload & { readonly '@removed'?: unknown };
 
@@ -91,9 +92,17 @@ async function read_delta(
   // An event can appear more than once in one round (a series edited across pages, removed then
   // re-added); only its last appearance describes the calendar's current state.
   const last_by_id = new Map<string, DeltaItem>();
+  let items_without_id = 0;
   for (const item of items) {
+    if (typeof item.id !== 'string' || item.id === '') {
+      items_without_id++;
+      continue;
+    }
     last_by_id.delete(item.id);
     last_by_id.set(item.id, item);
+  }
+  if (items_without_id > 0) {
+    logger.warn(`Skipped ${items_without_id} event(s) that Graph returned without an id`);
   }
   const finals = [...last_by_id.values()];
   return {

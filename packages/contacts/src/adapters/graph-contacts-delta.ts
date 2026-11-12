@@ -8,6 +8,7 @@ import {
   mailbox_url,
 } from '@/adapters/graph-contacts-requests';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 
 type DeltaItem = GraphContactPayload & { readonly '@removed'?: unknown };
 
@@ -56,9 +57,17 @@ async function read_delta(
   // A contact can appear more than once in one round (edited across pages, removed then re-added);
   // only its last appearance describes the folder's current state.
   const last_by_id = new Map<string, DeltaItem>();
+  let items_without_id = 0;
   for (const item of items) {
+    if (typeof item.id !== 'string' || item.id === '') {
+      items_without_id++;
+      continue;
+    }
     last_by_id.delete(item.id);
     last_by_id.set(item.id, item);
+  }
+  if (items_without_id > 0) {
+    logger.warn(`Skipped ${items_without_id} contact(s) that Graph returned without an id`);
   }
   const finals = [...last_by_id.values()];
   return {

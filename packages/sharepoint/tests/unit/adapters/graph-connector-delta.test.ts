@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { graph_error, stub_graph_client } from '@wisecom/atlas-types/testing/stub-graph-client';
+import { logger } from '@wisecom/atlas-core/utils/logger';
 import { GraphSharePointConnector } from '@/adapters/graph-sharepoint-connector.adapter';
 
 const SITE = 'contoso.sharepoint.com,site-guid,web-guid';
@@ -43,6 +44,23 @@ describe('GraphSharePointConnector.fetch_delta', () => {
     expect(result.items.map((item) => item.item_id)).toEqual(['a', 'b']);
     expect(result.delta_link).toBe(NEXT_CURSOR);
     expect(result.reset_detected).toBe(false);
+  });
+
+  it('skips items Graph returns without a usable id, and warns how many', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const { connector } = connector_over(({ url }) =>
+      url === CURRENT_CURSOR
+        ? { value: [{ name: 'no id' }, file('a', 'a.txt')], '@odata.nextLink': PAGE_2 }
+        : { value: [{ ...file('', 'empty id') }], '@odata.deltaLink': NEXT_CURSOR },
+    );
+
+    const result = await connector.fetch_delta('tenant', SITE, DRIVE, CURRENT_CURSOR);
+
+    expect(result.items.map((item) => item.item_id)).toEqual(['a']);
+    expect(warn).toHaveBeenCalledWith(
+      `Skipped 2 item(s) in drive ${DRIVE} that Graph returned without an id`,
+    );
+    warn.mockRestore();
   });
 
   it('enumerates from the library root with the field selection when there is no cursor', async () => {
