@@ -1,3 +1,4 @@
+import { outlook_stub_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { PassThrough } from 'node:stream';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -91,6 +92,7 @@ describe('SaveService', () => {
       save: vi.fn(),
       list_snapshots: vi.fn().mockResolvedValue([]),
       delete_snapshot: vi.fn(),
+      ...outlook_stub_chain_reads(),
     } as unknown as ManifestRepository;
 
     mock_connector = {

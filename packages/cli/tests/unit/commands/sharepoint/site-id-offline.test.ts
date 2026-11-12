@@ -25,7 +25,7 @@ interface Harness {
   resolve_site: Mock;
   save_snapshot: Mock;
   verify_sharepoint_snapshot: Mock;
-  list_sharepoint_snapshots: Mock;
+  list_sharepoint_snapshot_summaries: Mock;
 }
 
 function harness(): Harness {
@@ -45,14 +45,16 @@ function harness(): Harness {
   const verify_sharepoint_snapshot = vi
     .fn()
     .mockResolvedValue({ total_checked: 1, failed_file_ids: [], index_issues: [] });
-  const list_sharepoint_snapshots = vi.fn().mockResolvedValue([]);
+  const list_sharepoint_snapshot_summaries = vi.fn().mockResolvedValue([]);
 
   container.bind(SHAREPOINT_CONNECTOR_TOKEN).toConstantValue({ resolve_site });
   container.bind(SHAREPOINT_SAVE_USE_CASE_TOKEN).toConstantValue({ save_snapshot });
   container
     .bind(SHAREPOINT_VERIFICATION_USE_CASE_TOKEN)
     .toConstantValue({ verify_sharepoint_snapshot });
-  container.bind(SHAREPOINT_CATALOG_USE_CASE_TOKEN).toConstantValue({ list_sharepoint_snapshots });
+  container
+    .bind(SHAREPOINT_CATALOG_USE_CASE_TOKEN)
+    .toConstantValue({ list_sharepoint_snapshot_summaries });
   container.bind(ATLAS_CONFIG_TOKEN).toConstantValue({ tenant_id: TENANT_ID });
 
   const program = new Command();
@@ -63,7 +65,7 @@ function harness(): Harness {
     resolve_site,
     save_snapshot,
     verify_sharepoint_snapshot,
-    list_sharepoint_snapshots,
+    list_sharepoint_snapshot_summaries,
   };
 }
 
@@ -99,6 +101,6 @@ describe('SharePoint read commands with a site id that Graph no longer knows', (
     });
 
     expect(h.resolve_site).not.toHaveBeenCalled();
-    expect(h.list_sharepoint_snapshots).toHaveBeenCalledWith(TENANT_ID, SITE_ID);
+    expect(h.list_sharepoint_snapshot_summaries).toHaveBeenCalledWith(TENANT_ID, SITE_ID);
   });
 });

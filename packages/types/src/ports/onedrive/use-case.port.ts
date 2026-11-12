@@ -2,6 +2,7 @@ import type {
   OneDriveFileVersionRecord,
   OneDriveSnapshotManifest,
 } from '../../domain/onedrive/manifest';
+import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type {
   BackupProgressReporter,
   NoSnapshotReason,
@@ -76,6 +77,12 @@ export interface OneDriveBackupOptions extends OperationControlOptions {
 export interface OneDriveCatalogUseCase {
   /** Lists all OneDrive snapshots for an owner. */
   list_onedrive_snapshots(tenant_id: string, owner_id: string): Promise<OneDriveSnapshotManifest[]>;
+
+  /** Lists an owner's OneDrive snapshots from its summary index, newest first, without entries. */
+  list_onedrive_snapshot_summaries(
+    tenant_id: string,
+    owner_id: string,
+  ): Promise<OneDriveSnapshotSummary[]>;
 
   /** Lists all version records for a specific file. */
   list_onedrive_file_versions(

@@ -11,6 +11,7 @@ export type {
   SharePointSdkSaveOptions,
   SharePointSdkSaveResult,
   SharePointSdkSnapshotManifest,
+  SharePointSdkSnapshotSummary,
   SharePointSdkFileVersion,
   SharePointSdkDeletionResult,
   SharePointSdkReplicationResult,

@@ -5,6 +5,7 @@ import type {
   OneDriveFileVersionRecord,
   OneDriveManifestRepository,
   OneDriveSnapshotManifest,
+  OneDriveSnapshotSummary,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
@@ -14,6 +15,7 @@ import {
 } from '@wisecom/atlas-types';
 import {
   list_drive_file_versions,
+  list_drive_snapshot_summaries,
   list_drive_snapshots,
   type DriveCatalogDeps,
 } from '@wisecom/atlas-drive/catalog/catalog-queries';
@@ -35,6 +37,19 @@ export class OneDriveCatalogService implements OneDriveCatalogUseCase {
     owner_id: string,
   ): Promise<OneDriveSnapshotManifest[]> {
     return list_drive_snapshots(this.catalog_deps(), tenant_id, owner_id);
+  }
+
+  /** Returns the owner's snapshots from its summary index, newest first, without entries. */
+  async list_onedrive_snapshot_summaries(
+    tenant_id: string,
+    owner_id: string,
+  ): Promise<OneDriveSnapshotSummary[]> {
+    return list_drive_snapshot_summaries(
+      this._tenant_factory,
+      (ctx, id) => this._manifests.list_snapshot_summaries(ctx, id),
+      tenant_id,
+      owner_id,
+    );
   }
 
   /** Resolves `file_ref` to a Graph file id (or path) and returns stored version rows. */

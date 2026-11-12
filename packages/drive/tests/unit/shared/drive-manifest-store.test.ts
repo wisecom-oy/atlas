@@ -8,7 +8,6 @@ import {
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
 import {
   as_manifest_listing,
-  find_latest_readable_drive_manifest,
   read_drive_manifest,
   read_owner_drive_manifests,
   require_readable_drive_manifests,
@@ -63,15 +62,6 @@ describe('drive manifest store with a damaged manifest (issue #631)', () => {
       'od-snap-1000-abc',
     ]);
     expect(listing.unreadable_keys).toEqual([damaged_key]);
-  });
-
-  it('returns the newest readable manifest as the latest, naming the damaged one', async () => {
-    const { harness, damaged_key } = await middle_damaged();
-
-    const latest = await find_latest_readable_drive_manifest(harness.ctx, LAYOUT, OWNER);
-
-    expect(latest.manifest?.snapshot_id).toBe('od-snap-3000-abc');
-    expect(latest.unreadable_keys).toEqual([damaged_key]);
   });
 
   it('refuses the strict listing with the damaged key named', async () => {

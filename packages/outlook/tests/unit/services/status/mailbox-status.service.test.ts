@@ -1,3 +1,4 @@
+import { outlook_chain_reads } from '@wisecom/atlas-types/testing/stub-outlook-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -106,7 +107,10 @@ describe('MailboxStatusService', () => {
       list_owner_ids: vi.fn().mockResolvedValue([]),
       list_readable_by_owner: vi.fn().mockResolvedValue(readable_manifests()),
       list_all_readable: vi.fn().mockResolvedValue(readable_manifests()),
-      read_manifest_at: vi.fn(),
+      read_manifest_at: vi.fn(outlook_chain_reads(() => mock_manifests).read_manifest_at),
+      list_snapshot_summaries: vi.fn(
+        outlook_chain_reads(() => mock_manifests).list_snapshot_summaries,
+      ),
     };
 
     const mock_factory: TenantContextFactory = {

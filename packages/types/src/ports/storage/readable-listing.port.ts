@@ -21,6 +21,18 @@ export interface LatestReadableManifest<T> {
   readonly unreadable_keys: string[];
 }
 
+/**
+ * An owner's snapshots as its summary index and a listing of its manifest keys reconcile them,
+ * newest first, plus the keys of manifests that had no summary row and could not be read.
+ *
+ * A row stands in for its manifest without decrypting it, so a manifest damaged after its row was
+ * written is not named here. `verify` reads the manifest and is the check for that (#625).
+ */
+export interface ReadableSnapshotSummaries<T> {
+  readonly summaries: T[];
+  readonly unreadable_keys: string[];
+}
+
 /** Every version index row a listing could read, plus the keys of index objects it could not. */
 export interface ReadableVersionIndexListing<T> {
   readonly indexes: T[];

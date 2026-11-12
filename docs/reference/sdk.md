@@ -231,25 +231,26 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 ### Outlook
 
-| Method                                | CLI equivalent             | Description                                                                                                    |
-| ------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Back up one mailbox                                                                                            |
-| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify the restorable state, including attachments and the delta chain. `{ fast: true }` checks existence only |
-| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                                        |
-| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox                                                                            |
-| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export a snapshot as an EML zip                                                                                |
-| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots as an EML zip                                                                             |
-| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                                       |
-| `listSnapshots(mailboxId)`            | `atlas outlook list -m`    | List snapshots for a mailbox                                                                                   |
-| `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest, including folders and entries                                                      |
-| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one message                                                                                               |
-| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results)      |
-| `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                            |
-| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                  |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete one snapshot manifest                                                                                   |
-| `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                                 |
-| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                                       |
-| `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside. See [Damaged stored objects](#damaged-stored-objects)                       |
+| Method                                | CLI equivalent             | Description                                                                                                       |
+| ------------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `backup(mailboxId, options?)`         | `atlas outlook backup -m`  | Back up one mailbox                                                                                               |
+| `verify(snapshotId, options?)`        | `atlas outlook verify`     | Verify the restorable state, including attachments and the delta chain. `{ fast: true }` checks existence only    |
+| `restore(snapshotId, options?)`       | `atlas outlook restore -s` | Restore from a snapshot                                                                                           |
+| `restoreMailbox(mailboxId, options?)` | `atlas outlook restore -m` | Restore all snapshots for a mailbox                                                                               |
+| `save(snapshotId, options?)`          | `atlas outlook save -s`    | Export a snapshot as an EML zip                                                                                   |
+| `saveMailbox(mailboxId, options?)`    | `atlas outlook save -m`    | Export all snapshots as an EML zip                                                                                |
+| `listMailboxes()`                     | `atlas outlook list`       | List backed-up mailboxes                                                                                          |
+| `listSnapshots(mailboxId)`            | _(none)_                   | List a mailbox's snapshot manifests, entries included. Decrypts every manifest                                    |
+| `listSnapshotSummaries(mailboxId)`    | `atlas outlook list -m`    | List a mailbox's snapshots from its summary index, without entries. See [Snapshot summaries](#snapshot-summaries) |
+| `getSnapshotDetail(snapshotId)`       | _(none)_                   | Read one snapshot manifest, including folders and entries                                                         |
+| `readMessage(snapshotId, messageRef)` | `atlas outlook read`       | Read one message                                                                                                  |
+| `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results)         |
+| `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                               |
+| `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                     |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete one snapshot manifest                                                                                      |
+| `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                                    |
+| `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                                          |
+| `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside. See [Damaged stored objects](#damaged-stored-objects)                          |
 
 `restore`, `save`, and `verify` read a snapshot together with every older snapshot of the mailbox. `restoreMailbox` and `saveMailbox` read every snapshot in the date range. A message that a backup recorded as deleted, in `removed_object_ids`, is left out of every older snapshot in that set. Runs that were interrupted, filtered by folder, excluded Junk Email, or hit a folder error record no removals. See [Delta sync](/operations/delta-sync#deleted-and-moved-messages-outlook).
 
@@ -257,7 +258,30 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 
 ### OneDrive and SharePoint
 
-`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listFileVersions`, `replicateSnapshot`, `replicateAll`, `rehydrateSnapshot`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()`, `resolveSite(urlOrId)`, and `rehydrateSite`. OneDrive provides `rehydrateOwner`.
+`atlas.onedrive` and `atlas.sharepoint` expose the same operations per drive owner or site: `backup`, `verify`, `restore`, `restoreVersion`, `save`, `listSnapshots`, `listSnapshotSummaries`, `listFileVersions`, `replicateSnapshot`, `replicateAll`, `rehydrateSnapshot`, `checkStatus`, `getStats`, `quarantine(storageKey)`, and a delete method. The delete methods are `deleteOwnerData(ownerId)` and `deleteSnapshot(ownerId, snapshotId)` on OneDrive, and `deleteSiteData(siteId)` and `deleteSnapshot(siteId, snapshotId)` on SharePoint. SharePoint also provides `listSites()`, `resolveSite(urlOrId)`, and `rehydrateSite`. OneDrive provides `rehydrateOwner`.
+
+### Snapshot summaries
+
+```typescript
+const snapshots = await atlas.onedrive.listSnapshotSummaries('user@example.com');
+const newest = snapshots[0]; // { snapshotId, createdAt, manifestKey, entryCount, totalFiles, totalSizeBytes, ... }
+```
+
+`listSnapshotSummaries` on `atlas.outlook`, `atlas.onedrive`, and `atlas.sharepoint` returns an owner's snapshots newest first from its [snapshot summary index](/operations/storage-layout#snapshot-summary-index): one storage listing and one small read, whatever the number of snapshots. `listSnapshots` still returns whole manifests and decrypts every one, so use it only when you need the entries.
+
+| Field                            | On                   | Meaning                                                           |
+| -------------------------------- | -------------------- | ----------------------------------------------------------------- |
+| `snapshotId`, `createdAt`        | all                  | Snapshot identity and time                                        |
+| `manifestKey`                    | all                  | Storage key of the snapshot's manifest                            |
+| `entryCount`                     | all                  | Entries in this snapshot's own manifest, which holds one delta    |
+| `totalSizeBytes`                 | all                  | The manifest's `totalSizeBytes`                                   |
+| `totalObjects`, `removedCount`   | Outlook              | Message high-water mark, and message IDs the run recorded removed |
+| `objectLock`                     | Outlook              | Effective Object Lock mode and `retainUntil`, when set            |
+| `totalFiles`                     | OneDrive, SharePoint | The manifest's `totalFiles`                                       |
+| `ownerEmail`, `ownerDisplayName` | Outlook, OneDrive    | Owner labels recorded at backup time                              |
+| `siteUrl`, `siteDisplayName`     | SharePoint           | Site labels recorded at backup time                               |
+
+A summary row stands in for its manifest without decrypting it, so a manifest damaged after its row was written is still listed. A manifest that has no row and cannot be decrypted is reported through the partial result described in [Damaged stored objects](#damaged-stored-objects). Run `verify` to check manifests at rest.
 
 ### Status results
 

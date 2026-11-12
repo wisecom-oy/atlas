@@ -1,4 +1,5 @@
 import type { AttachmentEntry, MailboxPurpose, Manifest } from '@/domain/outlook/manifest';
+import type { OutlookSnapshotSummary } from '@/domain/shared/snapshot-summary';
 
 export interface MailboxSummary {
   readonly owner_id: string;
@@ -32,6 +33,8 @@ export interface ReadMessageResult {
 export interface CatalogUseCase {
   list_mailboxes(tenant_id: string): Promise<MailboxSummary[]>;
   list_snapshots(tenant_id: string, owner_id: string): Promise<Manifest[]>;
+  /** Lists a mailbox's snapshots from its summary index, newest first, without their entries. */
+  list_snapshot_summaries(tenant_id: string, owner_id: string): Promise<OutlookSnapshotSummary[]>;
   get_snapshot_detail(tenant_id: string, snapshot_id: string): Promise<Manifest | undefined>;
   read_message(
     tenant_id: string,

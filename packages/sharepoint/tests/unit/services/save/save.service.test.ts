@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apply_overrides, type Overrides } from '@wisecom/atlas-types/testing/apply-overrides';
 import { Container } from 'inversify';
@@ -105,6 +106,7 @@ describe('SharePointSaveService', () => {
     mock_manifests = {
       find_by_snapshot: vi.fn(),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
       list_manifests: vi.fn().mockResolvedValue([]),
       save_manifest: vi.fn(),
     } as unknown as SharePointManifestRepository;

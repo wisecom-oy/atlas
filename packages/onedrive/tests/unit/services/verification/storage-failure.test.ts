@@ -6,7 +6,7 @@ import type { DriveManifestEntry, DriveSnapshotManifest } from '@wisecom/atlas-d
 import { verify_drive_snapshot } from '@wisecom/atlas-drive/verification/verify-snapshot';
 import {
   readable_indexes,
-  readable_manifests,
+  readable_summaries,
 } from '@wisecom/atlas-types/testing/readable-listing';
 
 const OWNER_ID = '00000000-0000-0000-0000-000000000001';
@@ -45,7 +45,8 @@ function verify(entries: DriveManifestEntry[], storage: Record<string, unknown>)
       manifests: {
         workload: 'OneDrive',
         find_by_snapshot: async () => manifest,
-        list_readable_snapshots: async () => readable_manifests([manifest]),
+        list_snapshot_summaries: async () => readable_summaries([]),
+        read_manifest_at: async () => undefined,
       },
       list_indexes: async () => readable_indexes(),
     },

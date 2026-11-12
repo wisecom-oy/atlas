@@ -1,8 +1,10 @@
 import type { SharePointSnapshotManifest } from '../../domain/sharepoint/manifest';
+import type { SharePointSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { TenantContext } from '../tenant/context.port';
 import type {
   LatestReadableManifest,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
 } from '@/ports/storage/readable-listing.port';
 
 /**
@@ -46,6 +48,17 @@ export interface SharePointManifestRepository {
     ctx: TenantContext,
     site_id: string,
   ): Promise<ReadableManifestListing<SharePointSnapshotManifest>>;
+
+  /** Lists a site's snapshots from its summary index, newest first, decrypting only rowless manifests. */
+  list_snapshot_summaries(
+    ctx: TenantContext,
+    site_id: string,
+  ): Promise<ReadableSnapshotSummaries<SharePointSnapshotSummary>>;
+
+  /** Lists every site's snapshots from their summary indexes, decrypting only rowless manifests. */
+  list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<SharePointSnapshotSummary>>;
 
   /**
    * Lists snapshot manifests for every site in the tenant.

@@ -1,8 +1,4 @@
-import type {
-  LatestReadableManifest,
-  ReadableManifestListing,
-  TenantContext,
-} from '@wisecom/atlas-types';
+import type { ReadableManifestListing, TenantContext } from '@wisecom/atlas-types';
 import { UnreadableObjectsError } from '@wisecom/atlas-types';
 import {
   read_each_readable,
@@ -34,7 +30,10 @@ export interface DriveManifestLayout {
 
 const MANIFEST_READ_CONCURRENCY = 8;
 
-/** Encrypts and uploads a manifest under the key its owner and snapshot name. */
+/**
+ * Encrypts and uploads a manifest under the key its owner and snapshot name. The provider's
+ * repository records it in the owner's summary index afterwards (#625).
+ */
 export async function save_drive_manifest(
   ctx: TenantContext,
   layout: DriveManifestLayout,
@@ -122,16 +121,6 @@ export async function read_owner_drive_manifests<T extends DriveStoredManifest>(
 /** Presents a read as the port's listing: the readable manifests and the damaged keys. */
 export function as_manifest_listing<T>(read: ReadableObjects<T>): ReadableManifestListing<T> {
   return { manifests: read.items, unreadable_keys: read.unreadable_keys };
-}
-
-/** Returns the newest readable manifest of an owning segment, naming every damaged one. */
-export async function find_latest_readable_drive_manifest<T extends DriveStoredManifest>(
-  ctx: TenantContext,
-  layout: DriveManifestLayout,
-  owner_id: string,
-): Promise<LatestReadableManifest<T>> {
-  const read = await read_owner_drive_manifests<T>(ctx, layout, owner_id);
-  return { manifest: read.items.at(0), unreadable_keys: read.unreadable_keys };
 }
 
 /** Returns every manifest of a read, raising for a damaged one as `require_every_object_readable`. */

@@ -1,3 +1,4 @@
+import { drive_chain_reads } from '@wisecom/atlas-types/testing/stub-drive-manifest-chain';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -111,6 +112,7 @@ describe('SharePoint restore cancellation', () => {
         entries: [make_entry('f1'), make_entry('f2')],
       }),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
+      ...drive_chain_reads('sharepoint'),
     } as unknown as SharePointManifestRepository;
     const service = new SharePointRestoreService(factory, connector, manifests);
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {

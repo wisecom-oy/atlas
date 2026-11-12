@@ -1,8 +1,10 @@
 import type { OneDriveSnapshotManifest } from '../../domain/onedrive/manifest';
+import type { OneDriveSnapshotSummary } from '@/domain/shared/snapshot-summary';
 import type { TenantContext } from '../tenant/context.port';
 import type {
   LatestReadableManifest,
   ReadableManifestListing,
+  ReadableSnapshotSummaries,
 } from '@/ports/storage/readable-listing.port';
 
 /**
@@ -46,6 +48,17 @@ export interface OneDriveManifestRepository {
     ctx: TenantContext,
     owner_id: string,
   ): Promise<ReadableManifestListing<OneDriveSnapshotManifest>>;
+
+  /** Lists an owner's snapshots from its summary index, newest first, decrypting only rowless manifests. */
+  list_snapshot_summaries(
+    ctx: TenantContext,
+    owner_id: string,
+  ): Promise<ReadableSnapshotSummaries<OneDriveSnapshotSummary>>;
+
+  /** Lists every owner's snapshots from their summary indexes, decrypting only rowless manifests. */
+  list_all_snapshot_summaries(
+    ctx: TenantContext,
+  ): Promise<ReadableSnapshotSummaries<OneDriveSnapshotSummary>>;
 
   /**
    * Lists snapshot manifests for every owner in the tenant.
