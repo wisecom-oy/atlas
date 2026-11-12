@@ -131,6 +131,16 @@ The [security model](https://wisecom-oy.github.io/atlas/security) documents the 
 
 If you believe you have found a vulnerability, please report it privately through [wisecom.fi/en/contact](https://wisecom.fi/en/contact) rather than opening a public issue.
 
+## ❤️ Support Atlas
+
+Atlas is developed and maintained by [Wisecom Oy](https://wisecom.fi). If you find Atlas useful, consider supporting its continued development.
+
+Your sponsorship helps us maintain the project, improve reliability, develop new features, and keep Atlas free and open source.
+
+[❤️ Sponsor Wisecom Oy on GitHub](https://github.com/sponsors/wisecom-oy)
+
+Every contribution is appreciated. Thank you for supporting open source!
+
 ## License
 
 Copyright 2026 Wisecom Oy (Y-tunnus: 3629087-1)
