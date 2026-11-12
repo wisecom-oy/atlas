@@ -2,7 +2,7 @@ import { createCipheriv, randomBytes } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type { ObjectStorage, TenantContext } from '@wisecom/atlas-types';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
-import { lock_run_writes } from '@/services/shared/run-object-lock';
+import { apply_run_object_lock_policy } from '@/services/shared/run-object-lock';
 import { stream_to_content_addressed_storage } from '@/services/shared/stream-encrypt-upload';
 
 const KEY = randomBytes(32);
@@ -50,7 +50,7 @@ const TARGET = {
 describe('staging upload on a locked run (#556)', () => {
   it('leaves the staging upload unlocked and locks the canonical copy', async () => {
     const inner = make_inner_storage();
-    const ctx = await lock_run_writes(make_ctx(inner), {
+    const ctx = await apply_run_object_lock_policy(make_ctx(inner), {
       retention_days: 30,
       mode: 'COMPLIANCE',
     });

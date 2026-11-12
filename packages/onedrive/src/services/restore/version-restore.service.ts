@@ -5,11 +5,13 @@ import type {
   OneDriveConnector,
   OneDriveFileVersionIndexRepository,
   OneDriveVersionRestoreUseCase,
+  OwnerLeases,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   ONEDRIVE_CONNECTOR_TOKEN,
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { restore_drive_version } from '@wisecom/atlas-drive/restore/version-restore';
@@ -24,6 +26,7 @@ export class OneDriveVersionRestoreService implements OneDriveVersionRestoreUseC
     @inject(ONEDRIVE_CONNECTOR_TOKEN) private readonly _connector: OneDriveConnector,
     @inject(ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     private readonly _indexes: OneDriveFileVersionIndexRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /** Restores one stored version, or every file's last version before a cutoff. */
@@ -36,6 +39,7 @@ export class OneDriveVersionRestoreService implements OneDriveVersionRestoreUseC
       {
         workload: 'onedrive',
         tenant_factory: this._tenant_factory,
+        leases: this._leases,
         connector: this._connector,
         list_indexes: (ctx, id) => this._indexes.list_readable_by_owner(ctx, id),
         download_blob: download_and_decrypt_blob,

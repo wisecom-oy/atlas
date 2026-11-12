@@ -6,6 +6,7 @@
  * service therefore re-crawls whenever the scope differs from the one recorded in the cursor.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi } from 'vitest';
 import type {
   OneDriveDeltaCursor,
@@ -137,6 +138,7 @@ function make_harness(options: {
         return Promise.resolve();
       }),
     } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, fetch_delta, saved, downloaded };

@@ -80,6 +80,7 @@ function build_result_items(result: StorageCheckResult, ready: boolean): KeyValu
   if (result.object_lock_enabled) {
     items.push(describe_default_retention(result.default_retention));
   }
+  items.push(describe_conditional_writes(result.conditional_writes_supported));
   if (result.requested_mode) {
     items.push({ label: 'Requested mode', value: result.requested_mode });
   }
@@ -138,4 +139,22 @@ function build_request(options: StorageCheckOptions): {
     ...(mode !== undefined ? { mode } : {}),
     ...(retention_days !== undefined ? { retention_days } : {}),
   };
+}
+
+/**
+ * Reports whether the bucket honours create-only writes, which the per-owner run lease relies on to
+ * refuse two runs that start at the same instant. A warning, not a failure: the lease still catches
+ * every other overlap.
+ */
+function describe_conditional_writes(supported: boolean | undefined): KeyValueItem {
+  if (supported === true)
+    return { label: 'Conditional writes', value: 'supported', color: 'green' };
+  if (supported === false) {
+    return {
+      label: 'Conditional writes',
+      value: 'ignored (run lease is best-effort for simultaneous starts)',
+      color: 'yellow',
+    };
+  }
+  return { label: 'Conditional writes', value: 'not checked (no write access)', color: 'yellow' };
 }

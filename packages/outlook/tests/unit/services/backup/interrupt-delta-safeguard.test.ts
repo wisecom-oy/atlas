@@ -1,3 +1,5 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -175,6 +177,7 @@ describe('interrupt delta-link safeguard (issue #23)', () => {
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(manifests);
     container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(cursors);
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
     service = container.get(MailboxSyncService);
   });

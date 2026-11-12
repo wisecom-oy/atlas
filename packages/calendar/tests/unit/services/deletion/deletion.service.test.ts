@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -47,7 +48,10 @@ function seeded_objects(): Record<string, Buffer> {
 function build_service(objects: Record<string, Buffer>): CalendarDeletionService {
   const { ctx } = stub_tenant_context(objects);
   const storage_only = { tenant_id: 'tenant-1', storage: deletion_storage(objects) };
-  return new CalendarDeletionService(tenant_factory_for(ctx, storage_only));
+  return new CalendarDeletionService(
+    tenant_factory_for(ctx, storage_only),
+    stub_owner_leases().leases,
+  );
 }
 
 describe('CalendarDeletionService', () => {

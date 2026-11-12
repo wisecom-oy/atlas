@@ -279,6 +279,17 @@ Backups record every user they resolve by email in one tenant-wide object, `iden
 
 A backend that ignores `If-Match` degrades this to last writer wins, and concurrent runs can then drop each other's new entries. Test it the same way as above: overwrite an object with `If-Match` set to a stale ETag. The write must fail with 412. If it does not, run one backup per tenant at a time.
 
+## Run leases and conditional writes
+
+```
+_meta/leases/{workload}/{owner}.json  # one per running operation, plaintext JSON
+_meta/leases/tenant.json              # held by purge and key re-wrap
+```
+
+Each backup, restore and delete holds a lease object for the owner it works on. See [Run leases](/reference/cli#run-leases). The lease relies on the same conditional writes as the identity registry: it is created with `If-None-Match: *`, taken over after expiry with `If-Match`, and read back after each write. Check the backend with `atlas storage-check`, which reports `Conditional writes: supported` or `ignored`. MinIO and AWS S3 honour both headers. On a backend that ignores them, the lease still refuses a run that starts while another holds the owner, but two runs that start in the same instant can both proceed, so stagger scheduled starts.
+
+A run costs about five S3 requests for its lease, plus three every 2 minutes for renewal. In a versioned bucket each create, renewal and delete leaves a noncurrent version of a few hundred bytes. The bucket lifecycle rules Atlas installs expire noncurrent versions after 30 days and remove the leftover delete markers. Under a bucket default retention those versions are locked like any other write, which is one more reason to remove a default left by an older version (see [Removing a bucket default retention](#removing-a-bucket-default-retention)).
+
 ## Object layout and billable sizes
 
 Some providers bill each object at a minimum size, even when it is smaller. A drive with 20,000 files carries roughly 8 MB of version index data. Stored as one object per file, which older Atlas versions did, a 64 KB minimum bills those 8 MB as about 1.28 GB per month. Stored as one object per backup run, the minimum applies once.

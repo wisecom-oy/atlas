@@ -3,6 +3,7 @@
  * the last run must be tombstoned by comparing the enumeration with the previous chain.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type {
   OneDriveBackupResult,
@@ -133,6 +134,7 @@ function run_backup(deltas: Record<string, DriveDelta>, options: RunOptions = {}
     { save: vi.fn(), list_readable_snapshots_by_owner } as never,
     { load_version_watermarks: async () => ({}), write_run_index: vi.fn() } as never,
     { load: async () => CURSOR, save: vi.fn() } as never,
+    stub_owner_leases().leases,
   );
   const result = service.backup_onedrive('t', OWNER_ID, {
     ...(options.force_full !== undefined && { force_full: options.force_full }),

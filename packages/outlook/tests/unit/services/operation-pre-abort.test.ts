@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { MailboxSyncService } from '@/services/backup/mailbox-sync.service';
@@ -12,8 +13,20 @@ describe('Outlook operation cancellation', () => {
     } as unknown as TenantContextFactory;
     const callbacks = Array.from({ length: 5 }, () => vi.fn());
     const should_interrupt = (): boolean => true;
-    const backup = new MailboxSyncService(factory, {} as never, {} as never, {} as never);
-    const restore = new RestoreService(factory, {} as never, {} as never, {} as never);
+    const backup = new MailboxSyncService(
+      factory,
+      {} as never,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
+    const restore = new RestoreService(
+      factory,
+      {} as never,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const save = new SaveService(factory, {} as never, {} as never);
 
     const results = await Promise.all([

@@ -4,7 +4,7 @@
 // branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { apply_run_object_lock_policy } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
@@ -24,6 +24,7 @@ import type {
   SharePointDeltaCursorRepository,
   SharePointFileVersionIndexRepository,
   SharePointManifestRepository,
+  OwnerLeases,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -32,12 +33,10 @@ import {
   SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN,
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   SHAREPOINT_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
-import {
-  describe_failed_items,
-  type FailedItemLedger,
-} from '@wisecom/atlas-core/services/shared/failed-item-ledger';
+import { describe_failed_items } from '@wisecom/atlas-core/services/shared/failed-item-ledger';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import {
   build_empty_result,
@@ -46,13 +45,13 @@ import {
   build_snapshot_manifest,
   persist_snapshot_backup,
 } from '@/services/backup/backup-builders';
-import type { FileTrackingState } from '@/services/backup/library-item-processor';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import {
   scan_all_libraries,
   type SharePointLibraryScanResult,
 } from '@/services/backup/backup-library-scan';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
+import { build_site_cursor, build_tracking_state } from '@/services/backup/site-cursor-builder';
 import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 
 @injectable()
@@ -66,6 +65,7 @@ export class SharePointBackupService implements SharePointBackupUseCase {
     private readonly _file_indexes: SharePointFileVersionIndexRepository,
     @inject(SHAREPOINT_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: SharePointDeltaCursorRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /**
@@ -92,178 +92,161 @@ export class SharePointBackupService implements SharePointBackupUseCase {
   ): Promise<SharePointBackupResult> {
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      // Per-object retention carried by this run's context, not the bucket default: concurrent
-      // runs on one tenant would overwrite each other's bucket setting (#551).
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
-      const stored_cursor = await this._cursors.load(ctx, site_id);
-      const previous_cursor = options.force_full === true ? undefined : stored_cursor;
-      const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
-      // Same reasoning as the OneDrive twin: a revoked grant is a 403 that
-      // `list_document_libraries` has already named, so an empty list is a site with no document
-      // library rather than a permission fault (issue #369).
-      if (libraries.length === 0) {
-        logger.warn(`Site ${site_id} has no document libraries; there is nothing to back up`);
-      }
-      emit_operation_progress(options, {
-        operation: 'backup',
-        workload: 'sharepoint',
-        phase: 'processing',
-        processed: 0,
-      });
-
-      const delta_link_by_drive: Record<string, string> = {
-        ...(previous_cursor?.delta_link_by_drive ?? {}),
-      };
-      const tracking = this.build_tracking_state(previous_cursor);
-
-      await cleanup_stale_staging(ctx, site_id);
-
-      const manifest_created_at = new Date();
-      const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
-      // Watermarks are read from the cursor even on a forced full run: they
-      // record which historical versions Graph already handed over, not where
-      // the delta stream stopped, and discarding them would re-download every
-      // version of every file (issue #161).
-      const versions = await this.load_run_version_collector(ctx, site_id, stored_cursor);
-      const scan = await scan_all_libraries({
-        connector: this._connector,
-        versions,
-        initial_failed_items: previous_cursor?.failed_items ?? {},
-        tenant_id,
-        site_id,
-        snapshot_id,
-        libraries,
-        options,
-        previous_cursor,
-        tracking,
-        delta_link_by_drive,
-        ctx,
-      });
-      const skipped_manifests = await append_recrawl_tombstones(scan, () =>
-        this._manifests.list_readable_snapshots_by_site(ctx, site_id),
+      const scope = { workload: 'sharepoint', owner_id: site_id, operation: 'backup' } as const;
+      return await this._leases.run_exclusive(tenant_ctx, scope, (leased) =>
+        this.backup_leased(leased, tenant_id, site_id, options),
       );
-
-      emit_operation_progress(options, {
-        operation: 'backup',
-        workload: 'sharepoint',
-        phase: 'finalizing',
-        processed: scan.items_processed,
-      });
-      scan.interrupted ||= options.should_interrupt?.() === true;
-      const cursor = this.build_cursor(
-        site_id,
-        delta_link_by_drive,
-        tracking,
-        scan.failed_items,
-        versions.watermarks,
-      );
-      const warnings = [
-        ...build_package_warnings(scan.package_reports),
-        ...describe_failed_items(scan.failed_items),
-      ];
-      // Version downloads that failed for an unexpected reason leave history out
-      // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
-      // like every other incomplete backup (issue #92).
-      const errors = [
-        ...scan.errors,
-        ...build_version_errors(scan.version_stats.total_versions_failed),
-      ];
-      const healthy =
-        !scan.interrupted && errors.length === 0 && Object.keys(scan.failed_items).length === 0;
-
-      let result: SharePointBackupResult;
-      if (scan.entries.length === 0) {
-        // Versions captured before the run lost its entries (a library-level
-        // failure discards them) are still on the wire and still watermarked:
-        // the rows have to land before the cursor that tells the next run to
-        // skip those versions, or that history is unreachable forever.
-        await this._file_indexes.write_run_index(
-          ctx,
-          site_id,
-          snapshot_id,
-          build_run_version_indexes(site_id, snapshot_id, [], scan.version_rows),
-        );
-        await this._cursors.save(ctx, cursor);
-        result = build_empty_result(
-          site_id,
-          scan.libraries_scanned,
-          scan.files_stored,
-          scan.files_deduplicated,
-          scan.deleted_items,
-          scan.version_stats.total_versions_stored,
-          scan.version_stats.total_versions_unavailable,
-          errors,
-          warnings,
-          healthy,
-          scan.interrupted,
-          true, // cursor_updated: the cursor was saved just above
-          // `healthy`, not just `!interrupted`: a failed item still counts as processed, so a run
-          // whose every file failed would otherwise read as `no_changes` when the truth is that
-          // the changes did not land. An unhealthy run's reason is its errors.
-          healthy
-            ? await classify_empty_run({
-                previous_kind_by_file_id: tracking.previous_kind_by_file_id,
-                files_processed: scan.files_processed,
-                find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, site_id),
-              })
-            : undefined,
-        );
-      } else {
-        result = await this.finalize_snapshot(
-          ctx,
-          tenant_id,
-          site_id,
-          scan,
-          snapshot_id,
-          manifest_created_at,
-          scan.libraries_scanned,
-          options,
-          cursor,
-          errors,
-          warnings,
-          healthy,
-        );
-      }
-      emit_operation_progress(options, {
-        operation: 'backup',
-        workload: 'sharepoint',
-        phase: scan.interrupted ? 'interrupted' : 'completed',
-        processed: scan.items_processed,
-      });
-      return with_summary_unreadable_keys(result, skipped_manifests);
     } finally {
       tenant_ctx.destroy();
     }
   }
 
-  private build_tracking_state(
-    previous_cursor: SharePointDeltaCursor | undefined,
-  ): FileTrackingState {
-    return {
-      previous_path_by_file_id: { ...(previous_cursor?.previous_path_by_file_id ?? {}) },
-      previous_name_by_file_id: { ...(previous_cursor?.previous_name_by_file_id ?? {}) },
-      previous_etag_by_file_id: { ...(previous_cursor?.previous_etag_by_file_id ?? {}) },
-      previous_kind_by_file_id: { ...(previous_cursor?.previous_kind_by_file_id ?? {}) },
-    };
-  }
-
-  private build_cursor(
+  /** Runs the backup once this run holds the site's lease; leased refuses writes if it is lost. */
+  private async backup_leased(
+    leased: TenantContext,
+    tenant_id: string,
     site_id: string,
-    delta_link_by_drive: Record<string, string>,
-    tracking: FileTrackingState,
-    failed_items: FailedItemLedger,
-    version_watermark_by_file_id: NonNullable<
-      SharePointDeltaCursor['version_watermark_by_file_id']
-    >,
-  ): SharePointDeltaCursor {
-    return {
+    options: SharePointBackupOptions,
+  ): Promise<SharePointBackupResult> {
+    // Per-object retention carried by this run's context, not the bucket default: concurrent
+    // runs on one tenant would overwrite each other's bucket setting (#551).
+    const ctx = await apply_run_object_lock_policy(leased, options.object_lock_request);
+    const stored_cursor = await this._cursors.load(ctx, site_id);
+    const previous_cursor = options.force_full === true ? undefined : stored_cursor;
+    const libraries = await this._connector.list_document_libraries(tenant_id, site_id);
+    // Same reasoning as the OneDrive twin: a revoked grant is a 403 that
+    // `list_document_libraries` has already named, so an empty list is a site with no document
+    // library rather than a permission fault (issue #369).
+    if (libraries.length === 0) {
+      logger.warn(`Site ${site_id} has no document libraries; there is nothing to back up`);
+    }
+    emit_operation_progress(options, {
+      operation: 'backup',
+      workload: 'sharepoint',
+      phase: 'processing',
+      processed: 0,
+    });
+
+    const delta_link_by_drive: Record<string, string> = {
+      ...(previous_cursor?.delta_link_by_drive ?? {}),
+    };
+    const tracking = build_tracking_state(previous_cursor);
+
+    await cleanup_stale_staging(ctx, site_id);
+
+    const manifest_created_at = new Date();
+    const snapshot_id = `sp-snap-${manifest_created_at.getTime()}-${randomBytes(3).toString('hex')}`;
+    // Watermarks are read from the cursor even on a forced full run: they
+    // record which historical versions Graph already handed over, not where
+    // the delta stream stopped, and discarding them would re-download every
+    // version of every file (issue #161).
+    const versions = await this.load_run_version_collector(ctx, site_id, stored_cursor);
+    const scan = await scan_all_libraries({
+      connector: this._connector,
+      versions,
+      initial_failed_items: previous_cursor?.failed_items ?? {},
+      tenant_id,
+      site_id,
+      snapshot_id,
+      libraries,
+      options,
+      previous_cursor,
+      tracking,
+      delta_link_by_drive,
+      ctx,
+    });
+    const skipped_manifests = await append_recrawl_tombstones(scan, () =>
+      this._manifests.list_readable_snapshots_by_site(ctx, site_id),
+    );
+
+    emit_operation_progress(options, {
+      operation: 'backup',
+      workload: 'sharepoint',
+      phase: 'finalizing',
+      processed: scan.items_processed,
+    });
+    scan.interrupted ||= options.should_interrupt?.() === true;
+    const cursor = build_site_cursor(
       site_id,
       delta_link_by_drive,
-      ...tracking,
-      version_watermark_by_file_id,
-      failed_items,
-      updated_at: new Date().toISOString(),
-    };
+      tracking,
+      scan.failed_items,
+      versions.watermarks,
+    );
+    const warnings = [
+      ...build_package_warnings(scan.package_reports),
+      ...describe_failed_items(scan.failed_items),
+    ];
+    // Version downloads that failed for an unexpected reason leave history out
+    // of the snapshot: an error, not a warning, so the run exits EXIT_PARTIAL
+    // like every other incomplete backup (issue #92).
+    const errors = [
+      ...scan.errors,
+      ...build_version_errors(scan.version_stats.total_versions_failed),
+    ];
+    const healthy =
+      !scan.interrupted && errors.length === 0 && Object.keys(scan.failed_items).length === 0;
+
+    let result: SharePointBackupResult;
+    if (scan.entries.length === 0) {
+      // Versions captured before the run lost its entries (a library-level
+      // failure discards them) are still on the wire and still watermarked:
+      // the rows have to land before the cursor that tells the next run to
+      // skip those versions, or that history is unreachable forever.
+      await this._file_indexes.write_run_index(
+        ctx,
+        site_id,
+        snapshot_id,
+        build_run_version_indexes(site_id, snapshot_id, [], scan.version_rows),
+      );
+      await this._cursors.save(ctx, cursor);
+      result = build_empty_result(
+        site_id,
+        scan.libraries_scanned,
+        scan.files_stored,
+        scan.files_deduplicated,
+        scan.deleted_items,
+        scan.version_stats.total_versions_stored,
+        scan.version_stats.total_versions_unavailable,
+        errors,
+        warnings,
+        healthy,
+        scan.interrupted,
+        true, // cursor_updated: the cursor was saved just above
+        // `healthy`, not just `!interrupted`: a failed item still counts as processed, so a run
+        // whose every file failed would otherwise read as `no_changes` when the truth is that
+        // the changes did not land. An unhealthy run's reason is its errors.
+        healthy
+          ? await classify_empty_run({
+              previous_kind_by_file_id: tracking.previous_kind_by_file_id,
+              files_processed: scan.files_processed,
+              find_latest_snapshot: () => this._manifests.find_latest_readable(ctx, site_id),
+            })
+          : undefined,
+      );
+    } else {
+      result = await this.finalize_snapshot(
+        ctx,
+        tenant_id,
+        site_id,
+        scan,
+        snapshot_id,
+        manifest_created_at,
+        scan.libraries_scanned,
+        options,
+        cursor,
+        errors,
+        warnings,
+        healthy,
+      );
+    }
+    emit_operation_progress(options, {
+      operation: 'backup',
+      workload: 'sharepoint',
+      phase: scan.interrupted ? 'interrupted' : 'completed',
+      processed: scan.items_processed,
+    });
+    return with_summary_unreadable_keys(result, skipped_manifests);
   }
 
   /**

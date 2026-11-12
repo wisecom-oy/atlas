@@ -66,7 +66,7 @@ Exports can stream instead of writing a file: `atlas.outlook.save(snapshotId, { 
 
 Pass `onStorageRequest` to receive one event per S3 request with its latency, connection-pool queueing, retries, payload size and outcome, for example to feed OpenTelemetry histograms. It works against any S3-compatible backend and never carries object keys, bucket names or hostnames. See [storage request events](https://wisecom-oy.github.io/atlas/reference/storage-request-events).
 
-Run one operation at a time per tenant unless your scheduler guarantees that no two operations touch the same mailbox, drive owner or site. When several processes work on one tenant, pass a `throttleCoordinator` so a Graph 429 seen by one process pauses the others. See [concurrent operations](https://wisecom-oy.github.io/atlas/reference/sdk#concurrent-operations).
+Operations on different mailboxes, drive owners, sites or teams can run at once. A second operation on an owner that another run holds rejects with `OwnerBusyError` before writing anything. When several processes work on one tenant, pass a `throttleCoordinator` so a Graph 429 seen by one process pauses the others. See [concurrent operations](https://wisecom-oy.github.io/atlas/reference/sdk#concurrent-operations).
 
 ## API overview
 

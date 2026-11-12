@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import type { ManifestRepository, TenantContextFactory } from '@wisecom/atlas-types';
@@ -27,7 +28,11 @@ describe('owner erasure covers quarantined copies', () => {
     const other = '_quarantine/manifests/someone-else/snap-2.json';
     const { harness, factory } = bucket([`_quarantine/manifests/${OWNER}/snap-1.json`, other]);
 
-    await new DeletionService(factory, {} as ManifestRepository).delete_mailbox_data('t', OWNER);
+    await new DeletionService(
+      factory,
+      {} as ManifestRepository,
+      stub_owner_leases().leases,
+    ).delete_mailbox_data('t', OWNER);
 
     expect(harness.keys()).toEqual([other]);
   });
@@ -38,7 +43,10 @@ describe('owner erasure covers quarantined copies', () => {
       `_quarantine/onedrive/index/${OWNER}/runs/od-snap-1-abc.json`,
     ]);
 
-    await new OneDriveDeletionService(factory).delete_owner_data('t', OWNER);
+    await new OneDriveDeletionService(factory, stub_owner_leases().leases).delete_owner_data(
+      't',
+      OWNER,
+    );
 
     expect(harness.keys()).toEqual([]);
   });

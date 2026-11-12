@@ -6,6 +6,7 @@
  * other is how the SDK ended up with two vocabularies before v5.0.0.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   OneDriveDeltaCursor,
@@ -93,6 +94,7 @@ function make_service(options: {
       load: vi.fn().mockResolvedValue(options.previous_cursor),
       save: vi.fn().mockResolvedValue(undefined),
     } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, manifests };

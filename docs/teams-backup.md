@@ -36,15 +36,15 @@ Channel messages are read with `ChannelMessage.Read.All`, a protected Microsoft 
 
 ## What is backed up
 
-| Item                                   | Coverage                                                                                                                  |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Channel messages                       | Every root message in each channel the team hosts, including private channels                                             |
-| Replies                                | Each reply is its own blob, linked from its thread. A deleted reply keeps its last live version in `kept`                 |
-| Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit                           |
-| Inline images                          | Stored as encrypted bytes. The image URLs in each message are kept                                                        |
-| System messages                        | Stored with their thread, as Graph returns them                                                                           |
-| File attachments                       | Recorded as links. Atlas does not download them. Files live in SharePoint; see [Team files](#team-files)                  |
-| Team settings, members, channels, tabs | Raw Graph objects                                                                                                         |
+| Item                                   | Coverage                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Channel messages                       | Every root message in each channel the team hosts, including private channels                             |
+| Replies                                | Each reply is its own blob, linked from its thread. A deleted reply keeps its last live version in `kept` |
+| Reactions, mentions, edits             | Kept in the raw Graph objects, as Graph returned them. `lastEditedDateTime` shows the last edit           |
+| Inline images                          | Stored as encrypted bytes. The image URLs in each message are kept                                        |
+| System messages                        | Stored with their thread, as Graph returns them                                                           |
+| File attachments                       | Recorded as links. Atlas does not download them. Files live in SharePoint; see [Team files](#team-files)  |
+| Team settings, members, channels, tabs | Raw Graph objects                                                                                         |
 
 Channels owned by another tenant are skipped with the warning `Channel <id> is owned by another tenant; skipped`.
 
@@ -103,13 +103,13 @@ Each team runs independently and is reported when it finishes. A channel error i
 
 Each run that creates a snapshot prints these counters:
 
-| Counter | Meaning |
-| ------- | ------- |
+| Counter   | Meaning                                                                                                                                  |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `changed` | Threads whose stored record differs from the previous run. New threads count too, and so does a recheck that downloaded an inline image. |
-| `stored` | Messages whose blob was written in this run. |
-| `dedup` | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here. |
-| `hosted` | Inline images written in this run. |
-| `deleted` | Threads recorded as deleted in this run. Printed only when above zero. |
+| `stored`  | Messages whose blob was written in this run.                                                                                             |
+| `dedup`   | Messages whose blob already existed, so nothing was written. A forced full read reports unchanged messages here.                         |
+| `hosted`  | Inline images written in this run.                                                                                                       |
+| `deleted` | Threads recorded as deleted in this run. Printed only when above zero.                                                                   |
 
 After the counters, the run lists each channel with its outcome (`completed`, `incomplete`, `interrupted`, `failed`, or `not_started`), its read mode, and the roots it applied, then the Graph requests per limit class with the achieved rate and the number of `429` answers.
 
@@ -221,6 +221,7 @@ teams/
 Snapshot indexes, channel shards, and channel cursors carry `format_version: 1`. Blobs do not. An object whose `format_version` is missing or not `1` is unreadable. An object with a higher version is refused with an error that names its key and says to upgrade Atlas.
 
 Known limits of Format 1:
+
 - A reply that Graph stops listing without a deletion notice is carried over as live.
 - A reply that Graph deletes before Atlas has listed it is not stored.
 - `verify` checks a channel shard by decrypting it, not against its checksum in the index.
@@ -291,12 +292,12 @@ Without `--full`, the cached result stays in place.
 
 Atlas paces Teams requests before Graph has to throttle them. Microsoft meters Teams reads per application per tenant, and again per team and per channel. Atlas spaces its requests at 80 % of each published limit:
 
-| Scope | Requests | Paced at |
-| ----- | -------- | -------- |
-| Tenant | Channel messages, replies, and inline images | 16 per second |
-| Tenant | Team, members, channels, tabs, and files folder | 24 per second |
-| Team | Team, members, channels, tabs, and files folder | 3.2 per second |
-| Channel | Channel messages, replies, and inline images | 0.8 per second |
+| Scope   | Requests                                        | Paced at       |
+| ------- | ----------------------------------------------- | -------------- |
+| Tenant  | Channel messages, replies, and inline images    | 16 per second  |
+| Tenant  | Team, members, channels, tabs, and files folder | 24 per second  |
+| Team    | Team, members, channels, tabs, and files folder | 3.2 per second |
+| Channel | Channel messages, replies, and inline images    | 0.8 per second |
 
 Every request in one Atlas process shares these budgets, including requests from several teams backed up at once. The remaining 20 % leaves room for other applications and for Graph's sustained window, which Microsoft evaluates below the listed rate.
 
@@ -325,7 +326,7 @@ The stored snapshot keeps the raw Graph objects, inline images with their conten
 
 ## SDK usage
 
-The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. Never run two operations on one team at once. See [Concurrent operations](/reference/sdk#concurrent-operations).
+The SDK exposes the same operations on `atlas.teams`. Options and results use camelCase. `backup` takes one team per call and returns one result. The CLI loops over `--team` and `--all`. Atlas holds a lease per team while an operation runs, so a second operation on the same team rejects with `OwnerBusyError` before writing. See [Concurrent operations](/reference/sdk#concurrent-operations).
 
 `backup` accepts `concurrency`, the number of channels backed up at once (1 to 16, default 4). The result's `summary` reports `elapsedMs`, one entry per channel in `channels` (`channelId`, `outcome`, `readMode`, `rootsApplied`, `resumedFromCheckpoint`, `elapsedMs`), and `requests.messages` and `requests.default` with `requests`, `throttled`, and `achievedRps`. Each `processing` progress event names the channel that finished in `current` and carries `etaMs`, an estimate of the time left based on the channels finished so far.
 
@@ -333,7 +334,7 @@ To back up many teams, run several `backup` calls at once, one per team. All cal
 
 - Give them a shared `throttleCoordinator`. For `teams` requests its `wait` and `raise` receive the team ID as `scope.ownerId`, so a cooldown applies to one team.
 - Set `teamsPacingShare` on each instance to its share of the tenant budget, for example `0.25` for four processes. Pacing state lives in each process, so without it four processes would together send up to four times the tenant rate. Team and channel budgets stay whole.
-- Run only one operation per team at a time, for example with a lease keyed by the team ID. Two runs on one team would also split its channel budget.
+- Schedule one operation per team at a time. Atlas refuses a second run on a team with `OwnerBusyError` (CLI exit `12`), because two runs would overwrite each other's channel cursors and checkpoints.
 
 See [Concurrent operations](/reference/sdk#concurrent-operations).
 

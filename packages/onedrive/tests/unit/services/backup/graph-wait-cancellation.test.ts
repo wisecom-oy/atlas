@@ -3,6 +3,7 @@
  * so Ctrl+C during a delta listing parked in a Graph Retry-After sat the wait out.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   OneDriveDeltaCursor,
@@ -60,6 +61,7 @@ function make_harness(connector: Record<string, unknown>): Harness {
     } as never,
     { write_run_index: vi.fn() } as never,
     { load: vi.fn().mockResolvedValue(STORED_CURSOR), save: cursor_save } as never,
+    stub_owner_leases().leases,
   );
   return { service, cursor_save };
 }

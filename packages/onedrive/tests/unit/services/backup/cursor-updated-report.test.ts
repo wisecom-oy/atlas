@@ -4,6 +4,7 @@
  * say whether this run saved a cursor, on every path.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   OneDriveBackupOptions,
@@ -83,6 +84,7 @@ function make_harness(connector_overrides: Record<string, unknown> = {}): Harnes
       write_run_index: vi.fn().mockResolvedValue(undefined),
     } as never,
     { load: vi.fn().mockResolvedValue(undefined), save: cursor_save } as never,
+    stub_owner_leases().leases,
   );
   return {
     run: (options = {}) => service.backup_onedrive('tenant-1', 'owner-1', options),

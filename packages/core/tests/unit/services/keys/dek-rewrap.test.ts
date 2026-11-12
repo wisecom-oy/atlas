@@ -1,3 +1,7 @@
+import {
+  stub_owner_leases,
+  type StubOwnerLeases,
+} from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { WrongPassphraseError } from '@wisecom/atlas-types';
@@ -36,6 +40,7 @@ interface Harness {
   service: DekRewrapService;
   objects: Map<string, Buffer>;
   dek: Buffer;
+  leases: StubOwnerLeases;
 }
 
 /** A bucket holding one wrapped DEK, written with `OLD_PASSPHRASE`. */
@@ -101,23 +106,27 @@ async function make_harness(
     create_readonly: vi.fn(),
   } as unknown as TenantContextFactory;
 
+  const leases = stub_owner_leases();
   return {
     service: new DekRewrapService(
       factory,
       make_config(options.config_passphrase ?? OLD_PASSPHRASE),
+      leases.leases,
     ),
     objects,
     dek,
+    leases,
   };
 }
 
 describe('re-wrapping a tenant data key', () => {
-  it('round-trips: the new passphrase opens the same key', async () => {
-    const { service, objects, dek } = await make_harness();
+  it('round-trips under the tenant lease: the new passphrase opens the same key', async () => {
+    const { service, objects, dek, leases } = await make_harness();
 
     const result = await service.rewrap_tenant_dek(TENANT, NEW_PASSPHRASE);
 
     expect(result.passphrase_changed).toBe(true);
+    expect(leases.tenant_operations).toEqual(['rewrap']);
     const reader = new EnvelopeKeyService(NEW_PASSPHRASE);
     expect(await reader.unwrap_dek(objects.get(DEK_KEY)!, TENANT)).toEqual(dek);
   });

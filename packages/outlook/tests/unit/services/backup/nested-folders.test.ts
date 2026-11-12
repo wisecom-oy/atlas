@@ -1,3 +1,5 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -94,6 +96,7 @@ describe('MailboxSyncService - nested folders', () => {
       .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
       .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
 
     service = container.get(MailboxSyncService);

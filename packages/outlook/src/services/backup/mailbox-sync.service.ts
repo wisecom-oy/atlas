@@ -2,7 +2,13 @@ import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifi
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { inject, injectable } from 'inversify';
 import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
-import type { MailboxConnector, MailFolder, ManifestRepository } from '@wisecom/atlas-types';
+import type {
+  MailboxConnector,
+  MailboxPurpose,
+  MailFolder,
+  ManifestRepository,
+  OwnerLeases,
+} from '@wisecom/atlas-types';
 import type { MailboxDeltaCursorRepository } from '@wisecom/atlas-types';
 import type { ManifestEntry } from '@wisecom/atlas-types';
 import { calc_rate } from '@wisecom/atlas-core/services/shared/progress-rate';
@@ -12,8 +18,7 @@ import {
   emit_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { sync_single_folder, type FolderSyncResult } from '@/services/backup/folder-sync-executor';
-import { failed_folder_result } from '@/services/backup/failed-folder-result';
+import { sync_folder_with_progress } from '@/services/backup/folder-sync-with-progress';
 import { persist_mailbox_run, resolve_resume_state } from '@/services/backup/mailbox-run-persister';
 import { warn_if_replica } from '@/services/backup/replica-marker-warning';
 import { resolve_backup_folders } from '@/services/shared/folder-selector';
@@ -44,6 +49,7 @@ import {
   MAILBOX_CONNECTOR_TOKEN,
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
 } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core/utils/logger';
 import { append_all } from '@wisecom/atlas-core/utils/append-all';
@@ -58,6 +64,7 @@ export class MailboxSyncService implements BackupUseCase {
     @inject(MANIFEST_REPOSITORY_TOKEN) private readonly _manifests: ManifestRepository,
     @inject(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: MailboxDeltaCursorRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /**
@@ -87,248 +94,208 @@ export class MailboxSyncService implements BackupUseCase {
   ): Promise<SyncResult> {
     await assert_mailbox_exists(this._connector, tenant_id, owner_id);
     const mailbox_purpose = await this._connector.get_mailbox_purpose?.(tenant_id, owner_id);
-    const ctx = await this._tenant_factory.create(tenant_id);
+    const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      await warn_if_replica(ctx);
-      const snapshot = create_pending_snapshot(tenant_id, owner_id, {
-        owner_email: options.owner_email,
-        owner_display_name: options.owner_display_name,
-      });
-      const sync_start = Date.now();
-      const should_interrupt = (): boolean =>
-        options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
-      const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
-
-      const { previous, saved_links, previous_entry_count, mode, unreadable_keys } =
-        await resolve_resume_state(
-          { manifests: this._manifests, cursors: this._cursors },
-          ctx,
-          owner_id,
-          options.force_full === true,
-        );
-
-      const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
-        folder_filter: options.folder_filter,
-        exclude_junk: options.exclude_junk,
-        include_recoverable_items: options.include_recoverable_items,
-      });
-      const folders = folder_selection.folders;
-      const warnings = [...folder_selection.warnings];
-      const excluded_folders = folder_selection.excluded;
-      const progress = resolve_progress_reporter(options, folders);
-      const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
-      emit_operation_progress(options, {
-        operation: 'backup',
-        workload: 'outlook',
-        phase: 'processing',
-        processed: 0,
-        total: global_total,
-      });
-
-      const all_entries: ManifestEntry[] = [];
-      const new_delta_links: Record<string, string> = {};
-      const removed_ids: string[] = [];
-      const removal_counts: Record<string, number> = {};
-      let global_processed = 0;
-      let stored = 0;
-      let deduplicated = 0;
-      let attachments_stored = 0;
-      let reactions_not_captured = 0;
-      const folder_errors: string[] = [];
-
-      for (let i = 0; i < folders.length; i++) {
-        if (should_interrupt()) break;
-        const folder = folders[i]!;
-        progress.mark_active(i);
-
-        const outcome = await this.sync_single_folder_with_progress(
-          ctx,
-          tenant_id,
-          owner_id,
-          folder,
-          i,
-          saved_links,
-          previous_entry_count,
-          global_total,
-          global_processed,
-          sync_start,
-          progress,
-          options,
-          should_interrupt,
-          should_force_stop,
-        );
-
-        if (outcome.error) {
-          folder_errors.push(`${folder.folder_path}: ${outcome.error}`);
-          progress.mark_error(i, outcome.error);
-          continue;
-        }
-
-        // Per-message MIME and attachment failures, not folder failures: the folder's entries are
-        // kept and the run reports itself incomplete rather than losing the folder (issue #366).
-        append_all(
-          folder_errors,
-          outcome.message_errors.map((line) => `${folder.folder_path}: ${line}`),
-        );
-        append_all(
-          warnings,
-          outcome.warnings.map((line) => `${folder.folder_path}: ${line}`),
-        );
-
-        append_all(all_entries, outcome.entries);
-        append_all(removed_ids, outcome.removed_ids);
-        removal_counts[folder.folder_id] = outcome.removed_ids.length;
-        // Persist a folder's delta link only when every page and message was fully processed; an
-        // interrupted or partly failed folder keeps its previous link and is re-enumerated next
-        // run (issues #23, #614, #615).
-        if (outcome.delta_link && outcome.complete) {
-          new_delta_links[folder.folder_id] = outcome.delta_link;
-        }
-        stored += outcome.stored;
-        deduplicated += outcome.deduplicated;
-        attachments_stored += outcome.attachments_stored;
-        reactions_not_captured += outcome.reactions_not_captured;
-        global_processed += outcome.folder_processed;
-
-        if (should_interrupt()) break;
-
-        const rate = calc_rate(global_processed, Date.now() - sync_start);
-        const eta = rate > 0 ? (global_total - global_processed) / rate : 0;
-        progress.update_total(global_processed, global_total, rate, eta);
-        progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
-      }
-
-      let interrupted = mark_progress_interrupted(progress, should_interrupt());
-      progress.finish(global_processed);
-      emit_operation_progress(options, {
-        operation: 'backup',
-        workload: 'outlook',
-        phase: 'finalizing',
-        processed: global_processed,
-        total: global_total,
-      });
-
-      const merged_links = {
-        ...saved_links,
-        ...withhold_links_of_unrecorded_removals(
-          new_delta_links,
-          removal_counts,
-          count_folders_to_finish(folders, excluded_folders, options.folder_filter),
-        ),
-      };
-      const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
-        previous_total_objects: previous_entry_count,
-        object_lock: build_manifest_object_lock_policy(options),
-        mailbox_purpose,
-        excluded_folders,
-        folders,
-        owner_email: options.owner_email,
-        owner_display_name: options.owner_display_name,
-        removed_object_ids: select_recordable_removals(removed_ids, options.folder_filter, {
-          completed: Object.keys(new_delta_links).length,
-          selected: folders.length,
-          excluded: excluded_folders,
-        }),
-      });
-
-      const persisted = await persist_mailbox_run(
-        { manifests: this._manifests, cursors: this._cursors },
-        ctx,
-        manifest,
-        snapshot,
-        previous,
-        all_entries.length,
+      const scope = { workload: 'outlook', owner_id, operation: 'backup' } as const;
+      return await this._leases.run_exclusive(tenant_ctx, scope, (ctx) =>
+        this.sync_leased(ctx, tenant_id, owner_id, mailbox_purpose, options),
       );
-
-      interrupted ||= should_interrupt();
-      emit_operation_progress(options, {
-        operation: 'backup',
-        workload: 'outlook',
-        phase: interrupted ? 'interrupted' : 'completed',
-        processed: global_processed,
-        total: global_total,
-      });
-
-      const completed = persisted.snapshot;
-      return {
-        snapshot: completed,
-        manifest,
-        mode,
-        interrupted,
-        snapshot_stored: true,
-        summary: {
-          stored,
-          deduplicated,
-          attachments_stored,
-          processed: global_processed,
-          folder_errors,
-          warnings,
-          interrupted,
-          completed_folder_count: Object.keys(new_delta_links).length,
-          total_folder_count: folders.length,
-          elapsed_ms: Date.now() - sync_start,
-          excluded_folders,
-          reactions_not_captured,
-          ...(unreadable_keys.length > 0 ? { unreadable_keys } : {}),
-        },
-      };
     } finally {
-      ctx.destroy();
+      tenant_ctx.destroy();
     }
   }
 
-  /** Syncs one folder and updates progress; returns aggregated results or an error message. */
-  private async sync_single_folder_with_progress(
+  /** Runs the backup once this run holds the mailbox's lease; `ctx` refuses writes if it is lost. */
+  private async sync_leased(
     ctx: TenantContext,
     tenant_id: string,
     owner_id: string,
-    folder: MailFolder,
-    folder_index: number,
-    saved_links: Record<string, string>,
-    previous_entry_count: number,
-    global_total: number,
-    global_processed_before: number,
-    sync_start: number,
-    progress: BackupProgressReporter,
+    mailbox_purpose: MailboxPurpose | undefined,
     options: SyncOptions,
-    should_interrupt: () => boolean,
-    should_force_stop: () => boolean,
-  ): Promise<FolderSyncResult & { error?: string }> {
-    try {
-      const prev_link = saved_links[folder.folder_id];
-      const result = await sync_single_folder({
+  ): Promise<SyncResult> {
+    await warn_if_replica(ctx);
+    const snapshot = create_pending_snapshot(tenant_id, owner_id, {
+      owner_email: options.owner_email,
+      owner_display_name: options.owner_display_name,
+    });
+    const sync_start = Date.now();
+    const should_interrupt = (): boolean =>
+      options.should_interrupt?.() === true || options.abort_signal?.aborted === true;
+    const should_force_stop: () => boolean = options.should_force_stop ?? always_false;
+
+    const { previous, saved_links, previous_entry_count, mode, unreadable_keys } =
+      await resolve_resume_state(
+        { manifests: this._manifests, cursors: this._cursors },
         ctx,
-        connector: this._connector,
+        owner_id,
+        options.force_full === true,
+      );
+
+    const folder_selection = await resolve_backup_folders(this._connector, tenant_id, owner_id, {
+      folder_filter: options.folder_filter,
+      exclude_junk: options.exclude_junk,
+      include_recoverable_items: options.include_recoverable_items,
+    });
+    const folders = folder_selection.folders;
+    const warnings = [...folder_selection.warnings];
+    const excluded_folders = folder_selection.excluded;
+    const progress = resolve_progress_reporter(options, folders);
+    const global_total = folders.reduce((sum, f) => sum + f.total_item_count, 0);
+    emit_operation_progress(options, {
+      operation: 'backup',
+      workload: 'outlook',
+      phase: 'processing',
+      processed: 0,
+      total: global_total,
+    });
+
+    const all_entries: ManifestEntry[] = [];
+    const new_delta_links: Record<string, string> = {};
+    const removed_ids: string[] = [];
+    const removal_counts: Record<string, number> = {};
+    let global_processed = 0;
+    let stored = 0;
+    let deduplicated = 0;
+    let attachments_stored = 0;
+    let reactions_not_captured = 0;
+    const folder_errors: string[] = [];
+
+    for (let i = 0; i < folders.length; i++) {
+      if (should_interrupt()) break;
+      const folder = folders[i]!;
+      progress.mark_active(i);
+
+      const outcome = await sync_folder_with_progress(
+        this._connector,
+        ctx,
         tenant_id,
         owner_id,
-        folder_id: folder.folder_id,
-        folder_index,
-        folder_total: folder.total_item_count,
+        folder,
+        i,
+        saved_links,
+        previous_entry_count,
         global_total,
-        global_processed_before,
+        global_processed,
         sync_start,
         progress,
-        is_interrupted: should_interrupt,
-        is_hard_stopped: should_force_stop,
-        operation_control: options,
-        ...(prev_link !== undefined ? { prev_delta_link: prev_link } : {}),
-        previous_manifest_entries: previous_entry_count,
-        ...(options.page_size !== undefined ? { page_size: options.page_size } : {}),
-        ...(options.object_lock_policy !== undefined
-          ? { object_lock_policy: options.object_lock_policy }
-          : {}),
-      });
-      return {
-        ...result,
-        // Marked here rather than inside the executor: the folder knows where
-        // it came from, the message pipeline has no reason to.
-        entries:
-          folder.is_recoverable_items === true
-            ? result.entries.map((entry) => ({ ...entry, recoverable_items: true }))
-            : result.entries,
-      };
-    } catch (err) {
-      return failed_folder_result(err, options);
+        options,
+        should_interrupt,
+        should_force_stop,
+      );
+
+      if (outcome.error) {
+        folder_errors.push(`${folder.folder_path}: ${outcome.error}`);
+        progress.mark_error(i, outcome.error);
+        continue;
+      }
+
+      // Per-message MIME and attachment failures, not folder failures: the folder's entries are
+      // kept and the run reports itself incomplete rather than losing the folder (issue #366).
+      append_all(
+        folder_errors,
+        outcome.message_errors.map((line) => `${folder.folder_path}: ${line}`),
+      );
+      append_all(
+        warnings,
+        outcome.warnings.map((line) => `${folder.folder_path}: ${line}`),
+      );
+
+      append_all(all_entries, outcome.entries);
+      append_all(removed_ids, outcome.removed_ids);
+      removal_counts[folder.folder_id] = outcome.removed_ids.length;
+      // Persist a folder's delta link only when every page and message was fully processed; an
+      // interrupted or partly failed folder keeps its previous link and is re-enumerated next
+      // run (issues #23, #614, #615).
+      if (outcome.delta_link && outcome.complete) {
+        new_delta_links[folder.folder_id] = outcome.delta_link;
+      }
+      stored += outcome.stored;
+      deduplicated += outcome.deduplicated;
+      attachments_stored += outcome.attachments_stored;
+      reactions_not_captured += outcome.reactions_not_captured;
+      global_processed += outcome.folder_processed;
+
+      if (should_interrupt()) break;
+
+      const rate = calc_rate(global_processed, Date.now() - sync_start);
+      const eta = rate > 0 ? (global_total - global_processed) / rate : 0;
+      progress.update_total(global_processed, global_total, rate, eta);
+      progress.mark_done(i, outcome.stored, outcome.deduplicated, outcome.attachments_stored);
     }
+
+    let interrupted = mark_progress_interrupted(progress, should_interrupt());
+    progress.finish(global_processed);
+    emit_operation_progress(options, {
+      operation: 'backup',
+      workload: 'outlook',
+      phase: 'finalizing',
+      processed: global_processed,
+      total: global_total,
+    });
+
+    const merged_links = {
+      ...saved_links,
+      ...withhold_links_of_unrecorded_removals(
+        new_delta_links,
+        removal_counts,
+        count_folders_to_finish(folders, excluded_folders, options.folder_filter),
+      ),
+    };
+    const manifest = build_manifest(owner_id, snapshot.id, all_entries, merged_links, {
+      previous_total_objects: previous_entry_count,
+      object_lock: build_manifest_object_lock_policy(options),
+      mailbox_purpose,
+      excluded_folders,
+      folders,
+      owner_email: options.owner_email,
+      owner_display_name: options.owner_display_name,
+      removed_object_ids: select_recordable_removals(removed_ids, options.folder_filter, {
+        completed: Object.keys(new_delta_links).length,
+        selected: folders.length,
+        excluded: excluded_folders,
+      }),
+    });
+
+    const persisted = await persist_mailbox_run(
+      { manifests: this._manifests, cursors: this._cursors },
+      ctx,
+      manifest,
+      snapshot,
+      previous,
+      all_entries.length,
+    );
+
+    interrupted ||= should_interrupt();
+    emit_operation_progress(options, {
+      operation: 'backup',
+      workload: 'outlook',
+      phase: interrupted ? 'interrupted' : 'completed',
+      processed: global_processed,
+      total: global_total,
+    });
+
+    const completed = persisted.snapshot;
+    return {
+      snapshot: completed,
+      manifest,
+      mode,
+      interrupted,
+      snapshot_stored: true,
+      summary: {
+        stored,
+        deduplicated,
+        attachments_stored,
+        processed: global_processed,
+        folder_errors,
+        warnings,
+        interrupted,
+        completed_folder_count: Object.keys(new_delta_links).length,
+        total_folder_count: folders.length,
+        elapsed_ms: Date.now() - sync_start,
+        excluded_folders,
+        reactions_not_captured,
+        ...(unreadable_keys.length > 0 ? { unreadable_keys } : {}),
+      },
+    };
   }
 }

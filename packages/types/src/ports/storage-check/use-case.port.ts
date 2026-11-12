@@ -24,6 +24,12 @@ export interface StorageCheckResult {
    * no retention of its own.
    */
   readonly default_retention?: StorageDefaultRetention | undefined;
+  /**
+   * Whether the bucket refuses a create-only write to an existing key. Without it, the per-owner run
+   * lease still catches a run that starts while another holds the owner, but not two runs that start
+   * in the same instant. Undefined when the probe could not write, e.g. with read-only credentials.
+   */
+  readonly conditional_writes_supported?: boolean | undefined;
   readonly requested_mode?: ObjectLockMode | undefined;
   readonly requested_retention_days?: number | undefined;
   readonly resolved_retain_until?: string | undefined;

@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -24,6 +25,7 @@ function harness() {
     connector,
     manifests,
     cursors,
+    stub_owner_leases().leases,
   );
   const run = () => service.backup_contacts('tenant-1', MAILBOX);
   return { script, delta_calls, manifests, cursors, run };

@@ -2,6 +2,8 @@
  * OneDrive and SharePoint erasure. Both were deleting visible keys only, so in a
  * versioned bucket they reported success while every byte stayed retrievable.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -48,6 +50,7 @@ describe('workload deletion', () => {
 
     const container = new Container();
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(factory);
+    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(OneDriveDeletionService).toSelf();
     container.bind(SharePointDeletionService).toSelf();
 

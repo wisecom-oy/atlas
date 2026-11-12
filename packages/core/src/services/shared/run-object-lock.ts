@@ -31,7 +31,7 @@ export const UNLOCKED_STAGING_UPLOAD: StorageObjectLockPolicy = Object.freeze({}
  * setting and one run's files were locked for the other's period. A policy carried by the run's
  * own context reaches every object it writes and nothing it does not.
  */
-export async function lock_run_writes(
+export async function apply_run_object_lock_policy(
   ctx: TenantContext,
   request: ObjectLockRequest | undefined,
 ): Promise<TenantContext> {

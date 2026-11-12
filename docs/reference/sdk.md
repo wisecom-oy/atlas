@@ -246,7 +246,7 @@ Method names mirror the CLI: `atlas outlook backup` maps to `atlas.outlook.backu
 | `checkMailboxStatus(mailboxId)`       | `atlas outlook status`     | Delta peek for pending changes. Does not advance the stored cursor. See [status results](#status-results)      |
 | `listAvailableMailboxes(options?)`    | _(discovery)_              | List tenant mailboxes through Graph                                                                            |
 | `deleteMailboxData(mailboxId)`        | `atlas outlook delete -m`  | Delete all data for a mailbox                                                                                  |
-| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot manifest. Rejects any other with `SnapshotNotNewestError`                  |
+| `deleteSnapshot(snapshotId)`          | `atlas outlook delete -s`  | Delete the mailbox's newest snapshot manifest. Rejects any other with `SnapshotNotNewestError`                 |
 | `purgeTenantData()`                   | `atlas delete --purge`     | Delete the entire tenant bucket, all workloads                                                                 |
 | `getMailboxStats(mailboxId)`          | `atlas stats -m`           | Mailbox-level statistics                                                                                       |
 | `quarantine(storageKey)`              | `atlas outlook quarantine` | Move an unreadable manifest aside. See [Damaged stored objects](#damaged-stored-objects)                       |
@@ -936,7 +936,7 @@ const throttleCoordinator: ThrottleCoordinator = {
 const atlas = createAtlasInstance({ ...config, throttleCoordinator });
 ```
 
-The sequential loop above is the recommended default. Atlas has no scheduler and no run lock, so running operations at the same time is the host's decision, and the host owns the rules below.
+The sequential loop above is the recommended default. Atlas has no scheduler, so running operations at the same time is the host's decision. Atlas detects the one overlap that would lose state, two operations on the same owner, with a run lease.
 
 **What Atlas makes safe.** Operations on different resources of one tenant can run at once, on one instance or in separate processes against the same bucket. Content, manifests, delta cursors, version indexes and staging objects are keyed by mailbox, drive owner or site. The tenant-wide objects are written safely:
 
@@ -949,11 +949,37 @@ The sequential loop above is the recommended default. Atlas has no scheduler and
 
 The compare-and-swap writes need a backend that honours `If-Match` and `If-None-Match`. See [Storage](/self-hosting/storage#the-identity-registry-under-concurrent-runs).
 
+**Run leases.** Every backup, restore, version restore and delete holds a lease on its owner while it runs: an object at `_meta/leases/{workload}/{owner}.json` in the tenant bucket. `outlook.purgeTenantData()` and `rewrapDataKey()` hold the tenant lease, `_meta/leases/tenant.json`.
+
+```typescript
+import { OwnerBusyError } from '@wisecom/atlas-sdk';
+
+try {
+  await atlas.onedrive.backup(ownerId);
+} catch (err) {
+  if (!(err instanceof OwnerBusyError)) throw err;
+  // Another run holds this owner. Nothing was written.
+  console.warn(`${ownerId} is busy until ${err.holder?.expires_at}; retrying later`);
+}
+```
+
+| Rule                                     | Behavior                                                                                                                                                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Second operation on one owner            | Rejects with `OwnerBusyError` (`ATLAS_OWNER_BUSY`, CLI exit `12`) before any write. `holder` gives the other run's `operation`, `host`, `pid`, `started_at` and `expires_at`                                                   |
+| Different owners, or different workloads | Run at once. Outlook, Contacts and Calendar of one mailbox have separate leases                                                                                                                                                |
+| Purge and key re-wrap                    | Take the tenant lease only while no owner lease is live. Every owner operation rejects with `OwnerBusyError` while it is held                                                                                                  |
+| Read-only calls                          | `status`, listings, `verify`, `save`, `readMessage` and stats take no lease and never wait for one                                                                                                                             |
+| Crashed holder                           | The holder renews every 2 minutes and the lease is valid for 10 minutes after its last renewal. A lease left by a killed process expires and the next run takes it over                                                        |
+| Lost lease                               | A run that could not renew for 10 minutes, or whose expired lease another run took over, refuses every further write and rejects with `OwnerLeaseLostError` (`ATLAS_OWNER_BUSY`), so it never overwrites the other run's state |
+| Read-only storage credentials            | A restore that cannot write the lease runs without one and logs a warning                                                                                                                                                      |
+
+A lease costs about five S3 requests per operation plus three per renewal, and no Graph request. It is created with `If-None-Match: *` and taken over with `If-Match`, then read back. On a backend that ignores conditional writes the read before and after still refuse a run that starts while another holds the owner; only two starts in the same instant can both proceed. `atlas storage-check` reports which case applies. Releases older than this one take no lease, so a fleet that mixes versions is not protected. A SharePoint backup with `includeSubsites: true` leases each site as it reaches it.
+
 **What the host must guarantee.**
 
-- Never run two operations on the same mailbox, drive owner, site or team at once. Their cursors and staging objects collide. Each team's delta cursors live in one object, so concurrent backups of one team overwrite each other's cursors. A SharePoint backup with `includeSubsites: true` also covers each subsite, so it must not overlap a backup of one of those subsites.
-- Restore, deletion, purge and key re-wrap assume nothing else is writing to the tenant. Run them alone.
-- Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them.
+- Keep host clocks synchronized. Lease expiry is compared against each host's clock.
+- Retry `OwnerBusyError` later rather than at once. The other run may take hours.
+- Let in-flight operations finish or cancel them before calling `dispose()`. Disposal does not wait for them, and a lease that is not released blocks its owner for up to 10 minutes.
 
 **Throttling.** Before every HTTP attempt made through a Graph connector, Atlas calls `wait(pool, scope?)` on the instance's throttle coordinator. On every 429, it calls `raise(pool, retry_after_ms, scope?)`, with Graph's `Retry-After` or 30 seconds when there is none. The pool is one of the `GraphServicePool` values: `outlook`, `sharepoint_onedrive`, `identity`, or `teams`. The `teams` pool has its own cooldown, so a Teams throttle does not pause mail or drive requests. The optional `scope` is a `ThrottleScope`, `{ ownerId }`. Outlook requests set it to the normalized mailbox owner id, and Teams requests set it to the normalized team id. Listing the tenant's teams carries no scope. Drive and identity requests pass no scope. Mailbox backup and restore, mailbox discovery, user lookups, every Teams call, and every OneDrive and SharePoint connector call are coordinated. User lookups are also retried like every other Graph call; before 6.1.0 a throttled lookup failed the operation outright. Drive file downloads from pre-authenticated URLs, whole or chunked, and resumable upload chunks use a plain `fetch`, so Atlas coordinates them on the `sharepoint_onedrive` pool too: each attempt waits, and a 429 or 503 with `Retry-After` raises that pool's cooldown. Their own retry backoff still applies on top. The default coordinator keeps one in-memory cooldown per pool, plus one per mailbox for the `outlook` pool and one per team for the `teams` pool. A 429 on one mailbox pauses only that mailbox's requests, and a 429 on one team pauses only that team's requests. A 429 on a drive pauses its other drive and site requests, while the other pools keep running. A coordinator written against the two-argument signature (`wait(pool)`, `raise(pool, retry_after_ms)`) keeps working. JavaScript ignores the extra argument, so such a coordinator treats every Outlook or Teams 429 as pool-wide.
 
@@ -1303,30 +1329,32 @@ try {
 }
 ```
 
-| Class                               | `code`                       | Meaning                                                                                                                                   |
-| ----------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs                                                                            |
-| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent                                                                    |
-| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                           |
-| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist                                                                                  |
-| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`                                                                           |
-| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key, or a OneDrive or SharePoint restore stopped at an object that failed AES-GCM authentication |
-| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set                                                                               |
-| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                  |
-| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, or tenant is missing or unusable                                                                       |
-| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested, but bucket versioning is off                                                                                      |
-| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                                                                                 |
-| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                                                                         |
-| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                |
-| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                            |
-| `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)         |
-| `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                     |
-| `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported          |
-| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                 |
+| Class                               | `code`                       | Meaning                                                                                                                                                                                  |
+| ----------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AtlasError`                        | any of the below             | Base class. Catch it to separate deliberate failures from bugs                                                                                                                           |
+| `AuthError`                         | `ATLAS_AUTH_DENIED`          | Graph or storage refused the call: missing permission or admin consent                                                                                                                   |
+| `MailboxNotLicensedError`           | `ATLAS_MAILBOX_NOT_LICENSED` | No Exchange Online license, so Graph does not serve the mailbox                                                                                                                          |
+| `NotFoundError`                     | `ATLAS_NOT_FOUND`            | Snapshot, mailbox, drive, site, or object does not exist                                                                                                                                 |
+| `ThrottledError`                    | `ATLAS_THROTTLED`            | Graph returned 429 through all 12 retries. See `retry_after_ms`                                                                                                                          |
+| `WrongPassphraseError`              | `ATLAS_WRONG_PASSPHRASE`     | The passphrase could not unwrap the data key, or a OneDrive or SharePoint restore stopped at an object that failed AES-GCM authentication                                                |
+| `ObjectLockRetainedError`           | `ATLAS_OBJECT_LOCK_RETAINED` | Object is under retention or a legal hold. Its `key` is set                                                                                                                              |
+| `StorageError`                      | `ATLAS_STORAGE_FAILURE`      | Storage failed for a reason other than permission, retention, or absence                                                                                                                 |
+| `ConfigError`                       | `ATLAS_CONFIG_INVALID`       | Credentials, endpoint, passphrase, or tenant is missing or unusable                                                                                                                      |
+| `ObjectLockVersioningDisabledError` | `ATLAS_CONFIG_INVALID`       | Immutability requested, but bucket versioning is off                                                                                                                                     |
+| `ObjectLockUnsupportedError`        | `ATLAS_CONFIG_INVALID`       | Immutability requested, but the bucket has no Object Lock                                                                                                                                |
+| `ObjectLockModeRejectedError`       | `ATLAS_CONFIG_INVALID`       | The backend rejected the requested retention mode                                                                                                                                        |
+| `PreconditionFailedError`           | `ATLAS_STORAGE_FAILURE`      | A conditional write lost a race (HTTP 412)                                                                                                                                               |
+| `UnreadableContentError`            | `ATLAS_CONTENT_UNREADABLE`   | Stored data or MIME content could not be decoded. Not exported                                                                                                                           |
+| `OwnerBusyError`                    | `ATLAS_OWNER_BUSY`           | Another run holds the owner, or purge or re-wrap holds the tenant. Nothing was written. `holder` and `lease_key` name the other run. See [Concurrent operations](#concurrent-operations) |
+| `OwnerLeaseLostError`               | `ATLAS_OWNER_BUSY`           | The run lost its lease part way and stopped writing. `lease_key` names the lease                                                                                                         |
+| `UnreadableObjectsError`            | `ATLAS_CONTENT_UNREADABLE`   | Named manifests or version indexes could not be read. See `unreadable_keys` and [Damaged stored objects](#damaged-stored-objects)                                                        |
+| `UnsupportedFormatVersionError`     | `ATLAS_FORMAT_UNSUPPORTED`   | Stored Teams content was written by a newer Atlas format. Upgrade Atlas. Not exported                                                                                                    |
+| `DekOverwriteRefusedError`          | `ATLAS_KEY_CONFLICT`         | Rehydration refused to replace a different data key on a primary that holds other objects. Retrying cannot succeed. Not exported                                                         |
+| `SnapshotNotNewestError`            | `ATLAS_SNAPSHOT_NOT_NEWEST`  | Outlook `deleteSnapshot` refused a snapshot that newer snapshots are built on. See `snapshot_id` and `newer_snapshot_ids`                                                                |
 
 Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK error is available for logging. Branching does not depend on it.
 
-`ThrottledError` is the exception to the camelCase rule. It exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries, when a call that has already waited 24 minutes would have to wait again, or at once when `Retry-After` is longer than one hour; the message then names the value Graph sent. A `Retry-After` up to one hour is waited out, plus a random delay of 1 to 5 seconds so requests throttled together do not retry together. Retries without `Retry-After` back off exponentially, capped at 5 minutes per wait. Backoff waits, `Retry-After` waits, and cooldown waits share the 24-minute budget, and a wait already started runs in full. Time spent inside a request does not count toward the budget. The CLI exits with code `3` for this error.
+`ThrottledError` and `OwnerBusyError` are the exceptions to the camelCase rule. `OwnerBusyError` exposes `lease_key` and `holder` with snake_case fields. `ThrottledError` exposes the last `Retry-After` value Graph sent as `retry_after_ms`, in milliseconds, or `undefined` when Graph sent none. It is thrown after 12 retries, when a call that has already waited 24 minutes would have to wait again, or at once when `Retry-After` is longer than one hour; the message then names the value Graph sent. A `Retry-After` up to one hour is waited out, plus a random delay of 1 to 5 seconds so requests throttled together do not retry together. Retries without `Retry-After` back off exponentially, capped at 5 minutes per wait. Backoff waits, `Retry-After` waits, and cooldown waits share the 24-minute budget, and a wait already started runs in full. Time spent inside a request does not count toward the budget. The CLI exits with code `3` for this error.
 
 `WrongPassphraseError` needs a note. AES-GCM reports a wrong key and damaged ciphertext as the same authentication failure. Atlas names the passphrase because it is the likelier cause and the only one an operator can act on. The raw crypto error stays in `cause`. If the passphrase is known to be correct for that tenant, treat the error as a possible integrity problem and run `atlas verify` on the snapshot.
 
@@ -1345,7 +1373,7 @@ Every error keeps the underlying failure in `cause`, so the Graph or AWS SDK err
 - **Shared enums and requests:** `ObjectLockMode`, `ObjectLockRequest`, `BackupSyncMode`, `RehydrationWorkload`, `GraphServicePool`
 - **Graph cost types:** `OperationCost`, `ServicePoolCost`, `GraphServiceLimits`
 - **Quarantine:** `QuarantineResult`
-- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `SnapshotNotNewestError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
+- **Errors:** `AtlasError`, `AtlasErrorCode`, `AuthError`, `MailboxNotLicensedError`, `NotFoundError`, `ThrottledError`, `WrongPassphraseError`, `ObjectLockRetainedError`, `StorageError`, `ConfigError`, `UnreadableObjectsError`, `OwnerBusyError`, `OwnerLeaseLostError`, `SnapshotNotNewestError`, `ObjectLockVersioningDisabledError`, `ObjectLockUnsupportedError`, `ObjectLockModeRejectedError`, `PreconditionFailedError`
 
 ## See also
 

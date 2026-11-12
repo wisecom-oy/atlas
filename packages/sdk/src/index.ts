@@ -164,6 +164,8 @@ export {
   ConfigError,
   UnreadableObjectsError,
   SnapshotNotNewestError,
+  OwnerBusyError,
+  OwnerLeaseLostError,
 } from '@wisecom/atlas-types';
 export type { AtlasErrorCode } from '@wisecom/atlas-types';
 export {

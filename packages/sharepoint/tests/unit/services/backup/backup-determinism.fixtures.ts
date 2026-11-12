@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { vi } from 'vitest';
 import type {
   SharePointSiteConnector,
@@ -121,13 +122,12 @@ export function make_service(
   const file_indexes = overrides.file_indexes ?? make_file_indexes();
   const cursors = overrides.cursors ?? make_cursors();
 
-  return new (
-    SharePointBackupService as unknown as new (
-      factory: TenantContextFactory,
-      connector: SharePointSiteConnector,
-      manifests: SharePointManifestRepository,
-      file_indexes: SharePointFileVersionIndexRepository,
-      cursors: SharePointDeltaCursorRepository,
-    ) => SharePointBackupService
-  )(factory, connector, manifests, file_indexes, cursors);
+  return new SharePointBackupService(
+    factory,
+    connector,
+    manifests,
+    file_indexes,
+    cursors,
+    stub_owner_leases().leases,
+  );
 }

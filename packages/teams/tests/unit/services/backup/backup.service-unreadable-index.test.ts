@@ -10,7 +10,7 @@ import { TEAMS_KEYS } from '@/services/shared/storage-keys';
 import { channel_output, make_ports, TEAM_ID } from './backup-service-harness';
 
 vi.mock('@wisecom/atlas-core/services/shared/run-object-lock', () => ({
-  lock_run_writes: vi.fn(async (ctx: unknown) => ctx),
+  apply_run_object_lock_policy: vi.fn(async (ctx: unknown) => ctx),
 }));
 vi.mock('@/services/backup/channel-backup-processor', () => ({ backup_channel: vi.fn() }));
 

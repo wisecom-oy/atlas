@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -11,7 +12,14 @@ const DAMAGED_KEY = `calendar/manifests/${MAILBOX}/cal-snap-9999-abc.json`;
 
 function backup_harness() {
   return calendar_rig(
-    (s) => new CalendarBackupService(s.tenant_factory, s.connector, s.manifests, s.cursors),
+    (s) =>
+      new CalendarBackupService(
+        s.tenant_factory,
+        s.connector,
+        s.manifests,
+        s.cursors,
+        stub_owner_leases().leases,
+      ),
   );
 }
 

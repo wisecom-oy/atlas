@@ -14,6 +14,7 @@ export type AtlasErrorCode =
   | 'ATLAS_FORMAT_UNSUPPORTED'
   | 'ATLAS_KEY_CONFLICT'
   | 'ATLAS_SNAPSHOT_NOT_NEWEST'
+  | 'ATLAS_OWNER_BUSY'
   | 'ATLAS_CONFIG_INVALID';
 
 /**
@@ -174,4 +175,66 @@ export class UnsupportedFormatVersionError extends AtlasError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('ATLAS_FORMAT_UNSUPPORTED', message, options);
   }
+}
+
+/** What another run's lease says about it, as far as an operator needs to decide how long to wait. */
+export interface OwnerLeaseHolder {
+  /** The operation holding the lease, e.g. `backup`, `restore`, `delete`, `purge`, `rewrap`. */
+  readonly operation: string;
+  /** Host name and process id of the holder, for finding the process. */
+  readonly host: string;
+  readonly pid: number;
+  /** ISO 8601 UTC. */
+  readonly started_at: string;
+  /** ISO 8601 UTC. The lease frees itself at this time unless its holder renews it first. */
+  readonly expires_at: string;
+}
+
+/**
+ * Another Atlas run holds the lease on this owner, or on the whole tenant, so this run stopped
+ * before writing anything.
+ *
+ * Retrying once the holder finishes, or once `holder.expires_at` passes, is the remedy. A lease left
+ * by a killed process frees itself at its expiry, at most 10 minutes after its last renewal.
+ */
+export class OwnerBusyError extends AtlasError {
+  constructor(
+    readonly lease_key: string,
+    readonly holder: OwnerLeaseHolder | undefined,
+    options?: { cause?: unknown },
+  ) {
+    super('ATLAS_OWNER_BUSY', describe_busy_owner(lease_key, holder), options);
+  }
+}
+
+/**
+ * This run lost its lease part way through: another run took it over after it expired, or the run
+ * could not renew it before its expiry. Every write after the loss was refused, so the state the
+ * other run writes is not overwritten. Same code as {@link OwnerBusyError}: another run owns the
+ * owner now.
+ */
+export class OwnerLeaseLostError extends AtlasError {
+  constructor(
+    readonly lease_key: string,
+    reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'ATLAS_OWNER_BUSY',
+      `Lost the run lease ${lease_key} (${reason}); stopped writing so another run's state is not ` +
+        'overwritten. Rerun once no other Atlas run is working on this owner.',
+      options,
+    );
+  }
+}
+
+function describe_busy_owner(lease_key: string, holder: OwnerLeaseHolder | undefined): string {
+  if (holder === undefined) {
+    return `Another Atlas run holds the lease ${lease_key}; nothing was written. Retry later.`;
+  }
+  return (
+    `Another Atlas run holds the lease ${lease_key}: ${holder.operation} on ${holder.host} ` +
+    `(pid ${holder.pid}), started ${holder.started_at}, lease expires ${holder.expires_at} ` +
+    'unless renewed. Nothing was written. Retry after that run finishes or its lease expires.'
+  );
 }

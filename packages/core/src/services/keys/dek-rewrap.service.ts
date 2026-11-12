@@ -4,9 +4,14 @@ import type {
   DekRewrapResult,
   DekRewrapUseCase,
   ObjectStorage,
+  OwnerLeases,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { ConfigError, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  ConfigError,
+  OWNER_LEASES_TOKEN,
+  TENANT_CONTEXT_FACTORY_TOKEN,
+} from '@wisecom/atlas-types';
 import { EnvelopeKeyService } from '@/adapters/keystore/envelope-key-service.adapter';
 import { parse_dek_blob } from '@/adapters/keystore/dek-blob-codec';
 import { MIN_PASSPHRASE_BYTES } from '@/adapters/keystore/kdf-strategy';
@@ -35,13 +40,25 @@ export class DekRewrapService implements DekRewrapUseCase {
   constructor(
     @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
     @inject(ATLAS_CONFIG_TOKEN) private readonly _config: AtlasConfig,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /** Unwraps with the current passphrase, wraps with the next, then proves the result opens. */
   async rewrap_tenant_dek(tenant_id: string, new_passphrase?: string): Promise<DekRewrapResult> {
     if (new_passphrase !== undefined) assert_usable_passphrase(new_passphrase);
 
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
+    const storage_ctx = await this._tenant_factory.create_storage_only(tenant_id);
+    return this._leases.run_tenant_exclusive(storage_ctx, 'rewrap', ({ storage }) =>
+      this.rewrap_leased(storage, tenant_id, new_passphrase),
+    );
+  }
+
+  /** Re-wraps while holding the tenant lease, so no purge, other re-wrap or owner run overlaps it. */
+  private async rewrap_leased(
+    storage: ObjectStorage,
+    tenant_id: string,
+    new_passphrase: string | undefined,
+  ): Promise<DekRewrapResult> {
     if (!(await storage.exists(DEK_KEY))) throw new DekWrapperMissingError(tenant_id, DEK_KEY);
 
     // Read the ETag with the blob: every write below is a compare-and-swap against it, so a

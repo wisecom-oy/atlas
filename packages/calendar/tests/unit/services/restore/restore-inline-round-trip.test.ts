@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { describe, expect, it } from 'vitest';
@@ -11,8 +12,19 @@ import { CalendarRestoreService } from '@/services/restore/restore.service';
 /** Backup and restore services over one set of in-memory stores. */
 function round_trip_harness() {
   return calendar_rig((s) => ({
-    backup: new CalendarBackupService(s.tenant_factory, s.connector, s.manifests, s.cursors),
-    restore: new CalendarRestoreService(s.tenant_factory, s.connector, s.manifests),
+    backup: new CalendarBackupService(
+      s.tenant_factory,
+      s.connector,
+      s.manifests,
+      s.cursors,
+      stub_owner_leases().leases,
+    ),
+    restore: new CalendarRestoreService(
+      s.tenant_factory,
+      s.connector,
+      s.manifests,
+      stub_owner_leases().leases,
+    ),
   }));
 }
 

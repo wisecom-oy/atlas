@@ -1,3 +1,5 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -98,6 +100,7 @@ describe('DefaultTenantBackupOrchestrator', () => {
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue({
       create_storage_only: vi.fn(async () => ({})),
     } as unknown as TenantContextFactory);
+    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(DefaultTenantBackupOrchestrator).toSelf();
   });
 

@@ -5,6 +5,7 @@
  * default rename policy, overwrites under `--conflict replace`, and silent either way because
  * every upload succeeded against real folder ids.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -85,7 +86,10 @@ function make_harness(entries: OneDriveManifestEntry[], target_drives: string[])
     list_readable_snapshots_by_owner: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as OneDriveManifestRepository;
 
-  return { service: new OneDriveRestoreService(factory, connector, manifests), connector };
+  return {
+    service: new OneDriveRestoreService(factory, connector, manifests, stub_owner_leases().leases),
+    connector,
+  };
 }
 
 /** The drive id each upload was addressed to, in call order. */

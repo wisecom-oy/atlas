@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it } from 'vitest';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { in_memory_tenant_context } from '@wisecom/atlas-types/testing/in-memory-tenant-context';
@@ -24,7 +25,10 @@ describe('TeamsDeletionService.delete_team_data quarantined copies', () => {
       create_storage_only: async () => harness.ctx,
     } as unknown as TenantContextFactory;
 
-    await new TeamsDeletionService(factory).delete_team_data('tenant-test', TEAM);
+    await new TeamsDeletionService(factory, stub_owner_leases().leases).delete_team_data(
+      'tenant-test',
+      TEAM,
+    );
 
     expect(harness.keys()).toEqual([other]);
   });

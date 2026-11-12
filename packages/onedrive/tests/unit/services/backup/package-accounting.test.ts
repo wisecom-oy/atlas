@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   OneDriveBackupResult,
@@ -91,6 +92,7 @@ function run_backup(
     manifests as never,
     file_indexes as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return service.backup_onedrive('t', 'owner-1', {});
 }

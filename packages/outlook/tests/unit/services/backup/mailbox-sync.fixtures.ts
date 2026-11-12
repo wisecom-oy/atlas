@@ -1,3 +1,5 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import 'reflect-metadata';
 import { vi } from 'vitest';
 import { Container } from 'inversify';
@@ -135,6 +137,7 @@ export function create_mailbox_sync_harness(): MailboxSyncHarness {
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN).toConstantValue(mock_cursors);
   container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+  container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
   container.bind(MailboxSyncService).toSelf();
 
   return {

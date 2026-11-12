@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TenantContextFactory } from '@wisecom/atlas-types';
 import { ConfigError } from '@wisecom/atlas-types';
@@ -38,9 +39,12 @@ const STORAGE = { name: 'storage-only' };
 
 function setup() {
   const create_storage_only = vi.fn(async () => ({ storage: STORAGE }));
-  const service = new TeamsDeletionService({
-    create_storage_only,
-  } as unknown as TenantContextFactory);
+  const service = new TeamsDeletionService(
+    {
+      create_storage_only,
+    } as unknown as TenantContextFactory,
+    stub_owner_leases().leases,
+  );
   return { service, create_storage_only };
 }
 

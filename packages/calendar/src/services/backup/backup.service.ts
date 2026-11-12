@@ -3,7 +3,7 @@ import {
   begin_operation_progress,
   finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { apply_run_object_lock_policy } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { cursor_describes_head } from '@wisecom/atlas-core/services/shared/delta-cursor-binding';
 import { inject, injectable } from 'inversify';
@@ -19,6 +19,7 @@ import type {
   CalendarRecord,
   CalendarSnapshotManifest,
   GraphCalendar,
+  OwnerLeases,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -26,6 +27,7 @@ import {
   CALENDAR_CONNECTOR_TOKEN,
   CALENDAR_DELTA_CURSOR_REPOSITORY_TOKEN,
   CALENDAR_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { resolve_backup_progress } from '@/services/backup/backup-progress';
@@ -55,6 +57,7 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     private readonly _manifests: CalendarManifestRepository,
     @inject(CALENDAR_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: CalendarDeltaCursorRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /** Backs up the mailbox's calendars; returns the new snapshot, or none when nothing changed. */
@@ -76,12 +79,15 @@ export class CalendarBackupService implements CalendarBackupUseCase {
     if (begin_operation_progress(options, 'backup', 'calendar')) return cancelled();
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
-      return await run_cancellable(
-        options,
-        () => this.run_backup(ctx, tenant_id, mailbox, options),
-        cancelled,
-      );
+      const scope = { workload: 'calendar', owner_id: mailbox, operation: 'backup' } as const;
+      return await this._leases.run_exclusive(tenant_ctx, scope, async (leased) => {
+        const ctx = await apply_run_object_lock_policy(leased, options.object_lock_request);
+        return run_cancellable(
+          options,
+          () => this.run_backup(ctx, tenant_id, mailbox, options),
+          cancelled,
+        );
+      });
     } finally {
       tenant_ctx.destroy();
     }

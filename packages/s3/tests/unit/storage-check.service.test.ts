@@ -44,6 +44,8 @@ describe('StorageCheckService', () => {
     expect(result.requested_retention_days).toBe(30);
     expect(result.resolved_retain_until).toBeDefined();
     expect(result.default_retention).toBeUndefined();
+    // The mock accepts the second create-only write, as a backend that ignores If-None-Match does.
+    expect(result.conditional_writes_supported).toBe(false);
   });
 
   it('reports a bucket default retention on a lock-capable bucket', async () => {
@@ -73,6 +75,8 @@ describe('StorageCheckService', () => {
     const result = await service.check_storage('tenant-1');
 
     expect(result.default_retention).toBeUndefined();
-    expect(mock_s3.send).toHaveBeenCalledTimes(3);
+    const commands = mock_s3.send.mock.calls.map(([command]) => command.constructor.name);
+    // One lock-configuration read, the immutability probe's; no second one for a default retention.
+    expect(commands.filter((name) => name === 'GetObjectLockConfigurationCommand')).toHaveLength(1);
   });
 });

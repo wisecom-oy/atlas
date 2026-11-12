@@ -2,6 +2,7 @@
  * Team erasure under Object Lock or a refused delete. The objects that outlive the sweep must
  * reach the caller as retained or failed counts, never as a clean result (issue #634).
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi } from 'vitest';
 import { ObjectLockRetainedError, type TenantContextFactory } from '@wisecom/atlas-types';
 import type { DeletionStorage } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
@@ -42,9 +43,12 @@ function versioned_storage(refuse: (key: string) => Error | undefined): Deletion
 }
 
 function service_over(storage: DeletionStorage): TeamsDeletionService {
-  return new TeamsDeletionService({
-    create_storage_only: vi.fn(async () => ({ tenant_id: 'tenant-1', storage })),
-  } as unknown as TenantContextFactory);
+  return new TeamsDeletionService(
+    {
+      create_storage_only: vi.fn(async () => ({ tenant_id: 'tenant-1', storage })),
+    } as unknown as TenantContextFactory,
+    stub_owner_leases().leases,
+  );
 }
 
 describe('TeamsDeletionService.delete_team_data survivors', () => {

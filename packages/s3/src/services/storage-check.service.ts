@@ -5,6 +5,8 @@ import { probe_bucket_immutability } from '@/adapters/s3-bucket-manager';
 import { read_bucket_default_retention } from '@/adapters/s3-default-retention';
 import { BucketCache } from '@/adapters/bucket-cache';
 import { tenant_bucket_name } from '@/adapters/tenant-bucket-name';
+import { probe_conditional_writes } from '@/adapters/s3-conditional-write-probe';
+import { S3ObjectStorage } from '@/adapters/s3-object-storage.adapter';
 import type {
   StorageCheckRequest,
   StorageCheckResult,
@@ -18,7 +20,7 @@ export class StorageCheckService implements StorageCheckUseCase {
     @inject(BucketCache) private readonly _buckets: BucketCache,
   ) {}
 
-  /** Checks bucket readiness for Object Lock policy before backup starts. */
+  /** Checks bucket readiness for Object Lock policy and run leases before backup starts. */
   async check_storage(
     tenant_id: string,
     request: StorageCheckRequest = {},
@@ -34,6 +36,9 @@ export class StorageCheckService implements StorageCheckUseCase {
     const default_retention = probe.object_lock_enabled
       ? await read_bucket_default_retention(this._s3, bucket)
       : undefined;
+    const conditional_writes_supported = probe.reachable
+      ? await probe_conditional_writes(new S3ObjectStorage(this._s3, bucket, this._buckets))
+      : undefined;
 
     return {
       bucket: probe.bucket,
@@ -42,6 +47,7 @@ export class StorageCheckService implements StorageCheckUseCase {
       object_lock_enabled: probe.object_lock_enabled,
       mode_supported: probe.mode_supported,
       default_retention,
+      conditional_writes_supported,
       requested_mode: request.mode,
       requested_retention_days: request.retention_days,
       resolved_retain_until,

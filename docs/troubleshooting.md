@@ -332,6 +332,21 @@ john.doe@example.com is not in the identity registry of tenant <source>, and the
 
 The warning appears when the address is not in the registry. The object ID Graph returned belongs to the other tenant, so a lookup for a backed-up owner finds no snapshots. Pass the owner's Entra object ID instead, which `atlas list-users -t <source>` lists. Restore targets (`-T`, `--target-owner`) always resolve through Graph alone, so they name users of the tenant being restored into.
 
+### Another run holds the owner
+
+```text
+[x] Another Atlas run holds the lease _meta/leases/onedrive/<owner-id>.json: backup on <host> (pid 4242), started <time>, lease expires <time> unless renewed. Nothing was written.
+[x]   Atlas code: ATLAS_OWNER_BUSY
+```
+
+The command exits `12` before writing anything. Another backup, restore or delete is running on the same owner and workload, or a purge or key re-wrap holds the tenant. The message names the holder's operation, host, process ID and lease expiry.
+
+- **The other run is still working.** Wait for it, or schedule the command later. Two runs on one owner would overwrite each other's delta cursors and checkpoints, which is what the lease prevents.
+- **The other run was killed or force-stopped** (a second Ctrl+C, `kill -9`, a container stop). It could not release its lease. Retry after the expiry in the message, at most 10 minutes after its last renewal. The next run takes the expired lease over and logs which run left it. There is no command to break a live lease: deleting the lease object by hand while its run is alive brings back the overlap the lease exists to stop.
+- **The run itself reported `Lost the run lease`.** It could not renew its lease for 10 minutes, for example while S3 was unreachable or the host was suspended, or another run took it over after it expired. It stopped writing so the other run's state stays intact. Rerun it once no other run is working on the owner.
+
+Leases compare expiry times against the local clock of each host. Keep the clocks of every host that runs Atlas synchronized with NTP. A host whose clock runs minutes ahead can take over a lease that is still in use, and both runs write until the holder's next renewal, up to 2 minutes later, notices and stops it.
+
 ## Damaged manifests and version indexes
 
 ```
@@ -347,17 +362,17 @@ Earlier releases failed every command for the owner on one such object, and drop
 
 ### What each command does around a damaged object
 
-| Command                                             | Behaviour                                                                                                                                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `status`                                            | Reports the newest readable snapshot and the damaged key. Exit `9`.                                                                                                                                          |
-| `list`, `list-snapshots`, `mailboxes`               | Prints every readable snapshot, then the damaged key. Exit `9`.                                                                                                                                              |
-| `list-versions`                                     | Prints the rows of every readable index object, then the damaged key. Exit `9`. The listed history may be missing that run's versions.                                                                       |
+| Command                                             | Behaviour                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`                                            | Reports the newest readable snapshot and the damaged key. Exit `9`.                                                                                                                                                                                                                               |
+| `list`, `list-snapshots`, `mailboxes`               | Prints every readable snapshot, then the damaged key. Exit `9`.                                                                                                                                                                                                                                   |
+| `list-versions`                                     | Prints the rows of every readable index object, then the damaged key. Exit `9`. The listed history may be missing that run's versions.                                                                                                                                                            |
 | `backup`                                            | Runs and writes its snapshot. Outlook, Contacts, Calendar, and Teams read the newest manifest or index, so they name a damaged one and exit `9`. An incremental OneDrive or SharePoint run reads no manifest, so it neither needs nor reports one. See below for why each workload stays correct. |
-| OneDrive and SharePoint `restore`, `save`, `verify` | Refused, naming the key, when the damaged manifest is at or before the target snapshot or carries no time in its key. A newer damaged manifest is outside the target's chain: the command runs and names it. |
-| Outlook `restore`, `save`, `verify`, `read`         | Refused for every snapshot of that mailbox while a damaged manifest remains, naming the key.                                                                                                                 |
-| Contacts and Calendar `restore`, `verify`           | Refused only for the damaged snapshot itself. Every snapshot is complete on its own.                                                                                                                         |
-| `restore-version`                                   | Refused while any index object of the owner or site is damaged, naming the key.                                                                                                                              |
-| `verify` (OneDrive, SharePoint)                     | Lists each damaged index object as an index issue and exits `1`.                                                                                                                                             |
+| OneDrive and SharePoint `restore`, `save`, `verify` | Refused, naming the key, when the damaged manifest is at or before the target snapshot or carries no time in its key. A newer damaged manifest is outside the target's chain: the command runs and names it.                                                                                      |
+| Outlook `restore`, `save`, `verify`, `read`         | Refused for every snapshot of that mailbox while a damaged manifest remains, naming the key.                                                                                                                                                                                                      |
+| Contacts and Calendar `restore`, `verify`           | Refused only for the damaged snapshot itself. Every snapshot is complete on its own.                                                                                                                                                                                                              |
+| `restore-version`                                   | Refused while any index object of the owner or site is damaged, naming the key.                                                                                                                                                                                                                   |
+| `verify` (OneDrive, SharePoint)                     | Lists each damaged index object as an index issue and exits `1`.                                                                                                                                                                                                                                  |
 
 A refusal is deliberate. OneDrive, SharePoint, and Outlook snapshots are incremental: each manifest records only what changed in its run, and a restore folds the target with every older manifest. Leaving a damaged manifest out of that fold would restore a different drive or mailbox than the one backed up, missing every item first captured in that run and bringing back items that run recorded as deleted. An Outlook snapshot ID carries no timestamp, and the manifest's own `created_at` is inside the damaged ciphertext, so Atlas cannot tell whether a damaged Outlook manifest is older than the target. Drive snapshot IDs embed their time (`od-snap-<epoch-ms>-...`), so only drive restores can tell the two cases apart. A version rollback picks the newest version before a cutoff, and that version may be the one in the unreadable object.
 

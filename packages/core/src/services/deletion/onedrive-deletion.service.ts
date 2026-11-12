@@ -4,17 +4,28 @@ import type {
   OneDriveDeletionUseCase,
   TenantContextFactory,
   DeletionResult,
+  ObjectStorage,
+  OwnerLeases,
 } from '@wisecom/atlas-types';
-import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import { OWNER_LEASES_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import {
+  delete_under_owner_lease,
+  type LeasedDeletionDeps,
+} from '@/services/deletion/shared/leased-deletion';
 import { delete_scopes, delete_snapshot_manifest } from '@/services/deletion/shared/prefix-deleter';
 import { abort_staging_uploads } from '@/services/deletion/shared/staging-upload-purge';
 import { quarantined_copies_of } from '@/services/quarantine/stored-object-quarantine';
 
 @injectable()
 export class OneDriveDeletionService implements OneDriveDeletionUseCase {
+  private readonly _deps: LeasedDeletionDeps;
+
   constructor(
-    @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
-  ) {}
+    @inject(TENANT_CONTEXT_FACTORY_TOKEN) tenant_factory: TenantContextFactory,
+    @inject(OWNER_LEASES_TOKEN) leases: OwnerLeases,
+  ) {
+    this._deps = { tenant_factory, leases };
+  }
 
   /**
    * Deletes all backed-up OneDrive data for a single owner.
@@ -25,20 +36,9 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
    */
   async delete_owner_data(tenant_id: string, owner_id: string): Promise<DeletionResult> {
     owner_id = normalize_owner_id(owner_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    const staging_prefix = `onedrive/staging/${owner_id}/`;
-    const result = await delete_scopes(storage, [
-      `onedrive/manifests/${owner_id}/`,
-      `onedrive/data/${owner_id}/`,
-      `onedrive/index/${owner_id}/`,
-      `onedrive/_meta/${owner_id}/`,
-      staging_prefix,
-      ...quarantined_copies_of([`onedrive/manifests/${owner_id}/`, `onedrive/index/${owner_id}/`]),
-    ]);
-    // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps an owner
-    // nobody backs up any more (issue #345).
-    await abort_staging_uploads(storage, staging_prefix);
-    return result;
+    return delete_under_owner_lease(this._deps, tenant_id, 'onedrive', owner_id, (storage) =>
+      delete_all_objects_of(storage, owner_id),
+    );
   }
 
   /**
@@ -51,12 +51,33 @@ export class OneDriveDeletionService implements OneDriveDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     owner_id = normalize_owner_id(owner_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_snapshot_manifest(
-      storage,
-      `onedrive/manifests/${owner_id}/${snapshot_id}.json`,
-      'OneDrive',
-      snapshot_id,
+    return delete_under_owner_lease(this._deps, tenant_id, 'onedrive', owner_id, (storage) =>
+      delete_snapshot_manifest(
+        storage,
+        `onedrive/manifests/${owner_id}/${snapshot_id}.json`,
+        'OneDrive',
+        snapshot_id,
+      ),
     );
   }
+}
+
+/** Deletes every object of one owner, staging uploads included. */
+async function delete_all_objects_of(
+  storage: ObjectStorage,
+  owner_id: string,
+): Promise<DeletionResult> {
+  const staging_prefix = `onedrive/staging/${owner_id}/`;
+  const result = await delete_scopes(storage, [
+    `onedrive/manifests/${owner_id}/`,
+    `onedrive/data/${owner_id}/`,
+    `onedrive/index/${owner_id}/`,
+    `onedrive/_meta/${owner_id}/`,
+    staging_prefix,
+    ...quarantined_copies_of([`onedrive/manifests/${owner_id}/`, `onedrive/index/${owner_id}/`]),
+  ]);
+  // Deleting keys leaves an incomplete upload's parts behind, and no later run sweeps an owner
+  // nobody backs up any more (issue #345).
+  await abort_staging_uploads(storage, staging_prefix);
+  return result;
 }

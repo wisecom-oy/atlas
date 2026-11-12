@@ -1,5 +1,7 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { vi } from 'vitest';
 import type {
+  OwnerLeases,
   TeamsChannelCursor,
   TeamsChannelShard,
   TeamsConnector,
@@ -33,7 +35,11 @@ export interface Env {
 }
 
 /** A service over real index, shard and cursor adapters and in-memory storage. */
-export function build_env(channel: TeamsGraphResource, overrides: Partial<TeamsConnector>): Env {
+export function build_env(
+  channel: TeamsGraphResource,
+  overrides: Partial<TeamsConnector>,
+  leases: OwnerLeases = stub_owner_leases().leases,
+): Env {
   const harness = in_memory_tenant_context(TENANT);
   const factory = { create: vi.fn(async () => harness.ctx) } as unknown as TenantContextFactory;
   const connector = make_connector({
@@ -52,6 +58,7 @@ export function build_env(channel: TeamsGraphResource, overrides: Partial<TeamsC
     shards,
     cursors,
     new InMemoryTeamsChannelCheckpointRepository(),
+    leases,
   );
   return { harness, service, connector, indexes, shards, cursors };
 }

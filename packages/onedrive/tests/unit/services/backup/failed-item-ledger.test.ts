@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, expect, it, vi, type Mock } from 'vitest';
 import type {
   OneDriveDeltaCursor,
@@ -148,6 +149,7 @@ function make_harness(options: {
       write_run_index: vi.fn(),
     } as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, fetch_item_by_id, saved_cursors, calls, save_order };
 }

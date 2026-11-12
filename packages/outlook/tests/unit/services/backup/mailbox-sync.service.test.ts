@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHmac } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Container } from 'inversify';
@@ -8,16 +9,16 @@ import {
   MANIFEST_REPOSITORY_TOKEN,
   MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
+  OWNER_LEASES_TOKEN,
 } from '@wisecom/atlas-types';
 import type {
   MailboxConnector,
   MailMessage,
   MailFolder,
   DeltaSyncResult,
+  TenantContextFactory,
 } from '@wisecom/atlas-types';
-import type { ManifestRepository } from '@wisecom/atlas-types';
-import type { TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
-import type { ObjectStorage } from '@wisecom/atlas-types';
+import type { ManifestRepository, ObjectStorage, TenantContext } from '@wisecom/atlas-types';
 import { SnapshotStatus } from '@wisecom/atlas-types';
 import { stub_tenant_create_cipher } from '@wisecom/atlas-types/testing/stub-tenant-create-cipher';
 import { stub_tenant_create_content_hmac } from '@wisecom/atlas-types/testing/stub-tenant-create-content-hmac';
@@ -137,6 +138,7 @@ describe('MailboxSyncService', () => {
       .bind(MAILBOX_DELTA_CURSOR_REPOSITORY_TOKEN)
       .toConstantValue({ load: vi.fn().mockResolvedValue(undefined), save: vi.fn() });
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(MailboxSyncService).toSelf();
 
     service = container.get(MailboxSyncService);

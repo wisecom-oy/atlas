@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import { ObjectLockingStorage } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { SharePointBackupService } from '@/services/backup/backup.service';
@@ -44,6 +45,7 @@ function make_harness(validate_error?: Error): {
     {} as never,
     {} as never,
     cursors as never,
+    stub_owner_leases().leases,
   );
   return { service, validate, put, destroy, run_ctx: () => seen };
 }

@@ -4,13 +4,12 @@
 // them means a parameter per branch, which is the shape that made the copies hard to change.
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { with_summary_unreadable_keys } from '@wisecom/atlas-core/services/shared/unreadable-object-report';
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { apply_run_object_lock_policy } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_cancellable } from '@wisecom/atlas-core/services/shared/cancellable-run';
 import { randomBytes } from 'node:crypto';
 import {
   begin_operation_progress,
   emit_operation_progress,
-  finish_operation_progress,
 } from '@wisecom/atlas-core/services/shared/operation-progress';
 import { inject, injectable } from 'inversify';
 import { classify_empty_run } from '@wisecom/atlas-drive/backup/empty-run-classifier';
@@ -24,6 +23,7 @@ import type {
   OneDriveDeltaCursorRepository,
   OneDriveFileVersionIndexRepository,
   OneDriveManifestRepository,
+  OwnerLeases,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -32,6 +32,7 @@ import {
   ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN,
   ONEDRIVE_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
   ONEDRIVE_MANIFEST_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import {
@@ -43,7 +44,8 @@ import {
 } from '@/services/backup/backup-builders';
 import type { RunVersionCollector } from '@/services/versioning/version-sync';
 import { scan_all_drives } from '@/services/backup/backup-drive-processor';
-import type { PackageReportTotals } from '@/services/backup/package-report';
+import { build_package_warnings } from '@/services/backup/package-report';
+import { interrupted_before_scan } from '@/services/backup/interrupted-scan-result';
 import { cleanup_stale_staging } from '@/services/backup/large-file-pipeline';
 import {
   is_path_within_folder_scope,
@@ -66,6 +68,7 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     private readonly _file_indexes: OneDriveFileVersionIndexRepository,
     @inject(ONEDRIVE_DELTA_CURSOR_REPOSITORY_TOKEN)
     private readonly _cursors: OneDriveDeltaCursorRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /**
@@ -91,11 +94,28 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
     options: OneDriveBackupOptions,
   ): Promise<OneDriveBackupResult> {
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
+    try {
+      const scope = { workload: 'onedrive', owner_id, operation: 'backup' } as const;
+      return await this._leases.run_exclusive(tenant_ctx, scope, (leased) =>
+        this.backup_leased(leased, tenant_id, owner_id, options),
+      );
+    } finally {
+      tenant_ctx.destroy();
+    }
+  }
+
+  /** Runs the backup once this run holds the owner's lease; leased refuses writes if it is lost. */
+  private async backup_leased(
+    leased: TenantContext,
+    tenant_id: string,
+    owner_id: string,
+    options: OneDriveBackupOptions,
+  ): Promise<OneDriveBackupResult> {
     let progress: BackupProgressReporter | undefined;
     try {
       // Per-object retention carried by this run's context, not the bucket default: concurrent
       // runs on one tenant would overwrite each other's bucket setting (#551).
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
+      const ctx = await apply_run_object_lock_policy(leased, options.object_lock_request);
       const stored_cursor = await this._cursors.load(ctx, owner_id);
       const folder_scope = normalize_folder_scope(options.folder_scope);
       // A delta link records how far the drive was consumed, not how far the scope was, so
@@ -308,7 +328,6 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       return with_summary_unreadable_keys(result, skipped_manifests);
     } finally {
       progress?.finish();
-      tenant_ctx.destroy();
     }
   }
 
@@ -333,23 +352,4 @@ export class OneDriveBackupService implements OneDriveBackupUseCase {
       rows: new Map(),
     };
   }
-}
-
-/** A run cancelled before its scan finished: no snapshot, and the delta cursor is untouched. */
-function interrupted_before_scan(
-  owner_id: string,
-  options: OneDriveBackupOptions,
-): OneDriveBackupResult {
-  finish_operation_progress(options, 'backup', 'onedrive', 0, 0, true);
-  return build_empty_result(owner_id, 0, 0, 0, 0, 0, 0, [], [], true, false, false);
-}
-
-/** Renders OneNote accounting as backup warnings: one summary line, then any incomplete notebooks. */
-function build_package_warnings(report: PackageReportTotals): string[] {
-  if (report.notebooks_detected === 0) return [];
-  return [
-    `OneNote notebooks detected: ${report.notebooks_detected} ` +
-      `(${report.section_files_backed_up} section file(s) backed up as ordinary files).`,
-    ...report.warnings,
-  ];
 }

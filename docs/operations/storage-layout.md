@@ -4,12 +4,14 @@ description: 'How Atlas lays out a tenant S3 bucket: one bucket per tenant, with
 
 # Storage layout
 
-Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, calendars under `calendar/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below.
+Each tenant has its own S3 bucket, named `atlas-{tenant_id}`. Outlook data sits at the bucket root, contacts under `contacts/`, calendars under `calendar/`, OneDrive data under `onedrive/`, SharePoint data under `sharepoint/`, Teams data under `teams/`, and shared metadata under `_meta/`. Everything in the bucket is encrypted except the S3 object metadata described below and the run leases under `_meta/leases/`.
 
 ```
 atlas-{tenant_id}/
 ├── _meta/
 │   ├── dek.enc                                  # wrapped data encryption key
+│   ├── leases/{workload}/{owner_id}.json        # run lease of an operation in progress (plaintext)
+│   ├── leases/tenant.json                       # run lease of a purge or key re-wrap (plaintext)
 │   ├── outlook-cursors/{owner_id}.json          # Outlook delta links, one per folder
 │   ├── outlook-manifests/
 │   │   ├── owners/{owner_id}/latest.json        # latest manifest key per mailbox
@@ -77,15 +79,16 @@ Bucket separation alone does not separate credentials. The CLI's [tenant profile
 
 ## Outlook
 
-| Prefix                                         | Contents                                                  | Notes                                                                   |
-| ---------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `_meta/dek.enc`                                | Wrapped data encryption key, one per tenant               | The most critical object. See [The DEK object](#the-dek-object).        |
-| `_meta/outlook-cursors/{owner_id}.json`        | Delta cursor: one Graph delta link per mail folder        | Encrypted, bound to its owner. Overwritten by every run.                |
-| `_meta/outlook-manifests/owners/{owner_id}/`   | Pointer to the latest manifest for a mailbox              | Lets incremental backups read one manifest, not the full history.       |
-| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from a snapshot ID to its manifest                | Direct lookup by snapshot ID.                                           |
-| `data/{owner_id}/`                             | Messages as RFC 5322 MIME, named by keyed hash            | Content encrypted; S3 metadata visible.                                 |
-| `attachments/{owner_id}/`                      | Attachments from legacy JSON entries, named by keyed hash | Content encrypted; S3 metadata visible.                                 |
-| `manifests/{owner_id}/`                        | Snapshot manifests                                        | Include subjects, senders, folder names, and delta URLs, all encrypted. |
+| Prefix                                         | Contents                                                  | Notes                                                                         |
+| ---------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `_meta/dek.enc`                                | Wrapped data encryption key, one per tenant               | The most critical object. See [The DEK object](#the-dek-object).              |
+| `_meta/leases/`                                | Run leases: operation, host, process ID, start and expiry | Plaintext. Deleted when the run ends. See [Run leases](/security#run-leases). |
+| `_meta/outlook-cursors/{owner_id}.json`        | Delta cursor: one Graph delta link per mail folder        | Encrypted, bound to its owner. Overwritten by every run.                      |
+| `_meta/outlook-manifests/owners/{owner_id}/`   | Pointer to the latest manifest for a mailbox              | Lets incremental backups read one manifest, not the full history.             |
+| `_meta/outlook-manifests/snapshots/{snapshot}` | Pointer from a snapshot ID to its manifest                | Direct lookup by snapshot ID.                                                 |
+| `data/{owner_id}/`                             | Messages as RFC 5322 MIME, named by keyed hash            | Content encrypted; S3 metadata visible.                                       |
+| `attachments/{owner_id}/`                      | Attachments from legacy JSON entries, named by keyed hash | Content encrypted; S3 metadata visible.                                       |
+| `manifests/{owner_id}/`                        | Snapshot manifests                                        | Include subjects, senders, folder names, and delta URLs, all encrypted.       |
 
 Pointers hold only an encrypted manifest key. Deleting a mailbox or snapshot removes its pointers.
 

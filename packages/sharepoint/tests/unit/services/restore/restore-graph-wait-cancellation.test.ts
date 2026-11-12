@@ -3,6 +3,7 @@
  * under the abort signal, so Ctrl+C during an upload parked in a Graph Retry-After sat the wait
  * out. An upload cut short by the signal is the run stopping, not a skipped file.
  */
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { with_graph_retry } from '@wisecom/atlas-m365-graph';
@@ -77,7 +78,15 @@ function make_harness() {
     }),
     list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
   } as unknown as SharePointManifestRepository;
-  return { connector, service: new SharePointRestoreService(factory, connector, manifests) };
+  return {
+    connector,
+    service: new SharePointRestoreService(
+      factory,
+      connector,
+      manifests,
+      stub_owner_leases().leases,
+    ),
+  };
 }
 
 describe('SharePoint restore cancelled during a Graph retry wait (issue #682)', () => {

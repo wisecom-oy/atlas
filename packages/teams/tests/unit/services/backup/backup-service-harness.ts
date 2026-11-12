@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { vi, type Mock } from 'vitest';
 import type {
   FailedItemLedger,
@@ -115,6 +116,7 @@ export function make_ports(options: PortOptions = {}): Ports {
     shards as unknown as TeamsChannelShardRepository,
     cursors as unknown as TeamsChannelCursorRepository,
     new InMemoryTeamsChannelCheckpointRepository(),
+    stub_owner_leases().leases,
   );
   return { service, order, connector, indexes, shards, cursors };
 }

@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi } from 'vitest';
 import type {
   OneDriveBackupResult,
@@ -73,6 +74,7 @@ function run_backup(version_error: unknown): Promise<OneDriveBackupResult> {
       load: vi.fn().mockResolvedValue(undefined),
       save: vi.fn().mockResolvedValue(undefined),
     } as never,
+    stub_owner_leases().leases,
   );
   return service.backup_onedrive('t', 'owner-1', {});
 }

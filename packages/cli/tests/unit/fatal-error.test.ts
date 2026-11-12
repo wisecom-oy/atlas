@@ -6,6 +6,8 @@ import {
   NotFoundError,
   ObjectLockRetainedError,
   SnapshotNotNewestError,
+  OwnerBusyError,
+  OwnerLeaseLostError,
   StorageError,
   ThrottledError,
   UnreadableContentError,
@@ -150,6 +152,28 @@ describe('fatal CLI errors', () => {
     const output = diagnostics.join('\n');
     expect(output).toContain('Atlas code: ATLAS_SNAPSHOT_NOT_NEWEST');
     expect(output).toContain('Delete the newer snapshots first');
+  });
+
+  it('gives a busy owner its own exit code with the holder and expiry on stderr (issue #623)', () => {
+    const holder = {
+      operation: 'backup',
+      host: 'host-example',
+      pid: 42,
+      started_at: '2026-01-01T00:00:00.000Z',
+      expires_at: '2026-01-01T00:10:00.000Z',
+    };
+    // A lease conflict that surfaced as a refused write must still not read as a storage failure.
+    const cause = Object.assign(new Error('Precondition'), { $metadata: { httpStatusCode: 412 } });
+    handle_fatal_error(new OwnerBusyError('_meta/leases/outlook/owner.json', holder, { cause }));
+
+    expect(process.exitCode).toBe(12);
+    const output = diagnostics.join('\n');
+    expect(output).toContain('Atlas code: ATLAS_OWNER_BUSY');
+    expect(output).toContain('backup on host-example (pid 42)');
+    expect(output).toContain('expires 2026-01-01T00:10:00.000Z');
+
+    handle_fatal_error(new OwnerLeaseLostError('_meta/leases/outlook/owner.json', 'expired'));
+    expect(process.exitCode).toBe(12);
   });
 
   it('classifies AWS server errors as retryable without treating every 5xx as transient', () => {

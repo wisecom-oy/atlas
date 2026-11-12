@@ -1,3 +1,5 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundError, ObjectLockRetainedError } from '@wisecom/atlas-types';
 import { Container } from 'inversify';
@@ -109,6 +111,7 @@ describe('DeletionService', () => {
     container = new Container();
     container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
     container.bind(TENANT_CONTEXT_FACTORY_TOKEN).toConstantValue(mock_factory);
+    container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
     container.bind(DeletionService).toSelf();
 
     service = container.get(DeletionService);
@@ -301,7 +304,8 @@ describe('DeletionService', () => {
       await service.purge_tenant('t');
 
       const scopes = vi.mocked(mock_context.storage.list).mock.calls.map(([scope]) => scope);
-      expect(scopes).toEqual(['', '_meta/dek.enc']);
+      // The purge's own tenant lease is erased after the purge releases it, so nothing is left.
+      expect(scopes).toEqual(['', '_meta/dek.enc', '_meta/leases/tenant.json']);
     });
 
     it('erases the DEK-encrypted neighbours in _meta before the DEK itself', async () => {

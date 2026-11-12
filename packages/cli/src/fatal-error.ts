@@ -23,6 +23,9 @@ const ATLAS_EXIT_CODES = {
   // Newer snapshots depend on the one asked for. Rerunning is refused the same way until they are
   // deleted first, so it is an operator decision, not a retry (issue #704).
   ATLAS_SNAPSHOT_NOT_NEWEST: 11,
+  // Another run holds this owner or the tenant. Nothing was written; a later rerun succeeds once the
+  // holder finishes or its lease expires, so a scheduler retries this one later (issue #623).
+  ATLAS_OWNER_BUSY: 12,
 } satisfies Record<AtlasErrorCode, number>;
 
 const NETWORK_CODES: Readonly<Record<string, true>> = {

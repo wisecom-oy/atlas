@@ -1,4 +1,4 @@
-import { lock_run_writes } from '@wisecom/atlas-core/services/shared/run-object-lock';
+import { apply_run_object_lock_policy } from '@wisecom/atlas-core/services/shared/run-object-lock';
 import { run_with_abort_signal } from '@wisecom/atlas-core/services/shared/graph-request-context';
 import {
   begin_operation_progress,
@@ -16,6 +16,7 @@ import type {
   TeamsConnector,
   TeamsGraphResource,
   TeamsIndexRepository,
+  OwnerLeases,
   TenantContext,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
@@ -25,6 +26,7 @@ import {
   TEAMS_CHANNEL_SHARD_REPOSITORY_TOKEN,
   TEAMS_CONNECTOR_TOKEN,
   TEAMS_INDEX_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
   attach_unreadable_keys,
 } from '@wisecom/atlas-types';
@@ -76,6 +78,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     private readonly _cursors: TeamsChannelCursorRepository,
     @inject(TEAMS_CHANNEL_CHECKPOINT_REPOSITORY_TOKEN)
     private readonly _checkpoints: TeamsChannelCheckpointRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /**
@@ -101,16 +104,23 @@ export class TeamsBackupService implements TeamsBackupUseCase {
     }
     const tenant_ctx = await this._tenant_factory.create(tenant_id);
     try {
-      const ctx = await lock_run_writes(tenant_ctx, options.object_lock_request);
-      return await run_with_abort_signal(options.abort_signal, () =>
-        run_with_teams_request_stats(settings.stats, () =>
-          this.run_backup(ctx, tenant_id, normalized_team_id, options, {
-            ...settings,
-            // Checkpoints are short-lived and rewritten every page: never put them under the run's lock.
-            checkpoint_ctx: tenant_ctx,
-          }),
-        ),
-      );
+      const scope = {
+        workload: 'teams',
+        owner_id: normalized_team_id,
+        operation: 'backup',
+      } as const;
+      return await this._leases.run_exclusive(tenant_ctx, scope, async (leased) => {
+        const ctx = await apply_run_object_lock_policy(leased, options.object_lock_request);
+        return run_with_abort_signal(options.abort_signal, () =>
+          run_with_teams_request_stats(settings.stats, () =>
+            this.run_backup(ctx, tenant_id, normalized_team_id, options, {
+              ...settings,
+              // Checkpoints are rewritten every page: never under the run's lock, always under its lease.
+              checkpoint_ctx: leased,
+            }),
+          ),
+        );
+      });
     } catch (err) {
       throw attach_unreadable_keys(err, settings.unreadable_keys);
     } finally {

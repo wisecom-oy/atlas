@@ -3,6 +3,7 @@
  * delta read parked in a Graph Retry-After sat the wait out.
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import 'reflect-metadata';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,7 +36,14 @@ describe('Calendar backup cancelled during a Graph retry wait (issue #673)', () 
 
   it('ends the delta read wait within a second and records an interrupted run', async () => {
     const h = calendar_rig(
-      (s) => new CalendarBackupService(s.tenant_factory, s.connector, s.manifests, s.cursors),
+      (s) =>
+        new CalendarBackupService(
+          s.tenant_factory,
+          s.connector,
+          s.manifests,
+          s.cursors,
+          stub_owner_leases().leases,
+        ),
     );
     vi.spyOn(h.connector, 'fetch_event_delta').mockImplementation(graph_call_parked_in_retry_wait);
     const controller = new AbortController();

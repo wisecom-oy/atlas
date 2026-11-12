@@ -1,3 +1,4 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -48,8 +49,14 @@ describe('SharePoint restore cancellation', () => {
       {} as never,
       {} as never,
       {} as never,
+      stub_owner_leases().leases,
     );
-    const restore = new SharePointRestoreService(factory, {} as never, {} as never);
+    const restore = new SharePointRestoreService(
+      factory,
+      {} as never,
+      {} as never,
+      stub_owner_leases().leases,
+    );
     const save = new SharePointSaveService(factory, {} as never);
     const verify = new SharePointVerificationService(factory, {} as never, {} as never);
 
@@ -112,7 +119,12 @@ describe('SharePoint restore cancellation', () => {
       }),
       list_readable_snapshots_by_site: vi.fn().mockResolvedValue(readable_manifests([])),
     } as unknown as SharePointManifestRepository;
-    const service = new SharePointRestoreService(factory, connector, manifests);
+    const service = new SharePointRestoreService(
+      factory,
+      connector,
+      manifests,
+      stub_owner_leases().leases,
+    );
     const on_progress = vi.fn((event: { phase: string; processed: number }) => {
       if (event.phase === 'processing' && event.processed === 1) interrupted = true;
     });

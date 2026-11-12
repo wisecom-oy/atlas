@@ -4,14 +4,20 @@ import {
   has_survivors,
   merge_deletion_results,
 } from '@wisecom/atlas-core/services/deletion/shared/prefix-deleter';
+import {
+  delete_under_owner_lease,
+  type LeasedDeletionDeps,
+} from '@wisecom/atlas-core/services/deletion/shared/leased-deletion';
 import { normalize_owner_id } from '@wisecom/atlas-core/services/shared/identifier-normalization';
 import { inject, injectable } from 'inversify';
 import type {
   ContactsDeletionUseCase,
   DeletionResult,
+  ObjectStorage,
+  OwnerLeases,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
-import { TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
+import { OWNER_LEASES_TOKEN, TENANT_CONTEXT_FACTORY_TOKEN } from '@wisecom/atlas-types';
 
 import {
   contacts_delta_cursor_key,
@@ -19,18 +25,27 @@ import {
   contacts_mailbox_prefixes,
 } from '@/services/shared/storage-keys';
 
-/** Deletes a mailbox's contacts data or single snapshots, using a storage-only tenant context. */
+/**
+ * Deletes a mailbox's contacts data or single snapshots, using a storage-only tenant context, while
+ * holding the mailbox's contacts lease.
+ */
 @injectable()
 export class ContactsDeletionService implements ContactsDeletionUseCase {
+  private readonly _deps: LeasedDeletionDeps;
+
   constructor(
-    @inject(TENANT_CONTEXT_FACTORY_TOKEN) private readonly _tenant_factory: TenantContextFactory,
-  ) {}
+    @inject(TENANT_CONTEXT_FACTORY_TOKEN) tenant_factory: TenantContextFactory,
+    @inject(OWNER_LEASES_TOKEN) leases: OwnerLeases,
+  ) {
+    this._deps = { tenant_factory, leases };
+  }
 
   /** Deletes all backed-up contacts data for a mailbox. */
   async delete_mailbox_data(tenant_id: string, mailbox_id: string): Promise<DeletionResult> {
     const mailbox = normalize_owner_id(mailbox_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    return delete_scopes(storage, contacts_mailbox_prefixes(mailbox));
+    return delete_under_owner_lease(this._deps, tenant_id, 'contacts', mailbox, (storage) =>
+      delete_scopes(storage, contacts_mailbox_prefixes(mailbox)),
+    );
   }
 
   /**
@@ -45,15 +60,25 @@ export class ContactsDeletionService implements ContactsDeletionUseCase {
     snapshot_id: string,
   ): Promise<DeletionResult> {
     const mailbox = normalize_owner_id(mailbox_id);
-    const { storage } = await this._tenant_factory.create_storage_only(tenant_id);
-    const manifest_result = await delete_snapshot_manifest(
-      storage,
-      contacts_manifest_key(mailbox, snapshot_id),
-      'Contacts',
-      snapshot_id,
+    return delete_under_owner_lease(this._deps, tenant_id, 'contacts', mailbox, (storage) =>
+      delete_snapshot_and_cursor(storage, mailbox, snapshot_id),
     );
-    if (has_survivors(manifest_result)) return manifest_result;
-    const cursor_result = await delete_scopes(storage, [contacts_delta_cursor_key(mailbox)]);
-    return merge_deletion_results(manifest_result, cursor_result);
   }
+}
+
+/** Deletes the snapshot manifest, then the cursor once the manifest is gone. */
+async function delete_snapshot_and_cursor(
+  storage: ObjectStorage,
+  mailbox: string,
+  snapshot_id: string,
+): Promise<DeletionResult> {
+  const manifest_result = await delete_snapshot_manifest(
+    storage,
+    contacts_manifest_key(mailbox, snapshot_id),
+    'Contacts',
+    snapshot_id,
+  );
+  if (has_survivors(manifest_result)) return manifest_result;
+  const cursor_result = await delete_scopes(storage, [contacts_delta_cursor_key(mailbox)]);
+  return merge_deletion_results(manifest_result, cursor_result);
 }

@@ -1,3 +1,5 @@
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
+import { OWNER_LEASES_TOKEN } from '@wisecom/atlas-types';
 import { vi } from 'vitest';
 import { Container } from 'inversify';
 import 'reflect-metadata';
@@ -164,6 +166,7 @@ export function make_restore_harness(): RestoreHarness {
     create_readonly: vi.fn().mockResolvedValue(mock_context),
     create_storage_only: vi.fn().mockResolvedValue(mock_context),
   } as unknown as TenantContextFactory);
+  container.bind(OWNER_LEASES_TOKEN).toConstantValue(stub_owner_leases().leases);
   container.bind(MANIFEST_REPOSITORY_TOKEN).toConstantValue(mock_manifests);
   container.bind(MAILBOX_CONNECTOR_TOKEN).toConstantValue(mock_connector);
   container.bind(RESTORE_CONNECTOR_TOKEN).toConstantValue(mock_restore);

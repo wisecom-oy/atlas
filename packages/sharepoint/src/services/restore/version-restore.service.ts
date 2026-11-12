@@ -5,11 +5,13 @@ import type {
   SharePointFileVersionIndexRepository,
   SharePointSiteConnector,
   SharePointVersionRestoreUseCase,
+  OwnerLeases,
   TenantContextFactory,
 } from '@wisecom/atlas-types';
 import {
   SHAREPOINT_CONNECTOR_TOKEN,
   SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN,
+  OWNER_LEASES_TOKEN,
   TENANT_CONTEXT_FACTORY_TOKEN,
 } from '@wisecom/atlas-types';
 import { restore_drive_version } from '@wisecom/atlas-drive/restore/version-restore';
@@ -24,6 +26,7 @@ export class SharePointVersionRestoreService implements SharePointVersionRestore
     @inject(SHAREPOINT_CONNECTOR_TOKEN) private readonly _connector: SharePointSiteConnector,
     @inject(SHAREPOINT_FILE_VERSION_INDEX_REPOSITORY_TOKEN)
     private readonly _indexes: SharePointFileVersionIndexRepository,
+    @inject(OWNER_LEASES_TOKEN) private readonly _leases: OwnerLeases,
   ) {}
 
   /** Restores one stored version, or every file's last version before a cutoff. */
@@ -36,6 +39,7 @@ export class SharePointVersionRestoreService implements SharePointVersionRestore
       {
         workload: 'sharepoint',
         tenant_factory: this._tenant_factory,
+        leases: this._leases,
         connector: this._connector,
         list_indexes: (ctx, id) => this._indexes.list_readable_by_site(ctx, id),
         download_blob: download_and_decrypt,

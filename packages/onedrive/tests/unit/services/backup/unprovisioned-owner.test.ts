@@ -6,6 +6,7 @@
  * as a permission fault sent the operator to check a consent grant that was fine (issue #369).
  */
 
+import { stub_owner_leases } from '@wisecom/atlas-types/testing/stub-owner-leases';
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { OneDriveDrive, TenantContext, TenantContextFactory } from '@wisecom/atlas-types';
 import { OneDriveBackupService } from '@/services/backup/backup.service';
@@ -47,6 +48,7 @@ function make_harness(list_drives: () => Promise<OneDriveDrive[]>): Harness {
     } as never,
     { load_version_watermarks: vi.fn().mockResolvedValue({}), write_run_index: vi.fn() } as never,
     { load: vi.fn().mockResolvedValue(undefined), save: vi.fn() } as never,
+    stub_owner_leases().leases,
   );
 
   return { service, manifest_save };

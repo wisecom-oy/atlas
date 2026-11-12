@@ -14,6 +14,7 @@ import type {
   DriveVersionRestoreOptions,
   DriveVersionRestoreResult,
   LargeFileContent,
+  OwnerLeases,
   ReadableVersionIndexListing,
   TenantContext,
   TenantContextFactory,
@@ -56,6 +57,8 @@ export interface DriveUploadConnector {
 export interface DriveVersionRestoreDeps {
   readonly workload: DriveWorkload;
   readonly tenant_factory: TenantContextFactory;
+  /** Takes the owner's lease for the restore. */
+  readonly leases: OwnerLeases;
   readonly connector: DriveUploadConnector;
   readonly list_indexes: (
     ctx: TenantContext,
@@ -129,78 +132,94 @@ async function restore_selected_versions(
     return nothing_restored(options);
   }
 
-  const ctx = await deps.tenant_factory.create_readonly(tenant_id);
+  const tenant_ctx = await deps.tenant_factory.create_readonly(tenant_id);
   try {
-    const indexes = readable_indexes_or_raise(await deps.list_indexes(ctx, owner_id));
-    const selection = select_versions_to_restore(indexes, options);
+    const scope = { workload, owner_id, operation: 'restore' } as const;
+    return await deps.leases.run_exclusive_when_writable(tenant_ctx, scope, (ctx) =>
+      restore_versions_leased(deps, ctx, tenant_id, owner_id, options, placement),
+    );
+  } finally {
+    tenant_ctx.destroy();
+  }
+}
 
-    // The version row records the drive it came from, so a version restore needs no drive lookup
-    // and stays correct for an owning segment with several drives, where "the first drive" would
-    // be a guess. One memo for all of them: `ensure_folder_path` keys it by `drive_id:path`, so
-    // two drives holding the same path cannot collide in it (issue #316).
-    const folder_ids = new Map<string, string>();
-    const restored: DriveRestoredVersion[] = [];
-    const errors: string[] = [...selection.skipped];
-    let files_skipped = selection.skipped.length;
+/** Restores the selected versions while holding the owner's lease. */
+async function restore_versions_leased(
+  deps: DriveVersionRestoreDeps,
+  ctx: TenantContext,
+  tenant_id: string,
+  owner_id: string,
+  options: DriveVersionRestoreOptions,
+  placement: DriveVersionPlacement,
+): Promise<DriveVersionRestoreResult> {
+  const { workload } = deps;
+  const indexes = readable_indexes_or_raise(await deps.list_indexes(ctx, owner_id));
+  const selection = select_versions_to_restore(indexes, options);
 
+  // The version row records the drive it came from, so a version restore needs no drive lookup
+  // and stays correct for an owning segment with several drives, where "the first drive" would
+  // be a guess. One memo for all of them: `ensure_folder_path` keys it by `drive_id:path`, so
+  // two drives holding the same path cannot collide in it (issue #316).
+  const folder_ids = new Map<string, string>();
+  const restored: DriveRestoredVersion[] = [];
+  const errors: string[] = [...selection.skipped];
+  let files_skipped = selection.skipped.length;
+
+  emit_operation_progress(options, {
+    operation: 'restore',
+    workload,
+    phase: 'processing',
+    processed: 0,
+    total: selection.selected.length,
+  });
+
+  for (const [index, candidate] of selection.selected.entries()) {
+    if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
+    const outcome = await restore_one_version(
+      deps,
+      tenant_id,
+      owner_id,
+      ctx,
+      folder_ids,
+      candidate,
+      placement,
+    );
+    // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
+    if (outcome.cancelled === true) break;
+    if (outcome.restored) restored.push(outcome.restored);
+    else {
+      files_skipped++;
+      if (outcome.error) errors.push(outcome.error);
+    }
     emit_operation_progress(options, {
       operation: 'restore',
       workload,
       phase: 'processing',
-      processed: 0,
+      processed: index + 1,
       total: selection.selected.length,
+      current: candidate.version.file_name,
     });
-
-    for (const [index, candidate] of selection.selected.entries()) {
-      if (options.should_interrupt?.() === true || options.abort_signal?.aborted === true) break;
-      const outcome = await restore_one_version(
-        deps,
-        tenant_id,
-        owner_id,
-        ctx,
-        folder_ids,
-        candidate,
-        placement,
-      );
-      // Cut short by Ctrl+C: neither restored nor skipped, so the count reads as interrupted.
-      if (outcome.cancelled === true) break;
-      if (outcome.restored) restored.push(outcome.restored);
-      else {
-        files_skipped++;
-        if (outcome.error) errors.push(outcome.error);
-      }
-      emit_operation_progress(options, {
-        operation: 'restore',
-        workload,
-        phase: 'processing',
-        processed: index + 1,
-        total: selection.selected.length,
-        current: candidate.version.file_name,
-      });
-    }
-
-    const interrupted = finish_operation_progress(
-      options,
-      'restore',
-      workload,
-      restored.length + files_skipped,
-      selection.selected.length + selection.skipped.length,
-      // Against the same total reported above: `files_skipped` starts at the pre-skipped count,
-      // so comparing it with `selected.length` alone under-reports an early stop.
-      restored.length + files_skipped < selection.selected.length + selection.skipped.length,
-    );
-
-    return {
-      files_restored: restored.length,
-      files_skipped,
-      restored,
-      errors,
-      interrupted,
-      placement,
-    };
-  } finally {
-    ctx.destroy();
   }
+
+  const interrupted = finish_operation_progress(
+    options,
+    'restore',
+    workload,
+    restored.length + files_skipped,
+    selection.selected.length + selection.skipped.length,
+    // Against the same total reported above: `files_skipped` starts at the pre-skipped count,
+    // so comparing it with `selected.length` alone under-reports an early stop.
+    restored.length + files_skipped < selection.selected.length + selection.skipped.length,
+  );
+
+  return {
+    files_restored: restored.length,
+    files_skipped,
+    restored,
+    errors,
+    interrupted,
+    placement,
+  };
 }
 
 /**
