@@ -18,6 +18,10 @@ import {
 } from '@/services/restore/folder-restore-planner';
 import { folder_listing_for } from '@/services/restore/recoverable-items-filter';
 import { resolve_mailbox_entries } from '@/services/shared/mailbox-entry-resolver';
+import {
+  refuse_blank_message_ref,
+  refuse_message_ref_in_mailbox_mode,
+} from '@/services/shared/message-ref-guard';
 import { resolve_snapshot_entries } from '@/services/shared/snapshot-entry-resolver';
 import { backfill_missing_folder_ids } from '@/services/restore/restore-execution-orchestrator';
 import {
@@ -75,7 +79,8 @@ export class RestoreService implements RestoreUseCase {
     snapshot_id: string,
     options: RestoreOptions,
   ): Promise<RestoreResult> {
-    // A malformed destination is refused before any storage or Graph call.
+    // A blank selector or a malformed destination is refused before any storage or Graph call.
+    refuse_blank_message_ref(options.message_ref);
     parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result(snapshot_id, options);
@@ -184,6 +189,7 @@ export class RestoreService implements RestoreUseCase {
     options: RestoreOptions,
   ): Promise<RestoreResult> {
     owner_id = normalize_owner_id(owner_id);
+    refuse_message_ref_in_mailbox_mode(options.message_ref);
     parse_restore_destination(options.destination);
     if (begin_operation_progress(options, 'restore', 'outlook')) {
       return this.finish_empty_result('mailbox', options);

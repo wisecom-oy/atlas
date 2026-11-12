@@ -9,6 +9,7 @@ import { report_run_outcome } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
 import type { InterruptGate } from '@/adapters/interrupt-gate';
 import { resolve_outlook_scope } from '@/commands/outlook/scope';
+import { validate_message_option } from '@/commands/outlook/message-option-scope';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
 import { ErrorList } from '@/ui/components/error-list';
@@ -59,6 +60,7 @@ function validate_restore_options(options: OutlookRestoreOptions): void {
     logger.error('--start-date / --end-date can only be used with --mailbox (-m).');
     process.exit(1);
   }
+  validate_message_option(options);
 }
 
 /** Adds the chosen restore folder to the run summary; the generated default is shown at the end. */
