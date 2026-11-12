@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OwnerBusyError, OwnerLeaseLostError, type OwnerLeaseScope } from '@wisecom/atlas-types';
 import { StorageOwnerLeases } from '@/services/lease/storage-owner-leases';
 import { owner_lease_key, TENANT_LEASE_KEY } from '@/services/lease/lease-record';
+import { logger } from '@/utils/logger';
 import { foreign_lease, lease_test_bucket } from './lease-storage.fixtures';
 
 const ALICE: OwnerLeaseScope = { workload: 'outlook', owner_id: 'alice', operation: 'backup' };
@@ -99,7 +100,8 @@ describe('StorageOwnerLeases.run_exclusive', () => {
 });
 
 describe('StorageOwnerLeases run_exclusive_when_writable', () => {
-  it('runs unleased with the original context when credentials cannot write', async () => {
+  it('runs unleased, saying protection is off, when credentials cannot write', async () => {
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const bucket = lease_test_bucket();
     bucket.faults.deny_writes = true;
     const ctx = { storage: bucket.storage };
@@ -111,6 +113,10 @@ describe('StorageOwnerLeases run_exclusive_when_writable', () => {
     );
 
     expect(seen).toBe(ctx);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(
+      'concurrent-run protection is off for this restore',
+    );
+    warn.mockRestore();
   });
 
   it('still refuses a live lease with read-only credentials', async () => {

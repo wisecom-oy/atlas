@@ -47,8 +47,8 @@ export class StorageOwnerLeases implements OwnerLeases {
     } catch (err) {
       if (!is_storage_access_denied(err)) throw err;
       logger.warn(
-        `Storage credentials cannot write the run lease for ${scope.owner_id}; running the ` +
-          `${scope.operation} unleased, so a concurrent run on this owner is not detected.`,
+        `Storage credentials cannot write the run lease for ${scope.owner_id}: concurrent-run ` +
+          `protection is off for this ${scope.operation}. Another run on this owner is not detected.`,
       );
       return run(ctx);
     }
