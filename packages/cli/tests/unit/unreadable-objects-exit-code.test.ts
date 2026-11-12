@@ -68,7 +68,14 @@ describe('reporting unreadable stored objects', () => {
     expect(quarantine_command_for('calendar/manifests/m/cal-snap-1-a.json')).toMatch(
       /^atlas calendar /,
     );
-    expect(quarantine_command_for('teams/manifests/t/teams-snap-1-a.json')).toBeUndefined();
+    expect(quarantine_command_for('teams/manifests/t/teams-snap-1-a.json')).toBe(
+      'atlas teams quarantine --key teams/manifests/t/teams-snap-1-a.json',
+    );
+  });
+
+  it('gives Teams channel cursors and shards no quarantine command (issue #694)', () => {
+    expect(quarantine_command_for('teams/_meta/t/channels/c.json')).toBeUndefined();
+    expect(quarantine_command_for('teams/shards/t/c/s.json')).toBeUndefined();
   });
 
   it('returns the rows a listing could read along with the keys it skipped', async () => {

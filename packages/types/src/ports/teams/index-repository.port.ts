@@ -57,4 +57,12 @@ export interface TeamsIndexRepository {
     team_id: string,
     snapshot_id: string,
   ): Promise<TeamsSnapshotIndex | undefined>;
+
+  /**
+   * Reads the index stored at exactly this key, as a listing would. Undefined when absent.
+   *
+   * @throws UnreadableContentError when it fails to decrypt, parse, or identify as its key.
+   * @throws UnsupportedFormatVersionError when it was written by a newer format version.
+   */
+  read_index_at(ctx: TenantContext, storage_key: string): Promise<TeamsSnapshotIndex | undefined>;
 }

@@ -8,19 +8,23 @@ import { UnreadableObjectsError } from '@wisecom/atlas-types';
  */
 export const EXIT_CONTENT_UNREADABLE = 9;
 
-/** Workload command that owns a storage key, read from the key's first segment. */
-const WORKLOAD_BY_PREFIX: Readonly<Record<string, string>> = {
-  manifests: 'outlook',
-  onedrive: 'onedrive',
-  sharepoint: 'sharepoint',
-  contacts: 'contacts',
-  calendar: 'calendar',
-};
+/**
+ * Workload command that owns a storage key, by key prefix. Teams quarantines snapshot indexes
+ * only, so its channel cursors and shards get no command.
+ */
+const WORKLOAD_BY_PREFIX: ReadonlyArray<readonly [prefix: string, workload: string]> = [
+  ['manifests/', 'outlook'],
+  ['onedrive/', 'onedrive'],
+  ['sharepoint/', 'sharepoint'],
+  ['contacts/', 'contacts'],
+  ['calendar/', 'calendar'],
+  ['teams/manifests/', 'teams'],
+];
 
 /** The `quarantine` command that moves the object at `key` aside, or undefined for other keys. */
 export function quarantine_command_for(key: string): string | undefined {
-  const workload = WORKLOAD_BY_PREFIX[key.split('/')[0] ?? ''];
-  return workload === undefined ? undefined : `atlas ${workload} quarantine --key ${key}`;
+  const owner = WORKLOAD_BY_PREFIX.find(([prefix]) => key.startsWith(prefix));
+  return owner === undefined ? undefined : `atlas ${owner[1]} quarantine --key ${key}`;
 }
 
 /**

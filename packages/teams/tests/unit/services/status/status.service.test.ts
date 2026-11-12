@@ -99,6 +99,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         last_snapshot_id: 'teams-snap-2000-bbbbbb',
         total_channels: 2,
         unreadable_keys: ['teams/manifests/a/teams-snap-500-cccccc.json'],
+        unreadable_cursor_keys: [],
         unsupported_keys: [],
         failed_root_count: 0,
         pending_recheck_count: 0,
@@ -129,6 +130,7 @@ describe('TeamsStatusService.check_teams_status', () => {
         last_snapshot_id: undefined,
         total_channels: 0,
         unreadable_keys: [],
+        unreadable_cursor_keys: [],
         unsupported_keys: ['teams/manifests/b/teams-snap-3000-dddddd.json'],
         failed_root_count: 0,
         pending_recheck_count: 0,
@@ -136,7 +138,7 @@ describe('TeamsStatusService.check_teams_status', () => {
     ]);
   });
 
-  it('adds damaged and newer-format cursor keys to the team lists and counts failed roots (P9)', async () => {
+  it('reports damaged cursor keys apart from index keys and counts failed roots (P9, #694)', async () => {
     const damaged_cursor = 'teams/_meta/a/channels/channel-9.json';
     const newer_cursor = 'teams/_meta/a/channels/channel-8.json';
     const { service } = setup(
@@ -164,7 +166,9 @@ describe('TeamsStatusService.check_teams_status', () => {
 
     const [row] = await service.check_teams_status('tenant');
 
-    expect(row?.unreadable_keys).toEqual([damaged_cursor]);
+    // A damaged cursor heals on the next backup, so it is kept apart from the quarantinable indexes.
+    expect(row?.unreadable_keys).toEqual([]);
+    expect(row?.unreadable_cursor_keys).toEqual([damaged_cursor]);
     expect(row?.unsupported_keys).toEqual([newer_cursor]);
     expect(row?.failed_root_count).toBe(3);
   });

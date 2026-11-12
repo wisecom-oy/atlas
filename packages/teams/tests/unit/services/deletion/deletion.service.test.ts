@@ -49,7 +49,7 @@ describe('TeamsDeletionService.delete_team_data', () => {
     vi.clearAllMocks();
   });
 
-  it('deletes the cursor, then manifests, then shards, then data, so no partial state survives (A5)', async () => {
+  it('deletes the cursor, then manifests, then shards, then data, then quarantined indexes (A5, #694)', async () => {
     const { service } = setup();
 
     await service.delete_team_data(TENANT, TEAM);
@@ -60,6 +60,7 @@ describe('TeamsDeletionService.delete_team_data', () => {
       TEAMS_KEYS.manifest_prefix_for(TEAM),
       teams_shard_prefix_for(TEAM),
       TEAMS_KEYS.data_prefix_for(TEAM),
+      `_quarantine/${TEAMS_KEYS.manifest_prefix_for(TEAM)}`,
     ]);
   });
 
@@ -73,6 +74,7 @@ describe('TeamsDeletionService.delete_team_data', () => {
       TEAMS_KEYS.manifest_prefix_for(TEAM),
       teams_shard_prefix_for(TEAM),
       TEAMS_KEYS.data_prefix_for(TEAM),
+      `_quarantine/${TEAMS_KEYS.manifest_prefix_for(TEAM)}`,
     ]);
   });
 

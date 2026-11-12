@@ -602,7 +602,7 @@ Before v2.2.0 this was `atlas outlook delete --purge`. That flag no longer exist
 
 ## Damaged manifests and version indexes
 
-Move one damaged snapshot manifest, or a OneDrive or SharePoint version index, out of the way so later runs stop reporting it.
+Move one damaged snapshot manifest or Teams snapshot index, or a OneDrive or SharePoint version index, out of the way so later runs stop reporting it.
 
 ```bash
 atlas onedrive status -o user@company.com          # names the damaged key, exits 9
@@ -617,6 +617,7 @@ atlas onedrive backup -o user@company.com --full   # re-establish a complete new
 | `atlas sharepoint quarantine` | `sharepoint/manifests/...` and `sharepoint/index/...` keys |
 | `atlas contacts quarantine`   | `contacts/manifests/{owner_id}/{snapshot_id}.json`         |
 | `atlas calendar quarantine`   | `calendar/manifests/{owner_id}/{snapshot_id}.json`         |
+| `atlas teams quarantine`      | `teams/manifests/{team_id}/{snapshot_id}.json`             |
 
 | Option                | Description                                             |
 | --------------------- | ------------------------------------------------------- |
@@ -632,6 +633,8 @@ The move copies the bytes unchanged to `_quarantine/{key}`, reads the copy back,
 Object Lock is respected. In a versioned bucket, removing the original writes a delete marker and the retained version stays, recoverable by version ID until retention ends. A backend that refuses the removal exits `8` (`ATLAS_OBJECT_LOCK_RETAINED`): the quarantined copy exists, the original stays in place, and commands keep naming it until retention allows the removal.
 
 Quarantining an Outlook, OneDrive, or SharePoint manifest drops that run's changes from every later point in time, because each manifest holds only its own run's delta. The command warns and recommends one `backup --full`, so the newest snapshot holds every current item again. Contacts and Calendar snapshots are complete on their own, so only the quarantined snapshot is lost. Quarantine also removes the mailbox's delta cursor, whose links may describe the quarantined snapshot, so the next backup reads every folder or calendar in full instead of building on an older snapshot with them.
+
+Quarantining a Teams snapshot index makes the next backup compare against the newest readable index, which is older. Each channel cursor is bound to the shard its index entry named, so a channel whose cursor pointed at the quarantined index's shard is read in full, and a channel unchanged since the older index resumes its delta read. No `--full` run is needed. A damaged channel cursor is not quarantined: `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
 Quarantining a version index removes that run's versions from `list-versions`, and `restore-version --before` can then pick an older version of those files. The command warns about it. Check `list-versions` before a rollback.
 
@@ -1077,6 +1080,7 @@ atlas teams save --team <team-id> -s <snapshot-id> --output <path>
 atlas teams status
 atlas teams delete --team <team-id> -s <snapshot-id>
 atlas teams delete --team <team-id> -y
+atlas teams quarantine --key teams/manifests/<team-id>/<snapshot-id>.json
 ```
 
 | Subcommand       | Description                                                                            |
@@ -1088,6 +1092,7 @@ atlas teams delete --team <team-id> -y
 | `save`           | Export one snapshot, or one channel of it, as a zip archive                            |
 | `status`         | Show the newest snapshot for each team: creation time and ID                           |
 | `delete`         | Delete one team's Teams backups, or one snapshot                                       |
+| `quarantine`     | Move an unreadable snapshot index aside (see [Damaged manifests](#damaged-manifests-and-version-indexes)) |
 
 **`atlas teams backup`**
 
@@ -1106,7 +1111,7 @@ Ctrl+C stops the run and exits `2`. The interrupted root is not recorded as a fa
 
 **`atlas teams list-snapshots`**
 
-Snapshot indexes Atlas cannot read are skipped and named in a warning with their storage keys. Indexes written by a newer Atlas format are named the same way. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
+Snapshot indexes Atlas cannot read are skipped and named with their storage keys and the `atlas teams quarantine` command, and the command exits `9`. Indexes written by a newer Atlas format are named in a warning and exit `0`, since the fix is an upgrade. See [Unreadable snapshots](../teams-backup.md#unreadable-snapshots).
 
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |
@@ -1137,7 +1142,7 @@ Writes one snapshot as a zip archive that opens in a browser. It reads storage o
 
 **`atlas teams status`**
 
-Prints one row per team, with the newest snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean.
+Prints one row per team, with the newest readable snapshot, its channel count, `Failed roots`, and `Pending rechecks`. See [Failed channels](../teams-backup.md#failed-channels) for what those counts mean. A damaged snapshot index of any team is named with the `atlas teams quarantine` command, and the command exits `9`. A damaged channel cursor is a warning only, because the next backup rewrites it.
 
 | Option              | Description                        |
 | ------------------- | ---------------------------------- |
@@ -1145,7 +1150,7 @@ Prints one row per team, with the newest snapshot, its channel count, `Failed ro
 
 **`atlas teams delete`**
 
-Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, indexes, channel shards, then blobs. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. `-s` reads nothing, so it also removes a snapshot that `list-snapshots` cannot read.
+Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it removes all backed-up data for the team, in the order cursors, indexes, channel shards, then blobs, and then the quarantined copies of its indexes under `_quarantine/`. With `-s`, only that snapshot's index is deleted, and its shards and blobs stay because later snapshots can reference them. To set aside an index that `list-snapshots` cannot read, use `atlas teams quarantine`, which keeps its bytes for inspection instead of destroying them.
 
 | Option                | Description                                       |
 | --------------------- | ------------------------------------------------- |
@@ -1157,7 +1162,7 @@ Deletes one team's Teams backups behind a confirmation prompt. Without `-s`, it 
 ::: tip Permissions
 Teams backup uses eight Application permissions. `Files.Read.All` reads each channel's files folder location. `ChannelMessage.Read.All` is a protected API that may need Microsoft approval. See [Azure AD setup](../azure-ad-setup.md#teams-application-permissions).
 
-A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, an interrupted run, or an unreadable index newer than the latest readable one. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. See [Failed channels](../teams-backup.md#failed-channels).
+A run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. An unreadable index newer than the latest readable one is damaged storage, not a failed channel. The run finishes against the older index, names the key with the `atlas teams quarantine` command, and exits `9`, unless a failure in the same run already chose `2`. A permanently skipped root keeps its team unhealthy until a forced read (`atlas teams backup --team <team-id> --full`) clears its entry. See [Failed channels](../teams-backup.md#failed-channels).
 :::
 
 ## atlas storage-check

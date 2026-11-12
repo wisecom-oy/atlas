@@ -16,6 +16,7 @@ import {
 import { resolve_channel_concurrency } from '@wisecom/atlas-teams';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome } from '@/command-run-outcome';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import { install_interrupt_gate } from '@/adapters/interrupt-gate';
 import { release_throttle_cooldowns_if_cancelled } from '@/adapters/throttle-cooldown-release';
 import { resolve_tenant_id } from '@/commands/sharepoint/command.handlers';
@@ -104,11 +105,7 @@ export async function execute_teams_list_snapshots(
   const snapshots = listing.indexes;
 
   await render_static_view(<Banner title={banner_title('teams', 'Snapshots')} />);
-  if (listing.unreadable_keys.length > 0) {
-    logger.warn(
-      `${listing.unreadable_keys.length} snapshot index(es) could not be read and are not listed: ${listing.unreadable_keys.join(', ')}`,
-    );
-  }
+  report_unreadable_keys(listing.unreadable_keys);
   if (listing.unsupported_keys.length > 0) {
     logger.warn(
       `${listing.unsupported_keys.length} snapshot index(es) use a newer format and are not listed: ${listing.unsupported_keys.join(', ')}`,
@@ -181,21 +178,26 @@ export async function execute_teams_backup(
   );
   if (run.fatal) throw run.fatal;
 
-  // Per-channel reporting already listed the errors and set the partial-run exit code.
-  if (run.failed_teams.length === 0 && run.all_healthy) {
+  // Per-channel reporting already listed the errors and set the partial-run exit code, and each
+  // team's damaged indexes were named with exit 9 unless a failure had already chosen a code.
+  const healthy = run.failed_teams.length === 0 && run.all_healthy;
+  if (healthy && !run.found_unreadable) {
     logger.success('Status: HEALTHY');
     return;
   }
 
   logger.error('Status: UNHEALTHY');
-  // A ledger-only run has no error entry, so the verdict sets the exit code itself.
-  process.exitCode = EXIT_PARTIAL;
+  // A ledger-only run has no error entry, so the verdict sets the exit code itself. A run whose
+  // only finding is a damaged index keeps exit 9, so a script can tell storage from Graph.
+  if (!healthy) process.exitCode = EXIT_PARTIAL;
 }
 
 /** Outcome of backing up a list of teams in turn. Each team's full result is reported, not kept. */
 interface TeamsBackupRun {
   all_healthy: boolean;
   interrupted: boolean;
+  /** True when any team skipped a snapshot index it could not read. */
+  found_unreadable: boolean;
   failed_teams: string[];
   fatal?: Error;
 }
@@ -213,12 +215,18 @@ async function run_team_backups(
   base_options: TeamsBackupOptions,
   report: (result: TeamsBackupResult) => Promise<void>,
 ): Promise<TeamsBackupRun> {
-  const run: TeamsBackupRun = { all_healthy: true, interrupted: false, failed_teams: [] };
+  const run: TeamsBackupRun = {
+    all_healthy: true,
+    interrupted: false,
+    found_unreadable: false,
+    failed_teams: [],
+  };
   for (const team_id of team_ids) {
     try {
       const result = await backup.backup_team(tenant_id, team_id, base_options);
       await report(result);
       run.all_healthy = run.all_healthy && result.summary.healthy;
+      run.found_unreadable ||= (result.summary.unreadable_keys?.length ?? 0) > 0;
       if (result.interrupted || base_options.should_interrupt?.()) break;
     } catch (thrown) {
       if (base_options.abort_signal?.aborted) {
@@ -304,6 +312,7 @@ async function report_team_backup(result: TeamsBackupResult): Promise<void> {
     },
     'channel',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 /** Lists each channel the run selected, then the request counts per Graph limit class. */

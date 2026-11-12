@@ -24,6 +24,8 @@ import {
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
+import { TEAMS_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { register_quarantine_command } from '@/commands/shared/quarantine.command';
 
 type ContainerFactory = () => Container;
 
@@ -40,7 +42,9 @@ function collect_team(value: string, previous: string[] = []): string[] {
 export function register_teams_command(program: Command, get_container: ContainerFactory): void {
   const group = program
     .command('teams')
-    .description('Teams channel backup, verify, catalog, status, and deletion commands');
+    .description(
+      'Teams channel backup, verify, catalog, status, deletion, and quarantine commands',
+    );
   register_teams_list_teams(group, get_container);
   register_teams_backup(group, get_container);
   register_teams_list_snapshots(group, get_container);
@@ -48,6 +52,11 @@ export function register_teams_command(program: Command, get_container: Containe
   register_teams_save(group, get_container);
   register_teams_status(group, get_container);
   register_teams_delete(group, get_container);
+  register_quarantine_command(group, get_container, {
+    workload: 'teams',
+    object_noun: 'snapshot index',
+    token: TEAMS_QUARANTINE_USE_CASE_TOKEN,
+  });
 }
 
 function register_teams_list_teams(group: Command, get_container: ContainerFactory): void {

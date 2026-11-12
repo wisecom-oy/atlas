@@ -65,8 +65,14 @@ interface RunSettings {
   readonly checkpoint_ctx?: TenantContext | undefined;
 }
 
-/** Summary fields the run measures itself: wall-clock time, channel outcomes, request counts. */
-type RunReport = Pick<TeamsBackupSummary, 'elapsed_ms' | 'channels' | 'requests'>;
+/**
+ * Summary fields the run records itself: wall-clock time, channel outcomes, request counts, and
+ * the newer indexes it could not read.
+ */
+type RunReport = Pick<
+  TeamsBackupSummary,
+  'elapsed_ms' | 'channels' | 'requests' | 'unreadable_keys'
+>;
 
 @injectable()
 export class TeamsBackupService implements TeamsBackupUseCase {
@@ -164,7 +170,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
       concurrency: settings.concurrency,
     });
     state.interrupted = state.interrupted || scope.should_interrupt();
-    apply_baseline_findings(state, baseline);
+    append_all(state.warnings, baseline.warnings);
     append_all(state.errors, missing_channel_errors(options.channel_id, all_channels, team_id));
     const saves = await save_channel_shards(ctx, this._shards, state.results);
     const channels = merge_channel_entries({
@@ -212,6 +218,7 @@ export class TeamsBackupService implements TeamsBackupUseCase {
         roots_applied,
       ),
       requests: settings.stats.snapshot(elapsed_ms),
+      ...(baseline.unreadable_keys.length > 0 ? { unreadable_keys: baseline.unreadable_keys } : {}),
     };
     return {
       team_id,
@@ -237,12 +244,6 @@ function emit_backup_progress(
   processed: number,
 ): void {
   emit_operation_progress(options, { operation: 'backup', workload: 'teams', phase, processed });
-}
-
-/** Adds the baseline's load errors and warnings to the run state. */
-function apply_baseline_findings(state: ChannelRunState, baseline: TeamsBaseline): void {
-  append_all(state.errors, baseline.errors);
-  append_all(state.warnings, baseline.warnings);
 }
 
 /**

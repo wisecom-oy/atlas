@@ -99,7 +99,7 @@ atlas teams backup --all --concurrency 8
 
 Within one team, Atlas backs up up to four channels at once. `--concurrency <n>` sets the number, from 1 to 16. More channels in flight raise throughput only until the team's Graph budget is reached; see [Pacing](#pacing).
 
-Each team runs independently and is reported when it finishes. A channel error is recorded, and the next channel still runs. With several teams, a team that fails with an error other than an authentication error is recorded, and the other teams still run. The run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. A single `--team` run stops on its first error and exits with that error's category code. An authentication error on a team's first channel also stops the run, with exit `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
+Each team runs independently and is reported when it finishes. A channel error is recorded, and the next channel still runs. With several teams, a team that fails with an error other than an authentication error is recorded, and the other teams still run. The run exits `2` when any team is unhealthy: a channel error, a ledger root still listed, or an interrupted run. A run whose only finding is a damaged snapshot index exits `9`, see [Unreadable snapshots](#unreadable-snapshots). A single `--team` run stops on its first error and exits with that error's category code. An authentication error on a team's first channel also stops the run, with exit `4`. See [Failed channels](#failed-channels). The full option list is in the [CLI reference](/reference/cli#atlas-teams).
 
 Each run that creates a snapshot prints these counters:
 
@@ -115,7 +115,7 @@ After the counters, the run lists each channel with its outcome (`completed`, `i
 
 ### list-snapshots
 
-Lists the snapshots stored for one team, newest first. An index Atlas cannot read, or one written by a newer Atlas format, is named in a warning with its storage key, and the rest of the list still prints. See [Unreadable snapshots](#unreadable-snapshots).
+Lists the snapshots stored for one team, newest first. An index Atlas cannot read is named with its storage key and the `atlas teams quarantine` command, the rest of the list still prints, and the command exits `9`. One written by a newer Atlas format is named in a warning. See [Unreadable snapshots](#unreadable-snapshots).
 
 ```bash
 atlas teams list-snapshots --team <team-id>
@@ -154,7 +154,7 @@ atlas teams status
 
 ### delete
 
-Deletes every Teams backup for one team, in this order: channel cursors, snapshot indexes, channel shards, then message and image blobs. With `-s`, it deletes only that snapshot's index. Its shards and blobs stay, because later snapshots can reference them. `-s` removes the index by key without reading it, so it also removes a snapshot that `list-snapshots` cannot read. Atlas asks for confirmation unless you pass `-y`.
+Deletes every Teams backup for one team, in this order: channel cursors, snapshot indexes, channel shards, then message and image blobs. With `-s`, it deletes only that snapshot's index. Its shards and blobs stay, because later snapshots can reference them. A full team delete also removes the quarantined copies of the team's indexes. Atlas asks for confirmation unless you pass `-y`.
 
 ```bash
 atlas teams delete --team <team-id>
@@ -242,6 +242,8 @@ status=0
 atlas teams backup --all || status=$?
 if [ "$status" -eq 2 ]; then
   echo "Some channels failed. Review the report before relying on this run." >&2
+elif [ "$status" -eq 9 ]; then
+  echo "A snapshot index is damaged. Run the printed atlas teams quarantine command." >&2
 fi
 exit "$status"
 ```
@@ -262,16 +264,18 @@ A full read processes every root Graph returns for the channel, so a root that n
 
 ### Unreadable snapshots
 
-`list-snapshots` skips an index it cannot read and names its storage key in a warning. An index is unreadable when it cannot be decrypted or parsed, when its team or snapshot ID does not match its key, or when its `created_at` is not a valid timestamp. An index with a higher `format_version` is reported as newer-format instead. If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded. An unreadable index newer than the latest readable one makes the backup exit `2` until a later backup writes a readable index. When no readable index exists at all, the backup warns `No readable snapshot exists; every channel is read in full`. This can follow a bucket wipe that Object Lock partly blocked, which leaves legacy manifests behind.
-
-- If the warning says a newer format, upgrade Atlas.
-- Otherwise the index is damaged. Delete it by snapshot ID. The snapshot ID is the last segment of the key, without `.json`.
-
 ```bash
-atlas teams delete --team <team-id> -s <snapshot-id>
+atlas teams status                       # names the damaged key, exits 9
+atlas teams quarantine --key teams/manifests/<team-id>/<snapshot-id>.json
 ```
 
-`-s` removes the index by key without reading it. The snapshot's shards and blobs stay in storage. The saved delta cursors then point at a snapshot that is no longer the latest readable one. Each channel whose cursor no longer matches the latest index is read in full on the next run, as described in [How a run finds changes](#how-a-run-finds-changes).
+An index is unreadable when it cannot be decrypted or parsed, when its team or snapshot ID does not match its key, or when its `created_at` is not a valid timestamp. `status` and `list-snapshots` skip it, name its key with the `atlas teams quarantine` command, and exit `9` (`ATLAS_CONTENT_UNREADABLE`). A backup that skips one newer than the latest readable index does the same, and warns that its baseline is an older snapshot. A channel failure in the same run keeps exit `2`, and the key is still named. When no readable index exists at all, the backup warns `No readable snapshot exists; every channel is read in full`. This can follow a bucket wipe that Object Lock partly blocked, which leaves legacy manifests behind.
+
+An index with a higher `format_version` is reported as newer-format instead. It is intact, so `quarantine` refuses it. If it is newer than the latest readable index, the backup refuses to write for that team until Atlas is upgraded.
+
+`quarantine` moves the damaged index to `_quarantine/` with its bytes unchanged, so later `status`, `list-snapshots`, and backup runs stop reporting it. It refuses an index that reads cleanly. The snapshot's shards and blobs stay in storage. The next backup compares against the newest readable index, which is older. Each channel whose cursor no longer matches that index is read in full, as described in [How a run finds changes](#how-a-run-finds-changes), so no `--full` run is needed. See [Damaged manifests](/reference/cli#damaged-manifests-and-version-indexes) for the refusals and Object Lock behaviour.
+
+A damaged channel cursor is not quarantined. `status` names it in a warning, and the next backup reads that channel in full and rewrites the cursor.
 
 ### Files folder
 

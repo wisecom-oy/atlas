@@ -3,6 +3,7 @@ import { Container } from 'inversify';
 import { logger } from '@wisecom/atlas-core';
 import { render_static_view } from '@/ui/render';
 import { execute_teams_status } from '@/commands/teams/data-ops.handlers';
+import { EXIT_CONTENT_UNREADABLE } from '@/command-unreadable-objects';
 import {
   TEAMS_STATUS_USE_CASE_TOKEN,
   type TeamsStatusUseCase,
@@ -12,7 +13,8 @@ import {
 vi.mock('@/ui/render', () => ({ render_static_view: vi.fn(async () => {}) }));
 
 const TENANT = 'tenant-example';
-const UNREADABLE_KEY = 'teams/_meta/team-a/channels/channel-1.json';
+const CURSOR_KEY = 'teams/_meta/team-a/channels/channel-1.json';
+const INDEX_KEY = 'teams/manifests/team-b/teams-snap-1000-aaaaaa.json';
 const UNSUPPORTED_KEY = 'teams/manifests/team-a/teams-snap-2000-bbbbbb.json';
 
 function team(overrides: Partial<TeamsTeamStatus>): TeamsTeamStatus {
@@ -23,6 +25,7 @@ function team(overrides: Partial<TeamsTeamStatus>): TeamsTeamStatus {
     last_snapshot_id: undefined,
     total_channels: 0,
     unreadable_keys: [],
+    unreadable_cursor_keys: [],
     unsupported_keys: [],
     failed_root_count: 0,
     pending_recheck_count: 0,
@@ -42,21 +45,41 @@ describe('teams status warnings', () => {
       .toConstantValue({ check_teams_status } as unknown as TeamsStatusUseCase);
     vi.spyOn(logger, 'warn').mockImplementation(() => {});
     vi.spyOn(logger, 'info').mockImplementation(() => {});
+    vi.spyOn(logger, 'error').mockImplementation(() => {});
+    process.exitCode = undefined;
   });
 
   afterEach(() => {
+    process.exitCode = undefined;
     vi.restoreAllMocks();
   });
 
-  it('warns with the keys of unreadable and newer-format objects (P9)', async () => {
+  it('warns with the keys of unreadable cursors and newer-format objects, exiting 0 (P9)', async () => {
     check_teams_status.mockResolvedValueOnce([
-      team({ unreadable_keys: [UNREADABLE_KEY], unsupported_keys: [UNSUPPORTED_KEY] }),
+      team({ unreadable_cursor_keys: [CURSOR_KEY], unsupported_keys: [UNSUPPORTED_KEY] }),
     ]);
 
     await execute_teams_status(container, { tenant: TENANT });
 
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNREADABLE_KEY));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(CURSOR_KEY));
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(UNSUPPORTED_KEY));
+    // The next backup rewrites a damaged cursor, so there is nothing to quarantine.
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it('names a damaged index of any team with the quarantine command and exits 9 (issue #694)', async () => {
+    check_teams_status.mockResolvedValueOnce([
+      team({}),
+      team({ team_id: 'team-b', unreadable_keys: [INDEX_KEY] }),
+    ]);
+
+    await execute_teams_status(container, { tenant: TENANT });
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining(`atlas teams quarantine --key ${INDEX_KEY}`),
+    );
+    expect(process.exitCode).toBe(EXIT_CONTENT_UNREADABLE);
   });
 
   it('warns with the failed-root count for a team that has failed roots (P9)', async () => {
